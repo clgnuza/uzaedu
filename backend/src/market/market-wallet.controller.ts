@@ -1,0 +1,134 @@
+import { Controller, ForbiddenException, Get, Query, UseGuards } from '@nestjs/common';
+import { MarketRewardedAdSsvService } from './market-rewarded-ad-ssv.service';
+import { JwtAuthGuard } from '../auth/guards/auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
+import { UserRole } from '../types/enums';
+import { MarketWalletService } from './market-wallet.service';
+import { MarketSchoolCreditService } from './market-school-credit.service';
+import { MarketUserCreditService } from './market-user-credit.service';
+
+function parseUtcDayInclusive(s: string | undefined): Date | null {
+  if (!s?.trim()) return null;
+  const t = s.trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+  if (m) {
+    const y = parseInt(m[1], 10);
+    const mo = parseInt(m[2], 10) - 1;
+    const d = parseInt(m[3], 10);
+    return new Date(Date.UTC(y, mo, d, 0, 0, 0, 0));
+  }
+  const d = new Date(t);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function parseUtcDayEndInclusive(s: string | undefined): Date | null {
+  if (!s?.trim()) return null;
+  const t = s.trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+  if (m) {
+    const y = parseInt(m[1], 10);
+    const mo = parseInt(m[2], 10) - 1;
+    const d = parseInt(m[3], 10);
+    return new Date(Date.UTC(y, mo, d, 23, 59, 59, 999));
+  }
+  const d = new Date(t);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+@Controller('market')
+export class MarketWalletController {
+  constructor(
+    private readonly wallet: MarketWalletService,
+    private readonly schoolCredits: MarketSchoolCreditService,
+    private readonly userCredits: MarketUserCreditService,
+    private readonly rewardedAdSsv: MarketRewardedAdSsvService,
+  ) {}
+
+  @Get('wallet')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  async getWallet(@CurrentUser() payload: CurrentUserPayload) {
+    return this.wallet.getBalancesForActor({
+      userId: payload.userId,
+      schoolId: payload.schoolId,
+      role: payload.user.role as UserRole,
+    });
+  }
+
+  /** Okul yöneticisi: kendi okuluna superadmin tarafından eklenen jeton/ek ders ve ekleyen bilgisi */
+  @Get('wallet/school-credits')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.school_admin)
+  async schoolManualCredits(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    if (!payload.schoolId) {
+      throw new ForbiddenException({ code: 'SCHOOL_REQUIRED', message: 'Okul bilgisi gerekli.' });
+    }
+    const p = Math.max(1, parseInt(page || '1', 10) || 1);
+    const l = Math.min(100, Math.max(1, parseInt(limit || '20', 10) || 20));
+    const res = await this.schoolCredits.listHistory({
+      schoolId: payload.schoolId,
+      fromInclusive: parseUtcDayInclusive(from),
+      toInclusive: parseUtcDayEndInclusive(to),
+      page: p,
+      limit: l,
+    });
+    return { ...res, page: p, limit: l };
+  }
+
+  /** Öğretmen: AdMob SSV ile kazanılan ödüllü reklam jetonları */
+  @Get('wallet/rewarded-ad-credits')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.teacher)
+  async rewardedAdCredits(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const p = Math.max(1, parseInt(page || '1', 10) || 1);
+    const l = Math.min(50, Math.max(1, parseInt(limit || '20', 10) || 20));
+    const { total, items } = await this.rewardedAdSsv.listLedgerForTeacher(payload.userId, p, l);
+    return {
+      page: p,
+      limit: l,
+      total,
+      items: items.map((r) => ({
+        id: r.id,
+        transaction_id: r.transactionId,
+        jeton_credit: r.jetonCredit,
+        ad_unit_key: r.adUnitKey,
+        created_at: r.createdAt?.toISOString?.() ?? null,
+      })),
+    };
+  }
+
+  /** Öğretmen: superadmin tarafından bireysel cüzdana eklenen jeton/ek ders geçmişi */
+  @Get('wallet/user-credits')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.teacher)
+  async userManualCredits(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const p = Math.max(1, parseInt(page || '1', 10) || 1);
+    const l = Math.min(100, Math.max(1, parseInt(limit || '20', 10) || 20));
+    const res = await this.userCredits.listHistory({
+      targetUserId: payload.userId,
+      fromInclusive: parseUtcDayInclusive(from),
+      toInclusive: parseUtcDayEndInclusive(to),
+      page: p,
+      limit: l,
+    });
+    return { ...res, page: p, limit: l };
+  }
+}

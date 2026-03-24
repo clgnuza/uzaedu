@@ -1,0 +1,19 @@
+# Öğretmen Pro – Yerel geliştirme için PostgreSQL
+# Kullanım: docker compose up -d
+# Backend .env: DB_HOST=127.0.0.1, DB_PORT=5432, DB_DATABASE=ogretmenpro, DB_USERNAME=postgres, DB_PASSWORD=postgres
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ogretmenpro-db
+    environment:
+      POSTGRES_DB: ogretmenpro
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ogretmenpro_pgdata:/var/lib/postgresql/data
+
+volumes:
+  ogretmenpro_pgdata:

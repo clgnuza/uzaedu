@@ -1,0 +1,206 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import { apiFetch } from '@/lib/api';
+import { useAuth } from '@/hooks/use-auth';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Mail } from 'lucide-react';
+import { toast } from 'sonner';
+import { WebSettingsField, WebSettingsPanel, WEB_SETTINGS_INPUT } from './web-settings-shell';
+
+type MailConfigForAdmin = {
+  mail_enabled: boolean;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_user: string;
+  smtp_pass: string | null;
+  smtp_from: string;
+  smtp_from_name: string;
+  smtp_secure: boolean;
+  mail_app_base_url: string | null;
+};
+
+export function MailSettingsPanel() {
+  const { token, me } = useAuth();
+  const [config, setConfig] = useState<MailConfigForAdmin | null>(null);
+  const [form, setForm] = useState<Record<string, string | number | boolean | null>>({});
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  const handleChange = (key: string, value: string | number | boolean | null) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const fetchConfig = useCallback(async () => {
+    if (!token || me?.role !== 'superadmin') return;
+    try {
+      const data = await apiFetch<MailConfigForAdmin>('/app-config/mail', { token });
+      setConfig(data);
+    } catch {
+      setConfig(null);
+    }
+  }, [token, me?.role]);
+
+  useEffect(() => {
+    fetchConfig();
+  }, [fetchConfig]);
+
+  const handleSave = async () => {
+    if (!token || me?.role !== 'superadmin') return;
+    setSaving(true);
+    try {
+      const body: Record<string, unknown> = {
+        mail_enabled: form.mail_enabled ?? config?.mail_enabled ?? false,
+        smtp_host: (form.smtp_host ?? config?.smtp_host ?? '').toString().trim() || null,
+        smtp_port: form.smtp_port ?? config?.smtp_port ?? 587,
+        smtp_user: (form.smtp_user ?? config?.smtp_user ?? '').toString().trim() || null,
+        smtp_from: (form.smtp_from ?? config?.smtp_from ?? '').toString().trim() || null,
+        smtp_from_name: (form.smtp_from_name ?? config?.smtp_from_name ?? 'Öğretmen Pro').toString().trim() || null,
+        smtp_secure: form.smtp_secure ?? config?.smtp_secure ?? false,
+        mail_app_base_url: (form.mail_app_base_url ?? config?.mail_app_base_url ?? '').toString().trim() || null,
+      };
+      if ((form.smtp_pass ?? '').toString().trim()) {
+        (body as Record<string, string>).smtp_pass = form.smtp_pass!.toString().trim();
+      }
+      await apiFetch('/app-config/mail', { method: 'PATCH', token, body: JSON.stringify(body) });
+      toast.success('Mail ayarları kaydedildi');
+      setForm({});
+      fetchConfig();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Kaydedilemedi');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    if (!token || me?.role !== 'superadmin') return;
+    setTesting(true);
+    try {
+      const res = await apiFetch<{ ok: boolean; message: string }>('/app-config/mail/test', {
+        method: 'POST',
+        token,
+      });
+      if (res.ok) toast.success(res.message);
+      else toast.error(res.message);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'SMTP test edilemedi');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  if (me?.role !== 'superadmin') return null;
+
+  return (
+    <WebSettingsPanel
+      icon={Mail}
+      title="Mail (SMTP)"
+      description="Bildirim e-postaları. Boş şifre alanı mevcut şifreyi korur."
+    >
+      <label className="flex cursor-pointer items-center gap-2.5 text-sm text-foreground/90">
+        <input
+          type="checkbox"
+          checked={!!(form.mail_enabled ?? config?.mail_enabled ?? false)}
+          onChange={(e) => handleChange('mail_enabled', e.target.checked)}
+          className="size-4 rounded border-input"
+        />
+        E-posta bildirimlerini aç
+      </label>
+      <div className="grid gap-5 sm:grid-cols-2">
+        <WebSettingsField label="SMTP sunucu" htmlFor="smtp-host">
+          <Input
+            id="smtp-host"
+            type="text"
+            className={WEB_SETTINGS_INPUT}
+            value={String(form.smtp_host ?? config?.smtp_host ?? '')}
+            onChange={(e) => handleChange('smtp_host', e.target.value)}
+            placeholder="smtp.example.com"
+          />
+        </WebSettingsField>
+        <WebSettingsField label="Port" htmlFor="smtp-port">
+          <Input
+            id="smtp-port"
+            type="number"
+            min={1}
+            max={65535}
+            className={WEB_SETTINGS_INPUT}
+            value={Number(form.smtp_port ?? config?.smtp_port ?? 587)}
+            onChange={(e) => handleChange('smtp_port', parseInt(e.target.value, 10) || 587)}
+            placeholder="587"
+          />
+        </WebSettingsField>
+        <WebSettingsField label="Kullanıcı" htmlFor="smtp-user">
+          <Input
+            id="smtp-user"
+            type="text"
+            className={WEB_SETTINGS_INPUT}
+            value={String(form.smtp_user ?? config?.smtp_user ?? '')}
+            onChange={(e) => handleChange('smtp_user', e.target.value)}
+            placeholder="noreply@…"
+          />
+        </WebSettingsField>
+        <WebSettingsField label="Şifre" hint="Değiştirmek için yeni girin." htmlFor="smtp-pass">
+          <Input
+            id="smtp-pass"
+            type="password"
+            className={WEB_SETTINGS_INPUT}
+            value={String(form.smtp_pass ?? '')}
+            onChange={(e) => handleChange('smtp_pass', e.target.value)}
+            placeholder={config?.smtp_pass ? '••••••••' : 'SMTP şifresi'}
+          />
+        </WebSettingsField>
+        <WebSettingsField label="Gönderen adresi" htmlFor="smtp-from">
+          <Input
+            id="smtp-from"
+            type="email"
+            className={WEB_SETTINGS_INPUT}
+            value={String(form.smtp_from ?? config?.smtp_from ?? '')}
+            onChange={(e) => handleChange('smtp_from', e.target.value)}
+            placeholder="bildirim@…"
+          />
+        </WebSettingsField>
+        <WebSettingsField label="Gönderen adı" htmlFor="smtp-from-name">
+          <Input
+            id="smtp-from-name"
+            type="text"
+            className={WEB_SETTINGS_INPUT}
+            value={String(form.smtp_from_name ?? config?.smtp_from_name ?? 'Öğretmen Pro')}
+            onChange={(e) => handleChange('smtp_from_name', e.target.value)}
+            placeholder="Öğretmen Pro"
+          />
+        </WebSettingsField>
+        <div className="sm:col-span-2">
+          <WebSettingsField label="Web panel taban URL" hint="E-postadaki linkler için." htmlFor="mail-app-base-url">
+            <Input
+              id="mail-app-base-url"
+              type="url"
+              className={WEB_SETTINGS_INPUT}
+              value={String(form.mail_app_base_url ?? config?.mail_app_base_url ?? '')}
+              onChange={(e) => handleChange('mail_app_base_url', e.target.value)}
+              placeholder="https://…"
+            />
+          </WebSettingsField>
+        </div>
+      </div>
+      <label className="flex cursor-pointer items-center gap-2.5 text-sm">
+        <input
+          type="checkbox"
+          checked={!!(form.smtp_secure ?? config?.smtp_secure ?? false)}
+          onChange={(e) => handleChange('smtp_secure', e.target.checked)}
+          className="size-4 rounded border-input"
+        />
+        SSL/TLS (genelde port 465)
+      </label>
+      <div className="flex flex-wrap justify-end gap-2 border-t border-border/30 pt-4">
+        <Button type="button" variant="outline" className="rounded-xl" onClick={handleTest} disabled={testing}>
+          {testing ? 'Test…' : 'SMTP test'}
+        </Button>
+        <Button type="button" className="rounded-xl" onClick={handleSave} disabled={saving}>
+          {saving ? 'Kaydediliyor…' : 'Kaydet'}
+        </Button>
+      </div>
+    </WebSettingsPanel>
+  );
+}

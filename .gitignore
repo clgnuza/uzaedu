@@ -1,0 +1,49 @@
+# Öğretmen Pro – Ortak .gitignore taslağı
+# Backend/Web/Flutter eklenince ilgili bloklar açılır veya alt projelere taşınır.
+
+# Ortam ve gizlilik (asla commit edilmez)
+.env
+.env.local
+.env.*.local
+*.env
+!.env.example
+firebase-admin-key.json
+**/google-services.json
+**/GoogleService-Info.plist
+
+# IDE / editör
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Log ve geçici
+*.log
+tmp/
+temp/
+.cache/
+
+# Backend (Node/Nest/TS)
+backend/node_modules/
+backend/dist/
+backend/build/
+backend/data/
+
+# Web Admin (Next.js)
+web-admin/.next/
+web-admin/out/
+
+# Flutter (proje eklendiğinde kullan)
+# .dart_tool/
+# .packages
+# build/
+# .flutter-plugins
+# .flutter-plugins-dependencies
+# *.iml
+
+# Test / coverage
+# coverage/
+# .nyc_output/
+# *.lcov

@@ -1,0 +1,128 @@
+# =========================
+# Documentation
+# =========================
+docs/
+documentation/
+*.md
+!README.md
+!ARCHITECTURE.md
+
+# =========================
+# Screenshots / Media
+# =========================
+screenshots/
+nobetyonetim-screenshots/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.mp4
+*.mov
+*.webm
+
+# =========================
+# Documents
+# =========================
+*.pdf
+*.doc
+*.docx
+*.ppt
+*.pptx
+*.xls
+*.xlsx
+
+# =========================
+# Dependencies
+# =========================
+node_modules/
+vendor/
+.pnpm-store/
+
+# =========================
+# Build / Output
+# =========================
+dist/
+build/
+out/
+target/
+release/
+debug/
+.next/
+.nuxt/
+.svelte-kit/
+
+# =========================
+# Test / Coverage
+# =========================
+coverage/
+test-results/
+playwright-report/
+tests/
+__tests__/
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# =========================
+# Temporary / Cache
+# =========================
+.cache/
+.tmp/
+temp/
+tmp-*
+*.tmp
+
+# =========================
+# Logs
+# =========================
+*.log
+logs/
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+*.iml
+
+# =========================
+# OS Files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Git / CI
+# =========================
+.git/
+.github/
+.gitlab/
+
+# =========================
+# Lock files (genelde gerekmez)
+# =========================
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# =========================
+# Assets
+# =========================
+assets/
+public/
+static/
+
+# =========================
+# Scripts (opsiyonel)
+# =========================
+ scripts/

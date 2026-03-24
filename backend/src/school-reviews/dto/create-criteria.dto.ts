@@ -1,0 +1,33 @@
+import { IsString, IsOptional, IsInt, Min, Max, MaxLength } from 'class-validator';
+
+export class CreateCriteriaDto {
+  @IsString()
+  @MaxLength(64)
+  slug: string;
+
+  @IsString()
+  @MaxLength(255)
+  label: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  hint?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  sort_order?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  min_score?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  max_score?: number;
+}

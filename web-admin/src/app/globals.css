@@ -1,0 +1,705 @@
+/* Demo1 ile uyumlu tema: kaynak beyaz, proje beyaz (KIT: hazirkit/metronic) */
+@import 'tailwindcss';
+
+@custom-variant dark (&:is(.dark *));
+
+/** Light: Mosaic + Slick referansı. Primary #007bff, radius 0.75rem */
+:root {
+  --background: var(--color-white);
+  --foreground: var(--color-zinc-950);
+  --card: var(--color-white);
+  --card-foreground: var(--color-zinc-950);
+  --popover: var(--color-white);
+  --popover-foreground: var(--color-zinc-950);
+  --primary: #007bff;
+  --primary-foreground: var(--color-white);
+  --secondary: var(--color-zinc-100);
+  --secondary-foreground: var(--color-zinc-900);
+  --muted: var(--color-zinc-100);
+  --muted-foreground: var(--color-zinc-500);
+  --accent: var(--color-zinc-100);
+  --accent-foreground: var(--color-zinc-900);
+  --destructive: var(--color-red-600);
+  --destructive-foreground: var(--color-white);
+  --chart-1: var(--color-blue-500);
+  --chart-2: var(--color-green-500);
+  --chart-3: var(--color-yellow-500);
+  --chart-4: var(--color-red-500);
+  --chart-5: var(--color-purple-500);
+  --border: oklch(91% 0.01 250);
+  --input: var(--color-zinc-200);
+  --ring: #007bff;
+  --radius: 0.75rem;
+  /** Slick card overlay – gradient üstten aşağı */
+  --card-overlay-from: rgba(0, 0, 0, 0.85);
+  --card-overlay-via: rgba(0, 0, 0, 0.3);
+  --card-overlay-to: transparent;
+
+  /** Pastel palet – göz yormayan, ayırt edilebilir kart vurguları */
+  --pastel-mint: #e8f5e9;
+  --pastel-lavender: #ede7f6;
+  --pastel-peach: #fff3e0;
+  --pastel-sky: #e3f2fd;
+  --pastel-rose: #fce4ec;
+  --pastel-amber: #fff8e1;
+  --pastel-teal: #e0f2f1;
+  --pastel-indigo: #e8eaf6;
+  --pastel-violet: #f3e5f5;
+  --pastel-border-mint: #c8e6c9;
+  --pastel-border-lavender: #d1c4e9;
+  --pastel-border-peach: #ffe0b2;
+  --pastel-border-sky: #bbdefb;
+  --pastel-border-rose: #f8bbd9;
+  --pastel-border-amber: #ffecb3;
+  --pastel-border-teal: #b2dfdb;
+  --pastel-border-indigo: #c5cae9;
+  --pastel-border-violet: #e1bee7;
+}
+
+.dark {
+  /** Pastel kömür: #000 yerine hafif doygunluklu koyu gri (metin kontrastı korunur) */
+  --background: oklch(0.245 0.014 265);
+  --foreground: oklch(0.97 0.006 265);
+  --card: oklch(0.29 0.016 265);
+  --card-foreground: oklch(0.97 0.006 265);
+  --popover: oklch(0.295 0.016 265);
+  --popover-foreground: oklch(0.97 0.006 265);
+  --primary: var(--color-blue-500);
+  --primary-foreground: var(--color-white);
+  --secondary: oklch(0.34 0.018 265);
+  --secondary-foreground: oklch(0.97 0.006 265);
+  --muted: oklch(0.31 0.015 265);
+  --muted-foreground: oklch(0.74 0.022 265);
+  --accent: oklch(0.33 0.016 265);
+  --accent-foreground: oklch(0.97 0.006 265);
+  --destructive: var(--color-red-600);
+  --destructive-foreground: var(--color-white);
+  --border: oklch(0.4 0.024 265);
+  --input: oklch(0.37 0.02 265);
+  --ring: var(--color-blue-400);
+
+  /** Pastel palet – dark mode (daha koyu, yumuşak arka planlar) */
+  --pastel-mint: rgba(16, 185, 129, 0.12);
+  --pastel-lavender: rgba(139, 92, 246, 0.12);
+  --pastel-peach: rgba(249, 115, 22, 0.12);
+  --pastel-sky: rgba(59, 130, 246, 0.12);
+  --pastel-rose: rgba(244, 63, 94, 0.12);
+  --pastel-amber: rgba(245, 158, 11, 0.12);
+  --pastel-teal: rgba(20, 184, 166, 0.12);
+  --pastel-indigo: rgba(99, 102, 241, 0.12);
+  --pastel-violet: rgba(168, 85, 247, 0.12);
+  --pastel-border-mint: rgba(16, 185, 129, 0.35);
+  --pastel-border-lavender: rgba(139, 92, 246, 0.35);
+  --pastel-border-peach: rgba(249, 115, 22, 0.35);
+  --pastel-border-sky: rgba(59, 130, 246, 0.35);
+  --pastel-border-rose: rgba(244, 63, 94, 0.35);
+  --pastel-border-amber: rgba(245, 158, 11, 0.35);
+  --pastel-border-teal: rgba(20, 184, 166, 0.35);
+  --pastel-border-indigo: rgba(99, 102, 241, 0.35);
+  --pastel-border-violet: rgba(168, 85, 247, 0.35);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  *:focus-visible {
+    @apply outline-ring rounded-sm shadow-none outline-2 outline-offset-2 transition-all duration-150;
+  }
+  select,
+  select option {
+    font-family: inherit;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* Modal/dialog açılış animasyonu */
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+.dialog-content-animate {
+  animation: dialog-in 0.2s ease-out forwards;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .animate-shimmer {
+    background: linear-gradient(90deg, oklch(0.96 0.002 250 0.5), oklch(0.92 0.002 250 0.8), oklch(0.96 0.002 250 0.5));
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+}
+
+@layer base {
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--input);
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--foreground) 25%, transparent);
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--input) transparent;
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Subtle noise texture – göz yormayan arka plan (opcional) */
+.page-noise::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.015;
+  pointer-events: none;
+  z-index: -1;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Defterdoldur-style: tab nav scroll, hide scrollbar */
+.kazanim-takip .hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.kazanim-takip .hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.kazanim-takip .tab-nav-scroll {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Slick referansı: bileşen stilleri (Tailwind ile) */
+@layer components {
+  /* Slick referansı: buton sweep hover – arka plan soldan sağa kayar */
+  .btn-sweep-right {
+    @apply relative overflow-hidden border border-primary text-primary;
+  }
+  .btn-sweep-right::before {
+    content: '';
+    @apply absolute inset-0 bg-primary transition-transform duration-300 ease-out -translate-x-full;
+    z-index: -1;
+  }
+  .btn-sweep-right:hover {
+    @apply text-primary-foreground;
+  }
+  .btn-sweep-right:hover::before {
+    @apply translate-x-0;
+  }
+
+  /* Kart overlay – görsel üzerinde gradient (Slick card-img-overlay) */
+  .card-overlay {
+    background: linear-gradient(
+      to top,
+      var(--card-overlay-from) 0%,
+      var(--card-overlay-via) 50%,
+      var(--card-overlay-to) 100%
+    );
+  }
+
+  /* Pastel kutucuk varyantları – göz yormayan, ayırt edilebilir */
+  .card-pastel-mint {
+    background: var(--pastel-mint);
+    border-color: var(--pastel-border-mint);
+    border-left-width: 4px;
+    border-left-color: var(--pastel-border-mint);
+  }
+  .card-pastel-lavender {
+    background: var(--pastel-lavender);
+    border-color: var(--pastel-border-lavender);
+    border-left-width: 4px;
+    border-left-color: var(--pastel-border-lavender);
+  }
+  .card-pastel-peach {
+    background: var(--pastel-peach);
+    border-color: var(--pastel-border-peach);
+    border-left-width: 4px;
+    border-left-color: var(--pastel-border-peach);
+  }
+  .card-pastel-sky {
+    background: var(--pastel-sky);
+    border-color: var(--pastel-border-sky);
+    border-left-width: 4px;
+    border-left-color: var(--pastel-border-sky);
+  }
+  .card-pastel-rose {
+    background: var(--pastel-rose);
+    border-color: var(--pastel-border-rose);
+    border-left-width: 4px;
+    border-left-color: var(--pastel-border-rose);
+  }
+  .card-pastel-amber {
+    background: var(--pastel-amber);
+    border-color: var(--pastel-border-amber);
+    border-left-width: 4px;
+    border-left-color: var(--pastel-border-amber);
+  }
+  .card-pastel-teal {
+    background: var(--pastel-teal);
+    border-color: var(--pastel-border-teal);
+    border-left-width: 4px;
+    border-left-color: var(--pastel-border-teal);
+  }
+  .card-pastel-indigo {
+    background: var(--pastel-indigo);
+    border-color: var(--pastel-border-indigo);
+    border-left-width: 4px;
+    border-left-color: var(--pastel-border-indigo);
+  }
+  .card-pastel-violet {
+    background: var(--pastel-violet);
+    border-color: var(--pastel-border-violet);
+    border-left-width: 4px;
+    border-left-color: var(--pastel-border-violet);
+  }
+
+  /* Pastel soft kart – hafif arka plan, border yok (liste satırları için) */
+  .card-pastel-soft-mint { background: var(--pastel-mint); }
+  .card-pastel-soft-lavender { background: var(--pastel-lavender); }
+  .card-pastel-soft-peach { background: var(--pastel-peach); }
+  .card-pastel-soft-sky { background: var(--pastel-sky); }
+  .card-pastel-soft-rose { background: var(--pastel-rose); }
+  .card-pastel-soft-amber { background: var(--pastel-amber); }
+  .card-pastel-soft-teal { background: var(--pastel-teal); }
+  .card-pastel-soft-indigo { background: var(--pastel-indigo); }
+  .card-pastel-soft-violet { background: var(--pastel-violet); }
+}
+@media (min-width: 640px) {
+  .kazanim-takip .tab-nav-scroll {
+    scrollbar-width: thin;
+  }
+}
+
+.container {
+  margin-inline: auto;
+  max-width: none;
+  padding-inline: 1rem;
+}
+@media (min-width: 1024px) {
+  .container {
+    padding-inline: 1.25rem;
+  }
+}
+
+.container-fluid {
+  width: 100%;
+  margin-inline: auto;
+  padding-inline: 1rem;
+}
+@media (min-width: 1024px) {
+  .container-fluid {
+    padding-inline: 1.25rem;
+  }
+}
+
+/* Metronic demo1 layout (kit’ten kopyalandı, projeye uyarlandı) */
+@layer components {
+  .demo1 {
+    --sidebar-transition-duration: 0.3s;
+    --sidebar-transition-timing: ease;
+    --sidebar-width: 280px;
+    --sidebar-width-collapse: 80px;
+    --sidebar-default-width: 280px;
+    --header-height: 70px;
+  }
+  @media (max-width: 1023px) {
+    .demo1 {
+      --sidebar-width: 280px;
+      --header-height: 60px;
+    }
+  }
+
+  .demo1 .header {
+    height: var(--header-height);
+    background: var(--background);
+    border-color: var(--border);
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.05);
+  }
+
+  .demo1 .sidebar {
+    width: var(--sidebar-width);
+    background: var(--background);
+    border-color: var(--border);
+    box-shadow: 2px 0 8px -2px rgb(0 0 0 / 0.05);
+    transition: box-shadow 0.2s ease;
+  }
+
+  .demo1.header-fixed .wrapper {
+    padding-top: var(--header-height);
+  }
+
+  @media (min-width: 1024px) {
+    .demo1 .sidebar {
+      width: var(--sidebar-width);
+      transition: width var(--sidebar-transition-duration) var(--sidebar-transition-timing);
+    }
+    .demo1 .sidebar .sidebar-header {
+      height: var(--header-height);
+    }
+    .demo1 .sidebar .sidebar-wrapper {
+      width: var(--sidebar-default-width);
+    }
+    .demo1 .sidebar .sidebar-logo {
+      width: auto;
+      max-width: 100%;
+      min-width: 0;
+    }
+    .demo1 .sidebar .small-logo {
+      display: none;
+    }
+    .demo1.sidebar-fixed .wrapper {
+      padding-inline-start: var(--sidebar-width) !important;
+    }
+    .demo1.sidebar-fixed.header-fixed .header {
+      inset-inline-start: var(--sidebar-width) !important;
+    }
+    .demo1.sidebar-fixed.header-fixed .wrapper {
+      padding-top: var(--header-height);
+    }
+    .demo1.sidebar-collapse {
+      --sidebar-width: var(--sidebar-width-collapse);
+    }
+    .demo1.sidebar-collapse .sidebar {
+      transition: width var(--sidebar-transition-duration) var(--sidebar-transition-timing);
+    }
+    .demo1.sidebar-collapse .sidebar:hover {
+      width: var(--sidebar-default-width);
+    }
+    .demo1.sidebar-collapse .sidebar:not(:hover) .default-logo {
+      display: none;
+    }
+    .demo1.sidebar-collapse .sidebar:not(:hover) .small-logo {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .demo1.sidebar-collapse .sidebar:not(:hover) [data-slot='accordion-menu-title'],
+    .demo1.sidebar-collapse .sidebar:not(:hover) [data-slot='badge'],
+    .demo1.sidebar-collapse .sidebar:not(:hover) [data-slot='accordion-menu-sub-indicator'] {
+      display: none !important;
+      transition: none !important;
+      animation: none !important;
+    }
+    .demo1.sidebar-collapse .sidebar:not(:hover) .menu-branch-rail {
+      margin-inline-start: 0;
+      padding-inline-start: 0;
+      border-inline-start-width: 0;
+    }
+    .demo1.sidebar-collapse .sidebar:not(:hover) [data-slot='accordion-menu-label'] {
+      display: none !important;
+    }
+    .demo1.sidebar-collapse .sidebar:not(:hover) [data-slot='accordion-menu-sub-content'] {
+      visibility: hidden;
+      position: absolute;
+      height: 0;
+      width: 0;
+    }
+  }
+
+  .demo1.layout-initialized .wrapper {
+    transition: padding-inline-start var(--sidebar-transition-duration) var(--sidebar-transition-timing);
+  }
+  .demo1.layout-initialized .header {
+    transition: inset-inline-start var(--sidebar-transition-duration) var(--sidebar-transition-timing);
+  }
+}
+
+/* Evrak önizleme – SheetJS sheet_to_html tablosu (merged cells destekli) */
+.evrak-preview-scroll table {
+  width: 100%;
+  min-width: max-content;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  table-layout: auto;
+}
+.evrak-preview-scroll table td,
+.evrak-preview-scroll table th {
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.5rem;
+  white-space: nowrap;
+  vertical-align: top;
+}
+.evrak-preview-scroll table tr:first-child td,
+.evrak-preview-scroll table tr:first-child th {
+  font-weight: 600;
+  background: var(--muted);
+}
+
+/* Evrak (Planlar) admin tabloları – belirgin, kolay navigasyon */
+.evrak-admin-table {
+  border-collapse: collapse;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.evrak-admin-table thead tr {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+.dark .evrak-admin-table thead tr {
+  background: color-mix(in srgb, var(--primary) 25%, transparent);
+}
+.evrak-admin-table th {
+  font-weight: 600;
+  color: var(--foreground);
+  border-bottom: 2px solid var(--border);
+  padding: 0.625rem 0.75rem;
+  text-align: left;
+}
+.evrak-admin-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.evrak-admin-table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--muted) 60%, transparent);
+}
+.dark .evrak-admin-table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--muted) 80%, transparent);
+}
+.evrak-admin-table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 80%, transparent);
+}
+.dark .evrak-admin-table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+/* Sınav Görevleri tablosu – sticky sütun arka planları */
+.exam-duty-table thead th.exam-duty-sticky {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+.dark .exam-duty-table thead th.exam-duty-sticky {
+  background: color-mix(in srgb, var(--primary) 25%, transparent);
+}
+.exam-duty-table tbody tr:nth-child(odd) td.exam-duty-sticky {
+  background: var(--background);
+}
+.exam-duty-table tbody tr:nth-child(even) td.exam-duty-sticky {
+  background: color-mix(in srgb, var(--muted) 60%, transparent);
+}
+.dark .exam-duty-table tbody tr:nth-child(even) td.exam-duty-sticky {
+  background: color-mix(in srgb, var(--muted) 80%, transparent);
+}
+.exam-duty-table tbody tr:hover td.exam-duty-sticky {
+  background: color-mix(in srgb, var(--accent) 80%, transparent);
+}
+.dark .exam-duty-table tbody tr:hover td.exam-duty-sticky {
+  background: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+.exam-duty-table tbody tr[data-row-past] td.exam-duty-sticky {
+  background: color-mix(in srgb, var(--destructive) 5%, transparent);
+}
+.exam-duty-table tbody tr[data-row-selected] td.exam-duty-sticky {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+.exam-duty-table tbody tr[data-row-past]:hover td.exam-duty-sticky,
+.exam-duty-table tbody tr[data-row-selected]:hover td.exam-duty-sticky {
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+/* Yazdırma – layout chrome gizle, sadece içerik */
+@media print {
+  @page {
+    margin: 5mm;
+  }
+  body {
+    margin: 0;
+    padding: 0;
+  }
+  /* Sidebar ve header gizlendiğinde wrapper padding sıfırla */
+  .demo1.sidebar-fixed .wrapper {
+    padding-inline-start: 0 !important;
+  }
+  .demo1.header-fixed .wrapper main,
+  main#main-content {
+    padding-top: 0 !important;
+  }
+  .container {
+    max-width: none !important;
+    padding-inline: 0 !important;
+  }
+  .duty-print-table th,
+  .duty-print-table td {
+    font-size: 14px !important;
+    padding: 10px 12px !important;
+    border: 1px solid #333 !important;
+  }
+  .duty-print-table thead th {
+    font-weight: 700;
+    background: #e5e7eb !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Ders programı yazdırma – sadece tablo, chrome yok */
+  .ders-programi-print-card {
+    box-shadow: none !important;
+    border: none !important;
+  }
+  .ders-programi-print-card table {
+    font-size: 11px !important;
+  }
+  .ders-programi-print-card th,
+  .ders-programi-print-card td {
+    padding: 4px 6px !important;
+    border: 1px solid #333 !important;
+  }
+  .ders-programi-print-card thead th {
+    font-weight: 700;
+    background: #e5e7eb !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Yıllık Çalışma Planı – resmi yazı formatı */
+  .yillik-calisma-plani {
+    font-family: 'Times New Roman', Times, serif !important;
+  }
+  .yillik-calisma-plani .yillik-calisma-document {
+    font-family: 'Times New Roman', Times, serif !important;
+    max-width: 210mm;
+    margin: 0 auto;
+  }
+  .yillik-calisma-plani .yillik-plani-table th,
+  .yillik-calisma-plani .yillik-plani-table td {
+    font-family: 'Times New Roman', Times, serif !important;
+    font-size: 12pt !important;
+    border: 1px solid #000 !important;
+    padding: 8px 10px !important;
+  }
+  .yillik-calisma-plani .yillik-plani-table thead th {
+    font-weight: 700;
+    background: #e5e7eb !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .yillik-calisma-plani .yillik-plani-input {
+    font-family: 'Times New Roman', Times, serif !important;
+  }
+}
+
+.yillik-calisma-plani .yillik-plani-table td {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.yillik-calisma-plani textarea.yillik-plani-input {
+  outline: none;
+  min-height: 2.5rem;
+}
+/* Ekran görünümü – placeholder daha okunaklı */
+.yillik-calisma-plani .yillik-plani-input::placeholder {
+  color: rgb(148 163 184);
+}
+.dark .yillik-calisma-plani .yillik-plani-input::placeholder {
+  color: rgb(100 116 139);
+}
+
+/* ─── Landing page animations ─── */
+@keyframes orbit-cw {
+  to { transform: rotate(360deg); }
+}
+@keyframes orbit-ccw {
+  to { transform: rotate(-360deg); }
+}
+@keyframes logo-breathe {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(220,38,38,0.35), 0 0 32px -8px rgba(220,38,38,0.45); }
+  50%       { box-shadow: 0 0 0 1px rgba(220,38,38,0.65), 0 0 56px -4px rgba(220,38,38,0.7); }
+}
+@keyframes star-twinkle {
+  0%, 100% { opacity: 0.35; }
+  50%       { opacity: 0.85; }
+}
+@keyframes landing-fadein {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes landing-auth-overlay {
+  from {
+    opacity: 0;
+    transform: scale(1.04);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Ana sayfa: hareket hassasiyeti + düşük güç modu */
+@media (prefers-reduced-motion: reduce) {
+  .landing-page :where(*) {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

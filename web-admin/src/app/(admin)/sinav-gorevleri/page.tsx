@@ -1,0 +1,2267 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+
+const TURKEY_TZ = 'Europe/Istanbul';
+
+function useTurkeyClock() {
+  const [time, setTime] = useState('');
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('tr-TR', { timeZone: TURKEY_TZ, day: '2-digit', month: '2-digit', year: 'numeric' });
+      const timeStr = now.toLocaleTimeString('tr-TR', { timeZone: TURKEY_TZ, hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setTime(`${dateStr} ${timeStr}`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+  return time;
+}
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { useAuth } from '@/hooks/use-auth';
+import { apiFetch } from '@/lib/api';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { DateTimeInput } from '@/components/ui/datetime-input';
+import { Label } from '@/components/ui/label';
+import { toast } from 'sonner';
+import { Toolbar, ToolbarHeading, ToolbarPageTitle, ToolbarActions } from '@/components/layout/toolbar';
+import { ToolbarIconHints } from '@/components/layout/toolbar-icon-hints';
+import {
+  ClipboardList,
+  Plus,
+  Pencil,
+  Trash2,
+  Send,
+  ExternalLink,
+  Search,
+  Users,
+  AlertTriangle,
+  RefreshCw,
+  FileEdit,
+  CheckCircle2,
+  FileText,
+  LayoutGrid,
+  List,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  CalendarRange,
+  Calendar,
+  Settings,
+  SkipForward,
+  CalendarPlus,
+  CalendarX,
+  FileCheck,
+  Bell,
+  Megaphone,
+  PlayCircle,
+  StopCircle,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { EXAM_DUTY_SAMPLES } from './exam-duty-samples';
+
+const EXAM_DUTY_CATEGORIES = [
+  { value: 'meb', label: 'MEB' },
+  { value: 'osym', label: 'ÖSYM' },
+  { value: 'aof', label: 'AÖF' },
+  { value: 'ataaof', label: 'ATA-AÖF' },
+  { value: 'auzef', label: 'AUZEF' },
+] as const;
+
+const CATEGORY_COLORS: Record<string, string> = {
+  meb: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+  osym: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
+  aof: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
+  ataaof: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300',
+  auzef: 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300',
+};
+
+type ExamDutyItem = {
+  id: string;
+  title: string;
+  category_slug?: string;
+  categorySlug?: string;
+  summary?: string | null;
+  body?: string | null;
+  source_url?: string | null;
+  sourceUrl?: string | null;
+  application_url?: string | null;
+  applicationUrl?: string | null;
+  application_start?: string | null;
+  applicationStart?: string | null;
+  application_end?: string | null;
+  applicationEnd?: string | null;
+  application_approval_end?: string | null;
+  applicationApprovalEnd?: string | null;
+  result_date?: string | null;
+  resultDate?: string | null;
+  exam_date?: string | null;
+  examDate?: string | null;
+  exam_date_end?: string | null;
+  examDateEnd?: string | null;
+  status: 'draft' | 'published';
+  published_at?: string | null;
+  publishedAt?: string | null;
+  created_at?: string;
+  createdAt?: string;
+};
+
+type ListResponse = {
+  items: ExamDutyItem[];
+  total: number;
+};
+
+type SyncSourceItem = {
+  id: string;
+  key: string;
+  label: string;
+  category_slug?: string;
+  categorySlug?: string;
+  rss_url?: string | null;
+  is_active?: boolean;
+  last_synced_at?: string | null;
+  lastSyncedAt?: string | null;
+  last_result_created?: number;
+  lastResultCreated?: number;
+  last_result_skipped?: number;
+  lastResultSkipped?: number;
+  last_result_error?: string | null;
+  lastResultError?: string | null;
+};
+
+type SkippedItem = {
+  source_key: string;
+  source_label: string;
+  title: string;
+  url: string;
+  reason: string;
+};
+
+function normalizeItem(i: ExamDutyItem): ExamDutyItem {
+  return {
+    ...i,
+    category_slug: i.category_slug ?? i.categorySlug ?? '',
+    source_url: i.source_url ?? i.sourceUrl,
+    application_url: i.application_url ?? i.applicationUrl,
+    application_start: i.application_start ?? i.applicationStart,
+    application_end: i.application_end ?? i.applicationEnd,
+    application_approval_end: i.application_approval_end ?? i.applicationApprovalEnd,
+    result_date: i.result_date ?? i.resultDate,
+    exam_date: i.exam_date ?? i.examDate,
+    exam_date_end: i.exam_date_end ?? i.examDateEnd,
+    published_at: i.published_at ?? i.publishedAt,
+  };
+}
+
+function formatDate(s: string | null | undefined): string {
+  if (!s) return '—';
+  try {
+    const d = new Date(s);
+    return d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  } catch {
+    return '—';
+  }
+}
+
+/** Tarih + saat (örn. 10.02.2026 09:15) - sadece gece yarısı değilse saati göster */
+function formatDateTime(s: string | null | undefined): string {
+  if (!s) return '—';
+  try {
+    const d = new Date(s);
+    const hasTime = d.getHours() !== 0 || d.getMinutes() !== 0;
+    if (hasTime) {
+      return d.toLocaleString('tr-TR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+    return formatDate(s);
+  } catch {
+    return '—';
+  }
+}
+
+/** ISO date/datetime → datetime-local input value (YYYY-MM-DDTHH:mm) */
+function toDatetimeLocal(s: string | null | undefined): string {
+  if (!s) return '';
+  try {
+    const d = new Date(s);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const h = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${y}-${m}-${day}T${h}:${min}`;
+  } catch {
+    return '';
+  }
+}
+
+/** datetime-local value → ISO string for API. defaultTime: HH:mm (varsayılan saat, sadece tarih girildiğinde) */
+function toIsoForApi(s: string, defaultTime = '00:00'): string | undefined {
+  if (!s?.trim()) return undefined;
+  const v = s.trim();
+  if (v.includes('T')) {
+    return v.length === 16 ? `${v}:00` : v;
+  }
+  const [h, m] = defaultTime.split(':').map((x) => x.padStart(2, '0'));
+  return `${v}T${h}:${m}:00`;
+}
+
+function isDatePast(s: string | null | undefined): boolean {
+  if (!s) return false;
+  try {
+    const d = new Date(s);
+    d.setHours(23, 59, 59, 999);
+    return d.getTime() < Date.now();
+  } catch {
+    return false;
+  }
+}
+
+type DateStatus = 'past' | 'today' | 'tomorrow' | 'soon' | 'approaching' | null;
+
+/** Tarihe göre rozet: Geçti, Bugün, Yarın, Az kaldı, Yaklaşıyor */
+function getDateStatus(s: string | null | undefined): DateStatus {
+  if (!s) return null;
+  try {
+    const d = new Date(s);
+    d.setHours(12, 0, 0, 0);
+    const now = new Date();
+    now.setHours(12, 0, 0, 0);
+    const todayEnd = new Date(now);
+    todayEnd.setHours(23, 59, 59, 999);
+    const diffDays = Math.round((d.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
+    if (diffDays < 0) return 'past';
+    if (diffDays === 0) return 'today';
+    if (diffDays === 1) return 'tomorrow';
+    if (diffDays <= 3) return 'soon';
+    if (diffDays <= 7) return 'approaching';
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+const DATE_STATUS_LABELS: Record<NonNullable<DateStatus>, { label: string; cn: string }> = {
+  past: { label: 'Geçti', cn: 'text-destructive font-medium' },
+  today: { label: 'Bugün', cn: 'text-amber-600 dark:text-amber-400 font-medium' },
+  tomorrow: { label: 'Yarın', cn: 'text-amber-600 dark:text-amber-400' },
+  soon: { label: 'Az kaldı', cn: 'text-amber-600 dark:text-amber-400' },
+  approaching: { label: 'Yaklaşıyor', cn: 'text-muted-foreground' },
+};
+
+function renderDateWithStatus(s: string | null | undefined) {
+  if (!s) return '—';
+  const status = getDateStatus(s);
+  const cfg = status ? DATE_STATUS_LABELS[status] : null;
+  return (
+    <span className={cfg?.cn}>
+      {formatDateTime(s)}
+      {status && (
+        <span
+          className={cn(
+            'ml-1 inline-flex items-center gap-0.5 text-xs',
+            status === 'past' && 'text-destructive'
+          )}
+          title={cfg!.label}
+        >
+          {status === 'past' && <AlertTriangle className="size-3.5" />}
+          {cfg!.label}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Tablo için kompakt tarih + saat (DD.MM.YY HH:mm – saat her zaman gösterilir) */
+function formatDateShort(s: string | null | undefined): string {
+  if (!s) return '—';
+  try {
+    const d = new Date(s);
+    return d.toLocaleString('tr-TR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '—';
+  }
+}
+
+/** Tablo hücresi için kompakt tarih + durum rozeti */
+function renderDateCompact(s: string | null | undefined) {
+  if (!s) return <span className="text-muted-foreground">—</span>;
+  const status = getDateStatus(s);
+  const cfg = status ? DATE_STATUS_LABELS[status] : null;
+  const fullTitle = formatDateTime(s);
+  return (
+    <span
+      className={cn('inline-flex flex-col gap-0.5 min-w-0', cfg?.cn)}
+      title={status ? `${fullTitle} – ${cfg!.label}` : fullTitle}
+    >
+      <span className="text-xs tabular-nums">{formatDateShort(s)}</span>
+      {status && (
+        <span className={cn(
+          'text-[10px] leading-tight truncate',
+          status === 'past' ? 'text-destructive font-medium' : 'text-muted-foreground'
+        )}>
+          {status === 'past' && <AlertTriangle className="size-2.5 inline align-middle mr-0.5 shrink-0" />}
+          {cfg!.label}
+        </span>
+      )}
+    </span>
+  );
+}
+
+
+/** ISO string → YYYY-MM-DD */
+function toYMD(s: string | null | undefined): string | null {
+  if (!s) return null;
+  try {
+    const d = new Date(s);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  } catch {
+    return null;
+  }
+}
+
+type FlowEvent = {
+  item: ExamDutyItem;
+  type: 'application_start' | 'application_end' | 'application_approval_end' | 'result_date' | 'exam_date' | 'exam_date_end';
+  label: string;
+  datetime: string;
+  color: string;
+};
+
+const FLOW_EVENT_ICONS: Record<FlowEvent['type'], typeof Calendar> = {
+  application_start: CalendarPlus,
+  application_end: CalendarX,
+  application_approval_end: FileCheck,
+  result_date: Bell,
+  exam_date: PlayCircle,
+  exam_date_end: StopCircle,
+};
+
+const FLOW_EVENT_CONFIG: Record<FlowEvent['type'], { label: string; color: string }> = {
+  application_start: { label: 'Başvuru açıldı', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 border-blue-300/50' },
+  application_end: { label: 'Başvuru kapandı', color: 'bg-slate-100 text-slate-800 dark:bg-slate-900/50 dark:text-slate-300 border-slate-300/50' },
+  application_approval_end: { label: 'Başvuru onay son gün', color: 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 border-amber-300/50' },
+  result_date: { label: 'Sınav öncesi hatırlatma', color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 border-emerald-300/50' },
+  exam_date: { label: 'Sınav başladı', color: 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300 border-green-300/50' },
+  exam_date_end: { label: 'Sınav bitti', color: 'bg-teal-100 text-teal-800 dark:bg-teal-900/50 dark:text-teal-300 border-teal-300/50' },
+};
+
+function buildFlowEvents(items: ExamDutyItem[]): FlowEvent[] {
+  const events: FlowEvent[] = [];
+  for (const item of items) {
+    const n = normalizeItem(item);
+    const fields: { key: FlowEvent['type']; val: string | null | undefined }[] = [
+      { key: 'application_start', val: n.application_start ?? n.applicationStart },
+      { key: 'application_end', val: n.application_end ?? n.applicationEnd },
+      { key: 'application_approval_end', val: n.application_approval_end ?? n.applicationApprovalEnd },
+      { key: 'result_date', val: n.result_date ?? n.resultDate },
+      { key: 'exam_date', val: n.exam_date ?? n.examDate },
+      { key: 'exam_date_end', val: n.exam_date_end ?? n.examDateEnd },
+    ];
+    for (const { key, val } of fields) {
+      if (val) {
+        const cfg = FLOW_EVENT_CONFIG[key];
+        events.push({ item, type: key, label: cfg.label, datetime: val, color: cfg.color });
+      }
+    }
+  }
+  return events.sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
+}
+
+function ExamDutyFlowCalendar({
+  items,
+  onEdit,
+  onSelectDate,
+}: {
+  items: ExamDutyItem[];
+  onEdit: (item: ExamDutyItem) => void;
+  onSelectDate: (d: string | null) => void;
+}) {
+  const today = new Date();
+  const todayYMD = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const [monthState, setMonthState] = useState(() => ({ year: today.getFullYear(), month: today.getMonth() }));
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  const flowEvents = useMemo(() => buildFlowEvents(items), [items]);
+
+  const eventsByDate = useMemo(() => {
+    const map = new Map<string, FlowEvent[]>();
+    for (const e of flowEvents) {
+      const ymd = toYMD(e.datetime);
+      if (ymd) {
+        const list = map.get(ymd) ?? [];
+        list.push(e);
+        map.set(ymd, list);
+      }
+    }
+    map.forEach((list) => list.sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime()));
+    return map;
+  }, [flowEvents]);
+
+  const firstDay = new Date(monthState.year, monthState.month, 1);
+  const lastDay = new Date(monthState.year, monthState.month + 1, 0);
+  const startPad = (firstDay.getDay() + 6) % 7;
+  const daysInMonth = lastDay.getDate();
+  const monthLabel = new Date(monthState.year, monthState.month).toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' });
+  const dayLabels = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+
+  const cells: { dateStr: string | null; isCurrentMonth: boolean }[] = [];
+  for (let i = 0; i < startPad; i++) cells.push({ dateStr: null, isCurrentMonth: false });
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${monthState.year}-${String(monthState.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    cells.push({ dateStr, isCurrentMonth: true });
+  }
+  const remainder = (7 - (cells.length % 7)) % 7;
+  for (let i = 0; i < remainder; i++) cells.push({ dateStr: null, isCurrentMonth: false });
+
+  const prevMonth = () => {
+    if (monthState.month === 0) setMonthState({ year: monthState.year - 1, month: 11 });
+    else setMonthState({ year: monthState.year, month: monthState.month - 1 });
+  };
+  const nextMonth = () => {
+    if (monthState.month === 11) setMonthState({ year: monthState.year + 1, month: 0 });
+    else setMonthState({ year: monthState.year, month: monthState.month + 1 });
+  };
+
+  const dayEvents = selectedDate ? (eventsByDate.get(selectedDate) ?? []) : [];
+
+  const handleDayClick = (dateStr: string | null) => {
+    setSelectedDate(dateStr);
+    onSelectDate(dateStr);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Olay türleri göstergesi */}
+      <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Takvimdeki olay türleri</p>
+        <div className="flex flex-wrap gap-2">
+          {(Object.entries(FLOW_EVENT_CONFIG) as [FlowEvent['type'], { label: string; color: string }][]).map(([k, cfg]) => {
+            const Icon = FLOW_EVENT_ICONS[k];
+            return (
+              <span key={k} className={cn('inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium', cfg.color)}>
+                {Icon && <Icon className="size-3.5 shrink-0" />}
+                {cfg.label}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Ay navigasyonu */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 shadow-sm">
+          <Button variant="ghost" size="sm" className="h-9 w-9 p-0 shrink-0" onClick={prevMonth} aria-label="Önceki ay">
+            <ChevronLeft className="size-4" />
+          </Button>
+          <span className="font-semibold text-foreground min-w-[160px] text-center capitalize text-base">{monthLabel}</span>
+          <Button variant="ghost" size="sm" className="h-9 w-9 p-0 shrink-0" onClick={nextMonth} aria-label="Sonraki ay">
+            <ChevronRight className="size-4" />
+          </Button>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => handleDayClick(todayYMD)} className="border-primary/40 text-primary hover:bg-primary/10 shrink-0">
+          <Calendar className="size-4 mr-1.5" />
+          Bugüne git
+        </Button>
+      </div>
+
+      {/* Takvim grid */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
+        <div className="grid grid-cols-7 gap-px bg-border">
+          {dayLabels.map((l, idx) => (
+            <div key={l} className={cn('py-2.5 text-center text-xs font-semibold uppercase tracking-wider', idx === 5 || idx === 6 ? 'bg-muted/50 text-muted-foreground' : 'bg-muted/30 text-foreground')}>
+              {l}
+            </div>
+          ))}
+          {cells.map((c, i) => {
+            if (!c.dateStr) return <div key={i} className="min-h-[100px] bg-muted/10" />;
+            const isSelected = c.dateStr === selectedDate;
+            const isToday = c.dateStr === todayYMD;
+            const day = parseInt(c.dateStr.slice(8), 10);
+            const dayOfWeek = new Date(c.dateStr + 'T12:00:00').getDay();
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+            const evts = eventsByDate.get(c.dateStr) ?? [];
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={() => handleDayClick(c.dateStr)}
+                className={cn(
+                  'min-h-[100px] flex flex-col items-stretch justify-start p-1.5 rounded-md transition-all bg-card text-left',
+                  !c.isCurrentMonth && 'opacity-40',
+                  isWeekend && c.isCurrentMonth && !isSelected && 'bg-muted/20',
+                  isSelected && 'bg-primary/20 ring-2 ring-primary shadow-md',
+                  isToday && !isSelected && 'ring-2 ring-primary/30 bg-primary/5 font-semibold',
+                  !isSelected && !isToday && 'hover:bg-muted/40',
+                )}
+              >
+                <span className={cn('text-sm font-medium shrink-0', isSelected && 'font-semibold')}>{day}</span>
+                <div className="flex-1 min-h-0 mt-1 space-y-0.5 overflow-hidden">
+                  {evts.slice(0, 3).map((e, j) => {
+                    const CellIcon = FLOW_EVENT_ICONS[e.type];
+                    return (
+                      <div key={j} className={cn('flex items-center gap-1 rounded px-1.5 py-0.5 truncate border text-[10px]', e.color)} title={`${e.label}: ${e.item.title}`}>
+                        {CellIcon && <CellIcon className="size-3 shrink-0 opacity-80" />}
+                        <span className="truncate">{e.label}</span>
+                      </div>
+                    );
+                  })}
+                  {evts.length > 3 && <span className="text-[10px] text-muted-foreground">+{evts.length - 3} olay</span>}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Seçilen günün detayları */}
+      {selectedDate && (
+        <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+          <div className="px-4 py-3 bg-muted/30 border-b border-border flex flex-wrap items-center gap-2">
+            <Calendar className="size-4 text-muted-foreground shrink-0" />
+            <div>
+              <h3 className="font-semibold text-foreground capitalize">
+                {new Date(selectedDate + 'T12:00:00').toLocaleDateString('tr-TR', { weekday: 'long' })}
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                {new Date(selectedDate + 'T12:00:00').toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                {dayEvents.length > 0 && ` · ${dayEvents.length} olay`}
+              </p>
+            </div>
+          </div>
+          <div className="p-4">
+            {dayEvents.length === 0 ? (
+              <div className="py-8 text-center">
+                <Calendar className="size-10 mx-auto text-muted-foreground/50 mb-2" />
+                <p className="text-sm font-medium text-foreground">Bu günde kayıtlı olay yok</p>
+                <p className="text-xs text-muted-foreground mt-1">Başka bir güne tıklayın veya liste görünümünden duyuru ekleyin.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {dayEvents.map((e, i) => {
+                  const EventIcon = FLOW_EVENT_ICONS[e.type];
+                  return (
+                  <div
+                    key={i}
+                    className={cn('flex flex-col sm:flex-row sm:items-center gap-3 rounded-lg border p-3', e.color)}
+                  >
+                    <div className="flex shrink-0 items-center justify-center rounded-lg bg-background/80 p-2">
+                      {EventIcon && <EventIcon className="size-5 text-muted-foreground" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-foreground text-sm">{e.item.title}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                        <span className="font-medium text-foreground/80">{e.label}</span>
+                        <span>·</span>
+                        <span>{formatDateTime(e.datetime)}</span>
+                      </p>
+                      <span className={cn('inline-flex mt-1 rounded-full px-2 py-0.5 text-xs font-medium', CATEGORY_COLORS[e.item.category_slug ?? e.item.categorySlug ?? ''] ?? 'bg-muted')}>
+                        {EXAM_DUTY_CATEGORIES.find((c) => c.value === (e.item.category_slug ?? e.item.categorySlug))?.label ?? (e.item.category_slug ?? e.item.categorySlug)}
+                      </span>
+                      <span className={cn('ml-1 inline-flex rounded-full px-2 py-0.5 text-xs font-medium', e.item.status === 'published' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300')}>
+                        {e.item.status === 'published' ? 'Yayında' : 'Taslak'}
+                      </span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      {(e.item.application_url ?? e.item.applicationUrl) && (
+                        <a href={e.item.application_url ?? e.item.applicationUrl ?? '#'} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-lg border border-primary/30 bg-primary/5 px-2 py-1.5 text-xs font-medium text-primary hover:bg-primary/10">
+                          <ExternalLink className="size-3.5" /> Başvuru
+                        </a>
+                      )}
+                      {(e.item.source_url ?? e.item.sourceUrl) && (
+                        <a href={e.item.source_url ?? e.item.sourceUrl ?? '#'} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-lg border px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted">
+                          <ExternalLink className="size-3.5" /> Kaynak
+                        </a>
+                      )}
+                      <Button variant="outline" size="sm" onClick={() => onEdit(e.item)} className="gap-1.5">
+                        <Pencil className="size-4" />
+                        Düzenle
+                      </Button>
+                    </div>
+                  </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function SinavGorevleriPage() {
+  const router = useRouter();
+  const { token, me } = useAuth();
+  const [items, setItems] = useState<ExamDutyItem[]>([]);
+  const [calendarItems, setCalendarItems] = useState<ExamDutyItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [categoryFilter, setCategoryFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
+  const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
+  const [mainView, setMainView] = useState<'list' | 'flow-calendar' | 'skipped'>('list');
+  const systemTimeTurkey = useTurkeyClock();
+  const [skippedItems, setSkippedItems] = useState<SkippedItem[]>([]);
+  const [skippedSyncedAt, setSkippedSyncedAt] = useState<string | null>(null);
+  const [skippedLoading, setSkippedLoading] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<ExamDutyItem | null>(null);
+  const [bodyEditRaw, setBodyEditRaw] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDateOpen, setBulkDateOpen] = useState(false);
+  const [bulkDateForm, setBulkDateForm] = useState({ field: 'application_end', value: '' });
+  const [targetCountCache, setTargetCountCache] = useState<Record<string, number>>({});
+  const [syncSources, setSyncSources] = useState<SyncSourceItem[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  const [defaultTimes, setDefaultTimes] = useState<Record<string, string>>({});
+  const [form, setForm] = useState({
+    title: '',
+    category_slug: 'meb',
+    summary: '',
+    body: '',
+    source_url: '',
+    application_url: '',
+    application_start: '',
+    application_end: '',
+    application_approval_end: '',
+    result_date: '',
+    exam_date: '',
+    exam_date_end: '',
+  });
+
+  const isSuperadmin = me?.role === 'superadmin';
+
+  const fetchSyncSources = useCallback(async () => {
+    if (!token || !isSuperadmin) return;
+    try {
+      const sources = await apiFetch<SyncSourceItem[]>('/admin/exam-duties/sync-sources', { token });
+      setSyncSources(Array.isArray(sources) ? sources : []);
+    } catch {
+      setSyncSources([]);
+    }
+  }, [token, isSuperadmin]);
+
+  const fetchExamDutyConfig = useCallback(async () => {
+    if (!token || !isSuperadmin) return;
+    try {
+      const cfg = await apiFetch<{ default_times?: Record<string, string> }>('/app-config/exam-duty-sync', { token });
+      const times = cfg?.default_times ?? {};
+      const valid: Record<string, string> = {};
+      const keys = ['application_start', 'application_end', 'application_approval_end', 'result_date', 'exam_date', 'exam_date_end'];
+      for (const k of keys) {
+        const v = times[k]?.trim();
+        valid[k] = v && /^([01]?\d|2[0-3]):[0-5]\d$/.test(v) ? v : '00:00';
+      }
+      setDefaultTimes(valid);
+    } catch {
+      setDefaultTimes({});
+    }
+  }, [token, isSuperadmin]);
+
+  const fetchSkippedItems = useCallback(async () => {
+    if (!token || !isSuperadmin) return;
+    setSkippedLoading(true);
+    try {
+      const res = await apiFetch<{ items: SkippedItem[]; synced_at: string | null }>(
+        '/admin/exam-duties/sync-last-skipped',
+        { token }
+      );
+      setSkippedItems(Array.isArray(res?.items) ? res.items : []);
+      setSkippedSyncedAt(res?.synced_at ?? null);
+    } catch {
+      setSkippedItems([]);
+      setSkippedSyncedAt(null);
+    } finally {
+      setSkippedLoading(false);
+    }
+  }, [token, isSuperadmin]);
+
+  const effectiveLimit = mainView === 'flow-calendar' ? 500 : limit;
+  const fetchList = useCallback(async (opts?: { forCalendar?: boolean }) => {
+    if (!token || !isSuperadmin) return;
+    const forCalendar = opts?.forCalendar ?? false;
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (categoryFilter) params.set('category_slug', categoryFilter);
+      if (statusFilter && !forCalendar) params.set('status', statusFilter);
+      params.set('page', String(forCalendar ? 1 : page));
+      params.set('limit', String(forCalendar ? 100 : limit));
+      const res = await apiFetch<ListResponse>(`/admin/exam-duties?${params}`, { token });
+      const list = (res.items ?? []).map(normalizeItem);
+      if (forCalendar) {
+        setCalendarItems(list);
+      } else {
+        setItems(list);
+        setTotal(res.total ?? list.length);
+      }
+    } catch {
+      if (forCalendar) setCalendarItems([]);
+      else {
+        setItems([]);
+        setTotal(0);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [token, isSuperadmin, categoryFilter, statusFilter, page, limit]);
+
+  useEffect(() => {
+    if (!isSuperadmin) {
+      router.replace('/403');
+      return;
+    }
+    fetchList();
+    fetchSyncSources();
+    fetchExamDutyConfig();
+  }, [isSuperadmin, router, fetchList, fetchSyncSources, fetchExamDutyConfig]);
+
+  useEffect(() => {
+    if (mainView === 'skipped' && isSuperadmin && token) {
+      fetchSkippedItems();
+    }
+  }, [mainView, isSuperadmin, token, fetchSkippedItems]);
+
+  // Akış Takvimi açıldığında sadece takvim için veri çek (limit 100, backend max; status yok); yayınlanan duyurular dahil tüm tarihler görünsün
+  useEffect(() => {
+    if (mainView === 'flow-calendar' && isSuperadmin && token) {
+      setCalendarItems([]);
+      fetchList({ forCalendar: true });
+    }
+  }, [mainView, isSuperadmin, token, fetchList]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [categoryFilter, statusFilter, limit]);
+
+  const openCreate = () => {
+    setEditing(null);
+    setForm({
+      title: '',
+      category_slug: 'meb',
+      summary: '',
+      body: '',
+      source_url: '',
+      application_url: '',
+      application_start: '',
+      application_end: '',
+      application_approval_end: '',
+      result_date: '',
+      exam_date: '',
+      exam_date_end: '',
+    });
+    setBodyEditRaw(false);
+    setShowForm(true);
+  };
+
+  const openEdit = async (item: ExamDutyItem) => {
+    setEditing(item);
+    setBodyEditRaw(false);
+    setShowForm(true);
+    if (!token || !item.id) return;
+    try {
+      const full = await apiFetch<ExamDutyItem>(`/admin/exam-duties/${item.id}`, { token });
+      const n = normalizeItem(full);
+      setForm({
+        title: n.title,
+        category_slug: (n.category_slug ?? n.categorySlug ?? 'meb') as string,
+        summary: n.summary ?? '',
+        body: n.body ?? '',
+        source_url: n.source_url ?? n.sourceUrl ?? '',
+        application_url: n.application_url ?? n.applicationUrl ?? '',
+        application_start: toDatetimeLocal(n.application_start ?? n.applicationStart) || '',
+        application_end: toDatetimeLocal(n.application_end ?? n.applicationEnd) || '',
+        application_approval_end: toDatetimeLocal(n.application_approval_end ?? n.applicationApprovalEnd) || '',
+        result_date: toDatetimeLocal(n.result_date ?? n.resultDate) || '',
+        exam_date: toDatetimeLocal(n.exam_date ?? n.examDate) || '',
+        exam_date_end: toDatetimeLocal(n.exam_date_end ?? n.examDateEnd) || '',
+      });
+    } catch {
+      const n = normalizeItem(item);
+      setForm({
+        title: n.title,
+        category_slug: (n.category_slug ?? n.categorySlug ?? 'meb') as string,
+        summary: n.summary ?? '',
+        body: n.body ?? '',
+        source_url: n.source_url ?? n.sourceUrl ?? '',
+        application_url: n.application_url ?? n.applicationUrl ?? '',
+        application_start: toDatetimeLocal(n.application_start ?? n.applicationStart) || '',
+        application_end: toDatetimeLocal(n.application_end ?? n.applicationEnd) || '',
+        application_approval_end: toDatetimeLocal(n.application_approval_end ?? n.applicationApprovalEnd) || '',
+        result_date: toDatetimeLocal(n.result_date ?? n.resultDate) || '',
+        exam_date: toDatetimeLocal(n.exam_date ?? n.examDate) || '',
+        exam_date_end: toDatetimeLocal(n.exam_date_end ?? n.examDateEnd) || '',
+      });
+    }
+  };
+
+  const handleSave = async () => {
+    if (!token || !form.title.trim()) {
+      toast.error('Başlık zorunludur.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const body = {
+        title: form.title.trim(),
+        category_slug: form.category_slug,
+        summary: form.summary.trim() || undefined,
+        body: form.body.trim() || undefined,
+        source_url: form.source_url.trim() || undefined,
+        application_url: form.application_url.trim() || undefined,
+        application_start: toIsoForApi(form.application_start, defaultTimes.application_start),
+        application_end: toIsoForApi(form.application_end, defaultTimes.application_end),
+        application_approval_end: toIsoForApi(form.application_approval_end, defaultTimes.application_approval_end),
+        result_date: toIsoForApi(form.result_date, defaultTimes.result_date),
+        exam_date: toIsoForApi(form.exam_date, defaultTimes.exam_date),
+        exam_date_end: toIsoForApi(form.exam_date_end, defaultTimes.exam_date_end),
+      };
+      if (editing) {
+        await apiFetch(`/admin/exam-duties/${editing.id}`, {
+          method: 'PATCH',
+          token,
+          body: JSON.stringify(body),
+        });
+        toast.success('Sınav görevi güncellendi');
+      } else {
+        await apiFetch('/admin/exam-duties', { method: 'POST', token, body: JSON.stringify(body) });
+        toast.success('Sınav görevi oluşturuldu');
+      }
+      setShowForm(false);
+      fetchList();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Kaydedilemedi');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!token || !confirm('Bu sınav görevini silmek istediğinize emin misiniz?')) return;
+    try {
+      await apiFetch(`/admin/exam-duties/${id}`, { method: 'DELETE', token });
+      toast.success('Silindi');
+      fetchList();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Silinemedi');
+    }
+  };
+
+  const fetchTargetCount = useCallback(
+    async (id: string) => {
+      if (!token) return 0;
+      try {
+        const res = await apiFetch<{ count: number }>(`/admin/exam-duties/${id}/target-count`, { token });
+        setTargetCountCache((c) => ({ ...c, [id]: res.count }));
+        return res.count;
+      } catch {
+        return 0;
+      }
+    },
+    [token]
+  );
+
+  const handlePublish = async (id: string) => {
+    if (!token) return;
+    const count = await fetchTargetCount(id);
+    const msg =
+      count > 0
+        ? `Bu sınav görevini yayınlayacaksınız. ${count} öğretmene bildirim gidecek. Devam?`
+        : 'Bu sınav görevini yayınlayacaksınız. (Tercihe uyan öğretmen yok) Devam?';
+    if (!confirm(msg)) return;
+    setSaving(true);
+    try {
+      await apiFetch(`/admin/exam-duties/${id}/publish`, { method: 'POST', token });
+      toast.success('Yayınlandı');
+      fetchList();
+      setSelectedIds((s) => {
+        const next = new Set(s);
+        next.delete(id);
+        return next;
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Yayınlanamadı');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const filteredItems = searchQuery.trim()
+    ? items.filter(
+        (i) =>
+          i.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (i.summary ?? '').toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : items;
+
+  /** Soldan sağa tarihe göre sıralı liste (en erken tarih önce) */
+  const sortedItems = useMemo(() => {
+    return [...filteredItems].sort((a, b) => {
+      const dA = a.application_start ?? a.applicationStart ?? a.exam_date ?? a.examDate ?? '';
+      const dB = b.application_start ?? b.applicationStart ?? b.exam_date ?? b.examDate ?? '';
+      if (!dA && !dB) return 0;
+      if (!dA) return 1;
+      if (!dB) return -1;
+      return new Date(dA).getTime() - new Date(dB).getTime();
+    });
+  }, [filteredItems]);
+
+  const draftItems = filteredItems.filter((i) => i.status === 'draft');
+  const selectedDraftIds = draftItems.filter((i) => selectedIds.has(i.id)).map((i) => i.id);
+  const allDraftsSelected = draftItems.length > 0 && selectedDraftIds.length === draftItems.length;
+
+  const handleBulkPublish = async () => {
+    if (!token || selectedDraftIds.length === 0) return;
+    if (!confirm(`${selectedDraftIds.length} taslak yayınlanacak. Her biri için tercihe uyan öğretmenlere bildirim gidecek. Devam?`)) return;
+    setSaving(true);
+    try {
+      const res = await apiFetch<{ published: number; errors: { id: string; message: string }[] }>(
+        '/admin/exam-duties/bulk-publish',
+        { method: 'POST', token, body: JSON.stringify({ ids: selectedDraftIds }) }
+      );
+      if (res.errors?.length) {
+        toast.warning(`${res.published} yayınlandı, ${res.errors.length} hata.`);
+      } else {
+        toast.success(`${res.published} sınav görevi yayınlandı`);
+      }
+      setSelectedIds(new Set());
+      fetchList();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Toplu yayınlama başarısız');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!token || selectedDraftIds.length === 0) return;
+    if (!confirm(`${selectedDraftIds.length} taslak silinecek. Bu işlem geri alınamaz. Devam?`)) return;
+    setSaving(true);
+    try {
+      const res = await apiFetch<{ deleted: number; errors: { id: string; message: string }[] }>(
+        '/admin/exam-duties/bulk-delete',
+        { method: 'POST', token, body: JSON.stringify({ ids: selectedDraftIds }) }
+      );
+      if (res.errors?.length) {
+        toast.warning(`${res.deleted} silindi, ${res.errors.length} hata.`);
+      } else {
+        toast.success(`${res.deleted} taslak silindi`);
+      }
+      setSelectedIds(new Set());
+      fetchList();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Toplu silme başarısız');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleBulkUpdateDates = async () => {
+    if (!token || selectedDraftIds.length === 0 || !bulkDateForm.value) return;
+    setSaving(true);
+    try {
+      const res = await apiFetch<{ updated: number; errors: { id: string; message: string }[] }>(
+        '/admin/exam-duties/bulk-update-dates',
+        { method: 'POST', token, body: JSON.stringify({ ids: selectedDraftIds, field: bulkDateForm.field, value: bulkDateForm.value }) }
+      );
+      if (res.errors?.length) {
+        toast.warning(`${res.updated} güncellendi, ${res.errors.length} hata.`);
+      } else {
+        toast.success(`${res.updated} taslakta tarih güncellendi`);
+      }
+      setBulkDateOpen(false);
+      setBulkDateForm({ field: 'application_end', value: '' });
+      setSelectedIds(new Set());
+      fetchList();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Toplu tarih güncelleme başarısız');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllDrafts = () => {
+    if (allDraftsSelected) {
+      setSelectedIds((s) => {
+        const next = new Set(s);
+        draftItems.forEach((i) => next.delete(i.id));
+        return next;
+      });
+    } else {
+      setSelectedIds((s) => {
+        const next = new Set(s);
+        draftItems.forEach((i) => next.add(i.id));
+        return next;
+      });
+    }
+  };
+
+  const handleShowTargetCount = async (id: string) => {
+    const count = await fetchTargetCount(id);
+    toast.info(`${count} öğretmene bildirim gidecek`);
+  };
+
+  const handleRunSync = async () => {
+    if (!token) return;
+    setSyncing(true);
+    try {
+      const res = await apiFetch<{
+        ok: boolean;
+        message: string;
+        total_created: number;
+        total_restored?: number;
+        total_gpt_errors?: number;
+        quota_limit?: number;
+        quota_skipped?: number;
+        results?: { source_key: string; created: number; skipped: number; error?: string }[];
+        skipped_items?: SkippedItem[];
+      }>('/admin/exam-duties/sync', { method: 'POST', token });
+      toast.success(res.message);
+      if ((res.total_restored ?? 0) > 0) toast.info(`${res.total_restored} silinen duyuru geri yüklendi`);
+      setSkippedItems(Array.isArray(res.skipped_items) ? res.skipped_items : []);
+      setSkippedSyncedAt(new Date().toISOString());
+      fetchList();
+      fetchSyncSources();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Sync başarısız');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleClearSyncData = async () => {
+    if (!token) return;
+    if (!confirm('Sync ile eklenen tüm taslak duyurular silinecek ve sync sıfırlanacak. Devam?')) return;
+    setSyncing(true);
+    try {
+      const res = await apiFetch<{ deleted: number; sources_reset: number }>('/admin/exam-duties/clear-sync-data', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({}),
+      });
+      toast.success(`${res.deleted} taslak silindi, ${res.sources_reset} kaynak sıfırlandı`);
+      fetchList();
+      fetchSyncSources();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Temizleme başarısız');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const draftCount = items.filter((i) => i.status === 'draft').length;
+  const publishedCount = items.filter((i) => i.status === 'published').length;
+  const totalPages = Math.ceil(total / limit) || 1;
+
+  if (!isSuperadmin) return null;
+
+  return (
+    <div className="space-y-6">
+      <Toolbar>
+        <ToolbarHeading>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-primary/10">
+                <ClipboardList className="size-6 text-primary" />
+              </div>
+              <div>
+                <ToolbarPageTitle>Sınav Görevleri</ToolbarPageTitle>
+                <ToolbarIconHints
+                  compact
+                  items={[
+                    { label: 'Duyuru yönetimi', icon: Megaphone },
+                    { label: 'Yayın ve öğretmen bildirimi', icon: Send },
+                    { label: 'Bildirimler', icon: Bell },
+                  ]}
+                  summary="MEB, ÖSYM vb. sınav görevi duyurularını yönetin. Yayınlayınca tercihe uyan öğretmenlere bildirim gider."
+                />
+                {systemTimeTurkey && (
+                  <p className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground" title="Planlanan bildirimler her gün 09:00 (Türkiye) civarında gider">
+                    <span className="tabular-nums font-medium text-foreground/90">{systemTimeTurkey}</span>
+                    <span className="text-muted-foreground/80">(Türkiye)</span>
+                    <span className="hidden sm:inline">— Bildirimler 09:00&apos;da</span>
+                  </p>
+                )}
+              </div>
+            </div>
+            <ToolbarActions>
+              {selectedDraftIds.length > 0 && (
+                <>
+                  <Button
+                    onClick={handleBulkPublish}
+                    disabled={saving}
+                    variant="default"
+                    className="gap-2"
+                  >
+                    <Send className="size-4" />
+                    Seçilenleri Yayınla ({selectedDraftIds.length})
+                  </Button>
+                  <Button
+                    onClick={handleBulkDelete}
+                    disabled={saving}
+                    variant="destructive"
+                    className="gap-2"
+                  >
+                    <Trash2 className="size-4" />
+                    Seçilenleri Sil ({selectedDraftIds.length})
+                  </Button>
+                  <Button
+                    onClick={() => setBulkDateOpen(true)}
+                    disabled={saving}
+                    variant="outline"
+                    className="gap-2"
+                  >
+                    <CalendarPlus className="size-4" />
+                    Toplu Tarih ({selectedDraftIds.length})
+                  </Button>
+                </>
+              )}
+              <Button onClick={openCreate} className="gap-2">
+                <Plus className="size-4" />
+                Yeni Sınav Görevi
+              </Button>
+            </ToolbarActions>
+          </div>
+        </ToolbarHeading>
+      </Toolbar>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card className="overflow-hidden rounded-xl border-amber-200/60 bg-amber-50/50 shadow-sm dark:border-amber-800/40 dark:bg-amber-950/20">
+          <CardContent className="flex items-center gap-4 p-6">
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/40">
+              <FileEdit className="size-6 text-amber-700 dark:text-amber-400" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-2xl font-bold tabular-nums text-foreground">{draftCount}</p>
+              <p className="text-sm font-medium text-muted-foreground">Taslak</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="overflow-hidden rounded-xl border-green-200/60 bg-green-50/50 shadow-sm dark:border-green-800/40 dark:bg-green-950/20">
+          <CardContent className="flex items-center gap-4 p-6">
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-green-100 dark:bg-green-900/40">
+              <CheckCircle2 className="size-6 text-green-700 dark:text-green-400" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-2xl font-bold tabular-nums text-foreground">{publishedCount}</p>
+              <p className="text-sm font-medium text-muted-foreground">Yayında</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="overflow-hidden rounded-xl border-blue-200/60 bg-blue-50/50 shadow-sm dark:border-blue-800/40 dark:bg-blue-950/20">
+          <CardContent className="flex items-center gap-4 p-6">
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/40">
+              <ClipboardList className="size-6 text-blue-700 dark:text-blue-400" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-2xl font-bold tabular-nums text-foreground">{total}</p>
+              <p className="text-sm font-medium text-muted-foreground">Toplam</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Görünüm seçici: Liste / Akış Takvimi / Atlananlar */}
+      <div className="rounded-xl border border-border/80 bg-card px-4 py-3 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Görünüm</p>
+        <div className="flex flex-wrap items-stretch gap-2">
+          <button
+            type="button"
+            onClick={() => setMainView('list')}
+            title="Duyuruları tablo veya kart olarak listele"
+            className={cn(
+              'flex flex-col items-start gap-0.5 rounded-xl px-4 py-3 text-left min-w-[120px] transition-all border',
+              mainView === 'list'
+                ? 'bg-primary text-primary-foreground border-primary shadow-md'
+                : 'bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent'
+            )}
+          >
+            <span className="flex items-center gap-2 font-medium">
+              <List className="size-4 shrink-0" />
+              Liste
+            </span>
+            <span className={cn('text-xs', mainView === 'list' ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+              Tablo veya kart
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMainView('flow-calendar')}
+            title="Tarihlere göre takvimde görüntüle"
+            className={cn(
+              'flex flex-col items-start gap-0.5 rounded-xl px-4 py-3 text-left min-w-[120px] transition-all border',
+              mainView === 'flow-calendar'
+                ? 'bg-primary text-primary-foreground border-primary shadow-md'
+                : 'bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent'
+            )}
+          >
+            <span className="flex items-center gap-2 font-medium">
+              <CalendarRange className="size-4 shrink-0" />
+              Akış Takvimi
+            </span>
+            <span className={cn('text-xs', mainView === 'flow-calendar' ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+              Tarih bazlı akış
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMainView('skipped')}
+            title="Sync sırasında eklenmeyen kayıtlar"
+            className={cn(
+              'flex flex-col items-start gap-0.5 rounded-xl px-4 py-3 text-left min-w-[120px] transition-all border',
+              mainView === 'skipped'
+                ? 'bg-primary text-primary-foreground border-primary shadow-md'
+                : 'bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent'
+            )}
+          >
+            <span className="flex items-center gap-2 font-medium">
+              <SkipForward className="size-4 shrink-0" />
+              Atlananlar
+            </span>
+            <span className={cn('text-xs', mainView === 'skipped' ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+              Eklenmeyen kayıtlar
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {mainView === 'skipped' && (
+        <Card className="overflow-hidden rounded-xl border-border/80 shadow-sm">
+          <CardHeader className="border-b border-border/50 bg-muted/20">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
+                  <SkipForward className="size-5 text-primary" />
+                </div>
+                <div>
+                  <CardTitle className="text-base font-semibold">Atlanan içerik</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-0.5">Sync sırasında eklenmeyen kayıtlar ve nedenleri</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {skippedSyncedAt && (
+                  <span className="text-xs text-muted-foreground">
+                    Son sync: {new Date(skippedSyncedAt).toLocaleString('tr-TR')}
+                  </span>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fetchSkippedItems()}
+                  disabled={skippedLoading}
+                  className="gap-1.5"
+                >
+                  <RefreshCw className={skippedLoading ? 'size-4 animate-spin' : 'size-4'} />
+                  Yenile
+                </Button>
+              </div>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Sync sırasında eklenmeyen kayıtlar ve atlama nedenleri. Yeni liste için &quot;Şimdi Sync&quot; çalıştırın.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            {skippedLoading ? (
+              <div className="flex min-h-[200px] items-center justify-center py-12">
+                <LoadingSpinner className="size-8" />
+              </div>
+            ) : skippedItems.length === 0 ? (
+              <EmptyState
+                icon={<SkipForward className="size-12 text-muted-foreground" />}
+                title="Atlanan kayıt yok"
+                description="Henüz sync yapılmadı veya son sync'te atlanan içerik bulunmadı. Şimdi Sync ile güncel atlananları görebilirsiniz."
+                className="py-16"
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30">
+                      <th className="px-4 py-3 text-left font-semibold">Kaynak</th>
+                      <th className="px-4 py-3 text-left font-semibold">Başlık</th>
+                      <th className="px-4 py-3 text-left font-semibold">Neden atlandı</th>
+                      <th className="w-20 px-4 py-3 text-right font-semibold">Link</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {skippedItems.map((row, idx) => (
+                      <tr key={idx} className="border-b border-border/50 hover:bg-muted/20">
+                        <td className="px-4 py-2.5 font-medium text-foreground/90">{row.source_label}</td>
+                        <td className="px-4 py-2.5 text-foreground line-clamp-2" title={row.title}>{row.title}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{row.reason}</td>
+                        <td className="px-4 py-2.5 text-right">
+                          {row.url && (
+                            <a
+                              href={row.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                              title="Kaynağı aç"
+                            >
+                              <ExternalLink className="size-4" />
+                            </a>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className="overflow-hidden rounded-xl border-border/80 shadow-sm">
+        <CardHeader className="border-b border-border/50 bg-muted/20">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                <RefreshCw className="size-5 text-primary" />
+                Otomatik Sync
+              </CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                RSS ve scrape kaynaklarından duyurular otomatik çekilir (günde 4 kez). Kaynakları Ayarlar sayfasından yönetin.
+              </p>
+              {Object.keys(defaultTimes).length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground/80">Varsayılan saatler:</span>
+                  {[
+                    { k: 'application_start', l: 'Başvuru Açılış' },
+                    { k: 'application_end', l: 'Son Başvuru' },
+                    { k: 'application_approval_end', l: 'Başvuru Onay' },
+                    { k: 'result_date', l: 'Öncesi hatırlatma' },
+                    { k: 'exam_date', l: 'Sınav' },
+                    { k: 'exam_date_end', l: 'Sonrası hatırlatma' },
+                  ].map(({ k, l }) => (
+                    <span key={k} title={l}>
+                      {l}: {defaultTimes[k] ?? '00:00'}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Link href="/sinav-gorevleri/ayarlar">
+                <Button variant="outline" size="sm" className="gap-2">
+                  <Settings className="size-4" />
+                  Ayarlar
+                </Button>
+              </Link>
+              <Button onClick={handleRunSync} disabled={syncing} variant="outline" className="gap-2">
+                <RefreshCw className={syncing ? 'size-4 animate-spin' : 'size-4'} />
+                {syncing ? 'Sync ediliyor…' : 'Şimdi Sync'}
+              </Button>
+              <Button onClick={handleClearSyncData} disabled={syncing} variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive">
+                Sync Verilerini Temizle
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {syncSources.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground">Henüz sync kaynağı yok. Migration ile varsayılan MEB Personel GM eklenir.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="evrak-admin-table w-full text-sm">
+                <thead>
+                  <tr>
+                    <th>Kaynak</th>
+                    <th>Kategori</th>
+                    <th>Son Sync</th>
+                    <th>Eklenen</th>
+                    <th>Atlanan</th>
+                    <th>Durum</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {syncSources.map((s) => {
+                    const lastAt = s.last_synced_at ?? s.lastSyncedAt;
+                    const created = s.last_result_created ?? s.lastResultCreated ?? 0;
+                    const skipped = s.last_result_skipped ?? s.lastResultSkipped ?? 0;
+                    const err = s.last_result_error ?? s.lastResultError;
+                    return (
+                      <tr key={s.id}>
+                        <td className="font-medium">{s.label}</td>
+                        <td>
+                          <span
+                            className={cn(
+                              'inline-flex rounded-full px-2 py-0.5 text-xs font-medium',
+                              CATEGORY_COLORS[s.category_slug ?? s.categorySlug ?? ''] ?? 'bg-muted text-muted-foreground'
+                            )}
+                          >
+                            {EXAM_DUTY_CATEGORIES.find((c) => c.value === (s.category_slug ?? s.categorySlug))?.label ?? s.category_slug ?? s.categorySlug}
+                          </span>
+                        </td>
+                        <td>{lastAt ? formatDate(lastAt) : '—'}</td>
+                        <td>{created}</td>
+                        <td>{skipped}</td>
+                        <td>
+                          {err ? (
+                            <span className="text-destructive text-xs" title={err}>{err.length > 40 ? `${err.slice(0, 40)}…` : err}</span>
+                          ) : created > 0 ? (
+                            <span className="text-muted-foreground text-xs">OK</span>
+                          ) : skipped > 0 ? (
+                            <span className="text-amber-600 dark:text-amber-400 text-xs" title="Sync tamamlandı, tüm adaylar mevcut/duplicate/filtre nedeniyle atlandı">Tümü atlandı</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {mainView === 'flow-calendar' && (
+        <Card className="overflow-hidden rounded-xl border-border/80 shadow-sm">
+          <CardHeader className="border-b border-border/50 bg-muted/20">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold">
+              <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
+                <CalendarRange className="size-5 text-primary" />
+              </div>
+              Akış Takvimi
+            </CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Başvuru, onay ve sınav tarihlerini takvimde görün. Bir güne tıklayarak o gündeki duyuruları ve olayları listeleyebilir, düzenleyebilirsiniz.
+            </p>
+          </CardHeader>
+          <CardContent className="p-6">
+            {loading && calendarItems.length === 0 ? (
+              <div className="flex min-h-[300px] items-center justify-center">
+                <LoadingSpinner className="size-8" />
+              </div>
+            ) : (
+              <ExamDutyFlowCalendar items={calendarItems} onEdit={openEdit} onSelectDate={() => {}} />
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {mainView === 'list' && (
+      <Card className="overflow-hidden rounded-xl border-border/80 shadow-sm">
+        <CardHeader className="border-b border-border/50 bg-muted/20">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
+                  <ClipboardList className="size-5 text-primary" />
+                </div>
+                <div>
+                  <CardTitle className="text-base font-semibold">Liste</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-0.5">Duyuruları tablo veya kart olarak filtreleyip düzenleyin</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => fetchList()}
+                  disabled={loading}
+                  className="gap-1.5 shrink-0"
+                >
+                  <RefreshCw className={loading ? 'size-4 animate-spin' : 'size-4'} />
+                  Yenile
+                </Button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative min-w-[160px] max-w-[220px]">
+                  <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  <Input
+                    placeholder="Başlık veya özet ara…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="h-10 pl-9"
+                  />
+                </div>
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="h-10 shrink-0 rounded-lg border border-input bg-background px-3 py-2 text-sm min-w-[120px]"
+                  title="Kategori filtresi"
+                >
+                  <option value="">Tüm kategoriler</option>
+                  {EXAM_DUTY_CATEGORIES.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="h-10 shrink-0 rounded-lg border border-input bg-background px-3 py-2 text-sm min-w-[110px]"
+                  title="Durum filtresi (Taslak / Yayında)"
+                >
+                  <option value="">Tüm durumlar</option>
+                  <option value="draft">Taslak</option>
+                  <option value="published">Yayında</option>
+                </select>
+                <div className="flex items-center rounded-lg border border-input bg-background" role="group" aria-label="İçerik görünümü">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('table')}
+                    className={cn(
+                      'rounded-l-lg p-2.5 transition-colors',
+                      viewMode === 'table'
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-muted-foreground hover:bg-muted'
+                    )}
+                    title="Tablo görünümü – satırlar halinde listele"
+                  >
+                    <List className="size-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('cards')}
+                    className={cn(
+                      'rounded-r-lg p-2.5 transition-colors',
+                      viewMode === 'cards'
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-muted-foreground hover:bg-muted'
+                    )}
+                    title="Kart görünümü – kartlar halinde listele"
+                  >
+                    <LayoutGrid className="size-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-4 text-sm">
+              <span className="text-muted-foreground">
+                Toplam <strong className="text-foreground">{total}</strong> kayıt
+              </span>
+              <select
+                value={limit}
+                onChange={(e) => setLimit(Number(e.target.value))}
+                className="h-8 rounded-md border border-input bg-background px-2 py-1 text-sm"
+              >
+                <option value={10}>10 / sayfa</option>
+                <option value={20}>20 / sayfa</option>
+                <option value={50}>50 / sayfa</option>
+              </select>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="flex min-h-[200px] items-center justify-center">
+              <LoadingSpinner className="size-8" />
+            </div>
+          ) : !items.length ? (
+            <EmptyState
+              icon={<ClipboardList className="size-10 text-muted-foreground" />}
+              title="Henüz sınav görevi yok"
+              description="Yeni sınav görevi ekleyip taslak olarak kaydedin. Hazır olduğunda yayınlayın."
+              action={
+                <Button onClick={openCreate} className="gap-2">
+                  <Plus className="size-4" />
+                  Yeni Sınav Görevi Ekle
+                </Button>
+              }
+            />
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-border">
+              {draftItems.length > 0 && (
+                <div className="flex flex-wrap items-center gap-3 border-b border-border bg-primary/5 px-4 py-3">
+                  <label className="flex cursor-pointer select-none items-center gap-2.5 text-sm font-medium">
+                    <input
+                      type="checkbox"
+                      role="checkbox"
+                      aria-label="Tüm taslakları seç"
+                      checked={allDraftsSelected}
+                      onChange={toggleSelectAllDrafts}
+                      className="size-5 shrink-0 rounded border-2 border-primary accent-primary"
+                    />
+                    Tüm taslakları seç ({draftItems.length})
+                  </label>
+                  <span className="text-muted-foreground">·</span>
+                  <span className="text-sm text-muted-foreground">
+                    {selectedDraftIds.length} taslak seçili
+                  </span>
+                </div>
+              )}
+              {viewMode === 'cards' ? (
+                <div className="divide-y divide-border/50 p-4">
+                  {sortedItems.map((i) => {
+                    const n = normalizeItem(i);
+                    const cat = n.category_slug ?? n.categorySlug ?? '';
+                    const appEndPast = isDatePast(n.application_end ?? n.applicationEnd);
+                    const examPast = isDatePast(n.exam_date ?? n.examDate);
+                    const isSelected = selectedIds.has(i.id);
+                    return (
+                      <div
+                        key={i.id}
+                        className={cn(
+                          'group flex flex-col gap-4 py-4 first:pt-0 sm:flex-row sm:items-start sm:justify-between',
+                          (appEndPast || examPast) && 'bg-destructive/5 -mx-4 px-4',
+                          isSelected && 'bg-primary/10 ring-1 ring-primary/20 -mx-4 px-4'
+                        )}
+                      >
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {i.status === 'draft' && (
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleSelect(i.id)}
+                                className="size-5 shrink-0 rounded border-2 border-primary accent-primary"
+                              />
+                            )}
+                            <h3 className="font-semibold text-foreground line-clamp-2">{i.title}</h3>
+                            <span
+                              className={cn(
+                                'inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium',
+                                CATEGORY_COLORS[cat] ?? 'bg-muted text-muted-foreground'
+                              )}
+                            >
+                              {EXAM_DUTY_CATEGORIES.find((c) => c.value === cat)?.label ?? cat}
+                            </span>
+                            <span
+                              className={cn(
+                                'inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium',
+                                i.status === 'published'
+                                  ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+                                  : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                              )}
+                            >
+                              {i.status === 'published' ? 'Yayında' : 'Taslak'}
+                            </span>
+                            {(appEndPast || examPast) && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+                                <AlertTriangle className="size-3" /> Tarih geçti
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                            <span>Başvuru: {renderDateWithStatus(n.application_start ?? n.applicationStart)} – {renderDateWithStatus(n.application_end ?? n.applicationEnd)}</span>
+                            <span>Başvuru Onay: {renderDateWithStatus(n.application_approval_end ?? n.applicationApprovalEnd)}</span>
+                            <span>Sınav: {renderDateWithStatus(n.exam_date ?? n.examDate)} – {renderDateWithStatus(n.exam_date_end ?? n.examDateEnd)}</span>
+                            <span>
+                              Öncesi: {(() => {
+                                const ed = n.exam_date ?? n.examDate;
+                                if (!ed) return '—';
+                                const d = new Date(ed);
+                                d.setDate(d.getDate() - 1);
+                                return renderDateWithStatus(d.toISOString());
+                              })()}
+                            </span>
+                            <span>
+                              Sonrası: {(() => {
+                                const edEnd = n.exam_date_end ?? n.examDateEnd;
+                                if (!edEnd) return '—';
+                                const d = new Date(edEnd);
+                                d.setDate(d.getDate() + 1);
+                                return renderDateWithStatus(d.toISOString());
+                              })()}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openEdit(i)}
+                            className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                            title="Düzenle"
+                          >
+                            <Pencil className="size-4" />
+                          </button>
+                          {i.status === 'draft' && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleShowTargetCount(i.id)}
+                                className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                title="Hedef kitle"
+                              >
+                                <Users className="size-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handlePublish(i.id)}
+                                disabled={saving}
+                                className="rounded-lg p-2 text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:opacity-50"
+                                title="Yayınla"
+                              >
+                                <Send className="size-4" />
+                              </button>
+                            </>
+                          )}
+                          {(n.application_url ?? n.applicationUrl) && (
+                            <a
+                              href={n.application_url ?? n.applicationUrl ?? '#'}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                              title="Başvuru"
+                            >
+                              <ExternalLink className="size-4" />
+                            </a>
+                          )}
+                          {(n.source_url ?? n.sourceUrl) && (
+                            <a
+                              href={n.source_url ?? n.sourceUrl ?? '#'}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                              title="Kaynak"
+                            >
+                              <ExternalLink className="size-4" />
+                            </a>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(i.id)}
+                            className="rounded-lg p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                            title="Sil"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+              <div className="overflow-x-auto rounded-xl border border-border/80 shadow-sm">
+              <table className="exam-duty-table evrak-admin-table w-full min-w-[900px] text-sm">
+                <thead className="sticky top-0 z-10 bg-muted/98 backdrop-blur-sm border-b-2 border-primary/20">
+                  <tr>
+                    <th className="sticky left-0 z-20 w-11 shrink-0 exam-duty-sticky px-2 py-3">
+                      {draftItems.length > 0 ? <span className="sr-only">Seç</span> : null}
+                    </th>
+                    <th className="sticky left-[44px] z-20 w-[140px] min-w-[100px] max-w-[200px] exam-duty-sticky pl-2 pr-3 py-3 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.06)]">
+                      Başlık
+                    </th>
+                    <th className="w-14 shrink-0 px-2 py-3" title="Kategori">Kat.</th>
+                    <th className="w-[90px] min-w-[86px] shrink-0 px-2 py-3 text-left" title="Başvuru Açılış">Bşv. Açılış</th>
+                    <th className="w-[90px] min-w-[86px] shrink-0 px-2 py-3 text-left" title="Son Başvuru">Son Bşv.</th>
+                    <th className="w-[90px] min-w-[86px] shrink-0 px-2 py-3 text-left" title="Başvuru Onay">Onay</th>
+                    <th className="w-[90px] min-w-[86px] shrink-0 px-2 py-3 text-left" title="Öncesi Hatırlatma">Öncesi</th>
+                    <th className="w-[90px] min-w-[86px] shrink-0 px-2 py-3 text-left" title="İlk Sınav">İlk Sınav</th>
+                    <th className="w-[90px] min-w-[86px] shrink-0 px-2 py-3 text-left" title="Son Sınav">Son Sınav</th>
+                    <th className="w-[90px] min-w-[86px] shrink-0 px-2 py-3 text-left" title="Sonrası Hatırlatma">Sonrası</th>
+                    <th className="w-16 shrink-0 px-2 py-3">Durum</th>
+                    <th className="sticky right-0 z-20 w-24 shrink-0 exam-duty-sticky px-3 py-3 text-right shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.06)]">
+                      İşlem
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedItems.map((i) => {
+                    const n = normalizeItem(i);
+                    const appEndPast = isDatePast(n.application_end ?? n.applicationEnd);
+                    const examPast = isDatePast(n.exam_date ?? n.examDate);
+                    const isSelected = selectedIds.has(i.id);
+                    return (
+                      <tr
+                        key={i.id}
+                        className={cn(
+                          'group',
+                          (appEndPast || examPast) && 'bg-destructive/5',
+                          isSelected && 'bg-primary/10 ring-1 ring-primary/20 ring-inset'
+                        )}
+                        data-row-past={(appEndPast || examPast) ? '' : undefined}
+                        data-row-selected={isSelected ? '' : undefined}
+                      >
+                        <td className="sticky left-0 z-10 w-11 shrink-0 exam-duty-sticky px-2 py-2">
+                          {i.status === 'draft' ? (
+                            <input
+                              type="checkbox"
+                              role="checkbox"
+                              aria-label={`${i.title} - seç`}
+                              checked={isSelected}
+                              onChange={() => toggleSelect(i.id)}
+                              className="size-4 shrink-0 rounded border-2 border-primary accent-primary cursor-pointer"
+                            />
+                          ) : (
+                            <span className="inline-block w-4" aria-hidden />
+                          )}
+                        </td>
+                        <td className="sticky left-[44px] z-10 w-[140px] min-w-[100px] max-w-[200px] exam-duty-sticky pl-2 pr-3 py-2 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.06)]">
+                          <span className="font-medium truncate block text-foreground" title={i.title}>{i.title}</span>
+                        </td>
+                        <td className="w-14 shrink-0 px-2 py-2">
+                          <span
+                            className={cn(
+                              'inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium',
+                              CATEGORY_COLORS[n.category_slug ?? n.categorySlug ?? ''] ?? 'bg-muted text-muted-foreground'
+                            )}
+                          >
+                            {EXAM_DUTY_CATEGORIES.find((c) => c.value === (n.category_slug ?? n.categorySlug))?.label ?? n.category_slug ?? n.categorySlug}
+                          </span>
+                        </td>
+                        <td className="w-[90px] min-w-[86px] shrink-0 px-2 py-2 align-top">
+                          {renderDateCompact(n.application_start ?? n.applicationStart)}
+                        </td>
+                        <td className="w-[90px] min-w-[86px] shrink-0 px-2 py-2 align-top">
+                          {renderDateCompact(n.application_end ?? n.applicationEnd)}
+                        </td>
+                        <td className="w-[90px] min-w-[86px] shrink-0 px-2 py-2 align-top">
+                          {renderDateCompact(n.application_approval_end ?? n.applicationApprovalEnd)}
+                        </td>
+                        <td className="w-[90px] min-w-[86px] shrink-0 px-2 py-2 align-top">
+                          {(() => {
+                            const ed = n.exam_date ?? n.examDate;
+                            if (!ed) return <span className="text-muted-foreground">—</span>;
+                            const d = new Date(ed);
+                            d.setDate(d.getDate() - 1);
+                            return renderDateCompact(d.toISOString());
+                          })()}
+                        </td>
+                        <td className="w-[90px] min-w-[86px] shrink-0 px-2 py-2 align-top">
+                          {renderDateCompact(n.exam_date ?? n.examDate)}
+                        </td>
+                        <td className="w-[90px] min-w-[86px] shrink-0 px-2 py-2 align-top">
+                          {renderDateCompact(n.exam_date_end ?? n.examDateEnd)}
+                        </td>
+                        <td className="w-[90px] min-w-[86px] shrink-0 px-2 py-2 align-top">
+                          {(() => {
+                            const edEnd = n.exam_date_end ?? n.examDateEnd;
+                            if (!edEnd) return <span className="text-muted-foreground">—</span>;
+                            const d = new Date(edEnd);
+                            d.setDate(d.getDate() + 1);
+                            return renderDateCompact(d.toISOString());
+                          })()}
+                        </td>
+                        <td className="w-16 shrink-0 px-2 py-2">
+                          <span
+                            className={cn(
+                              'inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium',
+                              i.status === 'published'
+                                ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+                                : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                            )}
+                          >
+                            {i.status === 'published' ? 'Yayında' : 'Taslak'}
+                          </span>
+                        </td>
+                        <td className="sticky right-0 z-10 w-24 shrink-0 exam-duty-sticky px-3 py-2 text-right shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.06)]">
+                          <div className="flex justify-end gap-0.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => openEdit(i)}
+                              className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                              title="Düzenle"
+                            >
+                              <Pencil className="size-4" />
+                            </button>
+                            {i.status === 'draft' && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleShowTargetCount(i.id)}
+                                  className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                  title="Hedef kitle sayısı"
+                                >
+                                  <Users className="size-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handlePublish(i.id)}
+                                  disabled={saving}
+                                  className="rounded p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:opacity-50"
+                                  title="Yayınla"
+                                >
+                                  <Send className="size-4" />
+                                </button>
+                              </>
+                            )}
+                            {(n.application_url ?? n.applicationUrl) && (
+                              <a
+                                href={n.application_url ?? n.applicationUrl ?? '#'}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                title="Başvuru linki"
+                              >
+                                <ExternalLink className="size-4" />
+                              </a>
+                            )}
+                            {(n.source_url ?? n.sourceUrl) && (
+                              <a
+                                href={n.source_url ?? n.sourceUrl ?? '#'}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                title="Kaynağı aç"
+                              >
+                                <ExternalLink className="size-4" />
+                              </a>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(i.id)}
+                              className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                              title="Sil"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              </div>
+              )}
+            </div>
+          )}
+          {items.length > 0 && totalPages > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-4 border-t border-border bg-muted/20 px-4 py-3">
+              <p className="text-sm text-muted-foreground">
+                <strong className="text-foreground">{total}</strong> kayıt · Sayfa <strong className="text-foreground">{page}</strong> / {totalPages}
+              </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage(1)}
+                  className="h-9 w-9 p-0"
+                  title="İlk sayfa"
+                >
+                  <ChevronsLeft className="size-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="h-9 gap-1"
+                >
+                  <ChevronLeft className="size-4" />
+                  Önceki
+                </Button>
+                <span className="px-3 py-1.5 text-sm font-medium text-foreground">
+                  {page} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  className="h-9 gap-1"
+                >
+                  Sonraki
+                  <ChevronRight className="size-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage(totalPages)}
+                  className="h-9 w-9 p-0"
+                  title="Son sayfa"
+                >
+                  <ChevronsRight className="size-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      )}
+
+      <Dialog open={showForm} onOpenChange={setShowForm}>
+        <DialogContent className="max-h-[min(90vh,calc(100dvh-2rem))] max-w-[min(42rem,calc(100vw-2rem))] overflow-y-auto">
+          <h2 className="text-lg font-semibold">{editing ? 'Sınav Görevi Düzenle' : 'Yeni Sınav Görevi'}</h2>
+          <div className="space-y-4">
+            <p className="text-xs text-muted-foreground border-l-2 border-primary/50 pl-3">
+              Başvuru ve sınav tarih/saatleri bildirim zamanlaması için kullanılır. Tarih ve saat girebilirsiniz.
+            </p>
+            <div>
+              <Label htmlFor="egd-title">Başlık *</Label>
+              <Input
+                id="egd-title"
+                value={form.title}
+                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                placeholder="Sınav görevi başlığı"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="egd-cat">Kategori</Label>
+              <div className="mt-1 flex gap-2">
+                <select
+                  id="egd-cat"
+                  value={form.category_slug}
+                  onChange={(e) => setForm((f) => ({ ...f, category_slug: e.target.value }))}
+                  className="h-10 flex-1 min-w-0 rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                >
+                  {EXAM_DUTY_CATEGORIES.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+                {!editing && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 gap-1.5"
+                    onClick={() => {
+                      const sample = EXAM_DUTY_SAMPLES[form.category_slug];
+                      if (sample) {
+                        setForm((f) => ({
+                          ...f,
+                          title: sample.title,
+                          summary: sample.summary,
+                          body: sample.body,
+                          source_url: sample.source_url,
+                          application_url: sample.application_url ?? '',
+                        }));
+                        toast.success(`${EXAM_DUTY_CATEGORIES.find((c) => c.value === form.category_slug)?.label ?? form.category_slug} örnek duyuru yüklendi.`);
+                      }
+                    }}
+                  >
+                    <FileText className="size-4" />
+                    Örnek Yükle
+                  </Button>
+                )}
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="egd-summary">Özet</Label>
+              <Input
+                id="egd-summary"
+                value={form.summary}
+                onChange={(e) => setForm((f) => ({ ...f, summary: e.target.value }))}
+                placeholder="Kısa özet (opsiyonel)"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="egd-body">İçerik</Label>
+              {(() => {
+                const body = form.body?.trim() ?? '';
+                const tableRows = body
+                  .split(/\n+/)
+                  .map((line) => {
+                    const pipe = line.split(/\s*\|\s*/);
+                    if (pipe.length >= 2) return pipe.map((c) => c.trim());
+                    const colon = line.match(/^([^:]+):\s*(.+)$/);
+                    if (colon) return [colon[1].trim(), colon[2].trim()];
+                    return null;
+                  })
+                  .filter((r): r is string[] => Array.isArray(r) && r.length >= 2);
+                const hasTable = tableRows.length > 0 && !bodyEditRaw;
+                if (hasTable) {
+                  return (
+                    <div className="mt-1 space-y-1">
+                      <div className="overflow-x-auto rounded-lg border border-border">
+                        <table className="w-full text-sm">
+                          <tbody>
+                            {tableRows.map((row, i) => (
+                              <tr key={i} className="border-b border-border last:border-0">
+                                {row.map((cell, j) => (
+                                  <td key={j} className="px-3 py-2 align-top">
+                                    {j === 0 ? <span className="font-medium text-muted-foreground">{cell}</span> : cell}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-xs text-muted-foreground"
+                        onClick={() => setBodyEditRaw(true)}
+                      >
+                        İçeriği düzenle
+                      </Button>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="mt-1 space-y-1">
+                    <textarea
+                      id="egd-body"
+                      value={form.body}
+                      onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
+                      placeholder="Etiket: değer formatında satırlar (örn: Son başvuru: 20.03.2026)"
+                      className="w-full min-h-[80px] rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                      rows={3}
+                    />
+                    {tableRows.length > 0 && bodyEditRaw && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-xs text-muted-foreground"
+                        onClick={() => setBodyEditRaw(false)}
+                      >
+                        Tablo görünümüne dön
+                      </Button>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+            <div>
+              <Label htmlFor="egd-url">Kaynak URL</Label>
+              <Input
+                id="egd-url"
+                type="url"
+                value={form.source_url}
+                onChange={(e) => setForm((f) => ({ ...f, source_url: e.target.value }))}
+                placeholder="https://... (duyuru sayfası)"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="egd-app-url">Başvuru linki</Label>
+              <Input
+                id="egd-app-url"
+                type="url"
+                value={form.application_url}
+                onChange={(e) => setForm((f) => ({ ...f, application_url: e.target.value }))}
+                placeholder="https://... (başvuru yapılacak adres, sınava göre)"
+                className="mt-1"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">Kaynak = duyuru; Başvuru = MEB/e-devlet vb. başvuru sayfası</p>
+            </div>
+            <div className="rounded-lg border border-border bg-muted/20 p-4 overflow-visible">
+              <Label className="text-sm font-medium mb-2 block">Tarih ve Saat (opsiyonel)</Label>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 min-w-0">
+                <div className="min-w-[12rem] space-y-1">
+                  <Label htmlFor="egd-app-start" className="text-xs text-muted-foreground">Başvuru Açılış</Label>
+                  <DateTimeInput
+                    id="egd-app-start"
+                    value={form.application_start ?? ''}
+                    onValueChange={(v) => setForm((f) => ({ ...f, application_start: v }))}
+                  />
+                </div>
+                <div className="min-w-[12rem] space-y-1">
+                  <Label htmlFor="egd-app-end" className="text-xs text-muted-foreground">Son Başvuru</Label>
+                  <DateTimeInput
+                    id="egd-app-end"
+                    value={form.application_end ?? ''}
+                    onValueChange={(v) => setForm((f) => ({ ...f, application_end: v }))}
+                  />
+                </div>
+                <div className="min-w-[12rem] space-y-1">
+                  <Label htmlFor="egd-app-approval-end" className="text-xs text-muted-foreground">Başvuru Onay</Label>
+                  <DateTimeInput
+                    id="egd-app-approval-end"
+                    value={form.application_approval_end ?? ''}
+                    onValueChange={(v) => setForm((f) => ({ ...f, application_approval_end: v }))}
+                  />
+                </div>
+                <div className="min-w-[12rem] space-y-1">
+                  <Label htmlFor="egd-result" className="text-xs text-muted-foreground">Sınav öncesi hatırlatma</Label>
+                  <DateTimeInput
+                    id="egd-result"
+                    value={form.result_date ?? ''}
+                    onValueChange={(v) => setForm((f) => ({ ...f, result_date: v }))}
+                  />
+                </div>
+                <div className="min-w-[12rem] space-y-1">
+                  <Label htmlFor="egd-exam" className="text-xs text-muted-foreground">Sınav Tarihi</Label>
+                  <DateTimeInput
+                    id="egd-exam"
+                    value={form.exam_date ?? ''}
+                    onValueChange={(v) => setForm((f) => ({ ...f, exam_date: v }))}
+                  />
+                </div>
+                <div className="min-w-[12rem] space-y-1">
+                  <Label htmlFor="egd-exam-end" className="text-xs text-muted-foreground">Sınav sonrası hatırlatma</Label>
+                  <DateTimeInput
+                    id="egd-exam-end"
+                    value={form.exam_date_end ?? ''}
+                    onValueChange={(v) => setForm((f) => ({ ...f, exam_date_end: v }))}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="outline" onClick={() => setShowForm(false)}>
+              İptal
+            </Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? '…' : editing ? 'Güncelle' : 'Kaydet'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkDateOpen} onOpenChange={setBulkDateOpen}>
+        <DialogContent className="max-w-md">
+          <h3 className="text-lg font-semibold">Toplu Tarih Güncelle</h3>
+          <p className="text-sm text-muted-foreground">{selectedDraftIds.length} taslakta seçilen alan güncellenecek.</p>
+          <div className="space-y-4 pt-2">
+            <div>
+              <Label>Alan</Label>
+              <select
+                value={bulkDateForm.field}
+                onChange={(e) => setBulkDateForm((f) => ({ ...f, field: e.target.value }))}
+                className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="application_start">Başvuru açılış</option>
+                <option value="application_end">Son başvuru</option>
+                <option value="application_approval_end">Onay son gün</option>
+                <option value="result_date">Sonuç tarihi</option>
+                <option value="exam_date">İlk sınav</option>
+                <option value="exam_date_end">Son sınav</option>
+              </select>
+            </div>
+            <div>
+              <Label>Tarih (YYYY-MM-DD)</Label>
+              <Input
+                type="date"
+                value={bulkDateForm.value}
+                onChange={(e) => setBulkDateForm((f) => ({ ...f, value: e.target.value }))}
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="outline" onClick={() => setBulkDateOpen(false)}>İptal</Button>
+            <Button onClick={handleBulkUpdateDates} disabled={saving || !bulkDateForm.value}>Güncelle</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
