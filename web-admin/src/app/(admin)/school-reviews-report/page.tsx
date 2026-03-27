@@ -126,7 +126,7 @@ export default function SchoolReviewsReportPage() {
           </CardHeader>
           <CardContent>
             {report.avg_rating != null ? (
-              <RatingBadge rating={report.avg_rating} size="md" />
+              <RatingBadge rating={report.avg_rating} max={10} size="md" />
             ) : (
               <div className="text-2xl font-bold text-slate-400">—</div>
             )}
@@ -172,7 +172,7 @@ export default function SchoolReviewsReportPage() {
               .filter((c) => report.criteria_averages?.[c.slug] != null)
               .map((c) => {
                 const avg = report.criteria_averages?.[c.slug] ?? 0;
-                const pct = (avg / 5) * 100;
+                const pct = (avg / Math.max(1, c.max_score)) * 100;
                 return (
                   <div key={c.id} className="space-y-2">
                     <div className="flex justify-between text-sm">
@@ -182,7 +182,9 @@ export default function SchoolReviewsReportPage() {
                           <span className="ml-1 font-normal text-slate-500 dark:text-slate-500">({c.hint})</span>
                         )}
                       </span>
-                      <span className="font-semibold text-slate-800 dark:text-slate-100">{avg.toFixed(1)} / 5</span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-100">
+                        {avg.toFixed(1)} / {c.max_score}
+                      </span>
                     </div>
                     <div className="h-2.5 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-700/50">
                       <div
@@ -214,10 +216,7 @@ export default function SchoolReviewsReportPage() {
                   className="rounded-xl border border-slate-200/80 bg-slate-50/50 p-4 text-sm dark:border-slate-700/50 dark:bg-slate-900/20"
                 >
                   <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <span className="font-medium text-slate-700 dark:text-slate-300">
-                      {'★'.repeat(Math.round(r.rating))}
-                      {'☆'.repeat(5 - Math.round(r.rating))} {r.rating}/5
-                    </span>
+                    <RatingBadge rating={r.rating} max={10} size="sm" />
                     <span className="text-xs text-slate-500 dark:text-slate-500">
                       {new Date(r.created_at).toLocaleDateString('tr-TR')}
                     </span>

@@ -27,6 +27,7 @@ import {
   Calendar,
   CalendarClock,
   ClipboardList,
+  ClipboardCheck,
   Mail,
   Megaphone,
   Monitor,
@@ -60,7 +61,7 @@ const CHART_COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)'];
 const MODULE_CATALOG: { key: string; label: string; href: string; icon: LucideIcon }[] = [
   { key: 'duty', label: 'Nöbet', href: '/duty', icon: CalendarClock },
   { key: 'tv', label: 'Duyuru TV', href: '/tv', icon: Tv },
-  { key: 'extra_lesson', label: 'Ek Ders', href: '/extra-lesson-calc', icon: Calculator },
+  { key: 'extra_lesson', label: 'Hesaplamalar', href: '/hesaplamalar', icon: Calculator },
   { key: 'optical', label: 'Optik formlar', href: '/optik-formlar', icon: ScanLine },
   { key: 'smart_board', label: 'Akıllı tahta', href: '/akilli-tahta', icon: Monitor },
   { key: 'teacher_agenda', label: 'Öğretmen ajandası', href: '/ogretmen-ajandasi', icon: ClipboardList },
@@ -70,6 +71,7 @@ const MODULE_CATALOG: { key: string; label: string; href: string; icon: LucideIc
 ];
 /** Modül anahtarı olmayan; her zaman gösterilen yönetim kısayolları */
 const ADMIN_ALWAYS_LINKS: { label: string; href: string; icon: LucideIcon }[] = [
+  { label: 'Öğretmen onay kuyruğu', href: '/school-join-queue', icon: ClipboardCheck },
   { label: 'Akademik takvim', href: '/akademik-takvim', icon: Calendar },
   { label: 'Takvim ayarları', href: '/akademik-takvim-ayarlar', icon: CalendarClock },
   { label: 'Destek kutusu', href: '/support/inbox', icon: Inbox },
@@ -120,8 +122,9 @@ export function SchoolAdminHome({
   allNotificationsUnread,
 }: SchoolAdminHomeProps) {
   const enabledModules = me.school?.enabled_modules ?? null;
-  const totalModules = MODULE_CATALOG.length;
-  const activeCount = MODULE_CATALOG.filter((m) => isModuleEnabled(enabledModules, m.key)).length;
+  const moduleKeysUnique = [...new Set(MODULE_CATALOG.map((m) => m.key))];
+  const totalModules = moduleKeysUnique.length;
+  const activeCount = moduleKeysUnique.filter((k) => isModuleEnabled(enabledModules, k)).length;
   const inactiveCount = Math.max(0, totalModules - activeCount);
   const allOpen = !enabledModules || enabledModules.length === 0;
 
@@ -203,7 +206,7 @@ export function SchoolAdminHome({
               Market
             </Link>
             <Link
-              href="/settings"
+              href="/profile"
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-border/70 bg-background/70 px-3 py-2 text-xs font-medium backdrop-blur-sm transition-colors hover:bg-muted/80"
             >
               <Settings className="size-3.5" />
@@ -407,7 +410,7 @@ export function SchoolAdminHome({
                     <div className="flex flex-wrap gap-1.5">
                       {MODULE_CATALOG.filter((m) => isModuleEnabled(enabledModules, m.key)).map((m) => (
                         <span
-                          key={m.key}
+                          key={`${m.key}-${m.href}`}
                           className="inline-flex items-center gap-1 rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-900 dark:text-emerald-100"
                         >
                           {m.label}
@@ -423,7 +426,7 @@ export function SchoolAdminHome({
                     <div className="flex flex-wrap gap-1.5">
                       {MODULE_CATALOG.filter((m) => !isModuleEnabled(enabledModules, m.key)).map((m) => (
                         <span
-                          key={m.key}
+                          key={`${m.key}-${m.href}`}
                           className="inline-flex items-center gap-1 rounded-full border border-dashed border-muted-foreground/40 bg-muted/50 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
                         >
                           {m.label}
@@ -508,16 +511,16 @@ export function SchoolAdminHome({
             <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
           </Link>
           <Link
-            href="/extra-lesson-calc"
-            className="group flex items-center justify-between rounded-2xl border border-border/70 bg-card/80 p-4 shadow-sm backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-cyan-400/50 hover:shadow-md"
+            href="/hesaplamalar"
+            className="group flex items-center justify-between rounded-2xl border border-border/70 bg-card/80 p-4 shadow-sm backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-violet-400/50 hover:shadow-md sm:col-span-2"
           >
             <div className="flex items-center gap-3">
-              <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500/20 to-cyan-600/10 text-cyan-700 dark:text-cyan-300">
+              <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 to-fuchsia-600/10 text-violet-700 dark:text-violet-300">
                 <Calculator className="size-5" />
               </div>
               <div>
-                <p className="font-semibold text-foreground">Ek ders hesaplama</p>
-                <p className="text-xs text-muted-foreground">Brüt / net</p>
+                <p className="font-semibold text-foreground">Hesaplamalar</p>
+                <p className="text-xs text-muted-foreground">Ek ders, sınav ücreti ve diğer hesaplar</p>
               </div>
             </div>
             <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
@@ -549,7 +552,7 @@ export function SchoolAdminHome({
             const Icon = m.icon;
             return (
               <Link
-                key={m.key}
+                key={`${m.key}-${m.href}`}
                 href={m.href}
                 className="group flex items-center gap-3 rounded-2xl border border-border/60 bg-background/70 px-3 py-3 text-sm transition-all hover:border-primary/35 hover:bg-background hover:shadow-sm"
               >

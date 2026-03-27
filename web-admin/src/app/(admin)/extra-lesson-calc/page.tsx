@@ -15,7 +15,6 @@ import {
   Activity,
   Calculator,
   RotateCcw,
-  RefreshCw,
   BookOpen,
   ClipboardList,
   ChevronDown,
@@ -28,11 +27,10 @@ import {
   Receipt,
   Share2,
   Sparkles,
-  Users,
-  BarChart3,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { apiFetch, getApiUrl } from '@/lib/api';
+import { apiFetch, getApiUrl, isAbortError } from '@/lib/api';
+import { cn } from '@/lib/utils';
 
 const UNVAN_OPTIONS = [
   { value: 'meb_kadrolu', label: 'Kadrolu' },
@@ -82,10 +80,11 @@ function CalcSkeleton() {
 }
 
 export default function ExtraLessonCalcPage() {
-  const { token } = useAuth();
+  const { token, role } = useAuth();
+  const isGuest = !role;
   const [semesterCode, setSemesterCode] = useState('');
-  const { params: p, loading, error, refetch } = useExtraLessonParams(token, semesterCode);
-  const { semesters, refetchSemesters } = useAvailableSemesters(token);
+  const { params: p, loading, error } = useExtraLessonParams(token, semesterCode);
+  const { semesters } = useAvailableSemesters(token);
   const hasAutoSelectedSemester = useRef(false);
 
   useEffect(() => {
@@ -218,20 +217,28 @@ export default function ExtraLessonCalcPage() {
 
   /** Global istatistikler – canlı kullanıcı + toplam hesaplama */
   const [stats, setStats] = useState<{ live_users: number; total_calculations: number } | null>(null);
+  const [statsError, setStatsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (result.net > 0 && result.net !== lastCountedNetRef.current) {
       setCalcCount((c) => c + 1);
       lastCountedNetRef.current = result.net;
-      fetch(getApiUrl('/extra-lesson/stats/calc'), { method: 'POST', headers: { 'Content-Type': 'application/json' } }).catch(() => {});
+      const ac = new AbortController();
+      fetch(getApiUrl('/extra-lesson/stats/calc'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: ac.signal,
+      }).catch(() => {});
+      return () => ac.abort();
     }
     if (result.net === 0) lastCountedNetRef.current = 0;
   }, [result.net]);
 
-  /** Heartbeat – sayfa açıkken canlı kullanıcı sayacı için */
+  /** Heartbeat – sekme gizliyken atlanır; interval unmount’ta temizlenir */
   useEffect(() => {
     if (!p || !sessionId) return;
     const sendHeartbeat = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       fetch(getApiUrl('/extra-lesson/stats/heartbeat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -239,21 +246,46 @@ export default function ExtraLessonCalcPage() {
       }).catch(() => {});
     };
     sendHeartbeat();
-    const iv = setInterval(sendHeartbeat, 30_000);
-    return () => clearInterval(iv);
+    const iv = setInterval(sendHeartbeat, 45_000);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') sendHeartbeat();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(iv);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [p, sessionId]);
 
-  /** İstatistikleri poll et */
+  /** İstatistikleri poll et – önceki istek iptal, sekme gizliyken atla */
   useEffect(() => {
     if (!p) return;
-    const fetchStats = () => {
-      apiFetch<{ live_users: number; total_calculations: number }>('/extra-lesson/stats', { cache: 'no-store' })
-        .then(setStats)
-        .catch(() => setStats(null));
+    let inFlight: AbortController | null = null;
+    const run = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      inFlight?.abort();
+      inFlight = new AbortController();
+      const { signal } = inFlight;
+      apiFetch<{ live_users: number; total_calculations: number }>('/extra-lesson/stats', {
+        cache: 'no-store',
+        signal,
+      })
+        .then((data) => {
+          setStats(data);
+          setStatsError(null);
+        })
+        .catch((e) => {
+          if (isAbortError(e)) return;
+          setStats(null);
+          setStatsError(e instanceof Error ? e.message : 'İstatistikler alınamadı');
+        });
     };
-    fetchStats();
-    const iv = setInterval(fetchStats, 35_000);
-    return () => clearInterval(iv);
+    run();
+    const iv = setInterval(run, 60_000);
+    return () => {
+      clearInterval(iv);
+      inFlight?.abort();
+    };
   }, [p]);
 
   const buildShareText = useCallback(() => {
@@ -370,88 +402,86 @@ export default function ExtraLessonCalcPage() {
   return (
     <div className="relative min-h-screen bg-gradient-to-br from-sky-50/40 via-emerald-50/20 to-amber-50/30 dark:from-zinc-950 dark:via-emerald-950/10 dark:to-zinc-950">
       <div className="mx-auto max-w-6xl px-4 py-6 pb-8 sm:px-6 sm:py-8 sm:pb-12 lg:px-8" style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}>
-        <header className="mb-10 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-emerald-500/15 to-teal-500/15 px-3 py-1 text-xs font-semibold tracking-wide text-emerald-700 dark:from-emerald-500/25 dark:to-teal-500/25 dark:text-emerald-400">
-                <Calculator className="size-3.5" strokeWidth={2.5} />
-                Hesaplama
-              </span>
+        <header
+          className={cn(
+            'mb-10 flex flex-col gap-8 border-b border-zinc-200/80 pb-8 dark:border-zinc-800/80',
+            isGuest && 'mb-8 gap-6 border-zinc-200/60 pb-6 dark:border-zinc-800/60',
+          )}
+        >
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0 max-w-2xl space-y-4">
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-600 dark:text-emerald-400">
+                  Hesaplama aracı
+                </p>
+                <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-4xl">
+                  Ek ders ücreti
+                </h1>
+              </div>
+              <p className="max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400 sm:text-base">
+                Tüm girdiler brüt tutarlar üzerinden. Hesaplama brütten yapılır, sonuç net ücret olarak gösterilir.
+              </p>
               {p && stats && (
-                <div
-                  className="flex items-center gap-4 rounded-2xl border border-violet-200/60 bg-gradient-to-r from-violet-50/90 to-fuchsia-50/90 px-4 py-2 shadow-sm dark:border-violet-800/40 dark:from-violet-950/40 dark:to-fuchsia-950/30"
-                  title="Canlı istatistikler"
+                <dl
+                  className={cn(
+                    'grid grid-cols-2 gap-3 sm:max-w-xl',
+                    calcCount > 0 ? 'sm:grid-cols-3' : 'sm:grid-cols-2',
+                  )}
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="flex size-8 items-center justify-center rounded-lg bg-emerald-500/15 dark:bg-emerald-500/25">
-                      <Users className="size-4 text-emerald-600 dark:text-emerald-400" strokeWidth={2} />
-                    </span>
-                    <div>
-                      <span className="tabular-nums font-bold text-zinc-900 dark:text-zinc-50">{stats.live_users}</span>
-                      <span className="ml-1 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">şu an</span>
-                    </div>
+                  <div className="rounded-xl border border-emerald-200/70 bg-white/90 px-4 py-3 shadow-sm dark:border-emerald-900/40 dark:bg-zinc-900/60">
+                    <dt className="text-[11px] font-medium leading-snug text-zinc-500 dark:text-zinc-400">Canlı kullanıcı</dt>
+                    <dd className="mt-1.5 flex flex-wrap items-baseline gap-1.5 sm:whitespace-nowrap">
+                      <span className="text-xl font-bold tabular-nums text-zinc-900 dark:text-zinc-50">{stats.live_users}</span>
+                      <span className="text-[11px] text-zinc-500 dark:text-zinc-400">şu an</span>
+                    </dd>
                   </div>
-                  <div className="h-4 w-px bg-violet-200 dark:bg-violet-700" />
-                  <div className="flex items-center gap-2">
-                    <span className="flex size-8 items-center justify-center rounded-lg bg-violet-500/15 dark:bg-violet-500/25">
-                      <BarChart3 className="size-4 text-violet-600 dark:text-violet-400" strokeWidth={2} />
-                    </span>
-                    <div>
-                      <span className="tabular-nums font-bold text-zinc-900 dark:text-zinc-50">{formatCompact(stats.total_calculations)}</span>
-                      <span className="ml-1 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">hesaplama</span>
-                    </div>
+                  <div className="rounded-xl border border-violet-200/70 bg-white/90 px-4 py-3 shadow-sm dark:border-violet-900/40 dark:bg-zinc-900/60">
+                    <dt className="text-[11px] font-medium leading-snug text-zinc-500 dark:text-zinc-400">Toplam hesaplama</dt>
+                    <dd className="mt-1.5 sm:whitespace-nowrap">
+                      <span className="text-xl font-bold tabular-nums text-zinc-900 dark:text-zinc-50">
+                        {formatCompact(stats.total_calculations)}
+                      </span>
+                    </dd>
                   </div>
                   {calcCount > 0 && (
-                    <>
-                      <div className="h-4 w-px bg-violet-200 dark:bg-violet-700" />
-                      <div className="flex items-center gap-1.5">
-                        <Activity className="size-4 animate-pulse text-violet-500 dark:text-violet-400" strokeWidth={2} />
-                        <span className="tabular-nums text-xs font-semibold text-violet-700 dark:text-violet-300">{calcCount}</span>
-                        <span className="text-[11px] text-zinc-500 dark:text-zinc-400">bu oturum</span>
-                      </div>
-                    </>
+                    <div className="col-span-2 rounded-xl border border-fuchsia-200/70 bg-gradient-to-br from-fuchsia-50/90 to-violet-50/80 px-4 py-3 shadow-sm dark:border-fuchsia-900/40 dark:from-fuchsia-950/30 dark:to-violet-950/25 sm:col-span-1">
+                      <dt className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                        <Activity className="size-3.5 shrink-0 animate-pulse text-fuchsia-600 dark:text-fuchsia-400" strokeWidth={2} />
+                        Bu oturumda
+                      </dt>
+                      <dd className="mt-1.5 sm:whitespace-nowrap">
+                        <span className="text-xl font-bold tabular-nums text-fuchsia-800 dark:text-fuchsia-200">{calcCount}</span>
+                      </dd>
+                    </div>
                   )}
-                </div>
+                </dl>
+              )}
+              {p && statsError && (
+                <p role="status" className="mt-2 max-w-xl text-xs leading-snug text-amber-800 dark:text-amber-200/90">
+                  {statsError}
+                </p>
               )}
             </div>
-            <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-4xl">
-              Ek Ders Ücreti
-            </h1>
-            <p className="mt-2 max-w-lg text-base text-zinc-600 dark:text-zinc-400">
-              Tüm girdiler brüt tutarlar üzerinden. Hesaplama brütten yapılır, sonuç net ücret olarak gösterilir.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2 self-start">
-            {hasInput && p && (
+            <div className="flex shrink-0 flex-wrap gap-2 lg:flex-col lg:items-stretch lg:pt-1">
+              {hasInput && p && (
+                <button
+                  type="button"
+                  onClick={handleShare}
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-emerald-500 px-4 py-3 text-sm font-medium text-white shadow-sm transition-all hover:border-emerald-400 hover:bg-emerald-600 active:scale-[0.98] dark:border-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                >
+                  <Share2 className="size-4" strokeWidth={2} />
+                  Paylaş
+                </button>
+              )}
               <button
                 type="button"
-                onClick={handleShare}
-                className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-500 px-4 py-3 text-sm font-medium text-white shadow-sm transition-all hover:bg-emerald-600 hover:border-emerald-400 active:scale-[0.98] dark:border-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                onClick={reset}
+                className="group inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50/80 px-5 py-3 text-sm font-medium text-amber-800 transition-all hover:border-amber-300 hover:bg-amber-100 active:scale-[0.98] dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:border-amber-700 dark:hover:bg-amber-950/60"
               >
-                <Share2 className="size-4" strokeWidth={2} />
-                Paylaş
+                <RotateCcw className="size-4 text-amber-600 transition-transform group-hover:-rotate-180 group-hover:duration-500 dark:text-amber-400" strokeWidth={2} />
+                Sıfırla
               </button>
-            )}
-            <button
-              type="button"
-              onClick={reset}
-              className="group inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/80 px-5 py-3 text-sm font-medium text-amber-800 transition-all hover:border-amber-300 hover:bg-amber-100 active:scale-[0.98] dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:border-amber-700 dark:hover:bg-amber-950/60"
-            >
-              <RotateCcw className="size-4 text-amber-600 transition-transform group-hover:-rotate-180 group-hover:duration-500 dark:text-amber-400" strokeWidth={2} />
-              Sıfırla
-            </button>
-            <button
-              type="button"
-              onClick={async () => {
-                const [paramsOk] = await Promise.all([refetch(), refetchSemesters()]);
-                if (paramsOk) toast.success('Parametreler güncellendi');
-              }}
-              disabled={loading}
-              className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm font-medium text-sky-800 transition-all hover:border-sky-300 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:border-sky-700 dark:hover:bg-sky-950/60 disabled:opacity-60"
-            >
-              <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} strokeWidth={2} />
-              Parametreleri yenile
-            </button>
+            </div>
           </div>
         </header>
 
@@ -522,8 +552,8 @@ export default function ExtraLessonCalcPage() {
                   )}
                 </div>
                 <div className="relative space-y-6">
-                  {/* Genel */}
-                  <div className="grid min-w-0 grid-cols-2 gap-4">
+                  {/* Genel — mobilde tek sütun, sm+ iki sütun */}
+                  <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="min-w-0">
                       <label className={`${labelCls} break-words`}>
                         <Calendar className="size-3.5 shrink-0 text-sky-500 dark:text-sky-400" />
@@ -733,16 +763,16 @@ export default function ExtraLessonCalcPage() {
                               return (
                                 <div
                                   key={li.key}
-                                  className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5 ${
+                                  className={`flex flex-col gap-2 rounded-xl border px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3 ${
                                     useNight
                                       ? 'border-indigo-200/60 bg-indigo-50/30 dark:border-indigo-900/40 dark:bg-indigo-950/20'
                                       : 'border-sky-200/50 bg-white dark:border-sky-900/30 dark:bg-zinc-900'
                                   }`}
                                 >
-                                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                                  <span className="min-w-0 w-full text-sm font-medium leading-snug text-zinc-800 break-words sm:flex-1 dark:text-zinc-200">
                                     {li.label}
                                   </span>
-                                  <div className="flex shrink-0 flex-col items-end gap-0.5">
+                                  <div className="flex shrink-0 flex-col items-end gap-0.5 self-end sm:self-start">
                                     <div className="flex items-center gap-2">
                                       <input
                                         type="number"
@@ -753,8 +783,9 @@ export default function ExtraLessonCalcPage() {
                                         onChange={(e) => handleHourChange(li.key, Math.round(parseNum(e.target.value)))}
                                         placeholder="0"
                                         className="min-h-[40px] w-16 rounded-lg border border-zinc-200 bg-white px-2 py-2 text-right text-sm tabular-nums focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-800 sm:w-14"
+                                        aria-label={`${li.label} saat`}
                                       />
-                                      <span className="text-xs text-zinc-500">saat</span>
+                                      <span className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">saat</span>
                                     </div>
                                     {h > 0 && p && (
                                       <span className="text-[11px] text-emerald-600 dark:text-emerald-400">

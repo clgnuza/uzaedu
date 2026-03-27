@@ -1,10 +1,25 @@
-import { Body, Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
-import { IsOptional, IsString, IsNumber, IsArray, IsBoolean, IsIn, MaxLength, ValidateNested, IsObject } from 'class-validator';
+import { Body, Controller, ForbiddenException, Get, Header, Patch, Post, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import {
+  IsOptional,
+  IsString,
+  IsNumber,
+  IsArray,
+  IsBoolean,
+  IsIn,
+  MaxLength,
+  ValidateNested,
+  IsObject,
+  IsInt,
+  Min,
+  Max,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RequireModule } from '../common/decorators/require-module.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
 import { UserRole } from '../types/enums';
 import {
   AppConfigService,
@@ -23,6 +38,7 @@ import {
   WelcomeModuleConfig,
   MarketPolicyConfig,
   DevOpsConfig,
+  ExamDutyFeeCatalog,
 } from './app-config.service';
 
 class UpdateDevOpsDto {
@@ -280,6 +296,28 @@ class UpdateWebPublicDto {
   @IsOptional()
   @IsString()
   terms_url?: string | null;
+
+  @IsOptional()
+  @IsString()
+  footer_copyright_suffix?: string | null;
+
+  @IsOptional()
+  footer_nav_items?: unknown;
+
+  @IsOptional()
+  @IsString()
+  header_brand_subtitle?: string | null;
+
+  @IsOptional()
+  @IsString()
+  header_shell_style?: string | null;
+
+  @IsOptional()
+  @IsString()
+  header_shell_density?: string | null;
+
+  @IsOptional()
+  header_shell_accent?: boolean;
 }
 
 class UpdateMailDto {
@@ -325,6 +363,14 @@ class UpdateWelcomeModuleDto {
   @IsOptional()
   @IsBoolean()
   enabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  popup_enabled?: boolean;
+
+  @IsOptional()
+  @IsIn(['zodiac_auto'])
+  popup_mode?: 'zodiac_auto';
 
   @IsOptional()
   @IsString()
@@ -424,11 +470,19 @@ class UpdateWebExtrasDto {
 
   @IsOptional()
   @IsBoolean()
+  support_enabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   ads_enabled?: boolean;
 
   @IsOptional()
   @IsBoolean()
   ads_web_targeting_requires_cookie_consent?: boolean;
+
+  @IsOptional()
+  @IsObject()
+  guest_public_web_shell_nav?: unknown;
 }
 
 class UpdateGdprDto {
@@ -660,12 +714,16 @@ class UpdateSchoolReviewsDto {
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsInt()
+  @Min(1)
+  @Max(10)
   rating_min?: number;
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsInt()
+  @Min(1)
+  @Max(10)
   rating_max?: number;
 
   @IsOptional()
@@ -719,7 +777,16 @@ export class AppConfigController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.superadmin, UserRole.moderator)
   @RequireModule('school_reviews')
-  async updateSchoolReviewsConfig(@Body() dto: UpdateSchoolReviewsDto): Promise<{ success: boolean }> {
+  async updateSchoolReviewsConfig(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Body() dto: UpdateSchoolReviewsDto,
+  ): Promise<{ success: boolean }> {
+    if (payload.user.role === UserRole.moderator && dto.enabled !== undefined) {
+      throw new ForbiddenException({
+        code: 'FORBIDDEN',
+        message: 'Modül aç/kapa yalnızca süper yönetici tarafından değiştirilebilir.',
+      });
+    }
     await this.service.updateSchoolReviewsConfig(dto);
     return { success: true };
   }
@@ -767,7 +834,7 @@ export class AppConfigController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.superadmin)
   async updateWebPublicConfig(@Body() dto: UpdateWebPublicDto): Promise<{ success: boolean }> {
-    await this.service.updateWebPublicConfig(dto);
+    await this.service.updateWebPublicConfig(dto as Partial<WebPublicConfig>);
     return { success: true };
   }
 
@@ -797,7 +864,7 @@ export class AppConfigController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.superadmin)
   async updateWebExtrasConfig(@Body() dto: UpdateWebExtrasDto): Promise<{ success: boolean }> {
-    await this.service.updateWebExtrasConfig(dto);
+    await this.service.updateWebExtrasConfig(dto as Partial<WebExtrasConfig>);
     return { success: true };
   }
 
@@ -959,6 +1026,33 @@ export class AppConfigController {
     },
   ): Promise<{ success: boolean }> {
     await this.service.updateExamDutySyncConfig(dto);
+    return { success: true };
+  }
+
+  /** Sınav görev ücret referans tablosu — giriş gerekmez (öğretmen paneli). */
+  @Get('exam-duty-fees/public')
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
+  @Header('Cache-Control', 'public, max-age=300, stale-while-revalidate=600')
+  async getExamDutyFeeCatalogPublic(): Promise<ExamDutyFeeCatalog> {
+    return this.service.getExamDutyFeeCatalog();
+  }
+
+  @Get('exam-duty-fees')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('extra_lesson_params')
+  async getExamDutyFeeCatalogAdmin(): Promise<ExamDutyFeeCatalog> {
+    return this.service.getExamDutyFeeCatalog();
+  }
+
+  @Patch('exam-duty-fees')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('extra_lesson_params')
+  async updateExamDutyFeeCatalog(
+    @Body() body: ExamDutyFeeCatalog,
+  ): Promise<{ success: boolean }> {
+    await this.service.updateExamDutyFeeCatalog(body);
     return { success: true };
   }
 }

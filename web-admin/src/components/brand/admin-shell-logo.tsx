@@ -85,13 +85,20 @@ export function AdminShellLogoCollapsed({ className }: { className?: string }) {
   );
 }
 
-export function AdminShellLogoHeaderMobile({ className }: { className?: string }) {
+export function AdminShellLogoHeaderMobile({
+  className,
+  /** Alt satır; misafir herkese açık sayfalarda sayfa bağlamı (varsayılan: Panel) */
+  subtitle,
+}: {
+  className?: string;
+  subtitle?: string;
+}) {
   return (
     <span className={cn('flex min-w-0 items-center gap-2.5', className)}>
       <BrandSeal size="sm" />
       <span className="flex min-w-0 flex-col leading-tight">
         <span className="truncate text-sm font-semibold tracking-tight text-foreground">Öğretmen Pro</span>
-        <span className="text-[10px] text-muted-foreground">Panel</span>
+        <span className="truncate text-[10px] text-muted-foreground">{subtitle ?? 'Panel'}</span>
       </span>
     </span>
   );

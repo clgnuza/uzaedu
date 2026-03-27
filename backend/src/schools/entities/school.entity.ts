@@ -240,6 +240,13 @@ export class School {
   @Column({ type: 'text', nullable: true })
   tv_timetable_schedule: string | null;
 
+  /**
+   * Duyuru TV: Ders programı gridi okul yayınlanmış ders programından üretilsin (varsayılan true).
+   * false ise sadece tv_timetable_schedule (el ile / Excel) kullanılır.
+   */
+  @Column({ type: 'boolean', default: true })
+  tv_timetable_use_school_plan: boolean;
+
   /** Duyuru TV: Doğum günü kartı başlığı. Boşsa varsayılan. */
   @Column({ type: 'varchar', length: 64, nullable: true })
   tv_birthday_card_title: string | null;

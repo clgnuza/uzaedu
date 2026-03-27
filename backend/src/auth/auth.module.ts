@@ -10,6 +10,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { EmailService } from './services/email.service';
 import { TeacherInviteModule } from '../teacher-invite/teacher-invite.module';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { TeacherInviteModule } from '../teacher-invite/teacher-invite.module';
     UsersModule,
     SchoolsModule,
     TeacherInviteModule,
+    MailModule,
   ],
   controllers: [AuthController],
   providers: [FirebaseStrategy, AuthService, EmailService],

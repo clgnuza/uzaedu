@@ -10,6 +10,9 @@ import { CreateContentItemDto } from './dto/create-content-item.dto';
 import { CreateContentChannelDto } from './dto/create-content-channel.dto';
 import { CreateContentSourceDto } from './dto/create-content-source.dto';
 import { paginate } from '../common/dtos/pagination.dto';
+import { AppConfigService } from '../app-config/app-config.service';
+import type { ContentSyncScheduleConfig } from '../app-config/app-config.service';
+import type { UpdateContentSyncScheduleDto } from './dto/update-content-sync-schedule.dto';
 
 /** MEB linklerini https'e normalize et; mixed content engelini önler */
 function normalizeContentUrl(url: string | null | undefined): string {
@@ -29,6 +32,8 @@ function normalizeImageUrl(url: string | null | undefined): string | null {
   return normalized || null;
 }
 
+const HABERLER_FALLBACK_CHANNEL_KEYS = ['haberler', 'meb_duyurulari', 'il_duyurulari'] as const;
+
 @Injectable()
 export class ContentService {
   constructor(
@@ -39,7 +44,43 @@ export class ContentService {
     @InjectRepository(ContentItem)
     private readonly itemRepo: Repository<ContentItem>,
     private readonly syncService: ContentSyncService,
+    private readonly appConfigService: AppConfigService,
   ) {}
+
+  private async getSourceIdsForChannelKeys(channelKeys: readonly string[]) {
+    if (!channelKeys.length) return [];
+    const sources = await this.sourceRepo
+      .createQueryBuilder('source')
+      .innerJoin('source.channels', 'channel')
+      .where('source.isActive = :active', { active: true })
+      .andWhere('channel.key IN (:...channelKeys)', { channelKeys: [...channelKeys] })
+      .select(['source.id'])
+      .distinct(true)
+      .getMany();
+    return sources.map((source) => source.id);
+  }
+
+  async getSyncSchedule(): Promise<{
+    schedule: ContentSyncScheduleConfig;
+    status: Awaited<ReturnType<AppConfigService['getContentSyncStatus']>>;
+  }> {
+    const [schedule, status] = await Promise.all([
+      this.appConfigService.getContentSyncSchedule(),
+      this.appConfigService.getContentSyncStatus(),
+    ]);
+    return { schedule, status };
+  }
+
+  async updateSyncSchedule(dto: UpdateContentSyncScheduleDto): Promise<{
+    schedule: ContentSyncScheduleConfig;
+    status: Awaited<ReturnType<AppConfigService['getContentSyncStatus']>>;
+  }> {
+    const patch: Partial<ContentSyncScheduleConfig> = {};
+    if (dto.enabled !== undefined) patch.enabled = dto.enabled;
+    if (dto.interval_minutes !== undefined) patch.interval_minutes = dto.interval_minutes;
+    await this.appConfigService.updateContentSyncSchedule(patch);
+    return this.getSyncSchedule();
+  }
 
   /** Son kullanıcı: MEB birimleri (sources) - meb_duyurulari kanalına bağlı kaynaklar. Yayın sayfası sekmeleri için. */
   async getMebSources() {
@@ -61,10 +102,14 @@ export class ContentService {
     });
     const result = await Promise.all(
       channels.map(async (ch) => {
-        const count = ch.sources?.length
+        const sourceIds =
+          ch.key === 'haberler'
+            ? await this.getSourceIdsForChannelKeys(HABERLER_FALLBACK_CHANNEL_KEYS)
+            : (ch.sources ?? []).filter((source) => source.isActive).map((source) => source.id);
+        const count = sourceIds.length
           ? await this.itemRepo.count({
               where: {
-                sourceId: In(ch.sources.map((s) => s.id)),
+                sourceId: In(sourceIds),
                 isActive: true,
               },
             })
@@ -85,6 +130,10 @@ export class ContentService {
   async listItems(dto: ListContentItemsDto) {
     const page = dto.page ?? 1;
     const limit = dto.limit ?? 20;
+    const channelSourceIds =
+      dto.channel_key === 'haberler'
+        ? await this.getSourceIdsForChannelKeys(HABERLER_FALLBACK_CHANNEL_KEYS)
+        : [];
 
     const qb = this.itemRepo
       .createQueryBuilder('item')
@@ -94,10 +143,18 @@ export class ContentService {
       .addOrderBy('item.createdAt', 'DESC');
 
     if (dto.channel_key) {
-      qb.innerJoin('channel_sources', 'cs', 'cs.source_id = item.sourceId')
-        .innerJoin('content_channels', 'ch', 'ch.id = cs.channel_id AND ch.key = :channelKey', {
-          channelKey: dto.channel_key,
-        });
+      if (dto.channel_key === 'haberler') {
+        if (channelSourceIds.length) {
+          qb.andWhere('item.sourceId IN (:...channelSourceIds)', { channelSourceIds });
+        } else {
+          qb.andWhere('1 = 0');
+        }
+      } else {
+        qb.innerJoin('channel_sources', 'cs', 'cs.source_id = item.sourceId')
+          .innerJoin('content_channels', 'ch', 'ch.id = cs.channel_id AND ch.key = :channelKey', {
+            channelKey: dto.channel_key,
+          });
+      }
     }
 
     if (dto.content_type) {
@@ -296,7 +353,13 @@ export class ContentService {
   }
 
   async adminSync(): Promise<SyncResult> {
-    return this.syncService.runSync();
+    const result = await this.syncService.runSync();
+    try {
+      await this.appConfigService.recordContentSyncResult(result, 'manual');
+    } catch {
+      /* ignore */
+    }
+    return result;
   }
 
   /** Placeholder (logo, mansetresim) görsellerini temizle */

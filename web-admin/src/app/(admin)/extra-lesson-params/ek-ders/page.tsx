@@ -5,12 +5,25 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { Alert } from '@/components/ui/alert';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Calculator, Table2, Save, ArrowLeft } from 'lucide-react';
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
+  Calculator,
+  Table2,
+  Save,
+  ArrowLeft,
+  Info,
+  Sparkles,
+} from 'lucide-react';
 
 type LineItem = {
   key: string;
@@ -185,20 +198,56 @@ export default function EkDersParamsPage() {
     );
   }
 
+  const activeCount = params.filter((p) => p.is_active).length;
+
   return (
     <div className="space-y-6">
-      <div>
-        <Link
-          href="/extra-lesson-params"
-          className="mb-3 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          Hesaplama Parametreleri
-        </Link>
-        <h1 className="text-xl font-semibold text-foreground">Ek Ders Hesaplama</h1>
-        <p className="text-sm text-muted-foreground">
-          Bütçe dönemleri, gösterge tablosu, birim ücretler ve vergi ayarları.
-        </p>
+      <div className="relative overflow-hidden rounded-2xl border border-border/80 bg-linear-to-br from-primary/6 via-background to-muted/40 p-6 shadow-sm sm:p-8">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="space-y-4">
+            <Link
+              href="/extra-lesson-params"
+              className="inline-flex w-fit items-center gap-2 rounded-full border border-border/80 bg-background/80 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
+            >
+              <ArrowLeft className="size-3.5" aria-hidden />
+              Hesaplama parametreleri özeti
+            </Link>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary shadow-inner">
+                <Calculator className="size-6" aria-hidden />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                    Ek ders parametreleri
+                  </h1>
+                  <span className="rounded-full border border-border bg-background/80 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                    {me?.role === 'superadmin' ? 'Süper yönetici' : 'Moderatör'}
+                  </span>
+                </div>
+                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                  Bütçe dönemleri, gösterge tablosu, birim ücretler ve vergi dilimleri. Değişiklikler ek ders hesaplayıcıda ve
+                  raporlarda kullanılır.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                    <Sparkles className="size-3.5 text-primary" aria-hidden />
+                    {params.length} dönem tanımlı
+                    {activeCount > 0 && (
+                      <span className="text-foreground">· {activeCount} aktif</span>
+                    )}
+                  </span>
+                  <Link
+                    href="/extra-lesson-calc"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-primary/40 bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/10"
+                  >
+                    Hesaplayıcıyı aç →
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <Alert
@@ -209,12 +258,15 @@ export default function EkDersParamsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <Table2 className="size-4" />
-            Gösterge Tablosu (Kalem Şablonları)
+            <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-foreground">
+              <Table2 className="size-4" aria-hidden />
+            </span>
+            Gösterge tablosu (kalem şablonları)
           </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Birim ücretler formül ile hesaplanır: Tutar = Katsayı × Gösterge. Göstergeler bu tabloda düzenlenebilir.
-          </p>
+          <CardDescription className="text-sm">
+            Birim ücretler formül ile hesaplanır: <span className="font-mono text-xs">Tutar = Katsayı × Gösterge</span>.
+            Göstergeler bu tabloda düzenlenebilir.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <IndicatorTable
@@ -246,68 +298,74 @@ export default function EkDersParamsPage() {
         </CardContent>
       </Card>
 
-      <div className="flex flex-wrap justify-end gap-2">
-        {me?.role === 'superadmin' && params.length > 0 && (
-          <>
-            <button
-              type="button"
-              onClick={async () => {
-                if (!token) return;
-                setSaving(true);
-                try {
-                  const res = await apiFetch<{ updated: number }>('/extra-lesson/params/apply-resmi-2026', {
-                    method: 'POST',
-                    token,
-                  });
-                  toast.success(`${res.updated} parametre setinin vergi ve sözleşmeli/ücretli alanları 2026 resmi değerlerine güncellendi`);
-                  fetchParams();
-                } catch (e) {
-                  toast.error('Güncelleme başarısız');
-                } finally {
-                  setSaving(false);
-                }
-              }}
-              disabled={saving}
-              className="flex items-center gap-2 rounded-md border border-emerald-500/50 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 dark:border-emerald-600/30 dark:bg-emerald-950/30 dark:text-emerald-200 dark:hover:bg-emerald-950/50 disabled:opacity-50"
-            >
-              {saving ? 'Güncelleniyor…' : "Vergi Parametrelerini 2026 Resmi Değerlere Güncelle"}
-            </button>
-            <button
-              type="button"
-              onClick={async () => {
-                if (!token) return;
-                setSaving(true);
-                try {
-                  const res = await apiFetch<{ updated: number }>('/extra-lesson/params/refresh-all', {
-                    method: 'POST',
-                    token,
-                  });
-                  toast.success(`${res.updated} parametre seti güncel tabloya göre yenilendi`);
-                  fetchParams();
-                } catch (e) {
-                  toast.error('Güncelleme başarısız');
-                } finally {
-                  setSaving(false);
-                }
-              }}
-              disabled={saving}
-              className="flex items-center gap-2 rounded-md border border-amber-500/50 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-600/30 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-950/50 disabled:opacity-50"
-            >
-              {saving ? 'Güncelleniyor…' : 'Tüm Setleri Tabloya Göre Güncelle'}
-            </button>
-          </>
-        )}
-        <button
-          type="button"
-          onClick={() => {
-            setCreating(true);
-            setEditing(null);
-          }}
-          className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          <Plus className="size-4" />
-          Yeni Dönem Ekle
-        </button>
+      <div className="flex flex-col gap-3 rounded-xl border border-border/80 bg-muted/30 p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <p className="text-sm text-muted-foreground">
+          Toplu güncellemeler sadece süper yöneticide; yeni dönem tüm yetkili rollerle eklenebilir.
+        </p>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {me?.role === 'superadmin' && params.length > 0 && (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={async () => {
+                  if (!token) return;
+                  setSaving(true);
+                  try {
+                    const res = await apiFetch<{ updated: number }>('/extra-lesson/params/apply-resmi-2026', {
+                      method: 'POST',
+                      token,
+                    });
+                    toast.success(`${res.updated} parametre setinin vergi ve sözleşmeli/ücretli alanları 2026 resmi değerlerine güncellendi`);
+                    fetchParams();
+                  } catch (e) {
+                    toast.error('Güncelleme başarısız');
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+                disabled={saving}
+                className="border-emerald-500/50 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 dark:border-emerald-600/30 dark:bg-emerald-950/30 dark:text-emerald-200 dark:hover:bg-emerald-950/50"
+              >
+                {saving ? 'Güncelleniyor…' : '2026 resmi vergi değerleri'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={async () => {
+                  if (!token) return;
+                  setSaving(true);
+                  try {
+                    const res = await apiFetch<{ updated: number }>('/extra-lesson/params/refresh-all', {
+                      method: 'POST',
+                      token,
+                    });
+                    toast.success(`${res.updated} parametre seti güncel tabloya göre yenilendi`);
+                    fetchParams();
+                  } catch (e) {
+                    toast.error('Güncelleme başarısız');
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+                disabled={saving}
+                className="border-amber-500/50 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:border-amber-600/30 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-950/50"
+              >
+                {saving ? 'Güncelleniyor…' : 'Tüm setleri tabloya göre yenile'}
+              </Button>
+            </>
+          )}
+          <Button
+            type="button"
+            onClick={() => {
+              setCreating(true);
+              setEditing(null);
+            }}
+          >
+            <Plus className="size-4" />
+            Yeni dönem ekle
+          </Button>
+        </div>
       </div>
 
       {params.length === 0 && !creating && !editing && (
@@ -429,9 +487,12 @@ export default function EkDersParamsPage() {
         ))}
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        Katsayılar ve göstergeler resmi yayımlara göre güncellenmelidir. Tüm veriler sizin girişinizle yönetilir.
-      </p>
+      <div className="flex gap-3 rounded-xl border border-border/60 bg-muted/25 p-4 text-sm text-muted-foreground">
+        <Info className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden />
+        <p>
+          Katsayılar ve göstergeler resmi yayımlara göre güncellenmelidir. Tüm veriler sizin girişinizle yönetilir.
+        </p>
+      </div>
     </div>
   );
 }
@@ -471,7 +532,7 @@ function IndicatorTable({
 
   return (
     <div className="space-y-3">
-      <div className="overflow-x-auto">
+      <div className="table-x-scroll">
         <table className="w-full min-w-[640px] text-sm">
           <thead>
             <tr className="border-b border-border">
@@ -904,7 +965,7 @@ function ParamForm({ param, onSave, onCancel, saving }: ParamFormProps) {
             <p className="text-xs text-muted-foreground">
               Kadrolu/sözleşmeli için Lisans, Y.Lisans, Doktora farklı birim ücret uygular. Hesaplama bu değerlere göre ölçeklenir.
             </p>
-            <div className="overflow-x-auto rounded border border-border">
+            <div className="table-x-scroll rounded border border-border">
               <table className="w-full min-w-[360px] text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/50">
@@ -1024,7 +1085,7 @@ function ParamForm({ param, onSave, onCancel, saving }: ParamFormProps) {
             <p className="mb-3 text-xs text-muted-foreground">
               Brüt = Katsayı × Gösterge (yukarıdaki aylık katsayı). Gösterge girilen roller otomatik hesaplanır. Sabit TL sütunu gerekirse manuel tutar girişi için.
             </p>
-            <div className="overflow-x-auto">
+            <div className="table-x-scroll">
               <table className="w-full min-w-[480px] text-sm">
                 <thead>
                   <tr className="border-b border-border">

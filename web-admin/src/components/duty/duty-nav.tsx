@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   ClipboardList,
   CalendarRange,
+  CalendarDays,
   ArrowLeftRight,
   SlidersHorizontal,
   Users,
@@ -13,7 +14,6 @@ import {
   BarChart2,
   Settings2,
   ScrollText,
-  Tv2,
   ChevronDown,
   AlertTriangle,
   FileSignature,
@@ -33,6 +33,8 @@ type NavItem = {
   shortLabel?: string;
   icon: LucideIcon;
   adminOnly?: boolean;
+  /** Sadece öğretmen (okul yöneticisi bu sekmeyi görmez) */
+  teacherOnly?: boolean;
   /** Gruplama: 'main' | 'admin' */
   group?: 'main' | 'admin';
   /** Öğretmen için: swap_enabled veya preferences_enabled ile sınırlı (admin her zaman görür) */
@@ -44,6 +46,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/duty', label: 'Takvim', icon: LayoutDashboard, group: 'main' },
   { path: '/duty/planlar', label: 'Nöbet Planları', shortLabel: 'Planlar', icon: CalendarRange, group: 'main' },
   { path: '/duty/gunluk-tablo', label: 'Günlük Liste', icon: ClipboardList, group: 'main' },
+  { path: '/duty/aylik-liste', label: 'Aylık Liste', shortLabel: 'Aylık', icon: CalendarDays, group: 'main', teacherOnly: true },
   { path: '/duty/takas', label: 'Görev Devri', icon: ArrowLeftRight, group: 'main', teacherFeatureKey: 'swap' },
   { path: '/duty/tercihler', label: 'Tercihlerim', icon: SlidersHorizontal, group: 'main', teacherFeatureKey: 'preferences' },
   // Yönetim sekmeleri (admin)
@@ -53,8 +56,143 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/duty/teblig', label: 'Tebliğ', icon: FileSignature, adminOnly: true, group: 'admin' },
   { path: '/duty/yerler', label: 'Ayarlar', icon: Settings2, adminOnly: true, group: 'admin' },
   { path: '/duty/logs', label: 'İşlem Kaydı', icon: ScrollText, adminOnly: true, group: 'admin' },
-  { path: '/tv', label: 'TV Ekranı', icon: Tv2, adminOnly: true, group: 'admin' },
 ];
+
+/** Sekme başına hafif pastel (ikon + hover + aktif ring); mobilde de aynı sınıflar */
+type TabPastel = {
+  icon: string;
+  iconActive: string;
+  idleHover: string;
+  activeExtra: string;
+  dot: string;
+  menuHover: string;
+  menuActive: string;
+};
+
+const TAB_PASTEL: Record<string, TabPastel> = {
+  '/duty': {
+    icon: 'bg-sky-500/12 text-sky-700 dark:bg-sky-500/14 dark:text-sky-300',
+    iconActive: 'bg-sky-500/22 text-sky-800 shadow-sm dark:bg-sky-500/30 dark:text-sky-100',
+    idleHover: 'hover:bg-sky-500/[0.07] dark:hover:bg-sky-500/10',
+    activeExtra: 'ring-1 ring-sky-400/35 dark:ring-sky-400/25',
+    dot: 'bg-sky-500/65',
+    menuHover: 'hover:bg-sky-500/10 dark:hover:bg-sky-500/15',
+    menuActive: 'bg-sky-500/12 text-sky-800 dark:bg-sky-500/18 dark:text-sky-100',
+  },
+  '/duty/planlar': {
+    icon: 'bg-indigo-500/12 text-indigo-700 dark:bg-indigo-500/14 dark:text-indigo-300',
+    iconActive: 'bg-indigo-500/22 text-indigo-800 shadow-sm dark:bg-indigo-500/30 dark:text-indigo-100',
+    idleHover: 'hover:bg-indigo-500/[0.07] dark:hover:bg-indigo-500/10',
+    activeExtra: 'ring-1 ring-indigo-400/35 dark:ring-indigo-400/25',
+    dot: 'bg-indigo-500/65',
+    menuHover: 'hover:bg-indigo-500/10 dark:hover:bg-indigo-500/15',
+    menuActive: 'bg-indigo-500/12 text-indigo-800 dark:bg-indigo-500/18 dark:text-indigo-100',
+  },
+  '/duty/gunluk-tablo': {
+    icon: 'bg-cyan-500/12 text-cyan-800 dark:bg-cyan-500/14 dark:text-cyan-300',
+    iconActive: 'bg-cyan-500/22 text-cyan-900 shadow-sm dark:bg-cyan-500/30 dark:text-cyan-100',
+    idleHover: 'hover:bg-cyan-500/[0.07] dark:hover:bg-cyan-500/10',
+    activeExtra: 'ring-1 ring-cyan-400/35 dark:ring-cyan-400/25',
+    dot: 'bg-cyan-500/65',
+    menuHover: 'hover:bg-cyan-500/10 dark:hover:bg-cyan-500/15',
+    menuActive: 'bg-cyan-500/12 text-cyan-900 dark:bg-cyan-500/18 dark:text-cyan-100',
+  },
+  '/duty/aylik-liste': {
+    icon: 'bg-fuchsia-500/12 text-fuchsia-800 dark:bg-fuchsia-500/14 dark:text-fuchsia-300',
+    iconActive: 'bg-fuchsia-500/22 text-fuchsia-900 shadow-sm dark:bg-fuchsia-500/30 dark:text-fuchsia-100',
+    idleHover: 'hover:bg-fuchsia-500/[0.07] dark:hover:bg-fuchsia-500/10',
+    activeExtra: 'ring-1 ring-fuchsia-400/35 dark:ring-fuchsia-400/25',
+    dot: 'bg-fuchsia-500/65',
+    menuHover: 'hover:bg-fuchsia-500/10 dark:hover:bg-fuchsia-500/15',
+    menuActive: 'bg-fuchsia-500/12 text-fuchsia-900 dark:bg-fuchsia-500/18 dark:text-fuchsia-100',
+  },
+  '/duty/takas': {
+    icon: 'bg-amber-500/14 text-amber-800 dark:bg-amber-500/14 dark:text-amber-300',
+    iconActive: 'bg-amber-500/24 text-amber-900 shadow-sm dark:bg-amber-500/30 dark:text-amber-100',
+    idleHover: 'hover:bg-amber-500/[0.08] dark:hover:bg-amber-500/10',
+    activeExtra: 'ring-1 ring-amber-400/40 dark:ring-amber-400/25',
+    dot: 'bg-amber-500/65',
+    menuHover: 'hover:bg-amber-500/10 dark:hover:bg-amber-500/15',
+    menuActive: 'bg-amber-500/12 text-amber-900 dark:bg-amber-500/18 dark:text-amber-100',
+  },
+  '/duty/tercihler': {
+    icon: 'bg-rose-500/12 text-rose-700 dark:bg-rose-500/14 dark:text-rose-300',
+    iconActive: 'bg-rose-500/22 text-rose-800 shadow-sm dark:bg-rose-500/30 dark:text-rose-100',
+    idleHover: 'hover:bg-rose-500/[0.07] dark:hover:bg-rose-500/10',
+    activeExtra: 'ring-1 ring-rose-400/35 dark:ring-rose-400/25',
+    dot: 'bg-rose-500/65',
+    menuHover: 'hover:bg-rose-500/10 dark:hover:bg-rose-500/15',
+    menuActive: 'bg-rose-500/12 text-rose-800 dark:bg-rose-500/18 dark:text-rose-100',
+  },
+  '/duty/gorevlendirilen': {
+    icon: 'bg-violet-500/12 text-violet-700 dark:bg-violet-500/14 dark:text-violet-300',
+    iconActive: 'bg-violet-500/22 text-violet-800 shadow-sm dark:bg-violet-500/30 dark:text-violet-100',
+    idleHover: 'hover:bg-violet-500/[0.07] dark:hover:bg-violet-500/10',
+    activeExtra: 'ring-1 ring-violet-400/35 dark:ring-violet-400/25',
+    dot: 'bg-violet-500/65',
+    menuHover: 'hover:bg-violet-500/10 dark:hover:bg-violet-500/15',
+    menuActive: 'bg-violet-500/12 text-violet-800 dark:bg-violet-500/18 dark:text-violet-100',
+  },
+  '/duty/gelmeyen': {
+    icon: 'bg-orange-500/12 text-orange-800 dark:bg-orange-500/14 dark:text-orange-300',
+    iconActive: 'bg-orange-500/22 text-orange-900 shadow-sm dark:bg-orange-500/30 dark:text-orange-100',
+    idleHover: 'hover:bg-orange-500/[0.07] dark:hover:bg-orange-500/10',
+    activeExtra: 'ring-1 ring-orange-400/35 dark:ring-orange-400/25',
+    dot: 'bg-orange-500/65',
+    menuHover: 'hover:bg-orange-500/10 dark:hover:bg-orange-500/15',
+    menuActive: 'bg-orange-500/12 text-orange-900 dark:bg-orange-500/18 dark:text-orange-100',
+  },
+  '/duty/ozet': {
+    icon: 'bg-emerald-500/12 text-emerald-800 dark:bg-emerald-500/14 dark:text-emerald-300',
+    iconActive: 'bg-emerald-500/22 text-emerald-900 shadow-sm dark:bg-emerald-500/30 dark:text-emerald-100',
+    idleHover: 'hover:bg-emerald-500/[0.07] dark:hover:bg-emerald-500/10',
+    activeExtra: 'ring-1 ring-emerald-400/35 dark:ring-emerald-400/25',
+    dot: 'bg-emerald-500/65',
+    menuHover: 'hover:bg-emerald-500/10 dark:hover:bg-emerald-500/15',
+    menuActive: 'bg-emerald-500/12 text-emerald-900 dark:bg-emerald-500/18 dark:text-emerald-100',
+  },
+  '/duty/teblig': {
+    icon: 'bg-teal-500/12 text-teal-800 dark:bg-teal-500/14 dark:text-teal-300',
+    iconActive: 'bg-teal-500/22 text-teal-900 shadow-sm dark:bg-teal-500/30 dark:text-teal-100',
+    idleHover: 'hover:bg-teal-500/[0.07] dark:hover:bg-teal-500/10',
+    activeExtra: 'ring-1 ring-teal-400/35 dark:ring-teal-400/25',
+    dot: 'bg-teal-500/65',
+    menuHover: 'hover:bg-teal-500/10 dark:hover:bg-teal-500/15',
+    menuActive: 'bg-teal-500/12 text-teal-900 dark:bg-teal-500/18 dark:text-teal-100',
+  },
+  '/duty/yerler': {
+    icon: 'bg-slate-500/12 text-slate-700 dark:bg-slate-500/18 dark:text-slate-300',
+    iconActive: 'bg-slate-500/22 text-slate-800 shadow-sm dark:bg-slate-500/32 dark:text-slate-100',
+    idleHover: 'hover:bg-slate-500/[0.08] dark:hover:bg-slate-500/12',
+    activeExtra: 'ring-1 ring-slate-400/35 dark:ring-slate-500/30',
+    dot: 'bg-slate-500/60',
+    menuHover: 'hover:bg-slate-500/10 dark:hover:bg-slate-500/15',
+    menuActive: 'bg-slate-500/12 text-slate-800 dark:bg-slate-500/20 dark:text-slate-100',
+  },
+  '/duty/logs': {
+    icon: 'bg-stone-500/12 text-stone-700 dark:bg-stone-500/16 dark:text-stone-300',
+    iconActive: 'bg-stone-500/22 text-stone-800 shadow-sm dark:bg-stone-500/30 dark:text-stone-100',
+    idleHover: 'hover:bg-stone-500/[0.08] dark:hover:bg-stone-500/12',
+    activeExtra: 'ring-1 ring-stone-400/35 dark:ring-stone-500/28',
+    dot: 'bg-stone-500/60',
+    menuHover: 'hover:bg-stone-500/10 dark:hover:bg-stone-500/15',
+    menuActive: 'bg-stone-500/12 text-stone-800 dark:bg-stone-500/18 dark:text-stone-100',
+  },
+};
+
+const PASTEL_FALLBACK: TabPastel = {
+  icon: 'bg-muted/50 text-muted-foreground group-hover/tab:bg-muted group-hover/tab:text-foreground dark:bg-muted/30',
+  iconActive: 'bg-primary/12 text-primary',
+  idleHover: '',
+  activeExtra: '',
+  dot: 'bg-primary/50',
+  menuHover: 'hover:bg-muted/80 hover:text-foreground',
+  menuActive: 'bg-primary/10 text-primary dark:bg-primary/15',
+};
+
+function tabPastelFor(path: string): TabPastel {
+  return TAB_PASTEL[path] ?? PASTEL_FALLBACK;
+}
 
 export function DutyNav() {
   const pathname = usePathname();
@@ -134,6 +272,7 @@ export function DutyNav() {
 
   const isItemVisible = (item: NavItem): boolean => {
     if (item.adminOnly && !isAdmin) return false;
+    if (item.teacherOnly && isAdmin) return false;
     if (isAdmin) return true;
     if (item.teacherFeatureKey && teacherFeatures) {
       if (item.teacherFeatureKey === 'swap') return teacherFeatures.swap_enabled;
@@ -162,132 +301,167 @@ export function DutyNav() {
 
   const activeGroup = activeItem?.group;
 
+  const tabBase =
+    'group/tab inline-flex min-h-[44px] shrink-0 snap-start items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium whitespace-nowrap select-none transition-all duration-200 sm:min-h-9 active:scale-[0.98]';
+  const tabInactive = 'text-muted-foreground';
+  const tabActive =
+    'bg-background text-foreground shadow-[0_2px_12px_-4px_rgba(0,0,0,0.12)] ring-1 ring-border/70 dark:bg-card dark:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.45)] dark:ring-border/60';
+  const iconWrap = 'flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-200';
+  const managementPastel = TAB_PASTEL['/duty/gorevlendirilen']!;
+
   return (
     <div className="mb-6 print:hidden">
-      {/* Başlık + Modül etiketi */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <div className="flex items-center justify-center size-9 rounded-xl bg-primary/10 text-primary">
-            <CalendarRange className="size-5" />
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3.5">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br from-primary/12 to-primary/5 text-primary shadow-inner ring-1 ring-primary/15 dark:from-primary/20 dark:to-primary/5 dark:ring-primary/25">
+            <CalendarRange className="size-5" aria-hidden />
           </div>
-          <div>
-            <h2 className="text-lg font-semibold leading-tight text-foreground">Nöbet Yönetimi</h2>
-            <p className="text-xs text-muted-foreground leading-tight">MEB Madde 91 uyumlu</p>
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold leading-tight tracking-tight text-foreground">Nöbet Yönetimi</h2>
+            <p className="hidden text-xs leading-tight text-muted-foreground sm:block">MEB Madde 91 uyumlu</p>
           </div>
         </div>
-        {/* Rol rozeti */}
-        <span className={cn(
-          'hidden sm:inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border',
-          isAdmin
-            ? 'bg-primary/10 text-primary border-primary/20'
-            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 border-emerald-200 dark:border-emerald-700',
-        )}>
+        <span
+          className={cn(
+            'shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold tracking-wide sm:text-xs',
+            isAdmin
+              ? 'bg-primary/10 text-primary ring-1 ring-primary/20 dark:bg-primary/15 dark:ring-primary/30'
+              : 'bg-emerald-500/10 text-emerald-800 ring-1 ring-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/25',
+          )}
+        >
           {isAdmin ? 'Yönetici' : 'Öğretmen'}
         </span>
       </div>
 
-      {/* Navigasyon */}
       <div className="relative">
-        {/* Arka plan şeridi */}
-        <div className="flex flex-col gap-2 sm:gap-0">
-          {/* Ana sekmeler */}
-          <div className="overflow-x-auto scrollbar-none">
+        <div className="-mx-1 touch-pan-x snap-x snap-mandatory overflow-x-auto overscroll-x-contain px-1 [scrollbar-width:none] sm:snap-none sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
+          <div
+            className={cn(
+              'inline-flex w-max min-w-full flex-nowrap items-center gap-1 rounded-2xl border border-border/50 bg-muted/35 p-1.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)] backdrop-blur-sm dark:border-border/40 dark:bg-muted/25 dark:shadow-[inset_0_1px_2px_rgba(0,0,0,0.2)]',
+              'sm:inline-flex sm:w-auto sm:min-w-0 sm:flex-wrap',
+            )}
+          >
             <nav
-              className="flex items-center gap-1 rounded-xl bg-muted/50 p-1 w-fit min-w-full"
-              aria-label="Nöbet modülü ana sekmeler"
+              className="flex flex-nowrap items-center gap-1 sm:flex-wrap"
+              aria-label="Nöbet modülü sekmeleri"
             >
               {mainItems.map((item) => {
-                const active = item.path === '/duty'
-                  ? pathname === '/duty'
-                  : pathname === item.path || pathname.startsWith(item.path + '/');
+                const active =
+                  item.path === '/duty'
+                    ? pathname === '/duty'
+                    : pathname === item.path || pathname.startsWith(item.path + '/');
+                const p = tabPastelFor(item.path);
                 const Icon = item.icon;
-                const showWarning = isAdmin && pendingCoverageCount > 0 && (item.path === '/duty' || item.path === '/duty/gunluk-tablo');
+                const showWarning =
+                  isAdmin &&
+                  pendingCoverageCount > 0 &&
+                  (item.path === '/duty' || item.path === '/duty/gunluk-tablo');
                 return (
                   <Link
                     key={item.path}
                     href={item.path}
-                    className={cn(
-                      'inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all whitespace-nowrap select-none relative',
-                      active
-                        ? 'bg-white dark:bg-card shadow-sm text-primary'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-white/60 dark:hover:bg-card/60',
-                    )}
+                    className={cn(tabBase, active ? cn(tabActive, p.activeExtra) : cn(tabInactive, p.idleHover))}
                   >
                     <span className="relative inline-flex">
-                      <Icon className="size-4 shrink-0" aria-hidden />
+                      <span className={cn(iconWrap, active ? p.iconActive : p.icon)}>
+                        <Icon className="size-4" aria-hidden />
+                      </span>
                       {showWarning && (
                         <span
-                          className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full bg-amber-500 text-white"
+                          className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-amber-500 text-white shadow-md ring-2 ring-background dark:ring-card"
                           title={`${pendingCoverageCount} devamsız slot için ayarlama bekliyor`}
                         >
-                          <AlertTriangle className="size-2.5" />
+                          <AlertTriangle className="size-2.5" aria-hidden />
                         </span>
                       )}
                     </span>
-                    <span className="hidden sm:inline">{item.shortLabel ?? item.label}</span>
-                    <span className="sm:hidden">{item.shortLabel ?? item.label}</span>
+                    <span className="max-w-38 truncate sm:max-w-none">{item.shortLabel ?? item.label}</span>
                   </Link>
                 );
               })}
 
-              {/* Admin sekmeler — daha büyük ekranda satır içi, mobilde "Yönetim" dropdown */}
               {isAdmin && adminItems.length > 0 && (
                 <>
-                  {/* Ayırıcı */}
-                  <div className="mx-1 h-5 w-px bg-border/60 shrink-0 hidden sm:block" />
+                  <div
+                    className="mx-0.5 hidden h-8 w-px shrink-0 self-center bg-linear-to-b from-transparent via-border to-transparent sm:block"
+                    aria-hidden
+                  />
 
-                  {/* Admin sekmeleri – sm ve üstü */}
                   {adminItems.map((item) => {
                     const active = pathname === item.path || pathname.startsWith(item.path + '/');
+                    const p = tabPastelFor(item.path);
                     const Icon = item.icon;
                     return (
                       <Link
                         key={item.path}
                         href={item.path}
                         className={cn(
-                          'hidden sm:inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all whitespace-nowrap select-none',
-                          active
-                            ? 'bg-white dark:bg-card shadow-sm text-primary'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-white/60 dark:hover:bg-card/60',
+                          tabBase,
+                          'hidden sm:inline-flex',
+                          active ? cn(tabActive, p.activeExtra) : cn(tabInactive, p.idleHover),
                         )}
                       >
-                        <Icon className="size-4 shrink-0" aria-hidden />
-                        {item.shortLabel ?? item.label}
+                        <span className={cn(iconWrap, active ? p.iconActive : p.icon)}>
+                          <Icon className="size-4" aria-hidden />
+                        </span>
+                        <span className="max-w-40 truncate">{item.shortLabel ?? item.label}</span>
                       </Link>
                     );
                   })}
 
-                  {/* Admin sekmeleri – mobil dropdown */}
-                  <div ref={moreRef} className="relative sm:hidden ml-1">
+                  <div ref={moreRef} className="relative shrink-0 sm:hidden">
                     <button
+                      type="button"
                       onClick={() => setMoreOpen((o) => !o)}
                       className={cn(
-                        'inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all whitespace-nowrap select-none',
+                        'group/tab',
+                        tabBase,
+                        'w-full min-w-44 justify-between sm:min-w-0',
                         activeGroup === 'admin'
-                          ? 'bg-white dark:bg-card shadow-sm text-primary'
-                          : 'text-muted-foreground hover:text-foreground hover:bg-white/60',
+                          ? cn(tabActive, managementPastel.activeExtra)
+                          : cn(tabInactive, managementPastel.idleHover),
                       )}
+                      aria-expanded={moreOpen}
+                      aria-haspopup="menu"
                     >
-                      <Settings2 className="size-4 shrink-0" />
-                      Yönetim
-                      <ChevronDown className={cn('size-3 transition-transform', moreOpen && 'rotate-180')} />
+                      <span className="inline-flex items-center gap-2">
+                        <span
+                          className={cn(
+                            iconWrap,
+                            activeGroup === 'admin' ? managementPastel.iconActive : managementPastel.icon,
+                          )}
+                        >
+                          <Settings2 className="size-4" aria-hidden />
+                        </span>
+                        Yönetim
+                      </span>
+                      <ChevronDown className={cn('size-3.5 shrink-0 opacity-60 transition-transform', moreOpen && 'rotate-180')} />
                     </button>
                     {moreOpen && (
-                      <div className="absolute left-0 top-full mt-1 z-50 min-w-[180px] rounded-xl bg-popover border border-border shadow-lg py-1">
+                      <div
+                        className="absolute left-0 top-[calc(100%+8px)] z-50 min-w-[min(100vw-2rem,240px)] overflow-hidden rounded-2xl border border-border/50 bg-popover/95 py-1.5 shadow-xl backdrop-blur-md dark:bg-popover"
+                        role="menu"
+                      >
                         {adminItems.map((item) => {
                           const active = pathname === item.path || pathname.startsWith(item.path + '/');
+                          const p = tabPastelFor(item.path);
                           const Icon = item.icon;
                           return (
                             <Link
                               key={item.path}
                               href={item.path}
+                              role="menuitem"
                               onClick={() => setMoreOpen(false)}
                               className={cn(
-                                'flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors',
-                                active ? 'text-primary bg-primary/5' : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
+                                'mx-1 flex min-h-[48px] items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                                active
+                                  ? cn(p.menuActive, 'font-semibold')
+                                  : cn('text-muted-foreground', p.menuHover, 'hover:text-foreground'),
                               )}
                             >
-                              <Icon className="size-4 shrink-0" />
+                              <span className={cn(iconWrap, active ? p.iconActive : p.icon)}>
+                                <Icon className="size-4" aria-hidden />
+                              </span>
                               {item.label}
                             </Link>
                           );
@@ -300,18 +474,17 @@ export function DutyNav() {
             </nav>
           </div>
         </div>
-
-        {/* Aktif sekme alt çizgisi */}
-        <div className="mt-2 h-px bg-border/40" />
       </div>
 
-      {/* Aktif sayfa breadcrumb */}
       {activeItem && (
-        <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span>Nöbet</span>
-          <span>/</span>
-          <span className="text-foreground font-medium">{activeItem.label}</span>
-        </div>
+        <p className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground/90">
+          <span
+            className={cn('inline-flex h-1.5 w-1.5 rounded-full', tabPastelFor(activeItem.path).dot)}
+            aria-hidden
+          />
+          <span className="uppercase tracking-[0.2em] text-muted-foreground/70">Modül</span>
+          <span className="font-semibold tracking-tight text-foreground">{activeItem.label}</span>
+        </p>
       )}
     </div>
   );

@@ -477,7 +477,7 @@ function ExamDutyFlowCalendar({
           <Button variant="ghost" size="sm" className="h-9 w-9 p-0 shrink-0" onClick={prevMonth} aria-label="Önceki ay">
             <ChevronLeft className="size-4" />
           </Button>
-          <span className="font-semibold text-foreground min-w-[160px] text-center capitalize text-base">{monthLabel}</span>
+          <span className="min-w-0 flex-1 text-center text-base font-semibold capitalize text-foreground">{monthLabel}</span>
           <Button variant="ghost" size="sm" className="h-9 w-9 p-0 shrink-0" onClick={nextMonth} aria-label="Sonraki ay">
             <ChevronRight className="size-4" />
           </Button>
@@ -1201,13 +1201,13 @@ export default function SinavGorevleriPage() {
       {/* Görünüm seçici: Liste / Akış Takvimi / Atlananlar */}
       <div className="rounded-xl border border-border/80 bg-card px-4 py-3 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Görünüm</p>
-        <div className="flex flex-wrap items-stretch gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-stretch">
           <button
             type="button"
             onClick={() => setMainView('list')}
             title="Duyuruları tablo veya kart olarak listele"
             className={cn(
-              'flex flex-col items-start gap-0.5 rounded-xl px-4 py-3 text-left min-w-[120px] transition-all border',
+              'flex min-h-[48px] w-full flex-col items-start gap-0.5 rounded-xl border px-4 py-3 text-left transition-all sm:min-w-[120px] sm:w-auto',
               mainView === 'list'
                 ? 'bg-primary text-primary-foreground border-primary shadow-md'
                 : 'bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent'
@@ -1226,7 +1226,7 @@ export default function SinavGorevleriPage() {
             onClick={() => setMainView('flow-calendar')}
             title="Tarihlere göre takvimde görüntüle"
             className={cn(
-              'flex flex-col items-start gap-0.5 rounded-xl px-4 py-3 text-left min-w-[120px] transition-all border',
+              'flex min-h-[48px] w-full flex-col items-start gap-0.5 rounded-xl border px-4 py-3 text-left transition-all sm:min-w-[120px] sm:w-auto',
               mainView === 'flow-calendar'
                 ? 'bg-primary text-primary-foreground border-primary shadow-md'
                 : 'bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent'
@@ -1245,7 +1245,7 @@ export default function SinavGorevleriPage() {
             onClick={() => setMainView('skipped')}
             title="Sync sırasında eklenmeyen kayıtlar"
             className={cn(
-              'flex flex-col items-start gap-0.5 rounded-xl px-4 py-3 text-left min-w-[120px] transition-all border',
+              'flex min-h-[48px] w-full flex-col items-start gap-0.5 rounded-xl border px-4 py-3 text-left transition-all sm:min-w-[120px] sm:w-auto',
               mainView === 'skipped'
                 ? 'bg-primary text-primary-foreground border-primary shadow-md'
                 : 'bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent'
@@ -1310,7 +1310,7 @@ export default function SinavGorevleriPage() {
                 className="py-16"
               />
             ) : (
-              <div className="overflow-x-auto">
+              <div className="table-x-scroll">
                 <table className="w-full min-w-[640px] text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
@@ -1399,7 +1399,7 @@ export default function SinavGorevleriPage() {
           {syncSources.length === 0 ? (
             <p className="p-6 text-sm text-muted-foreground">Henüz sync kaynağı yok. Migration ile varsayılan MEB Personel GM eklenir.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="table-x-scroll">
               <table className="evrak-admin-table w-full text-sm">
                 <thead>
                   <tr>
@@ -1503,8 +1503,8 @@ export default function SinavGorevleriPage() {
                   Yenile
                 </Button>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="relative min-w-[160px] max-w-[220px]">
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
+                <div className="relative w-full sm:min-w-[160px] sm:max-w-[220px]">
                   <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                   <Input
                     placeholder="Başlık veya özet ara…"
@@ -1516,7 +1516,7 @@ export default function SinavGorevleriPage() {
                 <select
                   value={categoryFilter}
                   onChange={(e) => setCategoryFilter(e.target.value)}
-                  className="h-10 shrink-0 rounded-lg border border-input bg-background px-3 py-2 text-sm min-w-[120px]"
+                  className="h-10 w-full shrink-0 rounded-lg border border-input bg-background px-3 py-2 text-sm sm:w-auto sm:min-w-[120px]"
                   title="Kategori filtresi"
                 >
                   <option value="">Tüm kategoriler</option>
@@ -1527,7 +1527,7 @@ export default function SinavGorevleriPage() {
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="h-10 shrink-0 rounded-lg border border-input bg-background px-3 py-2 text-sm min-w-[110px]"
+                  className="h-10 w-full shrink-0 rounded-lg border border-input bg-background px-3 py-2 text-sm sm:w-auto sm:min-w-[110px]"
                   title="Durum filtresi (Taslak / Yayında)"
                 >
                   <option value="">Tüm durumlar</option>
@@ -1598,7 +1598,7 @@ export default function SinavGorevleriPage() {
               }
             />
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-border">
+            <div className="table-x-scroll rounded-lg border border-border">
               {draftItems.length > 0 && (
                 <div className="flex flex-wrap items-center gap-3 border-b border-border bg-primary/5 px-4 py-3">
                   <label className="flex cursor-pointer select-none items-center gap-2.5 text-sm font-medium">
@@ -1760,7 +1760,7 @@ export default function SinavGorevleriPage() {
                   })}
                 </div>
               ) : (
-              <div className="overflow-x-auto rounded-xl border border-border/80 shadow-sm">
+              <div className="table-x-scroll rounded-xl border border-border/80 shadow-sm">
               <table className="exam-duty-table evrak-admin-table w-full min-w-[900px] text-sm">
                 <thead className="sticky top-0 z-10 bg-muted/98 backdrop-blur-sm border-b-2 border-primary/20">
                   <tr>
@@ -2086,7 +2086,7 @@ export default function SinavGorevleriPage() {
                 if (hasTable) {
                   return (
                     <div className="mt-1 space-y-1">
-                      <div className="overflow-x-auto rounded-lg border border-border">
+                      <div className="table-x-scroll rounded-lg border border-border">
                         <table className="w-full text-sm">
                           <tbody>
                             {tableRows.map((row, i) => (
@@ -2164,7 +2164,7 @@ export default function SinavGorevleriPage() {
             <div className="rounded-lg border border-border bg-muted/20 p-4 overflow-visible">
               <Label className="text-sm font-medium mb-2 block">Tarih ve Saat (opsiyonel)</Label>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 min-w-0">
-                <div className="min-w-[12rem] space-y-1">
+                <div className="min-w-0 space-y-1 sm:min-w-48">
                   <Label htmlFor="egd-app-start" className="text-xs text-muted-foreground">Başvuru Açılış</Label>
                   <DateTimeInput
                     id="egd-app-start"
@@ -2172,7 +2172,7 @@ export default function SinavGorevleriPage() {
                     onValueChange={(v) => setForm((f) => ({ ...f, application_start: v }))}
                   />
                 </div>
-                <div className="min-w-[12rem] space-y-1">
+                <div className="min-w-0 space-y-1 sm:min-w-48">
                   <Label htmlFor="egd-app-end" className="text-xs text-muted-foreground">Son Başvuru</Label>
                   <DateTimeInput
                     id="egd-app-end"
@@ -2180,7 +2180,7 @@ export default function SinavGorevleriPage() {
                     onValueChange={(v) => setForm((f) => ({ ...f, application_end: v }))}
                   />
                 </div>
-                <div className="min-w-[12rem] space-y-1">
+                <div className="min-w-0 space-y-1 sm:min-w-48">
                   <Label htmlFor="egd-app-approval-end" className="text-xs text-muted-foreground">Başvuru Onay</Label>
                   <DateTimeInput
                     id="egd-app-approval-end"
@@ -2188,7 +2188,7 @@ export default function SinavGorevleriPage() {
                     onValueChange={(v) => setForm((f) => ({ ...f, application_approval_end: v }))}
                   />
                 </div>
-                <div className="min-w-[12rem] space-y-1">
+                <div className="min-w-0 space-y-1 sm:min-w-48">
                   <Label htmlFor="egd-result" className="text-xs text-muted-foreground">Sınav öncesi hatırlatma</Label>
                   <DateTimeInput
                     id="egd-result"
@@ -2196,7 +2196,7 @@ export default function SinavGorevleriPage() {
                     onValueChange={(v) => setForm((f) => ({ ...f, result_date: v }))}
                   />
                 </div>
-                <div className="min-w-[12rem] space-y-1">
+                <div className="min-w-0 space-y-1 sm:min-w-48">
                   <Label htmlFor="egd-exam" className="text-xs text-muted-foreground">Sınav Tarihi</Label>
                   <DateTimeInput
                     id="egd-exam"
@@ -2204,7 +2204,7 @@ export default function SinavGorevleriPage() {
                     onValueChange={(v) => setForm((f) => ({ ...f, exam_date: v }))}
                   />
                 </div>
-                <div className="min-w-[12rem] space-y-1">
+                <div className="min-w-0 space-y-1 sm:min-w-48">
                   <Label htmlFor="egd-exam-end" className="text-xs text-muted-foreground">Sınav sonrası hatırlatma</Label>
                   <DateTimeInput
                     id="egd-exam-end"

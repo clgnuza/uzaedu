@@ -14,9 +14,7 @@ import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RequireModule } from '../common/decorators/require-module.decorator';
-import { RequireSchoolModule } from '../common/decorators/require-school-module.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
 import { UserRole } from '../types/enums';
 import { ExtraLessonParamsService } from './extra-lesson-params.service';
 import { ExtraLessonStatsService } from './extra-lesson-stats.service';
@@ -56,22 +54,18 @@ export class ExtraLessonParamsController {
     return { ok: true };
   }
 
-  /** Teacher/moderator: Aktif parametre seti (hesaplama için). 5 dk cache – yoğun kullanımda DB yükünü azaltır. */
+  /** Public + girişli: Aktif parametre seti (hesaplama). Giriş zorunlu değil. 5 dk cache. */
   @Get('params/active')
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Header('Cache-Control', 'public, max-age=300')
-  @UseGuards(JwtAuthGuard, RolesGuard, RequireSchoolModuleGuard)
-  @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
-  @RequireSchoolModule('extra_lesson')
   async getActiveParams(@Query('semester_code') semesterCode?: string) {
     return this.service.getActiveParams(semesterCode ?? undefined);
   }
 
-  /** Teacher/moderator: Bütçe dönemi listesi. 5 dk cache. */
+  /** Public + girişli: Bütçe dönemi listesi. 5 dk cache. */
   @Get('params/available-semesters')
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Header('Cache-Control', 'public, max-age=300')
-  @UseGuards(JwtAuthGuard, RolesGuard, RequireSchoolModuleGuard)
-  @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
-  @RequireSchoolModule('extra_lesson')
   async getAvailableSemesters() {
     return this.service.findAvailableSemesters();
   }

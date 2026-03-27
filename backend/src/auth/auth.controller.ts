@@ -10,9 +10,11 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { FirebaseTokenDto } from './dto/firebase-token.dto';
 import { SchoolsService } from '../schools/schools.service';
 import { User } from '../users/entities/user.entity';
-import { TeacherSchoolMembershipStatus } from '../types/enums';
+import { SchoolType, TeacherSchoolMembershipStatus } from '../types/enums';
 import { effectiveTeacherSchoolMembership } from '../common/utils/teacher-school-membership';
+import { schoolJoinStage } from '../common/utils/school-join-stage';
 import { clearSessionCookie, setSessionCookie } from './auth-cookie';
+import { VerifySchoolEmailDto } from './dto/verify-school-email.dto';
 
 function toUserResponse(user: User) {
   const eff = effectiveTeacherSchoolMembership(user);
@@ -26,6 +28,8 @@ function toUserResponse(user: User) {
     teacher_school_membership: eff,
     school_verified: eff === TeacherSchoolMembershipStatus.approved && !!user.school_id,
     teacher_public_name_masked: user.teacherPublicNameMasked,
+    school_join_stage: schoolJoinStage(user),
+    school_join_email_verified_at: user.schoolJoinEmailVerifiedAt?.toISOString() ?? null,
   };
 }
 
@@ -74,7 +78,7 @@ export class AuthController {
   @Post('register')
   @Throttle({ auth: { limit: 15, ttl: 60000 } })
   @HttpCode(HttpStatus.CREATED)
-  async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
+  async register(@Body() dto: RegisterDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     if (!dto.consent_terms) {
       throw new BadRequestException({
         code: 'CONSENT_REQUIRED',
@@ -89,14 +93,40 @@ export class AuthController {
       dto.invite_code ?? null,
     );
     setSessionCookie(res, token);
+    void this.auditService.log({
+      action: 'register',
+      userId: user.id,
+      schoolId: user.school_id,
+      ip: getClientIp(req),
+      meta: { with_school: !!dto.school_id?.trim() },
+    });
     return { token, user: toUserResponse(user) };
   }
 
   @Get('register-schools')
   @Throttle({ public: { limit: 120, ttl: 60000 } })
-  async registerSchools(@Query('q') q: string, @Query('limit') limit: string) {
+  async registerSchools(
+    @Query('q') q: string,
+    @Query('limit') limit: string,
+    @Query('city') city?: string,
+    @Query('district') district?: string,
+    @Query('type') typeRaw?: string,
+  ) {
     const lim = Math.min(40, Math.max(1, parseInt(limit || '20', 10) || 20));
-    return this.schoolsService.listForRegister(q?.trim() ?? '', lim);
+    const type =
+      typeRaw && (Object.values(SchoolType) as string[]).includes(typeRaw) ? (typeRaw as SchoolType) : undefined;
+    return this.schoolsService.listForRegister(q?.trim() ?? '', lim, {
+      city: city?.trim() || undefined,
+      district: district?.trim() || undefined,
+      type,
+    });
+  }
+
+  @Post('verify-school-email')
+  @Throttle({ auth: { limit: 20, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  async verifySchoolEmail(@Body() dto: VerifySchoolEmailDto) {
+    return this.authService.verifySchoolJoinEmail(dto.token);
   }
 
   @Post('forgot-password')

@@ -1,4 +1,6 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, Header } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, Header, UseGuards } from '@nestjs/common';
+import { OptionalJwtAuthGuard } from '../auth/guards/auth.guard';
+import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
 import { Throttle } from '@nestjs/throttler';
 import { SchoolReviewsService } from './school-reviews.service';
 import { UserRole } from '../types/enums';
@@ -88,32 +90,38 @@ export class SchoolReviewsPublicController {
     return this.service.getSchoolDetail(id, scope);
   }
 
-  /** Okulun değerlendirmeleri – herkese açık. anonymous_id query ile beğeni durumu döner. */
+  /** Okulun değerlendirmeleri – herkese açık. Bearer ile is_own; anonymous_id ile beğeni (giriş yoksa). */
   @Get('schools/:id/reviews')
+  @UseGuards(OptionalJwtAuthGuard)
   @Header('Cache-Control', 'public, max-age=60')
   async listReviews(
     @Param('id') schoolId: string,
+    @CurrentUser() payload: CurrentUserPayload | null,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('sort') sort?: string,
     @Query('anonymous_id') anonymousId?: string,
   ) {
-    const actorKey = anonymousId ? `a:${anonymousId}` : undefined;
-    return this.service.listReviews(schoolId, page ? Number(page) : 1, limit ? Number(limit) : 20, undefined, actorKey, sort || 'newest');
+    const userId = payload?.userId;
+    const actorKey = userId ? undefined : anonymousId ? `a:${anonymousId}` : undefined;
+    return this.service.listReviews(schoolId, page ? Number(page) : 1, limit ? Number(limit) : 20, userId, actorKey, sort || 'newest');
   }
 
-  /** Okulun soruları – herkese açık. anonymous_id query ile beğeni durumu döner. */
+  /** Okulun soruları – herkese açık. Bearer ile is_own; anonymous_id ile beğeni (giriş yoksa). */
   @Get('schools/:id/questions')
+  @UseGuards(OptionalJwtAuthGuard)
   @Header('Cache-Control', 'public, max-age=60')
   async listQuestions(
     @Param('id') schoolId: string,
+    @CurrentUser() payload: CurrentUserPayload | null,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('sort') sort?: string,
     @Query('anonymous_id') anonymousId?: string,
   ) {
-    const actorKey = anonymousId ? `a:${anonymousId}` : undefined;
-    return this.service.listQuestions(schoolId, page ? Number(page) : 1, limit ? Number(limit) : 20, undefined, actorKey, sort || 'newest');
+    const userId = payload?.userId;
+    const actorKey = userId ? undefined : anonymousId ? `a:${anonymousId}` : undefined;
+    return this.service.listQuestions(schoolId, page ? Number(page) : 1, limit ? Number(limit) : 20, userId, actorKey, sort || 'newest');
   }
 
   /** Değerlendirme beğen / beğenmekten vazgeç. Giriş yok – body'de anonymous_id gerekli. */

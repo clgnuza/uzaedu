@@ -32,9 +32,11 @@ import {
   Target,
   User,
   XCircle,
+  Undo2,
   Calculator,
 } from 'lucide-react';
 import { WelcomeMotivationBanner } from '@/components/dashboard/welcome-motivation-banner';
+import { TeacherSchoolJoinBanner } from '@/components/dashboard/teacher-school-join-banner';
 
 function greetingTr(): string {
   const h = new Date().getHours();
@@ -79,6 +81,18 @@ type QuickSection = { label: string; items: QuickItem[] };
 function buildTeacherQuickSections(enabledModules: string[] | null | undefined): QuickSection[] {
   const sections: QuickSection[] = [
     {
+      label: 'Hesaplamalar',
+      items: [
+        {
+          href: '/hesaplamalar',
+          title: 'Hesaplamalar',
+          desc: 'Ek ders, sınav görev ücreti ve diğer hesap sayfaları',
+          icon: Calculator,
+          accent: 'from-violet-500/20 to-fuchsia-500/10 text-violet-800 dark:text-violet-300',
+        },
+      ],
+    },
+    {
       label: 'Plan ve ders',
       items: [
         {
@@ -118,13 +132,6 @@ function buildTeacherQuickSections(enabledModules: string[] | null | undefined):
           icon: Target,
           accent: 'from-blue-500/20 to-cyan-500/10 text-blue-700 dark:text-blue-300',
           schoolModule: 'teacher_agenda',
-        },
-        {
-          href: '/extra-lesson-calc',
-          title: 'Ek ders hesaplama',
-          desc: 'Brüt ve net tahmini',
-          icon: Calculator,
-          accent: 'from-blue-500/20 to-indigo-500/10 text-blue-700 dark:text-blue-300',
         },
       ],
     },
@@ -337,8 +344,9 @@ export function TeacherHome({
   const mySlots = (todayDuty?.slots ?? []).filter((s) => s.user_id === me.id);
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-6 px-3 pb-6 sm:space-y-8 sm:px-4 lg:px-2">
+    <div className="mx-auto w-full max-w-7xl space-y-4 px-3 pb-6 sm:space-y-6 sm:px-4 lg:px-2">
       <WelcomeMotivationBanner />
+      <TeacherSchoolJoinBanner me={me} />
       <section
         className={cn(
           'relative overflow-hidden rounded-2xl border border-border/60 sm:rounded-3xl',
@@ -665,7 +673,9 @@ export function TeacherHome({
                             ? { icon: CheckCircle2, label: 'Onaylandı' }
                             : s.status === 'rejected'
                               ? { icon: XCircle, label: 'Reddedildi' }
-                              : { icon: Clock, label: 'Bekliyor' };
+                              : s.status === 'reverted'
+                                ? { icon: Undo2, label: 'Geri alındı' }
+                                : { icon: Clock, label: 'Bekliyor' };
                         const Icon = cfg.icon;
                         return (
                           <li
@@ -687,6 +697,7 @@ export function TeacherHome({
                                 'inline-flex shrink-0 items-center gap-1 text-xs font-medium',
                                 s.status === 'approved' && 'text-emerald-600 dark:text-emerald-400',
                                 s.status === 'rejected' && 'text-rose-600 dark:text-rose-400',
+                                s.status === 'reverted' && 'text-slate-600 dark:text-slate-400',
                                 s.status === 'pending' && 'text-amber-600 dark:text-amber-400',
                               )}
                             >
@@ -730,7 +741,7 @@ export function TeacherHome({
                 Profilim
               </Link>
               <Link
-                href="/settings"
+                href="/profile"
                 className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-border/60 bg-background/90 px-3 py-2.5 text-sm font-medium transition-colors hover:bg-muted/80 active:bg-muted"
               >
                 <Settings className="size-4 text-muted-foreground" />

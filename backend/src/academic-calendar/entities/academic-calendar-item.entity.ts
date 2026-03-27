@@ -8,6 +8,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { WorkCalendar } from '../../work-calendar/entities/work-calendar.entity';
+import { SchoolType } from '../../types/enums';
 
 export type AcademicCalendarItemType = 'belirli_gun_hafta' | 'ogretmen_isleri';
 
@@ -40,6 +41,10 @@ export class AcademicCalendarItem {
 
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
+
+  /** null veya boş = tüm kurum türleri; aksi halde yalnızca listelenen türler */
+  @Column({ name: 'school_types', type: 'jsonb', nullable: true })
+  schoolTypes: SchoolType[] | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -18,6 +18,7 @@ import {
   Calendar,
   List,
   GripVertical,
+  Search,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
@@ -38,9 +39,12 @@ type RecentLog = {
   created_at: string;
   undone_at: string | null;
   duty_slot_id: string | null;
+  duty_plan_id?: string | null;
   old_user_id: string | null;
   new_user_id: string | null;
   performedByUser?: { display_name: string | null; email: string };
+  oldUser?: { display_name: string | null; email: string } | null;
+  newUser?: { display_name: string | null; email: string } | null;
 };
 type DutySlot = {
   id: string;
@@ -61,10 +65,135 @@ type DutyPlan = {
   slots?: DutySlot[];
 };
 
+const TR_TZ = 'Europe/Istanbul';
+
+/** API tarihi (UTC / ISO) — ofsetsiz tam tarih-saat UTC kabul; gösterim Europe/Istanbul */
+function parseServerDateTime(value: string | Date | null | undefined): Date {
+  if (value == null) return new Date(NaN);
+  if (value instanceof Date) return value;
+  let s = String(value).trim();
+  if (!s) return new Date(NaN);
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s)) s = s.replace(' ', 'T');
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)) return new Date(s);
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) return new Date(`${s}Z`);
+  return new Date(s);
+}
+
+function formatLogDateTime(value: string | Date): string {
+  const d = parseServerDateTime(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('tr-TR', {
+    timeZone: TR_TZ,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
 function formatDate(s: string | null) {
   if (!s) return '—';
   const d = new Date(s + 'T12:00:00');
   return d.toLocaleDateString('tr-TR');
+}
+
+function formatLogUser(u?: { display_name: string | null; email: string } | null) {
+  return u?.display_name?.trim() || u?.email || '';
+}
+
+function defaultDateInPlan(periodStart: string | null, periodEnd: string | null): string {
+  if (!periodStart || !periodEnd) return '';
+  const today = new Date().toISOString().slice(0, 10);
+  if (today >= periodStart && today <= periodEnd) return today;
+  return periodStart;
+}
+
+type DutyAreaItem = { id: string; name: string };
+
+function DutyAreaSelect({
+  value,
+  onChange,
+  areas,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  areas: DutyAreaItem[];
+  className?: string;
+}) {
+  const orphan = value.trim() !== '' && !areas.some((a) => a.name === value);
+  return (
+    <select
+      className={cn(
+        'flex w-full rounded-md border border-input bg-background px-3 py-1 text-sm',
+        className,
+      )}
+      value={orphan ? value : value || ''}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">— Seçilmedi —</option>
+      {orphan ? <option value={value}>{value} (kayıtlı)</option> : null}
+      {areas.map((a) => (
+        <option key={a.id} value={a.name}>
+          {a.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** Aynı nöbet yeri her zaman aynı palet indeksi (liste + takvim) */
+const AREA_SLOT_PALETTE = [
+  'bg-sky-50/90 border-sky-300/80 dark:bg-sky-950/35 dark:border-sky-800/80',
+  'bg-emerald-50/90 border-emerald-300/80 dark:bg-emerald-950/35 dark:border-emerald-800/80',
+  'bg-amber-50/90 border-amber-300/80 dark:bg-amber-950/35 dark:border-amber-800/80',
+  'bg-violet-50/90 border-violet-300/80 dark:bg-violet-950/35 dark:border-violet-800/80',
+  'bg-rose-50/90 border-rose-300/80 dark:bg-rose-950/35 dark:border-rose-800/80',
+  'bg-cyan-50/90 border-cyan-300/80 dark:bg-cyan-950/35 dark:border-cyan-800/80',
+  'bg-fuchsia-50/90 border-fuchsia-300/80 dark:bg-fuchsia-950/35 dark:border-fuchsia-800/80',
+  'bg-lime-50/90 border-lime-300/80 dark:bg-lime-950/35 dark:border-lime-800/80',
+  'bg-indigo-50/90 border-indigo-300/80 dark:bg-indigo-950/35 dark:border-indigo-800/80',
+  'bg-orange-50/90 border-orange-300/80 dark:bg-orange-950/35 dark:border-orange-800/80',
+  'bg-teal-50/90 border-teal-300/80 dark:bg-teal-950/35 dark:border-teal-800/80',
+  'bg-pink-50/90 border-pink-300/80 dark:bg-pink-950/35 dark:border-pink-800/80',
+];
+
+const AREA_SLOT_NEUTRAL =
+  'bg-muted/30 border-dashed border-border/70 dark:bg-muted/20';
+
+function areaKeyFromName(areaName: string | null | undefined): number | null {
+  const s = (areaName ?? '').trim();
+  if (!s) return null;
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return Math.abs(h) % AREA_SLOT_PALETTE.length;
+}
+
+function areaSlotBoxClass(areaName: string | null | undefined): string {
+  const k = areaKeyFromName(areaName);
+  if (k === null) return AREA_SLOT_NEUTRAL;
+  return AREA_SLOT_PALETTE[k];
+}
+
+function logDetailLine(log: RecentLog): string | null {
+  if (log.action === 'reassign' && (log.oldUser || log.newUser)) {
+    return `${formatLogUser(log.oldUser) || '—'} → ${formatLogUser(log.newUser) || '—'}`;
+  }
+  if (log.action === 'absent_marked' && formatLogUser(log.oldUser)) {
+    return formatLogUser(log.oldUser);
+  }
+  if (log.action === 'coverage_assigned' && (formatLogUser(log.oldUser) || formatLogUser(log.newUser))) {
+    const a = formatLogUser(log.oldUser);
+    const b = formatLogUser(log.newUser);
+    if (a && b) return `${a} → ${b}`;
+    return a || b;
+  }
+  return null;
 }
 
 export default function DutyPlanDetayPage() {
@@ -76,6 +205,7 @@ export default function DutyPlanDetayPage() {
 
   const [plan, setPlan] = useState<DutyPlan | null>(null);
   const [teachers, setTeachers] = useState<UserItem[]>([]);
+  const [dutyAreas, setDutyAreas] = useState<DutyAreaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -106,6 +236,37 @@ export default function DutyPlanDetayPage() {
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [dragSlotId, setDragSlotId] = useState<string | null>(null);
   const [swapping, setSwapping] = useState(false);
+  const [newSlotTeacherQuery, setNewSlotTeacherQuery] = useState('');
+  const [newSlotTeacherOpen, setNewSlotTeacherOpen] = useState(false);
+  const newSlotTeacherRef = useRef<HTMLDivElement>(null);
+
+  const teachersSorted = useMemo(() => {
+    return [...teachers].sort((a, b) => {
+      const na = (a.display_name || a.email).toLocaleLowerCase('tr');
+      const nb = (b.display_name || b.email).toLocaleLowerCase('tr');
+      return na.localeCompare(nb, 'tr');
+    });
+  }, [teachers]);
+
+  const filteredTeachersForNewSlot = useMemo(() => {
+    const q = newSlotTeacherQuery.trim().toLowerCase();
+    if (!q) return teachersSorted;
+    return teachersSorted.filter(
+      (t) =>
+        (t.display_name ?? '').toLowerCase().includes(q) ||
+        (t.email ?? '').toLowerCase().includes(q),
+    );
+  }, [teachersSorted, newSlotTeacherQuery]);
+
+  useEffect(() => {
+    if (!newSlotTeacherOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      const el = newSlotTeacherRef.current;
+      if (el && !el.contains(e.target as Node)) setNewSlotTeacherOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [newSlotTeacherOpen]);
 
   const fetchPlan = useCallback(async () => {
     if (!token || !planId) return;
@@ -122,15 +283,15 @@ export default function DutyPlanDetayPage() {
     }
   }, [token, planId]);
 
-  const fetchRecentLogs = useCallback(async () => {
-    if (!token || !isAdmin) return;
+  const fetchPlanLogs = useCallback(async () => {
+    if (!token || !isAdmin || !planId) return;
     try {
-      const logs = await apiFetch<RecentLog[]>('/duty/logs?limit=8', { token });
+      const logs = await apiFetch<RecentLog[]>(`/duty/plans/${planId}/logs?limit=30`, { token });
       setRecentLogs(Array.isArray(logs) ? logs : []);
     } catch {
       setRecentLogs([]);
     }
-  }, [token, isAdmin]);
+  }, [token, isAdmin, planId]);
 
   const handleUndo = async (logId: string) => {
     if (!token) return;
@@ -138,7 +299,7 @@ export default function DutyPlanDetayPage() {
     try {
       await apiFetch(`/duty/undo/${logId}`, { token, method: 'POST' });
       toast.success('İşlem geri alındı.');
-      await Promise.all([fetchPlan(), fetchRecentLogs()]);
+      await Promise.all([fetchPlan(), fetchPlanLogs()]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Geri alınamadı.');
     } finally {
@@ -156,17 +317,30 @@ export default function DutyPlanDetayPage() {
     }
   }, [token, isAdmin]);
 
+  const fetchDutyAreas = useCallback(async () => {
+    if (!token || !isAdmin) return;
+    try {
+      const list = await apiFetch<DutyAreaItem[]>('/duty/areas', { token });
+      setDutyAreas(Array.isArray(list) ? list : []);
+    } catch {
+      setDutyAreas([]);
+    }
+  }, [token, isAdmin]);
+
   useEffect(() => {
     fetchPlan();
   }, [fetchPlan]);
 
   useEffect(() => {
-    if (isAdmin) fetchTeachers();
-  }, [isAdmin, fetchTeachers]);
+    if (isAdmin) {
+      fetchTeachers();
+      fetchDutyAreas();
+    }
+  }, [isAdmin, fetchTeachers, fetchDutyAreas]);
 
   useEffect(() => {
-    if (isAdmin) fetchRecentLogs();
-  }, [isAdmin, fetchRecentLogs]);
+    if (isAdmin) fetchPlanLogs();
+  }, [isAdmin, fetchPlanLogs]);
 
   const handleStartEdit = (slot: DutySlot) => {
     setEditingId(slot.id);
@@ -203,7 +377,7 @@ export default function DutyPlanDetayPage() {
       });
       toast.success('Nöbet kaydı güncellendi.');
       handleCancelEdit();
-      fetchPlan();
+      await Promise.all([fetchPlan(), fetchPlanLogs()]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Güncellenemedi.');
     } finally {
@@ -214,6 +388,10 @@ export default function DutyPlanDetayPage() {
   const handleAddSlot = async () => {
     if (!token || !planId || !newSlot.user_id || !newSlot.date) {
       toast.error('Tarih ve öğretmen zorunludur.');
+      return;
+    }
+    if (plan?.period_start && plan?.period_end && (newSlot.date < plan.period_start || newSlot.date > plan.period_end)) {
+      toast.error('Tarih plan dönemi dışında olamaz.');
       return;
     }
     setSaving(true);
@@ -232,8 +410,10 @@ export default function DutyPlanDetayPage() {
       });
       toast.success('Nöbet kaydı eklendi.');
       setAdding(false);
+      setNewSlotTeacherQuery('');
+      setNewSlotTeacherOpen(false);
       setNewSlot({ date: '', shift: 'morning', area_name: '', slot_start_time: '', slot_end_time: '', user_id: '' });
-      fetchPlan();
+      await Promise.all([fetchPlan(), fetchPlanLogs()]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Eklenemedi.');
     } finally {
@@ -248,7 +428,7 @@ export default function DutyPlanDetayPage() {
     try {
       await apiFetch(`/duty/slots/${slotId}`, { token, method: 'DELETE' });
       toast.success('Nöbet kaydı silindi.');
-      fetchPlan();
+      await Promise.all([fetchPlan(), fetchPlanLogs()]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Silinemedi.');
     } finally {
@@ -267,7 +447,7 @@ export default function DutyPlanDetayPage() {
       await apiFetch(`/duty/slots/${slotIdA}`, { token, method: 'PATCH', body: JSON.stringify({ user_id: slotB.user_id }) });
       await apiFetch(`/duty/slots/${slotIdB}`, { token, method: 'PATCH', body: JSON.stringify({ user_id: slotA.user_id }) });
       toast.success('Nöbetler takas edildi.');
-      fetchPlan();
+      await Promise.all([fetchPlan(), fetchPlanLogs()]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Takas yapılamadı.');
     } finally {
@@ -281,7 +461,7 @@ export default function DutyPlanDetayPage() {
     try {
       await apiFetch(`/duty/plans/${planId}/publish`, { token, method: 'POST' });
       toast.success('Plan yayınlandı.');
-      fetchPlan();
+      await Promise.all([fetchPlan(), fetchPlanLogs()]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Yayınlama başarısız.');
     } finally {
@@ -379,7 +559,9 @@ export default function DutyPlanDetayPage() {
   }
 
   const slots = plan.slots ?? [];
-  const canEdit = isAdmin && plan.status === 'draft';
+  /** Yayınlı/taslak: okul yöneticisi slot ekler, siler, düzenler */
+  const canMutateSlots = isAdmin;
+  const canPublishDraft = isAdmin && plan.status === 'draft';
 
   // Gün bazlı gruplama – aynı gün aynı arka plan rengi
   const DAY_GROUP_COLORS = [
@@ -389,15 +571,6 @@ export default function DutyPlanDetayPage() {
     'bg-violet-50/80 dark:bg-violet-950/20',
     'bg-rose-50/80 dark:bg-rose-950/20',
     'bg-teal-50/80 dark:bg-teal-950/20',
-  ];
-  // Öğretmen (nöbet) satırları – her kart farklı renkte (sırayla)
-  const SLOT_ROW_COLORS = [
-    'bg-white dark:bg-slate-900 border-sky-200 dark:border-sky-800',
-    'bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700',
-    'bg-blue-50/90 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800',
-    'bg-emerald-50/90 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800',
-    'bg-amber-50/90 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800',
-    'bg-violet-50/90 dark:bg-violet-950/30 border-violet-200 dark:border-violet-800',
   ];
   const slotsByDate = slots.reduce<Record<string, typeof slots>>((acc, s) => {
     const d = s.date ?? '';
@@ -442,7 +615,7 @@ export default function DutyPlanDetayPage() {
             <FileDown className="size-4" />
             Excel
           </Button>
-          {canEdit && (
+          {canPublishDraft && (
             <Button
               size="sm"
               onClick={handlePublish}
@@ -482,85 +655,213 @@ export default function DutyPlanDetayPage() {
         </span>
       </div>
 
-      {canEdit && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Yeni Nöbet Ekle</CardTitle>
+      {canMutateSlots && plan.status === 'published' && (
+        <Alert
+          variant="info"
+          message="Bu plan yayında. Kayıtları ekleyebilir, düzenleyebilir veya silebilirsiniz."
+        />
+      )}
+      {canMutateSlots && (
+        <Card className="rounded-lg border-dashed">
+          <CardHeader className="space-y-1 pb-2">
+            <CardTitle className="text-sm font-semibold">Yeni Nöbet Ekle</CardTitle>
+            {plan.period_start && plan.period_end && (
+              <p className="text-xs text-muted-foreground">
+                Tarih {formatDate(plan.period_start)} – {formatDate(plan.period_end)} aralığında olmalıdır.
+              </p>
+            )}
           </CardHeader>
           <CardContent>
             {adding ? (
-              <div className="grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
-                <div className="space-y-1">
-                  <Label>Tarih</Label>
-                  <Input
-                    type="date"
-                    value={newSlot.date}
-                    onChange={(e) => setNewSlot((s) => ({ ...s, date: e.target.value }))}
-                  />
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12 lg:items-end">
+                  <div className="space-y-1.5 lg:col-span-3">
+                    <Label className="text-xs text-muted-foreground">Tarih</Label>
+                    <Input
+                      type="date"
+                      className="h-9"
+                      value={newSlot.date}
+                      min={plan.period_start ?? undefined}
+                      max={plan.period_end ?? undefined}
+                      onChange={(e) => setNewSlot((s) => ({ ...s, date: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1.5 lg:col-span-4">
+                    <Label className="text-xs text-muted-foreground">Vardiya</Label>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setNewSlot((s) => ({ ...s, shift: 'morning' }))}
+                        className={cn(
+                          'h-9 flex-1 rounded-lg border text-xs font-medium transition-colors',
+                          newSlot.shift === 'morning'
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-border bg-background text-muted-foreground hover:bg-muted/60',
+                        )}
+                      >
+                        Sabah
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewSlot((s) => ({ ...s, shift: 'afternoon' }))}
+                        className={cn(
+                          'h-9 flex-1 rounded-lg border text-xs font-medium transition-colors',
+                          newSlot.shift === 'afternoon'
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-border bg-background text-muted-foreground hover:bg-muted/60',
+                        )}
+                      >
+                        Öğle
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 lg:col-span-5">
+                    <Label className="text-xs text-muted-foreground">Öğretmen</Label>
+                    <div ref={newSlotTeacherRef} className="relative">
+                      {newSlot.user_id ? (
+                        <div className="flex h-9 items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm">
+                          <span className="min-w-0 flex-1 truncate font-medium">
+                            {teachers.find((t) => t.id === newSlot.user_id)?.display_name ||
+                              teachers.find((t) => t.id === newSlot.user_id)?.email ||
+                              '—'}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 shrink-0 px-2 text-xs"
+                            onClick={() => {
+                              setNewSlot((s) => ({ ...s, user_id: '' }));
+                              setNewSlotTeacherQuery('');
+                              setNewSlotTeacherOpen(true);
+                            }}
+                          >
+                            Değiştir
+                          </Button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="relative">
+                            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                              className="h-9 pl-9"
+                              placeholder="İsim veya e-posta ile ara…"
+                              value={newSlotTeacherQuery}
+                              onChange={(e) => {
+                                setNewSlotTeacherQuery(e.target.value);
+                                setNewSlotTeacherOpen(true);
+                              }}
+                              onFocus={() => setNewSlotTeacherOpen(true)}
+                              autoComplete="off"
+                            />
+                          </div>
+                          {newSlotTeacherOpen && (
+                            <ul
+                              className="absolute z-40 mt-1 max-h-52 w-full overflow-auto rounded-lg border border-border bg-popover py-1 text-sm shadow-md"
+                              role="listbox"
+                            >
+                              {filteredTeachersForNewSlot.length === 0 ? (
+                                <li className="px-3 py-2 text-xs text-muted-foreground">Eşleşen öğretmen yok</li>
+                              ) : (
+                                filteredTeachersForNewSlot.map((t) => (
+                                  <li key={t.id}>
+                                    <button
+                                      type="button"
+                                      className="w-full px-3 py-2 text-left hover:bg-muted"
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={() => {
+                                        setNewSlot((s) => ({ ...s, user_id: t.id }));
+                                        setNewSlotTeacherQuery('');
+                                        setNewSlotTeacherOpen(false);
+                                      }}
+                                    >
+                                      <span className="font-medium">{t.display_name || t.email}</span>
+                                      {t.display_name ? (
+                                        <span className="block truncate text-xs text-muted-foreground">{t.email}</span>
+                                      ) : null}
+                                    </button>
+                                  </li>
+                                ))
+                              )}
+                            </ul>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 lg:col-span-6">
+                    <Label className="text-xs text-muted-foreground">Alan (isteğe bağlı)</Label>
+                    <DutyAreaSelect
+                      value={newSlot.area_name}
+                      onChange={(v) => setNewSlot((s) => ({ ...s, area_name: v }))}
+                      areas={dutyAreas}
+                      className="h-9"
+                    />
+                    {dutyAreas.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        <Link href="/duty/yerler" className="text-primary underline underline-offset-2 hover:no-underline">
+                          Nöbet yerleri
+                        </Link>{' '}
+                        sayfasından tanımlayın.
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="space-y-1.5 lg:col-span-3">
+                    <Label className="text-xs text-muted-foreground">Giriş saati</Label>
+                    <Input
+                      className="h-9 tabular-nums"
+                      type="text"
+                      placeholder="08:00"
+                      value={newSlot.slot_start_time}
+                      onChange={(e) => setNewSlot((s) => ({ ...s, slot_start_time: e.target.value }))}
+                      maxLength={5}
+                    />
+                  </div>
+                  <div className="space-y-1.5 lg:col-span-3">
+                    <Label className="text-xs text-muted-foreground">Çıkış saati</Label>
+                    <Input
+                      className="h-9 tabular-nums"
+                      type="text"
+                      placeholder="15:30"
+                      value={newSlot.slot_end_time}
+                      onChange={(e) => setNewSlot((s) => ({ ...s, slot_end_time: e.target.value }))}
+                      maxLength={5}
+                    />
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <Label>Vardiya</Label>
-                  <select
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
-                    value={newSlot.shift}
-                    onChange={(e) => setNewSlot((s) => ({ ...s, shift: e.target.value as 'morning' | 'afternoon' }))}
-                  >
-                    <option value="morning">Sabah</option>
-                    <option value="afternoon">Öğle</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <Label>Öğretmen</Label>
-                  <select
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
-                    value={newSlot.user_id}
-                    onChange={(e) => setNewSlot((s) => ({ ...s, user_id: e.target.value }))}
-                  >
-                    <option value="">Seçin</option>
-                    {teachers.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.display_name || t.email}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <Label>Alan</Label>
-                  <Input
-                    placeholder="Koridor, Bahçe..."
-                    value={newSlot.area_name}
-                    onChange={(e) => setNewSlot((s) => ({ ...s, area_name: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>Giriş</Label>
-                  <Input
-                    type="text"
-                    placeholder="08:00"
-                    value={newSlot.slot_start_time}
-                    onChange={(e) => setNewSlot((s) => ({ ...s, slot_start_time: e.target.value }))}
-                    maxLength={5}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>Çıkış</Label>
-                  <Input
-                    type="text"
-                    placeholder="15:30"
-                    value={newSlot.slot_end_time}
-                    onChange={(e) => setNewSlot((s) => ({ ...s, slot_end_time: e.target.value }))}
-                    maxLength={5}
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button onClick={handleAddSlot} disabled={saving || !newSlot.user_id || !newSlot.date}>
-                    {saving ? 'Ekleniyor…' : 'Ekle'}
+                <div className="flex flex-wrap gap-2 border-t border-border pt-3">
+                  <Button size="sm" className="h-8" onClick={handleAddSlot} disabled={saving || !newSlot.user_id || !newSlot.date}>
+                    {saving ? 'Ekleniyor…' : 'Kaydı ekle'}
                   </Button>
-                  <Button variant="ghost" onClick={() => setAdding(false)}>İptal</Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8"
+                    onClick={() => {
+                      setAdding(false);
+                      setNewSlotTeacherQuery('');
+                      setNewSlotTeacherOpen(false);
+                    }}
+                  >
+                    İptal
+                  </Button>
                 </div>
               </div>
             ) : (
-              <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={() => {
+                  setNewSlotTeacherQuery('');
+                  setNewSlotTeacherOpen(false);
+                  setNewSlot((s) => ({
+                    ...s,
+                    date: plan ? defaultDateInPlan(plan.period_start, plan.period_end) : s.date,
+                  }));
+                  setAdding(true);
+                }}
+              >
                 <Plus className="size-4" />
                 Yeni Nöbet Ekle
               </Button>
@@ -569,123 +870,61 @@ export default function DutyPlanDetayPage() {
         </Card>
       )}
 
-      {/* Son İşlemler paneli */}
-      {isAdmin && recentLogs.length > 0 && (
-        <Card className="rounded-xl border-dashed border-muted-foreground/30">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <History className="size-4 text-muted-foreground" />
-              <h3 className="text-sm font-medium">Son İşlemler</h3>
-              <span className="text-xs text-muted-foreground">(son 24 saat içindekiler geri alınabilir)</span>
-            </div>
-            <div className="space-y-1.5">
-              {recentLogs.map((log) => {
-                const ACTION_LABELS: Record<string, string> = {
-                  reassign: 'Yerine görevlendirme',
-                  absent_marked: 'Gelmeyen işaretlendi',
-                  coverage_assigned: 'Ders ataması',
-                  duty_exempt_set: 'Muafiyet eklendi',
-                  duty_exempt_cleared: 'Muafiyet kaldırıldı',
-                  publish: 'Plan yayınlandı',
-                };
-                const ageMs = Date.now() - new Date(log.created_at).getTime();
-                const canUndo = !log.undone_at && ageMs < 24 * 60 * 60 * 1000 &&
-                  ['reassign', 'absent_marked', 'coverage_assigned', 'duty_exempt_set', 'duty_exempt_cleared'].includes(log.action);
-                return (
-                  <div
-                    key={log.id}
-                    className={cn(
-                      'flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-xs',
-                      log.undone_at ? 'bg-muted/30 opacity-50' : 'bg-muted/60',
-                    )}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={cn('px-1.5 py-0.5 rounded font-medium', log.undone_at ? 'bg-muted text-muted-foreground line-through' : 'bg-background')}>
-                        {ACTION_LABELS[log.action] ?? log.action}
-                      </span>
-                      <span className="text-muted-foreground truncate">
-                        {log.performedByUser?.display_name || log.performedByUser?.email || ''}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-muted-foreground">
-                        {new Date(log.created_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      {canUndo && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 px-2 text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-                          onClick={() => handleUndo(log.id)}
-                          disabled={undoingId === log.id}
-                        >
-                          {undoingId === log.id ? <LoadingSpinner className="size-3" /> : (
-                            <><RotateCcw className="size-3 mr-1" />Geri Al</>
-                          )}
-                        </Button>
-                      )}
-                      {log.undone_at && (
-                        <span className="text-muted-foreground italic text-xs">Geri alındı</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       <Card className="overflow-hidden rounded-xl">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-base">Nöbet Kayıtları</CardTitle>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0 pb-1.5 pt-3">
+          <div>
+            <CardTitle className="text-sm font-semibold">Nöbet Kayıtları</CardTitle>
+            {slots.length > 0 && (
+              <p className="mt-0.5 text-[10px] text-muted-foreground">Aynı nöbet yeri aynı kutu rengiyle gösterilir.</p>
+            )}
+          </div>
           {slots.length > 0 && (
-            <div className="flex rounded-xl border border-border bg-muted/30 p-1">
+            <div className="flex rounded-lg border border-border bg-muted/30 p-0.5">
               <button
                 type="button"
                 onClick={() => setViewMode('list')}
                 className={cn(
-                  'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                  'flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-all',
                   viewMode === 'list'
                     ? 'bg-primary text-primary-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
                 )}
               >
-                <List className="size-4" />
+                <List className="size-3.5" />
                 Liste
               </button>
               <button
                 type="button"
                 onClick={() => setViewMode('calendar')}
                 className={cn(
-                  'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                  'flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-all',
                   viewMode === 'calendar'
                     ? 'bg-primary text-primary-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
                 )}
               >
-                <Calendar className="size-4" />
-                Takvim (sürükle-bırak)
+                <Calendar className="size-3.5" />
+                Takvim
               </button>
             </div>
           )}
         </CardHeader>
         <CardContent className="p-0">
           {slots.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
+            <p className="py-4 text-center text-xs text-muted-foreground">
               Henüz nöbet kaydı yok.
-              {canEdit && ' Yukarıdan ekleyebilirsiniz.'}
+              {canMutateSlots && ' Yukarıdan ekleyebilirsiniz.'}
             </p>
           ) : viewMode === 'calendar' ? (
             <div className="p-5 space-y-4">
-              {canEdit && (
+              {canMutateSlots && (
                 <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5">
                   <p className="text-sm text-muted-foreground">
                     Nöbet kartını başka bir nöbet kartının üzerine <strong className="text-foreground">sürükleyip bırakarak</strong> iki öğretmenin nöbetini takas edebilirsiniz.
                   </p>
                 </div>
               )}
-              <div className="grid grid-cols-2 min-[900px]:grid-cols-3 lg:grid-cols-5 gap-4 overflow-x-auto">
+              <div className="grid grid-cols-2 min-[900px]:grid-cols-3 lg:grid-cols-5 gap-4 table-x-scroll">
                 {WEEKDAY_ORDER.map((wd) => {
                   const dates = datesByWeekday[wd] ?? [];
                   if (dates.length === 0) return null;
@@ -704,11 +943,11 @@ export default function DutyPlanDetayPage() {
                               <div className="px-3 py-2 border-b border-border/60 bg-muted/40 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                                 {formatDate(date)}
                               </div>
-                              <div className="p-2 space-y-2 min-h-[44px]">
-                                {daySlots.map((slot, slotIdx) => (
+                              <div className="space-y-2 p-2 min-h-[44px]">
+                                {daySlots.map((slot) => (
                                   <div
                                     key={slot.id}
-                                    {...(canEdit ? {
+                                    {...(canMutateSlots ? {
                                       draggable: true,
                                       onDragStart: () => setDragSlotId(slot.id),
                                       onDragEnd: () => setDragSlotId(null),
@@ -721,18 +960,38 @@ export default function DutyPlanDetayPage() {
                                       },
                                     } : {})}
                                     className={cn(
-                                      'flex items-center gap-2 rounded-lg border px-3 py-2 text-xs transition-all',
-                                      SLOT_ROW_COLORS[slotIdx % SLOT_ROW_COLORS.length],
-                                      canEdit && 'cursor-grab active:cursor-grabbing hover:shadow-md',
-                                      canEdit && dragSlotId === slot.id && 'opacity-50 scale-[0.98]',
+                                      'flex flex-col gap-1.5 rounded-lg border px-2.5 py-2 text-xs transition-shadow',
+                                      areaSlotBoxClass(slot.area_name),
+                                      canMutateSlots && 'cursor-grab active:cursor-grabbing hover:shadow-sm',
+                                      canMutateSlots && dragSlotId === slot.id && 'opacity-60',
                                     )}
                                   >
-                                    {canEdit && <GripVertical className="size-4 text-muted-foreground shrink-0" />}
-                                    <span className={cn('shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold', slot.shift === 'afternoon' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' : 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300')}>
-                                      {slot.shift === 'afternoon' ? 'Öğle' : 'Sabah'}
-                                    </span>
-                                    <span className="truncate font-medium min-w-0">{slot.user?.display_name || slot.user?.email || '—'}</span>
-                                    {slot.area_name && <span className="text-[10px] text-muted-foreground truncate shrink-0 max-w-[70px]">{slot.area_name}</span>}
+                                    <div className="flex min-w-0 items-center gap-2">
+                                      {canMutateSlots && <GripVertical className="size-4 shrink-0 text-muted-foreground" />}
+                                      <span
+                                        className={cn(
+                                          'shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold',
+                                          slot.shift === 'afternoon'
+                                            ? 'bg-orange-100/90 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300'
+                                            : 'bg-sky-100/90 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300',
+                                        )}
+                                      >
+                                        {slot.shift === 'afternoon' ? 'Öğle' : 'Sabah'}
+                                      </span>
+                                      <span className="ml-auto shrink-0 tabular-nums text-[10px] text-muted-foreground">
+                                        {(slot.slot_start_time || '—') + ' – ' + (slot.slot_end_time || '—')}
+                                      </span>
+                                    </div>
+                                    <p className="min-w-0 wrap-break-word text-sm font-medium leading-snug text-foreground">
+                                      {slot.user?.display_name || slot.user?.email || '—'}
+                                    </p>
+                                    {slot.area_name ? (
+                                      <span className="inline-flex w-fit max-w-full rounded-md border border-foreground/15 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium leading-tight text-foreground/90 dark:bg-background/30">
+                                        {slot.area_name}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] leading-tight text-muted-foreground">Alan yok</span>
+                                    )}
                                   </div>
                                 ))}
                               </div>
@@ -746,150 +1005,255 @@ export default function DutyPlanDetayPage() {
               </div>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/60">
-                  <tr>
-                    <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide">Tarih</th>
-                    <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide">Vardiya</th>
-                    <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide">Öğretmen</th>
-                    <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide">Alan</th>
-                    <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide">Giriş</th>
-                    <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide">Çıkış</th>
-                    {canEdit && <th className="px-4 py-3.5 text-right text-xs font-semibold uppercase tracking-wide">İşlem</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedDates.flatMap((date, dateIdx) => {
-                    const daySlots = slotsByDate[date];
-                    const rowBg = DAY_GROUP_COLORS[dateIdx % DAY_GROUP_COLORS.length];
-                    return daySlots.map((slot, idx) => (
-                    <tr
-                      key={slot.id}
-                      className={cn(
-                        'border-t border-border/60 hover:bg-muted/50 transition-colors',
-                        rowBg,
-                        idx === 0 && 'border-t-2 border-t-border',
-                      )}
-                    >
-                      {editingId === slot.id && editRow ? (
-                        <>
-                          <td className="px-4 py-2.5">
-                            <Input
-                              type="date"
-                              value={editRow.date}
-                              onChange={(e) => setEditRow((r) => (r ? { ...r, date: e.target.value } : r))}
-                              className="h-8 text-sm"
-                            />
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <select
-                              className="flex h-8 w-28 rounded-md border border-input bg-transparent px-2 text-sm"
-                              value={editRow.shift}
-                              onChange={(e) => setEditRow((r) => (r ? { ...r, shift: e.target.value as 'morning' | 'afternoon' } : r))}
-                            >
-                              <option value="morning">Sabah</option>
-                              <option value="afternoon">Öğle</option>
-                            </select>
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <select
-                              className="flex h-8 w-full max-w-[180px] rounded-md border border-input bg-transparent px-2 text-sm"
-                              value={editRow.user_id}
-                              onChange={(e) => setEditRow((r) => (r ? { ...r, user_id: e.target.value } : r))}
-                            >
-                              {teachers.map((t) => (
-                                <option key={t.id} value={t.id}>
-                                  {t.display_name || t.email}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <Input
-                              value={editRow.area_name}
-                              onChange={(e) => setEditRow((r) => (r ? { ...r, area_name: e.target.value } : r))}
-                              className="h-8 text-sm max-w-[120px]"
-                            />
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <Input
-                              value={editRow.slot_start_time}
-                              onChange={(e) => setEditRow((r) => (r ? { ...r, slot_start_time: e.target.value } : r))}
-                              className="h-8 w-20 text-sm"
-                              maxLength={5}
-                            />
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <Input
-                              value={editRow.slot_end_time}
-                              onChange={(e) => setEditRow((r) => (r ? { ...r, slot_end_time: e.target.value } : r))}
-                              className="h-8 w-20 text-sm"
-                              maxLength={5}
-                            />
-                          </td>
-                          <td className="px-4 py-2.5 text-right">
-                            <Button size="sm" onClick={handleSaveEdit} disabled={saving}>
-                              <Check className="size-4" />
-                            </Button>
-                            <Button variant="ghost" size="sm" onClick={handleCancelEdit}>
-                              <X className="size-4" />
-                            </Button>
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="px-4 py-2.5">
-                            {idx === 0 ? (
-                              <span className="font-semibold text-foreground">{formatDate(slot.date)}</span>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">—</span>
+            <div className="space-y-2 p-2 sm:p-3">
+              {sortedDates.map((date, dateIdx) => {
+                const daySlots = slotsByDate[date] ?? [];
+                const groupBg = DAY_GROUP_COLORS[dateIdx % DAY_GROUP_COLORS.length];
+                return (
+                  <div
+                    key={date}
+                    className={cn('overflow-hidden rounded-lg border border-border shadow-sm', groupBg)}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-border/60 bg-muted/40 px-2.5 py-1.5">
+                      <span className="text-sm font-medium text-foreground">{formatDate(date)}</span>
+                      <span className="text-[11px] tabular-nums text-muted-foreground">{daySlots.length} kayıt</span>
+                    </div>
+                    <ul className="space-y-1.5 p-1">
+                      {daySlots.map((slot) => (
+                        <li key={slot.id} className="list-none">
+                          <div
+                            className={cn(
+                              'rounded-md border',
+                              areaSlotBoxClass(slot.area_name),
+                              editingId === slot.id && editRow ? 'p-2' : 'px-2 py-1.5 sm:px-2.5 sm:py-2',
                             )}
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <span className={cn('inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold', slot.shift === 'afternoon' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' : 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300')}>
-                              {slot.shift === 'afternoon' ? 'Öğle' : 'Sabah'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5 font-medium">
-                            {slot.user?.display_name || slot.user?.email || '—'}
-                          </td>
-                          <td className="px-4 py-2.5 text-muted-foreground">{slot.area_name || '—'}</td>
-                          <td className="px-4 py-2.5 text-muted-foreground tabular-nums">{slot.slot_start_time || '—'}</td>
-                          <td className="px-4 py-2.5 text-muted-foreground tabular-nums">{slot.slot_end_time || '—'}</td>
-                          {canEdit && (
-                            <td className="px-4 py-2.5 text-right">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={() => handleStartEdit(slot)}
-                                disabled={!!editingId}
-                              >
-                                <Pencil className="size-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-rose-600 hover:text-rose-700"
-                                onClick={() => handleDeleteSlot(slot.id)}
-                                disabled={!!deletingId}
-                              >
-                                <Trash2 className="size-4" />
-                              </Button>
-                            </td>
+                          >
+                          {editingId === slot.id && editRow ? (
+                            <div className="space-y-3">
+                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                                <div className="space-y-1.5 min-w-0">
+                                  <Label className="text-xs text-muted-foreground">Tarih</Label>
+                                  <Input
+                                    type="date"
+                                    value={editRow.date}
+                                    onChange={(e) => setEditRow((r) => (r ? { ...r, date: e.target.value } : r))}
+                                    className="h-10 min-h-[44px] w-full max-w-full text-sm sm:h-9 sm:min-h-0"
+                                  />
+                                </div>
+                                <div className="space-y-1.5 min-w-0">
+                                  <Label className="text-xs text-muted-foreground">Vardiya</Label>
+                                  <select
+                                    className="flex h-10 min-h-[44px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm sm:h-9 sm:min-h-0"
+                                    value={editRow.shift}
+                                    onChange={(e) =>
+                                      setEditRow((r) => (r ? { ...r, shift: e.target.value as 'morning' | 'afternoon' } : r))
+                                    }
+                                  >
+                                    <option value="morning">Sabah</option>
+                                    <option value="afternoon">Öğle</option>
+                                  </select>
+                                </div>
+                                <div className="space-y-1.5 min-w-0 sm:col-span-2 lg:col-span-1 xl:col-span-2">
+                                  <Label className="text-xs text-muted-foreground">Öğretmen</Label>
+                                  <select
+                                    className="flex h-10 min-h-[44px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm sm:h-9 sm:min-h-0"
+                                    value={editRow.user_id}
+                                    onChange={(e) => setEditRow((r) => (r ? { ...r, user_id: e.target.value } : r))}
+                                  >
+                                    {teachers.map((t) => (
+                                      <option key={t.id} value={t.id}>
+                                        {t.display_name || t.email}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div className="space-y-1.5 min-w-0">
+                                  <Label className="text-xs text-muted-foreground">Alan</Label>
+                                  <DutyAreaSelect
+                                    value={editRow.area_name}
+                                    onChange={(v) => setEditRow((r) => (r ? { ...r, area_name: v } : r))}
+                                    areas={dutyAreas}
+                                    className="h-10 min-h-[44px] w-full sm:h-9 sm:min-h-0"
+                                  />
+                                  {dutyAreas.length === 0 ? (
+                                    <p className="text-xs text-muted-foreground">
+                                      <Link href="/duty/yerler" className="text-primary underline underline-offset-2 hover:no-underline">
+                                        Nöbet yerleri
+                                      </Link>
+                                    </p>
+                                  ) : null}
+                                </div>
+                                <div className="space-y-1.5 min-w-0">
+                                  <Label className="text-xs text-muted-foreground">Giriş</Label>
+                                  <Input
+                                    value={editRow.slot_start_time}
+                                    onChange={(e) => setEditRow((r) => (r ? { ...r, slot_start_time: e.target.value } : r))}
+                                    className="h-10 min-h-[44px] w-full text-sm tabular-nums sm:h-9 sm:min-h-0"
+                                    maxLength={5}
+                                    placeholder="08:00"
+                                  />
+                                </div>
+                                <div className="space-y-1.5 min-w-0">
+                                  <Label className="text-xs text-muted-foreground">Çıkış</Label>
+                                  <Input
+                                    value={editRow.slot_end_time}
+                                    onChange={(e) => setEditRow((r) => (r ? { ...r, slot_end_time: e.target.value } : r))}
+                                    className="h-10 min-h-[44px] w-full text-sm tabular-nums sm:h-9 sm:min-h-0"
+                                    maxLength={5}
+                                    placeholder="15:30"
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button size="sm" className="min-h-[44px] min-w-[44px] sm:min-h-9" onClick={handleSaveEdit} disabled={saving}>
+                                  <Check className="size-4" />
+                                  Kaydet
+                                </Button>
+                                <Button variant="outline" size="sm" className="min-h-[44px] sm:min-h-9" onClick={handleCancelEdit}>
+                                  <X className="size-4" />
+                                  İptal
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                              <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-0">
+                                <span
+                                  className={cn(
+                                    'inline-flex w-fit shrink-0 items-center rounded px-1.5 py-0.5 text-[11px] font-semibold',
+                                    slot.shift === 'afternoon'
+                                      ? 'bg-orange-100/90 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300'
+                                      : 'bg-sky-100/90 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300',
+                                  )}
+                                >
+                                  {slot.shift === 'afternoon' ? 'Öğle' : 'Sabah'}
+                                </span>
+                                <p className="min-w-0 flex-[1_1_12rem] wrap-break-word text-sm font-medium leading-tight text-foreground">
+                                  {slot.user?.display_name || slot.user?.email || '—'}
+                                </p>
+                                {slot.area_name ? (
+                                  <span className="inline-flex max-w-full shrink-0 truncate rounded px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-foreground/10 dark:ring-foreground/20">
+                                    {slot.area_name}
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-muted-foreground">Alan yok</span>
+                                )}
+                                <span className="shrink-0 tabular-nums text-xs leading-tight text-muted-foreground">
+                                  {(slot.slot_start_time || '—') + ' – ' + (slot.slot_end_time || '—')}
+                                </span>
+                              </div>
+                              {canMutateSlots && (
+                                <div className="flex shrink-0 gap-1 self-end sm:self-center">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 gap-1 px-2 text-xs"
+                                    onClick={() => handleStartEdit(slot)}
+                                    disabled={!!editingId && editingId !== slot.id}
+                                  >
+                                    <Pencil className="size-3.5" />
+                                    Düzenle
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 gap-1 px-2 text-xs text-rose-600 hover:text-rose-700"
+                                    onClick={() => handleDeleteSlot(slot.id)}
+                                    disabled={!!deletingId || (!!editingId && editingId !== slot.id)}
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                    Sil
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
                           )}
-                        </>
-                      )}
-                    </tr>
-                    ));
-                  })}
-                </tbody>
-              </table>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {isAdmin && recentLogs.length > 0 && (
+        <Card className="rounded-xl border-dashed border-muted-foreground/30">
+          <CardContent className="p-4">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <History className="size-4 text-muted-foreground" />
+              <h3 className="text-sm font-medium">Son İşlemler</h3>
+              <span className="text-xs text-muted-foreground">(son 24 saat içindekiler geri alınabilir)</span>
+            </div>
+            <div className="space-y-1.5">
+              {recentLogs.map((log) => {
+                const ACTION_LABELS: Record<string, string> = {
+                  reassign: 'Yerine görevlendirme',
+                  absent_marked: 'Gelmeyen işaretlendi',
+                  coverage_assigned: 'Ders ataması',
+                  duty_exempt_set: 'Muafiyet eklendi',
+                  duty_exempt_cleared: 'Muafiyet kaldırıldı',
+                  publish: 'Plan yayınlandı',
+                  slot_edit: 'Nöbet kaydı güncellendi',
+                  slot_add: 'Nöbet kaydı eklendi',
+                  slot_delete: 'Nöbet kaydı silindi',
+                };
+                const detailLine = logDetailLine(log);
+                const ageMs = Date.now() - parseServerDateTime(log.created_at).getTime();
+                const canUndo = !log.undone_at && ageMs < 24 * 60 * 60 * 1000 &&
+                  ['reassign', 'absent_marked', 'coverage_assigned', 'duty_exempt_set', 'duty_exempt_cleared'].includes(log.action);
+                return (
+                  <div
+                    key={log.id}
+                    className={cn(
+                      'flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs',
+                      log.undone_at ? 'bg-muted/30 opacity-50' : 'bg-muted/60',
+                    )}
+                  >
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className={cn('rounded px-1.5 py-0.5 font-medium', log.undone_at ? 'bg-muted text-muted-foreground line-through' : 'bg-background')}>
+                          {ACTION_LABELS[log.action] ?? log.action}
+                        </span>
+                        <span className="truncate text-muted-foreground">
+                          {log.performedByUser?.display_name || log.performedByUser?.email || ''}
+                        </span>
+                      </div>
+                      {detailLine && (
+                        <span className="truncate pl-0 text-[11px] text-muted-foreground">{detailLine}</span>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="text-muted-foreground tabular-nums">
+                        {formatLogDateTime(log.created_at)}
+                      </span>
+                      {canUndo && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs text-orange-600 hover:bg-orange-50 hover:text-orange-700"
+                          onClick={() => handleUndo(log.id)}
+                          disabled={undoingId === log.id}
+                        >
+                          {undoingId === log.id ? <LoadingSpinner className="size-3" /> : (
+                            <><RotateCcw className="mr-1 size-3" />Geri Al</>
+                          )}
+                        </Button>
+                      )}
+                      {log.undone_at && (
+                        <span className="text-xs italic text-muted-foreground">Geri alındı</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

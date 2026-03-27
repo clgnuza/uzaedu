@@ -1,4 +1,4 @@
-﻿import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { randomInt } from 'crypto';
@@ -51,12 +51,12 @@ export class TeacherInviteService {
     if (!policy.enabled) {
       throw new BadRequestException({
         code: 'TEACHER_INVITE_DISABLED',
-        message: 'Davetiye sistemi kapalÄ±.',
+        message: 'Davetiye sistemi kapalı.',
       });
     }
     const u = await this.userRepo.findOne({ where: { id: inviterUserId }, select: ['id', 'role'] });
     if (!u || u.role !== UserRole.teacher) {
-      throw new BadRequestException({ code: 'INVALID_ROLE', message: 'YalnÄ±zca Ã¶ÄŸretmen hesaplarÄ± davet kodu alabilir.' });
+      throw new BadRequestException({ code: 'INVALID_ROLE', message: 'Yalnızca öğretmen hesapları davet kodu alabilir.' });
     }
     const existing = await this.codeRepo.findOne({ where: { inviterUserId } });
     if (existing) return { code: existing.code };
@@ -71,7 +71,7 @@ export class TeacherInviteService {
         /* unique violation */
       }
     }
-    throw new BadRequestException({ code: 'INVITE_CODE_GEN_FAILED', message: 'Davet kodu oluÅŸturulamadÄ±, tekrar deneyin.' });
+    throw new BadRequestException({ code: 'INVITE_CODE_GEN_FAILED', message: 'Davet kodu oluşturulamadı, tekrar deneyin.' });
   }
 
   async getMySummary(inviterUserId: string): Promise<{
@@ -154,7 +154,7 @@ export class TeacherInviteService {
   }
 
   /**
-   * Yeni kayÄ±t sonrasÄ± Ã§aÄŸrÄ±lÄ±r. Davet kodu yoksa veya sistem kapalÄ±ysa no-op (kod yoksa).
+   * Yeni kayıt sonrası çağrılır. Davet kodu yoksa veya sistem kapalıysa no-op (kod yoksa).
    */
   async redeemAfterRegistration(inviteeUserId: string, rawInviteRaw: string | undefined | null): Promise<void> {
     const raw = rawInviteRaw?.trim();
@@ -163,31 +163,31 @@ export class TeacherInviteService {
     if (!policy.enabled) {
       throw new BadRequestException({
         code: 'TEACHER_INVITE_DISABLED',
-        message: 'Davetiye sistemi kapalÄ±; davet kodu kullanÄ±lamaz.',
+        message: 'Davetiye sistemi kapalı; davet kodu kullanılamaz.',
       });
     }
     const codeNorm = normalizeCode(raw);
     if (codeNorm.length < 4) {
-      throw new BadRequestException({ code: 'INVITE_CODE_INVALID', message: 'GeÃ§ersiz davet kodu.' });
+      throw new BadRequestException({ code: 'INVITE_CODE_INVALID', message: 'Geçersiz davet kodu.' });
     }
     const invitee = await this.userRepo.findOne({ where: { id: inviteeUserId }, select: ['id', 'role'] });
     if (!invitee || invitee.role !== UserRole.teacher) {
-      throw new BadRequestException({ code: 'INVALID_ROLE', message: 'Davet yalnÄ±zca Ã¶ÄŸretmen kaydÄ±nda geÃ§erlidir.' });
+      throw new BadRequestException({ code: 'INVALID_ROLE', message: 'Davet yalnızca öğretmen kaydında geçerlidir.' });
     }
     const codeRow = await this.codeRepo.findOne({ where: { code: codeNorm } });
     if (!codeRow) {
-      throw new BadRequestException({ code: 'INVITE_CODE_INVALID', message: 'GeÃ§ersiz davet kodu.' });
+      throw new BadRequestException({ code: 'INVITE_CODE_INVALID', message: 'Geçersiz davet kodu.' });
     }
     if (codeRow.inviterUserId === inviteeUserId) {
-      throw new BadRequestException({ code: 'INVITE_SELF', message: 'Kendi davet kodunuzu kullanamazsÄ±nÄ±z.' });
+      throw new BadRequestException({ code: 'INVITE_SELF', message: 'Kendi davet kodunuzu kullanamazsınız.' });
     }
     const inviter = await this.userRepo.findOne({ where: { id: codeRow.inviterUserId }, select: ['id', 'role'] });
     if (!inviter || inviter.role !== UserRole.teacher) {
-      throw new BadRequestException({ code: 'INVITER_INVALID', message: 'Davet sahibi geÃ§erli deÄŸil.' });
+      throw new BadRequestException({ code: 'INVITER_INVALID', message: 'Davet sahibi geçerli değil.' });
     }
     const used = await this.redemptionRepo.count({ where: { inviteeUserId } });
     if (used > 0) {
-      throw new BadRequestException({ code: 'INVITE_ALREADY_USED', message: 'Bu hesap iÃ§in davet zaten iÅŸlendi.' });
+      throw new BadRequestException({ code: 'INVITE_ALREADY_USED', message: 'Bu hesap için davet zaten işlendi.' });
     }
     const max = policy.max_invites_per_teacher;
     if (max > 0) {
@@ -199,7 +199,7 @@ export class TeacherInviteService {
       if (cnt >= max) {
         throw new BadRequestException({
           code: 'INVITE_QUOTA_EXCEEDED',
-          message: 'Bu davet kodu iÃ§in Ã¼st sÄ±nÄ±ra ulaÅŸÄ±ldÄ±.',
+          message: 'Bu davet kodu için üst sınırına ulaşıldı.',
         });
       }
     }
@@ -208,7 +208,7 @@ export class TeacherInviteService {
     const jInvS = toSqlAmount(jInv);
     const jInvtS = toSqlAmount(jInvt);
     if (jInvS === '0.000000' && jInvtS === '0.000000') {
-      throw new BadRequestException({ code: 'INVITE_REWARD_ZERO', message: 'Davet Ã¶dÃ¼lleri yapÄ±landÄ±rÄ±lmamÄ±ÅŸ.' });
+      throw new BadRequestException({ code: 'INVITE_REWARD_ZERO', message: 'Davet ödülleri yapılandırılmamış.' });
     }
     await this.dataSource.transaction(async (em) => {
       const ins = em.create(TeacherInviteRedemption, {
@@ -230,7 +230,7 @@ export class TeacherInviteService {
           createdByUserId: codeRow.inviterUserId,
           jetonCredit: jInvtS,
           ekdersCredit: '0.000000',
-          note: 'Davetiye ile kayÄ±t bonusu (jeton)',
+          note: 'Davetiye ile kayıt bonusu (jeton)',
         });
         await em.save(MarketUserCreditLedger, led1);
       }
@@ -246,7 +246,7 @@ export class TeacherInviteService {
           createdByUserId: inviteeUserId,
           jetonCredit: jInvS,
           ekdersCredit: '0.000000',
-          note: 'Davetiye bonusu: yeni Ã¶ÄŸretmen kaydÄ± (jeton)',
+          note: 'Davetiye bonusu: yeni öğretmen kaydı (jeton)',
         });
         await em.save(MarketUserCreditLedger, led2);
       }
@@ -277,7 +277,7 @@ async function notifyInviteeBonus(
     entity_id: userId,
     target_screen: 'market',
     title: 'Davetiye bonusu',
-    body: `KayÄ±t iÃ§in ${jeton} jeton hesabÄ±nÄ±za eklendi.`,
+    body: `Kayıt için ${jeton} jeton hesabınıza eklendi.`,
     metadata: { jeton },
   });
 }
@@ -293,8 +293,8 @@ async function notifyInviterBonus(
     event_type: 'market.teacher_invite_inviter',
     entity_id: userId,
     target_screen: 'market',
-    title: 'Davetiye kazancÄ±',
-    body: `Davet ettiÄŸiniz Ã¶ÄŸretmen kaydoldu; ${jeton} jeton eklendi.`,
+    title: 'Davetiye kazancı',
+    body: `Davet ettiğiniz öğretmen kaydoldu; ${jeton} jeton eklendi.`,
     metadata: { jeton },
   });
 }

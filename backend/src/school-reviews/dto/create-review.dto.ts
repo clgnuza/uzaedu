@@ -5,7 +5,7 @@ export class CreateReviewDto {
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(5)
+  @Max(10)
   rating?: number;
 
   /** Kriter bazlı puanlar { slug: number }. Kriter varsa zorunlu. */

@@ -8,6 +8,7 @@ import type { MenuItem, WebAdminRole } from '@/config/types';
 import { useAuth } from '@/hooks/use-auth';
 import { useAdminMessagesUnread } from '@/hooks/use-admin-messages-unread';
 import { useAllNotificationsUnread } from '@/hooks/use-duty-notifications-unread';
+import { useSupportModuleAvailability } from '@/hooks/use-support-module-availability';
 
 interface SidebarMenuProps {
   role: WebAdminRole | null;
@@ -133,13 +134,29 @@ const GROUP_SHELL: Record<
   },
 };
 
+function filterPublicMenuTree(items: MenuItem[]): MenuItem[] {
+  const out: MenuItem[] = [];
+  for (const item of items) {
+    if (item.heading) continue;
+    if (item.children?.length) {
+      const pubKids = item.children.filter((c) => c.publicAccess);
+      if (pubKids.length === 0) continue;
+      out.push({ ...item, children: pubKids });
+      continue;
+    }
+    if (item.publicAccess) out.push(item);
+  }
+  return out;
+}
+
 function filterMenuTree(
   items: MenuItem[],
   role: WebAdminRole | null,
   moderatorModules?: string[] | null,
-  schoolEnabledModules?: string[] | null
+  schoolEnabledModules?: string[] | null,
+  supportEnabled = true,
 ): MenuItem[] {
-  if (!role) return [];
+  if (!role) return filterPublicMenuTree(items);
   const out: MenuItem[] = [];
   for (const item of items) {
     if (item.heading) {
@@ -149,7 +166,7 @@ function filterMenuTree(
     }
 
     if (item.children?.length) {
-      const kids = filterMenuTree(item.children, role, moderatorModules, schoolEnabledModules);
+      const kids = filterMenuTree(item.children, role, moderatorModules, schoolEnabledModules, supportEnabled);
       if (kids.length === 0) continue;
       if (!item.allowedRoles.includes(role)) continue;
       if (role === 'moderator' && item.requiredModule) {
@@ -163,6 +180,7 @@ function filterMenuTree(
     }
 
     if (!item.allowedRoles.includes(role)) continue;
+    if (!supportEnabled && role !== 'superadmin' && item.path?.startsWith('/support')) continue;
     if (role === 'moderator' && item.requiredModule) {
       if (!moderatorModules?.includes(item.requiredModule)) continue;
     }
@@ -263,6 +281,9 @@ function MenuBranch({
   const shell = GROUP_SHELL[variant];
   const displayParent = resolveTitle(item, role, schoolEnabledModules);
   const childActive = item.children?.some((c) => c.path && isActive(c.path)) ?? false;
+  const showSubLabel =
+    (variant === 'indigo' && (role === 'superadmin' || role === 'moderator')) ||
+    (variant === 'sky' && (role === 'school_admin' || role === 'teacher'));
 
   return (
     <div className={cn('space-y-1.5', shell.wrap)}>
@@ -277,11 +298,24 @@ function MenuBranch({
             <item.icon className="size-4" aria-hidden />
           </span>
         )}
-        <span data-slot="accordion-menu-title" className="text-[13px] font-semibold leading-tight tracking-tight">
-          {displayParent}
-        </span>
+        <div className="min-w-0 flex-1">
+          <span
+            data-slot="accordion-menu-title"
+            className="block text-sm font-bold leading-tight tracking-tight text-foreground"
+          >
+            {displayParent}
+          </span>
+          {showSubLabel && (
+            <span className="mt-0.5 block text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/85">
+              Alt menü
+            </span>
+          )}
+        </div>
       </div>
-      <div className={cn('menu-branch-rail ml-2 space-y-0.5 border-l-2 pl-2.5', shell.rail)}>
+      <div
+        className={cn('menu-branch-rail ml-2 space-y-0.5 border-l-2 pl-2.5', shell.rail)}
+        aria-label={`${displayParent} alt menü`}
+      >
         {item.children?.map((child) => (
           <MenuLinkRow
             key={child.path ?? child.title}
@@ -302,9 +336,12 @@ export function SidebarMenu({ role, moderatorModules, schoolEnabledModules }: Si
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { token, me } = useAuth();
+  const { supportEnabled } = useSupportModuleAvailability();
+  const supportEnabledValue = supportEnabled ?? true;
   const adminMessagesUnread = useAdminMessagesUnread(token, me?.role ?? null);
   const allNotificationsUnread = useAllNotificationsUnread(token, me?.role ?? null);
-  const items = filterMenuTree(MENU_SIDEBAR, role, moderatorModules, schoolEnabledModules);
+
+  const items = filterMenuTree(MENU_SIDEBAR, role, moderatorModules, schoolEnabledModules, supportEnabledValue);
 
   const getBadgeCount = (item: MenuItem): number => {
     if (item.badgeKey === 'adminMessagesUnread') return adminMessagesUnread;

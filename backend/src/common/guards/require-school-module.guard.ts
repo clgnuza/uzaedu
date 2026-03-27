@@ -13,6 +13,7 @@ import {
   REQUIRE_ANY_SCHOOL_MODULES_KEY,
   REQUIRE_SCHOOL_MODULE_KEY,
 } from '../decorators/require-school-module.decorator';
+import { BYPASS_SCHOOL_MODULE_GUARD_KEY } from '../decorators/bypass-school-module.decorator';
 
 @Injectable()
 export class RequireSchoolModuleGuard implements CanActivate {
@@ -23,6 +24,12 @@ export class RequireSchoolModuleGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    const bypass = this.reflector.getAllAndOverride<boolean>(BYPASS_SCHOOL_MODULE_GUARD_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (bypass) return true;
+
     const moduleKey = this.reflector.getAllAndOverride<string>(REQUIRE_SCHOOL_MODULE_KEY, [
       context.getHandler(),
       context.getClass(),

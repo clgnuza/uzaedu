@@ -666,7 +666,7 @@ function ReklamlarPageInner() {
               <LoadingSpinner />
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="table-x-scroll">
               <table className="w-full min-w-[900px] border-collapse text-sm">
                 <thead>
                   <tr className="border-b text-left text-muted-foreground">

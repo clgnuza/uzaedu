@@ -241,7 +241,7 @@ function DersAyGroupedTable({
                     <div className="bg-muted/50 px-4 py-2 text-sm font-medium text-foreground">
                       {displayAy}
                     </div>
-                    <div className="overflow-x-auto rounded-xl border border-border/70 bg-background shadow-sm">
+                    <div className="table-x-scroll rounded-xl border border-border/70 bg-background shadow-sm">
                       <table className="evrak-admin-table w-full text-sm">
                         <thead>
                           <tr>
@@ -1132,7 +1132,7 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
                 <select
                   value={gptModelId}
                   onChange={(e) => setGptModelId(e.target.value)}
-                  className="rounded-lg border border-input bg-background px-3 py-2 text-sm min-w-[160px]"
+                  className="w-full min-w-0 rounded-lg border border-input bg-background px-3 py-2 text-sm sm:w-auto sm:min-w-[160px]"
                   title="Taslak oluşturmada kullanılacak GPT modeli"
                 >
                   {(gptModels.length > 0 ? gptModels : [
@@ -1440,7 +1440,7 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
                     {gptDraft.warnings.length > 3 && ` (+${gptDraft.warnings.length - 3} uyarı)`}
                   </p>
                 )}
-                <div className="overflow-x-auto rounded-xl border border-border/70 bg-background shadow-sm">
+                <div className="table-x-scroll rounded-xl border border-border/70 bg-background shadow-sm">
                   <table className="evrak-admin-table w-full text-sm">
                     <thead>
                       <tr>

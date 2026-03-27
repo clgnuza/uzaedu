@@ -10,7 +10,7 @@ import { ToolbarIconHints } from '@/components/layout/toolbar-icon-hints';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { Puzzle, ChevronRight, Search, School } from 'lucide-react';
+import { Puzzle, ChevronRight, Search, School, Layers } from 'lucide-react';
 import { TURKEY_CITIES, getDistrictsForCity } from '@/lib/turkey-addresses';
 import {
   SCHOOL_MODULE_KEYS as MODULE_KEYS,
@@ -66,6 +66,8 @@ export default function ModulesPage() {
   const [error, setError] = useState<string | null>(null);
   const [toggling, setToggling] = useState<Record<string, boolean>>({});
   const [filters, setFilters] = useState({ city: '', district: '', search: '' });
+  const [bulkModule, setBulkModule] = useState<SchoolModuleKey | ''>('');
+  const [bulkBusy, setBulkBusy] = useState(false);
   const limit = 500;
   const isSuperadmin = me?.role === 'superadmin';
 
@@ -121,6 +123,36 @@ export default function ModulesPage() {
     }
   };
 
+  const runBulkModule = async (enable: boolean) => {
+    if (!token || !bulkModule) {
+      toast.error('Önce bir modül seçin.');
+      return;
+    }
+    const label = MODULE_LABELS[bulkModule];
+    const ok = window.confirm(
+      enable
+        ? `Tüm okullarda «${label}» modülünü açmak istiyor musunuz? (Veritabanındaki her okul güncellenir.)`
+        : `Tüm okullardan «${label}» modülünü kapatmak istiyor musunuz? İlgili menüler bu okullarda gizlenir.`,
+    );
+    if (!ok) return;
+    setBulkBusy(true);
+    try {
+      const res = await apiFetch<{ updated: number; total: number }>('/schools/bulk-enabled-modules', {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ module_key: bulkModule, enable }),
+      });
+      toast.success(
+        `${res.updated} okul güncellendi${res.total !== undefined ? ` (toplam ${res.total} okul)` : ''}.`,
+      );
+      fetchSchools();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Toplu güncelleme başarısız');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   if (!isSuperadmin) {
     return (
       <div className="space-y-6">
@@ -143,6 +175,54 @@ export default function ModulesPage() {
           />
         </ToolbarHeading>
       </Toolbar>
+
+      <Card className="border-primary/15">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Layers className="size-5 text-primary" />
+            Tüm okullarda modül
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Bir modül seçip tüm okullara toplu ekleyin veya tüm okullardan kaldırın. Tek tek tablo ile aynı kurallar
+            geçerlidir (açık liste / kapalı beyaz liste).
+          </p>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
+          <div className="min-w-[220px] flex-1">
+            <label className="block text-xs font-medium text-muted-foreground">Modül</label>
+            <select
+              value={bulkModule}
+              onChange={(e) => setBulkModule((e.target.value || '') as SchoolModuleKey | '')}
+              className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="">Seçin…</option>
+              {MODULE_KEYS.map((key) => (
+                <option key={key} value={key}>
+                  {MODULE_LABELS[key]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={bulkBusy || !bulkModule}
+              onClick={() => void runBulkModule(true)}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {bulkBusy ? 'İşleniyor…' : 'Tüm okullara ekle'}
+            </button>
+            <button
+              type="button"
+              disabled={bulkBusy || !bulkModule}
+              onClick={() => void runBulkModule(false)}
+              className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {bulkBusy ? 'İşleniyor…' : 'Tüm okullardan kaldır'}
+            </button>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -217,7 +297,7 @@ export default function ModulesPage() {
           {loading ? (
             <LoadingSpinner label="Okullar yükleniyor…" className="py-8" />
           ) : data && data.items.length > 0 ? (
-            <div className="overflow-x-auto rounded-lg border border-border">
+            <div className="table-x-scroll rounded-lg border border-border">
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/40">

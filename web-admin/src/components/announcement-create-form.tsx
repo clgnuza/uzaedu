@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { FileText, Save, Trash2 } from 'lucide-react';
+import { FileText, Save, Trash2, PenLine, ImageIcon, Tv, SlidersHorizontal } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { Alert } from '@/components/ui/alert';
 import { ImageUrlInput } from '@/components/image-url-input';
+import { cn } from '@/lib/utils';
 
 const TEMPLATE_STORAGE_KEY = 'announcement_templates';
 
@@ -62,6 +63,7 @@ export function CreateAnnouncementForm({
   onCancel,
   defaultShowOnTv = false,
   defaultPublish = false,
+  initialCategory = 'general',
   schoolId,
   schoolIds,
 }: {
@@ -70,6 +72,8 @@ export function CreateAnnouncementForm({
   onCancel: () => void;
   defaultShowOnTv?: boolean;
   defaultPublish?: boolean;
+  /** Dışarıdan (şablon seçimi) açılışta kategori. */
+  initialCategory?: string;
   /** Superadmin: Tek okul (geriye uyumluluk). */
   schoolId?: string | null;
   /** Superadmin: Birden fazla okula aynı duyuru gönderilecek. */
@@ -82,16 +86,17 @@ export function CreateAnnouncementForm({
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [waitForVideoEnd, setWaitForVideoEnd] = useState(false);
   const [importance, setImportance] = useState('normal');
-  const [category, setCategory] = useState('general');
+  const [category, setCategory] = useState(initialCategory);
   const [showOnTv, setShowOnTv] = useState(defaultShowOnTv);
   const [tvSlot, setTvSlot] = useState('');
-  const [tvAudience, setTvAudience] = useState('all');
+  const [tvAudience, setTvAudience] = useState('both');
   const [publish, setPublish] = useState(defaultPublish);
 
   useEffect(() => {
     if (category === 'ticker') {
       setShowOnTv(true);
       setPublish(true);
+      setTvSlot((s) => s || 'ticker');
     }
   }, [category]);
 
@@ -230,262 +235,346 @@ export function CreateAnnouncementForm({
     }
   };
 
+  const field =
+    'w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground transition focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/25';
+  const lab = 'mb-1.5 block text-sm font-medium text-foreground';
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-5">
       {error && <Alert message={error} />}
       {targetSchools.length > 1 && (
-        <p className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-foreground">
+        <p className="rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 text-sm text-foreground">
           Bu duyuru <strong>{targetSchools.length} okula</strong> gönderilecek.
         </p>
       )}
-      <div className="rounded-lg border border-dashed border-border p-3 space-y-2">
-        <p className="text-sm font-medium text-foreground flex items-center gap-2">
-          <FileText className="size-4" />
-          Şablonlar
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <select
-            value={selectedTemplateId}
-            onChange={(e) => {
-              const id = e.target.value;
-              setSelectedTemplateId(id);
-              const t = templates.find((x) => x.id === id);
-              if (t) applyTemplate(t);
-            }}
-            className="rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-          >
-            <option value="">— Şablon seç —</option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-          <input
-            type="text"
-            value={templateSaveName}
-            onChange={(e) => setTemplateSaveName(e.target.value)}
-            placeholder="Şablon adı"
-            className="rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 max-w-[160px]"
-          />
-          <button
-            type="button"
-            onClick={handleSaveTemplate}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted"
-          >
-            <Save className="size-4" />
-            Şablon olarak kaydet
-          </button>
-          {selectedTemplateId && (
-            <button
-              type="button"
-              onClick={() => handleDeleteTemplate(selectedTemplateId)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/50 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10"
+
+      <section className="rounded-xl border border-border/80 bg-muted/25 p-4 sm:p-5">
+        <div className="mb-3 flex items-start gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background shadow-sm ring-1 ring-border/60">
+            <FileText className="size-4 text-primary" aria-hidden />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-semibold text-foreground">Şablonlar</h3>
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+              Tarayıcıda saklanan şablonları yükleyin veya mevcut alanları şablon olarak kaydedin.
+            </p>
+          </div>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label htmlFor="ann-template-select" className={lab}>
+              Kayıtlı şablon
+            </label>
+            <select
+              id="ann-template-select"
+              value={selectedTemplateId}
+              onChange={(e) => {
+                const id = e.target.value;
+                setSelectedTemplateId(id);
+                const t = templates.find((x) => x.id === id);
+                if (t) applyTemplate(t);
+              }}
+              className={field}
             >
-              <Trash2 className="size-4" />
-              Şablonu sil
-            </button>
-          )}
-        </div>
-      </div>
-      <div>
-        <label htmlFor="ann-title" className="mb-1 block text-sm font-medium text-foreground">
-          Başlık <span className="text-destructive">*</span>
-        </label>
-        <input
-          id="ann-title"
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          maxLength={255}
-          required
-          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-          placeholder={category === 'staff' ? 'Öğretmen adı soyadı' : 'Duyuru başlığı'}
-        />
-      </div>
-      <div>
-        <label htmlFor="ann-summary" className="mb-1 block text-sm font-medium text-foreground">
-          Özet
-        </label>
-        <input
-          id="ann-summary"
-          type="text"
-          value={summary}
-          onChange={(e) => setSummary(e.target.value)}
-          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-          placeholder={category === 'staff' ? 'Branş (örn. Matematik Öğretmeni)' : 'Kısa özet (liste görünümünde)'}
-        />
-      </div>
-      <div>
-        <label htmlFor="ann-body" className="mb-1 block text-sm font-medium text-foreground">
-          İçerik
-        </label>
-        <textarea
-          id="ann-body"
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          rows={4}
-          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-          placeholder="Duyuru metni"
-        />
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label htmlFor="ann-attachment" className="mb-1 block text-sm font-medium text-foreground">
-            Görsel (Duyuru TV)
-          </label>
-          <ImageUrlInput
-            id="ann-attachment"
-            value={attachmentUrl}
-            onChange={setAttachmentUrl}
-            token={token}
-            purpose="announcement"
-            hint={
-              category === 'ticker'
-                ? 'Sarı bar sadece metin gösterir, görsel kullanılmaz.'
-                : category === 'staff'
-                  ? 'Öğretmen fotoğrafı. Orta bölümde kartlarda gösterilir.'
-                  : 'Görsel + TV işaretli duyurular sağ panelde beyaz kutuda gösterilir. Metinde **kelime** turuncu vurgulanır.'
-            }
-          />
-        </div>
-        <div>
-          <label htmlFor="ann-youtube" className="mb-1 block text-sm font-medium text-foreground">
-            YouTube linki (Duyuru TV)
-          </label>
-          <input
-            id="ann-youtube"
-            type="url"
-            value={youtubeUrl}
-            onChange={(e) => setYoutubeUrl(e.target.value)}
-            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-            placeholder="https://youtube.com/watch?v=..."
-          />
-          {category === 'ticker' && (
-            <p className="mt-0.5 text-xs text-muted-foreground">Sarı bar sadece metin gösterir, video kullanılmaz.</p>
-          )}
-          {youtubeUrl.trim() && category !== 'ticker' && (
-            <div className="mt-2 flex items-center gap-2">
-              <input
-                id="ann-wait-video"
-                type="checkbox"
-                checked={waitForVideoEnd}
-                onChange={(e) => setWaitForVideoEnd(e.target.checked)}
-                className="size-4 rounded border-input"
-              />
-              <label htmlFor="ann-wait-video" className="text-xs text-muted-foreground">
-                Video bitimine kadar slayt dursun
+              <option value="">— Şablon seç —</option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="min-w-0 flex-1">
+              <label htmlFor="ann-template-name" className={lab}>
+                Şablon adı
               </label>
+              <input
+                id="ann-template-name"
+                type="text"
+                value={templateSaveName}
+                onChange={(e) => setTemplateSaveName(e.target.value)}
+                placeholder="Örn. Haftalık hatırlatma"
+                className={field}
+              />
             </div>
-          )}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleSaveTemplate}
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-medium shadow-sm transition hover:bg-muted sm:flex-initial"
+              >
+                <Save className="size-4 shrink-0" />
+                Şablon olarak kaydet
+              </button>
+              {selectedTemplateId ? (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteTemplate(selectedTemplateId)}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-2.5 text-sm font-medium text-destructive transition hover:bg-destructive/10"
+                >
+                  <Trash2 className="size-4 shrink-0" />
+                  Sil
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
-      </div>
-      <div>
-        <label className="mb-1 block text-sm font-medium text-foreground">Önem</label>
-        <select
-          value={importance}
-          onChange={(e) => setImportance(e.target.value)}
-          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-        >
-          <option value="normal">Normal</option>
-          <option value="high">Yüksek</option>
-          <option value="urgent">Acil</option>
-        </select>
-      </div>
-      <div>
-        <label className="mb-1 block text-sm font-medium text-foreground">Kategori (Duyuru TV)</label>
-        <select
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-        >
-          {ANNOUNCEMENT_FORM_CATEGORIES.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
+      </section>
+      <section className="rounded-xl border border-border/80 bg-card p-4 sm:p-5">
+        <div className="mb-4 flex items-center gap-2 border-b border-border/60 pb-3">
+          <PenLine className="size-4 text-muted-foreground" aria-hidden />
+          <h3 className="text-sm font-semibold text-foreground">Metin</h3>
+        </div>
+        <div className="space-y-4">
+          <div className="min-w-0 space-y-1.5">
+            <label htmlFor="ann-title" className={lab}>
+              Başlık <span className="text-destructive">*</span>
+            </label>
+            <input
+              id="ann-title"
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={255}
+              required
+              className={field}
+              placeholder={category === 'staff' ? 'Öğretmen adı soyadı' : 'Duyuru başlığı'}
+            />
+          </div>
+          <div className="min-w-0 space-y-1.5">
+            <label htmlFor="ann-summary" className={lab}>
+              Özet
+            </label>
+            <input
+              id="ann-summary"
+              type="text"
+              value={summary}
+              onChange={(e) => setSummary(e.target.value)}
+              className={field}
+              placeholder={category === 'staff' ? 'Branş (örn. Matematik Öğretmeni)' : 'Kısa özet (liste görünümünde)'}
+            />
+          </div>
+          <div className="min-w-0 space-y-1.5">
+            <label htmlFor="ann-body" className={lab}>
+              İçerik
+            </label>
+            <textarea
+              id="ann-body"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={4}
+              className={cn(field, 'min-h-[100px] resize-y')}
+              placeholder="Duyuru metni"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-border/80 bg-card p-4 sm:p-5">
+        <div className="mb-4 flex items-center gap-2 border-b border-border/60 pb-3">
+          <ImageIcon className="size-4 text-muted-foreground" aria-hidden />
+          <h3 className="text-sm font-semibold text-foreground">Görsel ve video</h3>
+        </div>
+        <div className="flex flex-col gap-6">
+          <div className="min-w-0 space-y-1.5">
+            <label htmlFor="ann-attachment" className={lab}>
+              Görsel (Duyuru TV)
+            </label>
+            <ImageUrlInput
+              id="ann-attachment"
+              value={attachmentUrl}
+              onChange={setAttachmentUrl}
+              token={token}
+              purpose="announcement"
+              hint={
+                category === 'ticker'
+                  ? 'Sarı bar sadece metin gösterir, görsel kullanılmaz.'
+                  : category === 'staff'
+                    ? 'Öğretmen fotoğrafı. Orta bölümde kartlarda gösterilir.'
+                    : 'Görsel + TV işaretli duyurular sağ panelde beyaz kutuda gösterilir. Metinde **kelime** turuncu vurgulanır.'
+              }
+            />
+          </div>
+          <div className="min-w-0 space-y-1.5">
+            <label htmlFor="ann-youtube" className={lab}>
+              YouTube (Duyuru TV)
+            </label>
+            <input
+              id="ann-youtube"
+              type="url"
+              value={youtubeUrl}
+              onChange={(e) => setYoutubeUrl(e.target.value)}
+              className={field}
+              placeholder="https://youtube.com/watch?v=..."
+            />
+            {category === 'ticker' && (
+              <p className="text-xs leading-relaxed text-muted-foreground">Sarı bar sadece metin gösterir, video kullanılmaz.</p>
+            )}
+            {youtubeUrl.trim() && category !== 'ticker' && (
+              <div className="mt-2 flex items-start gap-2.5 rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
+                <input
+                  id="ann-wait-video"
+                  type="checkbox"
+                  checked={waitForVideoEnd}
+                  onChange={(e) => setWaitForVideoEnd(e.target.checked)}
+                  className="mt-0.5 size-4 shrink-0 rounded border-input"
+                />
+                <label htmlFor="ann-wait-video" className="text-sm leading-snug text-foreground">
+                  Video bitimine kadar slayt dursun
+                </label>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-border/80 bg-muted/20 p-4 sm:p-5">
+        <div className="mb-4 flex items-center gap-2 border-b border-border/60 pb-3">
+          <SlidersHorizontal className="size-4 text-muted-foreground" aria-hidden />
+          <h3 className="text-sm font-semibold text-foreground">Sınıflandırma</h3>
+        </div>
+        <div className="grid gap-5 sm:grid-cols-2 sm:items-start">
+          <div className="min-w-0 space-y-1.5">
+            <label htmlFor="ann-importance" className={lab}>
+              Önem
+            </label>
+            <select
+              id="ann-importance"
+              value={importance}
+              onChange={(e) => setImportance(e.target.value)}
+              className={field}
+            >
+              <option value="normal">Normal</option>
+              <option value="high">Yüksek</option>
+              <option value="urgent">Acil</option>
+            </select>
+          </div>
+          <div className="min-w-0 space-y-1.5">
+            <label htmlFor="ann-category" className={lab}>
+              Kategori (Duyuru TV)
+            </label>
+            <select
+              id="ann-category"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className={field}
+            >
+              {ANNOUNCEMENT_FORM_CATEGORIES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
         {category === 'staff' && (
-          <p className="mt-2 rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2 text-xs text-sky-800 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-200">
-            <strong>Kullanım:</strong> Her öğretmen için ayrı duyuru ekleyin. Başlık = ad soyad, Özet = branş (örn. Matematik Öğretmeni). 
+          <p className="mt-4 rounded-xl border border-sky-200/80 bg-sky-50/80 px-3 py-2.5 text-xs leading-relaxed text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
+            <strong>Kullanım:</strong> Her öğretmen için ayrı duyuru ekleyin. Başlık = ad soyad, Özet = branş (örn. Matematik Öğretmeni).
             Görsel URL = öğretmen fotoğrafı (opsiyonel). TV orta bölümde kartlar halinde gösterilir.
           </p>
         )}
-      </div>
-      <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
-        <p className="text-xs text-muted-foreground">
-          TV ekranında görünmesi için <strong className="text-foreground">her ikisi de</strong> işaretli olmalı.
-        </p>
-        <div className="flex items-center gap-2">
-          <input
-            id="ann-show-tv"
-            type="checkbox"
-            checked={showOnTv}
-            onChange={(e) => setShowOnTv(e.target.checked)}
-            className="size-4 rounded border-input"
-          />
-          <label htmlFor="ann-show-tv" className="text-sm font-medium text-foreground">
-            Duyuru TV ekranında göster
-          </label>
-        </div>
-        {showOnTv && (
+      </section>
+
+      <section className="rounded-xl border border-primary/20 bg-linear-to-br from-primary/5 to-transparent p-4 sm:p-5 dark:from-primary/10">
+        <div className="mb-3 flex items-center gap-2">
+          <span className="flex size-9 items-center justify-center rounded-lg bg-primary/15 text-primary">
+            <Tv className="size-4" aria-hidden />
+          </span>
           <div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <div>
-                <label htmlFor="ann-tv-slot" className="mb-1 block text-xs font-medium text-muted-foreground">
-                  TV konumu (opsiyonel)
-                </label>
-                <select
-                  id="ann-tv-slot"
-                  value={tvSlot}
-                  onChange={(e) => setTvSlot(e.target.value)}
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-                >
-                  <option value="">Otomatik yerleşim</option>
-                  <option value="middle">Orta bölüm</option>
-                  <option value="bottom">Alt bölüm</option>
-                  <option value="right">Sağ bölüm</option>
-                  <option value="ticker">Sarı bar – Okul duyuruları</option>
-                </select>
-              </div>
-              <div>
-                <label htmlFor="ann-tv-audience" className="mb-1 block text-xs font-medium text-muted-foreground">
-                  Hedef ekran
-                </label>
-                <select
-                  id="ann-tv-audience"
-                  value={tvAudience}
-                  onChange={(e) => setTvAudience(e.target.value)}
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-                >
-                  <option value="all">Tüm ekranlarda</option>
-                  <option value="both">Koridor + Öğretmenler odası</option>
-                  <option value="corridor">Sadece koridor</option>
-                  <option value="teachers">Sadece öğretmenler odası</option>
-                  <option value="classroom">Sadece Akıllı Tahta</option>
-                </select>
-              </div>
+            <h3 className="text-sm font-semibold text-foreground">TV yayını</h3>
+            <p className="text-xs text-muted-foreground">
+              TV’de görünmek için aşağıdaki seçenekleri kullanın.
+            </p>
+          </div>
+        </div>
+        <p className="mb-3 rounded-lg bg-background/70 px-3 py-2 text-xs text-muted-foreground ring-1 ring-border/50">
+          TV ekranında görünmesi için <strong className="text-foreground">Duyuru TV</strong> ve genelde{' '}
+          <strong className="text-foreground">Hemen yayınla</strong> birlikte kullanılmalıdır.
+        </p>
+        <div className="space-y-4">
+          <div className="flex gap-3 rounded-lg border border-border/70 bg-background px-3 py-2.5">
+            <input
+              id="ann-show-tv"
+              type="checkbox"
+              checked={showOnTv}
+              onChange={(e) => setShowOnTv(e.target.checked)}
+              className="mt-0.5 size-4 shrink-0 rounded border-input"
+            />
+            <div className="min-w-0">
+              <label htmlFor="ann-show-tv" className="text-sm font-medium text-foreground">
+                Duyuru TV ekranında göster
+              </label>
+              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                Koridor, öğretmenler veya akıllı tahta ekranlarında listelenir.
+              </p>
             </div>
           </div>
-        )}
-        <div className="flex items-center gap-2 pt-1">
-          <input
-            id="ann-publish"
-            type="checkbox"
-            checked={publish}
-            onChange={(e) => setPublish(e.target.checked)}
-            className="size-4 rounded border-input"
-          />
-          <label htmlFor="ann-publish" className="text-sm font-medium text-foreground">
-            Hemen yayınla (TV&apos;de görünür olması için zorunlu)
-          </label>
+          {showOnTv && (
+            <div className="rounded-lg border border-dashed border-border/80 bg-muted/15 p-3 sm:p-4">
+              <div className="grid gap-4 sm:grid-cols-2 sm:items-start">
+                <div className="min-w-0 space-y-1.5">
+                  <label htmlFor="ann-tv-slot" className={lab}>
+                    TV konumu (opsiyonel)
+                  </label>
+                  <select
+                    id="ann-tv-slot"
+                    value={tvSlot}
+                    onChange={(e) => setTvSlot(e.target.value)}
+                    className={cn(field, 'text-xs')}
+                  >
+                    <option value="">Otomatik yerleşim</option>
+                    <option value="middle">Orta bölüm</option>
+                    <option value="bottom">Alt bölüm</option>
+                    <option value="right">Sağ bölüm</option>
+                    <option value="ticker">Sarı bar – Okul duyuruları</option>
+                  </select>
+                </div>
+                <div className="min-w-0 space-y-1.5">
+                  <label htmlFor="ann-tv-audience" className={lab}>
+                    Hedef ekran
+                  </label>
+                  <select
+                    id="ann-tv-audience"
+                    value={tvAudience}
+                    onChange={(e) => setTvAudience(e.target.value)}
+                    className={cn(field, 'text-xs')}
+                  >
+                    <option value="all">Tüm ekranlarda</option>
+                    <option value="both">Koridor + Öğretmenler odası</option>
+                    <option value="corridor">Sadece koridor</option>
+                    <option value="teachers">Sadece öğretmenler odası</option>
+                    <option value="classroom">Sadece Akıllı Tahta</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="flex gap-3 rounded-lg border border-border/70 bg-background px-3 py-2.5">
+            <input
+              id="ann-publish"
+              type="checkbox"
+              checked={publish}
+              onChange={(e) => setPublish(e.target.checked)}
+              className="mt-0.5 size-4 shrink-0 rounded border-input"
+            />
+            <div className="min-w-0">
+              <label htmlFor="ann-publish" className="text-sm font-medium text-foreground">
+                Hemen yayınla
+              </label>
+              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                Yayındaki duyurular TV’de görünür; taslaklar görünmez.
+              </p>
+            </div>
+          </div>
         </div>
-      </div>
-      <div className="flex justify-end gap-2 pt-2">
+      </section>
+
+      <div className="flex flex-col-reverse gap-2 border-t border-border/60 pt-4 sm:flex-row sm:justify-end sm:gap-3">
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
+          className="rounded-xl border border-border bg-background px-5 py-2.5 text-sm font-medium shadow-sm transition hover:bg-muted"
         >
           İptal
         </button>
@@ -493,7 +582,7 @@ export function CreateAnnouncementForm({
           type="submit"
           disabled={submitting || !title.trim()}
           aria-busy={submitting}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition hover:bg-primary/92 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submitting ? 'Kaydediliyor…' : 'Kaydet'}
         </button>

@@ -10,7 +10,7 @@ import { DutySlot } from './duty-slot.entity';
 import { DutyCoverage } from './duty-coverage.entity';
 import { User } from '../../users/entities/user.entity';
 
-export type DutySwapStatus = 'pending' | 'approved' | 'rejected';
+export type DutySwapStatus = 'pending' | 'approved' | 'rejected' | 'reverted';
 
 @Entity('duty_swap_request')
 export class DutySwapRequest {

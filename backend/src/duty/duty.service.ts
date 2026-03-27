@@ -254,6 +254,17 @@ export class DutyService {
     if (dto.slot_end_time !== undefined) slot.slot_end_time = dto.slot_end_time?.trim() || null;
     if (dto.user_id !== undefined) slot.user_id = dto.user_id;
     await this.slotRepo.save(slot);
+    await this.logRepo.save(
+      this.logRepo.create({
+        school_id: schoolId,
+        action: 'slot_edit',
+        duty_slot_id: slot.id,
+        duty_plan_id: slot.duty_plan_id,
+        old_user_id: null,
+        new_user_id: null,
+        performed_by: userId,
+      }),
+    );
     return this.slotRepo.findOne({ where: { id: slotId }, relations: ['user'] });
   }
 
@@ -275,6 +286,17 @@ export class DutyService {
       user_id: dto.user_id,
     });
     await this.slotRepo.save(slot);
+    await this.logRepo.save(
+      this.logRepo.create({
+        school_id: schoolId,
+        action: 'slot_add',
+        duty_slot_id: slot.id,
+        duty_plan_id: planId,
+        old_user_id: null,
+        new_user_id: dto.user_id,
+        performed_by: userId,
+      }),
+    );
     return this.slotRepo.findOne({ where: { id: slot.id }, relations: ['user'] });
   }
 
@@ -304,11 +326,24 @@ export class DutyService {
   }
 
   /** Slot sil – school_admin */
-  async deleteSlot(slotId: string, schoolId: string | null) {
+  async deleteSlot(slotId: string, schoolId: string | null, performedByUserId: string) {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     const slot = await this.slotRepo.findOne({ where: { id: slotId }, relations: ['duty_plan'] });
     if (!slot) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Nöbet kaydı bulunamadı.' });
     if (slot.duty_plan.school_id !== schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    const planId = slot.duty_plan_id;
+    const userId = slot.user_id;
+    await this.logRepo.save(
+      this.logRepo.create({
+        school_id: schoolId,
+        action: 'slot_delete',
+        duty_slot_id: slot.id,
+        duty_plan_id: planId,
+        old_user_id: userId,
+        new_user_id: null,
+        performed_by: performedByUserId,
+      }),
+    );
     await this.slotRepo.remove(slot);
     return { success: true };
   }
@@ -353,6 +388,7 @@ export class DutyService {
         school_id: plan.school_id,
         action: 'publish',
         duty_slot_id: null,
+        duty_plan_id: plan.id,
         old_user_id: null,
         new_user_id: null,
         performed_by: userId,
@@ -380,7 +416,14 @@ export class DutyService {
     return { success: true, message: 'Plan yayınlandı.' };
   }
 
-  async reassignSlot(duty_slot_id: string, new_user_id: string, schoolId: string | null, userId: string) {
+  async reassignSlot(
+    duty_slot_id: string,
+    new_user_id: string,
+    schoolId: string | null,
+    userId: string,
+    options?: { notifyNewAssignee?: boolean },
+  ) {
+    const notifyNewAssignee = options?.notifyNewAssignee !== false;
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     await this.validateTeachersInSchool(schoolId, [new_user_id]);
     const slot = await this.slotRepo.findOne({
@@ -403,24 +446,27 @@ export class DutyService {
         school_id: schoolId,
         action: 'reassign',
         duty_slot_id: slot.id,
+        duty_plan_id: slot.duty_plan_id,
         old_user_id: oldUserId,
         new_user_id,
         performed_by: userId,
       }),
     );
-    const dateLabel = slot.date
-      ? new Date(slot.date + 'T12:00:00').toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })
-      : '';
-    const areaLabel = slot.area_name ? ` (${slot.area_name})` : '';
-    await this.notificationsService.createInboxEntry({
-      user_id: new_user_id,
-      event_type: 'duty.reassigned',
-      entity_id: slot.id,
-      target_screen: 'nobet',
-      title: 'Yerine görevlendirildiniz',
-      body: dateLabel ? `${dateLabel}${areaLabel} nöbet göreviniz size atandı. Günlük listeyi görüntüleyin.` : 'Bir nöbet göreviniz size atandı.',
-      metadata: slot.date ? { date: slot.date } : null,
-    });
+    if (notifyNewAssignee) {
+      const dateLabel = slot.date
+        ? new Date(slot.date + 'T12:00:00').toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })
+        : '';
+      const areaLabel = slot.area_name ? ` (${slot.area_name})` : '';
+      await this.notificationsService.createInboxEntry({
+        user_id: new_user_id,
+        event_type: 'duty.reassigned',
+        entity_id: slot.id,
+        target_screen: 'nobet',
+        title: 'Yerine görevlendirildiniz',
+        body: dateLabel ? `${dateLabel}${areaLabel} nöbet göreviniz size atandı. Günlük listeyi görüntüleyin.` : 'Bir nöbet göreviniz size atandı.',
+        metadata: slot.date ? { date: slot.date } : null,
+      });
+    }
     return { success: true, slot };
   }
 
@@ -525,6 +571,29 @@ export class DutyService {
     }
 
     return qb.getMany();
+  }
+
+  /** Bu planla ilgili değişiklik logları (plan detay sayfası) */
+  async listLogsForPlan(planId: string, schoolId: string | null, opts?: { limit?: number }) {
+    if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    const plan = await this.planRepo.findOne({ where: { id: planId, deleted_at: IsNull() } });
+    if (!plan) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Plan bulunamadı.' });
+    if (plan.school_id !== schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu plana erişim yetkiniz yok.' });
+    const limit = Math.min(80, Math.max(1, opts?.limit ?? 25));
+
+    return this.logRepo
+      .createQueryBuilder('l')
+      .leftJoinAndSelect('l.performedByUser', 'u')
+      .leftJoinAndSelect('l.oldUser', 'ou')
+      .leftJoinAndSelect('l.newUser', 'nu')
+      .where('l.school_id = :schoolId', { schoolId })
+      .andWhere(
+        '(l.duty_plan_id = :planId OR EXISTS (SELECT 1 FROM duty_slot s WHERE s.id = l.duty_slot_id AND s.duty_plan_id = :planId))',
+        { planId },
+      )
+      .orderBy('l.created_at', 'DESC')
+      .take(limit)
+      .getMany();
   }
 
   /** Yerine görevlendirme önerisi – o gün nöbetçilerden, gelmeyen öğretmenin ders saatinde boş olanlar */
@@ -1022,6 +1091,7 @@ export class DutyService {
       .leftJoinAndSelect('r.requestedByUser', 'rbu')
       .leftJoinAndSelect('r.proposedUser', 'pu')
       .leftJoinAndSelect('r.coverage', 'cov')
+      .leftJoinAndSelect('cov.covered_by_user', 'cbu')
       .where('r.school_id = :schoolId', { schoolId })
       .andWhere('s.deleted_at IS NULL')
       .andWhere('p.deleted_at IS NULL');
@@ -1099,6 +1169,7 @@ export class DutyService {
             school_id: schoolId,
             action: 'coverage_assigned',
             duty_slot_id: req.duty_slot_id,
+            duty_plan_id: req.duty_slot?.duty_plan_id ?? null,
             old_user_id: oldUser,
             new_user_id: req.proposed_user_id,
             performed_by: adminUserId,
@@ -1120,6 +1191,95 @@ export class DutyService {
       title: status === 'approved' ? 'Takas talebiniz onaylandı' : 'Takas talebiniz reddedildi',
       body: admin_note || (status === 'approved' ? 'Takas uygulandı.' : 'Takas yapılmadı.'),
     });
+    return { success: true, request: req };
+  }
+
+  /** Onaylanmış takas/değişimi geri al – school_admin (nöbet veya ders görevi önceki duruma döner) */
+  async revertApprovedSwapRequest(id: string, schoolId: string | null, adminUserId: string) {
+    if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    const req = await this.swapRepo.findOne({
+      where: { id },
+      relations: ['duty_slot', 'duty_slot.duty_plan', 'coverage'],
+    });
+    if (!req) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Takas talebi bulunamadı.' });
+    if (req.school_id !== schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    if (req.status !== 'approved') {
+      throw new BadRequestException({ code: 'NOT_APPROVED', message: 'Sadece onaylanmış talepler geri alınabilir.' });
+    }
+    if (req.duty_slot?.deleted_at || req.duty_slot?.duty_plan?.deleted_at) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Takas talebi bulunamadı.' });
+    }
+
+    if (req.request_type === 'coverage_swap') {
+      if (!req.proposed_user_id || !req.coverage_id) {
+        throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Ders görevi kaydı eksik.' });
+      }
+      const coverage = await this.coverageRepo.findOne({ where: { id: req.coverage_id } });
+      if (!coverage) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Ders görevi kaydı bulunamadı.' });
+      if (coverage.covered_by_user_id !== req.proposed_user_id) {
+        throw new BadRequestException({
+          code: 'STATE_CHANGED',
+          message: 'Ders görevi bu talepten sonra değiştirilmiş. Önce kaydı manuel düzeltin veya güncel durumu kontrol edin.',
+        });
+      }
+      const prev = coverage.covered_by_user_id;
+      coverage.covered_by_user_id = req.requested_by_user_id;
+      await this.coverageRepo.save(coverage);
+      await this.logRepo.save(
+        this.logRepo.create({
+          school_id: schoolId,
+          action: 'coverage_assigned',
+          duty_slot_id: req.duty_slot_id,
+          duty_plan_id: req.duty_slot?.duty_plan_id ?? null,
+          old_user_id: prev,
+          new_user_id: req.requested_by_user_id,
+          performed_by: adminUserId,
+        }),
+      );
+    } else {
+      if (!req.proposed_user_id) {
+        throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Talep kaydında hedef öğretmen eksik.' });
+      }
+      const slot = await this.slotRepo.findOne({
+        where: { id: req.duty_slot_id },
+        relations: ['duty_plan'],
+      });
+      if (!slot) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Nöbet kaydı bulunamadı.' });
+      if (slot.user_id !== req.proposed_user_id) {
+        throw new BadRequestException({
+          code: 'STATE_CHANGED',
+          message: 'Nöbet bu talepten sonra değiştirilmiş. Önce kaydı manuel düzeltin veya güncel nöbetçiyi kontrol edin.',
+        });
+      }
+      await this.reassignSlot(req.duty_slot_id, req.requested_by_user_id, schoolId, adminUserId, {
+        notifyNewAssignee: false,
+      });
+    }
+
+    req.status = 'reverted';
+    await this.swapRepo.save(req);
+
+    const title = 'Takas onayı geri alındı';
+    const body = 'Okul yöneticisi onaylanan talebi geri aldı; nöbet/ders görevi önceki duruma döndü.';
+    await this.notificationsService.createInboxEntry({
+      user_id: req.requested_by_user_id,
+      event_type: 'duty.swap_reverted',
+      entity_id: req.id,
+      target_screen: 'nobet',
+      title,
+      body,
+    });
+    if (req.proposed_user_id) {
+      await this.notificationsService.createInboxEntry({
+        user_id: req.proposed_user_id,
+        event_type: 'duty.swap_reverted',
+        entity_id: req.id,
+        target_screen: 'nobet',
+        title,
+        body,
+      });
+    }
+
     return { success: true, request: req };
   }
 
@@ -1525,6 +1685,7 @@ export class DutyService {
           school_id: schoolId,
           action: 'absent_marked',
           duty_slot_id: slot.id,
+          duty_plan_id: slot.duty_plan_id,
           old_user_id: slot.user_id,
           new_user_id: null,
           performed_by: userId,
@@ -1647,6 +1808,67 @@ export class DutyService {
     return { success: true };
   }
 
+  /** Plandaki slotlardan öğretmen bazlı hafta içi dağılım (otomatik plan ve rapor için) */
+  private buildDutyDistributionFromSlots(
+    slots: { date: string; user_id: string }[],
+    teachers: { id: string; display_name?: string | null; email?: string }[],
+  ): {
+    user_id: string;
+    display_name: string | null;
+    email: string;
+    weekday_counts: Record<number, number>;
+    weekday_labels: Record<string, number>;
+    total: number;
+  }[] {
+    const DAY_NAMES = ['', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+    const distributionMap = new Map<string, { display_name: string | null; email: string; weekday_counts: Record<number, number>; total: number }>();
+    for (const s of slots) {
+      const wd = new Date(s.date + 'T12:00:00').getDay() || 7;
+      if (!distributionMap.has(s.user_id)) {
+        const t = teachers.find((tc) => tc.id === s.user_id);
+        distributionMap.set(s.user_id, {
+          display_name: (t as { display_name?: string | null })?.display_name ?? null,
+          email: (t as { email?: string })?.email ?? '',
+          weekday_counts: {},
+          total: 0,
+        });
+      }
+      const entry = distributionMap.get(s.user_id)!;
+      entry.weekday_counts[wd] = (entry.weekday_counts[wd] ?? 0) + 1;
+      entry.total += 1;
+    }
+    return [...distributionMap.entries()]
+      .map(([user_id, d]) => ({
+        user_id,
+        display_name: d.display_name,
+        email: d.email,
+        weekday_counts: d.weekday_counts,
+        weekday_labels: Object.fromEntries(
+          Object.entries(d.weekday_counts).map(([wdk, cnt]) => [DAY_NAMES[Number(wdk)] ?? wdk, cnt]),
+        ),
+        total: d.total,
+      }))
+      .sort((a, b) => b.total - a.total);
+  }
+
+  /** Kayıtlı plan için nöbet dağıtım raporu (liste / detaydan) */
+  async getPlanDistribution(planId: string, schoolId: string | null) {
+    if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    const plan = await this.planRepo.findOne({
+      where: { id: planId, deleted_at: IsNull() },
+      relations: ['slots'],
+    });
+    if (!plan) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Plan bulunamadı.' });
+    if (plan.school_id !== schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu plana erişim yetkiniz yok.' });
+    const teachers = await this.listSchoolTeachers(schoolId, true);
+    const activeSlots = (plan.slots ?? []).filter((s) => !s.deleted_at && s.user_id);
+    const distribution = this.buildDutyDistributionFromSlots(
+      activeSlots.map((s) => ({ date: s.date, user_id: s.user_id! })),
+      teachers,
+    );
+    return { distribution };
+  }
+
   /** Ek ders puantaj için devamsızlık özeti – gelmeyen işaretli slotlar */
   async getAbsencesForEkDers(schoolId: string | null, from: string, to: string) {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
@@ -1699,6 +1921,8 @@ export class DutyService {
       duty_days_per_week?: 1 | 2;
       /** Dönerli liste: İlk hafta şablon, sonraki haftalarda nöbet yerleri haftalık kaydırılır */
       rotate_area_by_week?: boolean;
+      /** true (varsayılan): geçmiş görevlendirme ağırlığını yok say, bu planda eşit dağılım; false: ağırlıklı geçmiş */
+      equal_plan_totals?: boolean;
     },
   ) {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
@@ -1810,12 +2034,17 @@ export class DutyService {
     const monthCountByUser = new Map<string, Map<string, number>>();
     for (const uid of (teachers as { id: string }[]).map((t) => t.id)) monthCountByUser.set(uid, new Map());
 
-    const summary = await this.getSummary(schoolId, undefined, undefined);
+    const ruleEqualPlanTotals = dto.equal_plan_totals !== false;
     const countByUser = new Map<string, number>();
-    for (const s of summary.items) {
-      // Adil dağılım için ağırlıklı sayım kullan:
-      // yerine görevlendirme lesson_count kadar ağırlık taşır → çok fazla karşılayan öğretmene daha az nöbet
-      countByUser.set(s.user_id, s.weighted_count);
+    if (ruleEqualPlanTotals) {
+      for (const t of teachers as { id: string }[]) countByUser.set(t.id, 0);
+    } else {
+      const summary = await this.getSummary(schoolId, undefined, undefined);
+      for (const s of summary.items) {
+        // Adil dağılım için ağırlıklı sayım kullan:
+        // yerine görevlendirme lesson_count kadar ağırlık taşır → çok fazla karşılayan öğretmene daha az nöbet
+        countByUser.set(s.user_id, s.weighted_count);
+      }
     }
     const from = dto.period_start?.trim();
     const to = dto.period_end?.trim();
@@ -2322,40 +2551,40 @@ export class DutyService {
     };
     const plan = await this.createPlan(schoolId, adminUserId, planDto);
 
-    // Dağıtım raporu: öğretmen → gün bazlı nöbet sayıları
-    const DAY_NAMES = ['', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
-    const distributionMap = new Map<string, { display_name: string | null; email: string; weekday_counts: Record<number, number>; total: number }>();
-    for (const s of slots) {
-      const wd = new Date(s.date + 'T12:00:00').getDay() || 7;
-      if (!distributionMap.has(s.user_id)) {
-        const t = teachers.find((tc) => tc.id === s.user_id);
-        distributionMap.set(s.user_id, {
-          display_name: (t as { display_name?: string | null })?.display_name ?? null,
-          email: (t as { email?: string })?.email ?? '',
-          weekday_counts: {},
-          total: 0,
-        });
-      }
-      const entry = distributionMap.get(s.user_id)!;
-      entry.weekday_counts[wd] = (entry.weekday_counts[wd] ?? 0) + 1;
-      entry.total += 1;
-    }
-    const distribution = [...distributionMap.entries()].map(([user_id, d]) => ({
-      user_id,
-      display_name: d.display_name,
-      email: d.email,
-      weekday_counts: d.weekday_counts,
-      weekday_labels: Object.fromEntries(
-        Object.entries(d.weekday_counts).map(([wd, cnt]) => [DAY_NAMES[Number(wd)] ?? wd, cnt])
-      ),
-      total: d.total,
-    })).sort((a, b) => b.total - a.total);
+    const distribution = this.buildDutyDistributionFromSlots(
+      slots.map((s) => ({ date: s.date, user_id: s.user_id })),
+      teachers,
+    );
 
     const totalSlotsPossible = dates.length * loopSlotsPerDay * shifts.length;
     const totalAssigned = slots.length;
+    /** Haftalık max nöbet (kişi başı) varken: her hafta en fazla teacherCount × maxPerWeek atama (gün ihtiyacından küçükse o) */
+    let maxWeekFeasibleTotal = totalSlotsPossible;
+    if (maxPerWeek > 0) {
+      const datesByIsoWeek = new Map<string, string[]>();
+      for (const d of dates) {
+        const wk = isoWeek(d);
+        if (!datesByIsoWeek.has(wk)) datesByIsoWeek.set(wk, []);
+        datesByIsoWeek.get(wk)!.push(d);
+      }
+      maxWeekFeasibleTotal = 0;
+      for (const [, wdArr] of datesByIsoWeek) {
+        const workdays = wdArr.length;
+        const needWeek = workdays * loopSlotsPerDay * shifts.length;
+        const capWeek = teacherCount * maxPerWeek;
+        maxWeekFeasibleTotal += Math.min(needWeek, capWeek);
+      }
+    }
+    /** totalSlotsPossible = tüm günlerde her nöbet yeri dolu varsayımı; haftalık kural ile gerçek üst sınır genelde maxWeekFeasibleTotal */
+    const reachedWeeklyCapacity =
+      maxPerWeek > 0 && totalAssigned >= maxWeekFeasibleTotal - 2 && totalAssigned <= maxWeekFeasibleTotal + 2;
     const warning: string | null =
       totalAssigned < totalSlotsPossible
-        ? `Nöbet sayısı yetersiz: ${totalAssigned} atama yapıldı, ${totalSlotsPossible} slot hedeflendi. Öğretmen sayısını artırın, haftalık gün sayısını (${dutyDaysPerWeek}) veya günlük nöbet sayısını gözden geçirin. Oluşan planı el ile düzenleyebilirsiniz.`
+        ? reachedWeeklyCapacity
+          ? null
+          : maxPerWeek > 0 && totalAssigned < maxWeekFeasibleTotal - 2
+            ? `Nöbet sayısı kısmen yetersiz: ${totalAssigned} atama yapıldı. Takvimde ${dates.length} iş günü × günlük ${loopSlotsPerDay} nöbet yeri × ${shifts.length} vardiya ile en fazla ${totalSlotsPossible} konum tanımlanır; öğretmen başına haftada en fazla ${maxPerWeek} nöbet günü ile toplam üst sınır yaklaşık ${maxWeekFeasibleTotal} atamadır (${teacherCount} öğretmen). Tercihler, ardışık gün veya müsaitlik nedeniyle daha da az olabilir. Günlük nöbet sayısı veya öğretmen sayısını gözden geçirin; planı el ile düzenleyebilirsiniz.`
+            : `Nöbet sayısı yetersiz: ${totalAssigned} atama yapıldı, ${totalSlotsPossible} slot konumu (tam doluluk). Öğretmen sayısını artırın, haftalık gün sayısını (${dutyDaysPerWeek}) veya günlük nöbet sayısını gözden geçirin. Oluşan planı el ile düzenleyebilirsiniz.`
         : null;
 
     return { ...plan, distribution, warning, priority_area_extended: priorityAreaExtendedMessage ?? null };
@@ -2466,6 +2695,7 @@ export class DutyService {
       school_id: schoolId,
       action: 'coverage_assigned',
       duty_slot_id: slot.id,
+      duty_plan_id: slot.duty_plan_id,
       old_user_id: prevUserId,
       new_user_id: user_id,
       performed_by: performedBy,
@@ -2598,6 +2828,7 @@ export class DutyService {
             school_id: schoolId,
             action: 'coverage_assigned',
             duty_slot_id: slot.id,
+            duty_plan_id: slot.duty_plan_id,
             old_user_id: null,
             new_user_id: best.user_id,
             performed_by: performedBy,

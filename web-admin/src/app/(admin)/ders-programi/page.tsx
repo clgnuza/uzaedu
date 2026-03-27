@@ -672,7 +672,7 @@ END:VCALENDAR`;
             )}
           </div>
         </CardHeader>
-        <CardContent className="p-0 overflow-x-auto">
+        <CardContent className="p-0 table-x-scroll">
           <div className="hidden print:block px-4 pt-2 pb-1 text-sm font-semibold text-foreground">
             {programTitle}
           </div>

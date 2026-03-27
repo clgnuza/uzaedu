@@ -31,17 +31,31 @@ export class AcademicCalendarController {
   @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin)
   async getForViewer(
     @Query('academic_year') academicYear: string | undefined,
+    @Query('school_type') schoolTypeQuery: string | undefined,
     @CurrentUser() payload: CurrentUserPayload,
   ) {
-    return this.service.getForViewer(this.getAcademicYear(academicYear), payload.schoolId ?? null);
+    return this.service.getForViewer(
+      this.getAcademicYear(academicYear),
+      payload.schoolId ?? null,
+      schoolTypeQuery?.trim() || null,
+      payload.role as UserRole,
+    );
   }
 
-  /** Superadmin, school_admin: Ham şablon. Haftalar eğitim öğretim takviminden (work_calendar). */
+  /** Superadmin, school_admin: Ham şablon. Okul admini kendi kurum türünü görür; superadmin ?school_type */
   @Get('template')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.superadmin, UserRole.school_admin)
-  async getTemplate(@Query('academic_year') academicYear: string | undefined) {
-    return this.service.getTemplate(this.getAcademicYear(academicYear));
+  async getTemplate(
+    @Query('academic_year') academicYear: string | undefined,
+    @Query('school_type') schoolTypeQuery: string | undefined,
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    const st = await this.service.resolveTemplateSchoolType(
+      { role: payload.role as UserRole, schoolId: payload.schoolId ?? null },
+      schoolTypeQuery,
+    );
+    return this.service.getTemplate(this.getAcademicYear(academicYear), st);
   }
 
   /** Superadmin: Öğe ekle (week_id = work_calendar.id) */

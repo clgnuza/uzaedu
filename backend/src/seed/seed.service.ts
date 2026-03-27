@@ -15,6 +15,7 @@ import {
   BELIRLI_NORMALIZE,
   OGRETMEN_PATH,
 } from '../academic-calendar/academic-calendar.seed';
+import { ACADEMIC_CALENDAR_TYPE_EXTRAS_2025_2026 } from '../academic-calendar/academic-calendar.seed-by-type';
 import { UserRole, UserStatus } from '../types/enums';
 import { SchoolStatus, SchoolType, SchoolSegment } from '../types/enums';
 
@@ -339,6 +340,11 @@ export class SeedService {
     const weekIds = workWeeks.map((w) => w.id);
     if (weekIds.length === 0) return { seeded: 0 };
 
+    const scopeKey = (st: SchoolType[] | null | undefined) =>
+      st?.length ? JSON.stringify([...st].sort()) : '';
+    const itemLookupKey = (itemType: string, title: string, schoolTypes: SchoolType[] | null | undefined) =>
+      `${itemType}|${title}|${scopeKey(schoolTypes)}`;
+
     const toDateKey = (d: string | Date) =>
       typeof d === 'string' ? d.slice(0, 10) : (d as Date).toISOString().slice(0, 10);
     const seedData = targetYear === '2025-2026' ? ACADEMIC_CALENDAR_2025_2026 : [];
@@ -348,8 +354,8 @@ export class SeedService {
     }
 
     let seeded = 0;
-    const existingByWeek = await this.acItemRepo.find({ where: { weekId: In(weekIds) } });
-    const byWeek = new Map<string, AcademicCalendarItem[]>();
+    let existingByWeek = await this.acItemRepo.find({ where: { weekId: In(weekIds) } });
+    let byWeek = new Map<string, AcademicCalendarItem[]>();
     for (const i of existingByWeek) {
       const list = byWeek.get(i.weekId) ?? [];
       list.push(i);
@@ -364,7 +370,7 @@ export class SeedService {
       const existing = byWeek.get(wc.id) ?? [];
       const existingByKey = new Map<string, AcademicCalendarItem>();
       for (const e of existing) {
-        existingByKey.set(`${e.itemType}|${e.title}`, e);
+        existingByKey.set(itemLookupKey(e.itemType, e.title, e.schoolTypes ?? null), e);
       }
 
       const belirliFiltered = row.belirli
@@ -374,10 +380,11 @@ export class SeedService {
 
       let so = 0;
       for (const t of belirliFiltered) {
-        const k = `belirli_gun_hafta|${t}`;
+        const k = itemLookupKey('belirli_gun_hafta', t, null);
         const found = existingByKey.get(k);
         if (found) {
           found.sortOrder = so;
+          found.schoolTypes = null;
           await this.acItemRepo.save(found);
         } else {
           const item = this.acItemRepo.create({
@@ -387,6 +394,7 @@ export class SeedService {
             path: null,
             sortOrder: so,
             isActive: true,
+            schoolTypes: null,
           });
           await this.acItemRepo.save(item);
           seeded++;
@@ -395,11 +403,12 @@ export class SeedService {
       }
       for (const t of ogretmenFiltered) {
         const path = OGRETMEN_PATH[t] ?? '/evrak';
-        const k = `ogretmen_isleri|${t}`;
+        const k = itemLookupKey('ogretmen_isleri', t, null);
         const found = existingByKey.get(k);
         if (found) {
           found.sortOrder = so;
           found.path = path;
+          found.schoolTypes = null;
           await this.acItemRepo.save(found);
         } else {
           const item = this.acItemRepo.create({
@@ -409,11 +418,98 @@ export class SeedService {
             path,
             sortOrder: so,
             isActive: true,
+            schoolTypes: null,
           });
           await this.acItemRepo.save(item);
           seeded++;
         }
         so++;
+      }
+    }
+
+    existingByWeek = await this.acItemRepo.find({ where: { weekId: In(weekIds) } });
+    byWeek = new Map<string, AcademicCalendarItem[]>();
+    for (const i of existingByWeek) {
+      const list = byWeek.get(i.weekId) ?? [];
+      list.push(i);
+      byWeek.set(i.weekId, list);
+    }
+
+    for (const schoolType of Object.values(SchoolType)) {
+      const extrasList = ACADEMIC_CALENDAR_TYPE_EXTRAS_2025_2026[schoolType];
+      if (!extrasList?.length) continue;
+
+      for (const wc of workWeeks) {
+        const dk = `${toDateKey(wc.weekStart)}|${toDateKey(wc.weekEnd)}`;
+        const row = seedByDate.get(dk);
+        if (!row) continue;
+        const extra = extrasList.find((e) => e.w === row.w);
+        if (!extra) continue;
+
+        const existing = byWeek.get(wc.id) ?? [];
+        const existingByKey = new Map<string, AcademicCalendarItem>();
+        for (const e of existing) {
+          existingByKey.set(itemLookupKey(e.itemType, e.title, e.schoolTypes ?? null), e);
+        }
+
+        const belirliFiltered = extra.belirli
+          .map((t) => BELIRLI_NORMALIZE[t] ?? t)
+          .filter((t) => BELIRLI_ALLOWED.has(t));
+        const ogretmenFiltered = extra.ogretmen.filter((t) => t in OGRETMEN_PATH);
+
+        let so =
+          existing.reduce((m, i) => Math.max(m, i.sortOrder), -1) + 1;
+        const stArr = [schoolType];
+
+        for (const t of belirliFiltered) {
+          const lk = itemLookupKey('belirli_gun_hafta', t, stArr);
+          const found = existingByKey.get(lk);
+          if (found) {
+            found.sortOrder = so;
+            await this.acItemRepo.save(found);
+          } else {
+            const item = this.acItemRepo.create({
+              weekId: wc.id,
+              itemType: 'belirli_gun_hafta',
+              title: t,
+              path: null,
+              sortOrder: so,
+              isActive: true,
+              schoolTypes: stArr,
+            });
+            await this.acItemRepo.save(item);
+            existing.push(item);
+            existingByKey.set(lk, item);
+            seeded++;
+          }
+          so++;
+        }
+        for (const t of ogretmenFiltered) {
+          const path = OGRETMEN_PATH[t] ?? '/evrak';
+          const lk = itemLookupKey('ogretmen_isleri', t, stArr);
+          const found = existingByKey.get(lk);
+          if (found) {
+            found.sortOrder = so;
+            found.path = path;
+            await this.acItemRepo.save(found);
+          } else {
+            const item = this.acItemRepo.create({
+              weekId: wc.id,
+              itemType: 'ogretmen_isleri',
+              title: t,
+              path,
+              sortOrder: so,
+              isActive: true,
+              schoolTypes: stArr,
+            });
+            await this.acItemRepo.save(item);
+            existing.push(item);
+            existingByKey.set(lk, item);
+            seeded++;
+          }
+          so++;
+        }
+        byWeek.set(wc.id, existing);
       }
     }
 

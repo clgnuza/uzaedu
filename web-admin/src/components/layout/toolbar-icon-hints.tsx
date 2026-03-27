@@ -20,8 +20,8 @@ export function ToolbarIconHints({ items, summary, className, compact }: Props) 
       <p className="sr-only">{summary}</p>
       <div
         className={cn(
-          'flex max-w-full flex-wrap items-center gap-1.5 sm:gap-2',
-          !compact && 'mt-2',
+          'hidden max-w-full flex-wrap items-center gap-1.5 sm:flex sm:gap-2',
+          !compact && 'sm:mt-2',
           className,
         )}
         role="group"

@@ -1232,4 +1232,74 @@ export class TeacherTimetableService {
     XLSX.utils.book_append_sheet(wb, ws2, 'DersProgram');
     return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
   }
+
+  /**
+   * Duyuru TV: yayınlanmış okul ders programı + okul ders saatleri ile tv_timetable_schedule JSON üretir.
+   */
+  async buildTvTimetableScheduleJsonForTv(schoolId: string): Promise<string | null> {
+    const school = await this.schoolRepo.findOne({
+      where: { id: schoolId },
+      select: ['lesson_schedule', 'lesson_schedule_pm', 'duty_education_mode'],
+    });
+    if (!school) return null;
+    const rows = await this.getBySchool(schoolId);
+    const toHHMM = (t: string) => {
+      const s = String(t || '').trim();
+      const m = s.match(/^(\d{1,2}):(\d{2})/);
+      if (m) return `${String(Math.min(23, Math.max(0, parseInt(m[1], 10)))).padStart(2, '0')}:${m[2]}`;
+      return s.slice(0, 5);
+    };
+    const am = Array.isArray(school.lesson_schedule) ? school.lesson_schedule : [];
+    const pm = Array.isArray(school.lesson_schedule_pm) ? school.lesson_schedule_pm : [];
+    const mode = school.duty_education_mode === 'double' ? 'double' : 'single';
+    const byNum = new Map<number, { num: number; start: string; end: string }>();
+    for (const slot of am) {
+      if (slot && typeof slot.lesson_num === 'number' && slot.start_time && slot.end_time) {
+        byNum.set(slot.lesson_num, {
+          num: slot.lesson_num,
+          start: toHHMM(slot.start_time),
+          end: toHHMM(slot.end_time),
+        });
+      }
+    }
+    if (mode === 'double' && pm.length > 0) {
+      for (const slot of pm) {
+        if (slot && typeof slot.lesson_num === 'number' && slot.start_time && slot.end_time) {
+          byNum.set(slot.lesson_num, {
+            num: slot.lesson_num,
+            start: toHHMM(slot.start_time),
+            end: toHHMM(slot.end_time),
+          });
+        }
+      }
+    }
+    let lesson_times = [...byNum.values()].sort((a, b) => a.num - b.num);
+    if (lesson_times.length === 0) {
+      lesson_times = [
+        { num: 1, start: '08:30', end: '09:10' },
+        { num: 2, start: '09:20', end: '10:00' },
+      ];
+    }
+    const entryMap = new Map<string, { day: number; lesson: number; class: string; subject: string }>();
+    for (const r of rows) {
+      const day = r.day_of_week;
+      if (day < 1 || day > 5) continue;
+      const lesson = r.lesson_num;
+      const cls = (r.class_section || '').trim();
+      const subj = (r.subject || '').trim();
+      if (!cls || !subj) continue;
+      const k = `${day}|${lesson}|${cls}`;
+      const ex = entryMap.get(k);
+      if (ex) ex.subject = `${ex.subject} / ${subj}`;
+      else entryMap.set(k, { day, lesson, class: cls, subject: subj });
+    }
+    const entries = Array.from(entryMap.values());
+    if (entries.length === 0) return null;
+    const class_sections = [...new Set(entries.map((e) => e.class))].sort((a, b) => a.localeCompare(b, 'tr'));
+    return JSON.stringify({
+      lesson_times,
+      class_sections,
+      entries,
+    });
+  }
 }

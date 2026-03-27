@@ -52,7 +52,7 @@ export function DutyPageHeader({
   return (
     <div
       className={cn(
-        'rounded-2xl border bg-gradient-to-br p-5 mb-6',
+        'mb-4 rounded-2xl border bg-linear-to-br p-4 sm:mb-6 sm:p-5',
         c.wrap,
         className,
       )}
@@ -64,11 +64,11 @@ export function DutyPageHeader({
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-semibold text-foreground">{title}</h1>
+              <h1 className="text-lg font-semibold text-foreground sm:text-xl">{title}</h1>
               {badge}
             </div>
             {description && (
-              <p className="mt-0.5 text-sm text-muted-foreground leading-relaxed">{description}</p>
+              <p className="mt-0.5 hidden text-sm leading-relaxed text-muted-foreground sm:block">{description}</p>
             )}
           </div>
         </div>

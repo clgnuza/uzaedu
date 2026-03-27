@@ -628,7 +628,7 @@ export default function AkilliTahtaPage() {
               )}
               {schools.length > 0 && (
                 <Select value={effectiveSchoolId ?? ''} onValueChange={(v) => setSchoolId(v || null)}>
-                  <SelectTrigger className="w-[200px]" aria-label="Okul seçin">
+                  <SelectTrigger className="w-full sm:w-[200px]" aria-label="Okul seçin">
                     <SelectValue placeholder="Okul seçin" />
                   </SelectTrigger>
                   <SelectContent>
@@ -774,7 +774,7 @@ export default function AkilliTahtaPage() {
             <CardTitle>Tahtalar</CardTitle>
             {devices.length > 0 && (
               <div className="mt-4 flex flex-wrap items-center gap-3">
-                <div className="relative flex-1 min-w-[180px] max-w-xs">
+                <div className="relative w-full flex-1 sm:min-w-[180px] sm:max-w-xs">
                   <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <input
                     type="search"
@@ -876,9 +876,9 @@ export default function AkilliTahtaPage() {
             </Alert>
           )}
 
-          <div className="mb-6 overflow-x-auto">
+          <div className="mobile-tab-scroll mb-6 pb-1">
             <nav
-              className="flex min-w-max gap-0.5 rounded-xl border border-border/80 bg-muted/30 p-1.5"
+              className="flex min-w-max gap-1 rounded-xl border border-border/80 bg-muted/35 p-1.5 shadow-sm"
               aria-label="Akıllı Tahta sekmeleri"
             >
               {ADMIN_TABS.map((t) => {
@@ -889,9 +889,9 @@ export default function AkilliTahtaPage() {
                     key={t.id}
                     href={`/akilli-tahta?tab=${t.id}`}
                     aria-current={isActive ? 'page' : undefined}
-                    className={`flex items-center gap-2.5 rounded-lg border px-4 py-2.5 text-sm font-medium transition-all duration-200 ${
+                    className={`flex shrink-0 items-center gap-2.5 rounded-lg border px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
                       isActive
-                        ? `${getTabActiveStyles(t.accent)} shadow-sm`
+                        ? `${getTabActiveStyles(t.accent)} shadow-md`
                         : 'border-transparent text-muted-foreground hover:bg-background/80 hover:text-foreground'
                     }`}
                   >
@@ -1026,7 +1026,29 @@ export default function AkilliTahtaPage() {
                   />
                 )}
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
+                <div className="flex gap-3 rounded-lg border border-sky-200/80 bg-sky-50/50 px-3 py-2.5 text-sm text-sky-950 dark:border-sky-800/60 dark:bg-sky-950/30 dark:text-sky-100">
+                  <Tv className="mt-0.5 size-5 shrink-0 text-sky-600 dark:text-sky-400" aria-hidden />
+                  <div className="min-w-0 space-y-1">
+                    <p className="font-medium text-foreground">Sınıf ekranında Duyuru TV (akış)</p>
+                    <ol className="list-decimal space-y-1 pl-4 text-xs leading-relaxed text-muted-foreground">
+                      <li>
+                        Bu listede <strong className="text-foreground">Tahta Ekle</strong> ile cihaz oluşturun;{' '}
+                        <strong className="text-foreground">eşleme kodunu</strong> sınıftaki tahta uygulamasında girin (tahta ↔ panel kaydı).
+                      </li>
+                      <li>
+                        Aynı satırda <strong className="text-foreground">Duyuru TV</strong> ile o sınıfa özel{' '}
+                        <code className="rounded bg-background/80 px-1 py-0.5 font-mono text-[11px]">/tv/classroom</code> adresini kopyalayın; tahtanın{' '}
+                        <strong className="text-foreground">tarayıcısında</strong> yapıştırıp açın — koridor/öğretmenler ekranlarından farklıdır; her tahta kendi{' '}
+                        <code className="rounded bg-background/80 px-1 py-0.5 font-mono text-[11px]">device_id</code> ile gelir.
+                      </li>
+                      <li>
+                        Duyurularda hedef <strong className="text-foreground">Akıllı Tahta</strong> seçilirse içerik bu ekranda döner. İsteğe bağlı: URL sonuna{' '}
+                        <code className="rounded bg-background/80 px-1 py-0.5 font-mono text-[11px]">?kiosk=1</code>.
+                      </li>
+                    </ol>
+                  </div>
+                </div>
                 {devices.length === 0 ? (
                   <EmptyState
                     icon={<Monitor className="size-10 text-muted-foreground" />}
@@ -1156,7 +1178,7 @@ export default function AkilliTahtaPage() {
                         description="Arama kriterine uyan öğretmen bulunamadı."
                       />
                     ) : (
-                      <div className="overflow-x-auto rounded-lg border">
+                      <div className="table-x-scroll rounded-lg border">
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="border-b bg-muted/50">

@@ -8,7 +8,7 @@ export function SupportNotificationHint() {
   return (
     <Link
       href="/bildirimler"
-      className="inline-flex items-center gap-1.5 rounded-lg border border-border/80 bg-muted/30 px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
+      className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-3 py-2 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:text-foreground"
     >
       <Bell className="size-3.5" />
       <span>Destek bildirimleri</span>

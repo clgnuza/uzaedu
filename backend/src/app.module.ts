@@ -20,6 +20,7 @@ import { StatsModule } from './stats/stats.module';
 import { TvDevicesModule } from './tv-devices/tv-devices.module';
 import { AuditModule } from './audit/audit.module';
 import { AppConfigModule } from './app-config/app-config.module';
+import { DeployModule } from './deploy/deploy.module';
 import { UploadModule } from './upload/upload.module';
 import { AdminMessagesModule } from './admin-messages/admin-messages.module';
 import { SchoolReviewsModule } from './school-reviews/school-reviews.module';
@@ -63,6 +64,9 @@ function getTypeOrmConfig(): TypeOrmModuleOptions {
     password: env.db.password,
     database: env.db.database,
     extra: {
+      max: Math.max(2, env.db.poolMax),
+      idleTimeoutMillis: env.db.poolIdleMs,
+      connectionTimeoutMillis: env.db.poolConnectionTimeoutMs,
       options: '-c client_encoding=UTF8',
     },
     ...common,
@@ -93,6 +97,7 @@ function getTypeOrmConfig(): TypeOrmModuleOptions {
     TvDevicesModule,
     AuditModule,
     AppConfigModule,
+    DeployModule,
     UploadModule,
     AdminMessagesModule,
     SchoolReviewsModule,

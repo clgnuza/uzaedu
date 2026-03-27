@@ -8,12 +8,14 @@ import { AnnouncementsController } from './announcements.controller';
 import { TvPublicController } from './tv-public.controller';
 import { TvDevicesModule } from '../tv-devices/tv-devices.module';
 import { SmartBoardModule } from '../smart-board/smart-board.module';
+import { TeacherTimetableModule } from '../teacher-timetable/teacher-timetable.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Announcement, AnnouncementRead, School]),
     TvDevicesModule,
     SmartBoardModule,
+    TeacherTimetableModule,
   ],
   controllers: [AnnouncementsController, TvPublicController],
   providers: [AnnouncementsService],

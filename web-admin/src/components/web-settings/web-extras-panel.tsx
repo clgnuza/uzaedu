@@ -9,6 +9,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { SlidersHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { OGRETMEN_PRO_GUEST_SHELL_NAV } from '@/lib/guest-web-shell-preset';
 import type { WebExtrasPublic } from '@/lib/web-extras-public';
 import { WebSettingsField, WebSettingsPanel, WEB_SETTINGS_INPUT, WEB_SETTINGS_TEXTAREA } from './web-settings-shell';
 
@@ -98,8 +99,10 @@ const empty: WebExtrasPublic = {
   app_store_url: null,
   play_store_url: null,
   help_center_url: null,
+  support_enabled: true,
   ads_enabled: true,
   ads_web_targeting_requires_cookie_consent: true,
+  guest_public_web_shell_nav: { ...OGRETMEN_PRO_GUEST_SHELL_NAV },
 };
 
 export function WebExtrasPanel() {
@@ -196,6 +199,19 @@ export function WebExtrasPanel() {
                 />
               </WebSettingsField>
             </div>
+          </div>
+
+          <div className="border-t border-border/30 pt-8">
+            <p className="mb-4 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Destek modülü</p>
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="size-4 rounded border-border"
+                checked={form.support_enabled}
+                onChange={(e) => setForm((f) => ({ ...f, support_enabled: e.target.checked }))}
+              />
+              Destek modülü açık
+            </label>
           </div>
 
           <div className="border-t border-border/30 pt-8">

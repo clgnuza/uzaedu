@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
+import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { User } from './entities/user.entity';
 import {
@@ -17,6 +18,8 @@ import { UpdateMeDto } from './dto/update-me.dto';
 import { ListUsersDto } from './dto/list-users.dto';
 import { paginate } from '../common/dtos/pagination.dto';
 import { TeacherAgendaImportService } from '../teacher-agenda/teacher-agenda-import.service';
+import { MailService } from '../mail/mail.service';
+import { schoolJoinStage, SchoolJoinStage } from '../common/utils/school-join-stage';
 
 @Injectable()
 export class UsersService {
@@ -25,6 +28,7 @@ export class UsersService {
     private readonly userRepo: Repository<User>,
     private readonly schoolsService: SchoolsService,
     private readonly teacherAgendaImportService: TeacherAgendaImportService,
+    private readonly mailService: MailService,
   ) {}
 
   async findById(id: string, relations: ('school')[] = ['school']): Promise<User> {
@@ -51,19 +55,6 @@ export class UsersService {
 
     if (dto.sort === 'teacher_branch') {
       qb.orderBy('u.teacherBranch', 'ASC', 'NULLS LAST').addOrderBy('u.display_name', 'ASC');
-    } else if (
-      scope.role === UserRole.school_admin &&
-      dto.role === UserRole.teacher &&
-      scope.schoolId
-    ) {
-      qb.orderBy(
-        `CASE WHEN (u.teacher_school_membership = :_sap OR (u.teacher_school_membership = :_snone AND u.school_id IS NOT NULL AND u.role = :_str)) THEN 1 ELSE 0 END`,
-        'ASC',
-      )
-        .addOrderBy('u.created_at', 'DESC')
-        .setParameter('_sap', TeacherSchoolMembershipStatus.approved)
-        .setParameter('_snone', TeacherSchoolMembershipStatus.none)
-        .setParameter('_str', UserRole.teacher);
     } else {
       qb.orderBy('u.created_at', 'DESC');
     }
@@ -171,11 +162,30 @@ export class UsersService {
     if (dto.display_name !== undefined) user.display_name = dto.display_name;
     if (dto.role !== undefined) user.role = dto.role;
     if (dto.school_id !== undefined) {
-      user.school_id = dto.school_id;
+      const next = dto.school_id ? String(dto.school_id).trim() : null;
       if (user.role === UserRole.teacher) {
-        user.teacherSchoolMembership = dto.school_id
-          ? TeacherSchoolMembershipStatus.approved
-          : TeacherSchoolMembershipStatus.none;
+        if (!next) {
+          user.school_id = null;
+          user.teacherSchoolMembership = TeacherSchoolMembershipStatus.none;
+          user.schoolJoinEmailToken = null;
+          user.schoolJoinEmailTokenExpiresAt = null;
+          user.schoolJoinEmailVerifiedAt = null;
+        } else {
+          const school = await this.schoolsService.findById(next);
+          if (school.status !== SchoolStatus.aktif) {
+            throw new BadRequestException({
+              code: 'SCHOOL_NOT_ACTIVE',
+              message: 'Seçilen okul aktif değil veya bulunamadı.',
+            });
+          }
+          user.school_id = next;
+          user.teacherSchoolMembership = TeacherSchoolMembershipStatus.pending;
+          user.schoolJoinEmailToken = randomBytes(32).toString('hex');
+          user.schoolJoinEmailTokenExpiresAt = new Date(Date.now() + 48 * 3600 * 1000);
+          user.schoolJoinEmailVerifiedAt = null;
+        }
+      } else {
+        user.school_id = next;
       }
     }
     if (dto.status !== undefined) user.status = dto.status;
@@ -188,18 +198,53 @@ export class UsersService {
     if (dto.duty_exempt !== undefined) user.dutyExempt = dto.duty_exempt;
     if (dto.duty_exempt_reason !== undefined) user.dutyExemptReason = dto.duty_exempt_reason;
     if (dto.teacher_school_membership !== undefined) {
-      if (scope.role !== UserRole.superadmin) {
+      if (scope.role !== UserRole.superadmin && scope.role !== UserRole.school_admin) {
         throw new ForbiddenException({
           code: 'FORBIDDEN',
-          message: 'Okul üyeliği durumu yalnızca süper yönetici tarafından ayarlanabilir.',
+          message: 'Okul üyeliği durumu yalnızca okul yöneticisi veya süper yönetici tarafından ayarlanabilir.',
         });
       }
       if (user.role !== UserRole.teacher) {
         throw new BadRequestException({ code: 'INVALID_ROLE', message: 'Sadece öğretmen hesapları için geçerlidir.' });
       }
+      if (dto.teacher_school_membership === TeacherSchoolMembershipStatus.approved) {
+        await this.assertTeacherSchoolApproveAllowed(user);
+      } else if (dto.teacher_school_membership === TeacherSchoolMembershipStatus.rejected) {
+        user.school_id = null;
+        user.schoolJoinEmailToken = null;
+        user.schoolJoinEmailTokenExpiresAt = null;
+        user.schoolJoinEmailVerifiedAt = null;
+      } else if (dto.teacher_school_membership === TeacherSchoolMembershipStatus.none) {
+        user.school_id = null;
+        user.schoolJoinEmailToken = null;
+        user.schoolJoinEmailTokenExpiresAt = null;
+        user.schoolJoinEmailVerifiedAt = null;
+      }
       user.teacherSchoolMembership = dto.teacher_school_membership;
     }
-    return this.userRepo.save(user);
+    const saved = await this.userRepo.save(user);
+    if (dto.school_id !== undefined && user.role === UserRole.teacher) {
+      const next = dto.school_id ? String(dto.school_id).trim() : null;
+      if (
+        next &&
+        saved.school_id === next &&
+        saved.schoolJoinEmailToken &&
+        !saved.schoolJoinEmailVerifiedAt
+      ) {
+        const school = await this.schoolsService.findById(next);
+        const greet = saved.display_name?.trim() || saved.email.split('@')[0] || 'Merhaba';
+        const base = await this.mailService.resolveAppBaseUrl();
+        const verifyUrl = `${base}/verify-school-email?token=${encodeURIComponent(saved.schoolJoinEmailToken)}`;
+        void this.mailService
+          .sendSchoolJoinVerifyEmail(saved.email, {
+            schoolName: school.name,
+            recipientName: greet,
+            verifyUrl,
+          })
+          .catch(() => {});
+      }
+    }
+    return saved;
   }
 
   async updateMe(userId: string, dto: UpdateMeDto): Promise<User> {
@@ -220,6 +265,12 @@ export class UsersService {
       user.evrakDefaults = { ...existing, ...incoming } as Record<string, unknown>;
     }
     if (dto.school_id !== undefined) {
+      if (user.role !== UserRole.teacher) {
+        throw new ForbiddenException({
+          code: 'FORBIDDEN',
+          message: 'Okul bağlantısı yalnızca öğretmen hesapları için değiştirilebilir.',
+        });
+      }
       const next = dto.school_id ? String(dto.school_id).trim() : null;
       if (next !== (user.school_id ?? null)) {
         if (next) {
@@ -232,9 +283,22 @@ export class UsersService {
           }
           user.school_id = next;
           user.teacherSchoolMembership = TeacherSchoolMembershipStatus.pending;
+          const isSocialLogin = !!user.firebaseUid && !user.passwordHash;
+          if (isSocialLogin) {
+            user.schoolJoinEmailVerifiedAt = new Date();
+            user.schoolJoinEmailToken = null;
+            user.schoolJoinEmailTokenExpiresAt = null;
+          } else {
+            user.schoolJoinEmailToken = randomBytes(32).toString('hex');
+            user.schoolJoinEmailTokenExpiresAt = new Date(Date.now() + 48 * 3600 * 1000);
+            user.schoolJoinEmailVerifiedAt = null;
+          }
         } else {
           user.school_id = null;
           user.teacherSchoolMembership = TeacherSchoolMembershipStatus.none;
+          user.schoolJoinEmailToken = null;
+          user.schoolJoinEmailTokenExpiresAt = null;
+          user.schoolJoinEmailVerifiedAt = null;
         }
       }
     }
@@ -251,7 +315,101 @@ export class UsersService {
     if (dto.avatar_key !== undefined) {
       user.avatarKey = dto.avatar_key;
     }
-    return this.userRepo.save(user);
+    const saved = await this.userRepo.save(user);
+    if (dto.school_id !== undefined && user.role === UserRole.teacher) {
+      const next = dto.school_id ? String(dto.school_id).trim() : null;
+      if (
+        next &&
+        saved.school_id === next &&
+        saved.schoolJoinEmailToken &&
+        !saved.schoolJoinEmailVerifiedAt
+      ) {
+        const school = await this.schoolsService.findById(next);
+        const greet = saved.display_name?.trim() || saved.email.split('@')[0] || 'Merhaba';
+        const base = await this.mailService.resolveAppBaseUrl();
+        const verifyUrl = `${base}/verify-school-email?token=${encodeURIComponent(saved.schoolJoinEmailToken)}`;
+        void this.mailService
+          .sendSchoolJoinVerifyEmail(saved.email, {
+            schoolName: school.name,
+            recipientName: greet,
+            verifyUrl,
+          })
+          .catch(() => {});
+      }
+    }
+    return saved;
+  }
+
+  async resendSchoolJoinEmail(userId: string): Promise<{ ok: boolean }> {
+    const user = await this.findById(userId);
+    if (user.role !== UserRole.teacher || !user.school_id) {
+      throw new BadRequestException({ code: 'INVALID', message: 'Okul bağlantısı yok.' });
+    }
+    if (user.teacherSchoolMembership !== TeacherSchoolMembershipStatus.pending) {
+      throw new BadRequestException({ code: 'NOT_PENDING', message: 'Bu aşamada doğrulama e-postası gönderilmez.' });
+    }
+    if (user.schoolJoinEmailVerifiedAt) {
+      throw new BadRequestException({ code: 'ALREADY_VERIFIED', message: 'E-posta zaten doğrulanmış.' });
+    }
+    user.schoolJoinEmailToken = randomBytes(32).toString('hex');
+    user.schoolJoinEmailTokenExpiresAt = new Date(Date.now() + 48 * 3600 * 1000);
+    await this.userRepo.save(user);
+    const school = await this.schoolsService.findById(user.school_id);
+    const greet = user.display_name?.trim() || user.email.split('@')[0] || 'Merhaba';
+    const base = await this.mailService.resolveAppBaseUrl();
+    const verifyUrl = `${base}/verify-school-email?token=${encodeURIComponent(user.schoolJoinEmailToken)}`;
+    const sent = await this.mailService.sendSchoolJoinVerifyEmail(user.email, {
+      schoolName: school.name,
+      recipientName: greet,
+      verifyUrl,
+    });
+    if (!sent) {
+      throw new BadRequestException({
+        code: 'MAIL_NOT_CONFIGURED',
+        message: 'E-posta sunucusu kapalı veya yapılandırılmamış.',
+      });
+    }
+    return { ok: true };
+  }
+
+  async listSchoolJoinQueue(scope: { role: UserRole; schoolId: string | null }): Promise<{
+    items: {
+      id: string;
+      email: string;
+      display_name: string | null;
+      school: { id: string; name: string } | null;
+      school_join_stage: SchoolJoinStage;
+      school_join_email_verified_at: string | null;
+      created_at: string;
+    }[];
+  }> {
+    if (scope.role === UserRole.school_admin && !scope.schoolId) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Okul bilgisi yok.' });
+    }
+    const where: FindOptionsWhere<User> = {
+      role: UserRole.teacher,
+      teacherSchoolMembership: TeacherSchoolMembershipStatus.pending,
+    };
+    if (scope.role === UserRole.school_admin) {
+      where.school_id = scope.schoolId!;
+    }
+    const rows = await this.userRepo.find({
+      where,
+      relations: ['school'],
+      order: { created_at: 'ASC' },
+    });
+    const items = rows
+      .filter((u) => u.school_id)
+      .map((u) => ({
+        id: u.id,
+        email: u.email,
+        display_name: u.display_name,
+        school: u.school ? { id: u.school.id, name: u.school.name } : null,
+        school_join_stage: schoolJoinStage(u),
+        school_join_email_verified_at: u.schoolJoinEmailVerifiedAt?.toISOString() ?? null,
+        created_at: u.created_at.toISOString(),
+      }));
+    return { items };
   }
 
   /** Yedek JSON’dan (export) güvenli profil alanları — e-posta/rol/okul ataması değişmez. */
@@ -298,23 +456,49 @@ export class UsersService {
     await this.userRepo.save(user);
   }
 
+  private async assertTeacherSchoolApproveAllowed(user: User): Promise<void> {
+    if (!user.school_id) {
+      throw new BadRequestException({ code: 'NO_SCHOOL', message: 'Okul atanmamış.' });
+    }
+    if (!user.schoolJoinEmailVerifiedAt) {
+      throw new BadRequestException({
+        code: 'SCHOOL_JOIN_EMAIL_NOT_VERIFIED',
+        message: 'E-posta doğrulanmadan onay verilemez.',
+      });
+    }
+  }
+
   async setTeacherSchoolMembershipAction(
     targetUserId: string,
     action: 'approve' | 'reject' | 'revoke',
     scope: { role: UserRole; schoolId: string | null },
   ): Promise<User> {
-    if (scope.role !== UserRole.school_admin || !scope.schoolId) {
-      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    const isSuper = scope.role === UserRole.superadmin;
+    const isSchoolAdmin = scope.role === UserRole.school_admin && !!scope.schoolId;
+    if (!isSuper && !isSchoolAdmin) {
+      throw new ForbiddenException({
+        code: 'FORBIDDEN',
+        message: 'Okul üyeliği onayı yalnızca süper yönetici veya ilgili okul yöneticisi tarafından yapılabilir.',
+      });
     }
     const user = await this.findById(targetUserId);
     if (user.role !== UserRole.teacher) {
       throw new BadRequestException({ code: 'INVALID_ROLE', message: 'Sadece öğretmen hesapları onaylanabilir.' });
     }
-    if (user.school_id !== scope.schoolId) {
-      throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu kullanıcı sizin okulunuza bağlı değil.' });
+    if (!user.school_id) {
+      throw new BadRequestException({ code: 'NO_SCHOOL', message: 'Kullanıcının bağlı okulu yok.' });
+    }
+    if (isSchoolAdmin && user.school_id !== scope.schoolId) {
+      throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu öğretmen sizin okulunuza ait değil.' });
     }
     const eff = effectiveTeacherSchoolMembership(user);
     if (action === 'revoke') {
+      if (!isSuper && !isSchoolAdmin) {
+        throw new ForbiddenException({
+          code: 'FORBIDDEN',
+          message: 'Onay geri alma yalnızca okul yöneticisi veya süper yönetici tarafından yapılabilir.',
+        });
+      }
       if (eff !== TeacherSchoolMembershipStatus.approved) {
         throw new BadRequestException({
           code: 'NOT_APPROVED',
@@ -330,13 +514,31 @@ export class UsersService {
         message: 'Bu öğretmenin onay bekleyen okul başvurusu yok.',
       });
     }
+    let rejectSchoolName: string | null = null;
     if (action === 'approve') {
+      await this.assertTeacherSchoolApproveAllowed(user);
       user.teacherSchoolMembership = TeacherSchoolMembershipStatus.approved;
     } else {
+      rejectSchoolName = user.school?.name ?? (await this.schoolsService.findById(user.school_id)).name;
       user.school_id = null;
       user.teacherSchoolMembership = TeacherSchoolMembershipStatus.rejected;
+      user.schoolJoinEmailToken = null;
+      user.schoolJoinEmailTokenExpiresAt = null;
+      user.schoolJoinEmailVerifiedAt = null;
     }
-    return this.userRepo.save(user);
+    const saved = await this.userRepo.save(user);
+    const greet = saved.display_name?.trim() || saved.email.split('@')[0] || 'Merhaba';
+    if (action === 'approve' && saved.school_id) {
+      const schoolName = user.school?.name ?? (await this.schoolsService.findById(saved.school_id)).name;
+      void this.mailService
+        .sendTeacherSchoolApprovedEmail(saved.email, { schoolName, recipientName: greet })
+        .catch(() => {});
+    } else if (action === 'reject' && rejectSchoolName) {
+      void this.mailService
+        .sendTeacherSchoolRejectedEmail(saved.email, { schoolName: rejectSchoolName, recipientName: greet })
+        .catch(() => {});
+    }
+    return saved;
   }
 
   /** KVKK Madde 11: Kullanıcının verilerini JSON olarak döndürür. */

@@ -14,6 +14,7 @@ import {
   isValidMmDdKey,
   sanitizeWelcomePlainText,
 } from './welcome-module.defaults';
+import { getWelcomeZodiacKey, type WelcomeZodiacKey } from './welcome-zodiac.util';
 import { type MarketPolicyConfig, mergeMarketPolicyFromStored } from './market-policy.defaults';
 import { sanitizeLegalHtml } from './legal-pages.sanitize';
 import { mergeDevOpsFromStored, type DevOpsConfig } from './devops.defaults';
@@ -32,6 +33,33 @@ export type WelcomeTodayPublic = {
   enabled: boolean;
   date_key: string;
   message: string | null;
+  popup_enabled: boolean;
+  popup_mode: WelcomeModuleConfig['popup_mode'];
+  zodiac_key: WelcomeZodiacKey;
+};
+
+/** Sunucuda Nest cron ile haber RSS senkronu – aralık (dakika) ve aç/kapa */
+export type ContentSyncScheduleConfig = {
+  enabled: boolean;
+  interval_minutes: number;
+};
+
+/** Son senkron çalışması özeti (app_config.content_sync_status JSON) */
+export type ContentSyncStatusRecord = {
+  last_run_at: string | null;
+  last_ok: boolean | null;
+  last_message: string | null;
+  last_total_created: number;
+  last_trigger: 'manual' | 'cron' | null;
+  last_source_errors: { source_key: string; source_label: string; error: string }[];
+};
+
+/** Döngüsel import olmadan senkron sonucunu kaydetmek için */
+export type ContentSyncResultSnapshot = {
+  ok: boolean;
+  message: string;
+  total_created: number;
+  results: { source_key: string; source_label: string; error?: string }[];
 };
 
 const R2_KEYS = ['r2_account_id', 'r2_access_key_id', 'r2_secret_access_key', 'r2_bucket', 'r2_public_url'] as const;
@@ -42,7 +70,20 @@ const R2_SECRET_KEY = 'r2_secret_access_key';
 const DEFAULT_MAX_SIZE_MB = 5;
 const DEFAULT_ALLOWED_TYPES = 'image/jpeg,image/png,image/webp,image/gif';
 
+/** Admin shell alt bilgi satırı bağlantısı — çerez tercihi düğmesi. */
+export const FOOTER_CONSENT_HREF = '__consent__';
+
+export type WebPublicFooterNavItem = {
+  label: string;
+  href: string;
+};
+
 /** Kamuya açık web sitesi – iletişim, footer, sosyal bağlantılar (JSON). */
+export type WebPublicHeaderShellStyle = 'glass' | 'solid' | 'minimal' | 'brand';
+
+/** Üst şerit yüksekliği (varsayılan = tema CSS). */
+export type WebPublicHeaderShellDensity = 'compact' | 'default' | 'comfortable';
+
 export type WebPublicConfig = {
   contact_email: string | null;
   contact_phone: string | null;
@@ -53,6 +94,18 @@ export type WebPublicConfig = {
   social_youtube: string | null;
   privacy_policy_url: string | null;
   terms_url: string | null;
+  /** Yılın sağında: örn. "© Öğretmen Pro Web Admin" */
+  footer_copyright_suffix: string | null;
+  /** Alt bilgi gezinme (en fazla 8). href: iç yol, https:// veya __consent__ */
+  footer_nav_items: WebPublicFooterNavItem[];
+  /** Üst şerit logo altı (mobil); boşsa misafirde sayfa adı, girişte "Panel" */
+  header_brand_subtitle: string | null;
+  /** Üst şerit görünümü */
+  header_shell_style: WebPublicHeaderShellStyle;
+  /** Üst şerit yüksekliği */
+  header_shell_density: WebPublicHeaderShellDensity;
+  /** Cam/marka görünümünde üstte ince vurgu çizgisi */
+  header_shell_accent: boolean;
 };
 
 const DEFAULT_WEB_PUBLIC: WebPublicConfig = {
@@ -65,7 +118,73 @@ const DEFAULT_WEB_PUBLIC: WebPublicConfig = {
   social_youtube: null,
   privacy_policy_url: null,
   terms_url: null,
+  footer_copyright_suffix: '© Öğretmen Pro Web Admin',
+  footer_nav_items: [
+    { label: 'Gizlilik', href: '/gizlilik' },
+    { label: 'Kullanım Şartları', href: '/kullanim-sartlari' },
+    { label: 'Çerez politikası', href: '/cerez' },
+    { label: 'Rıza ayarları', href: FOOTER_CONSENT_HREF },
+  ],
+  header_brand_subtitle: null,
+  header_shell_style: 'glass',
+  header_shell_density: 'default',
+  header_shell_accent: true,
 };
+
+const FOOTER_NAV_MAX = 8;
+
+function sanitizeHeaderShellStyle(v: unknown): WebPublicHeaderShellStyle {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (s === 'solid' || s === 'minimal' || s === 'brand') return s;
+  return 'glass';
+}
+
+function sanitizeHeaderShellDensity(v: unknown): WebPublicHeaderShellDensity {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (s === 'compact' || s === 'comfortable') return s;
+  return 'default';
+}
+
+function sanitizeHeaderShellAccent(v: unknown): boolean {
+  if (v === false || v === 'false' || v === 0 || v === '0') return false;
+  return true;
+}
+
+function sanitizeFooterNavItems(arr: unknown): WebPublicFooterNavItem[] {
+  if (!Array.isArray(arr)) return [];
+  const out: WebPublicFooterNavItem[] = [];
+  for (const x of arr) {
+    if (out.length >= FOOTER_NAV_MAX) break;
+    if (!x || typeof x !== 'object') continue;
+    const o = x as Record<string, unknown>;
+    const label = String(o.label ?? '').trim().slice(0, 64);
+    if (!label) continue;
+    let href = String(o.href ?? '').trim();
+    if (!href) continue;
+    if (href === FOOTER_CONSENT_HREF) {
+      out.push({ label, href: FOOTER_CONSENT_HREF });
+      continue;
+    }
+    if (/^https?:\/\//i.test(href)) {
+      if (!href.startsWith('https://')) continue;
+      try {
+        const u = new URL(href);
+        if (u.protocol !== 'https:') continue;
+      } catch {
+        continue;
+      }
+      if (href.length > 2048) continue;
+      out.push({ label, href });
+      continue;
+    }
+    if (href.includes('://')) continue;
+    if (!href.startsWith('/')) href = `/${href}`;
+    href = href.replace(/\s/g, '');
+    if (href.length > 512) href = href.slice(0, 512);
+    out.push({ label, href });
+  }
+  return out;
+}
 
 export type LegalPageContent = {
   title: string;
@@ -83,6 +202,21 @@ export type LegalPagesConfig = {
 export type LegalPageKey = keyof LegalPagesConfig;
 
 const LEGAL_PAGE_KEYS: LegalPageKey[] = ['privacy', 'terms', 'cookies'];
+
+export type GuestPublicWebShellNavItem = {
+  label: string;
+  href: string;
+  icon_key: string | null;
+};
+
+export type GuestPublicWebShellNav = {
+  top_bar_enabled: boolean;
+  top_bar_items: GuestPublicWebShellNavItem[];
+  bottom_bar_enabled: boolean;
+  bottom_bar_items: GuestPublicWebShellNavItem[];
+  /** Alt çubuk yalnızca dar ekranda (önerilir) */
+  bottom_bar_mobile_only: boolean;
+};
 
 export type WebExtrasConfig = {
   gtm_id: string | null;
@@ -104,8 +238,10 @@ export type WebExtrasConfig = {
   app_store_url: string | null;
   play_store_url: string | null;
   help_center_url: string | null;
+  support_enabled: boolean;
   ads_enabled: boolean;
   ads_web_targeting_requires_cookie_consent: boolean;
+  guest_public_web_shell_nav: GuestPublicWebShellNav;
 };
 
 export type GdprConfig = {
@@ -156,6 +292,81 @@ function clampCacheTtl(n: unknown, fallback: number): number {
   return Math.min(86400, Math.max(10, Math.round(x)));
 }
 
+const GUEST_SHELL_MAX_ITEMS = 8;
+
+function cloneGuestPublicWebShellDefaults(): GuestPublicWebShellNav {
+  const wx = DEFAULT_WEB_EXTRAS.guest_public_web_shell_nav;
+  return {
+    top_bar_enabled: wx.top_bar_enabled,
+    top_bar_items: sanitizeGuestPublicNavItems(wx.top_bar_items),
+    bottom_bar_enabled: wx.bottom_bar_enabled,
+    bottom_bar_items: sanitizeGuestPublicNavItems(wx.bottom_bar_items),
+    bottom_bar_mobile_only: wx.bottom_bar_mobile_only,
+  };
+}
+
+function sanitizeGuestPublicNavItem(raw: unknown): GuestPublicWebShellNavItem | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const label = String(o.label ?? '').trim().slice(0, 64);
+  if (!label) return null;
+  let href = String(o.href ?? '').trim();
+  if (!href) return null;
+  if (/^https?:\/\//i.test(href)) {
+    if (!href.startsWith('https://')) return null;
+    try {
+      const u = new URL(href);
+      if (u.protocol !== 'https:') return null;
+    } catch {
+      return null;
+    }
+    if (href.length > 2048) return null;
+  } else {
+    if (href.includes('://')) return null;
+    if (!href.startsWith('/')) href = `/${href}`;
+    href = href.replace(/\s/g, '');
+    if (href.length > 512) href = href.slice(0, 512);
+  }
+  let icon_key: string | null = null;
+  if (o.icon_key != null && String(o.icon_key).trim()) {
+    const ik = String(o.icon_key).trim().slice(0, 32);
+    if (/^[a-z0-9_-]+$/i.test(ik)) icon_key = ik;
+  }
+  return { label, href, icon_key };
+}
+
+function sanitizeGuestPublicNavItems(arr: unknown): GuestPublicWebShellNavItem[] {
+  if (!Array.isArray(arr)) return [];
+  const out: GuestPublicWebShellNavItem[] = [];
+  for (const x of arr) {
+    if (out.length >= GUEST_SHELL_MAX_ITEMS) break;
+    const it = sanitizeGuestPublicNavItem(x);
+    if (it) out.push(it);
+  }
+  return out;
+}
+
+function mergeGuestPublicWebShellFromStored(
+  stored: Partial<GuestPublicWebShellNav> | null | undefined,
+  d: GuestPublicWebShellNav,
+): GuestPublicWebShellNav {
+  if (!stored || typeof stored !== 'object') return d;
+  return {
+    top_bar_enabled: typeof stored.top_bar_enabled === 'boolean' ? stored.top_bar_enabled : d.top_bar_enabled,
+    top_bar_items: sanitizeGuestPublicNavItems(stored.top_bar_items ?? d.top_bar_items),
+    bottom_bar_enabled: typeof stored.bottom_bar_enabled === 'boolean' ? stored.bottom_bar_enabled : d.bottom_bar_enabled,
+    bottom_bar_items: sanitizeGuestPublicNavItems(stored.bottom_bar_items ?? d.bottom_bar_items),
+    bottom_bar_mobile_only:
+      typeof stored.bottom_bar_mobile_only === 'boolean' ? stored.bottom_bar_mobile_only : d.bottom_bar_mobile_only,
+  };
+}
+
+function normalizeGuestPublicWebShellNav(input: unknown): GuestPublicWebShellNav {
+  const d = cloneGuestPublicWebShellDefaults();
+  if (!input || typeof input !== 'object') return d;
+  return mergeGuestPublicWebShellFromStored(input as Partial<GuestPublicWebShellNav>, d);
+}
+
 function cloneWebExtrasDefaults(): WebExtrasConfig {
   return {
     gtm_id: DEFAULT_WEB_EXTRAS.gtm_id,
@@ -177,8 +388,10 @@ function cloneWebExtrasDefaults(): WebExtrasConfig {
     app_store_url: DEFAULT_WEB_EXTRAS.app_store_url,
     play_store_url: DEFAULT_WEB_EXTRAS.play_store_url,
     help_center_url: DEFAULT_WEB_EXTRAS.help_center_url,
+    support_enabled: DEFAULT_WEB_EXTRAS.support_enabled,
     ads_enabled: DEFAULT_WEB_EXTRAS.ads_enabled,
     ads_web_targeting_requires_cookie_consent: DEFAULT_WEB_EXTRAS.ads_web_targeting_requires_cookie_consent,
+    guest_public_web_shell_nav: cloneGuestPublicWebShellDefaults(),
   };
 }
 
@@ -218,11 +431,13 @@ function mergeWebExtrasFromStored(stored: Partial<WebExtrasConfig> | null): WebE
     app_store_url: stored.app_store_url !== undefined ? (stored.app_store_url?.trim() || null) : d.app_store_url,
     play_store_url: stored.play_store_url !== undefined ? (stored.play_store_url?.trim() || null) : d.play_store_url,
     help_center_url: stored.help_center_url !== undefined ? (stored.help_center_url?.trim() || null) : d.help_center_url,
+    support_enabled: typeof stored.support_enabled === 'boolean' ? stored.support_enabled : d.support_enabled,
     ads_enabled: typeof stored.ads_enabled === 'boolean' ? stored.ads_enabled : d.ads_enabled,
     ads_web_targeting_requires_cookie_consent:
       typeof stored.ads_web_targeting_requires_cookie_consent === 'boolean'
         ? stored.ads_web_targeting_requires_cookie_consent
         : d.ads_web_targeting_requires_cookie_consent,
+    guest_public_web_shell_nav: mergeGuestPublicWebShellFromStored(stored.guest_public_web_shell_nav, d.guest_public_web_shell_nav),
   };
 }
 
@@ -603,14 +818,14 @@ export class AppConfigService {
   async getSchoolReviewsConfig(): Promise<SchoolReviewsConfig> {
     const enabled = (await this.getValue('school_reviews_enabled'))?.toLowerCase() === 'true';
     const ratingMin = parseInt((await this.getValue('school_reviews_rating_min')) || '1', 10);
-    const ratingMax = parseInt((await this.getValue('school_reviews_rating_max')) || '5', 10);
+    const ratingMax = parseInt((await this.getValue('school_reviews_rating_max')) || '10', 10);
     const moderationMode = (await this.getValue('school_reviews_moderation_mode')) || 'auto';
     const allowQuestions = (await this.getValue('school_reviews_allow_questions'))?.toLowerCase() !== 'false';
     const questionsRequireModeration = (await this.getValue('school_reviews_questions_moderation'))?.toLowerCase() === 'true';
     return {
       enabled: enabled ?? false,
-      rating_min: Number.isNaN(ratingMin) || ratingMin < 1 ? 1 : Math.min(ratingMin, 5),
-      rating_max: Number.isNaN(ratingMax) || ratingMax > 5 ? 5 : Math.max(ratingMax, 1),
+      rating_min: Number.isNaN(ratingMin) || ratingMin < 1 ? 1 : Math.min(ratingMin, 10),
+      rating_max: Number.isNaN(ratingMax) || ratingMax > 10 ? 10 : Math.max(ratingMax, 1),
       moderation_mode: moderationMode === 'moderation' ? 'moderation' : 'auto',
       allow_questions: allowQuestions ?? true,
       questions_require_moderation: questionsRequireModeration ?? false,
@@ -618,12 +833,28 @@ export class AppConfigService {
   }
 
   async updateSchoolReviewsConfig(dto: Partial<SchoolReviewsConfig>): Promise<void> {
+    const current = await this.getSchoolReviewsConfig();
+    let nextMin = dto.rating_min !== undefined ? dto.rating_min : current.rating_min;
+    let nextMax = dto.rating_max !== undefined ? dto.rating_max : current.rating_max;
+    nextMin = Math.max(1, Math.min(10, Math.round(nextMin)));
+    nextMax = Math.max(1, Math.min(10, Math.round(nextMax)));
+    if (dto.rating_min !== undefined || dto.rating_max !== undefined) {
+      if (nextMin > nextMax) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: 'Minimum puan, maksimum puandan büyük olamaz.',
+        });
+      }
+    }
+
     if (dto.enabled !== undefined) await this.setValue('school_reviews_enabled', dto.enabled ? 'true' : 'false');
-    if (dto.rating_min !== undefined) await this.setValue('school_reviews_rating_min', String(Math.max(1, Math.min(5, dto.rating_min))));
-    if (dto.rating_max !== undefined) await this.setValue('school_reviews_rating_max', String(Math.max(1, Math.min(5, dto.rating_max))));
+    if (dto.rating_min !== undefined) await this.setValue('school_reviews_rating_min', String(nextMin));
+    if (dto.rating_max !== undefined) await this.setValue('school_reviews_rating_max', String(nextMax));
     if (dto.moderation_mode !== undefined) await this.setValue('school_reviews_moderation_mode', dto.moderation_mode);
     if (dto.allow_questions !== undefined) await this.setValue('school_reviews_allow_questions', dto.allow_questions ? 'true' : 'false');
-    if (dto.questions_require_moderation !== undefined) await this.setValue('school_reviews_questions_moderation', dto.questions_require_moderation ? 'true' : 'false');
+    if (dto.questions_require_moderation !== undefined) {
+      await this.setValue('school_reviews_questions_moderation', dto.questions_require_moderation ? 'true' : 'false');
+    }
   }
 
   /** Tüm ders/sınıf için haftalık ders saati. Önce app_config, yoksa static fallback. */
@@ -711,7 +942,18 @@ export class AppConfigService {
     if (!raw?.trim()) return { ...DEFAULT_WEB_PUBLIC };
     try {
       const parsed = JSON.parse(raw) as Partial<WebPublicConfig>;
-      return { ...DEFAULT_WEB_PUBLIC, ...parsed };
+      const merged = { ...DEFAULT_WEB_PUBLIC, ...parsed };
+      merged.footer_nav_items = sanitizeFooterNavItems(merged.footer_nav_items);
+      merged.header_shell_style = sanitizeHeaderShellStyle(merged.header_shell_style);
+      merged.header_shell_density = sanitizeHeaderShellDensity(merged.header_shell_density);
+      merged.header_shell_accent = sanitizeHeaderShellAccent(merged.header_shell_accent);
+      if (merged.footer_copyright_suffix !== undefined && merged.footer_copyright_suffix !== null) {
+        merged.footer_copyright_suffix = merged.footer_copyright_suffix.trim() || null;
+      }
+      if (merged.header_brand_subtitle !== undefined && merged.header_brand_subtitle !== null) {
+        merged.header_brand_subtitle = merged.header_brand_subtitle.trim().slice(0, 120) || null;
+      }
+      return merged;
     } catch {
       return { ...DEFAULT_WEB_PUBLIC };
     }
@@ -720,11 +962,36 @@ export class AppConfigService {
   async updateWebPublicConfig(dto: Partial<WebPublicConfig>): Promise<void> {
     const current = await this.getWebPublicConfig();
     const next: WebPublicConfig = { ...current };
+    if (dto.footer_nav_items !== undefined) {
+      next.footer_nav_items = sanitizeFooterNavItems(dto.footer_nav_items);
+    }
+    if (dto.header_shell_style !== undefined) {
+      next.header_shell_style = sanitizeHeaderShellStyle(dto.header_shell_style);
+    }
+    if (dto.header_brand_subtitle !== undefined) {
+      next.header_brand_subtitle = dto.header_brand_subtitle?.trim().slice(0, 120) || null;
+    }
+    if (dto.header_shell_density !== undefined) {
+      next.header_shell_density = sanitizeHeaderShellDensity(dto.header_shell_density);
+    }
+    if (dto.header_shell_accent !== undefined) {
+      next.header_shell_accent = sanitizeHeaderShellAccent(dto.header_shell_accent);
+    }
     const keys = Object.keys(DEFAULT_WEB_PUBLIC) as (keyof WebPublicConfig)[];
     for (const k of keys) {
+      if (
+        k === 'footer_nav_items' ||
+        k === 'header_shell_style' ||
+        k === 'header_brand_subtitle' ||
+        k === 'header_shell_density' ||
+        k === 'header_shell_accent'
+      )
+        continue;
       if (dto[k] === undefined) continue;
       const v = dto[k];
-      next[k] = typeof v === 'string' ? (v.trim() || null) : v;
+      if (typeof v === 'string') {
+        next[k] = (v.trim() || null) as WebPublicConfig[typeof k];
+      }
     }
     await this.setValue(this.webPublicConfigKey, JSON.stringify(next));
   }
@@ -828,9 +1095,13 @@ export class AppConfigService {
     if (dto.app_store_url !== undefined) next.app_store_url = dto.app_store_url?.trim() || null;
     if (dto.play_store_url !== undefined) next.play_store_url = dto.play_store_url?.trim() || null;
     if (dto.help_center_url !== undefined) next.help_center_url = dto.help_center_url?.trim() || null;
+    if (dto.support_enabled !== undefined) next.support_enabled = !!dto.support_enabled;
     if (dto.ads_enabled !== undefined) next.ads_enabled = !!dto.ads_enabled;
     if (dto.ads_web_targeting_requires_cookie_consent !== undefined) {
       next.ads_web_targeting_requires_cookie_consent = !!dto.ads_web_targeting_requires_cookie_consent;
+    }
+    if (dto.guest_public_web_shell_nav !== undefined) {
+      next.guest_public_web_shell_nav = normalizeGuestPublicWebShellNav(dto.guest_public_web_shell_nav);
     }
     await this.setValue(this.webExtrasConfigKey, JSON.stringify(next));
   }
@@ -1563,6 +1834,8 @@ export class AppConfigService {
         stored.cache_ttl_welcome !== undefined
           ? clampCacheTtl(stored.cache_ttl_welcome, DEFAULT_WELCOME_MODULE.cache_ttl_welcome)
           : d.cache_ttl_welcome,
+      popup_enabled: typeof stored.popup_enabled === 'boolean' ? stored.popup_enabled : d.popup_enabled,
+      popup_mode: stored.popup_mode === 'zodiac_auto' ? stored.popup_mode : d.popup_mode,
     };
   }
 
@@ -1584,6 +1857,8 @@ export class AppConfigService {
       by_day: { ...current.by_day },
       fallback_message: current.fallback_message,
       cache_ttl_welcome: current.cache_ttl_welcome,
+      popup_enabled: current.popup_enabled,
+      popup_mode: current.popup_mode,
     };
     if (dto.enabled !== undefined) next.enabled = !!dto.enabled;
     if (dto.fallback_message !== undefined) {
@@ -1591,6 +1866,10 @@ export class AppConfigService {
     }
     if (dto.cache_ttl_welcome !== undefined) {
       next.cache_ttl_welcome = clampCacheTtl(dto.cache_ttl_welcome, DEFAULT_WELCOME_MODULE.cache_ttl_welcome);
+    }
+    if (dto.popup_enabled !== undefined) next.popup_enabled = !!dto.popup_enabled;
+    if (dto.popup_mode !== undefined) {
+      next.popup_mode = dto.popup_mode === 'zodiac_auto' ? dto.popup_mode : DEFAULT_WELCOME_MODULE.popup_mode;
     }
     if (dto.by_day !== undefined && dto.by_day && typeof dto.by_day === 'object') {
       next.by_day = {};
@@ -1618,19 +1897,367 @@ export class AppConfigService {
   async getWelcomeTodayPublic(): Promise<WelcomeTodayPublic> {
     const cfg = await this.getWelcomeModuleConfig();
     const date_key = AppConfigService.dateKeyIstanbul();
+    const zodiac_key = getWelcomeZodiacKey(date_key);
     if (!cfg.enabled) {
-      return { enabled: false, date_key, message: null };
+      return {
+        enabled: false,
+        date_key,
+        message: null,
+        popup_enabled: cfg.popup_enabled,
+        popup_mode: cfg.popup_mode,
+        zodiac_key,
+      };
     }
     const dayMsg = cfg.by_day[date_key]?.trim();
     const fallback = cfg.fallback_message?.trim();
     const message = (dayMsg || fallback || null) as string | null;
-    return { enabled: true, date_key, message };
+    return {
+      enabled: true,
+      date_key,
+      message,
+      popup_enabled: cfg.popup_enabled,
+      popup_mode: cfg.popup_mode,
+      zodiac_key,
+    };
   }
 
   async getWelcomeModulePublicCacheMaxAge(): Promise<number> {
     const c = await this.getWelcomeModuleConfig();
     return clampCacheTtl(c.cache_ttl_welcome, DEFAULT_WELCOME_MODULE.cache_ttl_welcome);
   }
+
+  /** Haber içerik senkronu – zamanlayıcı (cron) aralığı ve aç/kapa */
+  async getContentSyncSchedule(): Promise<ContentSyncScheduleConfig> {
+    const raw = await this.getValue('content_sync_schedule');
+    const defaults: ContentSyncScheduleConfig = { enabled: false, interval_minutes: 360 };
+    if (!raw?.trim()) return defaults;
+    try {
+      const p = JSON.parse(raw) as Record<string, unknown>;
+      const interval = Math.max(15, Math.min(10080, Number(p.interval_minutes) || 360));
+      return {
+        enabled: p.enabled === true,
+        interval_minutes: interval,
+      };
+    } catch {
+      return defaults;
+    }
+  }
+
+  async updateContentSyncSchedule(dto: Partial<ContentSyncScheduleConfig>): Promise<void> {
+    const current = await this.getContentSyncSchedule();
+    const next: ContentSyncScheduleConfig = {
+      enabled: dto.enabled !== undefined ? !!dto.enabled : current.enabled,
+      interval_minutes:
+        dto.interval_minutes !== undefined
+          ? Math.max(15, Math.min(10080, Number(dto.interval_minutes) || current.interval_minutes))
+          : current.interval_minutes,
+    };
+    await this.setValue('content_sync_schedule', JSON.stringify(next));
+  }
+
+  async getContentSyncStatus(): Promise<ContentSyncStatusRecord> {
+    const raw = await this.getValue('content_sync_status');
+    const empty: ContentSyncStatusRecord = {
+      last_run_at: null,
+      last_ok: null,
+      last_message: null,
+      last_total_created: 0,
+      last_trigger: null,
+      last_source_errors: [],
+    };
+    if (!raw?.trim()) return empty;
+    try {
+      const p = JSON.parse(raw) as Record<string, unknown>;
+      const errs = Array.isArray(p.last_source_errors) ? p.last_source_errors : [];
+      return {
+        last_run_at: typeof p.last_run_at === 'string' ? p.last_run_at : null,
+        last_ok: p.last_ok === true || p.last_ok === false ? p.last_ok : null,
+        last_message: typeof p.last_message === 'string' ? p.last_message : null,
+        last_total_created: Math.max(0, Number(p.last_total_created) || 0),
+        last_trigger: p.last_trigger === 'manual' || p.last_trigger === 'cron' ? p.last_trigger : null,
+        last_source_errors: errs
+          .filter((x): x is { source_key: string; source_label?: string; error?: string } =>
+            Boolean(x && typeof x === 'object' && typeof (x as { source_key?: string }).source_key === 'string'),
+          )
+          .map((x) => ({
+            source_key: x.source_key,
+            source_label: String(x.source_label ?? ''),
+            error: String(x.error ?? '').slice(0, 500),
+          })),
+      };
+    } catch {
+      return empty;
+    }
+  }
+
+  /** RSS haber senkron sonucunu kaydet (manuel veya zamanlayıcı) */
+  async recordContentSyncResult(result: ContentSyncResultSnapshot, trigger: 'manual' | 'cron'): Promise<void> {
+    const errors = (result.results ?? [])
+      .filter((r) => r.error)
+      .map((r) => ({
+        source_key: r.source_key,
+        source_label: r.source_label,
+        error: String(r.error).slice(0, 500),
+      }));
+    const status: ContentSyncStatusRecord = {
+      last_run_at: new Date().toISOString(),
+      last_ok: result.ok,
+      last_message: (result.message ?? '').slice(0, 2000),
+      last_total_created: result.total_created ?? 0,
+      last_trigger: trigger,
+      last_source_errors: errors,
+    };
+    await this.setValue('content_sync_status', JSON.stringify(status));
+  }
+
+  async recordContentSyncFailure(err: unknown, trigger: 'manual' | 'cron'): Promise<void> {
+    const msg = err instanceof Error ? err.message : String(err);
+    const status: ContentSyncStatusRecord = {
+      last_run_at: new Date().toISOString(),
+      last_ok: false,
+      last_message: msg.slice(0, 2000),
+      last_total_created: 0,
+      last_trigger: trigger,
+      last_source_errors: [],
+    };
+    await this.setValue('content_sync_status', JSON.stringify(status));
+  }
+
+  private readonly examDutyFeeCatalogKey = 'exam_duty_fee_catalog';
+
+  async getExamDutyFeeCatalog(): Promise<ExamDutyFeeCatalog> {
+    const raw = await this.getValue(this.examDutyFeeCatalogKey);
+    if (!raw?.trim()) return { ...DEFAULT_EXAM_DUTY_FEE_CATALOG };
+    try {
+      const parsed = JSON.parse(raw) as ExamDutyFeeCatalog;
+      return sanitizeExamDutyFeeCatalog(parsed);
+    } catch {
+      return { ...DEFAULT_EXAM_DUTY_FEE_CATALOG };
+    }
+  }
+
+  async updateExamDutyFeeCatalog(dto: ExamDutyFeeCatalog): Promise<void> {
+    const next = sanitizeExamDutyFeeCatalog(dto);
+    await this.setValue(this.examDutyFeeCatalogKey, JSON.stringify(next));
+  }
+}
+
+/** Sınav görev ücret referans tablosu (ÖSYM / AÖF vb.) — app_config JSON. */
+export type ExamDutyFeeRoleRow = {
+  key: string;
+  label: string;
+  brut_tl: number;
+};
+
+export type ExamDutyFeeCategory = {
+  id: string;
+  label: string;
+  description?: string | null;
+  roles: ExamDutyFeeRoleRow[];
+};
+
+export type ExamDutyFeeTaxBracketRef = {
+  max_matrah: number;
+  rate_percent: number;
+};
+
+export type ExamDutyFeeCatalog = {
+  version: string;
+  period_label: string;
+  /** Örn. basın özeti / tebliğ — resmi belge ile doğrulama önerilir */
+  source_note: string;
+  /** Net ücret; ücretlinin GV matrahı ve diğer gelirlerle birlikte dilime göre değişir */
+  gv_note: string;
+  gv_exemption_max_tl: number;
+  dv_exemption_max_tl: number;
+  stamp_duty_rate_binde: number;
+  gv_brackets: ExamDutyFeeTaxBracketRef[];
+  categories: ExamDutyFeeCategory[];
+};
+
+/** 2026 Oca–Haz ÖSYM brüt ücretleri: kamu/egitim sitelerindeki tablolara göre (resmi ÖSYM tebliği ile doğrulayın). */
+const DEFAULT_EXAM_DUTY_FEE_CATALOG: ExamDutyFeeCatalog = {
+  version: '2',
+  period_label: '2026 1. dönem (Ocak–Haziran)',
+  source_note:
+    '2026 MEB/ÖSYM tabloları kamu mevzuat özetlerinden derlenmiştir. Anadolu AÖF ve ATA AÖF kalemleri yayımlanan net tutarlardan %15 GV + binde 7,59 DV varsayımıyla yaklaşık brüte çevrilmiştir. AUZEF için son yayımlı 2025-2026 güz dönemi tablosu kullanılmıştır.',
+  gv_note:
+    'Net ücret, brüt üzerinden seçilen GV oranı ve damga vergisi düşülerek tahmini hesaplanır. GV ve DV istisna alanları aylık maaşta önceden kullanılan tutar üzerinden ilerler.',
+  gv_exemption_max_tl: 4211.33,
+  dv_exemption_max_tl: 33030,
+  stamp_duty_rate_binde: 7.59,
+  gv_brackets: [
+    { max_matrah: 190_000, rate_percent: 15 },
+    { max_matrah: 400_000, rate_percent: 20 },
+    { max_matrah: 1_500_000, rate_percent: 27 },
+    { max_matrah: 5_300_000, rate_percent: 35 },
+    { max_matrah: 9_999_999_999, rate_percent: 40 },
+  ],
+  categories: [
+    {
+      id: 'meb_klasik',
+      label: 'MEB ortak / açık lise sınavları',
+      description: '2026 Ocak-Temmuz MEB yazılı ve açık lise sınav görevleri için brüt tablo.',
+      roles: [
+        { key: 'bina_yoneticisi', label: 'Bina yöneticisi', brut_tl: 2636.95 },
+        { key: 'bina_yonetici_yard', label: 'Bina yönetici yardımcısı', brut_tl: 2359.38 },
+        { key: 'salon_baskani', label: 'Salon başkanı', brut_tl: 2289.99 },
+        { key: 'gozetmen', label: 'Gözetmen', brut_tl: 2220.59 },
+        { key: 'yedek_gozetmen', label: 'Yedek gözetmen', brut_tl: 1665.45 },
+        { key: 'yardimci_engelli_gozetmen', label: 'Yardımcı engelli gözetmen', brut_tl: 2775.74 },
+      ],
+    },
+    {
+      id: 'meb_esinav',
+      label: 'MEB e-Sınav',
+      description: '2026 Ocak-Temmuz MEB e-sınav görevleri için brüt tablo.',
+      roles: [
+        { key: 'uygulama_sorumlusu', label: 'E-sınav uygulama sorumlusu', brut_tl: 2081.81 },
+        { key: 'salon_baskani', label: 'E-sınav salon başkanı', brut_tl: 1804.23 },
+        { key: 'gozetmen', label: 'E-sınav gözetmeni', brut_tl: 1665.45 },
+      ],
+    },
+    {
+      id: 'osym',
+      label: 'ÖSYM merkezi sınavlar',
+      description: '2026 Ocak-Temmuz ÖSYM merkezi sınav görevleri için brüt tablo.',
+      roles: [
+        { key: 'bina_sinav_sorumlusu', label: 'Bina sınav sorumlusu', brut_tl: 4163.61 },
+        { key: 'bina_sinav_sorumlusu_yard', label: 'Bina sınav sorumlusu yardımcısı', brut_tl: 2775.74 },
+        { key: 'bina_yoneticisi', label: 'Bina yöneticisi', brut_tl: 2775.74 },
+        { key: 'salon_baskani', label: 'Salon başkanı', brut_tl: 2498.17 },
+        { key: 'gozetmen', label: 'Gözetmen', brut_tl: 2081.81 },
+        { key: 'yedek_gozetmen', label: 'Yedek gözetmen', brut_tl: 1665.45 },
+      ],
+    },
+    {
+      id: 'anadolu_aof_tr',
+      label: 'Anadolu Üniversitesi AÖF (Türkiye geneli)',
+      description: '2026 yayımlı net tablo baz alınarak yaklaşık brüte çevrilmiştir.',
+      roles: [
+        { key: 'bina_sinav_sorumlusu', label: 'Bina sınav sorumlusu', brut_tl: 1959.68 },
+        { key: 'bina_sinav_sorumlusu_yard', label: 'Bina sınav sorumlusu yardımcısı', brut_tl: 1609.75 },
+        { key: 'salon_baskani', label: 'Salon başkanı', brut_tl: 1399.77 },
+        { key: 'gozetmen', label: 'Gözetmen', brut_tl: 1189.81 },
+      ],
+    },
+    {
+      id: 'anadolu_aof_istanbul',
+      label: 'Anadolu Üniversitesi AÖF (İstanbul)',
+      description: '2026 yayımlı net tablo baz alınarak yaklaşık brüte çevrilmiştir.',
+      roles: [
+        { key: 'bina_sinav_sorumlusu', label: 'Bina sınav sorumlusu', brut_tl: 2275.76 },
+        { key: 'bina_sinav_sorumlusu_yard', label: 'Bina sınav sorumlusu yardımcısı', brut_tl: 1869.36 },
+        { key: 'salon_baskani', label: 'Salon başkanı', brut_tl: 1625.54 },
+        { key: 'gozetmen', label: 'Gözetmen', brut_tl: 1381.7 },
+      ],
+    },
+    {
+      id: 'auzef_tr',
+      label: 'İstanbul Üniversitesi AUZEF (Türkiye geneli)',
+      description: 'Son yayımlı 2025-2026 güz dönemi net tablo baz alınarak yaklaşık brüte çevrilmiştir.',
+      roles: [
+        { key: 'bina_sinav_sorumlusu', label: 'Bina sınav sorumlusu', brut_tl: 1289.27 },
+        { key: 'bina_sinav_sorumlusu_yard', label: 'Bina sınav sorumlusu yardımcısı', brut_tl: 1059.04 },
+        { key: 'salon_baskani', label: 'Salon başkanı', brut_tl: 920.91 },
+        { key: 'gozetmen', label: 'Gözetmen', brut_tl: 782.78 },
+      ],
+    },
+    {
+      id: 'auzef_istanbul',
+      label: 'İstanbul Üniversitesi AUZEF (İstanbul)',
+      description: 'Son yayımlı 2025-2026 güz dönemi net tablo baz alınarak yaklaşık brüte çevrilmiştir.',
+      roles: [
+        { key: 'bina_sinav_sorumlusu', label: 'Bina sınav sorumlusu', brut_tl: 1497.2 },
+        { key: 'bina_sinav_sorumlusu_yard', label: 'Bina sınav sorumlusu yardımcısı', brut_tl: 1229.85 },
+        { key: 'salon_baskani', label: 'Salon başkanı', brut_tl: 1069.43 },
+        { key: 'gozetmen', label: 'Gözetmen', brut_tl: 909.02 },
+      ],
+    },
+    {
+      id: 'ata_aof',
+      label: 'Atatürk Üniversitesi ATA AÖF',
+      description: '2026 yayımlı net tablo baz alınarak yaklaşık brüte çevrilmiştir.',
+      roles: [
+        { key: 'bina_sinav_sorumlusu', label: 'Bina sınav sorumlusu', brut_tl: 1870.67 },
+        { key: 'bina_sinav_sorumlusu_yard', label: 'Bina sınav sorumlusu yardımcısı', brut_tl: 1556.81 },
+        { key: 'bina_yoneticisi', label: 'Bina yöneticisi', brut_tl: 1455.43 },
+        { key: 'salon_baskani', label: 'Salon başkanı', brut_tl: 1387.38 },
+        { key: 'gozetmen', label: 'Gözetmen', brut_tl: 1194.35 },
+        { key: 'yedek_gorevli', label: 'Yedek görevli', brut_tl: 1180.46 },
+        { key: 'engelli_salonu_gorevlisi', label: 'Engelli salon görevlisi', brut_tl: 1387.38 },
+      ],
+    },
+  ],
+};
+
+function sanitizeExamDutyFeeCatalog(input: ExamDutyFeeCatalog): ExamDutyFeeCatalog {
+  const gv_brackets = Array.isArray(input.gv_brackets)
+    ? input.gv_brackets
+        .filter(
+          (b): b is ExamDutyFeeTaxBracketRef =>
+            b != null &&
+            typeof b === 'object' &&
+            typeof (b as ExamDutyFeeTaxBracketRef).max_matrah === 'number' &&
+            typeof (b as ExamDutyFeeTaxBracketRef).rate_percent === 'number',
+        )
+        .map((b) => ({
+          max_matrah: Math.max(0, Math.min(9_999_999_999, Math.floor(b.max_matrah))),
+          rate_percent: Math.max(0, Math.min(100, Math.round(b.rate_percent * 100) / 100)),
+        }))
+    : DEFAULT_EXAM_DUTY_FEE_CATALOG.gv_brackets;
+
+  const categories = Array.isArray(input.categories)
+    ? input.categories
+        .filter(
+          (c): c is ExamDutyFeeCategory =>
+            c != null &&
+            typeof c === 'object' &&
+            typeof (c as ExamDutyFeeCategory).id === 'string' &&
+            typeof (c as ExamDutyFeeCategory).label === 'string' &&
+            Array.isArray((c as ExamDutyFeeCategory).roles),
+        )
+        .map((c) => ({
+          id: String(c.id).slice(0, 64),
+          label: String(c.label).slice(0, 200),
+          description: c.description != null ? String(c.description).slice(0, 500) : null,
+          roles: (c.roles ?? [])
+            .filter(
+              (r): r is ExamDutyFeeRoleRow =>
+                r != null &&
+                typeof r === 'object' &&
+                typeof (r as ExamDutyFeeRoleRow).key === 'string' &&
+                typeof (r as ExamDutyFeeRoleRow).label === 'string' &&
+                typeof (r as ExamDutyFeeRoleRow).brut_tl === 'number',
+            )
+            .map((r) => ({
+              key: String(r.key).slice(0, 80),
+              label: String(r.label).slice(0, 300),
+              brut_tl: Math.max(0, Math.min(999_999, Math.round(Number(r.brut_tl) * 100) / 100)),
+            })),
+        }))
+    : DEFAULT_EXAM_DUTY_FEE_CATALOG.categories;
+
+  return {
+    version: String(input.version ?? '1').slice(0, 32),
+    period_label: String(input.period_label ?? DEFAULT_EXAM_DUTY_FEE_CATALOG.period_label).slice(0, 200),
+    source_note: String(input.source_note ?? '').slice(0, 2000),
+    gv_note: String(input.gv_note ?? DEFAULT_EXAM_DUTY_FEE_CATALOG.gv_note).slice(0, 2000),
+    gv_exemption_max_tl:
+      typeof input.gv_exemption_max_tl === 'number'
+        ? Math.max(0, Math.min(999_999, Math.round(input.gv_exemption_max_tl * 100) / 100))
+        : DEFAULT_EXAM_DUTY_FEE_CATALOG.gv_exemption_max_tl,
+    dv_exemption_max_tl:
+      typeof input.dv_exemption_max_tl === 'number'
+        ? Math.max(0, Math.min(9_999_999, Math.round(input.dv_exemption_max_tl * 100) / 100))
+        : DEFAULT_EXAM_DUTY_FEE_CATALOG.dv_exemption_max_tl,
+    stamp_duty_rate_binde:
+      typeof input.stamp_duty_rate_binde === 'number'
+        ? Math.max(0, Math.min(999, Math.round(input.stamp_duty_rate_binde * 100) / 100))
+        : DEFAULT_EXAM_DUTY_FEE_CATALOG.stamp_duty_rate_binde,
+    gv_brackets: gv_brackets.length > 0 ? gv_brackets : DEFAULT_EXAM_DUTY_FEE_CATALOG.gv_brackets,
+    categories: categories.length > 0 ? categories : DEFAULT_EXAM_DUTY_FEE_CATALOG.categories,
+  };
 }
 
 export type SchoolReviewsConfig = {

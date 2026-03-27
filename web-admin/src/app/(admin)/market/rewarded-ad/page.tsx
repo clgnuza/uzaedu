@@ -185,7 +185,7 @@ export default function MarketRewardedAdPage() {
                 <CardTitle className="text-base">Son ödüllü reklam kazanımları</CardTitle>
                 <CardDescription>Toplam kayıt: {history.total}</CardDescription>
               </CardHeader>
-              <CardContent className="overflow-x-auto p-0">
+              <CardContent className="table-x-scroll p-0">
                 <table className="w-full min-w-[360px] text-sm">
                   <thead>
                     <tr className="border-b border-border/80 bg-muted/30 text-left text-xs text-muted-foreground">

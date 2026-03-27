@@ -5,6 +5,12 @@ import { ExamDutyPreference } from './entities/exam-duty-preference.entity';
 import { UpdateExamDutyPreferencesDto } from './dto/update-exam-duty-preferences.dto';
 import { EXAM_DUTY_CATEGORIES } from './entities/exam-duty.entity';
 
+function padHHmm(s: string): string {
+  const m = s.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return s;
+  return `${m[1]!.padStart(2, '0')}:${m[2]}`;
+}
+
 @Injectable()
 export class ExamDutyPreferencesService {
   constructor(
@@ -20,7 +26,7 @@ export class ExamDutyPreferencesService {
   }
 
   /** Tüm kategorileri varsayılan ile döndür (yoksa boş) */
-  async getForUserWithDefaults(userId: string): Promise<{ slug: string; pref_publish: boolean; pref_deadline: boolean; pref_approval_day: boolean; pref_exam_minus_1d: boolean; pref_exam_plus_1d: boolean; pref_exam_day_morning: boolean; pref_exam_day_morning_time: string }[]> {
+  async getForUserWithDefaults(userId: string): Promise<{ slug: string; pref_publish: boolean; pref_deadline: boolean; pref_approval_day: boolean; pref_exam_minus_1d: boolean; pref_exam_plus_1d: boolean; pref_exam_day_morning: boolean; pref_exam_day_morning_time: string | null }[]> {
     const existing = await this.getForUser(userId);
     const bySlug = new Map(existing.map((p) => [p.categorySlug, p]));
 
@@ -34,7 +40,7 @@ export class ExamDutyPreferencesService {
         pref_exam_minus_1d: p?.prefExamMinus1d ?? true,
         pref_exam_plus_1d: p?.prefExamPlus1d ?? true,
         pref_exam_day_morning: p?.prefExamDayMorning ?? true,
-        pref_exam_day_morning_time: p?.prefExamDayMorningTime ?? '08:00',
+        pref_exam_day_morning_time: p?.prefExamDayMorningTime ?? null,
       };
     });
   }
@@ -51,7 +57,10 @@ export class ExamDutyPreferencesService {
           prefExamMinus1d: cat.pref_exam_minus_1d ?? true,
           prefExamPlus1d: cat.pref_exam_plus_1d ?? true,
           prefExamDayMorning: cat.pref_exam_day_morning ?? true,
-          prefExamDayMorningTime: cat.pref_exam_day_morning_time ?? '08:00',
+          prefExamDayMorningTime:
+            cat.pref_exam_day_morning_time === undefined || cat.pref_exam_day_morning_time === null
+              ? null
+              : padHHmm(cat.pref_exam_day_morning_time),
         },
         { conflictPaths: ['userId', 'categorySlug'] },
       );

@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
@@ -30,6 +31,7 @@ import {
   EyeOff,
 } from 'lucide-react';
 import { getApiUrl } from '@/lib/api';
+import { COOKIE_SESSION_TOKEN } from '@/lib/auth-session';
 import { AgendaCalendarGrid, type CalendarEvent } from './components/agenda-calendar-grid';
 import { EventDetailModal } from './components/event-detail-modal';
 import { NoteFormModal } from './components/note-form-modal';
@@ -132,8 +134,10 @@ function AgendaSkeleton() {
   );
 }
 
-export default function OgretmenAjandasiPage() {
+function OgretmenAjandasiPageContent() {
   const { token, me } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [notes, setNotes] = useState<{ items: AgendaNote[]; total: number }>({ items: [], total: 0 });
   const [tasks, setTasks] = useState<{ items: AgendaTask[]; total: number }>({ items: [], total: 0 });
@@ -148,7 +152,7 @@ export default function OgretmenAjandasiPage() {
   const [month, setMonth] = useState(() => new Date());
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [selectedNote, setSelectedNote] = useState<AgendaNote | null>(null);
-  const [noteFromTemplate, setNoteFromTemplate] = useState<{ title: string; body?: string } | null>(null);
+  const [noteFromTemplate, setNoteFromTemplate] = useState<{ title: string; body?: string; tags?: string } | null>(null);
   const [editingTask, setEditingTask] = useState<AgendaTask | null>(null);
   const [eventModalOpen, setEventModalOpen] = useState(false);
   const [noteModalOpen, setNoteModalOpen] = useState(false);
@@ -366,6 +370,59 @@ export default function OgretmenAjandasiPage() {
     fetchTemplates();
     fetchWeeklyStats();
   }, [fetchCalendar, fetchNotes, fetchTasks, fetchStudentNotes, fetchParentMeetings, fetchSummary, fetchTemplates, fetchWeeklyStats]);
+
+  useEffect(() => {
+    const announcementId = searchParams.get('announcementId');
+    const fromTv = searchParams.get('fromTv') === '1';
+    if (!token || !me || !announcementId || !fromTv) return;
+    if (me.role !== 'teacher' && me.role !== 'school_admin') return;
+
+    const key = `tv_agenda_${announcementId}`;
+    const last = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(key) : null;
+    const now = Date.now();
+    if (last && now - parseInt(last, 10) < 2500) return;
+    if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(key, String(now));
+
+    router.replace('/ogretmen-ajandasi', { scroll: false });
+
+    let cancelled = false;
+    (async () => {
+      try {
+        if (me.role === 'teacher') setMobileTab('notes');
+        const listRes = await apiFetch<{ items: AgendaNote[] }>(
+          `/teacher-agenda/notes?announcementId=${encodeURIComponent(announcementId)}&limit=5`,
+          { token },
+        );
+        if (cancelled) return;
+        if (listRes.items?.length) {
+          const n = listRes.items[0];
+          const full = await apiFetch<AgendaNote>(`/teacher-agenda/notes/${n.id}`, { token });
+          if (cancelled) return;
+          setSelectedNote(full);
+          setNoteDetailOpen(true);
+          toast.info('Duyuru ajandada kayıtlı; düzenleyebilir veya silebilirsiniz.');
+        } else {
+          const ann = await apiFetch<{ title: string; summary?: string | null; body?: string | null }>(
+            `/announcements/${announcementId}`,
+            { token },
+          );
+          if (cancelled) return;
+          setNoteFromTemplate({
+            title: ann.title,
+            body: (ann.summary || ann.body) ?? undefined,
+            tags: `duyuru, duyuru_ann:${announcementId}`,
+          });
+          setNoteModalOpen(true);
+          toast.info('İçeriği düzenleyip Kaydet ile ajandaya ekleyin.');
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Ajanda açılamadı');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, me, searchParams, router]);
 
   useEffect(() => {
     if (!token) {
@@ -721,7 +778,12 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
     if (!token) return;
     try {
       const url = getApiUrl(`/teacher-agenda/export/${type}`);
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      const headers: Record<string, string> = {};
+      if (token !== COOKIE_SESSION_TOKEN) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(url, {
+        credentials: 'include',
+        ...(Object.keys(headers).length > 0 && { headers }),
+      });
       const blob = await res.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -740,7 +802,12 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
       const start = new Date();
       const end = new Date(Date.now() + 365 * 86400000);
       const url = getApiUrl(`/teacher-agenda/calendar/ical?start=${toYMD(start)}&end=${toYMD(end)}`);
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      const headers: Record<string, string> = {};
+      if (token !== COOKIE_SESSION_TOKEN) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(url, {
+        credentials: 'include',
+        ...(Object.keys(headers).length > 0 && { headers }),
+      });
       const blob = await res.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -1724,5 +1791,13 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
         initialData={editingSchoolEventData}
       />
     </div>
+  );
+}
+
+export default function OgretmenAjandasiPage() {
+  return (
+    <Suspense fallback={<AgendaSkeleton />}>
+      <OgretmenAjandasiPageContent />
+    </Suspense>
   );
 }

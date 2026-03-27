@@ -13,6 +13,7 @@ import {
   Smartphone,
   ShieldCheck,
   Bot,
+  LayoutPanelLeft,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { YayinSeoPanel } from './yayin-seo-panel';
@@ -24,11 +25,13 @@ import { WebExtrasPanel } from './web-extras-panel';
 import { MobileAppPanel } from './mobile-app-panel';
 import { GdprPanel } from './gdpr-panel';
 import { CaptchaPanel } from './captcha-panel';
+import { WebShellNavPanel } from './web-shell-nav-panel';
 import type { LegalPageKey } from './legal-pages-types';
 
 const TABS = [
   { id: 'seo', label: 'SEO', icon: Globe },
   { id: 'site', label: 'Site', icon: LayoutTemplate },
+  { id: 'kabuk', label: 'Kabuk', icon: LayoutPanelLeft },
   { id: 'gizlilik', label: 'Gizlilik', icon: Shield },
   { id: 'sartlar', label: 'Şartlar', icon: ScrollText },
   { id: 'cerez', label: 'Çerez', icon: Cookie },
@@ -82,6 +85,7 @@ export function WebSettingsTabs() {
       </nav>
       <div>{tab === 'seo' && <YayinSeoPanel />}</div>
       <div>{tab === 'site' && <WebPublicPanel />}</div>
+      <div>{tab === 'kabuk' && <WebShellNavPanel />}</div>
       <div>{legalKey && <LegalPageEditPanel pageKey={legalKey} />}</div>
       <div>{tab === 'mail' && <MailSettingsPanel />}</div>
       <div>{tab === 'r2' && <R2SettingsPanel />}</div>

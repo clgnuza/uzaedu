@@ -1,14 +1,17 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { School } from './entities/school.entity';
-import { UserRole, SchoolStatus } from '../types/enums';
+import { UserRole, SchoolStatus, SchoolType } from '../types/enums';
 import { CreateSchoolDto } from './dto/create-school.dto';
 import { BulkCreateSchoolDto } from './dto/bulk-create-school.dto';
 import { UpdateSchoolDto } from './dto/update-school.dto';
 import { ListSchoolsDto } from './dto/list-schools.dto';
 import { paginate } from '../common/dtos/pagination.dto';
 import { AuditService } from '../audit/audit.service';
+import { emailDomainFromInstitutional } from '../common/utils/institutional-email.util';
+import { MARKET_MODULE_KEYS } from '../app-config/market-policy.defaults';
+import { SCHOOL_TYPE_GROUP_MEMBERS } from './school-type-group.util';
 
 @Injectable()
 export class SchoolsService {
@@ -32,7 +35,12 @@ export class SchoolsService {
       if (dto.city) qb.andWhere('LOWER(s.city) = LOWER(:city)', { city: dto.city.trim() });
       if (dto.district) qb.andWhere('LOWER(s.district) = LOWER(:district)', { district: dto.district.trim() });
       if (dto.status) qb.andWhere('s.status = :status', { status: dto.status });
-      if (dto.type) qb.andWhere('s.type = :type', { type: dto.type });
+      if (dto.type_group) {
+        const types = SCHOOL_TYPE_GROUP_MEMBERS[dto.type_group];
+        qb.andWhere('s.type IN (:...types)', { types });
+      } else if (dto.type) {
+        qb.andWhere('s.type = :type', { type: dto.type });
+      }
       if (dto.segment) qb.andWhere('s.segment = :segment', { segment: dto.segment });
       if (dto.search?.trim()) {
         qb.andWhere('LOWER(s.name) LIKE LOWER(:search)', { search: `%${dto.search.trim()}%` });
@@ -58,6 +66,11 @@ export class SchoolsService {
       district: dto.district ?? null,
       website_url: dto.website_url?.trim() || null,
       phone: dto.phone?.trim() || null,
+      fax: dto.fax?.trim() || null,
+      institutionCode: dto.institution_code?.trim() || null,
+      institutionalEmail: dto.institutional_email?.trim() || null,
+      address: dto.address?.trim() || null,
+      principalName: dto.principal_name?.trim() || null,
       about_description: dto.about_description?.trim() || null,
       status: dto.status ?? undefined,
       teacher_limit: dto.teacher_limit ?? 100,
@@ -86,6 +99,11 @@ export class SchoolsService {
           district: item.district?.trim() || null,
           website_url: item.website_url?.trim() || null,
           phone: item.phone?.trim() || null,
+          fax: item.fax?.trim() || null,
+          institutionCode: item.institution_code?.trim() || null,
+          institutionalEmail: item.institutional_email?.trim() || null,
+          address: item.address?.trim() || null,
+          principalName: item.principal_name?.trim() || null,
           about_description: item.about_description?.trim() || null,
           status: item.status && Object.values(SchoolStatus).includes(item.status as SchoolStatus)
             ? (item.status as SchoolStatus)
@@ -162,6 +180,7 @@ export class SchoolsService {
     if (dto.tv_gunun_sozu_text_transform !== undefined) school.tv_gunun_sozu_text_transform = dto.tv_gunun_sozu_text_transform;
     if (dto.tv_special_days_calendar !== undefined) school.tv_special_days_calendar = dto.tv_special_days_calendar;
     if (dto.tv_timetable_schedule !== undefined) school.tv_timetable_schedule = dto.tv_timetable_schedule;
+    if (dto.tv_timetable_use_school_plan !== undefined) school.tv_timetable_use_school_plan = dto.tv_timetable_use_school_plan === true;
     if (dto.tv_birthday_card_title !== undefined) school.tv_birthday_card_title = dto.tv_birthday_card_title;
     if (dto.tv_birthday_font_size !== undefined) school.tv_birthday_font_size = dto.tv_birthday_font_size;
     if (dto.tv_birthday_calendar !== undefined) school.tv_birthday_calendar = dto.tv_birthday_calendar;
@@ -204,12 +223,70 @@ export class SchoolsService {
     return saved;
   }
 
-  /** Kayıt ekranı: sadece aktif okullar, arama (auth gerekmez) */
-  async listForRegister(search: string, limit = 20): Promise<{ items: { id: string; name: string; city: string | null; district: string | null }[] }> {
+  /**
+   * Tüm okullarda tek bir modülü açar veya kapatır (web-admin tek okul toggle ile aynı mantık).
+   */
+  async bulkToggleEnabledModuleForAllSchools(
+    moduleKey: string,
+    enable: boolean,
+    userId?: string,
+  ): Promise<{ updated: number; total: number }> {
+    if (!MARKET_MODULE_KEYS.includes(moduleKey as (typeof MARKET_MODULE_KEYS)[number])) {
+      throw new BadRequestException({ code: 'INVALID_MODULE', message: 'Geçersiz modül anahtarı.' });
+    }
+    const keys = [...MARKET_MODULE_KEYS];
+    const computeNext = (current: string[] | null | undefined): string[] | null => {
+      if (enable) {
+        if (current === null || current === undefined) return null;
+        if (current.includes(moduleKey)) return current;
+        return [...current, moduleKey];
+      }
+      if (current === null || current === undefined) {
+        return keys.filter((k) => k !== moduleKey);
+      }
+      return current.filter((k) => k !== moduleKey);
+    };
+    const sameState = (a: string[] | null | undefined, b: string[] | null): boolean =>
+      JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+    const schools = await this.schoolRepo.find({ select: ['id', 'enabled_modules'] });
+    let updated = 0;
+    await this.schoolRepo.manager.transaction(async (em) => {
+      for (const school of schools) {
+        const next = computeNext(school.enabled_modules);
+        if (sameState(school.enabled_modules, next)) continue;
+        await em.update(School, { id: school.id }, { enabled_modules: next });
+        updated += 1;
+      }
+    });
+    await this.auditService.log({
+      action: 'school_bulk_enabled_modules',
+      userId: userId ?? null,
+      schoolId: null,
+      meta: { module_key: moduleKey, enable, schools_updated: updated, total: schools.length },
+    });
+    return { updated, total: schools.length };
+  }
+
+  /** Kayıt ekranı: aktif okullar, arama (auth gerekmez) */
+  async listForRegister(
+    search: string,
+    limit = 20,
+    filters?: { city?: string; district?: string; type?: SchoolType },
+  ): Promise<{
+    items: {
+      id: string;
+      name: string;
+      city: string | null;
+      district: string | null;
+      type: string;
+      institutional_domain: string | null;
+    }[];
+  }> {
     const take = Math.min(Math.max(1, limit), 40);
     const qb = this.schoolRepo
       .createQueryBuilder('s')
-      .select(['s.id', 's.name', 's.city', 's.district'])
+      .select(['s.id', 's.name', 's.city', 's.district', 's.institutionalEmail', 's.type'])
       .where('s.status = :st', { st: SchoolStatus.aktif })
       .orderBy('s.name', 'ASC')
       .take(take);
@@ -219,6 +296,15 @@ export class SchoolsService {
         q: `%${q}%`,
       });
     }
+    if (filters?.city?.trim()) {
+      qb.andWhere('LOWER(s.city) = LOWER(:fcity)', { fcity: filters.city.trim() });
+    }
+    if (filters?.district?.trim()) {
+      qb.andWhere('LOWER(s.district) = LOWER(:fdist)', { fdist: filters.district.trim() });
+    }
+    if (filters?.type) {
+      qb.andWhere('s.type = :ftype', { ftype: filters.type });
+    }
     const rows = await qb.getMany();
     return {
       items: rows.map((s) => ({
@@ -226,6 +312,8 @@ export class SchoolsService {
         name: s.name,
         city: s.city ?? null,
         district: s.district ?? null,
+        type: s.type,
+        institutional_domain: emailDomainFromInstitutional(s.institutionalEmail),
       })),
     };
   }

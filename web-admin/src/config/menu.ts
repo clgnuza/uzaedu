@@ -38,6 +38,8 @@ import {
   Globe,
   RectangleHorizontal,
   UserPlus,
+  Building2,
+  ClipboardCheck,
 } from 'lucide-react';
 
 export const MENU_SIDEBAR: MenuConfig = [
@@ -56,10 +58,49 @@ export const MENU_SIDEBAR: MenuConfig = [
         allowedRoles: ['school_admin', 'superadmin', 'teacher', 'moderator'],
       },
       {
-        title: 'Profil',
+        title: 'Profilim',
+        titleByRole: { teacher: 'Profilim' },
         path: '/profile',
         icon: User,
         allowedRoles: ['school_admin', 'superadmin', 'teacher', 'moderator'],
+      },
+    ],
+  },
+  {
+    title: 'Hesaplamalar',
+    icon: Calculator,
+    allowedRoles: ['school_admin', 'superadmin', 'teacher', 'moderator'],
+    menuGroup: 'violet',
+    children: [
+      {
+        title: 'Özet',
+        path: '/hesaplamalar',
+        icon: Calculator,
+        allowedRoles: ['school_admin', 'superadmin', 'teacher', 'moderator'],
+      },
+      {
+        title: 'Ek ders hesaplama',
+        path: '/extra-lesson-calc',
+        icon: Calculator,
+        allowedRoles: ['school_admin', 'superadmin', 'teacher', 'moderator'],
+      },
+      {
+        title: 'Sınav görev ücretleri',
+        path: '/sinav-gorev-ucretleri',
+        icon: ClipboardList,
+        allowedRoles: ['school_admin', 'superadmin', 'teacher', 'moderator'],
+      },
+      {
+        title: 'Hesaplama türleri',
+        path: '/extra-lesson-params',
+        icon: Layers,
+        allowedRoles: ['superadmin'],
+      },
+      {
+        title: 'Ek ders parametreleri',
+        path: '/extra-lesson-params/ek-ders',
+        icon: Settings,
+        allowedRoles: ['superadmin'],
       },
     ],
   },
@@ -161,20 +202,28 @@ export const MENU_SIDEBAR: MenuConfig = [
     title: 'Haber ve yayın',
     titleByRole: { teacher: 'Haber ve yayın' },
     icon: Newspaper,
-    allowedRoles: ['teacher', 'school_admin'],
+    allowedRoles: ['teacher', 'school_admin', 'superadmin'],
     menuGroup: 'orange',
     children: [
       {
         title: 'Haberler',
         path: '/haberler',
         icon: Newspaper,
-        allowedRoles: ['teacher', 'school_admin'],
+        allowedRoles: ['teacher', 'school_admin', 'superadmin'],
+        publicAccess: true,
       },
       {
         title: 'Haber Yayın',
         path: '/haberler/yayin',
         icon: Sparkles,
-        allowedRoles: ['teacher', 'school_admin'],
+        allowedRoles: ['teacher', 'school_admin', 'superadmin'],
+        publicAccess: true,
+      },
+      {
+        title: 'Haber ayarları',
+        path: '/haberler/ayarlar',
+        icon: Settings,
+        allowedRoles: ['superadmin'],
       },
     ],
   },
@@ -216,10 +265,14 @@ export const MENU_SIDEBAR: MenuConfig = [
     ],
   },
   {
-    title: 'Okul',
-    titleByRole: { teacher: 'Okul işlemleri' },
-    icon: School,
+    heading: 'Okul',
     allowedRoles: ['school_admin', 'teacher', 'moderator'],
+  },
+  {
+    title: 'Okul yönetimi',
+    titleByRole: { moderator: 'Okul destek' },
+    icon: Building2,
+    allowedRoles: ['school_admin', 'moderator'],
     menuGroup: 'sky',
     children: [
       {
@@ -236,6 +289,45 @@ export const MENU_SIDEBAR: MenuConfig = [
         allowedRoles: ['school_admin'],
         badgeKey: 'adminMessagesUnread',
       },
+      {
+        title: 'Öğretmenler',
+        path: '/teachers',
+        icon: Users,
+        allowedRoles: ['school_admin'],
+      },
+      {
+        title: 'Öğretmen onay kuyruğu',
+        path: '/school-join-queue',
+        icon: ClipboardCheck,
+        allowedRoles: ['school_admin'],
+      },
+      {
+        title: 'Sınıflar ve Dersler',
+        path: '/classes-subjects',
+        icon: BookOpen,
+        allowedRoles: ['school_admin'],
+      },
+      {
+        title: 'Akademik Takvim Ayarları',
+        path: '/akademik-takvim-ayarlar',
+        icon: Calendar,
+        allowedRoles: ['school_admin'],
+      },
+      {
+        title: 'Okul Değerlendirme Raporu',
+        path: '/school-reviews-report',
+        icon: BarChart3,
+        allowedRoles: ['school_admin'],
+      },
+    ],
+  },
+  {
+    title: 'Ders ve ekranlar',
+    titleByRole: { teacher: 'Okul işlemleri' },
+    icon: School,
+    allowedRoles: ['school_admin', 'teacher'],
+    menuGroup: 'sky',
+    children: [
       {
         title: 'Nöbet',
         titleByRole: { teacher: 'Nöbet ve görevler' },
@@ -264,31 +356,6 @@ export const MENU_SIDEBAR: MenuConfig = [
         icon: Monitor,
         allowedRoles: ['school_admin', 'teacher'],
         requiredSchoolModule: 'smart_board',
-      },
-      {
-        title: 'Okul Değerlendirme Raporu',
-        path: '/school-reviews-report',
-        icon: BarChart3,
-        allowedRoles: ['school_admin'],
-        requiredSchoolModule: 'school_reviews',
-      },
-      {
-        title: 'Öğretmenler',
-        path: '/teachers',
-        icon: Users,
-        allowedRoles: ['school_admin'],
-      },
-      {
-        title: 'Sınıflar ve Dersler',
-        path: '/classes-subjects',
-        icon: BookOpen,
-        allowedRoles: ['school_admin'],
-      },
-      {
-        title: 'Akademik Takvim Ayarları',
-        path: '/akademik-takvim-ayarlar',
-        icon: Calendar,
-        allowedRoles: ['school_admin'],
       },
     ],
   },
@@ -319,22 +386,6 @@ export const MENU_SIDEBAR: MenuConfig = [
     ],
   },
   {
-    title: 'Hesap',
-    titleByRole: { teacher: 'Hesap' },
-    icon: Settings,
-    allowedRoles: ['school_admin', 'superadmin', 'teacher'],
-    menuGroup: 'zinc',
-    children: [
-      {
-        title: 'Ayarlar',
-        titleByRole: { teacher: 'Hesabım Ayarlar' },
-        path: '/settings',
-        icon: Settings,
-        allowedRoles: ['school_admin', 'superadmin', 'teacher'],
-      },
-    ],
-  },
-  {
     title: 'Optik',
     titleByRole: { teacher: 'Optik formlar' },
     icon: ScanLine,
@@ -352,11 +403,64 @@ export const MENU_SIDEBAR: MenuConfig = [
     ],
   },
   {
-    title: 'Sistem',
-    icon: ShieldCheck,
+    title: 'Okul değerlendirme',
+    icon: Star,
     allowedRoles: ['superadmin', 'moderator'],
+    menuGroup: 'rose',
+    children: [
+      {
+        title: 'Herkese açık sayfa',
+        path: '/okul-degerlendirmeleri',
+        icon: Globe,
+        allowedRoles: ['superadmin', 'moderator'],
+      },
+      {
+        title: 'Modül ayarları',
+        path: '/school-reviews-settings',
+        icon: Settings,
+        allowedRoles: ['superadmin', 'moderator'],
+        requiredModule: 'school_reviews',
+      },
+    ],
+  },
+  {
+    title: 'Hesaplama parametreleri',
+    icon: Calculator,
+    allowedRoles: ['moderator'],
+    menuGroup: 'cyan',
+    children: [
+      {
+        title: 'Hesaplama türleri',
+        path: '/extra-lesson-params',
+        icon: Layers,
+        allowedRoles: ['superadmin', 'moderator'],
+        requiredModule: 'extra_lesson_params',
+      },
+      {
+        title: 'Ek ders parametreleri',
+        path: '/extra-lesson-params/ek-ders',
+        icon: Settings,
+        allowedRoles: ['superadmin', 'moderator'],
+        requiredModule: 'extra_lesson_params',
+      },
+    ],
+  },
+  {
+    heading: 'Sistem',
+    allowedRoles: ['superadmin'],
+  },
+  {
+    title: 'Platform',
+    icon: Globe,
+    allowedRoles: ['superadmin'],
     menuGroup: 'indigo',
     children: [
+      {
+        title: 'Platform Destek',
+        path: '/support/platform',
+        icon: Headphones,
+        allowedRoles: ['superadmin'],
+      },
       {
         title: 'Web Ayarları',
         path: '/web-ayarlar',
@@ -388,17 +492,25 @@ export const MENU_SIDEBAR: MenuConfig = [
         allowedRoles: ['superadmin'],
       },
       {
-        title: 'Platform Destek',
-        path: '/support/platform',
-        icon: Headphones,
-        allowedRoles: ['superadmin'],
-      },
-      {
         title: 'Destek Modülleri',
         path: '/support/modules',
         icon: Puzzle,
         allowedRoles: ['superadmin'],
       },
+      {
+        title: 'Duyuru TV ayarları',
+        path: '/tv',
+        icon: Tv,
+        allowedRoles: ['superadmin'],
+      },
+    ],
+  },
+  {
+    title: 'Okullar ve erişim',
+    icon: School,
+    allowedRoles: ['superadmin', 'moderator'],
+    menuGroup: 'indigo',
+    children: [
       {
         title: 'Okullara Sistem Mesajı Gönder',
         path: '/send-announcement',
@@ -421,6 +533,13 @@ export const MENU_SIDEBAR: MenuConfig = [
         requiredModule: 'users',
       },
       {
+        title: 'Okul kayıt kuyruğu',
+        path: '/school-join-queue',
+        icon: ClipboardCheck,
+        allowedRoles: ['superadmin'],
+        requiredModule: 'users',
+      },
+      {
         title: 'Modüller',
         path: '/modules',
         icon: Puzzle,
@@ -435,25 +554,26 @@ export const MENU_SIDEBAR: MenuConfig = [
         requiredModule: 'market_policy',
       },
       {
-        title: 'Okul Değerlendirme Ayarları',
-        path: '/school-reviews-settings',
-        icon: Star,
-        allowedRoles: ['superadmin', 'moderator'],
-        requiredModule: 'school_reviews',
+        title: 'Sistem Duyuruları',
+        path: '/system-announcements',
+        icon: Bell,
+        allowedRoles: ['moderator'],
+        requiredModule: 'system_announcements',
       },
+    ],
+  },
+  {
+    title: 'İçerik altyapısı',
+    icon: FileText,
+    allowedRoles: ['superadmin', 'moderator'],
+    menuGroup: 'indigo',
+    children: [
       {
         title: 'Evrak & Plan Altyapısı',
         path: '/document-templates',
         icon: FileText,
         allowedRoles: ['superadmin', 'moderator'],
         requiredModule: 'document_templates',
-      },
-      {
-        title: 'Hesaplama Parametreleri',
-        path: '/extra-lesson-params',
-        icon: Calculator,
-        allowedRoles: ['superadmin', 'moderator'],
-        requiredModule: 'extra_lesson_params',
       },
       {
         title: 'Kazanım Setleri',
@@ -469,13 +589,14 @@ export const MENU_SIDEBAR: MenuConfig = [
         allowedRoles: ['superadmin', 'moderator'],
         requiredModule: 'school_profiles',
       },
-      {
-        title: 'Sistem Duyuruları',
-        path: '/system-announcements',
-        icon: Bell,
-        allowedRoles: ['moderator'],
-        requiredModule: 'system_announcements',
-      },
+    ],
+  },
+  {
+    title: 'Akademik ve sınav',
+    icon: ClipboardList,
+    allowedRoles: ['superadmin'],
+    menuGroup: 'indigo',
+    children: [
       {
         title: 'Akademik Takvim Şablonu',
         path: '/akademik-takvim-sablonu',
@@ -517,6 +638,8 @@ export const ROUTE_ROLES: Record<string, ('school_admin' | 'superadmin' | 'teach
   '/bildirimler': ['teacher', 'school_admin'],
   '/sinav-gorevlerim': ['teacher'],
   '/extra-lesson-calc': ['school_admin', 'superadmin', 'teacher', 'moderator'],
+  '/hesaplamalar': ['school_admin', 'superadmin', 'teacher', 'moderator'],
+  '/sinav-gorev-ucretleri': ['school_admin', 'superadmin', 'teacher', 'moderator'],
   '/school-reviews': ['teacher', 'moderator'],
   '/favoriler': ['teacher', 'moderator'],
   '/evrak': ['teacher', 'superadmin', 'moderator'],
@@ -539,7 +662,7 @@ export const ROUTE_ROLES: Record<string, ('school_admin' | 'superadmin' | 'teach
   '/ders-programi/olustur': ['school_admin', 'teacher'],
   '/ders-programi/ayarlar': ['school_admin'],
   '/duty/tercihler': ['school_admin', 'teacher'],
-  '/tv': ['school_admin'],
+  '/tv': ['school_admin', 'superadmin'],
   '/send-announcement': ['superadmin', 'moderator'],
   '/school-profile': ['school_admin'],
   '/teachers': ['school_admin'],
@@ -548,13 +671,16 @@ export const ROUTE_ROLES: Record<string, ('school_admin' | 'superadmin' | 'teach
   '/settings': ['school_admin', 'superadmin', 'teacher'],
   '/schools': ['superadmin', 'moderator'],
   '/users': ['superadmin', 'moderator'],
+  '/school-join-queue': ['superadmin', 'school_admin'],
   '/modules': ['superadmin', 'moderator'],
   '/market-policy': ['superadmin', 'moderator'],
   '/school-reviews-settings': ['superadmin', 'moderator'],
+  '/okul-degerlendirmeleri': ['superadmin', 'moderator'],
   '/document-templates': ['superadmin', 'moderator'],
   '/work-calendar': ['superadmin', 'moderator'],
   '/yillik-plan-icerik': ['superadmin', 'moderator'],
   '/extra-lesson-params': ['superadmin', 'moderator'],
+  '/extra-lesson-params/ek-ders': ['superadmin', 'moderator'],
   '/outcome-sets': ['superadmin', 'moderator'],
   '/moderation': ['superadmin', 'moderator'],
   '/system-announcements': ['moderator'],
@@ -596,11 +722,9 @@ export const ROUTE_SCHOOL_MODULES: Record<string, string | undefined> = {
   '/akilli-tahta': 'smart_board',
   '/ogretmen-ajandasi': 'teacher_agenda',
   '/ogretmen-ajandasi/degerlendirme': 'teacher_agenda',
-  '/school-reviews-report': 'school_reviews',
   '/optik-formlar': 'optical',
   '/bilsem/takvim': 'bilsem',
   '/bilsem/yillik-plan': 'bilsem',
-  '/extra-lesson-calc': 'extra_lesson',
   '/school-profile': 'school_profile',
 };
 
@@ -619,6 +743,8 @@ export const ROUTE_MODULES: Record<string, ModeratorModuleKey | undefined> = {
   '/work-calendar': 'document_templates',
   '/yillik-plan-icerik': 'document_templates',
   '/extra-lesson-params': 'extra_lesson_params',
+  '/extra-lesson-params/ek-ders': 'extra_lesson_params',
+  '/sinav-gorev-ucretleri': 'extra_lesson_params',
   '/outcome-sets': 'document_templates',
   '/moderation': 'school_profiles',
   '/system-announcements': 'system_announcements',
@@ -648,7 +774,8 @@ export function canAccessRoute(
   pathname: string,
   role: 'school_admin' | 'superadmin' | 'teacher' | 'moderator',
   moderatorModules?: string[] | null,
-  schoolEnabledModules?: string[] | null
+  schoolEnabledModules?: string[] | null,
+  supportEnabled = true,
 ): boolean {
   const route = getMatchedRoute(pathname);
   if (!route) return false;

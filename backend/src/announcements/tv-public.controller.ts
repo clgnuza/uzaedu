@@ -6,7 +6,13 @@ import { XMLParser } from 'fast-xml-parser';
 import { AnnouncementsService } from './announcements.service';
 import { TvDevicesService } from '../tv-devices/tv-devices.service';
 import { SmartBoardService } from '../smart-board/smart-board.service';
+import { TeacherTimetableService } from '../teacher-timetable/teacher-timetable.service';
 import { School } from '../schools/entities/school.entity';
+import {
+  getTvAnnouncementsCacheEntry,
+  pruneTvAnnouncementsCache,
+  tvAnnouncementsCacheSet,
+} from './tv-announcements-cache';
 
 function getClientIp(req: Request): string {
   const forwarded = req.headers['x-forwarded-for'];
@@ -69,9 +75,166 @@ export class TvPublicController {
     private readonly announcementsService: AnnouncementsService,
     private readonly tvDevicesService: TvDevicesService,
     private readonly smartBoardService: SmartBoardService,
+    private readonly teacherTimetableService: TeacherTimetableService,
     @InjectRepository(School)
     private readonly schoolRepo: Repository<School>,
   ) {}
+
+  /** TV yanıtındaki okul bloğu (tv_visible_cards vb. ayarlar anında yansısın diye önbellek isabetinde de yeniden okunur). */
+  private async buildTvSchoolPayload(schoolId: string): Promise<
+    | {
+        id: string;
+        name: string;
+        tv_weather_city?: string | null;
+        tv_welcome_image_url?: string | null;
+        tv_youtube_url?: string | null;
+        tv_default_slide_duration?: number | null;
+        tv_rss_url?: string | null;
+        tv_rss_marquee_duration?: number | null;
+        tv_rss_marquee_font_size?: number | null;
+        tv_ticker_marquee_duration?: number | null;
+        tv_ticker_font_size?: number | null;
+        tv_ticker_text_transform?: string | null;
+        tv_night_mode_start?: string | null;
+        tv_night_mode_end?: string | null;
+        tv_logo_url?: string | null;
+        tv_card_position?: string | null;
+        tv_logo_position?: string | null;
+        tv_logo_size?: string | null;
+        tv_theme?: string | null;
+        tv_primary_color?: string | null;
+        tv_visible_cards?: string | null;
+        tv_countdown_card_title?: string | null;
+        tv_countdown_font_size?: number | null;
+        tv_countdown_separator?: string | null;
+        tv_countdown_targets?: string | null;
+        tv_meal_card_title?: string | null;
+        tv_meal_font_size?: number | null;
+        tv_meal_schedule?: string | null;
+        tv_duty_card_title?: string | null;
+        tv_duty_font_size?: number | null;
+        tv_duty_schedule?: string | null;
+        tv_gunun_sozu_rss_url?: string | null;
+        tv_gunun_sozu_font_size?: number | null;
+        tv_gunun_sozu_marquee_duration?: number | null;
+        tv_gunun_sozu_text_transform?: string | null;
+        tv_special_days_calendar?: string | null;
+        tv_timetable_schedule?: string | null;
+        tv_birthday_card_title?: string | null;
+        tv_birthday_font_size?: number | null;
+        tv_birthday_calendar?: string | null;
+        tv_now_in_class_bar_title?: string | null;
+        tv_now_in_class_bar_font_size?: number | null;
+        tv_now_in_class_bar_marquee_duration?: number | null;
+      }
+    | undefined
+  > {
+    const s = await this.schoolRepo.findOne({
+      where: { id: schoolId },
+      select: [
+        'id',
+        'name',
+        'tv_weather_city',
+        'tv_welcome_image_url',
+        'tv_youtube_url',
+        'tv_default_slide_duration',
+        'tv_rss_url',
+        'tv_rss_marquee_duration',
+        'tv_rss_marquee_font_size',
+        'tv_ticker_marquee_duration',
+        'tv_ticker_font_size',
+        'tv_ticker_text_transform',
+        'tv_night_mode_start',
+        'tv_night_mode_end',
+        'tv_logo_url',
+        'tv_card_position',
+        'tv_logo_position',
+        'tv_logo_size',
+        'tv_theme',
+        'tv_primary_color',
+        'tv_visible_cards',
+        'tv_countdown_card_title',
+        'tv_countdown_font_size',
+        'tv_countdown_separator',
+        'tv_countdown_targets',
+        'tv_meal_card_title',
+        'tv_meal_font_size',
+        'tv_meal_schedule',
+        'tv_duty_card_title',
+        'tv_duty_font_size',
+        'tv_duty_schedule',
+        'tv_gunun_sozu_rss_url',
+        'tv_gunun_sozu_font_size',
+        'tv_gunun_sozu_marquee_duration',
+        'tv_gunun_sozu_text_transform',
+        'tv_special_days_calendar',
+        'tv_timetable_schedule',
+        'tv_timetable_use_school_plan',
+        'tv_birthday_card_title',
+        'tv_birthday_font_size',
+        'tv_birthday_calendar',
+        'tv_now_in_class_bar_title',
+        'tv_now_in_class_bar_font_size',
+        'tv_now_in_class_bar_marquee_duration',
+      ],
+    });
+    if (!s) return undefined;
+    let tvTimetable = s.tv_timetable_schedule;
+    const useSchoolPlan = s.tv_timetable_use_school_plan !== false;
+    if (useSchoolPlan && schoolId?.trim()) {
+      try {
+        const built = await this.teacherTimetableService.buildTvTimetableScheduleJsonForTv(schoolId.trim());
+        tvTimetable = built;
+      } catch {
+        tvTimetable = null;
+      }
+    }
+    return {
+      id: s.id,
+      name: s.name,
+      tv_weather_city: s.tv_weather_city,
+      tv_welcome_image_url: s.tv_welcome_image_url,
+      tv_youtube_url: s.tv_youtube_url,
+      tv_default_slide_duration: s.tv_default_slide_duration,
+      tv_rss_url: s.tv_rss_url,
+      tv_rss_marquee_duration: s.tv_rss_marquee_duration,
+      tv_rss_marquee_font_size: s.tv_rss_marquee_font_size,
+      tv_ticker_marquee_duration: s.tv_ticker_marquee_duration,
+      tv_ticker_font_size: s.tv_ticker_font_size,
+      tv_ticker_text_transform: s.tv_ticker_text_transform,
+      tv_night_mode_start: s.tv_night_mode_start,
+      tv_night_mode_end: s.tv_night_mode_end,
+      tv_logo_url: s.tv_logo_url,
+      tv_card_position: s.tv_card_position,
+      tv_logo_position: s.tv_logo_position,
+      tv_logo_size: s.tv_logo_size,
+      tv_theme: s.tv_theme,
+      tv_primary_color: s.tv_primary_color,
+      tv_visible_cards: s.tv_visible_cards,
+      tv_countdown_card_title: s.tv_countdown_card_title,
+      tv_countdown_font_size: s.tv_countdown_font_size,
+      tv_countdown_separator: s.tv_countdown_separator,
+      tv_countdown_targets: s.tv_countdown_targets,
+      tv_meal_card_title: s.tv_meal_card_title,
+      tv_meal_font_size: s.tv_meal_font_size,
+      tv_meal_schedule: s.tv_meal_schedule,
+      tv_duty_card_title: s.tv_duty_card_title,
+      tv_duty_font_size: s.tv_duty_font_size,
+      tv_duty_schedule: s.tv_duty_schedule,
+      tv_gunun_sozu_rss_url: s.tv_gunun_sozu_rss_url,
+      tv_gunun_sozu_font_size: s.tv_gunun_sozu_font_size,
+      tv_gunun_sozu_marquee_duration: s.tv_gunun_sozu_marquee_duration,
+      tv_gunun_sozu_text_transform: s.tv_gunun_sozu_text_transform,
+      tv_special_days_calendar: s.tv_special_days_calendar,
+      tv_timetable_schedule: tvTimetable,
+      tv_birthday_card_title: s.tv_birthday_card_title,
+      tv_birthday_font_size: s.tv_birthday_font_size,
+      tv_birthday_calendar: s.tv_birthday_calendar,
+      tv_now_in_class_bar_title: s.tv_now_in_class_bar_title,
+      tv_now_in_class_bar_font_size: s.tv_now_in_class_bar_font_size,
+      tv_now_in_class_bar_marquee_duration: s.tv_now_in_class_bar_marquee_duration,
+    };
+  }
 
   /**
    * Son kullanıcı TV ekranları için herkese açık duyuru listesi.
@@ -84,6 +247,7 @@ export class TvPublicController {
     @Param('audience') audience: string,
     @Query('school_id') schoolId?: string,
     @Query('device_id') deviceId?: string,
+    @Query('nocache') nocache?: string,
   ) {
     if (schoolId?.trim()) {
       const school = await this.schoolRepo.findOne({
@@ -100,6 +264,20 @@ export class TvPublicController {
         }
       }
     }
+
+    const cacheKey = `${audience}|${schoolId?.trim() ?? ''}|${deviceId?.trim() ?? ''}`;
+    if (nocache !== '1') {
+      pruneTvAnnouncementsCache();
+      const hit = getTvAnnouncementsCacheEntry(cacheKey);
+      if (hit && hit.expires > Date.now()) {
+        if (schoolId?.trim()) {
+          const freshSchool = await this.buildTvSchoolPayload(schoolId.trim());
+          return { ...hit.payload, school: freshSchool } as Record<string, unknown>;
+        }
+        return hit.payload;
+      }
+    }
+
     const audienceVal =
       audience === 'teachers'
         ? 'teachers'
@@ -113,149 +291,7 @@ export class TvPublicController {
 
     const urgent = await this.announcementsService.getUrgentOverride(schoolId);
 
-    let school:
-      | {
-          id: string;
-          name: string;
-          tv_weather_city?: string | null;
-          tv_welcome_image_url?: string | null;
-          tv_youtube_url?: string | null;
-          tv_default_slide_duration?: number | null;
-          tv_rss_url?: string | null;
-          tv_rss_marquee_duration?: number | null;
-          tv_rss_marquee_font_size?: number | null;
-          tv_ticker_marquee_duration?: number | null;
-          tv_ticker_font_size?: number | null;
-          tv_ticker_text_transform?: string | null;
-          tv_night_mode_start?: string | null;
-          tv_night_mode_end?: string | null;
-          tv_logo_url?: string | null;
-          tv_card_position?: string | null;
-          tv_logo_position?: string | null;
-          tv_logo_size?: string | null;
-          tv_theme?: string | null;
-          tv_primary_color?: string | null;
-          tv_visible_cards?: string | null;
-          tv_countdown_card_title?: string | null;
-          tv_countdown_font_size?: number | null;
-          tv_countdown_separator?: string | null;
-          tv_countdown_targets?: string | null;
-          tv_meal_card_title?: string | null;
-          tv_meal_font_size?: number | null;
-          tv_meal_schedule?: string | null;
-          tv_duty_card_title?: string | null;
-          tv_duty_font_size?: number | null;
-          tv_duty_schedule?: string | null;
-          tv_gunun_sozu_rss_url?: string | null;
-          tv_gunun_sozu_font_size?: number | null;
-          tv_gunun_sozu_marquee_duration?: number | null;
-          tv_gunun_sozu_text_transform?: string | null;
-          tv_special_days_calendar?: string | null;
-          tv_timetable_schedule?: string | null;
-          tv_birthday_card_title?: string | null;
-          tv_birthday_font_size?: number | null;
-          tv_birthday_calendar?: string | null;
-          tv_now_in_class_bar_title?: string | null;
-          tv_now_in_class_bar_font_size?: number | null;
-          tv_now_in_class_bar_marquee_duration?: number | null;
-        }
-      | undefined;
-    if (schoolId) {
-      const s = await this.schoolRepo.findOne({
-        where: { id: schoolId },
-        select: [
-          'id',
-          'name',
-          'tv_weather_city',
-          'tv_welcome_image_url',
-          'tv_youtube_url',
-          'tv_default_slide_duration',
-          'tv_rss_url',
-          'tv_rss_marquee_duration',
-          'tv_rss_marquee_font_size',
-          'tv_ticker_marquee_duration',
-          'tv_ticker_font_size',
-          'tv_ticker_text_transform',
-          'tv_night_mode_start',
-          'tv_night_mode_end',
-          'tv_logo_url',
-          'tv_card_position',
-          'tv_logo_position',
-          'tv_logo_size',
-          'tv_theme',
-          'tv_primary_color',
-          'tv_visible_cards',
-          'tv_countdown_card_title',
-          'tv_countdown_font_size',
-          'tv_countdown_separator',
-          'tv_countdown_targets',
-          'tv_meal_card_title',
-          'tv_meal_font_size',
-          'tv_meal_schedule',
-          'tv_duty_card_title',
-          'tv_duty_font_size',
-          'tv_duty_schedule',
-          'tv_gunun_sozu_rss_url',
-          'tv_gunun_sozu_font_size',
-          'tv_gunun_sozu_marquee_duration',
-          'tv_gunun_sozu_text_transform',
-          'tv_special_days_calendar',
-          'tv_timetable_schedule',
-          'tv_birthday_card_title',
-          'tv_birthday_font_size',
-          'tv_birthday_calendar',
-          'tv_now_in_class_bar_title',
-          'tv_now_in_class_bar_font_size',
-          'tv_now_in_class_bar_marquee_duration',
-        ],
-      });
-      if (s)
-        school = {
-          id: s.id,
-          name: s.name,
-          tv_weather_city: s.tv_weather_city,
-          tv_welcome_image_url: s.tv_welcome_image_url,
-          tv_youtube_url: s.tv_youtube_url,
-          tv_default_slide_duration: s.tv_default_slide_duration,
-          tv_rss_url: s.tv_rss_url,
-          tv_rss_marquee_duration: s.tv_rss_marquee_duration,
-          tv_rss_marquee_font_size: s.tv_rss_marquee_font_size,
-          tv_ticker_marquee_duration: s.tv_ticker_marquee_duration,
-          tv_ticker_font_size: s.tv_ticker_font_size,
-          tv_ticker_text_transform: s.tv_ticker_text_transform,
-          tv_night_mode_start: s.tv_night_mode_start,
-          tv_night_mode_end: s.tv_night_mode_end,
-          tv_logo_url: s.tv_logo_url,
-          tv_card_position: s.tv_card_position,
-          tv_logo_position: s.tv_logo_position,
-          tv_logo_size: s.tv_logo_size,
-          tv_theme: s.tv_theme,
-          tv_primary_color: s.tv_primary_color,
-          tv_visible_cards: s.tv_visible_cards,
-          tv_countdown_card_title: s.tv_countdown_card_title,
-          tv_countdown_font_size: s.tv_countdown_font_size,
-          tv_countdown_separator: s.tv_countdown_separator,
-          tv_countdown_targets: s.tv_countdown_targets,
-          tv_meal_card_title: s.tv_meal_card_title,
-          tv_meal_font_size: s.tv_meal_font_size,
-          tv_meal_schedule: s.tv_meal_schedule,
-          tv_duty_card_title: s.tv_duty_card_title,
-          tv_duty_font_size: s.tv_duty_font_size,
-          tv_duty_schedule: s.tv_duty_schedule,
-          tv_gunun_sozu_rss_url: s.tv_gunun_sozu_rss_url,
-          tv_gunun_sozu_font_size: s.tv_gunun_sozu_font_size,
-          tv_gunun_sozu_marquee_duration: s.tv_gunun_sozu_marquee_duration,
-          tv_gunun_sozu_text_transform: s.tv_gunun_sozu_text_transform,
-          tv_special_days_calendar: s.tv_special_days_calendar,
-          tv_timetable_schedule: s.tv_timetable_schedule,
-          tv_birthday_card_title: s.tv_birthday_card_title,
-          tv_birthday_font_size: s.tv_birthday_font_size,
-          tv_birthday_calendar: s.tv_birthday_calendar,
-          tv_now_in_class_bar_title: s.tv_now_in_class_bar_title,
-          tv_now_in_class_bar_font_size: s.tv_now_in_class_bar_font_size,
-          tv_now_in_class_bar_marquee_duration: s.tv_now_in_class_bar_marquee_duration,
-        };
-    }
+    const school = schoolId?.trim() ? await this.buildTvSchoolPayload(schoolId.trim()) : undefined;
 
     let current_slot: { lesson_num: number; subject: string; teacher_name: string; class_section: string | null } | null = null;
     if (audience === 'classroom' && schoolId?.trim() && deviceId?.trim()) {
@@ -263,7 +299,16 @@ export class TvPublicController {
         (await this.smartBoardService.getDisplaySlotForDevice(schoolId.trim(), deviceId.trim())) ?? null;
     }
 
-    return { items, school, urgent: urgent ? toTvItem(urgent) : null, current_slot };
+    const payload = {
+      items,
+      school,
+      urgent: urgent ? toTvItem(urgent) : null,
+      current_slot,
+    };
+    if (nocache !== '1') {
+      tvAnnouncementsCacheSet(cacheKey, payload as Record<string, unknown>);
+    }
+    return payload;
   }
 
   /**

@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState, useRef, Suspense } from 'react';
+import { useCallback, useEffect, useState, useRef, Suspense, startTransition } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useAuth } from '@/hooks/use-auth';
+import { useAuth, type Me } from '@/hooks/use-auth';
 import { getApiUrl } from '@/lib/api';
+import { COOKIE_SESSION_TOKEN } from '@/lib/auth-session';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -30,6 +31,11 @@ import {
   HeartIcon,
 } from '@/components/icons';
 import { TURKEY_CITIES, getDistrictsForCity } from '@/lib/turkey-addresses';
+import { inclusiveScoreRange, scoreRatio01 } from '@/lib/school-review-score';
+import { emptySchoolReviewForm, schoolReviewFormFromReview } from '@/lib/school-review-prefill';
+import { RatingBadge } from '@/components/rating-badge';
+import { CriteriaRatingsDisplay } from '@/components/school-reviews/criteria-ratings-display';
+import { SchoolReviewScorePicker } from '@/components/school-reviews/school-review-score-picker';
 
 type School = {
   id: string;
@@ -70,6 +76,7 @@ type Review = {
   comment: string | null;
   created_at: string;
   is_anonymous: boolean;
+  status?: 'pending' | 'approved' | 'hidden';
   author_display_name: string;
   is_own?: boolean;
   like_count?: number;
@@ -152,6 +159,25 @@ const PAGE_PATH = '/okul-degerlendirmeleri';
 const RECENT_SEARCHES_KEY = 'okul-degerlendirmeleri-recent';
 const ANONYMOUS_ID_KEY = 'ogretmenpro-anonymous-id';
 
+/** Okul listesi API: okul yöneticisi kendi okulu; öğretmende modül kapalıysa herkese açık liste. */
+function shouldUseAuthSchoolReviewsList(token: string | null, me: Me | null): boolean {
+  if (!token || !me) return false;
+  if (me.role === 'superadmin' || me.role === 'moderator') return true;
+  if (me.role === 'school_admin') return true;
+  if (me.role === 'teacher') {
+    const mods = me.school?.enabled_modules;
+    if (!mods || mods.length === 0) return true;
+    return mods.includes('school_reviews');
+  }
+  return false;
+}
+
+/** GET okul/yorum/soru: liste ile aynı — modül kapalı öğretmen public uçları kullanır (403 önlenir). */
+function schoolReviewsReadOpts(token: string | null, me: Me | null): { token: string } | { usePublic: true } {
+  if (shouldUseAuthSchoolReviewsList(token, me) && token) return { token };
+  return { usePublic: true };
+}
+
 function getAnonymousId(): string {
   if (typeof window === 'undefined') return '';
   try {
@@ -196,17 +222,27 @@ function saveRecentSearch(item: RecentSearch): void {
 
 async function fetchApi<T>(
   path: string,
-  options: { token?: string | null; method?: string; body?: string; usePublic?: boolean } = {}
+  options: { token?: string | null; method?: string; body?: string; usePublic?: boolean; signal?: AbortSignal } = {}
 ): Promise<T> {
-  const { token, method = 'GET', body, usePublic } = options;
+  const { token, method = 'GET', body, usePublic, signal } = options;
   const base = usePublic ? PUBLIC_BASE : token ? AUTH_BASE : PUBLIC_BASE;
   const url = getApiUrl(base + path);
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
-  if (token) (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+  if (token && token !== COOKIE_SESSION_TOKEN) {
+    (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+  }
   let res: Response;
   try {
-    res = await fetch(url, { method, headers, ...(body && { body }) });
+    res = await fetch(url, {
+      method,
+      headers,
+      cache: 'no-store',
+      credentials: 'include',
+      ...(body && { body }),
+      ...(signal && { signal }),
+    });
   } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') throw e;
     const msg = e instanceof Error ? e.message : '';
     if (
       msg.toLowerCase().includes('fetch') ||
@@ -258,6 +294,7 @@ function OkulDegerlendirmeleriContent() {
   const [debouncedDistrict, setDebouncedDistrict] = useState('');
   const [selectedSchool, setSelectedSchool] = useState<SchoolDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailListsLoading, setDetailListsLoading] = useState(false);
   const [reviews, setReviews] = useState<{ items: Review[]; total: number }>({ items: [], total: 0 });
   const [questions, setQuestions] = useState<{ items: Question[]; total: number }>({ items: [], total: 0 });
   const [reviewForm, setReviewForm] = useState<{
@@ -295,6 +332,11 @@ function OkulDegerlendirmeleriContent() {
   const [recentAnswers, setRecentAnswers] = useState<RecentAnswer[]>([]);
   const [selectedListIndex, setSelectedListIndex] = useState(-1);
   const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([]);
+
+  const prevReviewSortRef = useRef(reviewSort);
+  const prevQuestionSortRef = useRef(questionSort);
+  const selectedSchoolRef = useRef(selectedSchool);
+  selectedSchoolRef.current = selectedSchool;
 
   useEffect(() => {
     setRecentSearches(loadRecentSearches());
@@ -347,14 +389,23 @@ function OkulDegerlendirmeleriContent() {
         fetchApi<RecentQuestion[]>('/recent-questions?limit=8', { token, usePublic: true }).catch(() => []),
         fetchApi<RecentAnswer[]>('/recent-answers?limit=8', { token, usePublic: true }).catch(() => []),
       ]).then(([top, stats, revs, qs, ans]) => {
-        setTopSchools(top);
-        setHomeStats(stats);
-        setRecentReviews(revs);
-        setRecentQuestions(qs);
-        setRecentAnswers(ans);
+        const sid = me?.role === 'school_admin' ? me.school_id : null;
+        if (sid) {
+          setTopSchools(top.filter((s) => s.id === sid));
+          setHomeStats(null);
+          setRecentReviews(revs.filter((r) => r.school_id === sid));
+          setRecentQuestions(qs.filter((q) => q.school_id === sid));
+          setRecentAnswers(ans.filter((a) => a.school_id === sid));
+        } else {
+          setTopSchools(top);
+          setHomeStats(stats);
+          setRecentReviews(revs);
+          setRecentQuestions(qs);
+          setRecentAnswers(ans);
+        }
       }).catch(() => {});
     }
-  }, [token, moduleDisabled]);
+  }, [token, moduleDisabled, me?.role, me?.school_id]);
 
   useEffect(() => {
     if (!city) {
@@ -379,10 +430,18 @@ function OkulDegerlendirmeleriContent() {
     setPage(1);
   }, [debouncedSearch, debouncedCity, debouncedDistrict]);
 
-  const fetchSchools = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    setModuleDisabled(false);
+  const schoolsFetchAbortRef = useRef<AbortController | null>(null);
+
+  const fetchSchools = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent ?? false;
+    schoolsFetchAbortRef.current?.abort();
+    const ac = new AbortController();
+    schoolsFetchAbortRef.current = ac;
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+      setModuleDisabled(false);
+    }
     try {
       const params = new URLSearchParams({
         page: String(page),
@@ -391,18 +450,28 @@ function OkulDegerlendirmeleriContent() {
         ...(debouncedCity && { city: debouncedCity }),
         ...(debouncedDistrict && { district: debouncedDistrict }),
       });
-      const data = await fetchApi<ListResponse>(`/schools?${params}`, { token, usePublic: true });
-      setSchools((data.items || []) as SchoolWithStats[]);
-      setTotal(data.total);
+      const data = await fetchApi<ListResponse>(`/schools?${params}`, {
+        token,
+        usePublic: !shouldUseAuthSchoolReviewsList(token, me),
+        signal: ac.signal,
+      });
+      startTransition(() => {
+        setSchools((data.items || []) as SchoolWithStats[]);
+        setTotal(data.total);
+      });
     } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') return;
       const ex = e as Error & { code?: string };
-      setModuleDisabled(ex.code === 'MODULE_DISABLED');
-      setError(ex.message || 'Okullar yüklenemedi');
-      setSchools([]);
+      if (!silent) {
+        setModuleDisabled(ex.code === 'MODULE_DISABLED');
+        setError(ex.message || 'Okullar yüklenemedi');
+        setSchools([]);
+        setTotal(0);
+      }
     } finally {
-      setLoading(false);
+      if (!ac.signal.aborted && !silent) setLoading(false);
     }
-  }, [token, page, debouncedSearch, debouncedCity, debouncedDistrict]);
+  }, [token, me, page, debouncedSearch, debouncedCity, debouncedDistrict]);
 
   useEffect(() => {
     fetchSchools();
@@ -417,40 +486,109 @@ function OkulDegerlendirmeleriContent() {
       setEditingAnswerId(null);
       setEditAnswerForm(null);
       setDetailLoading(true);
+      setDetailListsLoading(false);
+      setReviews({ items: [], total: 0 });
+      setQuestions({ items: [], total: 0 });
       try {
+        const data = await fetchApi<SchoolDetail>(`/schools/${id}`, schoolReviewsReadOpts(token, me));
+        setSelectedSchool(data);
+        setDetailLoading(false);
+        setDetailListsLoading(true);
         const anonId = !token ? getAnonymousId() : '';
         const revParams = new URLSearchParams({ sort: reviewSort });
         if (anonId) revParams.set('anonymous_id', anonId);
         const qParams = new URLSearchParams({ sort: questionSort });
         if (anonId) qParams.set('anonymous_id', anonId);
-        const [data, reviewsData, questionsData] = await Promise.all([
-          fetchApi<SchoolDetail>(`/schools/${id}`, token ? { token } : { usePublic: true }),
-          fetchApi<{ items: Review[]; total: number }>(
-            `/schools/${id}/reviews?${revParams}`,
-            token ? { token } : { usePublic: true }
-          ),
-          fetchApi<{ items: Question[]; total: number }>(
-            `/schools/${id}/questions?${qParams}`,
-            token ? { token } : { usePublic: true }
-          ),
-        ]);
-        setSelectedSchool(data);
-        setReviews(reviewsData);
-        setQuestions(questionsData);
-        const initialCriteria: Record<string, number> = {};
-        setReviewForm({ rating: 0, comment: '', criteria_ratings: initialCriteria, is_anonymous: false });
+        let reviewsData: { items: Review[]; total: number } = { items: [], total: 0 };
+        try {
+          const readOpts = schoolReviewsReadOpts(token, me);
+          const [revData, questionsData] = await Promise.all([
+            fetchApi<{ items: Review[]; total: number }>(
+              `/schools/${id}/reviews?${revParams}`,
+              readOpts
+            ),
+            fetchApi<{ items: Question[]; total: number }>(
+              `/schools/${id}/questions?${qParams}`,
+              readOpts
+            ),
+          ]);
+          reviewsData = revData;
+          setReviews(revData);
+          setQuestions(questionsData);
+          prevReviewSortRef.current = reviewSort;
+          prevQuestionSortRef.current = questionSort;
+        } catch {
+          setReviews({ items: [], total: 0 });
+          setQuestions({ items: [], total: 0 });
+        } finally {
+          setDetailListsLoading(false);
+        }
+        setReviewForm(emptySchoolReviewForm());
         setQuestionForm('');
         setActiveTab('reviews');
       } catch {
         setSelectedSchool(null);
         setReviews({ items: [], total: 0 });
         setQuestions({ items: [], total: 0 });
-      } finally {
         setDetailLoading(false);
+        setDetailListsLoading(false);
       }
     },
-    [token, reviewSort, questionSort]
+    [token, me, reviewSort, questionSort]
   );
+
+  const refreshAfterMutation = useCallback(
+    async (schoolId: string) => {
+      await fetchSchoolDetail(schoolId);
+      await fetchSchools({ silent: true });
+      router.refresh();
+    },
+    [fetchSchoolDetail, fetchSchools, router]
+  );
+
+  const fetchReviewsOnly = useCallback(
+    async (id: string) => {
+      const anonId = !token ? getAnonymousId() : '';
+      const revParams = new URLSearchParams({ sort: reviewSort });
+      if (anonId) revParams.set('anonymous_id', anonId);
+      const reviewsData = await fetchApi<{ items: Review[]; total: number }>(
+        `/schools/${id}/reviews?${revParams}`,
+        schoolReviewsReadOpts(token, me)
+      );
+      startTransition(() => setReviews(reviewsData));
+    },
+    [token, me, reviewSort]
+  );
+
+  const fetchQuestionsOnly = useCallback(
+    async (id: string) => {
+      const anonId = !token ? getAnonymousId() : '';
+      const qParams = new URLSearchParams({ sort: questionSort });
+      if (anonId) qParams.set('anonymous_id', anonId);
+      const questionsData = await fetchApi<{ items: Question[]; total: number }>(
+        `/schools/${id}/questions?${qParams}`,
+        schoolReviewsReadOpts(token, me)
+      );
+      startTransition(() => setQuestions(questionsData));
+    },
+    [token, me, questionSort]
+  );
+
+  useEffect(() => {
+    const id = selectedSchoolRef.current?.id;
+    if (!id) return;
+    if (prevReviewSortRef.current === reviewSort) return;
+    prevReviewSortRef.current = reviewSort;
+    fetchReviewsOnly(id).catch(() => {});
+  }, [reviewSort, fetchReviewsOnly]);
+
+  useEffect(() => {
+    const id = selectedSchoolRef.current?.id;
+    if (!id) return;
+    if (prevQuestionSortRef.current === questionSort) return;
+    prevQuestionSortRef.current = questionSort;
+    fetchQuestionsOnly(id).catch(() => {});
+  }, [questionSort, fetchQuestionsOnly]);
 
   const schoolIdFromUrl = searchParams?.get('id') || searchParams?.get('school');
   useEffect(() => {
@@ -458,15 +596,6 @@ function OkulDegerlendirmeleriContent() {
       fetchSchoolDetail(schoolIdFromUrl);
     }
   }, [schoolIdFromUrl, selectedSchool?.id, fetchSchoolDetail]);
-
-  const selectedSchoolRef = useRef(selectedSchool);
-  selectedSchoolRef.current = selectedSchool;
-  const fetchSchoolDetailRef = useRef(fetchSchoolDetail);
-  fetchSchoolDetailRef.current = fetchSchoolDetail;
-  useEffect(() => {
-    const id = selectedSchoolRef.current?.id;
-    if (id) fetchSchoolDetailRef.current(id);
-  }, [reviewSort, questionSort]);
 
   const handleSubmitReview = async () => {
     if (!token || !selectedSchool) {
@@ -476,13 +605,16 @@ function OkulDegerlendirmeleriContent() {
     const criteria = selectedSchool.criteria || [];
     const hasCriteria = criteria.length > 0;
     if (hasCriteria) {
-      const missing = criteria.filter((c) => !reviewForm.criteria_ratings[c.slug] || reviewForm.criteria_ratings[c.slug] < 1);
+      const missing = criteria.filter((c) => {
+        const v = reviewForm.criteria_ratings[c.slug];
+        return v == null || v < c.min_score || v > c.max_score;
+      });
       if (missing.length > 0) {
-        toast.error('Lütfen tüm kriterlere puan verin.');
+        toast.error('Lütfen tüm kriterlere geçerli puan verin (her kriter için aralık içinde).');
         return;
       }
-    } else if (!reviewForm.rating || reviewForm.rating < 1) {
-      toast.error('Lütfen genel puana yıldız verin.');
+    } else if (!reviewForm.rating || reviewForm.rating < 1 || reviewForm.rating > 10) {
+      toast.error('Lütfen genel puanı 1–10 arasında seçin.');
       return;
     }
     setSubmitting(true);
@@ -493,15 +625,23 @@ function OkulDegerlendirmeleriContent() {
       };
       if (hasCriteria) body.criteria_ratings = reviewForm.criteria_ratings;
       else body.rating = reviewForm.rating;
-      await fetchApi(`/schools/${selectedSchool.id}/reviews`, {
-        token,
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      toast.success('Değerlendirme gönderildi');
-      fetchSchoolDetail(selectedSchool.id);
-      const initialCriteria: Record<string, number> = {};
-      setReviewForm({ rating: 0, comment: '', criteria_ratings: initialCriteria, is_anonymous: false });
+      const own = reviews.items.find((r) => r.is_own);
+      if (own) {
+        const res = await fetchApi<Review>(`/reviews/${own.id}`, {
+          token,
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        });
+        toast.success(res.status === 'pending' ? 'Değerlendirme güncellendi, onay bekliyor' : 'Değerlendirme güncellendi');
+      } else {
+        const res = await fetchApi<Review>(`/schools/${selectedSchool.id}/reviews`, {
+          token,
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        toast.success(res.status === 'pending' ? 'Değerlendirme gönderildi, onay bekliyor' : 'Değerlendirme gönderildi');
+      }
+      await refreshAfterMutation(selectedSchool.id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Gönderilemedi');
     } finally {
@@ -522,7 +662,7 @@ function OkulDegerlendirmeleriContent() {
         body: JSON.stringify({ question: questionForm.trim(), is_anonymous: questionIsAnonymous }),
       });
       toast.success('Soru gönderildi');
-      fetchSchoolDetail(selectedSchool.id);
+      await refreshAfterMutation(selectedSchool.id);
       setQuestionForm('');
       setQuestionIsAnonymous(false);
       setActiveTab('questions');
@@ -547,7 +687,7 @@ function OkulDegerlendirmeleriContent() {
         body: JSON.stringify({ answer: text, is_anonymous: answerIsAnonymous[questionId] ?? false }),
       });
       toast.success('Cevap gönderildi');
-      if (selectedSchool) fetchSchoolDetail(selectedSchool.id);
+      if (selectedSchool) await refreshAfterMutation(selectedSchool.id);
       setAnswerForms((f) => ({ ...f, [questionId]: '' }));
       setAnswerIsAnonymous((a) => ({ ...a, [questionId]: false }));
     } catch (e) {
@@ -563,13 +703,16 @@ function OkulDegerlendirmeleriContent() {
     const criteria = selectedSchool?.criteria || [];
     const hasCriteria = criteria.length > 0;
     if (hasCriteria) {
-      const missing = criteria.filter((c) => !form.criteria_ratings[c.slug] || form.criteria_ratings[c.slug] < 1);
+      const missing = criteria.filter((c) => {
+        const v = form.criteria_ratings[c.slug];
+        return v == null || v < c.min_score || v > c.max_score;
+      });
       if (missing.length > 0) {
-        toast.error('Lütfen tüm kriterlere puan verin.');
+        toast.error('Lütfen tüm kriterlere geçerli puan verin.');
         return;
       }
-    } else if (!form.rating || form.rating < 1) {
-      toast.error('Lütfen genel puana yıldız verin.');
+    } else if (!form.rating || form.rating < 1 || form.rating > 10) {
+      toast.error('Lütfen genel puanı 1–10 arasında seçin.');
       return;
     }
     setSubmitting(true);
@@ -595,7 +738,7 @@ function OkulDegerlendirmeleriContent() {
       toast.success('Değerlendirme güncellendi');
       setEditingReviewId(null);
       setEditReviewForm(null);
-      if (selectedSchool) fetchSchoolDetail(selectedSchool.id);
+      if (selectedSchool) await refreshAfterMutation(selectedSchool.id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Güncellenemedi');
     } finally {
@@ -605,19 +748,7 @@ function OkulDegerlendirmeleriContent() {
 
   const startEditingReview = (r: Review) => {
     const criteria = selectedSchool?.criteria || [];
-    const initialCriteria: Record<string, number> = {};
-    if (r.criteria_ratings) {
-      Object.assign(initialCriteria, r.criteria_ratings);
-    }
-    (criteria || []).forEach((c) => {
-      if (initialCriteria[c.slug] == null) initialCriteria[c.slug] = r.criteria_ratings?.[c.slug] ?? 0;
-    });
-    setEditReviewForm({
-      rating: r.rating,
-      comment: r.comment || '',
-      criteria_ratings: initialCriteria,
-      is_anonymous: r.is_anonymous,
-    });
+    setEditReviewForm(schoolReviewFormFromReview(r, criteria));
     setEditingReviewId(r.id);
   };
 
@@ -653,7 +784,7 @@ function OkulDegerlendirmeleriContent() {
       toast.success('Soru güncellendi');
       setEditingQuestionId(null);
       setEditQuestionForm(null);
-      if (selectedSchool) fetchSchoolDetail(selectedSchool.id);
+      if (selectedSchool) await refreshAfterMutation(selectedSchool.id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Güncellenemedi');
     } finally {
@@ -688,7 +819,7 @@ function OkulDegerlendirmeleriContent() {
       toast.success('Cevap güncellendi');
       setEditingAnswerId(null);
       setEditAnswerForm(null);
-      if (selectedSchool) fetchSchoolDetail(selectedSchool.id);
+      if (selectedSchool) await refreshAfterMutation(selectedSchool.id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Güncellenemedi');
     } finally {
@@ -865,7 +996,7 @@ function OkulDegerlendirmeleriContent() {
     try {
       await fetchApi(`/reviews/${reviewId}`, { token, method: 'DELETE' });
       toast.success('Değerlendirme silindi');
-      if (selectedSchool) fetchSchoolDetail(selectedSchool.id);
+      if (selectedSchool) await refreshAfterMutation(selectedSchool.id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Silinemedi');
     } finally {
@@ -880,7 +1011,7 @@ function OkulDegerlendirmeleriContent() {
     try {
       await fetchApi(`/questions/${questionId}`, { token, method: 'DELETE' });
       toast.success('Soru silindi');
-      if (selectedSchool) fetchSchoolDetail(selectedSchool.id);
+      if (selectedSchool) await refreshAfterMutation(selectedSchool.id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Silinemedi');
     } finally {
@@ -921,7 +1052,7 @@ function OkulDegerlendirmeleriContent() {
     try {
       await fetchApi(`/answers/${answerId}`, { token, method: 'DELETE' });
       toast.success('Cevap silindi');
-      if (selectedSchool) fetchSchoolDetail(selectedSchool.id);
+      if (selectedSchool) await refreshAfterMutation(selectedSchool.id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Silinemedi');
     } finally {
@@ -930,6 +1061,7 @@ function OkulDegerlendirmeleriContent() {
   };
 
   const isLoggedIn = !!me && !!token;
+  const ownReview = isLoggedIn ? reviews.items.find((r) => r.is_own) : undefined;
   const citiesList = cities.length > 0 ? cities : TURKEY_CITIES;
   const districtsList = districts.length > 0 ? districts : getDistrictsForCity(city, []);
 
@@ -1528,18 +1660,11 @@ function OkulDegerlendirmeleriContent() {
                     {selectedSchool.avg_rating != null && (
                       <span
                         className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/12 px-3 py-1 font-semibold text-amber-700/90 dark:text-amber-400/90"
-                        title={`Ortalama puan: ${selectedSchool.avg_rating.toFixed(1)} / 5`}
+                        title={`Ortalama puan: ${selectedSchool.avg_rating.toFixed(1)} / 10`}
                       >
-                        {[1, 2, 3, 4, 5].map((n) => (
-                          <StarIcon
-                            key={n}
-                            size={16}
-                            filled={n <= Math.round(selectedSchool.avg_rating!)}
-                            className={n <= Math.round(selectedSchool.avg_rating!) ? 'text-amber-500' : 'text-amber-300/50 dark:text-amber-500/30'}
-                            aria-hidden
-                          />
-                        ))}
-                        <span className="ml-0.5">{selectedSchool.avg_rating.toFixed(1)}</span>
+                        <StarIcon size={16} filled className="text-amber-500" aria-hidden />
+                        <span>{selectedSchool.avg_rating.toFixed(1)}</span>
+                        <span className="text-amber-600/80 dark:text-amber-300/80">/10</span>
                       </span>
                     )}
                     <span className="text-slate-500">{selectedSchool.review_count} değerlendirme</span>
@@ -1567,45 +1692,20 @@ function OkulDegerlendirmeleriContent() {
                             <div className="h-2 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-700/50">
                               <div
                                 className="h-full rounded-full bg-gradient-to-r from-sky-400 to-teal-400 dark:from-sky-500/80 dark:to-teal-500/80 transition-all duration-500"
-                                style={{ width: `${((selectedSchool.criteria_averages?.[c.slug] ?? 0) / 5) * 100}%` }}
+                                style={{
+                                  width: `${Math.min(
+                                    100,
+                                    scoreRatio01(
+                                      selectedSchool.criteria_averages?.[c.slug] ?? 0,
+                                      c.min_score,
+                                      c.max_score,
+                                    ) * 100,
+                                  )}%`,
+                                }}
                               />
                             </div>
                           </div>
                         ))}
-                    </div>
-                  </CardContent>
-                )}
-                {selectedSchool.rating_distribution && selectedSchool.review_count > 0 && (
-                  <CardContent className="space-y-3 pt-5 border-t border-slate-100 dark:border-slate-800/80">
-                    <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Puan dağılımı</p>
-                    <div className="space-y-2" role="img" aria-label="1-5 yıldız puan dağılımı">
-                      {([5, 4, 3, 2, 1] as const).map((stars) => {
-                        const count = selectedSchool.rating_distribution?.[stars] ?? 0;
-                        const maxCount = Math.max(
-                          ...([1, 2, 3, 4, 5] as const).map((s) => selectedSchool.rating_distribution?.[s] ?? 0),
-                          1
-                        );
-                        const pct = (count / maxCount) * 100;
-                        return (
-                          <div key={stars} className="flex items-center gap-3">
-                            <span className="flex w-16 shrink-0 items-center gap-0.5 text-xs text-slate-600 dark:text-slate-400">
-                              {stars}
-                              <StarIcon size={12} filled className="text-amber-500" />
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <div className="h-5 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-700/50">
-                                <div
-                                  className="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500 dark:from-amber-500/90 dark:to-amber-600 transition-all duration-500"
-                                  style={{ width: `${pct}%` }}
-                                />
-                              </div>
-                            </div>
-                            <span className="w-8 shrink-0 text-right text-xs font-medium text-slate-600 dark:text-slate-400">
-                              {count}
-                            </span>
-                          </div>
-                        );
-                      })}
                     </div>
                   </CardContent>
                 )}
@@ -1614,7 +1714,7 @@ function OkulDegerlendirmeleriContent() {
               <div
                 role="tablist"
                 aria-label="İçerik sekmeleri"
-                className="flex gap-1 rounded-xl border border-slate-200 bg-slate-100/80 p-1.5 dark:border-slate-700 dark:bg-slate-800/50"
+                className="flex gap-1 rounded-xl border border-slate-200 bg-slate-100/80 p-1 dark:border-slate-700 dark:bg-slate-800/50"
               >
                 <button
                   type="button"
@@ -1623,13 +1723,16 @@ function OkulDegerlendirmeleriContent() {
                   aria-controls="reviews-panel"
                   id="tab-reviews"
                   onClick={() => setActiveTab('reviews')}
-                  className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition-all ${
+                  className={`flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-2 text-center text-xs font-semibold transition-all sm:flex-row sm:gap-1.5 sm:px-4 sm:py-2.5 sm:text-sm ${
                     activeTab === 'reviews'
                       ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-white'
                       : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                   }`}
                 >
-                  Puan ve Yorumlar ({reviews.total})
+                  <span className="leading-tight">Puan ve Yorumlar</span>
+                  <span className="rounded-full bg-slate-200/80 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-slate-600 dark:bg-slate-700 dark:text-slate-300 sm:text-xs">
+                    {reviews.total || selectedSchool?.review_count || 0}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -1638,128 +1741,99 @@ function OkulDegerlendirmeleriContent() {
                   aria-controls="questions-panel"
                   id="tab-questions"
                   onClick={() => setActiveTab('questions')}
-                  className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition-all ${
+                  className={`flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-2 text-center text-xs font-semibold transition-all sm:flex-row sm:gap-1.5 sm:px-4 sm:py-2.5 sm:text-sm ${
                     activeTab === 'questions'
                       ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-white'
                       : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                   }`}
                 >
-                  Soru ve Cevaplar ({questions.total})
+                  <span className="leading-tight">Soru ve Cevaplar</span>
+                  <span className="rounded-full bg-slate-200/80 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-slate-600 dark:bg-slate-700 dark:text-slate-300 sm:text-xs">
+                    {questions.total || selectedSchool?.question_count || 0}
+                  </span>
                 </button>
               </div>
 
               {activeTab === 'reviews' ? (
                 <div id="reviews-panel" role="tabpanel" aria-labelledby="tab-reviews">
-                  <Card className="border-slate-200/80 shadow-sm dark:border-slate-800">
-                    <CardHeader>
-                      <CardTitle className="text-base">Bu Okula Değerlendirme Gönder</CardTitle>
-                      {!isLoggedIn ? (
-                        <div className="mt-2 flex items-center gap-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/50 p-4">
-                          <LogInIcon className="size-5 text-amber-600 dark:text-amber-400" />
-                          <p className="text-sm text-amber-800 dark:text-amber-200">
-                            Değerlendirme yapmak için{' '}
-                            <Link href={`/login?redirect=${PAGE_PATH}`} className="font-medium underline underline-offset-2">
-                              giriş yapın
-                            </Link>
-                            .
-                          </p>
+                  <Card className="overflow-hidden border-slate-200/80 shadow-sm dark:border-slate-700/80">
+                    <CardHeader className="border-b border-slate-100 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-5">
+                      <div className="flex gap-2.5">
+                        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-amber-200/80 bg-amber-50 text-amber-600 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-400">
+                          <StarIcon className="size-4" filled aria-hidden />
                         </div>
-                      ) : (
-                        <p className="text-sm text-slate-600 dark:text-slate-400">
-                          Puan verin ve yorumunuzu yazın. İsterseniz &quot;İsmim gizli kalsın&quot; ile anonim paylaşabilirsiniz.
-                        </p>
-                      )}
-                    </CardHeader>
-                    {isLoggedIn && (
-                      <CardContent className="space-y-5">
-                        {(selectedSchool.criteria || []).length > 0 ? (
-                          <div className="space-y-4">
-                            {selectedSchool.criteria!.map((c) => (
-                              <div key={c.id} className="space-y-2">
-                                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                                  {c.label}
-                                  {c.hint && <span className="ml-1 font-normal text-slate-500">({c.hint})</span>}
-                                </label>
-                                <div className="flex gap-1">
-                                  {[1, 2, 3, 4, 5].map((n) => (
-                                    <button
-                                      key={n}
-                                      type="button"
-                                      onClick={() =>
-                                        setReviewForm((f) => ({
-                                          ...f,
-                                          criteria_ratings: { ...f.criteria_ratings, [c.slug]: n },
-                                        }))
-                                      }
-                                      aria-label={`${c.label}: ${n} yıldız`}
-                                      aria-pressed={(reviewForm.criteria_ratings[c.slug] ?? 0) >= n}
-                                      className={`rounded-lg p-2 transition-all duration-200 ease-out hover:scale-125 active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 motion-reduce:transform-none ${
-                                        (reviewForm.criteria_ratings[c.slug] ?? 0) >= n
-                                          ? 'text-amber-500 drop-shadow-[0_0_6px_rgba(245,158,11,0.5)]'
-                                          : 'text-slate-300 hover:text-amber-400 dark:text-slate-600 dark:hover:text-amber-400/80'
-                                      }`}
-                                    >
-                                      <StarIcon
-                                        size={24}
-                                        filled={(reviewForm.criteria_ratings[c.slug] ?? 0) >= n}
-                                        className={`size-6 transition-opacity duration-200 text-amber-500 ${
-                                          (reviewForm.criteria_ratings[c.slug] ?? 0) >= n ? 'opacity-100' : 'opacity-30'
-                                        }`}
-                                      />
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium">Genel puan (1-5)</label>
-                            <div className="flex gap-1">
-                              {[1, 2, 3, 4, 5].map((n) => (
-                                <button
-                                  key={n}
-                                  type="button"
-                                  onClick={() => setReviewForm((f) => ({ ...f, rating: n }))}
-                                  aria-label={`Genel puan: ${n} yıldız`}
-                                  aria-pressed={reviewForm.rating >= n}
-                                  className={`rounded-lg p-2 transition-all duration-200 ease-out hover:scale-125 active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 motion-reduce:transform-none ${
-                                    reviewForm.rating >= n ? 'text-amber-500 drop-shadow-[0_0_6px_rgba(245,158,11,0.5)]' : 'text-slate-300 hover:text-amber-400 dark:text-slate-600 dark:hover:text-amber-400/80'
-                                  }`}
-                                >
-                                  <StarIcon className="size-6 transition-opacity duration-200 text-amber-500" filled={reviewForm.rating >= n} />
-                                </button>
-                              ))}
+                        <div className="min-w-0 flex-1">
+                          <CardTitle className="text-sm font-semibold tracking-tight text-slate-900 dark:text-white sm:text-base">
+                            {ownReview ? 'Değerlendirmeniz mevcut' : 'Bu Okula Değerlendirme Gönder'}
+                          </CardTitle>
+                          {!isLoggedIn ? (
+                            <div className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50/90 p-3 dark:bg-amber-950/40">
+                              <LogInIcon className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" />
+                              <p className="text-sm leading-relaxed text-amber-900 dark:text-amber-100">
+                                Değerlendirme yapmak için{' '}
+                                <Link href={`/login?redirect=${PAGE_PATH}`} className="font-semibold underline underline-offset-2">
+                                  giriş yapın
+                                </Link>
+                                .
+                              </p>
                             </div>
-                          </div>
-                        )}
+                          ) : (
+                            <p className="mt-1 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                              {ownReview
+                                ? 'Aşağıdaki değerlendirmenizde yer alan Güncelle butonu ile düzenleyebilirsiniz.'
+                                : 'Her kritere dokunarak puanlayın; yorum isteğe bağlıdır. İsterseniz anonim paylaşabilirsiniz.'}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </CardHeader>
+                    {isLoggedIn && !ownReview && (
+                      <CardContent className="space-y-4 px-4 py-4 sm:px-5">
+                        <SchoolReviewScorePicker
+                          criteria={selectedSchool.criteria}
+                          criteriaRatings={reviewForm.criteria_ratings}
+                          onCriteriaRating={(slug, n) =>
+                            setReviewForm((f) => ({ ...f, criteria_ratings: { ...f.criteria_ratings, [slug]: n } }))
+                          }
+                          singleRating={reviewForm.rating}
+                          onSingleRating={(n) => setReviewForm((f) => ({ ...f, rating: n }))}
+                        />
                         <div>
-                          <label className="mb-1 block text-sm font-medium">Yorum (opsiyonel)</label>
+                          <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                            Yorum (opsiyonel)
+                          </label>
                           <textarea
                             value={reviewForm.comment}
                             onChange={(e) => setReviewForm((f) => ({ ...f, comment: e.target.value }))}
                             rows={3}
                             placeholder="Deneyiminizi paylaşın..."
-                            className="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-900"
+                            className="w-full min-h-[120px] rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 sm:text-sm"
                           />
                         </div>
-                        <label className="flex cursor-pointer items-center gap-3">
+                        <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50/50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/50">
                           <input
                             type="checkbox"
                             checked={reviewForm.is_anonymous}
                             onChange={(e) => setReviewForm((f) => ({ ...f, is_anonymous: e.target.checked }))}
-                            className="size-4 rounded border-slate-300 text-primary focus:ring-primary"
+                            className="size-5 shrink-0 rounded border-slate-300 text-primary focus:ring-primary"
                           />
-                          <span className="text-sm">İsmim gizli kalsın</span>
+                          <span className="text-sm text-slate-700 dark:text-slate-300">İsmim gizli kalsın</span>
                         </label>
                         <button
                           type="button"
                           onClick={handleSubmitReview}
                           disabled={submitting}
-                          className="rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                          className="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 sm:w-auto sm:min-w-[180px]"
                         >
-                          {submitting ? 'Gönderiliyor…' : 'Gönder'}
+                          {submitting ? 'Gönderiliyor…' : 'Değerlendirmeyi gönder'}
                         </button>
+                      </CardContent>
+                    )}
+                    {isLoggedIn && ownReview && (
+                      <CardContent className="px-4 py-4 sm:px-5">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
+                          Düzenleme alanı kapalı. Aşağıdaki kendi değerlendirmenizden `Güncelle` seçeneğini kullanın.
+                        </div>
                       </CardContent>
                     )}
                   </Card>
@@ -1791,60 +1865,33 @@ function OkulDegerlendirmeleriContent() {
                       </div>
                     </CardHeader>
                     <CardContent>
-                      {reviews.items.length === 0 ? (
+                      {detailListsLoading && reviews.items.length === 0 ? (
+                        <div className="space-y-3 py-4" aria-busy="true" aria-label="Yorumlar yükleniyor">
+                          <Skeleton className="h-24 w-full rounded-lg" />
+                          <Skeleton className="h-24 w-full rounded-lg" />
+                          <Skeleton className="h-20 w-full rounded-lg" />
+                        </div>
+                      ) : reviews.items.length === 0 ? (
                         <p className="py-8 text-center text-sm text-slate-500">Bu okula henüz puan veya yorum yazılmamış. İlk değerlendirmeyi siz yapın!</p>
                       ) : (
                         <ul className="space-y-5 divide-y divide-slate-100 dark:divide-slate-800">
                           {reviews.items.map((r) => (
                             <li key={r.id} className="pt-5 first:pt-0">
                               {editingReviewId === r.id && editReviewForm ? (
-                                <div className="space-y-4 rounded-lg border border-sky-200/60 bg-sky-50/30 p-4 dark:border-sky-800/50 dark:bg-sky-950/20">
-                                  <p className="text-xs font-medium text-sky-700 dark:text-sky-300">Değerlendirmenizi güncelleyin</p>
-                                  {(selectedSchool?.criteria || []).length > 0 ? (
-                                    <div className="space-y-3">
-                                      {(selectedSchool?.criteria || []).map((c) => (
-                                        <div key={c.id} className="space-y-1">
-                                          <label className="text-xs font-medium">{c.label}</label>
-                                          <div className="flex gap-1">
-                                            {[1, 2, 3, 4, 5].map((n) => (
-                                              <button
-                                                key={n}
-                                                type="button"
-                                                onClick={() =>
-                                                  setEditReviewForm((f) =>
-                                                    f ? { ...f, criteria_ratings: { ...f.criteria_ratings, [c.slug]: n } } : null
-                                                  )
-                                                }
-                                                className={`rounded p-1.5 transition-all duration-200 hover:scale-110 active:scale-95 ${
-                                                  (editReviewForm.criteria_ratings[c.slug] ?? 0) >= n ? 'text-amber-500' : 'text-slate-300 hover:text-amber-400 dark:text-slate-600'
-                                                }`}
-                                              >
-                                                <StarIcon className={`size-5 transition-opacity duration-200 text-amber-500 ${(editReviewForm.criteria_ratings[c.slug] ?? 0) >= n ? 'opacity-100' : 'opacity-30'}`} filled={(editReviewForm.criteria_ratings[c.slug] ?? 0) >= n} />
-                                              </button>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  ) : (
-                                    <div className="space-y-1">
-                                      <label className="text-xs font-medium">Genel puan</label>
-                                      <div className="flex gap-1">
-                                        {[1, 2, 3, 4, 5].map((n) => (
-                                          <button
-                                            key={n}
-                                            type="button"
-                                            onClick={() => setEditReviewForm((f) => (f ? { ...f, rating: n } : null))}
-                                            className={`rounded p-1.5 transition-all duration-200 hover:scale-110 active:scale-95 ${
-                                              editReviewForm.rating >= n ? 'text-amber-500' : 'text-slate-300 hover:text-amber-400 dark:text-slate-600'
-                                            }`}
-                                          >
-                                            <StarIcon className={`size-5 transition-opacity duration-200 text-amber-500 ${editReviewForm.rating >= n ? 'opacity-100' : 'opacity-30'}`} filled={editReviewForm.rating >= n} />
-                                          </button>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
+                                <div className="space-y-4 rounded-xl border border-sky-200/60 bg-sky-50/30 p-3 sm:p-4 dark:border-sky-800/50 dark:bg-sky-950/20">
+                                  <p className="text-xs font-semibold text-sky-700 dark:text-sky-300">Değerlendirmenizi güncelleyin</p>
+                                  <SchoolReviewScorePicker
+                                    size="compact"
+                                    criteria={selectedSchool?.criteria}
+                                    criteriaRatings={editReviewForm.criteria_ratings}
+                                    onCriteriaRating={(slug, n) =>
+                                      setEditReviewForm((f) =>
+                                        f ? { ...f, criteria_ratings: { ...f.criteria_ratings, [slug]: n } } : null
+                                      )
+                                    }
+                                    singleRating={editReviewForm.rating}
+                                    onSingleRating={(n) => setEditReviewForm((f) => (f ? { ...f, rating: n } : null))}
+                                  />
                                   <div>
                                     <label className="mb-1 block text-xs font-medium">Yorum (isteğe bağlı)</label>
                                     <textarea
@@ -1910,26 +1957,39 @@ function OkulDegerlendirmeleriContent() {
                                         </>
                                       )}
                                       <span>{new Date(r.created_at).toLocaleDateString('tr-TR')}</span>
+                                      {r.is_own && r.status === 'pending' && (
+                                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                          Onay bekliyor
+                                        </span>
+                                      )}
                                     </div>
                                   </div>
-                                  <div className="mt-1 flex items-center gap-2">
-                                    <span className="flex items-center gap-0.5 text-amber-500">
-                                      <StarIcon className="size-4 text-amber-500" filled />
-                                      {r.rating.toFixed(1)}
-                                    </span>
-                                    {r.criteria_ratings && selectedSchool.criteria && Object.keys(r.criteria_ratings).length > 0 && (
-                                      <span className="text-xs text-slate-500">
-                                        {Object.entries(r.criteria_ratings)
-                                          .map(([slug, v]) => {
-                                            const c = selectedSchool.criteria!.find((x) => x.slug === slug);
-                                            return c ? `${c.label}: ${v}` : null;
-                                          })
-                                          .filter(Boolean)
-                                          .join(' · ')}
-                                      </span>
-                                    )}
+                                  <div className="mt-2 space-y-2">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      {r.criteria_ratings &&
+                                      selectedSchool.criteria &&
+                                      Object.keys(r.criteria_ratings).length > 0 ? (
+                                        <>
+                                          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                            Genel ortalama
+                                          </span>
+                                          <RatingBadge rating={r.rating} max={10} size="sm" />
+                                        </>
+                                      ) : (
+                                        <RatingBadge rating={r.rating} max={10} size="sm" />
+                                      )}
+                                    </div>
+                                    <CriteriaRatingsDisplay
+                                      variant="public"
+                                      criteriaRatings={r.criteria_ratings}
+                                      criteria={selectedSchool.criteria ?? undefined}
+                                    />
                                   </div>
-                                  {r.comment && <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">{r.comment}</p>}
+                                  {r.comment && (
+                                    <p className="mt-3 rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2 text-sm leading-relaxed text-slate-700 dark:border-slate-700/80 dark:bg-slate-800/50 dark:text-slate-200">
+                                      {r.comment}
+                                    </p>
+                                  )}
                                   <div className="mt-2 flex flex-wrap items-center gap-2">
                                     {!r.is_own && (
                                       <>
@@ -2079,7 +2139,12 @@ function OkulDegerlendirmeleriContent() {
                       </div>
                     </CardHeader>
                     <CardContent>
-                      {questions.items.length === 0 ? (
+                      {detailListsLoading && questions.items.length === 0 ? (
+                        <div className="space-y-3 py-4" aria-busy="true" aria-label="Sorular yükleniyor">
+                          <Skeleton className="h-28 w-full rounded-xl" />
+                          <Skeleton className="h-28 w-full rounded-xl" />
+                        </div>
+                      ) : questions.items.length === 0 ? (
                         <p className="py-8 text-center text-sm text-slate-500">Bu okul hakkında henüz soru sorulmamış. Merak ettiğiniz konuyu ilk siz sorun!</p>
                       ) : (
                         <ul className="space-y-5">
@@ -2115,11 +2180,21 @@ function OkulDegerlendirmeleriContent() {
                                   </div>
                                 ) : (
                                   <>
-                                    <p className="font-semibold text-slate-800 dark:text-slate-100">{q.question}</p>
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-teal-700 dark:text-teal-400">
+                                      Soru
+                                    </p>
+                                    <p className="mt-1 text-base font-semibold leading-snug text-slate-800 dark:text-slate-100">
+                                      {q.question}
+                                    </p>
                                     <div className="mt-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                                       <span>{q.is_anonymous ? 'Anonim kullanıcı' : q.author_display_name}</span>
                                       <span>·</span>
-                                      <span>{new Date(q.created_at).toLocaleDateString('tr-TR', { dateStyle: 'medium' })}</span>
+                                      <time dateTime={q.created_at}>
+                                        {new Date(q.created_at).toLocaleString('tr-TR', {
+                                          dateStyle: 'medium',
+                                          timeStyle: 'short',
+                                        })}
+                                      </time>
                                       {q.is_own && isLoggedIn && (
                                         <>
                                           <span>·</span>
@@ -2213,9 +2288,18 @@ function OkulDegerlendirmeleriContent() {
                               </div>
                               {q.answers.length > 0 && (
                                 <div className="space-y-2 border-t border-slate-200/80 bg-emerald-50/50 dark:border-slate-700/50 dark:bg-emerald-950/20 px-4 py-3">
-                                  <p className="text-xs font-medium uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Cevaplar ({q.answers.length})</p>
-                                  {q.answers.map((a) => (
-                                    <div key={a.id} className="rounded-lg border border-emerald-200/60 bg-white px-3 py-2.5 dark:border-emerald-800/40 dark:bg-slate-800/50">
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                                    Yanıtlar ({q.answers.length})
+                                  </p>
+                                  {q.answers.map((a, ai) => (
+                                    <div
+                                      key={a.id}
+                                      className="flex gap-3 rounded-lg border border-emerald-200/70 bg-white px-3 py-2.5 dark:border-emerald-800/50 dark:bg-slate-800/50"
+                                    >
+                                      <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-600/12 text-xs font-bold text-emerald-900 dark:bg-emerald-500/20 dark:text-emerald-100">
+                                        {ai + 1}
+                                      </div>
+                                      <div className="min-w-0 flex-1">
                                       {editingAnswerId === a.id && editAnswerForm !== null ? (
                                         <div className="space-y-2">
                                           <textarea
@@ -2245,9 +2329,18 @@ function OkulDegerlendirmeleriContent() {
                                         </div>
                                       ) : (
                                         <>
-                                          <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">{a.answer}</p>
-                                          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400">
-                                            <span>— {a.is_anonymous ? 'Anonim kullanıcı' : a.author_display_name} · {new Date(a.created_at).toLocaleDateString('tr-TR')}</span>
+                                          <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">{a.answer}</p>
+                                          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
+                                            <span className="font-medium">
+                                              {a.is_anonymous ? 'Anonim kullanıcı' : a.author_display_name}
+                                            </span>
+                                            <span>·</span>
+                                            <time dateTime={a.created_at}>
+                                              {new Date(a.created_at).toLocaleString('tr-TR', {
+                                                dateStyle: 'medium',
+                                                timeStyle: 'short',
+                                              })}
+                                            </time>
                                             {a.is_own && isLoggedIn && (
                                               <>
                                                 <button
@@ -2272,7 +2365,7 @@ function OkulDegerlendirmeleriContent() {
                                               </>
                                             )}
                                           </div>
-                                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                                          <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-emerald-200/50 pt-2 dark:border-emerald-800/40">
                                             {!a.is_own && (
                                               <>
                                                 <button
@@ -2338,6 +2431,7 @@ function OkulDegerlendirmeleriContent() {
                                           </div>
                                         </>
                                       )}
+                                      </div>
                                     </div>
                                   ))}
                                 </div>

@@ -1,3 +1,6 @@
+if (process.env.APP_ENV === 'local' || !process.env.APP_ENV) {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
 import { config } from 'dotenv';
 import { resolve } from 'path';
 // Backend root'taki .env (cwd veya dist/src'den bir üst)
@@ -16,16 +19,38 @@ for (const p of envPaths) {
 
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { json, urlencoded } from 'express';
+import compression = require('compression');
 import cookieParser = require('cookie-parser');
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { env } from './config/env';
-import { initFirebase } from './config/firebase';
+import { initFirebase, isFirebaseAdminReady } from './config/firebase';
 
 async function bootstrap() {
   initFirebase();
-  const app = await NestFactory.create(AppModule);
+  if (isFirebaseAdminReady()) {
+    console.log(`[Firebase] Admin hazır — proje: ${env.firebase.projectId} (web-admin .env.local NEXT_PUBLIC_FIREBASE_PROJECT_ID ile aynı olmalı)`);
+  } else {
+    console.warn(
+      '[Firebase] Admin kapalı: backend/.env içinde FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY eksik veya anahtar hatalı.',
+    );
+  }
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  if (env.trustProxy) {
+    app.set('trust proxy', 1);
+  }
+  /** gzip/deflate — JSON yanıtlarda bant genişliği */
+  app.use(
+    compression({
+      threshold: 1024,
+      filter: (req, res) => {
+        if (req.headers['x-no-compression']) return false;
+        return compression.filter(req, res);
+      },
+    }),
+  );
   app.use(cookieParser());
   app.use(json({ limit: '2mb' }));
   app.use(urlencoded({ limit: '2mb', extended: true }));

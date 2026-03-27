@@ -36,9 +36,9 @@ export class ExamDutyPreference {
   @Column({ name: 'pref_exam_day_morning', type: 'boolean', default: true })
   prefExamDayMorning: boolean;
 
-  /** Sabah hatırlatması saati (HH:mm, Turkey). Varsayılan 08:00. */
-  @Column({ name: 'pref_exam_day_morning_time', type: 'varchar', length: 5, default: '08:00' })
-  prefExamDayMorningTime: string;
+  /** Sabah hatırlatması saati (HH:mm, Turkey). NULL = sistem varsayılanı 07:00. */
+  @Column({ name: 'pref_exam_day_morning_time', type: 'varchar', length: 5, nullable: true })
+  prefExamDayMorningTime: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

@@ -433,19 +433,20 @@ export function DeviceTable({
                       </Button>
                       {schoolId && (
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
-                          className="h-8"
+                          className="h-8 gap-1 border-sky-300/80 text-xs text-sky-800 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-200 dark:hover:bg-sky-950/50"
                           onClick={() => {
                             const base = typeof window !== 'undefined' ? window.location.origin : '';
                             const url = `${base}/tv/classroom?school_id=${encodeURIComponent(schoolId)}&device_id=${encodeURIComponent(d.id)}`;
                             void navigator.clipboard.writeText(url).then(() =>
-                              toast.success('Tahta TV bağlantısı panoya kopyalandı'),
+                              toast.success('Duyuru TV adresi kopyalandı — tahta tarayıcısına yapıştırın'),
                             );
                           }}
-                          title="Duyuru TV bağlantısı (sınıfa özel)"
+                          title="Bu sınıfa özel /tv/classroom adresini kopyala (uzun URL yazmaya gerek yok)"
                         >
-                          <Monitor className="size-4" />
+                          <Monitor className="size-3.5 shrink-0" />
+                          <span className="hidden sm:inline">Duyuru TV</span>
                         </Button>
                       )}
                     </div>

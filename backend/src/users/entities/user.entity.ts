@@ -117,6 +117,17 @@ export class User {
   @Column({ name: 'market_ekders_balance', type: 'numeric', precision: 14, scale: 6, default: 0 })
   marketEkdersBalance: string;
 
+  /** Okul kaydı: e-postadaki doğrulama bağlantısı için tek seferlik anahtar */
+  @Column({ name: 'school_join_email_token', type: 'varchar', length: 64, nullable: true })
+  schoolJoinEmailToken: string | null;
+
+  @Column({ name: 'school_join_email_token_expires_at', type: 'timestamptz', nullable: true })
+  schoolJoinEmailTokenExpiresAt: Date | null;
+
+  /** Kurumsal adres tıklanı ile doğrulandı (sonra süperadmin onayı) */
+  @Column({ name: 'school_join_email_verified_at', type: 'timestamptz', nullable: true })
+  schoolJoinEmailVerifiedAt: Date | null;
+
   @CreateDateColumn()
   created_at: Date;
 

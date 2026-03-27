@@ -124,6 +124,13 @@ export class TeacherAgendaService {
         search: `%${dto.search}%`,
       });
     }
+    if (dto.announcementId) {
+      const announcementTag = `duyuru_ann:${dto.announcementId}`;
+      qb.andWhere(
+        `EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(n.tags, '[]'::jsonb)) AS elem WHERE elem = :announcementTag)`,
+        { announcementTag },
+      );
+    }
     const page = dto.page ?? 1;
     const limit = dto.limit ?? 20;
     qb.orderBy('n.pinned', 'DESC').addOrderBy('n.updated_at', 'DESC');

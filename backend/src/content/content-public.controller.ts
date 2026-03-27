@@ -1,13 +1,19 @@
-import { Controller, Get, Res } from '@nestjs/common';
+import { Controller, Get, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { Throttle } from '@nestjs/throttler';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { AppConfigService } from '../app-config/app-config.service';
+import { ContentService } from './content.service';
+import { ListContentItemsDto } from './dto/list-content-items.dto';
 
 /** Public content endpoints (auth yok) – metadata, yayın SEO vb. */
 @Controller('content')
-@Throttle({ default: { limit: 60, ttl: 60000 } })
+/** Tüm /content kamu uçları tek bucket’ta; sayfa başına çoklu GET (metadata, liste…) için limit yüksek. */
+@Throttle({ default: { limit: 400, ttl: 60000 } })
 export class ContentPublicController {
-  constructor(private readonly appConfig: AppConfigService) {}
+  constructor(
+    private readonly appConfig: AppConfigService,
+    private readonly contentService: ContentService,
+  ) {}
 
   /** Public: Haber Yayın sayfası SEO metadata – generateMetadata için */
   @Get('yayin-seo')
@@ -34,7 +40,9 @@ export class ContentPublicController {
   }
 
   /** Public: analitik, bakım, önbellek TTL, robots, OG, mağaza linkleri (site key: CAPTCHA veya eski alan birleşimi) */
+  /** Admin shell sık GET atar; global throttle ile 429 üretmemesi için atlanır. */
   @Get('web-extras')
+  @SkipThrottle()
   async getWebExtras(@Res({ passthrough: true }) res: Response) {
     const maxAge = await this.appConfig.getPublicCacheMaxAge('web_extras');
     res.setHeader('Cache-Control', `public, max-age=${maxAge}`);
@@ -79,5 +87,21 @@ export class ContentPublicController {
     const maxAge = await this.appConfig.getWelcomeModulePublicCacheMaxAge();
     res.setHeader('Cache-Control', `public, max-age=${maxAge}`);
     return this.appConfig.getWelcomeTodayPublic();
+  }
+
+  /** Giriş yapmadan haber listesi (web anasayfa → Haberler). */
+  @Get('public/channels')
+  getChannelsPublic() {
+    return this.contentService.getChannels();
+  }
+
+  @Get('public/meb-sources')
+  getMebSourcesPublic() {
+    return this.contentService.getMebSources();
+  }
+
+  @Get('public/items')
+  listItemsPublic(@Query() dto: ListContentItemsDto) {
+    return this.contentService.listItems(dto);
   }
 }

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsUrl, MaxLength, IsInt, Min, IsDateString, IsUUID } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, MaxLength, IsInt, Min, IsDateString, IsUUID } from 'class-validator';
 
 export class CreateAnnouncementDto {
   /** Superadmin: Hangi okula duyuru gönderileceği. Zorunlu sadece superadmin için. */
@@ -64,7 +64,7 @@ export class CreateAnnouncementDto {
   publish?: boolean;
 
   @IsOptional()
-  @IsUrl()
+  @IsString()
   @MaxLength(512)
   attachment_url?: string | null;
 

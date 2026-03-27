@@ -6,6 +6,7 @@ import { Upload, Download, FileSpreadsheet } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { Alert } from '@/components/ui/alert';
+import { SCHOOL_TYPE_ORDER } from '@/lib/school-labels';
 
 const TEMPLATE_COLUMNS = [
   'name',
@@ -13,14 +14,19 @@ const TEMPLATE_COLUMNS = [
   'segment',
   'city',
   'district',
+  'institution_code',
+  'address',
   'website_url',
   'phone',
+  'fax',
+  'institutional_email',
+  'principal_name',
   'about_description',
   'status',
   'teacher_limit',
 ] as const;
 
-const TYPE_VALUES = ['ilkokul', 'ortaokul', 'lise'];
+const TYPE_VALUES: string[] = [...SCHOOL_TYPE_ORDER];
 const SEGMENT_VALUES = ['devlet', 'ozel'];
 const STATUS_VALUES = ['deneme', 'aktif', 'askida'];
 
@@ -33,8 +39,13 @@ function downloadTemplate() {
     'segment',
     'city',
     'district',
+    'institution_code',
+    'address',
     'website_url',
     'phone',
+    'fax',
+    'institutional_email',
+    'principal_name',
     'about_description',
     'status',
     'teacher_limit',
@@ -45,8 +56,13 @@ function downloadTemplate() {
     'devlet',
     'Ankara',
     'Çankaya',
+    '123456',
+    'Mahalle, Cadde No:1',
     'https://okul.meb.gov.tr',
     '0312 555 00 00',
+    '0312 555 00 01',
+    'bilgi@okul.meb.k12.tr',
+    'Ad Soyad',
     'Okulumuz hakkında kısa bilgi...',
     'aktif',
     '100',
@@ -103,8 +119,13 @@ function mapToApiSchools(rows: ParsedRow[]): Array<{
   segment: string;
   city?: string | null;
   district?: string | null;
+  institution_code?: string | null;
+  address?: string | null;
   website_url?: string | null;
   phone?: string | null;
+  fax?: string | null;
+  institutional_email?: string | null;
+  principal_name?: string | null;
   about_description?: string | null;
   status?: string;
   teacher_limit?: number;
@@ -119,8 +140,13 @@ function mapToApiSchools(rows: ParsedRow[]): Array<{
       segment: SEGMENT_VALUES.includes(segment) ? segment : 'devlet',
       city: String(getVal(r, 'city', 'il')).trim() || null,
       district: String(getVal(r, 'district', 'ilce', 'ilçe')).trim() || null,
+      institution_code: String(getVal(r, 'institution_code', 'kurum_kodu', 'meb_kodu')).trim() || null,
+      address: String(getVal(r, 'address', 'adres', 'acik_adres')).trim() || null,
       website_url: String(getVal(r, 'website_url', 'web_sitesi', 'website')).trim() || null,
       phone: String(getVal(r, 'phone', 'telefon')).trim() || null,
+      fax: String(getVal(r, 'fax', 'faks')).trim() || null,
+      institutional_email: String(getVal(r, 'institutional_email', 'kurumsal_eposta', 'kurumsal_email')).trim() || null,
+      principal_name: String(getVal(r, 'principal_name', 'mudur', 'müdür', 'okul_muduru')).trim() || null,
       about_description: String(getVal(r, 'about_description', 'detay', 'okulumuz_hakkinda')).trim() || null,
       status: STATUS_VALUES.includes(status) ? status : 'deneme',
       teacher_limit: (() => {
@@ -218,8 +244,10 @@ export function SchoolBulkImport({
         </label>
       </div>
       <p className="text-xs text-muted-foreground">
-        Şablondaki sütunlar: name, type (ilkokul/ortaokul/lise), segment (devlet/ozel), city, district, website_url,
-        phone, about_description, status (deneme/aktif/askida), teacher_limit
+        Sütunlar (isteğe bağlı alanlar boş bırakılabilir): name, type (
+        {SCHOOL_TYPE_ORDER.join('/')}), segment
+        (devlet/ozel), city, district, institution_code, address, website_url, phone, fax, institutional_email,
+        principal_name, about_description, status (deneme/aktif/askida), teacher_limit
       </p>
       {rows.length > 0 && (
         <>

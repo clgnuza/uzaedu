@@ -15,6 +15,7 @@ import {
   ArrowLeft,
   MapPin,
   Sparkles,
+  Layers,
   Clock,
   ChevronLeft,
   ChevronRight,
@@ -26,6 +27,9 @@ import {
   RefreshCw,
   Settings,
 } from 'lucide-react';
+import { contentReadPath } from '@/lib/content-read-path';
+import { normalizeMebIlImageUrl } from '@/lib/meb-image-url';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 type Source = { id: string; key: string; label: string };
 type ContentItem = {
@@ -63,6 +67,20 @@ function stripHtml(html: string | null): string {
   return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
 }
 
+/** Aynı haber farklı kaynaklardan veya tekrar sync ile çift satırda gelebilir; URL’ye göre ilk kaydı tut (API sırası: en güncel önce). */
+function dedupeContentItemsByUrl(items: ContentItem[]): ContentItem[] {
+  const seen = new Set<string>();
+  const out: ContentItem[] = [];
+  for (const item of items) {
+    const url = (item.source_url || '').trim().toLowerCase();
+    const key = url || item.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 function IlNewsCard({ item }: { item: ContentItem }) {
   const [imgError, setImgError] = useState(false);
   return (
@@ -76,7 +94,7 @@ function IlNewsCard({ item }: { item: ContentItem }) {
         <div className="relative h-[72px] w-20 min-w-[80px] shrink-0 overflow-hidden bg-muted sm:h-20">
           {item.image_url && !imgError ? (
             <img
-              src={item.image_url}
+              src={normalizeMebIlImageUrl(item.image_url) ?? item.image_url}
               alt=""
               referrerPolicy="no-referrer"
               onError={() => setImgError(true)}
@@ -115,6 +133,7 @@ function IlNewsCard({ item }: { item: ContentItem }) {
 
 function NewsCardImage({ src, isHero }: { src: string; isHero: boolean }) {
   const [error, setError] = useState(false);
+  const resolved = normalizeMebIlImageUrl(src) ?? src;
   if (error) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-muted">
@@ -124,7 +143,7 @@ function NewsCardImage({ src, isHero }: { src: string; isHero: boolean }) {
   }
   return (
     <img
-      src={src}
+      src={resolved}
       alt=""
       referrerPolicy="no-referrer"
       onError={() => setError(true)}
@@ -141,7 +160,7 @@ const SLIDE_INTERVAL_OPTIONS = [
 ];
 
 export default function HaberYayinPage() {
-  const { token, me } = useAuth();
+  const { token, me, loading: authLoading } = useAuth();
   const [sources, setSources] = useState<Source[]>([]);
   const [mebItems, setMebItems] = useState<ContentItem[]>([]);
   const [ilItems, setIlItems] = useState<ContentItem[]>([]);
@@ -159,13 +178,13 @@ export default function HaberYayinPage() {
   const [refreshing, setRefreshing] = useState(false);
 
   const userCity = me?.school?.city ?? null;
+  const isAdmin = me?.role === 'superadmin' || me?.role === 'school_admin';
   const allItems = [...mebItems];
 
   const fetchSources = useCallback(async () => {
-    if (!token) return;
     setLoadingSources(true);
     try {
-      const data = await apiFetch<Source[]>('/content/meb-sources', { token });
+      const data = await apiFetch<Source[]>(contentReadPath('meb-sources', token), { token });
       setSources(Array.isArray(data) ? data : []);
     } catch {
       setSources([]);
@@ -175,7 +194,6 @@ export default function HaberYayinPage() {
   }, [token]);
 
   const fetchMebItems = useCallback(async () => {
-    if (!token) return;
     setLoadingMeb(true);
     try {
       const params = new URLSearchParams({
@@ -185,10 +203,11 @@ export default function HaberYayinPage() {
       });
       if (selectedSourceKey) params.set('source_key', selectedSourceKey);
       const data = await apiFetch<{ total: number; items: ContentItem[] }>(
-        `/content/items?${params}`,
+        `${contentReadPath('items', token)}?${params}`,
         { token },
       );
-      setMebItems(data?.items ?? []);
+      const raw = data?.items ?? [];
+      setMebItems(dedupeContentItemsByUrl(raw));
       setSlideIndex(0);
       setLastFetchAt(new Date());
     } catch {
@@ -199,7 +218,6 @@ export default function HaberYayinPage() {
   }, [token, selectedSourceKey]);
 
   const fetchIlItems = useCallback(async () => {
-    if (!token) return;
     setLoadingIl(true);
     try {
       const params = new URLSearchParams({
@@ -208,7 +226,7 @@ export default function HaberYayinPage() {
         channel_key: 'il_duyurulari',
       });
       const data = await apiFetch<{ total: number; items: ContentItem[] }>(
-        `/content/items?${params}`,
+        `${contentReadPath('items', token)}?${params}`,
         { token },
       );
       setIlItems(data?.items ?? []);
@@ -220,14 +238,19 @@ export default function HaberYayinPage() {
   }, [token]);
 
   useEffect(() => {
-    fetchSources();
-  }, [fetchSources]);
-  useEffect(() => {
-    fetchMebItems();
-  }, [fetchMebItems]);
-  useEffect(() => {
-    fetchIlItems();
-  }, [fetchIlItems]);
+    if (authLoading) return;
+    let cancelled = false;
+    void (async () => {
+      await fetchSources();
+      if (cancelled) return;
+      await fetchMebItems();
+      if (cancelled) return;
+      await fetchIlItems();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, fetchSources, fetchMebItems, fetchIlItems]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -344,7 +367,7 @@ export default function HaberYayinPage() {
           rel="noopener noreferrer"
           className="block"
         >
-          <div className={cn('relative overflow-hidden', isHero ? 'aspect-[21/9] min-h-[180px]' : 'aspect-video')}>
+          <div className={cn('relative overflow-hidden', isHero ? 'aspect-21/9 min-h-[180px]' : 'aspect-video')}>
             {item.image_url ? (
               <NewsCardImage src={item.image_url} isHero={isHero} />
             ) : (
@@ -352,7 +375,7 @@ export default function HaberYayinPage() {
                 <Newspaper className={cn('text-muted-foreground', isHero ? 'h-16 w-16' : 'h-12 w-12')} />
               </div>
             )}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+            <div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/20 to-transparent" />
             <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-5">
               <h3 className={cn(
                 'font-semibold leading-snug text-white',
@@ -431,115 +454,210 @@ export default function HaberYayinPage() {
           `,
         }}
       />
-      <div className="space-y-6">
-      {/* Sayfa başlığı – Haberler gibi */}
-      <div className="flex flex-col gap-4 border-b border-border pb-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold text-foreground">
-            <Sparkles className="h-7 w-7 text-primary" />
-            Haber Yayını
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            MEB haberlerinin yayın önizlemesi – slayt modu ve tam ekran desteği
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <Link
-            href="/haberler"
-            className="inline-flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm font-medium transition-colors hover:bg-muted"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Haberler
-          </Link>
-          <Button
-            variant={slideMode ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setSlideMode(!slideMode)}
-            className="gap-2"
-          >
-            {slideMode ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-            {slideMode ? 'Durdur' : 'Slayt'}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={toggleFullscreen}
-            className="gap-2"
-            title="Tam ekran (F)"
-          >
-            {fullscreenMode ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-            {fullscreenMode ? 'Çık' : 'Tam ekran'}
-          </Button>
-        </div>
-      </div>
-
-      {/* MEB Birimleri + Kontroller – Card içinde (Haberler Kanallar gibi) */}
-      <Card>
-        <CardContent className="p-0">
-          {sources.length > 0 && (
-            <div className="px-4 pt-4">
-              <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                MEB Birimleri
-              </p>
-              <div className="-mb-px flex flex-wrap border-b border-border">
-                <button
-                  onClick={() => setSelectedSourceKey('')}
-                  className={cn(
-                    '-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors',
-                    !selectedSourceKey
-                      ? 'border-primary text-primary'
-                      : 'border-transparent text-muted-foreground hover:text-foreground',
-                  )}
+      <div className="space-y-5">
+      {/* Başlık */}
+      <header className="relative overflow-hidden rounded-2xl border border-border/70 bg-card/80 p-5 shadow-sm ring-1 ring-border/30 backdrop-blur-sm sm:p-6">
+        <div
+          className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-primary/12 blur-3xl"
+          aria-hidden
+        />
+        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 space-y-2">
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-widest text-primary">
+              <Sparkles className="h-3.5 w-3.5" />
+              Canlı önizleme
+            </div>
+            <h1 className="text-balance text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+              Haber Yayını
+            </h1>
+            <p className="max-w-lg text-sm leading-relaxed text-muted-foreground">
+              MEB içeriklerini slayt veya tam ekranda sunun; birim seçerek akışı daraltın.
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+            <Link
+              href="/haberler"
+              className="inline-flex items-center gap-2 rounded-xl border border-border bg-background/80 px-3.5 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-muted"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span className="hidden sm:inline">Haberler</span>
+            </Link>
+            {isAdmin && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl border-border/80"
+                  onClick={handleRefresh}
+                  disabled={refreshing}
                 >
-                  Tümü
-                </button>
-                {loadingSources ? null : sources.map((s) => (
+                  <RefreshCw className={cn('mr-1.5 h-4 w-4', refreshing && 'animate-spin')} />
+                  <span className="hidden sm:inline">{refreshing ? 'Yenileniyor…' : 'Yenile'}</span>
+                </Button>
+                {me?.role === 'superadmin' && (
+                  <Link
+                    href="/haberler/ayarlar"
+                    className="inline-flex items-center gap-2 rounded-xl border border-border bg-background/80 px-3.5 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-muted"
+                  >
+                    <Settings className="h-4 w-4" />
+                    <span className="hidden sm:inline">Ayarlar</span>
+                  </Link>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Sticky: birim + oynatıcı */}
+      <div className="sticky top-0 z-1 w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/70 bg-background/90 shadow-md ring-1 ring-border/40 backdrop-blur-md">
+        {(sources.length > 0 || loadingSources) && (
+          <>
+            <div className="border-b border-border/50 px-4 pb-3 pt-4 md:hidden">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <Layers className="h-3.5 w-3.5 text-primary" />
+                MEB birimi
+              </div>
+              {loadingSources ? (
+                <div className="h-11 w-full animate-pulse rounded-xl bg-muted" aria-hidden />
+              ) : (
+                <Select
+                  value={selectedSourceKey || '__all'}
+                  onValueChange={(v) => setSelectedSourceKey(v === '__all' ? '' : v)}
+                >
+                  <SelectTrigger id="yayin-birim-select" className="h-11 w-full min-w-0 rounded-xl border-border/80 bg-muted/30">
+                    <SelectValue placeholder="Birim seçin" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[min(70vh,24rem)] w-(--radix-select-trigger-width)">
+                    <SelectItem value="__all">Tümü</SelectItem>
+                    {sources.map((s) => (
+                      <SelectItem key={s.id} value={s.key}>
+                        {s.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+            <div className="hidden border-b border-border/50 px-4 pb-3 pt-4 md:block">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <Layers className="h-3.5 w-3.5 text-primary" />
+                MEB birimi
+              </div>
+              <div className="w-full min-w-0 rounded-xl bg-muted/60 p-1 ring-1 ring-border/40">
+                <div className="flex flex-wrap gap-1">
                   <button
-                    key={s.id}
-                    onClick={() => setSelectedSourceKey(s.key)}
+                    type="button"
+                    onClick={() => setSelectedSourceKey('')}
                     className={cn(
-                      '-mb-px inline-flex border-b-2 px-4 py-3 text-sm font-medium transition-colors',
-                      selectedSourceKey === s.key
-                        ? 'border-primary text-primary'
-                        : 'border-transparent text-muted-foreground hover:text-foreground',
+                      'min-h-9 shrink-0 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition-all sm:px-3 sm:text-sm',
+                      !selectedSourceKey
+                        ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-primary/20'
+                        : 'text-muted-foreground hover:bg-background/80 hover:text-foreground',
                     )}
                   >
-                    {s.label}
+                    Tümü
                   </button>
-                ))}
+                  {!loadingSources &&
+                    sources.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        title={s.label}
+                        onClick={() => setSelectedSourceKey(s.key)}
+                        className={cn(
+                          'max-w-full min-h-9 shrink-0 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition-all sm:max-w-[16rem] sm:px-3 sm:text-sm',
+                          selectedSourceKey === s.key
+                            ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-primary/20'
+                            : 'text-muted-foreground hover:bg-background/80 hover:text-foreground',
+                        )}
+                      >
+                        <span className="line-clamp-2 sm:line-clamp-1">{s.label}</span>
+                      </button>
+                    ))}
+                </div>
               </div>
             </div>
-          )}
+          </>
+        )}
 
-          <div className="flex flex-wrap items-center gap-3 border-t border-border bg-muted/30 px-4 py-3">
-            <p className="shrink-0 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Kontroller
-            </p>
+        <div
+          className={cn(
+            'flex min-h-13 min-w-0 w-full max-w-full flex-wrap items-center gap-2 px-4 py-3',
+            !(sources.length > 0 || loadingSources) && 'pt-4',
+          )}
+        >
+          <span className="mr-1 hidden text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:inline">
+            Oynatıcı
+          </span>
+          <div className="flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 px-2.5 py-1.5">
+            <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <select
               value={slideIntervalSec}
               onChange={(e) => setSlideIntervalSec(Number(e.target.value))}
-              className="rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className="max-w-22 cursor-pointer bg-transparent text-xs font-semibold text-foreground focus:outline-none"
             >
               {SLIDE_INTERVAL_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
-            {allItems.length > 0 && (
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="icon" onClick={goPrev} aria-label="Önceki">
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="min-w-14 text-center text-sm text-muted-foreground">
-                  {slideIndex + 1} / {allItems.length}
-                </span>
-                <Button variant="outline" size="icon" onClick={goNext} aria-label="Sonraki">
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
           </div>
-        </CardContent>
-      </Card>
+
+          {allItems.length > 0 && (
+            <div className="flex items-center gap-0.5 rounded-full border border-border/60 bg-muted/50 p-0.5">
+              <button
+                type="button"
+                onClick={goPrev}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+                aria-label="Önceki"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="min-w-14 px-1 text-center text-xs font-semibold tabular-nums text-foreground">
+                {slideIndex + 1} / {allItems.length}
+              </span>
+              <button
+                type="button"
+                onClick={goNext}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+                aria-label="Sonraki"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setSlideMode(!slideMode)}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition-all',
+              slideMode
+                ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-primary/25'
+                : 'border border-border/60 bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground',
+            )}
+          >
+            {slideMode ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+            {slideMode ? 'Durdur' : 'Slayt'}
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            title="Tam ekran (F)"
+            className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 px-3.5 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            {fullscreenMode ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">{fullscreenMode ? 'Küçült' : 'Tam ekran'}</span>
+          </button>
+
+          {lastFetchAt && (
+            <span className="ml-auto text-[11px] text-muted-foreground sm:text-xs">
+              Güncellendi: {formatRelativeTime(lastFetchAt)}
+            </span>
+          )}
+        </div>
+      </div>
 
       {/* İçerik alanı */}
       {loadingMeb ? (
@@ -574,7 +692,7 @@ export default function HaberYayinPage() {
       )}
 
       {/* İl Haberleri – farklı tasarım: emerald ton, yatay kartlar */}
-      <Card className="overflow-hidden border-emerald-200/60 bg-gradient-to-br from-emerald-50/50 to-transparent dark:border-emerald-900/40 dark:from-emerald-950/20">
+      <Card className="overflow-hidden border-emerald-200/60 bg-linear-to-br from-emerald-50/50 to-transparent dark:border-emerald-900/40 dark:from-emerald-950/20">
         <div className="border-l-4 border-emerald-500">
           <CardContent className="p-5">
             <div className="mb-4 flex items-center gap-3">
@@ -644,27 +762,10 @@ export default function HaberYayinPage() {
                 Tam ekrandan çık
               </div>
             </div>
-            <div className="flex items-center gap-3 border-t border-border pt-4 sm:border-t-0 sm:border-l sm:pl-4 sm:pt-0">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleRefresh}
-                disabled={refreshing}
-                className="gap-2 text-muted-foreground hover:text-foreground"
-              >
-                <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
-                {refreshing ? 'Yenileniyor…' : 'Yenile'}
-              </Button>
+            <div className="flex items-center gap-2 border-t border-border pt-4 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
               <span className="text-xs text-muted-foreground">
                 Son güncelleme: {formatRelativeTime(lastFetchAt)}
               </span>
-              <Link
-                href="/haberler/ayarlar"
-                className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                <Settings className="h-4 w-4" />
-                Ayarlar
-              </Link>
             </div>
           </div>
         </CardContent>

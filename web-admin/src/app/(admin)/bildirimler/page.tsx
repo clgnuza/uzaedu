@@ -317,6 +317,81 @@ type FilterTab =
   | 'exam_duty'
   | 'market';
 
+const FILTER_TABS = [
+  'all',
+  'duty',
+  'belirli',
+  'bilsem',
+  'timetable',
+  'agenda',
+  'smart_board',
+  'support',
+  'announcement',
+  'exam_duty',
+  'market',
+] as const;
+
+const TAB_PASTEL: Record<
+  (typeof FILTER_TABS)[number],
+  { active: string; idle: string }
+> = {
+  all: {
+    active:
+      'bg-white/95 text-slate-800 shadow-[0_2px_8px_-2px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/70 dark:bg-slate-800/95 dark:text-slate-50 dark:ring-white/12',
+    idle: 'text-slate-500 hover:bg-white/55 dark:text-slate-400 dark:hover:bg-white/[0.06]',
+  },
+  duty: {
+    active:
+      'bg-linear-to-br from-indigo-100/95 to-violet-100/80 text-indigo-950 shadow-sm ring-1 ring-indigo-200/60 dark:from-indigo-950/55 dark:to-violet-950/45 dark:text-indigo-50 dark:ring-indigo-400/25',
+    idle: 'text-indigo-600/75 hover:bg-indigo-100/35 dark:text-indigo-300/80 dark:hover:bg-indigo-950/35',
+  },
+  belirli: {
+    active:
+      'bg-linear-to-br from-amber-100/95 to-orange-100/75 text-amber-950 shadow-sm ring-1 ring-amber-200/60 dark:from-amber-950/45 dark:to-orange-950/35 dark:text-amber-50 dark:ring-amber-400/25',
+    idle: 'text-amber-700/80 hover:bg-amber-100/40 dark:text-amber-300/85 dark:hover:bg-amber-950/30',
+  },
+  bilsem: {
+    active:
+      'bg-linear-to-br from-violet-100/95 to-violet-100/80 text-violet-950 shadow-sm ring-1 ring-violet-200/60 dark:from-violet-950/50 dark:to-violet-900/40 dark:text-violet-50 dark:ring-violet-400/25',
+    idle: 'text-violet-600/80 hover:bg-violet-100/40 dark:text-violet-300/85 dark:hover:bg-violet-950/35',
+  },
+  timetable: {
+    active:
+      'bg-linear-to-br from-emerald-100/95 to-teal-100/75 text-emerald-950 shadow-sm ring-1 ring-emerald-200/55 dark:from-emerald-950/45 dark:to-teal-950/35 dark:text-emerald-50 dark:ring-emerald-400/25',
+    idle: 'text-emerald-700/80 hover:bg-emerald-100/40 dark:text-emerald-300/85 dark:hover:bg-emerald-950/30',
+  },
+  agenda: {
+    active:
+      'bg-linear-to-br from-rose-100/95 to-pink-100/75 text-rose-950 shadow-sm ring-1 ring-rose-200/55 dark:from-rose-950/45 dark:to-pink-950/35 dark:text-rose-50 dark:ring-rose-400/25',
+    idle: 'text-rose-600/80 hover:bg-rose-100/40 dark:text-rose-300/85 dark:hover:bg-rose-950/30',
+  },
+  smart_board: {
+    active:
+      'bg-linear-to-br from-cyan-100/95 to-sky-100/75 text-cyan-950 shadow-sm ring-1 ring-cyan-200/55 dark:from-cyan-950/45 dark:to-sky-950/35 dark:text-cyan-50 dark:ring-cyan-400/25',
+    idle: 'text-cyan-700/80 hover:bg-cyan-100/40 dark:text-cyan-300/85 dark:hover:bg-cyan-950/30',
+  },
+  support: {
+    active:
+      'bg-linear-to-br from-fuchsia-100/95 to-purple-100/75 text-purple-950 shadow-sm ring-1 ring-fuchsia-200/55 dark:from-fuchsia-950/40 dark:to-purple-950/40 dark:text-fuchsia-50 dark:ring-fuchsia-400/25',
+    idle: 'text-purple-600/80 hover:bg-fuchsia-100/35 dark:text-fuchsia-300/85 dark:hover:bg-fuchsia-950/30',
+  },
+  announcement: {
+    active:
+      'bg-linear-to-br from-amber-100/90 to-yellow-100/75 text-amber-950 shadow-sm ring-1 ring-amber-200/50 dark:from-amber-950/40 dark:to-yellow-950/30 dark:text-amber-50 dark:ring-amber-400/25',
+    idle: 'text-amber-700/75 hover:bg-amber-100/35 dark:text-amber-300/80 dark:hover:bg-amber-950/28',
+  },
+  exam_duty: {
+    active:
+      'bg-linear-to-br from-sky-100/95 to-blue-100/75 text-sky-950 shadow-sm ring-1 ring-sky-200/55 dark:from-sky-950/45 dark:to-blue-950/40 dark:text-sky-50 dark:ring-sky-400/25',
+    idle: 'text-sky-700/80 hover:bg-sky-100/40 dark:text-sky-300/85 dark:hover:bg-sky-950/30',
+  },
+  market: {
+    active:
+      'bg-linear-to-br from-lime-100/95 to-green-100/75 text-lime-950 shadow-sm ring-1 ring-lime-200/55 dark:from-lime-950/40 dark:to-green-950/35 dark:text-lime-50 dark:ring-lime-400/25',
+    idle: 'text-lime-700/85 hover:bg-lime-100/40 dark:text-lime-300/85 dark:hover:bg-lime-950/30',
+  },
+};
+
 export default function BildirimlerPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -563,17 +638,22 @@ export default function BildirimlerPage() {
       </Toolbar>
 
       {/* Filtre sekmeleri */}
-      <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-muted/30 p-1">
-        {(['all', 'duty', 'belirli', 'bilsem', 'timetable', 'agenda', 'smart_board', 'support', 'announcement', 'exam_duty', 'market'] as const).map((tab) => (
+      <div
+        className={cn(
+          'rounded-2xl border border-border/60 bg-linear-to-br from-slate-100/90 via-violet-50/50 to-sky-50/40 p-2 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.6)]',
+          'dark:from-slate-950/80 dark:via-violet-950/20 dark:to-sky-950/25 dark:border-white/10 dark:shadow-inner',
+        )}
+      >
+        <div className="flex flex-wrap gap-1.5 sm:gap-2">
+        {FILTER_TABS.map((tab) => (
           <button
             key={tab}
             type="button"
             onClick={() => setFilterAndUpdateUrl(tab)}
             className={cn(
-              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-              filter === tab
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
+              'flex items-center gap-1.5 rounded-full px-3.5 py-2 text-sm font-medium transition-all duration-200',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2',
+              filter === tab ? TAB_PASTEL[tab].active : TAB_PASTEL[tab].idle,
             )}
           >
             {tab === 'all' && <>Tümü</>}
@@ -639,6 +719,7 @@ export default function BildirimlerPage() {
             )}
           </button>
         ))}
+        </div>
       </div>
 
       <Card>

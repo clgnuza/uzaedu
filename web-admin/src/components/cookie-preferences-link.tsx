@@ -1,8 +1,15 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { reopenCookiePreferences } from '@/lib/cookie-consent';
 
-export function CookiePreferencesLink({ className }: { className?: string }) {
+export function CookiePreferencesLink({
+  className,
+  children,
+}: {
+  className?: string;
+  children?: ReactNode;
+}) {
   return (
     <button
       type="button"
@@ -10,7 +17,7 @@ export function CookiePreferencesLink({ className }: { className?: string }) {
       aria-label="Rıza ve çerez tercihlerini yeniden aç"
       onClick={() => reopenCookiePreferences()}
     >
-      Rıza ayarları
+      {children ?? 'Rıza ayarları'}
     </button>
   );
 }

@@ -38,9 +38,24 @@ import { BELIRLI_PALETTE, OGRETMEN_PALETTE } from '@/config/academic-calendar-pa
 import { Calendar, Plus, ArrowLeft, GripVertical, Flag } from 'lucide-react';
 import { toast } from 'sonner';
 
+const TEMPLATE_SCHOOL_OPTIONS: { value: string; label: string }[] = [
+  { value: 'ilkokul', label: 'İlkokul (varsayılan)' },
+  { value: '__global__', label: 'Ortak (tüm kurumlar)' },
+  { value: 'anaokul', label: 'Anaokul' },
+  { value: 'ortaokul', label: 'Ortaokul' },
+  { value: 'lise', label: 'Lise' },
+  { value: 'meslek_lisesi', label: 'Meslek Lisesi' },
+  { value: 'imam_hatip_ortaokul', label: 'İmam Hatip Ortaokul' },
+  { value: 'imam_hatip_lise', label: 'İmam Hatip Lise' },
+  { value: 'ozel_egitim', label: 'Özel Eğitim' },
+  { value: 'halk_egitim', label: 'Halk Eğitim' },
+  { value: 'bilsem', label: 'BİLSEM' },
+];
+
 export default function AkademikTakvimSablonuPage() {
   const router = useRouter();
   const { me, token } = useAuth();
+  const [templateSchoolType, setTemplateSchoolType] = useState('ilkokul');
   const [weeks, setWeeks] = useState<WeekWithItems[]>([]);
   const [loading, setLoading] = useState(true);
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -53,7 +68,11 @@ export default function AkademikTakvimSablonuPage() {
     if (!token) return;
     setLoading(true);
     try {
-      const data = await apiFetch<WeekWithItems[]>(`/academic-calendar/template?academic_year=${encodeURIComponent(academicYear)}`, { token });
+      const st = `school_type=${encodeURIComponent(templateSchoolType)}`;
+      const data = await apiFetch<WeekWithItems[]>(
+        `/academic-calendar/template?academic_year=${encodeURIComponent(academicYear)}&${st}`,
+        { token },
+      );
       const raw = Array.isArray(data) ? data : [];
       const normalized: WeekWithItems[] = raw.map((w) => ({
         ...w,
@@ -66,7 +85,7 @@ export default function AkademikTakvimSablonuPage() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, templateSchoolType]);
 
   useEffect(() => {
     if (me && me.role !== 'superadmin') {
@@ -111,6 +130,7 @@ export default function AkademikTakvimSablonuPage() {
           item_type: addForm.type,
           title: addForm.title.trim(),
           path: addForm.path.trim() || null,
+          school_types: templateSchoolType === '__global__' ? null : [templateSchoolType],
         }),
       });
       toast.success('Öğe eklendi');
@@ -155,6 +175,7 @@ export default function AkademikTakvimSablonuPage() {
             item_type: section === 'belirli' ? 'belirli_gun_hafta' : 'ogretmen_isleri',
             title: activeData.title,
             path,
+            school_types: templateSchoolType === '__global__' ? null : [templateSchoolType],
           }),
         });
         toast.success(`"${activeData.title}" eklendi`);
@@ -225,6 +246,23 @@ export default function AkademikTakvimSablonuPage() {
           />
         </ToolbarHeading>
         <ToolbarActions>
+          <div className="flex items-center gap-2">
+            <Label htmlFor="tpl-school" className="sr-only">
+              Kurum türü şablonu
+            </Label>
+            <select
+              id="tpl-school"
+              value={templateSchoolType}
+              onChange={(e) => setTemplateSchoolType(e.target.value)}
+              className="h-9 max-w-[220px] rounded-md border border-input bg-background px-2 text-sm"
+            >
+              {TEMPLATE_SCHOOL_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <Button
             variant="outline"
             size="sm"

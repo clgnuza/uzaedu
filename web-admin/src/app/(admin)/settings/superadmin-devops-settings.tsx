@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import { SuperadminDeployPanel } from './superadmin-deploy-panel';
 
 export type DevOpsConfig = {
   git_repo_url: string | null;
@@ -80,6 +81,7 @@ export function SuperadminDevopsSettings() {
   if (!me || me.role !== 'superadmin') return null;
 
   return (
+    <>
     <Card className="border-border/60">
       <CardHeader className="pb-2">
         <div className="flex items-center gap-2">
@@ -87,8 +89,8 @@ export function SuperadminDevopsSettings() {
           <CardTitle className="text-base">Kaynak kod ve canlı ortam</CardTitle>
         </div>
         <CardDescription className="text-xs sm:text-sm">
-          GitHub repo ve dağıtım referansları. Gizli anahtar, SSH veya token burada tutmayın; yalnızca ekip içi not ve
-          URL’ler.
+          Depo adresi, CI/CD bağlantısı, canlı API ve web adresleri ile dağıtım notları. Gizli anahtar, SSH veya token
+          eklemeyin; yalnızca ekip içi referans.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
@@ -176,5 +178,8 @@ export function SuperadminDevopsSettings() {
         )}
       </CardContent>
     </Card>
+
+    <SuperadminDeployPanel />
+    </>
   );
 }

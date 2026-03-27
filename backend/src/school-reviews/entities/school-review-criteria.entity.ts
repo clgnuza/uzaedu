@@ -29,8 +29,8 @@ export class SchoolReviewCriteria {
   @Column({ type: 'int', default: 1 })
   min_score: number;
 
-  /** Max puan (varsayılan 5) */
-  @Column({ type: 'int', default: 5 })
+  /** Max puan (varsayılan 10) */
+  @Column({ type: 'int', default: 10 })
   max_score: number;
 
   @Column({ type: 'boolean', default: true })

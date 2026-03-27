@@ -9,6 +9,7 @@ import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { UpdateAnnouncementDto } from './dto/update-announcement.dto';
 import { PaginationDto } from '../common/dtos/pagination.dto';
 import { paginate } from '../common/dtos/pagination.dto';
+import { invalidateTvAnnouncementsCacheForSchool } from './tv-announcements-cache';
 
 @Injectable()
 export class AnnouncementsService {
@@ -95,11 +96,11 @@ export class AnnouncementsService {
 
     if (audience === 'corridor' || audience === 'teachers') {
       qb.andWhere(
-        '(a.tv_audience = :audience OR a.tv_audience = :both OR a.tv_audience = :all OR a.tv_audience IS NULL)',
+        '(LOWER(TRIM(a.tv_audience)) IN (:audience, :both, :all) OR a.tv_audience IS NULL)',
         { audience, both: 'both', all: 'all' },
       );
     } else if (audience === 'classroom') {
-      qb.andWhere('(a.tv_audience = :classroom OR a.tv_audience = :all)', {
+      qb.andWhere('(LOWER(TRIM(a.tv_audience)) IN (:classroom, :all))', {
         classroom: 'classroom',
         all: 'all',
       });
@@ -169,7 +170,9 @@ export class AnnouncementsService {
       scheduled_until: dto.scheduled_until ?? null,
       created_by: scope.userId,
     });
-    return this.announcementRepo.save(a);
+    const saved = await this.announcementRepo.save(a);
+    invalidateTvAnnouncementsCacheForSchool(scope.schoolId);
+    return saved;
   }
 
   async update(
@@ -207,7 +210,9 @@ export class AnnouncementsService {
     if (dto.tv_slide_duration_seconds !== undefined) a.tv_slide_duration_seconds = dto.tv_slide_duration_seconds;
     if (dto.scheduled_from !== undefined) a.scheduled_from = dto.scheduled_from ? new Date(dto.scheduled_from) : null;
     if (dto.scheduled_until !== undefined) a.scheduled_until = dto.scheduled_until ? new Date(dto.scheduled_until) : null;
-    return this.announcementRepo.save(a);
+    const saved = await this.announcementRepo.save(a);
+    invalidateTvAnnouncementsCacheForSchool(a.school_id);
+    return saved;
   }
 
   async remove(id: string, scope: { schoolId: string | null }): Promise<void> {
@@ -216,7 +221,9 @@ export class AnnouncementsService {
     if (scope.schoolId !== a.school_id) {
       throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu veriye erişim yetkiniz yok.' });
     }
+    const sid = a.school_id;
     await this.announcementRepo.remove(a);
+    invalidateTvAnnouncementsCacheForSchool(sid);
   }
 
   async markRead(announcementId: string, userId: string): Promise<{ read_at: string }> {

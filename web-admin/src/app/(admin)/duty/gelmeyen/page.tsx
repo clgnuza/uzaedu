@@ -680,7 +680,7 @@ export default function DutyGelmeyenPage() {
                   })()}
                 </div>
               </div>
-              <div className="overflow-x-auto rounded-lg border">
+              <div className="table-x-scroll rounded-lg border">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/40">

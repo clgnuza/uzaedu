@@ -1,5 +1,19 @@
 import { cache } from 'react';
 
+export type GuestPublicWebShellNavItem = {
+  label: string;
+  href: string;
+  icon_key: string | null;
+};
+
+export type GuestPublicWebShellNav = {
+  top_bar_enabled: boolean;
+  top_bar_items: GuestPublicWebShellNavItem[];
+  bottom_bar_enabled: boolean;
+  bottom_bar_items: GuestPublicWebShellNavItem[];
+  bottom_bar_mobile_only: boolean;
+};
+
 export type WebExtrasPublic = {
   gtm_id: string | null;
   ga4_measurement_id: string | null;
@@ -20,8 +34,10 @@ export type WebExtrasPublic = {
   app_store_url: string | null;
   play_store_url: string | null;
   help_center_url: string | null;
+  support_enabled: boolean;
   ads_enabled: boolean;
   ads_web_targeting_requires_cookie_consent: boolean;
+  guest_public_web_shell_nav: GuestPublicWebShellNav;
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000/api';

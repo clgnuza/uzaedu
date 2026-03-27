@@ -43,9 +43,15 @@ export enum TeacherSchoolMembershipStatus {
 }
 
 export enum SchoolType {
+  anaokul = 'anaokul',
   ilkokul = 'ilkokul',
   ortaokul = 'ortaokul',
   lise = 'lise',
+  meslek_lisesi = 'meslek_lisesi',
+  imam_hatip_ortaokul = 'imam_hatip_ortaokul',
+  imam_hatip_lise = 'imam_hatip_lise',
+  ozel_egitim = 'ozel_egitim',
+  halk_egitim = 'halk_egitim',
   bilsem = 'bilsem',
 }
 
@@ -58,4 +64,11 @@ export enum SchoolStatus {
   deneme = 'deneme',
   aktif = 'aktif',
   askida = 'askida',
+}
+
+/** Okul listesi: tek tür yerine kademe grubu filtresi (GET /schools?type_group=) */
+export enum SchoolTypeGroup {
+  ilkogretim = 'ilkogretim',
+  lise_kademesi = 'lise_kademesi',
+  kurum_diger = 'kurum_diger',
 }

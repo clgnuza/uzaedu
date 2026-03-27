@@ -3,14 +3,17 @@
 import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, isApiErrorCode } from '@/lib/api';
 import { Alert } from '@/components/ui/alert';
 import { useAuth } from '@/hooks/use-auth';
 import {
   isFirebaseConfigured,
+  isFirebasePhoneAuthConfigured,
   signInWithGoogle,
   signInWithApple,
   startPhoneVerification,
+  normalizePhoneE164Turkey,
+  formatFirebaseAuthError,
 } from '@/lib/firebase';
 import { toast } from 'sonner';
 import {
@@ -22,6 +25,8 @@ import {
   GraduationCap,
   ChevronDown,
   ChevronUp,
+  Building2,
+  ArrowRight,
 } from 'lucide-react';
 import { CardContent, CardHeader } from '@/components/ui/card';
 import { LoadingDots } from '@/components/ui/loading-spinner';
@@ -58,12 +63,31 @@ function LoginForm() {
   const [phoneCode, setPhoneCode] = useState('');
   const [phoneConfirm, setPhoneConfirm] = useState<{ confirm: (code: string) => Promise<string> } | null>(null);
   const [expandedAlt, setExpandedAlt] = useState(false);
+  /** Okul / öğretmen bilgi kartları: yalnızca ilgili ikona tıklanınca açılır */
+  const [openRoleHint, setOpenRoleHint] = useState<'school' | 'teacher' | null>(null);
 
-  const setTokenAndRedirect = (token: string) => {
-    setToken(token);
+  const setTokenAndRedirect = async (token: string) => {
+    await setToken(token);
     const target = redirectTo.startsWith('/') ? redirectTo : `/${redirectTo}`;
     router.push(target);
     router.refresh();
+  };
+
+  const doFirebaseToken = async (idToken: string) => {
+    setError('');
+    setLoading(true);
+    try {
+      const res = await apiFetch<AuthResponse>('/auth/firebase-token', {
+        method: 'POST',
+        body: JSON.stringify({ id_token: idToken }),
+      });
+      await setTokenAndRedirect(res.token);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sosyal giriş yapılamadı.');
+      toast.error(err instanceof Error ? err.message : 'Sosyal giriş yapılamadı.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const doLogin = async (e: React.FormEvent, useEmail?: string, usePassword?: string) => {
@@ -81,28 +105,16 @@ function LoginForm() {
         method: 'POST',
         body: JSON.stringify({ email: e1, password: p1 }),
       });
-      setTokenAndRedirect(res.token);
+      await setTokenAndRedirect(res.token);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Giriş yapılamadı.';
+      let msg = err instanceof Error ? err.message : 'Giriş yapılamadı.';
+      if (isApiErrorCode(err, 'TEACHER_PASSWORD_LOGIN_PENDING_SCHOOL_APPROVAL')) {
+        msg =
+          'Okul onayı beklenirken e-posta ile giriş kapalıdır. Aşağıdan Google, Apple veya telefon ile giriş yapın.';
+        setExpandedAlt(true);
+      }
       setError(msg);
       toast.error(msg);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const doFirebaseToken = async (idToken: string) => {
-    setError('');
-    setLoading(true);
-    try {
-      const res = await apiFetch<AuthResponse>('/auth/firebase-token', {
-        method: 'POST',
-        body: JSON.stringify({ id_token: idToken }),
-      });
-      setTokenAndRedirect(res.token);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sosyal giriş yapılamadı.');
-      toast.error(err instanceof Error ? err.message : 'Sosyal giriş yapılamadı.');
     } finally {
       setLoading(false);
     }
@@ -120,6 +132,7 @@ function LoginForm() {
       await doFirebaseToken(idToken);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Google ile giriş yapılamadı.');
+      toast.error(err instanceof Error ? err.message : 'Google ile giriş yapılamadı.');
       setLoading(false);
     }
   };
@@ -174,17 +187,20 @@ function LoginForm() {
       const idToken = await phoneConfirm.confirm(phoneCode.trim());
       await doFirebaseToken(idToken);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Kod doğrulanamadı.');
+      const msg = formatFirebaseAuthError(err);
+      setError(msg);
+      toast.error(msg);
       setLoading(false);
     }
   };
 
   const firebaseReady = isFirebaseConfigured();
+  const phoneAuthReady = firebaseReady && isFirebasePhoneAuthConfigured();
   const hasAltOptions = firebaseReady || true; // demo hesaplar her zaman var
 
   return (
     <AuthPageShell>
-      <div className="w-full max-w-[360px] mx-auto">
+      <div className="w-full max-w-md mx-auto px-1">
           <div className="mb-4 space-y-1.5">
             <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Hızlı giriş</p>
             <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] sm:grid sm:grid-cols-3 sm:overflow-visible [&::-webkit-scrollbar]:hidden">
@@ -218,11 +234,105 @@ function LoginForm() {
           </div>
 
           <AuthCard>
-            <CardHeader className="space-y-0.5 px-4 pb-2 pt-3.5 sm:px-5">
+            <CardHeader className="space-y-1 px-4 pb-2 pt-3.5 sm:px-5">
               <h2 className="text-base font-semibold tracking-tight text-foreground">E-posta ile giriş</h2>
               <p className="text-xs text-muted-foreground">Hesabınızla giriş yapın</p>
             </CardHeader>
             <CardContent className="space-y-3 px-4 pb-4 pt-0 sm:px-5">
+              <div className="grid gap-2">
+                <p className="text-[10px] font-medium text-muted-foreground">Rol bilgisi — ikona dokunun</p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setOpenRoleHint((v) => (v === 'school' ? null : 'school'))}
+                    aria-expanded={openRoleHint === 'school'}
+                    aria-controls="login-hint-school"
+                    className={cn(
+                      'flex flex-1 flex-col items-center gap-1.5 rounded-2xl border p-3 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500/40',
+                      openRoleHint === 'school'
+                        ? 'border-amber-400 bg-amber-50/80 dark:border-amber-600 dark:bg-amber-950/40'
+                        : 'border-border bg-muted/30 hover:bg-muted/50 dark:hover:bg-muted/40',
+                    )}
+                  >
+                    <span className="flex size-11 items-center justify-center rounded-xl bg-amber-500/15 text-amber-800 dark:text-amber-200">
+                      <Building2 className="size-[20px]" strokeWidth={2} aria-hidden />
+                    </span>
+                    <span className="text-center text-[11px] font-semibold leading-tight text-foreground">Okul yöneticisi</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOpenRoleHint((v) => (v === 'teacher' ? null : 'teacher'))}
+                    aria-expanded={openRoleHint === 'teacher'}
+                    aria-controls="login-hint-teacher"
+                    className={cn(
+                      'flex flex-1 flex-col items-center gap-1.5 rounded-2xl border p-3 transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500/40',
+                      openRoleHint === 'teacher'
+                        ? 'border-violet-400 bg-violet-50/80 dark:border-violet-600 dark:bg-violet-950/40'
+                        : 'border-border bg-muted/30 hover:bg-muted/50 dark:hover:bg-muted/40',
+                    )}
+                  >
+                    <span className="flex size-11 items-center justify-center rounded-xl bg-violet-500/12 text-violet-800 dark:text-violet-200">
+                      <GraduationCap className="size-[20px]" strokeWidth={2} aria-hidden />
+                    </span>
+                    <span className="text-center text-[11px] font-semibold leading-tight text-foreground">Öğretmen</span>
+                  </button>
+                </div>
+
+                {openRoleHint === 'school' && (
+                  <div
+                    id="login-hint-school"
+                    role="region"
+                    aria-label="Okul yöneticisi bilgisi"
+                    className="relative overflow-hidden rounded-2xl border border-amber-200/90 bg-linear-to-br from-amber-50/90 via-background to-orange-50/40 p-3 shadow-sm dark:border-amber-900/50 dark:from-amber-950/35 dark:to-orange-950/20"
+                  >
+                    <div className="pointer-events-none absolute -right-4 -top-6 size-20 rounded-full bg-amber-400/15 blur-2xl dark:bg-amber-500/10" aria-hidden />
+                    <div className="relative flex gap-2.5">
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-800 dark:text-amber-200">
+                        <Building2 className="size-[17px]" strokeWidth={2} aria-hidden />
+                      </div>
+                      <div className="min-w-0 space-y-1">
+                        <p className="text-xs font-semibold tracking-tight text-foreground">Okul yöneticisi</p>
+                        <p className="text-[11px] leading-relaxed text-muted-foreground">
+                          Okul hesabında kurumsal e-posta kullanın. Okul kaydındaki alan adı ile uyumlu olmalıdır.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {openRoleHint === 'teacher' && (
+                  <div
+                    id="login-hint-teacher"
+                    role="region"
+                    aria-label="Öğretmen bilgisi"
+                    className="relative overflow-hidden rounded-2xl border border-violet-200/90 bg-linear-to-br from-violet-50/80 via-background to-sky-50/40 p-3 shadow-sm dark:border-violet-900/45 dark:from-violet-950/30 dark:to-sky-950/20"
+                  >
+                    <div className="pointer-events-none absolute -right-4 -top-6 size-20 rounded-full bg-violet-400/12 blur-2xl dark:bg-violet-500/10" aria-hidden />
+                    <div className="relative flex gap-2.5">
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-violet-500/12 text-violet-800 dark:text-violet-200">
+                        <GraduationCap className="size-[17px]" strokeWidth={2} aria-hidden />
+                      </div>
+                      <div className="min-w-0 space-y-1.5">
+                        <p className="text-xs font-semibold tracking-tight text-foreground">Öğretmen</p>
+                        <p className="text-[11px] leading-relaxed text-muted-foreground">
+                          Giriş için kayıtlı e-posta ve şifre yeterlidir. Kurumsal e-posta zorunlu değildir.
+                        </p>
+                        <p className="text-[11px] leading-relaxed text-muted-foreground">
+                          Okul onayı bekliyorsanız Google, Apple veya SMS ile giriş yapın.
+                        </p>
+                        <Link
+                          href="/register"
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary transition-colors hover:text-primary/85 hover:underline"
+                        >
+                          Öğretmen kaydı (kurumsal okul seçimi)
+                          <ArrowRight className="size-3.5" aria-hidden />
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <form onSubmit={(e) => doLogin(e)} className="space-y-4">
                 <div className="relative">
                   <label htmlFor="email" className="sr-only">E-posta</label>
@@ -232,7 +342,7 @@ function LoginForm() {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="ornek@okul.edu.tr"
+                    placeholder="Kayıtlı e-posta adresiniz"
                     autoComplete="username"
                     disabled={loading}
                     className={cn(inputBase, 'disabled:opacity-60')}
@@ -338,24 +448,39 @@ function LoginForm() {
                               </svg>
                               Apple ile giriş
                             </button>
-                            {phoneStep === 'idle' ? (
-                              <div className="flex gap-2">
-                                <input
-                                  type="tel"
-                                  value={phoneNumber}
-                                  onChange={(e) => setPhoneNumber(e.target.value)}
-                                  placeholder="5XX XXX XX XX"
-                                  disabled={loading}
-                                  className={cn(inputBase, 'flex-1 pl-4')}
+                            {!phoneAuthReady ? (
+                              <p className="rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-[11px] leading-relaxed text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-100">
+                                SMS ile giriş için web-admin <code className="rounded bg-background/60 px-1">.env.local</code> içinde{' '}
+                                <code className="rounded bg-background/60 px-1">NEXT_PUBLIC_FIREBASE_APP_ID</code> ve{' '}
+                                <code className="rounded bg-background/60 px-1">NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID</code> (Firebase Console → Proje ayarları → Genel) tanımlı olmalı.
+                              </p>
+                            ) : phoneStep === 'idle' ? (
+                              <div className="space-y-2">
+                                <div className="flex gap-2">
+                                  <input
+                                    type="tel"
+                                    value={phoneNumber}
+                                    onChange={(e) => setPhoneNumber(e.target.value)}
+                                    placeholder="5XX XXX XX XX"
+                                    disabled={loading}
+                                    className={cn(inputBase, 'flex-1 pl-4')}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={onPhoneSendCode}
+                                    disabled={loading}
+                                    className="shrink-0 rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    Kod
+                                  </button>
+                                </div>
+                                <p className="text-[10px] text-muted-foreground">
+                                  “Kod”a basınca altta güvenlik kutusu açılır; işaretleyin, ardından SMS gider.
+                                </p>
+                                <div
+                                  id={RECAPTCHA_ID}
+                                  className="flex min-h-[78px] w-full justify-center overflow-x-auto rounded-lg border border-border/60 bg-muted/15 py-2 dark:bg-muted/25"
                                 />
-                                <button
-                                  type="button"
-                                  onClick={onPhoneSendCode}
-                                  disabled={loading}
-                                  className="shrink-0 rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                  Kod
-                                </button>
                               </div>
                             ) : (
                               <form onSubmit={onPhoneConfirm} className="flex gap-2">
@@ -397,8 +522,6 @@ function LoginForm() {
             </CardContent>
           </AuthCard>
         </div>
-
-      <div id={RECAPTCHA_ID} className="hidden" aria-hidden />
     </AuthPageShell>
   );
 }

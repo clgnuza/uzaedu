@@ -1,13 +1,19 @@
 'use client';
 
-import { School, GraduationCap, BookOpen, Building2 } from 'lucide-react';
+import { School, GraduationCap, BookOpen, Building2, Wrench, Landmark, HeartHandshake, Library } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  lise: GraduationCap,
-  ortaokul: BookOpen,
-  ilkokul: BookOpen,
   anaokul: School,
+  ilkokul: BookOpen,
+  ortaokul: BookOpen,
+  lise: GraduationCap,
+  meslek_lisesi: Wrench,
+  imam_hatip_ortaokul: Landmark,
+  imam_hatip_lise: Landmark,
+  ozel_egitim: HeartHandshake,
+  halk_egitim: Library,
+  bilsem: GraduationCap,
   default: Building2,
 };
 

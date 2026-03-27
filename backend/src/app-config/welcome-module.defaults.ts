@@ -1,3 +1,7 @@
+export const WELCOME_POPUP_MODES = ['zodiac_auto'] as const;
+
+export type WelcomePopupMode = (typeof WELCOME_POPUP_MODES)[number];
+
 /** Hoşgeldin / günlük motive mesajı — tek JSON (welcome_module_config). */
 export type WelcomeModuleConfig = {
   enabled: boolean;
@@ -7,6 +11,10 @@ export type WelcomeModuleConfig = {
   fallback_message: string | null;
   /** GET /content/welcome-today Cache-Control max-age (sn) */
   cache_ttl_welcome: number;
+  /** Öğretmen dashboard ilk girişte popup göster */
+  popup_enabled: boolean;
+  /** Popup tema modu */
+  popup_mode: WelcomePopupMode;
 };
 
 export const DEFAULT_WELCOME_MODULE: WelcomeModuleConfig = {
@@ -14,6 +22,8 @@ export const DEFAULT_WELCOME_MODULE: WelcomeModuleConfig = {
   by_day: {},
   fallback_message: null,
   cache_ttl_welcome: 120,
+  popup_enabled: true,
+  popup_mode: 'zodiac_auto',
 };
 
 const MM_DD = /^\d{2}-\d{2}$/;

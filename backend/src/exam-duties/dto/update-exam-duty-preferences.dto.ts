@@ -1,6 +1,7 @@
-import { IsArray, IsBoolean, IsIn, IsOptional, IsString, ValidateNested } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsArray, IsBoolean, IsIn, IsOptional, IsString, ValidateIf, ValidateNested } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 import { EXAM_DUTY_CATEGORIES } from '../entities/exam-duty.entity';
+import { IsMorningReminderTime } from './morning-reminder-time.validator';
 
 export class ExamDutyCategoryPreferenceDto {
   @IsString()
@@ -31,10 +32,13 @@ export class ExamDutyCategoryPreferenceDto {
   @IsBoolean()
   pref_exam_day_morning?: boolean;
 
+  /** Boş/null = sistem varsayılanı (07:00); aksi 06:00–13:59 HH:mm */
   @IsOptional()
+  @Transform(({ value }) => (value === '' ? null : value))
+  @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsString()
-  @IsIn(['07:00', '07:30', '08:00', '08:30', '09:00', '09:30'])
-  pref_exam_day_morning_time?: string;
+  @IsMorningReminderTime()
+  pref_exam_day_morning_time?: string | null;
 }
 
 export class UpdateExamDutyPreferencesDto {

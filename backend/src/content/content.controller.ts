@@ -31,7 +31,13 @@ export class ContentController {
 
   @Get('items')
   async listItems(@Query() dto: ListContentItemsDto, @CurrentUser() payload: CurrentUserPayload) {
-    if (!dto.city && (payload.role === UserRole.teacher || payload.role === UserRole.school_admin)) {
+    const skipAutoCity =
+      dto.channel_key === 'il_duyurulari';
+    if (
+      !skipAutoCity &&
+      !dto.city &&
+      (payload.role === UserRole.teacher || payload.role === UserRole.school_admin)
+    ) {
       const user = await this.usersService.findById(payload.userId);
       if (user.school?.city) {
         const normalized = normalizeCityForMebFilter(user.school.city);

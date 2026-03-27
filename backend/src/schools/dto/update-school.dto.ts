@@ -1,4 +1,18 @@
-import { IsString, IsOptional, IsEnum, IsInt, IsIn, IsArray, IsBoolean, Min, Max, MaxLength } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsInt,
+  IsIn,
+  IsArray,
+  IsBoolean,
+  Min,
+  Max,
+  MaxLength,
+  Matches,
+  ValidateIf,
+  IsEmail,
+} from 'class-validator';
 import { MARKET_MODULE_KEYS } from '../../app-config/market-policy.defaults';
 import { SchoolSegment, SchoolStatus, SchoolType } from '../../types/enums';
 
@@ -42,12 +56,14 @@ export class UpdateSchoolDto {
   fax?: string | null;
 
   @IsOptional()
+  @ValidateIf((_, v) => v != null && String(v).trim() !== '')
   @IsString()
-  @MaxLength(16)
+  @Matches(/^\d{4,16}$/, { message: 'MEB kurum kodu yalnızca rakam ve 4–16 hane olmalıdır.' })
   institution_code?: string | null;
 
   @IsOptional()
-  @IsString()
+  @ValidateIf((_, v) => v != null && String(v).trim() !== '')
+  @IsEmail({}, { message: 'Geçerli bir e-posta girin.' })
   @MaxLength(256)
   institutional_email?: string | null;
 
@@ -264,6 +280,11 @@ export class UpdateSchoolDto {
   @IsString()
   @MaxLength(65536)
   tv_timetable_schedule?: string | null;
+
+  /** true: TV ders programı okul yayınlanmış plandan; false: sadece tv_timetable_schedule */
+  @IsOptional()
+  @IsBoolean()
+  tv_timetable_use_school_plan?: boolean | null;
 
   @IsOptional()
   @IsString()

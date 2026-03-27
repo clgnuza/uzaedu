@@ -19,12 +19,18 @@ export const ZUMRE_SUB_TYPES: OptionEntry[] = [
 
 /** Okul türleri (zümre ve bazı evraklar için) */
 export const SCHOOL_TYPES: OptionEntry[] = [
+  { value: 'anaokul', label: 'Anaokulu' },
   { value: 'ilkokul', label: 'İlkokul' },
   { value: 'ortaokul', label: 'Ortaokul' },
   { value: 'lise', label: 'Lise' },
-  { value: 'okul_oncesi', label: 'Okul Öncesi' },
+  { value: 'meslek_lisesi', label: 'Meslek Lisesi / MTAL' },
+  { value: 'imam_hatip_ortaokul', label: 'İmam Hatip Ortaokulu' },
+  { value: 'imam_hatip_lise', label: 'İmam Hatip Lisesi' },
+  { value: 'ozel_egitim', label: 'Özel Eğitim Uygulama Okulu' },
+  { value: 'halk_egitim', label: 'Halk Eğitim Merkezi' },
+  { value: 'bilsem', label: 'BİLSEM' },
+  { value: 'okul_oncesi', label: 'Okul Öncesi (evrak)' },
   { value: 'mesem', label: 'Mesem' },
-  { value: 'ozel_egitim', label: 'Özel Eğitim' },
   { value: 'ortaokul_secmeli', label: 'Ortaokul Seçmeli' },
   { value: 'lise_secmeli', label: 'Lise Seçmeli' },
 ];

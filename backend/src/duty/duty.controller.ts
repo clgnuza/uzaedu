@@ -89,6 +89,32 @@ export class DutyController {
     return this.service.getPlanById(id, payload.schoolId, payload.role as UserRole, payload.userId);
   }
 
+  /** Nöbet dağıtım raporu (öğretmen × hafta içi gün) – school_admin */
+  @Get('plans/:id/distribution')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.school_admin)
+  async getPlanDistribution(
+    @Param('id') id: string,
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    return this.service.getPlanDistribution(id, payload.schoolId ?? null);
+  }
+
+  /** Bu plana ait değişiklik logları – school_admin */
+  @Get('plans/:id/logs')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.school_admin)
+  async listPlanLogs(
+    @Param('id') id: string,
+    @Query('limit') limit: string,
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    const n = limit ? parseInt(limit, 10) : 25;
+    return this.service.listLogsForPlan(id, payload.schoolId ?? null, {
+      limit: Number.isFinite(n) ? n : 25,
+    });
+  }
+
   /** Yeni plan oluştur (JSON ile slotlar) – school_admin */
   @Post('plans')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -135,7 +161,7 @@ export class DutyController {
     @Param('id') id: string,
     @CurrentUser() payload: CurrentUserPayload,
   ) {
-    return this.service.deleteSlot(id, payload.schoolId ?? null);
+    return this.service.deleteSlot(id, payload.schoolId ?? null, payload.userId);
   }
 
   /** Plan yayınla – school_admin */
@@ -314,6 +340,8 @@ export class DutyController {
       min_days_between?: number;
       /** Dönerli liste: İlk hafta şablon, sonraki haftalarda nöbet yerleri bir kaydırılır (Excel benzeri) */
       rotate_area_by_week?: boolean;
+      /** Bu planda eşit dağılım (varsayılan true); false = geçmiş dönem görevlendirme ağırlığına göre */
+      equal_plan_totals?: boolean;
     },
     @CurrentUser() payload: CurrentUserPayload,
   ) {
@@ -659,6 +687,17 @@ export class DutyController {
       payload.userId,
       dto.proposed_user_id,
     );
+  }
+
+  /** Onaylanmış takası/değişimi geri al – school_admin */
+  @Post('swap-requests/:id/revert')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.school_admin)
+  async revertApprovedSwapRequest(
+    @Param('id') id: string,
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    return this.service.revertApprovedSwapRequest(id, payload.schoolId ?? null, payload.userId);
   }
 
   /** Nöbet tercihi ekle – teacher (tek gün veya her hafta) – RawBody: ValidationPipe atlanır */

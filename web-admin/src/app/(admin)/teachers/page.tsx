@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Users as UsersIcon, UserPlus, UserCheck, LayoutGrid, List, Search, Pencil, Mail, Calendar, Phone, Briefcase, BookOpen, ClipboardList, Tv, ChevronLeft, ChevronRight, Megaphone, BarChart3, MailPlus, Download, ArrowRight, ShieldCheck, Clock, AlertTriangle } from 'lucide-react';
+import { Users as UsersIcon, UserPlus, UserCheck, LayoutGrid, List, Search, Pencil, Mail, Calendar, Phone, Briefcase, BookOpen, ClipboardList, Tv, ChevronLeft, ChevronRight, Megaphone, BarChart3, MailPlus, Download, ArrowRight, ShieldCheck, Clock, AlertTriangle, Undo2, GraduationCap } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
@@ -33,6 +33,7 @@ type UserItem = {
   teacher_subject_ids?: string[] | null;
   teacher_school_membership?: 'none' | 'pending' | 'approved' | 'rejected';
   school_verified?: boolean;
+  school_join_stage?: string;
   created_at: string;
 };
 
@@ -227,29 +228,21 @@ export default function TeachersPage() {
     fetchStats();
   }, [fetchList, fetchTotalCount, fetchStats]);
 
-  const handleMembership = useCallback(
-    async (userId: string, action: 'approve' | 'reject' | 'revoke') => {
-      if (!token) return;
-      try {
-        await apiFetch(`/users/${userId}/teacher-school-membership`, {
-          method: 'PATCH',
-          token,
-          body: JSON.stringify({ action }),
-        });
-        toast.success(
-          action === 'approve'
-            ? 'Okul üyeliği onaylandı'
-            : action === 'revoke'
-              ? 'Onay geri alındı; öğretmen yeniden onay bekliyor'
-              : 'Başvuru reddedildi',
-        );
-        refreshAll();
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : 'İşlem yapılamadı');
-      }
-    },
-    [token, refreshAll],
-  );
+  const revokeMembership = async (userId: string) => {
+    if (!token) return;
+    if (!confirm('Bu öğretmenin okul onayını geri almak istediğinize emin misiniz?')) return;
+    try {
+      await apiFetch(`/users/${userId}/teacher-school-membership`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ action: 'revoke' }),
+      });
+      toast.success('Onay geri alındı');
+      refreshAll();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'İşlem yapılamadı');
+    }
+  };
 
   const teacherCount = totalTeacherCount ?? data?.total ?? 0;
   const teacherLimit = me?.school?.teacher_limit ?? 100;
@@ -332,14 +325,14 @@ export default function TeachersPage() {
               { label: 'Görünüm / arama', icon: LayoutGrid },
               ...(me?.role === 'school_admin'
                 ? [
-                    { label: 'Okul onayı', icon: ShieldCheck },
+                    { label: 'Üyelik durumu', icon: ShieldCheck },
                     { label: 'Kişisel bilgi', icon: UserCheck },
                   ]
                 : []),
             ]}
             summary={
               me?.role === 'school_admin'
-                ? 'Okulunuzdaki öğretmen listesi ve yönetimi. Okul doğrulaması: «Onay bekleyen» filtresi veya satırdaki Onayla. Ad/kişisel bilgiler yalnızca öğretmenin kendi ayarlarından değişir.'
+                ? 'Okul üyeliği onayı e-posta doğrulaması sonrası verilir. Ad/kişisel bilgiler yalnızca öğretmenin kendi ayarlarından değişir.'
                 : 'Okulunuzdaki öğretmen listesi ve yönetimi'
             }
           />
@@ -480,7 +473,7 @@ export default function TeachersPage() {
                 <span className="font-medium text-foreground">{teacherCount}</span> / {teacherLimit} toplam
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2.5">
               <button
                 type="button"
                 onClick={handleExportCsv}
@@ -499,7 +492,7 @@ export default function TeachersPage() {
                   {selectedIds.size} kişiye e-posta
                 </a>
               )}
-              <div className="relative min-w-[180px] sm:min-w-[220px]">
+              <div className="relative w-full sm:min-w-[180px] sm:max-w-[280px]">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                 <input
                   type="search"
@@ -515,7 +508,7 @@ export default function TeachersPage() {
                   setSortBy(e.target.value as 'branch' | 'name');
                   setPage(1);
                 }}
-                className="rounded-lg border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 sm:w-auto"
               >
                 <option value="branch">Branşa göre sırala</option>
                 <option value="name">Ada göre sırala</option>
@@ -526,7 +519,7 @@ export default function TeachersPage() {
                   setStatusFilter(e.target.value);
                   setPage(1);
                 }}
-                className="rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 sm:w-auto"
               >
                 <option value="">Tüm durumlar</option>
                 <option value="active">Aktif</option>
@@ -539,7 +532,7 @@ export default function TeachersPage() {
                   setMembershipFilter(e.target.value);
                   setPage(1);
                 }}
-                className="rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 sm:w-auto"
               >
                 <option value="">Tüm üyelikler</option>
                 <option value="pending">Onay bekleyen</option>
@@ -580,7 +573,7 @@ export default function TeachersPage() {
           ) : data && data.items.length > 0 ? (
             <>
               {viewMode === 'cards' ? (
-                <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                   {filteredItems.map((u, idx) => (
                     <TeacherCard
                       key={u.id}
@@ -593,12 +586,12 @@ export default function TeachersPage() {
                       onEdit={() => setEditModalOpen(u)}
                       onStatusChange={refreshAll}
                       isSchoolAdmin={me?.role === 'school_admin'}
-                      onMembership={handleMembership}
+                      onRevoke={revokeMembership}
                     />
                   ))}
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700/60">
+                <div className="table-x-scroll rounded-lg border border-slate-200 dark:border-slate-700/60">
                   <table className="w-full text-left text-sm">
                     <thead>
                       <tr className="border-b border-slate-200 dark:border-slate-700/60 bg-slate-50 dark:bg-slate-900/30">
@@ -669,33 +662,20 @@ export default function TeachersPage() {
                           <td className="px-4 py-2.5">
                             <MembershipBadge user={u} />
                             {me?.role === 'school_admin' && u.teacher_school_membership === 'pending' && (
-                              <div className="mt-1 flex flex-wrap gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => handleMembership(u.id, 'approve')}
-                                  className="rounded bg-emerald-600/90 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-emerald-600"
-                                >
-                                  Onayla
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleMembership(u.id, 'reject')}
-                                  className="rounded border border-border px-2 py-0.5 text-[10px] font-medium hover:bg-muted"
-                                >
-                                  Reddet
-                                </button>
-                              </div>
+                              <p className="mt-1 max-w-[220px] text-[10px] leading-snug text-muted-foreground">
+                                {u.school_join_stage === 'school_pending'
+                                  ? 'Onay kuyruğundan onaylayabilirsiniz.'
+                                  : 'E-posta doğrulandıktan sonra onay kuyruğundan onaylayabilirsiniz.'}
+                              </p>
                             )}
                             {me?.role === 'school_admin' && u.school_verified && (
-                              <div className="mt-1">
-                                <button
-                                  type="button"
-                                  onClick={() => handleMembership(u.id, 'revoke')}
-                                  className="rounded border border-amber-600/50 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-900 hover:bg-amber-500/20 dark:text-amber-100"
-                                >
-                                  Onayı geri al
-                                </button>
-                              </div>
+                              <button
+                                onClick={() => revokeMembership(u.id)}
+                                className="mt-1 inline-flex items-center gap-1 rounded-md border border-rose-300 bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-700 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
+                              >
+                                <Undo2 className="size-3" />
+                                Onayı geri al
+                              </button>
                             )}
                           </td>
                           <td className="px-4 py-2.5">
@@ -821,7 +801,7 @@ function TeacherCard({
   onEdit,
   onStatusChange,
   isSchoolAdmin,
-  onMembership,
+  onRevoke,
 }: {
   user: UserItem;
   index?: number;
@@ -832,7 +812,7 @@ function TeacherCard({
   onEdit: () => void;
   onStatusChange: () => void;
   isSchoolAdmin?: boolean;
-  onMembership?: (userId: string, action: 'approve' | 'reject' | 'revoke') => void;
+  onRevoke?: (id: string) => void;
 }) {
   const subjectNames = (user.teacher_subject_ids ?? [])
     .map((id) => subjects.find((s) => s.id === id)?.name)
@@ -840,88 +820,122 @@ function TeacherCard({
     .join(', ');
 
   const gradient = PASTEL_GRADIENTS[index % PASTEL_GRADIENTS.length];
-  const baseBg = `bg-gradient-to-br ${gradient}`;
   const unverified = teacherNeedsSchoolAttention(user);
 
   return (
     <div
       className={cn(
-        'group flex flex-col gap-2.5 rounded-lg border p-3 transition-all duration-150 hover:shadow-md',
+        'group relative flex flex-col rounded-2xl border transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 overflow-hidden',
         unverified
-          ? 'border-amber-500 bg-gradient-to-br from-amber-100/90 via-orange-50/95 to-amber-50 shadow-lg ring-2 ring-amber-400/60 dark:from-amber-950/80 dark:via-orange-950/50 dark:to-amber-950/40 dark:border-amber-500 dark:ring-amber-500/40 hover:border-amber-600'
-          : `${baseBg} hover:border-slate-300 dark:hover:border-slate-600`,
-        selected ? 'border-primary/60 ring-1 ring-primary/25 ring-offset-1 dark:ring-offset-slate-900' : !unverified && 'border-slate-200/80 dark:border-slate-600/50',
+          ? 'border-amber-400/80 shadow-md ring-1 ring-amber-400/40 dark:border-amber-500/60 dark:ring-amber-500/30'
+          : 'border-slate-200/80 dark:border-slate-700/60',
+        selected && 'ring-2 ring-primary/40 border-primary/50',
       )}
     >
-      <div className="flex items-start gap-2.5">
-        {onToggleSelect && (
-          <input
-            type="checkbox"
-            checked={selected ?? false}
-            onChange={onToggleSelect}
-            className="mt-1.5 rounded border-slate-300 shrink-0"
-            aria-label={`${user.display_name ?? user.email} seç`}
-          />
-        )}
-        <UserAvatarBubble
-          avatarKey={user.avatar_key}
-          avatarUrl={user.avatar_url}
-          displayName={user.display_name || user.email}
-          email={user.email}
-          size="xs"
-          verified={!!user.school_verified}
-        />
-        <div className="min-w-0 flex-1">
-          <Link href={`/teachers/${user.id}`} className="font-medium text-foreground truncate block hover:text-primary text-sm">
-            {user.display_name ?? 'İsim belirtilmemiş'}
-          </Link>
+      {/* Header gradient band */}
+      <div className={cn('h-16 bg-gradient-to-br', unverified ? 'from-amber-200 via-orange-100 to-amber-50 dark:from-amber-900/60 dark:via-orange-900/40 dark:to-amber-950/30' : gradient)} />
+
+      {/* Avatar overlapping header */}
+      <div className="relative px-3 -mt-8">
+        <div className="flex items-end gap-2.5">
+          {onToggleSelect && (
+            <input
+              type="checkbox"
+              checked={selected ?? false}
+              onChange={onToggleSelect}
+              className="absolute top-[-1.75rem] right-2.5 rounded border-white/80 shadow-sm"
+              aria-label={`${user.display_name ?? user.email} seç`}
+            />
+          )}
+          <div className="rounded-full ring-2 ring-white dark:ring-slate-800 shadow-sm shrink-0">
+            <UserAvatarBubble
+              avatarKey={user.avatar_key}
+              avatarUrl={user.avatar_url}
+              displayName={user.display_name || user.email}
+              email={user.email}
+              size="sm"
+              verified={!!user.school_verified}
+            />
+          </div>
+          <div className="min-w-0 flex-1 pb-0.5">
+            <Link href={`/teachers/${user.id}`} className="font-semibold text-foreground truncate block hover:text-primary text-sm leading-tight">
+              {user.display_name ?? 'İsim belirtilmemiş'}
+            </Link>
+            {user.teacher_title && (
+              <span className="text-[10px] text-muted-foreground">{user.teacher_title}</span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Info body */}
+      <div className="flex-1 px-3 pt-2.5 pb-2 space-y-2">
+        {/* Branch & subjects */}
+        <div className="flex flex-wrap gap-1">
           {user.teacher_branch && (
-            <span className="inline-flex mt-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
+            <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
+              <GraduationCap className="size-3" />
               {user.teacher_branch}
             </span>
           )}
-          <a href={`mailto:${user.email}`} className="mt-1 flex items-center gap-1 text-xs text-muted-foreground truncate hover:text-primary">
-            <Mail className="size-3 shrink-0" />
-            <span className="truncate">{user.email}</span>
-          </a>
-          <div className="mt-1.5">
-            <MembershipBadge user={user} />
-          </div>
-          {isSchoolAdmin && user.teacher_school_membership === 'pending' && onMembership && (
-            <div className="mt-1.5 flex gap-1">
-              <button
-                type="button"
-                onClick={() => onMembership(user.id, 'approve')}
-                className="rounded-md bg-emerald-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-emerald-700"
-              >
-                Onayla
-              </button>
-              <button
-                type="button"
-                onClick={() => onMembership(user.id, 'reject')}
-                className="rounded-md border border-border px-2 py-1 text-[10px] font-medium hover:bg-muted"
-              >
-                Reddet
-              </button>
-            </div>
-          )}
-          {isSchoolAdmin && user.school_verified && onMembership && (
-            <button
-              type="button"
-              onClick={() => onMembership(user.id, 'revoke')}
-              className="mt-1.5 w-full rounded-md border border-amber-600/50 bg-amber-500/10 px-2 py-1 text-[10px] font-medium text-amber-900 hover:bg-amber-500/20 dark:text-amber-100"
-            >
-              Onayı geri al
-            </button>
+          {subjectNames && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-950/50 dark:text-violet-300 truncate max-w-[140px]" title={subjectNames}>
+              <BookOpen className="size-3 shrink-0" />
+              {subjectNames}
+            </span>
           )}
         </div>
+
+        {/* Contact */}
+        <div className="space-y-1">
+          <a href={`mailto:${user.email}`} className="flex items-center gap-1.5 text-[11px] text-muted-foreground truncate hover:text-primary transition-colors">
+            <Mail className="size-3 shrink-0 text-muted-foreground/70" />
+            <span className="truncate">{user.email}</span>
+          </a>
+          {user.teacher_phone && (
+            <a href={`tel:${user.teacher_phone}`} className="flex items-center gap-1.5 text-[11px] text-muted-foreground truncate hover:text-primary transition-colors">
+              <Phone className="size-3 shrink-0 text-muted-foreground/70" />
+              <span className="truncate">{user.teacher_phone}</span>
+            </a>
+          )}
+        </div>
+
+        {/* Membership badge */}
+        <div className="pt-0.5">
+          <MembershipBadge user={user} />
+          {isSchoolAdmin && user.teacher_school_membership === 'pending' && (
+            <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
+              {user.school_join_stage === 'school_pending'
+                ? 'Onay kuyruğundan onaylayabilirsiniz.'
+                : 'E-posta doğrulandıktan sonra onay kuyruğundan onaylayabilirsiniz.'}
+            </p>
+          )}
+        </div>
+
+        {/* Registration date */}
+        <div className="flex items-center gap-1 text-[10px] text-muted-foreground/80">
+          <Calendar className="size-3 shrink-0" />
+          {formatDate(user.created_at)}
+        </div>
       </div>
-      <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-white/50 dark:border-slate-700/50">
-        <span className={`inline-flex rounded px-2 py-0.5 text-[11px] font-medium ${STATUS_STYLES[user.status] ?? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
+
+      {/* Footer actions */}
+      <div className="flex items-center justify-between gap-1.5 px-3 py-2 border-t border-slate-100 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30">
+        <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold', STATUS_STYLES[user.status] ?? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400')}>
           {STATUS_LABELS[user.status] ?? user.status}
         </span>
         <div className="flex items-center gap-0.5">
-          <button type="button" onClick={onEdit} className="rounded p-1.5 text-muted-foreground hover:bg-slate-100 hover:text-foreground dark:hover:bg-slate-800" title="Düzenle">
+          {isSchoolAdmin && user.school_verified && onRevoke && (
+            <button
+              type="button"
+              onClick={() => onRevoke(user.id)}
+              className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/40 dark:hover:text-rose-300 transition-colors"
+              title="Onayı geri al"
+            >
+              <Undo2 className="size-3.5" />
+            </button>
+          )}
+          <button type="button" onClick={onEdit} className="rounded-lg p-1.5 text-muted-foreground hover:bg-slate-100 hover:text-foreground dark:hover:bg-slate-800 transition-colors" title="Düzenle">
             <Pencil className="size-3.5" />
           </button>
           <StatusSelect userId={user.id} currentStatus={user.status} token={token} onSuccess={onStatusChange} />
@@ -1235,7 +1249,6 @@ function EditTeacherModal({
   onOpenChange: (v: boolean) => void;
   token: string | null;
   subjects: SchoolSubject[];
-  /** true: okul yöneticisi — kişisel alanlar salt okunur, kayıt yok */
   readOnlyProfile?: boolean;
   onSuccess: () => void;
 }) {
@@ -1288,89 +1301,162 @@ function EditTeacherModal({
   };
 
   const previewName = displayName.trim() || user.email.split('@')[0];
-  const previewInitial = (previewName || user.email).charAt(0).toUpperCase();
+  const selectedSubjectNames = (user.teacher_subject_ids ?? [])
+    .map((id) => subjects.find((s) => s.id === id)?.name)
+    .filter(Boolean);
+  const titleLabel = TITLE_OPTIONS.find((o) => o.value === user.teacher_title)?.label;
+
+  if (readOnlyProfile) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent title="Öğretmen bilgisi" className="max-w-lg">
+          <div className="flex flex-col min-h-0 flex-1">
+            {/* Profile header with gradient */}
+            <div className="relative overflow-hidden rounded-t-lg">
+              <div className="h-20 bg-gradient-to-br from-indigo-400 via-violet-400 to-purple-500 dark:from-indigo-600 dark:via-violet-600 dark:to-purple-700" />
+              <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-background to-transparent" />
+            </div>
+
+            <div className="relative px-5 -mt-10">
+              <div className="flex items-end gap-4">
+                <div className="rounded-2xl ring-4 ring-background shadow-lg shrink-0 overflow-hidden">
+                  <UserAvatarBubble
+                    avatarKey={user.avatar_key}
+                    avatarUrl={user.avatar_url}
+                    displayName={previewName}
+                    email={user.email}
+                    size="lg"
+                    verified={!!user.school_verified}
+                  />
+                </div>
+                <div className="min-w-0 flex-1 pb-1">
+                  <h2 className="text-lg font-bold text-foreground truncate">{previewName}</h2>
+                  {user.teacher_branch && (
+                    <span className="inline-flex items-center gap-1 mt-0.5 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
+                      <GraduationCap className="size-3.5" />
+                      {user.teacher_branch}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Info rows */}
+            <div className="px-5 pt-5 pb-2 space-y-3.5">
+              {/* Status + membership */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', STATUS_STYLES[user.status] ?? 'bg-slate-100 text-slate-600')}>
+                  {STATUS_LABELS[user.status] ?? user.status}
+                </span>
+                <MembershipBadge user={user} />
+              </div>
+
+              {/* Detail grid */}
+              <div className="rounded-xl border border-border/60 bg-muted/20 divide-y divide-border/50">
+                <InfoRow icon={<Mail className="size-4" />} label="E-posta">
+                  <a href={`mailto:${user.email}`} className="text-sm text-foreground hover:text-primary transition-colors truncate">{user.email}</a>
+                </InfoRow>
+
+                {user.teacher_phone && (
+                  <InfoRow icon={<Phone className="size-4" />} label="Telefon">
+                    <a href={`tel:${user.teacher_phone}`} className="text-sm text-foreground hover:text-primary transition-colors">{user.teacher_phone}</a>
+                  </InfoRow>
+                )}
+
+                {titleLabel && titleLabel !== 'Seçiniz' && (
+                  <InfoRow icon={<Briefcase className="size-4" />} label="Ünvan">
+                    <span className="text-sm text-foreground">{titleLabel}</span>
+                  </InfoRow>
+                )}
+
+                <InfoRow icon={<Calendar className="size-4" />} label="Kayıt tarihi">
+                  <span className="text-sm text-foreground">{formatDate(user.created_at)}</span>
+                </InfoRow>
+
+                {selectedSubjectNames.length > 0 && (
+                  <InfoRow icon={<BookOpen className="size-4" />} label="Dersler">
+                    <div className="flex flex-wrap gap-1">
+                      {selectedSubjectNames.map((name) => (
+                        <span key={name} className="inline-flex rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  </InfoRow>
+                )}
+              </div>
+
+              {/* School admin info note */}
+              <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-muted-foreground dark:border-slate-700 dark:bg-slate-800/50">
+                Kişisel bilgiler öğretmenin kendi hesabından güncellenir. Okul üyeliğini onay kuyruğundan, hesap durumunu öğretmen listesinden yönetebilirsiniz.
+              </p>
+            </div>
+
+            <div className="shrink-0 flex justify-end px-5 py-4 border-t border-border bg-muted/20">
+              <button
+                type="button"
+                onClick={() => onOpenChange(false)}
+                className="rounded-lg border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted transition-colors"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title={readOnlyProfile ? 'Öğretmen bilgisi' : 'Öğretmen düzenle'} className="max-w-2xl">
+      <DialogContent title="Öğretmen düzenle" className="max-w-2xl">
         <form onSubmit={handleSubmit} className="flex flex-col min-h-0 flex-1">
-          {/* Header: avatar + email */}
-          <div className="shrink-0 flex items-center gap-4 px-6 py-4 border-b border-border bg-muted/30">
-            <div className="relative size-14 shrink-0 overflow-hidden rounded-full bg-primary/10 flex items-center justify-center">
-              <span className="text-xl font-semibold text-primary z-[0]">{previewInitial}</span>
-              {avatarUrl && (
-                <img
-                  src={avatarUrl}
-                  alt=""
-                  className="absolute inset-0 size-full object-cover z-[1]"
-                  onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
-                />
-              )}
+          {/* Header */}
+          <div className="shrink-0 flex items-center gap-4 px-6 py-4 border-b border-border bg-muted/30 rounded-t-lg">
+            <div className="rounded-xl ring-2 ring-border/40 shadow-sm shrink-0 overflow-hidden">
+              <UserAvatarBubble
+                avatarKey={user.avatar_key}
+                avatarUrl={user.avatar_url}
+                displayName={previewName}
+                email={user.email}
+                size="md"
+                verified={!!user.school_verified}
+              />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="font-medium text-foreground truncate">{previewName || '—'}</p>
+              <p className="font-semibold text-foreground truncate">{previewName || '—'}</p>
               <p className="flex items-center gap-1.5 text-sm text-muted-foreground mt-0.5">
-                <SvgMail />
+                <Mail className="size-3.5 shrink-0" />
                 <span className="truncate">{user.email}</span>
               </p>
+              <div className="flex items-center gap-2 mt-1">
+                <MembershipBadge user={user} />
+              </div>
             </div>
           </div>
 
           <div className="flex-1 overflow-y-auto px-6 py-5">
-            {readOnlyProfile && (
-              <p className="mb-4 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                Ad, branş, telefon ve fotoğraf yalnızca öğretmenin kendi hesabından (Ayarlar) güncellenir. Siz yalnızca okul üyeliğini onaylayabilir ve hesap durumunu tabloda değiştirebilirsiniz.
-              </p>
-            )}
             {error && <Alert message={error} className="mb-4" />}
             <div className="grid gap-5 sm:grid-cols-2">
-              <div className="sm:col-span-2 sm:flex sm:gap-4">
-                <div className="flex-1 min-w-0">
-                  <label htmlFor="edit-display-name" className="block text-sm font-medium text-foreground mb-1.5">Görünen ad</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><SvgUser /></span>
-                    <input
-                      id="edit-display-name"
-                      type="text"
-                      value={displayName}
-                      onChange={(e) => setDisplayName(e.target.value)}
-                      maxLength={255}
-                      placeholder="Ad Soyad"
-                      disabled={readOnlyProfile}
-                      readOnly={readOnlyProfile}
-                      className={inputBase + (readOnlyProfile ? ' opacity-80 cursor-not-allowed' : '')}
-                    />
-                  </div>
+              <div className="sm:col-span-2">
+                <label htmlFor="edit-display-name" className="block text-sm font-medium text-foreground mb-1.5">Görünen ad</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><SvgUser /></span>
+                  <input id="edit-display-name" type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={255} placeholder="Ad Soyad" className={inputBase} />
                 </div>
               </div>
               <div>
-                <label htmlFor="edit-branch" className="block text-sm font-medium text-foreground mb-1.5">Branş / Ne öğretmeni</label>
+                <label htmlFor="edit-branch" className="block text-sm font-medium text-foreground mb-1.5">Branş</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><SvgBook /></span>
-                  <input
-                    id="edit-branch"
-                    type="text"
-                    value={teacherBranch}
-                    onChange={(e) => setTeacherBranch(e.target.value)}
-                    maxLength={100}
-                    placeholder="Coğrafya Öğretmeni, Matematik Öğretmeni vb."
-                    disabled={readOnlyProfile}
-                    readOnly={readOnlyProfile}
-                    className={inputBase + (readOnlyProfile ? ' opacity-80 cursor-not-allowed' : '')}
-                  />
+                  <input id="edit-branch" type="text" value={teacherBranch} onChange={(e) => setTeacherBranch(e.target.value)} maxLength={100} placeholder="Matematik Öğretmeni vb." className={inputBase} />
                 </div>
               </div>
               <div>
                 <label htmlFor="edit-title" className="block text-sm font-medium text-foreground mb-1.5">Ünvan</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-10"><SvgBriefcase /></span>
-                  <select
-                    id="edit-title"
-                    value={teacherTitle}
-                    onChange={(e) => setTeacherTitle(e.target.value)}
-                    disabled={readOnlyProfile}
-                    className={inputBase + ' appearance-none' + (readOnlyProfile ? ' opacity-80 cursor-not-allowed' : '')}
-                  >
+                  <select id="edit-title" value={teacherTitle} onChange={(e) => setTeacherTitle(e.target.value)} className={inputBase + ' appearance-none'}>
                     {TITLE_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
@@ -1381,34 +1467,14 @@ function EditTeacherModal({
                 <label htmlFor="edit-phone" className="block text-sm font-medium text-foreground mb-1.5">Telefon</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><SvgPhone /></span>
-                  <input
-                    id="edit-phone"
-                    type="tel"
-                    value={teacherPhone}
-                    onChange={(e) => setTeacherPhone(e.target.value)}
-                    maxLength={32}
-                    placeholder="05XX XXX XX XX"
-                    disabled={readOnlyProfile}
-                    readOnly={readOnlyProfile}
-                    className={inputBase + (readOnlyProfile ? ' opacity-80 cursor-not-allowed' : '')}
-                  />
+                  <input id="edit-phone" type="tel" value={teacherPhone} onChange={(e) => setTeacherPhone(e.target.value)} maxLength={32} placeholder="05XX XXX XX XX" className={inputBase} />
                 </div>
               </div>
               <div className="sm:col-span-2">
                 <label htmlFor="edit-avatar" className="block text-sm font-medium text-foreground mb-1.5">Fotoğraf URL</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><SvgImage /></span>
-                  <input
-                    id="edit-avatar"
-                    type="url"
-                    value={avatarUrl}
-                    onChange={(e) => setAvatarUrl(e.target.value)}
-                    maxLength={512}
-                    placeholder="https://..."
-                    disabled={readOnlyProfile}
-                    readOnly={readOnlyProfile}
-                    className={inputBase + (readOnlyProfile ? ' opacity-80 cursor-not-allowed' : '')}
-                  />
+                  <input id="edit-avatar" type="url" value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} maxLength={512} placeholder="https://..." className={inputBase} />
                 </div>
               </div>
             </div>
@@ -1419,20 +1485,12 @@ function EditTeacherModal({
                   {subjects.map((s) => (
                     <label
                       key={s.id}
-                      className={
-                        'inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:text-primary ' +
-                        (readOnlyProfile ? 'cursor-default opacity-90' : 'cursor-pointer hover:bg-muted/50')
-                      }
+                      className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm cursor-pointer transition-colors hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:text-primary"
                     >
                       <input
                         type="checkbox"
                         checked={subjectIds.includes(s.id)}
-                        onChange={(e) =>
-                          setSubjectIds((prev) =>
-                            e.target.checked ? [...prev, s.id] : prev.filter((id) => id !== s.id)
-                          )
-                        }
-                        disabled={readOnlyProfile}
+                        onChange={(e) => setSubjectIds((prev) => e.target.checked ? [...prev, s.id] : prev.filter((id) => id !== s.id))}
                         className="rounded border-input"
                       />
                       {s.name}
@@ -1443,27 +1501,28 @@ function EditTeacherModal({
             )}
           </div>
 
-          {/* Sticky footer */}
           <div className="shrink-0 flex justify-end gap-3 px-6 py-4 border-t border-border bg-muted/20">
-            <button
-              type="button"
-              onClick={() => onOpenChange(false)}
-              className="rounded-lg border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted transition-colors"
-            >
-              {readOnlyProfile ? 'Kapat' : 'İptal'}
+            <button type="button" onClick={() => onOpenChange(false)} className="rounded-lg border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted transition-colors">
+              İptal
             </button>
-            {!readOnlyProfile && (
-              <button
-                type="submit"
-                disabled={submitting}
-                className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity"
-              >
-                {submitting ? 'Kaydediliyor…' : 'Kaydet'}
-              </button>
-            )}
+            <button type="submit" disabled={submitting} className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity">
+              {submitting ? 'Kaydediliyor…' : 'Kaydet'}
+            </button>
           </div>
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function InfoRow({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 px-4 py-3">
+      <span className="mt-0.5 text-muted-foreground/70 shrink-0">{icon}</span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 mb-0.5">{label}</p>
+        {children}
+      </div>
+    </div>
   );
 }

@@ -797,7 +797,7 @@ export default function ProgramEditPage() {
             <CardTitle className="text-lg">Haftalık Ders Programı</CardTitle>
           </div>
         </CardHeader>
-        <CardContent className="p-0 overflow-x-auto">
+        <CardContent className="p-0 table-x-scroll">
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="bg-muted/50">

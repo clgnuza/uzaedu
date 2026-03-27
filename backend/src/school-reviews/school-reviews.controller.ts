@@ -17,6 +17,7 @@ import { RequireSchoolModule } from '../common/decorators/require-school-module.
 import { Roles } from '../common/decorators/roles.decorator';
 import { RequireModule } from '../common/decorators/require-module.decorator';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
+import { BypassSchoolModuleGuard } from '../common/decorators/bypass-school-module.decorator';
 import { UserRole } from '../types/enums';
 import { ListSchoolsForReviewsDto } from './dto/list-schools-for-reviews.dto';
 import { CreateReviewDto } from './dto/create-review.dto';
@@ -50,6 +51,23 @@ export class SchoolReviewsController {
   @RequireModule('school_reviews')
   async listCriteriaAdmin() {
     return this.service.listCriteriaAdmin();
+  }
+
+  /** Varsayılan 1–10 kriter setini yeniden yükler (mevcut kriter satırlarını siler). Sadece süper yönetici. */
+  @Post('criteria/reseed-defaults')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin)
+  async reseedDefaultCriteria() {
+    return this.service.reseedDefaultCriteria();
+  }
+
+  /** Mevcut tüm kriter satırlarında min=1, max=10 (slug/başlık değişmez). */
+  @Post('criteria/normalize-score-range')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('school_reviews')
+  async normalizeCriteriaScoreRange() {
+    return this.service.normalizeCriteriaScoreRange();
   }
 
   @Post('criteria')
@@ -106,6 +124,7 @@ export class SchoolReviewsController {
 
   /** Okulu favorilere ekle. */
   @Post('schools/:id/favorite')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher)
   async addFavorite(@Param('id') schoolId: string, @CurrentUser() payload: CurrentUserPayload) {
@@ -114,6 +133,7 @@ export class SchoolReviewsController {
 
   /** Okulu favorilerden çıkar. */
   @Delete('schools/:id/favorite')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher)
   async removeFavorite(@Param('id') schoolId: string, @CurrentUser() payload: CurrentUserPayload) {
@@ -122,6 +142,7 @@ export class SchoolReviewsController {
 
   /** Değerlendirme oluştur. */
   @Post('schools/:id/reviews')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async createReview(
@@ -134,6 +155,7 @@ export class SchoolReviewsController {
 
   /** Değerlendirme güncelle. */
   @Patch('reviews/:id')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async updateReview(
@@ -146,6 +168,7 @@ export class SchoolReviewsController {
 
   /** Değerlendirme beğen / beğenmekten vazgeç (toggle). */
   @Post('reviews/:id/like')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async toggleReviewLike(
@@ -157,6 +180,7 @@ export class SchoolReviewsController {
 
   /** Değerlendirme beğenme / beğenmekten vazgeç (toggle). */
   @Post('reviews/:id/dislike')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async toggleReviewDislike(
@@ -168,6 +192,7 @@ export class SchoolReviewsController {
 
   /** Soru beğen / beğenmekten vazgeç (toggle). */
   @Post('questions/:id/like')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async toggleQuestionLike(
@@ -179,6 +204,7 @@ export class SchoolReviewsController {
 
   /** Soru beğenme / beğenmekten vazgeç (toggle). */
   @Post('questions/:id/dislike')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async toggleQuestionDislike(
@@ -190,6 +216,7 @@ export class SchoolReviewsController {
 
   /** Cevap beğen / beğenmekten vazgeç (toggle). */
   @Post('answers/:id/like')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async toggleAnswerLike(
@@ -201,6 +228,7 @@ export class SchoolReviewsController {
 
   /** Cevap beğenme / beğenmekten vazgeç (toggle). */
   @Post('answers/:id/dislike')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async toggleAnswerDislike(
@@ -212,6 +240,7 @@ export class SchoolReviewsController {
 
   /** Değerlendirme bildir (uygunsuz içerik). Body: { reason?, comment? } */
   @Post('reviews/:id/report')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async reportReview(@Param('id') reviewId: string, @Body() dto: ReportContentDto, @CurrentUser() payload: CurrentUserPayload) {
@@ -220,6 +249,7 @@ export class SchoolReviewsController {
 
   /** Soru bildir (uygunsuz içerik). */
   @Post('questions/:id/report')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async reportQuestion(@Param('id') questionId: string, @Body() dto: ReportContentDto, @CurrentUser() payload: CurrentUserPayload) {
@@ -228,6 +258,7 @@ export class SchoolReviewsController {
 
   /** Cevap bildir (uygunsuz içerik). */
   @Post('answers/:id/report')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async reportAnswer(@Param('id') answerId: string, @Body() dto: ReportContentDto, @CurrentUser() payload: CurrentUserPayload) {
@@ -236,6 +267,7 @@ export class SchoolReviewsController {
 
   /** Değerlendirme sil. */
   @Delete('reviews/:id')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async deleteReview(@Param('id') reviewId: string, @CurrentUser() payload: CurrentUserPayload) {
@@ -266,6 +298,7 @@ export class SchoolReviewsController {
 
   /** Soru oluştur. */
   @Post('schools/:id/questions')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async createQuestion(
@@ -278,6 +311,7 @@ export class SchoolReviewsController {
 
   /** Soruya cevap ver. */
   @Post('questions/:id/answers')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async createAnswer(
@@ -290,6 +324,7 @@ export class SchoolReviewsController {
 
   /** Soru güncelle. */
   @Patch('questions/:id')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async updateQuestion(
@@ -302,6 +337,7 @@ export class SchoolReviewsController {
 
   /** Cevap güncelle. */
   @Patch('answers/:id')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async updateAnswer(
@@ -314,6 +350,7 @@ export class SchoolReviewsController {
 
   /** Soru sil. */
   @Delete('questions/:id')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async deleteQuestion(
@@ -325,6 +362,7 @@ export class SchoolReviewsController {
 
   /** Cevap sil. */
   @Delete('answers/:id')
+  @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
   async deleteAnswer(

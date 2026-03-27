@@ -1,44 +1,81 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, School, Save, ScrollText, Globe, Phone, FileText, Pencil, MapPin, Mail, Printer, Map, Wallet, Coins } from 'lucide-react';
+import {
+  ArrowLeft,
+  School,
+  Save,
+  ScrollText,
+  Globe,
+  Phone,
+  FileText,
+  Pencil,
+  MapPin,
+  Mail,
+  Printer,
+  Map,
+  Wallet,
+  Coins,
+  Search,
+  CalendarRange,
+  Download,
+  RefreshCw,
+} from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import { TURKEY_CITIES, getDistrictsForCity } from '@/lib/turkey-addresses';
 import { Toolbar, ToolbarHeading, ToolbarPageTitle, ToolbarActions } from '@/components/layout/toolbar';
 import { ToolbarIconHints } from '@/components/layout/toolbar-icon-hints';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { Input } from '@/components/ui/input';
 import { SCHOOL_MODULE_OPTIONS as MODULE_OPTIONS } from '@/config/school-modules';
-
-const SCHOOL_TYPE_LABELS: Record<string, string> = { ilkokul: 'İlkokul', ortaokul: 'Ortaokul', lise: 'Lise', bilsem: 'BİLSEM' };
+import {
+  formatSchoolTypeLabel,
+  MEB_INSTITUTION_CODE_HINT,
+  INSTITUTIONAL_EMAIL_HINT,
+  SCHOOL_TYPE_LABELS,
+  SCHOOL_TYPE_ORDER,
+} from '@/lib/school-labels';
 const SCHOOL_SEGMENT_LABELS: Record<string, string> = { ozel: 'Özel', devlet: 'Devlet' };
 const SCHOOL_STATUS_LABELS: Record<string, string> = { deneme: 'Deneme', aktif: 'Aktif', askida: 'Askıda' };
 const ACTION_LABELS: Record<string, string> = {
-  login: 'Giriş yapıldı',
-  failed_login: 'Başarısız giriş denemesi',
+  login: 'Giriş',
+  failed_login: 'Başarısız giriş',
+  register: 'Kayıt',
   school_created: 'Okul oluşturuldu',
-  school_updated: 'Okul bilgileri güncellendi',
-  password_changed: 'Şifre değiştirildi',
-  data_export: 'Veri dışa aktarıldı',
+  school_updated: 'Okul güncellendi',
+  password_changed: 'Şifre değişti',
+  data_export: 'Veri dışa aktarma',
+  data_import: 'Veri içe aktarma',
   account_deleted: 'Hesap silindi',
+  SMARTBOARD_DEVICE_CREATED: 'Akıllı tahta: cihaz eklendi',
+  SMARTBOARD_DEVICE_REMOVED: 'Akıllı tahta: cihaz kaldırıldı',
+  SMARTBOARD_TEACHER_AUTHORIZED: 'Akıllı tahta: öğretmen yetkisi verildi',
+  SMARTBOARD_TEACHER_UNAUTHORIZED: 'Akıllı tahta: öğretmen yetkisi kaldırıldı',
 };
 
 const ACTION_FILTER_OPTIONS = [
   { value: '', label: 'Tümü' },
-  { value: 'failed_login', label: 'Hatalar (başarısız giriş)' },
+  { value: 'failed_login', label: 'Hatalar' },
   { value: 'login', label: 'Girişler' },
-  { value: 'school_updated', label: 'Güncellemeler' },
+  { value: 'register', label: 'Kayıtlar' },
+  { value: 'school_updated', label: 'Okul güncellemeleri' },
   { value: 'school_created', label: 'Okul oluşturma' },
+  { value: 'data_import', label: 'Veri içe aktarma' },
+  { value: 'data_export', label: 'Veri dışa aktarma' },
+  { value: 'password_changed', label: 'Şifre değişimi' },
+  { value: 'account_deleted', label: 'Hesap silindi' },
 ];
 
 const FIELD_LABELS: Record<string, string> = {
   name: 'Okul adı',
-  type: 'Tür',
+  type: 'Kurum türü',
   segment: 'Segment',
   city: 'İl',
   district: 'İlçe',
@@ -59,25 +96,75 @@ const FIELD_LABELS: Record<string, string> = {
   tv_logo_url: 'TV logo',
 };
 
+function formatLogActionLabel(action: string): string {
+  if (ACTION_LABELS[action]) return ACTION_LABELS[action];
+  return action
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function logCategoryClass(action: string): string {
+  if (action === 'failed_login') return 'bg-destructive/15 text-destructive border-destructive/25';
+  if (action === 'login' || action === 'register') return 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/20';
+  if (action === 'school_updated' || action === 'school_created') return 'bg-amber-500/10 text-amber-800 dark:text-amber-200 border-amber-500/20';
+  if (action.startsWith('SMARTBOARD_')) return 'bg-violet-500/10 text-violet-800 dark:text-violet-200 border-violet-500/20';
+  if (action === 'data_export' || action === 'data_import') return 'bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 border-emerald-500/20';
+  return 'bg-muted text-muted-foreground border-border';
+}
+
 function formatLogDetail(log: AuditLogItem): string {
-  if (!log.meta || Object.keys(log.meta).length === 0) return '';
-  const meta = log.meta as Record<string, unknown>;
+  const meta = (log.meta ?? {}) as Record<string, unknown>;
+  const keys = Object.keys(meta);
+
+  if (log.action === 'login' && keys.length === 0) return 'E-posta ile giriş';
+
+  if (log.action === 'register') {
+    if (meta.with_school === true) return 'Bu okulla kayıt';
+    if (meta.with_school === false) return 'Okul seçilmeden kayıt';
+    return '';
+  }
+
+  if (keys.length === 0) return '';
+
   if (log.action === 'school_updated' && Array.isArray(meta.fields)) {
     const labels = (meta.fields as string[]).map((f) => FIELD_LABELS[f] ?? f).join(', ');
-    return labels ? `Güncellenen: ${labels}` : '';
+    return labels ? `Alanlar: ${labels}` : '';
   }
   if (log.action === 'school_created' && meta.name) {
-    return `"${meta.name}"`;
+    return `Ad: "${meta.name}"`;
   }
   if (log.action === 'school_created' && meta.bulk) {
     return 'Toplu içe aktarma';
   }
   if (log.action === 'login' && meta.provider === 'firebase') {
-    return 'Google / Apple / Telefon ile';
+    return 'Google / Apple / telefon ile giriş';
   }
-  if (log.action === 'failed_login' && meta.reason === 'wrong_password') {
-    return 'Yanlış şifre';
+  if (log.action === 'failed_login') {
+    if (meta.reason === 'wrong_password') return 'Yanlış şifre';
+    if (meta.reason) return `Neden: ${String(meta.reason)}`;
   }
+  if (log.action === 'data_import') {
+    const scope = meta.scope != null ? String(meta.scope) : '';
+    return scope ? `İçe aktarma (${scope})` : 'Kişisel veri içe aktarıldı';
+  }
+  if (log.action === 'data_export') {
+    return 'Kişisel veri dışa aktarıldı';
+  }
+  if (log.action === 'SMARTBOARD_DEVICE_CREATED') {
+    const code = meta.pairingCode ?? meta.pairing_code;
+    return code ? `Eşleştirme kodu: ${code}` : 'Yeni cihaz';
+  }
+  if (log.action === 'SMARTBOARD_DEVICE_REMOVED') {
+    return meta.deviceId ? `Cihaz: ${String(meta.deviceId).slice(0, 8)}…` : 'Cihaz kaldırıldı';
+  }
+  if (log.action === 'SMARTBOARD_TEACHER_AUTHORIZED' && meta.addedUserId) {
+    return `Öğretmen ID: ${String(meta.addedUserId).slice(0, 8)}…`;
+  }
+  if (log.action === 'SMARTBOARD_TEACHER_UNAUTHORIZED' && meta.removedUserId) {
+    return `Öğretmen ID: ${String(meta.removedUserId).slice(0, 8)}…`;
+  }
+
   const parts = Object.entries(meta)
     .filter(([k, v]) => k !== 'bulk' && v != null && v !== '')
     .map(([k, v]) => `${FIELD_LABELS[k] ?? k}: ${String(v)}`)
@@ -91,6 +178,42 @@ function formatLogUser(log: AuditLogItem): string {
   if (u.display_name) return u.display_name;
   if (u.email) return u.email;
   return '—';
+}
+
+function formatRelativeTr(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return '';
+  const diffSec = Math.round((Date.now() - t) / 1000);
+  if (diffSec < 45) return 'az önce';
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} dk önce`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} sa. önce`;
+  if (diffSec < 86400 * 14) return `${Math.floor(diffSec / 86400)} gün önce`;
+  return '';
+}
+
+function downloadAuditCsv(items: AuditLogItem[], filenameBase: string) {
+  const headers = ['Tarih (ISO)', 'İşlem', 'Kullanıcı', 'Açıklama', 'IP'];
+  const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
+  const lines = [
+    headers.join(';'),
+    ...items.map((log) =>
+      [
+        new Date(log.created_at).toISOString(),
+        formatLogActionLabel(log.action),
+        formatLogUser(log),
+        formatLogDetail(log),
+        log.ip ?? '',
+      ]
+        .map((c) => esc(String(c)))
+        .join(';'),
+    ),
+  ];
+  const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${filenameBase}-aktivite.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 type SchoolDetail = {
@@ -170,9 +293,15 @@ export default function SchoolDetailPage() {
   const [modules, setModules] = useState<string[]>([]);
   const [logPage, setLogPage] = useState(1);
   const [logActionFilter, setLogActionFilter] = useState('');
+  const [logDateFrom, setLogDateFrom] = useState('');
+  const [logDateTo, setLogDateTo] = useState('');
+  const [logLimit, setLogLimit] = useState(20);
+  const [logSearch, setLogSearch] = useState('');
+  const [logsFetching, setLogsFetching] = useState(false);
   const [editInfo, setEditInfo] = useState(false);
   const [infoForm, setInfoForm] = useState({
     status: 'aktif' as string,
+    type: 'ilkokul' as string,
     website_url: '',
     phone: '',
     fax: '',
@@ -205,6 +334,7 @@ export default function SchoolDetailPage() {
       setSchool(s);
       setInfoForm({
         status: s.status ?? 'aktif',
+        type: s.type ?? 'ilkokul',
         website_url: s.website_url ?? '',
         phone: s.phone ?? '',
         fax: s.fax ?? '',
@@ -230,23 +360,52 @@ export default function SchoolDetailPage() {
   const fetchLogs = useCallback(async () => {
     if (!token || !id) return;
     setLogsError(null);
+    setLogsFetching(true);
     try {
       const params = new URLSearchParams({
         school_id: id,
         page: String(logPage),
-        limit: '20',
+        limit: String(logLimit),
       });
       if (logActionFilter) params.set('action', logActionFilter);
+      if (logDateFrom.trim()) {
+        params.set('from', new Date(`${logDateFrom.trim()}T00:00:00`).toISOString());
+      }
+      if (logDateTo.trim()) {
+        params.set('to', new Date(`${logDateTo.trim()}T23:59:59.999`).toISOString());
+      }
       const res = await apiFetch<{ total: number; page: number; limit: number; items: AuditLogItem[] }>(
         `/audit-logs?${params}`,
         { token }
       );
       setLogs(res);
     } catch (e) {
-      setLogs({ total: 0, page: 1, limit: 20, items: [] });
+      setLogs({ total: 0, page: 1, limit: logLimit, items: [] });
       setLogsError(e instanceof Error ? e.message : 'Loglar yüklenemedi');
+    } finally {
+      setLogsFetching(false);
     }
-  }, [token, id, logPage, logActionFilter]);
+  }, [token, id, logPage, logActionFilter, logDateFrom, logDateTo, logLimit]);
+
+  const filteredLogItems = useMemo(() => {
+    if (!logs?.items?.length) return [];
+    const q = logSearch.trim().toLowerCase();
+    if (!q) return logs.items;
+    return logs.items.filter((log) => {
+      const blob = [
+        formatLogActionLabel(log.action),
+        formatLogUser(log),
+        formatLogDetail(log),
+        log.ip ?? '',
+        new Date(log.created_at).toLocaleString('tr-TR'),
+      ]
+        .join(' ')
+        .toLowerCase();
+      return blob.includes(q);
+    });
+  }, [logs, logSearch]);
+
+  const logTotalPages = logs ? Math.max(1, Math.ceil(logs.total / (logs.limit || 1))) : 1;
 
   const fetchCredits = useCallback(async () => {
     if (!token || !id) return;
@@ -282,8 +441,8 @@ export default function SchoolDetailPage() {
   }, [token, id, fetchSchool]);
 
   useEffect(() => {
-    if (token && id && school) fetchLogs();
-  }, [token, id, school, logPage, logActionFilter, fetchLogs]);
+    if (token && id) fetchLogs();
+  }, [token, id, logPage, logActionFilter, fetchLogs]);
 
   useEffect(() => {
     if (token && id && school && isSuperadmin) fetchCredits();
@@ -330,7 +489,7 @@ export default function SchoolDetailPage() {
         method: 'PATCH',
         token,
         body: JSON.stringify({
-          ...(isSuperadmin && { status: infoForm.status }),
+          ...(isSuperadmin && { status: infoForm.status, type: infoForm.type }),
           website_url: infoForm.website_url.trim() || null,
           phone: infoForm.phone.trim() || null,
           fax: infoForm.fax.trim() || null,
@@ -415,7 +574,7 @@ export default function SchoolDetailPage() {
               { label: 'Okul tipi', icon: School },
               { label: 'Konum', icon: MapPin },
             ]}
-            summary={`${SCHOOL_TYPE_LABELS[school.type] ?? school.type} • ${SCHOOL_SEGMENT_LABELS[school.segment] ?? school.segment}${school.city ? ` • ${[school.city, school.district].filter(Boolean).join(' / ')}` : ''}`}
+            summary={`${formatSchoolTypeLabel(school.type)} • ${SCHOOL_SEGMENT_LABELS[school.segment] ?? school.segment}${school.city ? ` • ${[school.city, school.district].filter(Boolean).join(' / ')}` : ''}`}
           />
         </ToolbarHeading>
         <ToolbarActions>
@@ -453,6 +612,7 @@ export default function SchoolDetailPage() {
                     setEditInfo(false);
                     setInfoForm({
                       status: school.status ?? 'aktif',
+                      type: school.type ?? 'ilkokul',
                       website_url: school.website_url ?? '',
                       phone: school.phone ?? '',
                       fax: school.fax ?? '',
@@ -486,21 +646,40 @@ export default function SchoolDetailPage() {
             {editInfo ? (
               <>
                 {isSuperadmin && (
-                  <div>
-                    <label className="block text-sm font-medium text-foreground">Durum</label>
-                    <select
-                      value={infoForm.status}
-                      onChange={(e) => setInfoForm((f) => ({ ...f, status: e.target.value }))}
-                      className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
-                    >
-                      <option value="aktif">Aktif</option>
-                      <option value="deneme">Deneme</option>
-                      <option value="askida">Askıda</option>
-                    </select>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Askıda = okul pasif, öğretmen/kullanıcı girişi kısıtlı.
-                    </p>
-                  </div>
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground">Durum</label>
+                      <select
+                        value={infoForm.status}
+                        onChange={(e) => setInfoForm((f) => ({ ...f, status: e.target.value }))}
+                        className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                      >
+                        <option value="aktif">Aktif</option>
+                        <option value="deneme">Deneme</option>
+                        <option value="askida">Askıda</option>
+                      </select>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Askıda = okul pasif, öğretmen/kullanıcı girişi kısıtlı.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground">Kurum türü</label>
+                      <select
+                        value={infoForm.type}
+                        onChange={(e) => setInfoForm((f) => ({ ...f, type: e.target.value }))}
+                        className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                      >
+                        {SCHOOL_TYPE_ORDER.map((k) => (
+                          <option key={k} value={k}>
+                            {SCHOOL_TYPE_LABELS[k] ?? k}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Akademik takvim şablonu ve kuruma özel içerikler bu türe göre seçilir.
+                      </p>
+                    </div>
+                  </>
                 )}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -590,12 +769,14 @@ export default function SchoolDetailPage() {
                     </label>
                     <input
                       type="text"
+                      inputMode="numeric"
                       value={infoForm.institution_code}
                       onChange={(e) => setInfoForm((f) => ({ ...f, institution_code: e.target.value }))}
-                      placeholder={school.segment === 'devlet' ? 'MEB 7 haneli kurum kodu' : 'Opsiyonel'}
+                      placeholder={school.segment === 'devlet' ? 'MEB / e-Okul kurum kodu' : 'Opsiyonel'}
                       maxLength={16}
                       className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
                     />
+                    <p className="mt-1 text-[11px] text-muted-foreground">{MEB_INSTITUTION_CODE_HINT}</p>
                   </div>
                   <div>
                     <label className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -604,12 +785,19 @@ export default function SchoolDetailPage() {
                     </label>
                     <input
                       type="email"
+                      list="school-edit-inst-email-suggestions"
                       value={infoForm.institutional_email}
                       onChange={(e) => setInfoForm((f) => ({ ...f, institutional_email: e.target.value }))}
                       placeholder="info@okuladi.meb.k12.tr"
                       maxLength={256}
                       className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
                     />
+                    <datalist id="school-edit-inst-email-suggestions">
+                      <option value="bilgi@okul.meb.k12.tr" />
+                      <option value="mudur@okuladi.ankara.meb.k12.tr" />
+                      <option value="kurumsal@okul.meb.k12.tr" />
+                    </datalist>
+                    <p className="mt-1 text-[11px] text-muted-foreground">{INSTITUTIONAL_EMAIL_HINT}</p>
                   </div>
                 </div>
                 <div>
@@ -780,6 +968,10 @@ export default function SchoolDetailPage() {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Durum</span>
                     <span className="font-medium">{SCHOOL_STATUS_LABELS[school.status] ?? school.status}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Kurum türü</span>
+                    <span className="font-medium">{formatSchoolTypeLabel(school.type)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Öğretmen limiti</span>
@@ -1021,7 +1213,7 @@ export default function SchoolDetailPage() {
               <p className="py-6 text-center text-sm text-muted-foreground">Henüz yükleme kaydı yok.</p>
             ) : (
               <>
-                <div className="overflow-x-auto rounded-lg border border-border">
+                <div className="table-x-scroll rounded-lg border border-border">
                   <table className="w-full text-left text-sm">
                     <caption className="sr-only">
                       Superadmin yükleme kayıtları: tarih, eklenen tutarlar, işlemi yapan ve not
@@ -1083,99 +1275,262 @@ export default function SchoolDetailPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <Card className="overflow-hidden">
+        <CardHeader className="space-y-4 border-b border-border/60 bg-muted/20 pb-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2">
-                <ScrollText className="size-5" />
-                Okul logları
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <ScrollText className="size-5 shrink-0" />
+                Okul aktivite günlüğü
               </CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Sadece bu okula ait kayıtlar. Giriş, hatalar, güncellemeler.
+              <p className="mt-1 text-sm text-muted-foreground">
+                Bu okula bağlı audit kayıtları. Tarih ve işlem tipi sunucuda filtrelenir; arama yalnızca geçerli sayfadaki satırlarda çalışır.
               </p>
             </div>
-            <select
-              value={logActionFilter}
-              onChange={(e) => {
-                setLogActionFilter(e.target.value);
-                setLogPage(1);
-              }}
-              className="rounded-lg border border-input bg-background px-3 py-2 text-sm"
-            >
-              {ACTION_FILTER_OPTIONS.map((o) => (
-                <option key={o.value || 'all'} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void fetchLogs()}
+                disabled={logsFetching}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-60"
+              >
+                <RefreshCw className={cn('size-4', logsFetching && 'animate-spin')} />
+                Yenile
+              </button>
+              <button
+                type="button"
+                disabled={!logs?.items.length}
+                onClick={() => {
+                  const rows = logSearch.trim() ? filteredLogItems : logs?.items ?? [];
+                  if (!rows.length) return;
+                  const safe = (school?.name ?? 'okul').replace(/[^\w\u00C0-\u024f\-]+/gi, '_').slice(0, 48);
+                  downloadAuditCsv(rows, safe);
+                  toast.success('CSV indirildi');
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"
+              >
+                <Download className="size-4" />
+                CSV
+              </button>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="relative sm:col-span-2">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={logSearch}
+                onChange={(e) => setLogSearch(e.target.value)}
+                placeholder="Bu sayfada ara (kullanıcı, işlem, IP…)"
+                className="h-10 pl-9"
+                aria-label="Aktivite günlüğünde ara"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">İşlem</label>
+              <select
+                value={logActionFilter}
+                onChange={(e) => {
+                  setLogActionFilter(e.target.value);
+                  setLogPage(1);
+                }}
+                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm"
+              >
+                {ACTION_FILTER_OPTIONS.map((o) => (
+                  <option key={o.value || 'all'} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Sayfa boyutu</label>
+              <select
+                value={logLimit}
+                onChange={(e) => {
+                  setLogLimit(Number(e.target.value));
+                  setLogPage(1);
+                }}
+                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm"
+              >
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div className="grid flex-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <CalendarRange className="size-3.5" />
+                  Başlangıç
+                </label>
+                <input
+                  type="date"
+                  value={logDateFrom}
+                  onChange={(e) => {
+                    setLogDateFrom(e.target.value);
+                    setLogPage(1);
+                  }}
+                  className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">Bitiş</label>
+                <input
+                  type="date"
+                  value={logDateTo}
+                  onChange={(e) => {
+                    setLogDateTo(e.target.value);
+                    setLogPage(1);
+                  }}
+                  className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm"
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium hover:bg-muted"
+                onClick={() => {
+                  const t = new Date().toISOString().slice(0, 10);
+                  setLogDateFrom(t);
+                  setLogDateTo(t);
+                  setLogPage(1);
+                }}
+              >
+                Bugün
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium hover:bg-muted"
+                onClick={() => {
+                  const to = new Date();
+                  const from = new Date();
+                  from.setDate(from.getDate() - 6);
+                  setLogDateFrom(from.toISOString().slice(0, 10));
+                  setLogDateTo(to.toISOString().slice(0, 10));
+                  setLogPage(1);
+                }}
+              >
+                Son 7 gün
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium hover:bg-muted"
+                onClick={() => {
+                  setLogDateFrom('');
+                  setLogDateTo('');
+                  setLogPage(1);
+                }}
+              >
+                Tüm tarihler
+              </button>
+            </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-4">
           {logsError && <Alert message={logsError} className="mb-4" />}
           {logs ? (
             logs.items.length > 0 ? (
               <>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/40">
-                        <th className="px-4 py-2 text-xs font-semibold uppercase text-muted-foreground">Tarih</th>
-                        <th className="px-4 py-2 text-xs font-semibold uppercase text-muted-foreground">İşlem</th>
-                        <th className="px-4 py-2 text-xs font-semibold uppercase text-muted-foreground">Kullanıcı</th>
-                        <th className="px-4 py-2 text-xs font-semibold uppercase text-muted-foreground">Detay</th>
-                        <th className="hidden px-4 py-2 text-xs font-semibold uppercase text-muted-foreground sm:table-cell">IP</th>
+                <div
+                  className={cn(
+                    'relative max-h-[min(70vh,560px)] overflow-auto rounded-xl border border-border/80',
+                    logsFetching && 'opacity-60',
+                  )}
+                >
+                  <table className="w-full min-w-[640px] text-left text-sm">
+                    <caption className="sr-only">
+                      Okul aktivite günlüğü: tarih, işlem türü, kullanıcı, açıklama ve IP
+                    </caption>
+                    <thead className="sticky top-0 z-1 border-b border-border bg-muted/95 backdrop-blur-sm">
+                      <tr>
+                        <th className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold text-muted-foreground">Tarih</th>
+                        <th className="px-3 py-2.5 text-xs font-semibold text-muted-foreground">İşlem</th>
+                        <th className="px-3 py-2.5 text-xs font-semibold text-muted-foreground">Kullanıcı</th>
+                        <th className="min-w-48 px-3 py-2.5 text-xs font-semibold text-muted-foreground">Açıklama</th>
+                        <th className="hidden whitespace-nowrap px-3 py-2.5 text-xs font-semibold text-muted-foreground md:table-cell">IP</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-border">
-                      {logs.items.map((log) => {
-                        const detail = formatLogDetail(log);
-                        const isError = log.action === 'failed_login';
-                        return (
-                          <tr
-                            key={log.id}
-                            className={isError ? 'bg-destructive/5 hover:bg-destructive/10' : 'hover:bg-muted/30'}
-                          >
-                            <td className="px-4 py-3 text-muted-foreground">
-                              {new Date(log.created_at).toLocaleString('tr-TR')}
-                            </td>
-                            <td className="px-4 py-3 font-medium">
-                              {isError ? (
-                                <span className="text-destructive">{ACTION_LABELS[log.action] ?? log.action}</span>
-                              ) : (
-                                ACTION_LABELS[log.action] ?? log.action
+                    <tbody className="divide-y divide-border/80">
+                      {filteredLogItems.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                            Bu sayfada arama kriterine uygun satır yok.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredLogItems.map((log) => {
+                          const detail = formatLogDetail(log);
+                          const isError = log.action === 'failed_login';
+                          const label = formatLogActionLabel(log.action);
+                          const rel = formatRelativeTr(log.created_at);
+                          return (
+                            <tr
+                              key={log.id}
+                              className={cn(
+                                'transition-colors',
+                                isError ? 'bg-destructive/6 hover:bg-destructive/10' : 'hover:bg-muted/40',
                               )}
-                            </td>
-                            <td className="px-4 py-3 text-foreground">
-                              {formatLogUser(log)}
-                            </td>
-                            <td className="max-w-[200px] px-4 py-3 text-muted-foreground">
-                              {detail || '—'}
-                            </td>
-                            <td className="hidden px-4 py-3 text-muted-foreground sm:table-cell">{log.ip ?? '—'}</td>
-                          </tr>
-                        );
-                      })}
+                            >
+                              <td className="whitespace-nowrap px-3 py-2.5 align-top text-xs tabular-nums text-muted-foreground">
+                                <div>{new Date(log.created_at).toLocaleString('tr-TR')}</div>
+                                {rel ? <div className="text-[11px] text-muted-foreground/80">{rel}</div> : null}
+                              </td>
+                              <td className="px-3 py-2.5 align-top">
+                                <span
+                                  className={cn(
+                                    'inline-flex max-w-56 items-center rounded-md border px-2 py-0.5 text-xs font-medium leading-tight',
+                                    logCategoryClass(log.action),
+                                  )}
+                                  title={label}
+                                >
+                                  {label}
+                                </span>
+                              </td>
+                              <td className="max-w-40 px-3 py-2.5 align-top text-foreground">
+                                <span className="line-clamp-2 wrap-break-word" title={formatLogUser(log)}>
+                                  {formatLogUser(log)}
+                                </span>
+                              </td>
+                              <td className="max-w-md px-3 py-2.5 align-top text-muted-foreground">
+                                <span className="line-clamp-3 wrap-break-word text-xs leading-relaxed" title={detail || undefined}>
+                                  {detail || '—'}
+                                </span>
+                              </td>
+                              <td className="hidden max-w-36 px-3 py-2.5 align-top font-mono text-xs text-muted-foreground md:table-cell">
+                                {log.ip ?? '—'}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
                     </tbody>
                   </table>
                 </div>
-                {logs.total > 20 && (
-                  <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
-                    <p className="text-sm text-muted-foreground">Toplam {logs.total} kayıt</p>
+                {logs.total > logLimit && (
+                  <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm text-muted-foreground">
+                      Toplam <span className="font-medium text-foreground">{logs.total}</span> kayıt · Sayfa{' '}
+                      <span className="font-medium text-foreground">{logPage}</span> / {logTotalPages}
+                    </p>
                     <div className="flex gap-2">
                       <button
                         type="button"
                         disabled={logPage <= 1}
                         onClick={() => setLogPage((p) => p - 1)}
-                        className="rounded border border-border px-3 py-1.5 text-sm disabled:opacity-50 hover:bg-muted"
+                        className="rounded-lg border border-border px-3 py-1.5 text-sm disabled:opacity-50 hover:bg-muted"
                       >
                         Önceki
                       </button>
                       <button
                         type="button"
-                        disabled={logPage * 20 >= logs.total}
+                        disabled={logPage >= logTotalPages}
                         onClick={() => setLogPage((p) => p + 1)}
-                        className="rounded border border-border px-3 py-1.5 text-sm disabled:opacity-50 hover:bg-muted"
+                        className="rounded-lg border border-border px-3 py-1.5 text-sm disabled:opacity-50 hover:bg-muted"
                       >
                         Sonraki
                       </button>
@@ -1184,7 +1539,7 @@ export default function SchoolDetailPage() {
                 )}
               </>
             ) : (
-              <p className="py-8 text-center text-sm text-muted-foreground">Henüz kayıt yok.</p>
+              <p className="py-8 text-center text-sm text-muted-foreground">Seçilen filtrelere uygun kayıt yok.</p>
             )
           ) : (
             <LoadingSpinner label="Loglar yükleniyor…" className="py-8" />

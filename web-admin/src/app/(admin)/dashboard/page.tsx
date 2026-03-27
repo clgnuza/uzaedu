@@ -12,6 +12,7 @@ import { LayoutDashboard, School, Users, ArrowRight, Calculator, Puzzle } from '
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { TeacherHome } from '@/components/dashboard/teacher-home';
 import { SchoolAdminHome } from '@/components/dashboard/school-admin-home';
+import { isSchoolModuleEnabled } from '@/components/dashboard/teacher-home';
 import { WelcomeMotivationBanner } from '@/components/dashboard/welcome-motivation-banner';
 import { useAdminMessagesUnread } from '@/hooks/use-admin-messages-unread';
 import { useAllNotificationsUnread } from '@/hooks/use-duty-notifications-unread';
@@ -42,14 +43,21 @@ export default function DashboardPage() {
   const [teacherPrefs, setTeacherPrefs] = useState<{ id?: string; date: string; status: string }[]>([]);
   const [teacherSwaps, setTeacherSwaps] = useState<{ id: string; status: string; duty_slot?: { date: string; area_name: string | null }; proposedUser?: { display_name: string | null; email: string } }[]>([]);
   const [belirliGunAssignments, setBelirliGunAssignments] = useState<{ id: string; itemTitle: string; weekDateStart: string | null; weekDateEnd: string | null; weekLabel: string | null; gorevTipi: string }[]>([]);
+  const dutyEnabledForTeacher =
+    me?.role === 'teacher' &&
+    !!me.school_id &&
+    isSchoolModuleEnabled(me.school?.enabled_modules ?? null, 'duty');
 
   useEffect(() => {
-    if (!token || me?.role !== 'teacher') return;
+    if (!token || me?.role !== 'teacher' || !dutyEnabledForTeacher) {
+      setTodayDuty(null);
+      return;
+    }
     const today = new Date().toISOString().slice(0, 10);
     apiFetch<{ date: string; slots: { user_id: string; area_name: string | null; slot_name: string | null; shift?: string }[] }>(`/duty/daily?date=${today}`, { token })
       .then(setTodayDuty)
       .catch(() => setTodayDuty(null));
-  }, [token, me?.role]);
+  }, [token, me?.role, dutyEnabledForTeacher]);
 
   useEffect(() => {
     if (!token || me?.role !== 'teacher') return;
@@ -60,15 +68,19 @@ export default function DashboardPage() {
     const from = `${year}-${String(month + 1).padStart(2, '0')}-01`;
     const to = `${year}-${String(month + 1).padStart(2, '0')}-${String(new Date(year, month + 1, 0).getDate()).padStart(2, '0')}`;
     Promise.all([
-      apiFetch<{ id?: string; date: string; status: string }[]>(`/duty/preferences?from=${from}&to=${to}`, { token }).catch(() => []),
-      apiFetch<{ id: string; status: string; duty_slot?: { date: string; area_name: string | null }; proposedUser?: { display_name: string | null; email: string } }[]>(`/duty/swap-requests`, { token }).catch(() => []),
+      dutyEnabledForTeacher
+        ? apiFetch<{ id?: string; date: string; status: string }[]>(`/duty/preferences?from=${from}&to=${to}`, { token }).catch(() => [])
+        : Promise.resolve([]),
+      dutyEnabledForTeacher
+        ? apiFetch<{ id: string; status: string; duty_slot?: { date: string; area_name: string | null }; proposedUser?: { display_name: string | null; email: string } }[]>(`/duty/swap-requests`, { token }).catch(() => [])
+        : Promise.resolve([]),
       apiFetch<{ id: string; itemTitle: string; weekDateStart: string | null; weekDateEnd: string | null; weekLabel: string | null; gorevTipi: string }[]>(`/academic-calendar/my-assignments?academic_year=${encodeURIComponent(academicYear)}`, { token }).catch(() => []),
     ]).then(([prefs, swaps, assignments]) => {
       setTeacherPrefs(Array.isArray(prefs) ? prefs.slice(-5) : []);
       setTeacherSwaps(Array.isArray(swaps) ? swaps.slice(0, 5) : []);
       setBelirliGunAssignments(Array.isArray(assignments) ? assignments.slice(0, 6) : []);
     });
-  }, [token, me?.role]);
+  }, [token, me?.role, dutyEnabledForTeacher]);
 
   if (!me) {
     if (token) {
@@ -174,7 +186,7 @@ export default function DashboardPage() {
       {me.role === 'moderator' && (
         <>
           <Link
-            href="/extra-lesson-calc"
+            href="/hesaplamalar"
             className="group flex items-center justify-between rounded-xl border border-border p-4 shadow-sm transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 card-pastel-soft-sky"
           >
             <div className="flex items-center gap-3">
@@ -182,8 +194,8 @@ export default function DashboardPage() {
                 <Calculator className="size-5" />
               </div>
               <div>
-                <p className="font-medium text-foreground">Ek Ders Hesaplama</p>
-                <p className="text-xs text-muted-foreground">Brüt ve net tahmini</p>
+                <p className="font-medium text-foreground">Hesaplamalar</p>
+                <p className="text-xs text-muted-foreground">Ek ders ve sınav ücreti hesapları</p>
               </div>
             </div>
             <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />

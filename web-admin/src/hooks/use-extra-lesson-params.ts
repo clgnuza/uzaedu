@@ -8,7 +8,7 @@ import type { Params } from '@/lib/extra-lesson-calc';
 
 type SemesterOption = { semester_code: string; title: string };
 
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 dakika
+const CACHE_TTL_MS = 8 * 60 * 1000; // 8 dk — parametre seti sık değişmez, API yükü azalır
 const paramsCache = new Map<string, { data: Params | null; ts: number }>();
 
 /** Parametre önbelleğini temizle (örn. superadmin güncellemesi sonrası hesaplama sayfasında yenile) */
@@ -29,12 +29,14 @@ export function useExtraLessonParams(token: string | null, semesterCode: string)
   const cacheKey = semesterCode || '__default__';
 
   const fetchParams = useCallback((): Promise<boolean> => {
-    if (!token) return Promise.resolve(false);
     paramsCache.delete(cacheKey);
     setLoading(true);
     setError(null);
     const q = semesterCode ? `?semester_code=${encodeURIComponent(semesterCode)}` : '';
-    return apiFetch<Params | null>(`/extra-lesson/params/active${q}`, { token, cache: 'no-store' })
+    return apiFetch<Params | null>(`/extra-lesson/params/active${q}`, {
+      token: token ?? undefined,
+      cache: 'no-store',
+    })
       .then((r) => {
         const data = r ?? null;
         paramsCache.set(cacheKey, { data, ts: Date.now() });
@@ -50,7 +52,6 @@ export function useExtraLessonParams(token: string | null, semesterCode: string)
   }, [token, cacheKey, semesterCode]);
 
   useEffect(() => {
-    if (!token) return;
     const cached = paramsCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < CACHE_TTL_MS && refetchTrigger === 0) {
       setParams(cached.data);
@@ -70,8 +71,10 @@ export function useAvailableSemesters(token: string | null) {
   const [semesters, setSemesters] = useState<SemesterOption[]>([]);
 
   const fetchSemesters = useCallback(() => {
-    if (!token) return Promise.resolve(false);
-    return apiFetch<SemesterOption[]>('/extra-lesson/params/available-semesters', { token, cache: 'no-store' })
+    return apiFetch<SemesterOption[]>('/extra-lesson/params/available-semesters', {
+      token: token ?? undefined,
+      cache: 'no-store',
+    })
       .then((r) => {
         setSemesters(r ?? []);
         return true;

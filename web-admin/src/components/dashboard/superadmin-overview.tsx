@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import Link from 'next/link';
 import {
   Bar,
@@ -40,6 +41,7 @@ import { Alert } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { WelcomeMotivationBanner } from '@/components/dashboard/welcome-motivation-banner';
 import { SCHOOL_MODULE_LABELS, type SchoolModuleKey } from '@/config/school-modules';
+import { SCHOOL_TYPE_ORDER, formatSchoolTypeLabel } from '@/lib/school-labels';
 
 const CHART_COLORS = [
   'var(--chart-1)',
@@ -112,6 +114,16 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
 
   const annChart = chartData.map((d) => ({ name: d.month, duyuru: d.count }));
 
+  const schoolTypeRows = useMemo(() => {
+    const m = sa?.schools_by_type ?? {};
+    const ordered = SCHOOL_TYPE_ORDER.map((k) => ({ key: k, label: formatSchoolTypeLabel(k), count: m[k] ?? 0 }));
+    const extras = Object.entries(m).filter(([k]) => !SCHOOL_TYPE_ORDER.includes(k as (typeof SCHOOL_TYPE_ORDER)[number]));
+    return [
+      ...ordered,
+      ...extras.map(([key, count]) => ({ key, label: formatSchoolTypeLabel(key), count })),
+    ];
+  }, [sa?.schools_by_type]);
+
   return (
     <div className="space-y-6">
       <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-violet-500/[0.08] via-background to-sky-500/[0.12] p-6 shadow-sm sm:p-8 dark:from-violet-950/30 dark:to-sky-950/20">
@@ -152,6 +164,17 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
           Askıdaki okullar
         </Link>
       </div>
+
+      {sa && (sa.schools_lise_unspecified_count ?? 0) > 0 && (
+        <Alert variant="warning" className="border-amber-500/35 bg-amber-500/[0.07]">
+          <strong className="font-semibold text-foreground">{sa.schools_lise_unspecified_count ?? 0} okul</strong> yalnızca genel
+          &quot;Lise&quot; türünde kayıtlı. Meslek lisesi, İHL veya BİLSEM ise{' '}
+          <Link href="/schools" className="font-medium text-primary hover:underline">
+            okul listesinden
+          </Link>{' '}
+          türü güncelleyin.
+        </Alert>
+      )}
 
       {marketQ.data && (
         <Card className="border-border/60">
@@ -203,7 +226,7 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
           { href: '/users', label: 'Kullanıcılar', sub: 'Rol ve durum', icon: Users, accent: 'indigo' },
           { href: '/modules', label: 'Modüller', sub: 'Okul politikaları', icon: Puzzle, accent: 'violet' },
           { href: '/announcements', label: 'Duyurular', sub: 'İçerik yönetimi', icon: Megaphone, accent: 'rose' },
-          { href: '/extra-lesson-calc', label: 'Ek ders hesap', sub: 'Brüt / net', icon: Calculator, accent: 'sky' },
+          { href: '/hesaplamalar', label: 'Hesaplamalar', sub: 'Ek ders ve sınav ücreti', icon: Calculator, accent: 'sky' },
           { href: '/bilsem-sablon', label: 'BİLSEM altyapı', sub: 'Takvim & kazanım', icon: FileText, accent: 'emerald' },
           { href: '/support/platform', label: 'Destek', sub: 'Platform talepleri', icon: Building2, accent: 'amber' },
           { href: '/profile', label: 'Profil', sub: 'Hesap & özet', icon: LayoutDashboard, accent: 'slate' },
@@ -391,6 +414,37 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
         </Card>
       </div>
 
+      {sa && (
+        <Card className="border-border/60">
+          <CardHeader>
+            <CardTitle className="text-base">Okullar — tür kırılımı</CardTitle>
+            <p className="text-xs text-muted-foreground">Kayıtlı okul sayısı, tür alanına göre</p>
+          </CardHeader>
+          <CardContent className="overflow-x-auto pt-0">
+            {isLoading ? (
+              <Skeleton className="h-32 w-full" />
+            ) : (
+              <table className="w-full min-w-[280px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-border text-xs text-muted-foreground">
+                    <th className="py-2 pr-4 font-medium">Tür</th>
+                    <th className="py-2 text-right font-medium">Okul</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {schoolTypeRows.map(({ key, label, count }) => (
+                    <tr key={key} className="border-b border-border/60">
+                      <td className="py-2 pr-4">{label}</td>
+                      <td className="py-2 text-right tabular-nums font-medium">{count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {sa && (sa.recent_schools?.length || sa.recent_users?.length) ? (
         <div className="grid gap-4 lg:grid-cols-2">
           <Card className="border-border/60">
@@ -441,11 +495,11 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
             <p className="text-xs text-muted-foreground">Sistem geneli dağılım</p>
           </CardHeader>
           <CardContent>
-            <div className="h-[260px] w-full">
+            <div className="h-[260px] w-full min-w-0 min-h-[200px]">
               {isLoading ? (
                 <Skeleton className="h-full w-full" />
               ) : (
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height={260}>
                   <PieChart>
                     <Pie
                       data={rolePieData}
@@ -483,11 +537,11 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
             <p className="text-xs text-muted-foreground">Aktif / pasif / askıda</p>
           </CardHeader>
           <CardContent>
-            <div className="h-[260px] w-full">
+            <div className="h-[260px] w-full min-w-0 min-h-[200px]">
               {isLoading ? (
                 <Skeleton className="h-full w-full" />
               ) : (
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height={260}>
                   <PieChart>
                     <Pie
                       data={statusPieData}
@@ -527,11 +581,11 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
           </p>
         </CardHeader>
         <CardContent>
-          <div className="h-[340px] w-full">
+          <div className="h-[340px] w-full min-w-0 min-h-[200px]">
             {isLoading ? (
               <Skeleton className="h-full w-full" />
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={340}>
                 <BarChart
                   data={moduleBarData}
                   layout="vertical"
@@ -572,11 +626,11 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
             <p className="text-xs text-muted-foreground">Kullanıcı oluşturma — aylık</p>
           </CardHeader>
           <CardContent>
-            <div className="h-[240px] w-full">
+            <div className="h-[240px] w-full min-w-0 min-h-[200px]">
               {isLoading ? (
                 <Skeleton className="h-full w-full" />
               ) : (
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height={240}>
                   <BarChart data={regChart} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} />
@@ -602,11 +656,11 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
             <p className="text-xs text-muted-foreground">Oluşturulan duyuru — aylık</p>
           </CardHeader>
           <CardContent>
-            <div className="h-[240px] w-full">
+            <div className="h-[240px] w-full min-w-0 min-h-[200px]">
               {isLoading ? (
                 <Skeleton className="h-full w-full" />
               ) : (
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height={240}>
                   <BarChart data={annChart} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} />

@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { TURKEY_CITIES, getDistrictsForCity } from '@/lib/turkey-addresses';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -26,8 +28,6 @@ import {
   Megaphone,
   Plus,
   Settings,
-  ChevronDown,
-  ChevronRight,
   HelpCircle,
   ExternalLink,
   Rss,
@@ -41,12 +41,54 @@ import {
   Copy,
   Upload,
   Download,
+  School,
+  LayoutGrid,
+  BookOpen,
+  Sparkles,
+  Link2,
+  Shield,
+  Moon,
+  AlertTriangle,
+  Film,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { CreateAnnouncementForm } from '@/components/announcement-create-form';
 import { AnnouncementListSection } from '@/components/announcement-list';
 import { ImageUrlInput } from '@/components/image-url-input';
+
+/** Okul yöneticisi Duyuru TV ana sekmeleri (?tab=) */
+export type TvMainTab = 'genel' | 'ayarlar' | 'cihazlar' | 'icerik' | 'duyurular' | 'yardim';
+const TV_MAIN_TAB_IDS: TvMainTab[] = ['genel', 'ayarlar', 'cihazlar', 'icerik', 'duyurular', 'yardim'];
+
+/** Oturumda bir kez TV Ayarları açıldıysa duyuru detayından ajandaya ekle açılır */
+const TV_SESSION_AGENDA_AFTER_AYARLAR = 'ogretmenpro_tv_agenda_after_ayarlar';
+function parseTvMainTab(s: string | null): TvMainTab {
+  if (s && (TV_MAIN_TAB_IDS as string[]).includes(s)) return s as TvMainTab;
+  return 'genel';
+}
+
+function buildTvSchoolsQuery(params: {
+  limit: number;
+  city?: string;
+  district?: string;
+  segment?: string;
+  search?: string;
+}): string {
+  const u = new URLSearchParams();
+  u.set('page', '1');
+  u.set('limit', String(params.limit));
+  if (params.city?.trim()) u.set('city', params.city.trim());
+  if (params.district?.trim()) u.set('district', params.district.trim());
+  if (params.segment?.trim()) u.set('segment', params.segment.trim());
+  if (params.search?.trim()) u.set('search', params.search.trim());
+  return u.toString();
+}
+
+function tvSchoolOptionLabel(s: { name: string; city?: string | null; district?: string | null }): string {
+  const loc = [s.city, s.district].filter(Boolean).join(' / ');
+  return loc ? `${s.name} (${loc})` : s.name;
+}
 
 const TV_WEATHER_CITIES = [
   'Adana', 'Ankara', 'Antalya', 'Aydın', 'Balıkesir', 'Bursa', 'Denizli', 'Diyarbakır', 'Erzurum',
@@ -77,18 +119,54 @@ type ListResponse = {
   items: TvAnnouncement[];
 };
 
-const TV_CARD_OPTIONS = [
-  { key: 'datetime', label: 'Tarih & Saat' },
-  { key: 'weather', label: 'Hava Durumu' },
-  { key: 'gunun_sozu', label: 'Günün Sözü (yan panel)' },
-  { key: 'duty', label: 'Nöbetçi Öğretmen' },
-  { key: 'countdown', label: 'Sayaçlar (Sınav / Tatil / Karne)' },
-  { key: 'meal', label: 'Yemek / Kantin Menüsü' },
-  { key: 'now_in_class_bar', label: 'Alt: Şuan Derste (kayan bar)' },
-  { key: 'ticker', label: 'Alt: Okul Duyuruları (sarı bar)' },
-  { key: 'rss', label: 'Alt: RSS Haber Bandı (kırmızı bar)' },
-  { key: 'gunun_sozu_bar', label: 'Alt: Günün Sözü (RSS\'den otomatik)' },
+/** Yan panel (sağ/sol) kartları */
+const TV_PANEL_OPTIONS = [
+  { key: 'datetime', label: 'Tarih ve saat' },
+  { key: 'weather', label: 'Hava durumu' },
+  { key: 'gunun_sozu', label: 'Günün sözü (yan panel)' },
+  { key: 'duty', label: 'Nöbetçi öğretmen' },
+  { key: 'countdown', label: 'Sayaçlar (sınav / tatil / karne)' },
+  { key: 'meal', label: 'Yemek / kantin menüsü' },
 ] as const;
+
+/** Ekranın en altındaki kayan şeritler */
+const TV_BOTTOM_STRIP_OPTIONS = [
+  { key: 'now_in_class_bar', label: 'Şu an derste (kayan bar)' },
+  { key: 'ticker', label: 'Okul duyuruları (sarı bar)' },
+  { key: 'rss', label: 'RSS haber bandı (kırmızı bar)' },
+  { key: 'gunun_sozu_bar', label: 'Günün sözü — RSS (mor/mavi alt bar)' },
+] as const;
+
+/** Orta alan döngü slaytları (tv_visible_cards içinde slide_* anahtarları) */
+const TV_CENTER_SLIDE_OPTIONS = [
+  { key: 'slide_welcome', label: 'Hoş geldin' },
+  { key: 'slide_special_day', label: 'Belirli gün ve haftalar' },
+  { key: 'slide_principal', label: 'Okul müdürü mesajı' },
+  { key: 'slide_staff', label: 'Öğretmenlerimiz' },
+  { key: 'slide_birthday', label: 'Doğum günü' },
+  { key: 'slide_success', label: 'Başarılarımız' },
+  { key: 'slide_timetable', label: 'Ders programı' },
+  { key: 'slide_news', label: 'Haber / duyuru slaytları' },
+  { key: 'slide_video', label: 'Video (YouTube)' },
+] as const;
+
+const TV_VISIBILITY_OPTIONS = [
+  ...TV_PANEL_OPTIONS,
+  ...TV_BOTTOM_STRIP_OPTIONS,
+  ...TV_CENTER_SLIDE_OPTIONS,
+] as const;
+
+/** Eski tv_visible_cards kayıtlarında slide_* yoktu; tikler kapalı görünüp filtre uygulanmıyordu. Eksikse tüm slide_* varsayılan eklenir. */
+function mergeTvVisibleCardsFromServer(raw: string | null | undefined): Set<string> {
+  const trimmed = raw?.trim();
+  if (!trimmed) return new Set(TV_VISIBILITY_OPTIONS.map((c) => c.key));
+  const parsed = new Set(trimmed.split(',').map((s) => s.trim()).filter(Boolean));
+  const hasSlide = [...parsed].some((k) => k.startsWith('slide_'));
+  if (!hasSlide) {
+    TV_CENTER_SLIDE_OPTIONS.forEach((c) => parsed.add(c.key));
+  }
+  return parsed;
+}
 
 /** Kart accent renkleri – dark/light tema uyumlu pastel */
 const ACCENT_CLASSES: Record<
@@ -199,6 +277,8 @@ type SchoolTvConfig = {
   tv_gunun_sozu_text_transform?: string | null;
   tv_special_days_calendar?: string | null;
   tv_timetable_schedule?: string | null;
+  /** true: TV ders grid’i okul yayınlanmış plandan; false: sadece tv_timetable_schedule */
+  tv_timetable_use_school_plan?: boolean | null;
   tv_birthday_card_title?: string | null;
   tv_birthday_font_size?: number | null;
   tv_birthday_calendar?: string | null;
@@ -273,31 +353,137 @@ function groupByCategory(items: TvAnnouncement[]): Record<string, TvAnnouncement
 
 export default function TvPage() {
   const { token, me } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const isSuperadmin = me?.role === 'superadmin';
+  type TvSchoolRow = { id: string; name: string; city?: string | null; district?: string | null };
+  const [schools, setSchools] = useState<TvSchoolRow[]>([]);
+  const [schoolsLoading, setSchoolsLoading] = useState(false);
+  const [schoolFilters, setSchoolFilters] = useState({
+    city: '',
+    district: '',
+    segment: '' as '' | 'ozel' | 'devlet',
+    search: '',
+  });
+  const [filterCities, setFilterCities] = useState<string[]>([]);
+  const [filterDistricts, setFilterDistricts] = useState<string[]>([]);
+  const [selectedSchoolId, setSelectedSchoolId] = useState<string | null>(null);
   const [data, setData] = useState<ListResponse | null>(null);
   const [school, setSchool] = useState<SchoolTvConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [audienceTab, setAudienceTab] = useState<'corridor' | 'teachers' | 'classroom'>('corridor');
-  const [helpOpen, setHelpOpen] = useState(false);
-  const [settingsCollapsed, setSettingsCollapsed] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    try { return localStorage.getItem('tv-settings-collapsed') === '1'; } catch { return false; }
-  });
-  const [tvDevicesOpen, setTvDevicesOpen] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    try { return localStorage.getItem('tv-devices-open') === '1'; } catch { return false; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem('tv-settings-collapsed', settingsCollapsed ? '1' : '0'); } catch { /* ignore */ }
-  }, [settingsCollapsed]);
-  useEffect(() => {
-    try { localStorage.setItem('tv-devices-open', tvDevicesOpen ? '1' : '0'); } catch { /* ignore */ }
-  }, [tvDevicesOpen]);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [agendaAfterTvAyarlar, setAgendaAfterTvAyarlar] = useState(false);
   const [tvDevices, setTvDevices] = useState<TvDevice[]>([]);
-  const schoolId = me?.school_id ?? me?.school?.id;
+  const [smartBoardDevices, setSmartBoardDevices] = useState<Array<{ id: string; pairing_code: string }>>([]);
+  const schoolId = isSuperadmin ? selectedSchoolId : (me?.school_id ?? me?.school?.id ?? null);
+  const canCreateAnnouncement = me?.role === 'school_admin' || (isSuperadmin && !!schoolId);
+
+  const mainTab = useMemo(() => parseTvMainTab(searchParams.get('tab')), [searchParams]);
+  const setMainTab = useCallback(
+    (t: TvMainTab) => {
+      const u = new URLSearchParams();
+      u.set('tab', t);
+      if (isSuperadmin && schoolId) u.set('school_id', schoolId);
+      router.replace(`/tv?${u.toString()}`, { scroll: false });
+    },
+    [router, isSuperadmin, schoolId],
+  );
+
+  useEffect(() => {
+    if (!isSuperadmin) return;
+    apiFetch<string[]>('school-reviews-public/cities', { token: token ?? undefined })
+      .then(setFilterCities)
+      .catch(() => setFilterCities(TURKEY_CITIES));
+  }, [isSuperadmin, token]);
+
+  useEffect(() => {
+    if (!isSuperadmin || !schoolFilters.city?.trim()) {
+      setFilterDistricts([]);
+      return;
+    }
+    apiFetch<string[]>(
+      `school-reviews-public/districts?city=${encodeURIComponent(schoolFilters.city)}`,
+      { token: token ?? undefined },
+    )
+      .then(setFilterDistricts)
+      .catch(() => setFilterDistricts(getDistrictsForCity(schoolFilters.city, [])));
+  }, [isSuperadmin, schoolFilters.city, token]);
+
+  const fetchTvSchools = useCallback(async () => {
+    if (!isSuperadmin || !token) return;
+    setSchoolsLoading(true);
+    const q = buildTvSchoolsQuery({
+      limit: 100,
+      city: schoolFilters.city || undefined,
+      district: schoolFilters.district || undefined,
+      segment: schoolFilters.segment || undefined,
+      search: schoolFilters.search || undefined,
+    });
+    try {
+      const r = await apiFetch<{ items: TvSchoolRow[] }>(`/schools?${q}`, { token });
+      setSchools(Array.isArray(r?.items) ? r.items : []);
+    } catch {
+      setSchools([]);
+    } finally {
+      setSchoolsLoading(false);
+    }
+  }, [isSuperadmin, token, schoolFilters.city, schoolFilters.district, schoolFilters.segment, schoolFilters.search]);
+
+  useEffect(() => {
+    if (!isSuperadmin || !token) return;
+    fetchTvSchools();
+  }, [isSuperadmin, token, fetchTvSchools]);
+
+  useEffect(() => {
+    if (!isSuperadmin || schoolsLoading) return;
+    if (schools.length === 0) {
+      if (selectedSchoolId) {
+        setSelectedSchoolId(null);
+        const u = new URLSearchParams();
+        u.set('tab', mainTab);
+        router.replace(`/tv?${u.toString()}`, { scroll: false });
+      }
+      return;
+    }
+    const fromUrl = searchParams.get('school_id');
+    if (fromUrl && schools.some((s) => s.id === fromUrl)) {
+      if (selectedSchoolId !== fromUrl) setSelectedSchoolId(fromUrl);
+      return;
+    }
+    if (selectedSchoolId && schools.some((s) => s.id === selectedSchoolId)) {
+      return;
+    }
+    const next = schools[0].id;
+    setSelectedSchoolId(next);
+    const u = new URLSearchParams();
+    u.set('school_id', next);
+    u.set('tab', mainTab);
+    router.replace(`/tv?${u.toString()}`, { scroll: false });
+  }, [isSuperadmin, schools, schoolsLoading, searchParams, selectedSchoolId, router, mainTab]);
 
   const refetchAnnouncements = () => setRefreshKey((k) => k + 1);
+
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && sessionStorage.getItem(TV_SESSION_AGENDA_AFTER_AYARLAR) === '1') {
+        setAgendaAfterTvAyarlar(true);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (mainTab !== 'ayarlar') return;
+    setAgendaAfterTvAyarlar(true);
+    try {
+      sessionStorage.setItem(TV_SESSION_AGENDA_AFTER_AYARLAR, '1');
+    } catch {
+      /* ignore */
+    }
+  }, [mainTab]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -309,13 +495,22 @@ export default function TvPage() {
 
   useEffect(() => {
     if (!token) return;
+    if (isSuperadmin && !schoolId) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
-    apiFetch<ListResponse>('/announcements?limit=100', { token })
+    const q =
+      isSuperadmin && schoolId
+        ? `/announcements?limit=100&school_id=${encodeURIComponent(schoolId)}`
+        : '/announcements?limit=100';
+    apiFetch<ListResponse>(q, { token })
       .then((res) => setData(res))
       .catch((e) => setError(e instanceof Error ? e.message : 'Duyuru TV içeriği yüklenemedi'))
       .finally(() => setLoading(false));
-  }, [token, refreshKey]);
+  }, [token, refreshKey, isSuperadmin, schoolId]);
 
   useEffect(() => {
     if (!token || !schoolId) return;
@@ -331,13 +526,20 @@ export default function TvPage() {
       .catch(() => setTvDevices([]));
   }, [token, refreshKey]);
 
-  const [smartBoardDevices, setSmartBoardDevices] = useState<Array<{ id: string; pairing_code: string }>>([]);
   useEffect(() => {
     if (!token || !schoolId) return;
-    apiFetch<Array<{ id: string; pairing_code: string }>>('/smart-board/devices', { token })
+    const path = isSuperadmin
+      ? `/smart-board/devices?school_id=${encodeURIComponent(schoolId)}`
+      : '/smart-board/devices';
+    apiFetch<Array<{ id: string; pairing_code: string }>>(path, { token })
       .then((r) => setSmartBoardDevices(Array.isArray(r) ? r : []))
       .catch(() => setSmartBoardDevices([]));
-  }, [token, schoolId, refreshKey]);
+  }, [token, schoolId, refreshKey, isSuperadmin]);
+
+  const tvDevicesFiltered = useMemo(
+    () => (isSuperadmin && schoolId ? tvDevices.filter((d) => d.school_id === schoolId) : tvDevices),
+    [tvDevices, isSuperadmin, schoolId],
+  );
 
   const tvItems = useMemo(
     () => (data?.items ?? []).filter((a) => a.show_on_tv),
@@ -401,147 +603,310 @@ export default function TvPage() {
       ? `/tv/classroom?school_id=${schoolId}&device_id=${firstDeviceId}`
       : null;
 
-  const hasCorridorDevice = tvDevices.some((d) => d.display_group === 'corridor');
-  const hasTeachersDevice = tvDevices.some((d) => d.display_group === 'teachers');
+  /** TV önizleme: daha büyük görünmesi için daha küçük sanal viewport */
+  const TV_W = 1024;
+  const TV_H = 576;
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  const [previewWidth, setPreviewWidth] = useState(0);
+  const [previewScale, setPreviewScale] = useState(1);
+  useEffect(() => {
+    const el = previewContainerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      if (w > 0) {
+        setPreviewWidth(w);
+        setPreviewScale(w / TV_W);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const hasCorridorDevice = tvDevicesFiltered.some((d) => d.display_group === 'corridor');
+  const hasTeachersDevice = tvDevicesFiltered.some((d) => d.display_group === 'teachers');
   const hasTvSettings = !!(school?.tv_weather_city || school?.tv_welcome_image_url);
   const hasTvContent = tvItemsCorridor.length > 0 || tvItemsTeachers.length > 0 || tvItemsClassroom.length > 0;
   const setupComplete = hasTvSettings && hasCorridorDevice && hasTeachersDevice && hasTvContent;
   const setupStepCount = [hasTvSettings, hasCorridorDevice, hasTeachersDevice, hasTvContent].filter(Boolean).length;
-  const [setupGuideCollapsed, setSetupGuideCollapsed] = useState(false);
   const [createAnnouncementOpen, setCreateAnnouncementOpen] = useState(false);
-  const [announcementListOpen, setAnnouncementListOpen] = useState(true);
-  const announcementCardRef = useRef<HTMLDivElement>(null);
-  const [previewExpanded, setPreviewExpanded] = useState(false);
+  const [createAnnouncementCategory, setCreateAnnouncementCategory] = useState('general');
+  const [createFormKey, setCreateFormKey] = useState(0);
+  const openCreateAnnouncement = useCallback((category?: string) => {
+    setCreateAnnouncementCategory(category ?? 'general');
+    setCreateFormKey((k) => k + 1);
+    setCreateAnnouncementOpen(true);
+  }, []);
   const [previewTab, setPreviewTab] = useState<'corridor' | 'teachers' | 'classroom'>('corridor');
-  const setupRef = useRef<HTMLDivElement>(null);
-  const settingsRef = useRef<HTMLDivElement>(null);
-  const devicesRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const scrollTo = (ref: React.RefObject<HTMLDivElement | null>) => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   return (
-    <div className="space-y-8">
-      {/* Sticky toolbar – Mosaic stili */}
-      <div className="sticky top-0 z-10 -mt-4 flex flex-col gap-4 rounded-xl border border-border bg-card/95 py-5 px-5 shadow-sm backdrop-blur supports-backdrop-filter:bg-card/90">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground md:text-3xl">Duyuru TV</h1>
-          <p className="mt-1 text-sm text-muted-foreground md:text-base">
-            Her okulun 3 TV ekranı vardır: <strong className="text-foreground">Koridor</strong>, <strong className="text-foreground">Öğretmenler Odası</strong> ve <strong className="text-foreground">Akıllı Tahta</strong>.
-            Ayarları ve içeriği buradan yönetin.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Dialog open={createAnnouncementOpen} onOpenChange={setCreateAnnouncementOpen}>
-            <DialogTrigger asChild>
+    <div className="space-y-6">
+      <header className="sticky top-0 z-[1] -mt-4 rounded-xl border border-border bg-card/95 shadow-sm backdrop-blur supports-backdrop-filter:bg-card/90">
+        <div className="flex flex-col gap-4 border-b border-border/80 px-4 py-5 sm:px-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">Duyuru TV</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                Koridor, öğretmenler odası ve akıllı tahta için görünüm ve içerik. Her sekme yalnızca o konuyla ilgili alanı gösterir.
+              </p>
+            </div>
+            <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 sm:w-auto sm:justify-end">
+              <Dialog open={createAnnouncementOpen} onOpenChange={setCreateAnnouncementOpen}>
+                <DialogContent title="Yeni duyuru" className="max-w-2xl">
+                  <CreateAnnouncementForm
+                    key={createFormKey}
+                    token={token}
+                    schoolId={isSuperadmin ? schoolId ?? undefined : undefined}
+                    initialCategory={createAnnouncementCategory}
+                    defaultShowOnTv
+                    defaultPublish
+                    onSuccess={() => {
+                      setCreateAnnouncementOpen(false);
+                      refetchAnnouncements();
+                    }}
+                    onCancel={() => setCreateAnnouncementOpen(false)}
+                  />
+                </DialogContent>
+              </Dialog>
               <button
                 type="button"
-                className="inline-flex items-center gap-2 rounded-xl border border-primary bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-shadow duration-150 hover:bg-primary/90 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                disabled={isSuperadmin && !schoolId}
+                onClick={() => openCreateAnnouncement('general')}
+                className="inline-flex items-center gap-2 rounded-xl border border-primary bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-shadow duration-150 hover:bg-primary/90 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
               >
                 <Plus className="size-4" />
                 Yeni duyuru
               </button>
-            </DialogTrigger>
-            <DialogContent title="Yeni duyuru" className="max-w-2xl">
-              <CreateAnnouncementForm
-                token={token}
-                defaultShowOnTv
-                defaultPublish
-                onSuccess={() => {
-                  setCreateAnnouncementOpen(false);
-                  refetchAnnouncements();
-                }}
-                onCancel={() => setCreateAnnouncementOpen(false)}
-              />
-            </DialogContent>
-          </Dialog>
-          <button
-            type="button"
-            onClick={() => {
-              const next = !announcementListOpen;
-              setAnnouncementListOpen(next);
-              if (next) {
-                setTimeout(() => announcementCardRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
-              }
-            }}
-            className={cn(
-              'inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium shadow-sm transition-all duration-150',
-              announcementListOpen ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-muted hover:shadow-md',
-            )}
-          >
-            <Megaphone className="size-4" />
-            Duyuru listesi
-          </button>
-          <Link
-            href={previewUrlCorridor}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium shadow-sm transition-all duration-150 hover:bg-muted hover:shadow-md"
-          >
-            <ExternalLink className="size-4" />
-            Koridor
-          </Link>
-          <Link
-            href={previewUrlTeachers}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium shadow-sm transition-all duration-150 hover:bg-muted hover:shadow-md"
-          >
-            <ExternalLink className="size-4" />
-            Öğretmenler
-          </Link>
-          {previewUrlClassroom ? (
-            <Link
-              href={previewUrlClassroom}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium shadow-sm transition-colors duration-150 hover:bg-muted hover:shadow-md"
+              <button
+                type="button"
+                onClick={() => setMainTab('duyurular')}
+                className={cn(
+                  'inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium shadow-sm transition-all duration-150',
+                  mainTab === 'duyurular'
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border hover:bg-muted hover:shadow-md',
+                )}
+              >
+                <Megaphone className="size-4" />
+                Duyuru listesi
+              </button>
+              <Link
+                href={previewUrlCorridor}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium shadow-sm transition-all duration-150 hover:bg-muted hover:shadow-md"
+              >
+                <ExternalLink className="size-4" />
+                Koridor
+              </Link>
+              <Link
+                href={previewUrlTeachers}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium shadow-sm transition-all duration-150 hover:bg-muted hover:shadow-md"
+              >
+                <ExternalLink className="size-4" />
+                Öğretmenler
+              </Link>
+              {previewUrlClassroom ? (
+                <Link
+                  href={previewUrlClassroom}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium shadow-sm transition-colors duration-150 hover:bg-muted hover:shadow-md"
+                >
+                  <Monitor className="size-4" />
+                  Akıllı Tahta
+                </Link>
+              ) : null}
+            </div>
+          </div>
+          {isSuperadmin && (
+            <div className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid gap-1">
+                  <label htmlFor="tv-filter-city" className="text-xs font-medium text-muted-foreground">
+                    İl
+                  </label>
+                  <select
+                    id="tv-filter-city"
+                    value={schoolFilters.city}
+                    onChange={(e) => {
+                      setSchoolFilters((f) => ({ ...f, city: e.target.value, district: '' }));
+                    }}
+                    disabled={schoolsLoading}
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Tüm iller</option>
+                    {filterCities.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid gap-1">
+                  <label htmlFor="tv-filter-district" className="text-xs font-medium text-muted-foreground">
+                    İlçe
+                  </label>
+                  <select
+                    id="tv-filter-district"
+                    value={schoolFilters.district}
+                    onChange={(e) => {
+                      setSchoolFilters((f) => ({ ...f, district: e.target.value }));
+                    }}
+                    disabled={schoolsLoading || !schoolFilters.city}
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Tüm ilçeler</option>
+                    {filterDistricts.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid gap-1">
+                  <label htmlFor="tv-filter-segment" className="text-xs font-medium text-muted-foreground">
+                    Kurum
+                  </label>
+                  <select
+                    id="tv-filter-segment"
+                    value={schoolFilters.segment}
+                    onChange={(e) => {
+                      setSchoolFilters((f) => ({
+                        ...f,
+                        segment: e.target.value as '' | 'ozel' | 'devlet',
+                      }));
+                    }}
+                    disabled={schoolsLoading}
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Tümü</option>
+                    <option value="devlet">Devlet</option>
+                    <option value="ozel">Özel</option>
+                  </select>
+                </div>
+                <div className="grid gap-1">
+                  <label htmlFor="tv-filter-search" className="text-xs font-medium text-muted-foreground">
+                    Okul adı
+                  </label>
+                  <input
+                    id="tv-filter-search"
+                    type="search"
+                    value={schoolFilters.search}
+                    onChange={(e) => {
+                      setSchoolFilters((f) => ({ ...f, search: e.target.value }));
+                    }}
+                    placeholder="Ara…"
+                    disabled={schoolsLoading}
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <School className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <div className="grid min-w-0 flex-1 gap-1 sm:min-w-[14rem]">
+                  <label htmlFor="tv-school-select" className="text-sm font-medium text-foreground">
+                    Okul
+                  </label>
+                  <select
+                    id="tv-school-select"
+                    value={schoolId ?? ''}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setSelectedSchoolId(id);
+                      const u = new URLSearchParams();
+                      u.set('school_id', id);
+                      u.set('tab', mainTab);
+                      router.replace(`/tv?${u.toString()}`, { scroll: false });
+                      setRefreshKey((k) => k + 1);
+                    }}
+                    disabled={schoolsLoading || schools.length === 0}
+                    className="min-w-0 max-w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    {schools.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {tvSchoolOptionLabel(s)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSchoolFilters({ city: '', district: '', segment: '', search: '' });
+                  }}
+                  disabled={schoolsLoading}
+                  className="rounded-lg border border-input bg-background px-3 py-2 text-sm text-muted-foreground hover:bg-muted/60"
+                >
+                  Filtreleri temizle
+                </button>
+                {schoolsLoading && <span className="text-xs text-muted-foreground">Yükleniyor…</span>}
+                {!schoolsLoading && schools.length === 0 && (
+                  <span className="text-xs text-destructive">Bu filtrelere uyan okul yok.</span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+        <div
+          role="tablist"
+          aria-label="Duyuru TV bölümleri"
+          className="flex gap-1.5 overflow-x-auto px-2 py-3 sm:flex-wrap sm:px-4 sm:pb-4"
+        >
+          {(
+            [
+              { id: 'genel' as const, label: 'Genel', hint: 'Önizleme ve kurulum', Icon: LayoutGrid },
+              { id: 'ayarlar' as const, label: 'TV ayarları', hint: 'Görsel, tema, listeler', Icon: Settings },
+              { id: 'cihazlar' as const, label: 'Cihazlar', hint: 'Eşleştirme kodları', Icon: Monitor },
+              { id: 'icerik' as const, label: 'İçerik özeti', hint: 'Ekrana göre bloklar', Icon: PlayCircle },
+              { id: 'duyurular' as const, label: 'Duyurular', hint: 'Liste ve düzenleme', Icon: Megaphone },
+              { id: 'yardim' as const, label: 'Yardım', hint: 'Nasıl çalışır', Icon: HelpCircle },
+            ] as const
+          ).map(({ id, label, hint, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={mainTab === id}
+              onClick={() => setMainTab(id)}
+              className={cn(
+                'flex min-w-[9.25rem] shrink-0 flex-col items-start gap-0.5 rounded-xl border px-3 py-2.5 text-left transition-all sm:min-w-0',
+                mainTab === id
+                  ? 'border-primary bg-primary/10 text-foreground shadow-sm ring-1 ring-primary/20'
+                  : 'border-transparent bg-muted/35 text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground',
+              )}
             >
-              <Monitor className="size-4" />
-              Akıllı Tahta
-            </Link>
-          ) : null}
+              <span className="flex items-center gap-2 text-sm font-semibold">
+                <Icon className="size-4 shrink-0 opacity-90" aria-hidden />
+                {label}
+              </span>
+              <span className="hidden text-[11px] leading-snug text-muted-foreground sm:block">{hint}</span>
+            </button>
+          ))}
         </div>
-        </div>
-        {/* Bölüm atlama – Mosaic pill stili */}
-        <nav className="flex flex-wrap gap-2" aria-label="Sayfa bölümlerine atla">
-          <button type="button" onClick={() => scrollTo(setupRef)} className="rounded-xl px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:text-sm">
-            Kurulum
-          </button>
-          <button type="button" onClick={() => { scrollTo(settingsRef); setSettingsCollapsed(false); }} className="rounded-xl px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:text-sm">
-            Ayarlar
-          </button>
-          <button type="button" onClick={() => { scrollTo(devicesRef); setTvDevicesOpen(true); }} className="rounded-xl px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:text-sm">
-            Cihazlar
-          </button>
-          <button type="button" onClick={() => scrollTo(contentRef)} className="rounded-xl px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:text-sm">
-            İçerik
-          </button>
-        </nav>
-      </div>
+      </header>
 
       {error && <Alert message={error} />}
 
-      {/* Canlı TV önizleme */}
-      <Card className="overflow-hidden border-border">
-        <button
-          type="button"
-          onClick={() => setPreviewExpanded((e) => !e)}
-          className="flex w-full items-center justify-between px-4 py-3 text-left"
-        >
-          <div className="flex items-center gap-2">
-            <PlayCircle className="size-5 text-primary" />
-            <span className="font-medium">Canlı TV önizleme</span>
-          </div>
-          {previewExpanded ? (
-            <ChevronDown className="size-5 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="size-5 text-muted-foreground" />
-          )}
-        </button>
-        {previewExpanded && (
-          <CardContent className="border-t border-border pt-4">
-            <div className="flex flex-wrap gap-2 pb-3">
+      <div className="rounded-2xl border border-border bg-card shadow-sm">
+        {mainTab === 'genel' && (
+          <div className="space-y-6 p-4 sm:p-6">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Genel bakış</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Canlı önizleme ve kurulum kontrol listesi.</p>
+            </div>
+            <Card className="overflow-hidden border-border">
+              <CardHeader className="pb-2">
+                <div className="flex items-center gap-2">
+                  <PlayCircle className="size-5 text-primary" />
+                  <CardTitle className="text-base">Canlı TV önizleme</CardTitle>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">Hangi ekranda ne göründüğünü seçin.</p>
+              </CardHeader>
+              <CardContent className="border-t border-border pt-4">
+                <div className="flex flex-wrap gap-2 pb-3">
               <button
                 type="button"
                 onClick={() => setPreviewTab('corridor')}
@@ -573,329 +938,484 @@ export default function TvPage() {
                 Akıllı Tahta
               </button>
             </div>
-            <div className="relative w-full overflow-hidden rounded-lg border border-border bg-muted" style={{ aspectRatio: '16/9', minHeight: 200, maxHeight: 'min(560px, 70vh)' }}>
+            {/* Dış kap: 16/9, gerçek piksel yüksekliği = genişlik*(720/1280) */}
+            <div
+              ref={previewContainerRef}
+              className="relative w-full overflow-hidden rounded-lg border border-border bg-muted md:mx-auto md:max-w-5xl"
+              style={{ height: Math.max(220, Math.round((previewWidth || 760) * (TV_H / TV_W))) }}
+            >
               {previewTab === 'classroom' && !previewUrlClassroom ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
                   <Monitor className="size-12 text-muted-foreground" />
                   <p className="text-sm font-medium text-muted-foreground">
                     Tahta önizlemesi için önce Akıllı Tahta sayfasından bir tahta ekleyin.
                   </p>
-                  <Link
-                    href="/akilli-tahta"
-                    className="text-sm font-medium text-primary hover:underline"
-                  >
+                  <Link href="/akilli-tahta" className="text-sm font-medium text-primary hover:underline">
                     Akıllı Tahta sayfasına git
                   </Link>
                 </div>
               ) : (
-                <iframe
-                  key={previewTab}
-                  src={
-                    previewTab === 'corridor'
-                      ? previewUrlCorridor
-                      : previewTab === 'teachers'
-                        ? previewUrlTeachers
-                        : previewUrlClassroom ?? ''
-                  }
-                  title={
-                    previewTab === 'corridor'
-                      ? 'Koridor TV önizleme'
-                      : previewTab === 'teachers'
-                        ? 'Öğretmenler TV önizleme'
-                        : 'Akıllı Tahta TV önizleme'
-                  }
-                  className="absolute inset-0 h-full w-full"
-                  sandbox="allow-scripts allow-same-origin"
-                />
+                /* iframe sabit 1280×720 → scale ile dış kaba sığdırılır */
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: TV_W,
+                    height: TV_H,
+                    transformOrigin: 'top left',
+                    transform: `scale(${previewScale})`,
+                    pointerEvents: 'none',
+                  }}
+                >
+                  <iframe
+                    key={previewTab}
+                    src={
+                      previewTab === 'corridor'
+                        ? previewUrlCorridor
+                        : previewTab === 'teachers'
+                          ? previewUrlTeachers
+                          : previewUrlClassroom ?? ''
+                    }
+                    title={
+                      previewTab === 'corridor'
+                        ? 'Koridor TV önizleme'
+                        : previewTab === 'teachers'
+                          ? 'Öğretmenler TV önizleme'
+                          : 'Akıllı Tahta TV önizleme'
+                    }
+                    width={TV_W}
+                    height={TV_H}
+                    style={{ display: 'block', border: 'none' }}
+                    sandbox="allow-scripts allow-same-origin"
+                  />
+                </div>
               )}
             </div>
-          </CardContent>
-        )}
-      </Card>
+              </CardContent>
+            </Card>
 
-      {/* İlk kurulum adımları */}
-      <Card
-        ref={setupRef}
-        className={cn(
-          'overflow-hidden shadow-sm',
-          setupComplete
-            ? 'border-l-4 border-l-emerald-400 dark:border-l-emerald-600 border-emerald-200 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-950/20'
-            : 'border-l-4 border-l-amber-400 dark:border-l-amber-600 border-amber-200/60 dark:border-amber-800/60 bg-amber-50/20 dark:bg-amber-950/15',
-        )}
-      >
-        <button
-          type="button"
-          onClick={() => setSetupGuideCollapsed((c) => !c)}
-          className="flex w-full items-center justify-between px-4 py-3 text-left"
-        >
-          <div className="flex items-center gap-2">
-            {setupComplete ? (
-              <CheckCircle2 className="size-5 text-emerald-600" />
-            ) : (
-              <Circle className="size-5 text-primary" />
-            )}
-            <CardTitle className="text-base">
-              {setupComplete ? 'Kurulum tamamlandı' : `İlk kurulum adımları (${setupStepCount}/4)`}
-            </CardTitle>
+            <Card
+              className={cn(
+                'overflow-hidden shadow-sm',
+                setupComplete
+                  ? 'border-l-4 border-l-emerald-400 dark:border-l-emerald-600 border-emerald-200 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-950/20'
+                  : 'border-l-4 border-l-amber-400 dark:border-l-amber-600 border-amber-200/60 dark:border-amber-800/60 bg-amber-50/20 dark:bg-amber-950/15',
+              )}
+            >
+              <CardHeader className="pb-2">
+                <div className="flex items-center gap-2">
+                  {setupComplete ? (
+                    <CheckCircle2 className="size-5 text-emerald-600" />
+                  ) : (
+                    <Circle className="size-5 text-primary" />
+                  )}
+                  <CardTitle className="text-base">
+                    {setupComplete ? 'Kurulum tamamlandı' : `İlk kurulum adımları (${setupStepCount}/4)`}
+                  </CardTitle>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">Bu adımları tamamladığınızda TV ekranları hazır olur.</p>
+              </CardHeader>
+              <CardContent className="border-t border-border pt-4">
+                <ol className="space-y-3 text-sm">
+                  <li className="flex items-start gap-3">
+                    {hasTvSettings ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" /> : <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-primary text-xs font-bold text-primary">1</span>}
+                    <div>
+                      <strong>TV ayarlarını doldur</strong> — Hava durumu şehri, hoş geldin görseli ve (isterseniz) YouTube linki.
+                      {!hasTvSettings && (
+                        <button type="button" onClick={() => setMainTab('ayarlar')} className="ml-1 text-primary hover:underline">
+                          TV ayarları sekmesine git →
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    {hasCorridorDevice && hasTeachersDevice ? (
+                      <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" />
+                    ) : (
+                      <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-primary text-xs font-bold text-primary">2</span>
+                    )}
+                    <div>
+                      <strong>Her ekran için cihaz ekle ve eşleştir</strong> — Koridor ve öğretmenler odası için ayrı cihaz.
+                      {(!hasCorridorDevice || !hasTeachersDevice) && (
+                        <button type="button" onClick={() => setMainTab('cihazlar')} className="ml-1 text-primary hover:underline">
+                          Cihazlar sekmesine git →
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    {hasTvContent ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" /> : <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-primary text-xs font-bold text-primary">3</span>}
+                    <div>
+                      <strong>Duyurularda “Duyuru TV ekranında göster” işaretle</strong> — Kategori ve hedef ekran seçin.
+                      {!hasTvContent && (
+                        <button type="button" onClick={() => setMainTab('duyurular')} className="ml-1 text-primary hover:underline">
+                          Duyurular sekmesine git →
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                </ol>
+              </CardContent>
+            </Card>
           </div>
-          {setupGuideCollapsed ? (
-            <ChevronRight className="size-5 text-muted-foreground" />
-          ) : (
-            <ChevronDown className="size-5 text-muted-foreground" />
-          )}
-        </button>
-        {!setupGuideCollapsed && (
-          <CardContent className="border-t border-border pt-4">
-            <ol className="space-y-3 text-sm">
-              <li className="flex items-start gap-3">
-                {hasTvSettings ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" /> : <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-primary text-xs font-bold text-primary">1</span>}
-                <div>
-                  <strong>TV Ayarlarını doldur</strong> — Hava durumu şehri, hoş geldin görseli ve (isterseniz) YouTube linki.
-                  {!hasTvSettings && (
-                    <button type="button" onClick={() => setSettingsCollapsed(false)} className="ml-1 text-primary hover:underline">
-                      Ayarlara git →
-                    </button>
-                  )}
-                </div>
-              </li>
-              <li className="flex items-start gap-3">
-                {(hasCorridorDevice && hasTeachersDevice) ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" /> : <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-primary text-xs font-bold text-primary">2</span>}
-                <div>
-                  <strong>Her ekran için cihaz ekle ve eşleştir</strong> — Koridor ve Öğretmenler Odası için ayrı cihaz.
-                  {(!hasCorridorDevice || !hasTeachersDevice) && (
-                    <button type="button" onClick={() => setTvDevicesOpen(true)} className="ml-1 text-primary hover:underline">
-                      Cihazlara git →
-                    </button>
-                  )}
-                </div>
-              </li>
-              <li className="flex items-start gap-3">
-                {hasTvContent ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" /> : <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-primary text-xs font-bold text-primary">3</span>}
-                <div>
-                  <strong>Duyurularda “Duyuru TV ekranında göster” işaretle</strong> — Kategori ve hedef ekran seçin.
-                  {!hasTvContent && (
+        )}
+
+        {mainTab === 'ayarlar' && (
+          <div className="space-y-4 p-4 sm:p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+              <div className="max-w-2xl">
+                <h2 className="text-lg font-semibold text-foreground">TV ayarları</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Hava durumu, hoş geldin görseli, tema, yan kartlar, yemek/nöbet listeleri, Excel içe aktarma ve yedekleme. Yalnızca bu sekmede düzenlenir.
+                </p>
+              </div>
+              {canCreateAnnouncement ? (
+                <button
+                  type="button"
+                  onClick={() => openCreateAnnouncement('general')}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-primary bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
+                >
+                  <Plus className="size-4" aria-hidden />
+                  Yeni duyuru
+                </button>
+              ) : null}
+            </div>
+            <Card className="border-l-4 border-l-blue-400 dark:border-l-blue-600 bg-blue-50/30 dark:bg-blue-950/20 shadow-sm">
+              <CardContent className="pt-6">
+                {!schoolId ? (
+                  <p className="py-4 text-sm text-muted-foreground">Okul atanmamış. Ayarlara erişmek için bir okula bağlı olmanız gerekir.</p>
+                ) : school ? (
+                  <TvSettingsForm token={token} school={school} onSaved={(s) => setSchool(s)} />
+                ) : (
+                  <div className="py-8">
+                    <LoadingSpinner label="Okul bilgisi yükleniyor…" />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {mainTab === 'cihazlar' && (
+          <div className="space-y-4 p-4 sm:p-6">
+            <div className="max-w-2xl">
+              <h2 className="text-lg font-semibold text-foreground">TV cihazları</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Her ekran için <strong className="text-foreground">TV adresini kopyala</strong> → TV tarayıcısına yapıştırın → <strong className="text-foreground">Cihaz ekle</strong> ile kodu girin.
+              </p>
+            </div>
+            <Card className="border-l-4 border-l-violet-400 dark:border-l-violet-600 bg-violet-50/30 dark:bg-violet-950/20">
+              <CardContent className="pt-6">
+                <TvDevicesSection
+                  token={token}
+                  devices={tvDevicesFiltered}
+                  schoolId={schoolId ?? undefined}
+                  onRefresh={() => setRefreshKey((k) => k + 1)}
+                />
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {mainTab === 'icerik' && (
+          <div className="space-y-4 p-4 sm:p-6">
+            <div className="max-w-2xl">
+              <h2 className="text-lg font-semibold text-foreground">İçerik özeti</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                TV’de hangi duyuruların hangi ekranda nasıl göründüğünü kontrol edin. Alt sekmeden ekran seçin.
+              </p>
+            </div>
+            <Card className="border-l-4 border-l-amber-400 dark:border-l-amber-600 bg-amber-50/30 dark:bg-amber-950/20">
+              <CardHeader className="pb-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <CardTitle className="text-base">Hedef ekran</CardTitle>
+                  <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-muted/30 p-1">
                     <button
                       type="button"
-                      onClick={() => setCreateAnnouncementOpen(true)}
-                      className="ml-1 text-primary hover:underline"
+                      onClick={() => setAudienceTab('corridor')}
+                      className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                        audienceTab === 'corridor'
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
                     >
-                      Duyuru ekle →
+                      Koridor ({tvItemsCorridor.length})
                     </button>
-                  )}
+                    <button
+                      type="button"
+                      onClick={() => setAudienceTab('teachers')}
+                      className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                        audienceTab === 'teachers'
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Öğretmenler ({tvItemsTeachers.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAudienceTab('classroom')}
+                      className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                        audienceTab === 'classroom'
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Akıllı Tahta ({tvItemsClassroom.length})
+                    </button>
+                  </div>
                 </div>
-              </li>
-            </ol>
-          </CardContent>
-        )}
-      </Card>
-
-      {/* TV Ayarları – katlanabilir, her zaman görünür */}
-      <Card ref={settingsRef} className="overflow-hidden border-l-4 border-l-blue-400 dark:border-l-blue-600 bg-blue-50/30 dark:bg-blue-950/20 shadow-sm">
-        <button
-          type="button"
-          onClick={() => setSettingsCollapsed((c) => !c)}
-          className="flex w-full items-center justify-between px-4 py-3 text-left"
-        >
-          <div className="flex items-center gap-2">
-            <Settings className="size-5 text-primary" />
-            <CardTitle className="text-base">TV Ayarları</CardTitle>
-            <span className="text-xs text-muted-foreground">Hava durumu, görsel, YouTube, Belirli Gün, Ders programı…</span>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {loading ? (
+                  <div className="py-12">
+                    <LoadingSpinner label="Yükleniyor…" />
+                  </div>
+                ) : currentItems.length === 0 && !school ? (
+                  <EmptyState
+                    icon={<PlayCircle />}
+                    title="Bu ekran için içerik yok"
+                    description="Duyurularda kategori seçip “Duyuru TV ekranında göster” işaretleyin. Hedef ekranı (koridor / öğretmenler / Akıllı Tahta) da seçebilirsiniz."
+                  />
+                ) : (
+                  <BlockGrid
+                    byCategory={currentByCategory}
+                    allItems={currentItems}
+                    blockConfig={BLOCK_CONFIG}
+                    school={school ?? undefined}
+                  />
+                )}
+              </CardContent>
+            </Card>
           </div>
-          {settingsCollapsed ? (
-            <ChevronRight className="size-5 text-muted-foreground" />
-          ) : (
-            <ChevronDown className="size-5 text-muted-foreground" />
-          )}
-        </button>
-        <CardContent className={settingsCollapsed ? 'hidden border-t-0 pt-0' : 'border-t border-border pt-4'}>
-          {!schoolId ? (
-            <p className="py-4 text-sm text-muted-foreground">Okul atanmamış. Ayarlara erişmek için bir okula bağlı olmanız gerekir.</p>
-          ) : school ? (
-            <TvSettingsForm token={token} school={school} onSaved={(s) => setSchool(s)} />
-          ) : (
-            <div className="py-8">
-              <LoadingSpinner label="Okul bilgisi yükleniyor…" />
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* TV Cihazları */}
-      <Card ref={devicesRef} className="border-l-4 border-l-violet-400 dark:border-l-violet-600 bg-violet-50/30 dark:bg-violet-950/20">
-        <CardHeader className="pb-3">
-          <button
-            type="button"
-            onClick={() => setTvDevicesOpen((o) => !o)}
-            className="flex w-full items-center justify-between text-left"
-          >
-            <CardTitle className="text-base flex items-center gap-2">
-              <Monitor className="size-4" />
-              TV Cihazları
-            </CardTitle>
-            {tvDevicesOpen ? (
-              <ChevronDown className="size-4 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="size-4 text-muted-foreground" />
-            )}
-          </button>
-        </CardHeader>
-        {tvDevicesOpen && (
-          <CardContent className="pt-0">
-            <TvDevicesSection
-              token={token}
-              devices={tvDevices}
-              schoolId={schoolId}
-              onRefresh={() => setRefreshKey((k) => k + 1)}
-            />
-          </CardContent>
         )}
-      </Card>
 
-      {/* İçerik özeti + sekmeler */}
-      <Card ref={contentRef} className="border-l-4 border-l-amber-400 dark:border-l-amber-600 bg-amber-50/30 dark:bg-amber-950/20">
-        <CardHeader className="pb-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle className="text-base">İçerik blokları</CardTitle>
-            {/* Sekmeler */}
-            <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-muted/30 p-1">
-              <button
-                type="button"
-                onClick={() => setAudienceTab('corridor')}
-                className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-                  audienceTab === 'corridor'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Koridor ({tvItemsCorridor.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setAudienceTab('teachers')}
-                className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-                  audienceTab === 'teachers'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Öğretmenler ({tvItemsTeachers.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setAudienceTab('classroom')}
-                className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-                  audienceTab === 'classroom'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Akıllı Tahta ({tvItemsClassroom.length})
-              </button>
+        {mainTab === 'duyurular' && (
+          <div className="space-y-4 p-4 sm:p-6">
+            <div className="max-w-2xl">
+              <h2 className="text-lg font-semibold text-foreground">Okul duyuruları</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                TV’de görünecek duyuruları burada yönetin. Üstteki hızlı şablonlar veya &quot;Yeni duyuru&quot; ile ekleyebilirsiniz.
+              </p>
             </div>
-          </div>
-        </CardHeader>
-        <CardContent className="pt-0">
-          {loading ? (
-            <div className="py-12">
-              <LoadingSpinner label="Yükleniyor…" />
-            </div>
-          ) : currentItems.length === 0 && !school ? (
-            <EmptyState
-              icon={<PlayCircle />}
-              title="Bu ekran için içerik yok"
-              description="Duyurularda kategori seçip “Duyuru TV ekranında göster” işaretleyin. Hedef ekranı (koridor / öğretmenler / Akıllı Tahta) da seçebilirsiniz."
-            />
-          ) : (
-            <BlockGrid
-              byCategory={currentByCategory}
-              allItems={currentItems}
-              blockConfig={BLOCK_CONFIG}
-              school={school ?? undefined}
-            />
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Okul Duyuruları – katlanabilir, TV içinde */}
-      <Card ref={announcementCardRef} className="border-l-4 border-l-amber-400 dark:border-l-amber-600 bg-amber-50/30 dark:bg-amber-950/20">
-        <button
-          type="button"
-          onClick={() => setAnnouncementListOpen((o) => !o)}
-          className="flex w-full items-center justify-between px-4 py-3 text-left"
-        >
-          <CardTitle className="text-base flex items-center gap-2">
-            <Megaphone className="size-4" />
-            Okul Duyuruları
-          </CardTitle>
-          {announcementListOpen ? (
-            <ChevronDown className="size-5 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="size-5 text-muted-foreground" />
-          )}
-        </button>
-        {announcementListOpen && (
-          <CardContent className="border-t border-border pt-4">
             <AnnouncementListSection
               token={token}
               isSchoolAdmin={me?.role === 'school_admin'}
+              schoolId={isSuperadmin ? schoolId ?? undefined : undefined}
+              refreshTrigger={refreshKey}
               onRefresh={refetchAnnouncements}
-              onCreateClick={me?.role === 'school_admin' ? () => setCreateAnnouncementOpen(true) : undefined}
+              onCreateClick={canCreateAnnouncement ? () => openCreateAnnouncement('general') : undefined}
+              onCreateWithTemplate={canCreateAnnouncement ? openCreateAnnouncement : undefined}
+              cardClassName="border-l-4 border-l-amber-400 dark:border-l-amber-600 bg-amber-50/25 dark:bg-amber-950/20"
+              showAddToAgenda={agendaAfterTvAyarlar}
             />
-          </CardContent>
-        )}
-      </Card>
-
-      {/* Yardım – katlanabilir */}
-      <details
-        open={helpOpen}
-        onToggle={(e) => setHelpOpen((e.target as HTMLDetailsElement).open)}
-        className="rounded-lg border border-border"
-      >
-        <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 text-sm font-medium">
-          <HelpCircle className="size-4 text-muted-foreground" />
-          Nasıl çalışır?
-        </summary>
-        <div className="border-t border-border px-4 py-3 text-sm text-muted-foreground">
-          <div className="space-y-6">
-            <section>
-              <h4 className="mb-2 font-semibold text-foreground">Genel yapı</h4>
-              <p>Her okulun 3 TV ekranı vardır: <strong>Koridor</strong>, <strong>Öğretmenler odası</strong> ve <strong>Akıllı Tahta</strong>. İçerik bu panelden yönetilir; TV ekranları tarayıcıda bu veriyi gösterir.</p>
-            </section>
-            <section>
-              <h4 className="mb-2 font-semibold text-foreground">1. TV Ayarları (zorunlu)</h4>
-              <p>Hava durumu şehri, hoş geldin görseli, tema ve yan kartları buradan ayarlarsınız. Yemek, nöbet, belirli gün, doğum günü, ders programı listelerini Excel ile yükleyebilir veya elle girebilirsiniz. Yedek indir / Yedekten yükle ile tüm veriyi saklayabilirsiniz.</p>
-            </section>
-            <section>
-              <h4 className="mb-2 font-semibold text-foreground">2. TV cihazlarını eşleştirme</h4>
-              <p>Koridor ve Öğretmenler için ayrı cihaz ekleyin. TV ekranında tarayıcıda şu adresleri açın: <code className="rounded bg-muted px-1 py-0.5 text-xs">/tv/corridor?school_id=XXX</code> ve <code className="rounded bg-muted px-1 py-0.5 text-xs">/tv/teachers?school_id=XXX</code>. Akıllı Tahta ekranı için: <code className="rounded bg-muted px-1 py-0.5 text-xs">/tv/classroom?school_id=XXX&amp;device_id=YYY</code> (device_id: cihaz UUID veya eşleşme kodu). Kiosk modu için <code className="rounded bg-muted px-1 py-0.5 text-xs">?kiosk=1</code> ekleyin — dokununca tam ekran olur.</p>
-            </section>
-            <section>
-              <h4 className="mb-2 font-semibold text-foreground">3. Duyuru ile içerik ekleme</h4>
-              <ul className="list-inside list-disc space-y-1">
-                <li><strong className="text-foreground">Kategori</strong> seçin (Öğretmenlerimiz, Belirli Gün, Genel vb.).</li>
-                <li><strong className="text-foreground">&quot;Duyuru TV ekranında göster&quot;</strong> kutusunu işaretleyin.</li>
-                <li><strong className="text-foreground">Hedef ekran</strong>: Tüm ekranlar / Koridor + Öğretmenler / Sadece koridor / Sadece öğretmenler / Sadece Akıllı Tahta.</li>
-                <li><strong className="text-foreground">Görsel URL</strong> varsa slaytta gösterilir. Metinde <strong>**kelime**</strong> turuncu vurgulanır.</li>
-              </ul>
-            </section>
-            <section>
-              <h4 className="mb-2 font-semibold text-foreground">4. Özel özellikler</h4>
-              <ul className="list-inside list-disc space-y-1">
-                <li><strong className="text-foreground">Sarı bar:</strong> Kategori &quot;Okul Duyuruları (Sarı Bar)&quot; seçin — altta kayan duyuru bandı olarak görünür.</li>
-                <li><strong className="text-foreground">Acil duyuru:</strong> Yayındaki duyuruda sarı üçgen butonu ile 5/15/30/60 dk tüm ekranları kaplayabilirsiniz.</li>
-                <li><strong className="text-foreground">Slayt süresi:</strong> TV Ayarlarındaki varsayılan süre (saniye) ile bloklar döner.</li>
-                <li><strong className="text-foreground">IP kısıtlaması:</strong> Sadece okul ağından erişim için Ayarlarda IP girebilirsiniz.</li>
-              </ul>
-            </section>
-            <section>
-              <h4 className="mb-2 font-semibold text-foreground">5. Ekran koruma</h4>
-              <p>Dijital ekranlar günde en fazla 12 saat kullanılmalıdır. Gece modu başlangıç/bitiş saatlerini ayarlayarak ekran ömrünü koruyabilirsiniz. Kapalı devre kurulum için <strong>KAPALI_DEVRE_KURULUM.md</strong> dosyasına bakın.</p>
-            </section>
           </div>
-        </div>
-      </details>
+        )}
+
+        {mainTab === 'yardim' && (
+          <div className="mx-auto max-w-4xl space-y-8 px-4 py-6 sm:px-6">
+            <div className="relative overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-br from-sky-500/10 via-background to-violet-500/10 p-6 shadow-sm sm:p-8 dark:from-sky-500/10 dark:via-background dark:to-violet-500/20">
+              <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-primary/15 blur-3xl" aria-hidden />
+              <div className="pointer-events-none absolute -bottom-20 -left-20 h-56 w-56 rounded-full bg-violet-500/10 blur-3xl dark:bg-violet-500/15" aria-hidden />
+              <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex items-start gap-4">
+                  <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-primary/15 text-primary shadow-inner ring-1 ring-primary/20">
+                    <HelpCircle className="size-7" aria-hidden />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-primary">Duyuru TV</p>
+                    <h2 className="mt-1 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+                      Nasıl çalışır?
+                    </h2>
+                    <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
+                      Bu panelden içerik yönetirsiniz; TV’ler tarayıcıda canlı yayını gösterir. Aşağıdaki sırayı izleyerek birkaç dakikada yayına alabilirsiniz.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 sm:justify-end">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-background/80 px-3 py-1 text-xs font-medium text-foreground/90 backdrop-blur-sm">
+                    <Monitor className="size-3.5 text-sky-600 dark:text-sky-400" aria-hidden />
+                    3 ekran
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-background/80 px-3 py-1 text-xs font-medium text-foreground/90 backdrop-blur-sm">
+                    <BookOpen className="size-3.5 text-violet-600 dark:text-violet-400" aria-hidden />
+                    Adım adım
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              {[
+                { t: 'Koridor', d: 'Genel duyuru ve slaytlar', icon: Monitor, className: 'bg-sky-500/10 text-sky-700 dark:text-sky-300' },
+                { t: 'Öğretmenler odası', d: 'Aynı içerik, ayrı adres', icon: Users, className: 'bg-violet-500/10 text-violet-700 dark:text-violet-300' },
+                { t: 'Akıllı tahta', d: 'Sınıf / cihaz eşlemesi', icon: LayoutGrid, className: 'bg-amber-500/10 text-amber-800 dark:text-amber-200' },
+              ].map((c) => (
+                <div
+                  key={c.t}
+                  className="flex gap-3 rounded-xl border border-border/70 bg-card/50 p-4 shadow-sm backdrop-blur-sm transition-colors hover:border-primary/30"
+                >
+                  <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-xl', c.className)}>
+                    <c.icon className="size-5" aria-hidden />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-foreground">{c.t}</p>
+                    <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{c.d}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Kurulum</h3>
+              {[
+                {
+                  step: '1',
+                  title: 'TV ayarları',
+                  subtitle: 'Zorunlu ilk adım',
+                  body:
+                    'Hava durumu şehri, hoş geldin görseli, tema, yan kartlar ve görünürlük seçenekleri. Yemek, nöbet, belirli gün, doğum günü ve ders programı listelerini Excel ile yükleyebilir veya elle girebilirsiniz. Yedek indir / yedekten yükle ile tüm veriyi saklayabilirsiniz.',
+                  icon: Settings,
+                  accent: 'from-emerald-500/20 to-emerald-500/5 border-emerald-500/25',
+                },
+                {
+                  step: '2',
+                  title: 'Cihazları eşleştirin',
+                  subtitle: 'Adres + kod',
+                  body: (
+                    <>
+                      <strong className="text-foreground">Cihazlar</strong> sekmesinde her ekran için{' '}
+                      <strong className="text-foreground">Adresi kopyala</strong> ile tam bağlantıyı TV tarayıcısına yapıştırın; ardından{' '}
+                      <strong className="text-foreground">Cihaz ekle</strong> ile kod üretin. Akıllı tahta bağlantısı{' '}
+                      <strong className="text-foreground">Akıllı Tahta</strong> listesindedir. İsteğe bağlı: adres sonuna{' '}
+                      <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">?kiosk=1</code>.
+                    </>
+                  ),
+                  icon: Link2,
+                  accent: 'from-sky-500/20 to-sky-500/5 border-sky-500/25',
+                },
+                {
+                  step: '3',
+                  title: 'Duyuru ekleyin',
+                  subtitle: 'Slayt veya şerit',
+                  body: (
+                    <ul className="space-y-2 list-none pl-0">
+                      {[
+                        'Kategori seçin (Öğretmenlerimiz, Belirli Gün, Genel vb.).',
+                        '“Duyuru TV ekranında göster” kutusunu işaretleyin.',
+                        'Hedef ekran: Tüm ekranlar, Koridor + Öğretmenler, yalnızca koridor / öğretmenler veya Akıllı Tahta.',
+                        'Görsel URL varsa slaytta kullanılır. Metinde **kelime** turuncu vurgulanır.',
+                      ].map((line) => (
+                        <li key={line} className="flex gap-2 text-sm leading-relaxed">
+                          <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+                          <span>{line}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ),
+                  icon: Megaphone,
+                  accent: 'from-amber-500/20 to-amber-500/5 border-amber-500/25',
+                },
+              ].map((block) => (
+                <Card key={block.step} className={cn('overflow-hidden border bg-gradient-to-br to-transparent shadow-sm', block.accent)}>
+                  <CardHeader className="flex flex-row items-start gap-4 space-y-0 pb-2">
+                    <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-background/80 text-foreground shadow-sm ring-1 ring-border/60">
+                      <block.icon className="size-5" aria-hidden />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex size-7 items-center justify-center rounded-lg bg-primary/15 text-xs font-bold text-primary">
+                          {block.step}
+                        </span>
+                        <CardTitle className="text-lg">{block.title}</CardTitle>
+                      </div>
+                      <p className="mt-1 text-xs font-medium text-muted-foreground">{block.subtitle}</p>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="text-sm leading-relaxed text-muted-foreground">{block.body}</CardContent>
+                </Card>
+              ))}
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Öne çıkanlar</h3>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {[
+                  {
+                    title: 'Sarı bar',
+                    desc: 'Kategori “Okul Duyuruları (Sarı Bar)” — altta kayan duyuru bandı.',
+                    icon: Megaphone,
+                    ring: 'ring-amber-500/20 bg-amber-500/10 text-amber-800 dark:text-amber-200',
+                  },
+                  {
+                    title: 'Acil duyuru',
+                    desc: 'Yayındaki duyuruda sarı üçgen ile 5/15/30/60 dk tüm ekranları kaplayın.',
+                    icon: AlertTriangle,
+                    ring: 'ring-red-500/20 bg-red-500/10 text-red-800 dark:text-red-200',
+                  },
+                  {
+                    title: 'Slayt süresi',
+                    desc: 'TV ayarlarındaki varsayılan süre (sn) ile orta alan blokları döner.',
+                    icon: Clock3,
+                    ring: 'ring-sky-500/20 bg-sky-500/10 text-sky-800 dark:text-sky-200',
+                  },
+                  {
+                    title: 'IP kısıtlaması',
+                    desc: 'Yalnızca okul ağından erişim için TV ayarlarında IP tanımlayın.',
+                    icon: Shield,
+                    ring: 'ring-emerald-500/20 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200',
+                  },
+                  {
+                    title: 'YouTube',
+                    desc: 'Video içeren duyurular tam ekran video slaytında; başlık ve metin videonun üzerinde okunabilir.',
+                    icon: Film,
+                    ring: 'ring-violet-500/20 bg-violet-500/10 text-violet-800 dark:text-violet-200',
+                  },
+                  {
+                    title: 'Gece modu',
+                    desc: 'Ekran ömrü için başlangıç/bitiş saatleri. Kapalı devre kurulum: KAPALI_DEVRE_KURULUM.md',
+                    icon: Moon,
+                    ring: 'ring-indigo-500/20 bg-indigo-500/10 text-indigo-800 dark:text-indigo-200',
+                  },
+                ].map((f) => (
+                  <div
+                    key={f.title}
+                    className="flex gap-3 rounded-xl border border-border/70 bg-card/40 p-4 shadow-sm backdrop-blur-sm transition-colors hover:border-primary/25"
+                  >
+                    <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-xl ring-1', f.ring)}>
+                      <f.icon className="size-5" aria-hidden />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-foreground">{f.title}</p>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{f.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 rounded-xl border border-dashed border-primary/30 bg-primary/5 px-4 py-4 sm:px-5">
+              <Sparkles className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden />
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                <span className="font-medium text-foreground">İpucu:</span> Önce{' '}
+                <button type="button" onClick={() => setMainTab('ayarlar')} className="font-semibold text-primary underline-offset-4 hover:underline">
+                  TV Ayarları
+                </button>{' '}
+                sekmesini ziyaret edin; ardından duyuru detayından kişisel ajandaya eklemeniz mümkün olur.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
+}
+
+function tvPlayerPath(group: 'corridor' | 'teachers', schoolId?: string) {
+  const base = group === 'corridor' ? '/tv/corridor' : '/tv/teachers';
+  if (!schoolId) return base;
+  return `${base}?school_id=${encodeURIComponent(schoolId)}`;
 }
 
 function TvDevicesSection({
@@ -911,6 +1431,22 @@ function TvDevicesSection({
 }) {
   const [creating, setCreating] = useState(false);
   const [editingDevice, setEditingDevice] = useState<TvDevice | null>(null);
+
+  const copyTvUrl = (group: 'corridor' | 'teachers') => {
+    if (!schoolId) {
+      toast.error('Önce üstten okul seçin');
+      return;
+    }
+    const path = tvPlayerPath(group, schoolId);
+    const full = typeof window !== 'undefined' ? `${window.location.origin}${path}` : path;
+    void navigator.clipboard.writeText(full).then(() =>
+      toast.success(
+        group === 'corridor'
+          ? 'Koridor TV adresi kopyalandı — TV’de yapıştırın (Ctrl+V)'
+          : 'Öğretmenler TV adresi kopyalandı — TV’de yapıştırın (Ctrl+V)',
+      ),
+    );
+  };
 
   const handleRemove = async (id: string) => {
     if (!token) return;
@@ -933,7 +1469,10 @@ function TvDevicesSection({
       await apiFetch('/tv-devices', {
         method: 'POST',
         token,
-        body: JSON.stringify({ display_group: group }),
+        body: JSON.stringify({
+          display_group: group,
+          ...(schoolId ? { school_id: schoolId } : {}),
+        }),
       });
       toast.success(`TV cihazı oluşturuldu. Eşleştirme kodunu ${group === 'corridor' ? 'Koridor' : 'Öğretmenler'} ekranında girin.`);
       onRefresh();
@@ -953,17 +1492,34 @@ function TvDevicesSection({
           : 'border-violet-200 dark:border-violet-800/70 bg-violet-50/40 dark:bg-violet-950/25',
       )}
     >
-      <div className="flex items-center justify-between">
-        <h4 className="text-sm font-semibold text-foreground">{groupLabel}</h4>
-        <button
-          type="button"
-          onClick={() => createForGroup(group)}
-          disabled={!token || creating}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-primary bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
-          {creating ? <LoadingSpinner /> : <Plus className="size-3.5" />}
-          Cihaz ekle
-        </button>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <h4 className="text-sm font-semibold text-foreground">{groupLabel}</h4>
+          <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground" title={schoolId ? tvPlayerPath(group, schoolId) : tvPlayerPath(group)}>
+            {schoolId ? tvPlayerPath(group, schoolId) : `${tvPlayerPath(group)} — okul seçin`}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => copyTvUrl(group)}
+            disabled={!schoolId}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            title="Tam adresi panoya kopyalar (uzun URL yazmaya gerek yok)"
+          >
+            <Copy className="size-3.5" />
+            Adresi kopyala
+          </button>
+          <button
+            type="button"
+            onClick={() => createForGroup(group)}
+            disabled={!token || creating}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-primary bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {creating ? <LoadingSpinner /> : <Plus className="size-3.5" />}
+            Cihaz ekle
+          </button>
+        </div>
       </div>
       {items.length === 0 ? (
         <p className="mt-2 text-xs text-muted-foreground">Bu ekran için henüz cihaz eklenmemiş.</p>
@@ -1013,7 +1569,7 @@ function TvDevicesSection({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Koridor ve Öğretmenler Odası için cihaz ekleyip eşleştirin. Akıllı Tahta ekranları Akıllı Tahta sayfasından yönetilir.
+        Akıllı Tahta TV bağlantıları <strong className="text-foreground">Akıllı Tahta</strong> sayfasındadır.
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <DeviceCard group="corridor" groupLabel="Koridor ekranı" items={corridorDevices} />
@@ -1030,9 +1586,6 @@ function TvDevicesSection({
           }}
         />
       )}
-      <p className="text-xs text-muted-foreground">
-        TV oynatıcı: /tv/{schoolId ? `corridor?school_id=${schoolId}` : 'corridor'} adresini açıp eşleştirme kodunu girin.
-      </p>
     </div>
   );
 }
@@ -1164,6 +1717,7 @@ function BlockGrid({
 
   const getScheduleCount = (key: 'meal' | 'duty' | 'special_day' | 'timetable' | 'birthday'): number => {
     if (!school) return 0;
+    if (key === 'timetable' && school.tv_timetable_use_school_plan !== false) return 1;
     const raw =
       key === 'meal' ? school.tv_meal_schedule
         : key === 'duty' ? school.tv_duty_schedule
@@ -1509,11 +2063,9 @@ function TvSettingsForm({
   });
   const [theme, setTheme] = useState(school.tv_theme ?? 'dark');
   const [primaryColor, setPrimaryColor] = useState(school.tv_primary_color ?? '');
-  const [visibleCards, setVisibleCards] = useState<Set<string>>(() => {
-    const raw = school.tv_visible_cards?.trim();
-    if (!raw) return new Set(TV_CARD_OPTIONS.map((c) => c.key));
-    return new Set(raw.split(',').map((s) => s.trim()).filter(Boolean));
-  });
+  const [visibleCards, setVisibleCards] = useState<Set<string>>(() =>
+    mergeTvVisibleCardsFromServer(school.tv_visible_cards),
+  );
   const [countdownCardTitle, setCountdownCardTitle] = useState(school.tv_countdown_card_title ?? '');
   const [countdownFontSize, setCountdownFontSize] = useState(String(school.tv_countdown_font_size ?? 24));
   const [countdownSeparator, setCountdownSeparator] = useState<'bullet' | 'pipe' | 'dash'>(() => {
@@ -1669,6 +2221,15 @@ function TvSettingsForm({
     }
   });
   const [submitting, setSubmitting] = useState(false);
+  const [timetableUseSchoolPlan, setTimetableUseSchoolPlan] = useState(() => school.tv_timetable_use_school_plan !== false);
+  const [timetablePreview, setTimetablePreview] = useState<{
+    empty: boolean;
+    entry_count: number;
+    lesson_times_count: number;
+    class_sections: string[];
+    sample_entries: Array<{ day: number; lesson: number; class: string; subject: string }>;
+  } | null>(null);
+  const [timetablePreviewLoading, setTimetablePreviewLoading] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'genel' | 'görünüm' | 'alt' | 'sag' | 'takvim'>('genel');
 
   useEffect(() => {
@@ -1698,8 +2259,7 @@ function TvSettingsForm({
     setLogoSize(ls === 'small' || ls === 'large' ? ls : 'medium');
     setTheme(school.tv_theme ?? 'dark');
     setPrimaryColor(school.tv_primary_color ?? '');
-    const raw = school.tv_visible_cards?.trim();
-    setVisibleCards(raw ? new Set(raw.split(',').map((s) => s.trim()).filter(Boolean)) : new Set(TV_CARD_OPTIONS.map((c) => c.key)));
+    setVisibleCards(mergeTvVisibleCardsFromServer(school.tv_visible_cards));
     setCountdownCardTitle(school.tv_countdown_card_title ?? '');
     setCountdownFontSize(String(school.tv_countdown_font_size ?? 24));
     setMealCardTitle(school.tv_meal_card_title ?? '');
@@ -1823,11 +2383,40 @@ function TvSettingsForm({
     } catch {
       setCountdownTargets([]);
     }
+    setTimetableUseSchoolPlan(school.tv_timetable_use_school_plan !== false);
+    setTimetablePreview(null);
   }, [school]);
 
   const HHMM_REGEX = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
   const isValidTime = (v: string) => !v.trim() || HHMM_REGEX.test(v.trim());
   const nightValid = isValidTime(nightStart) && isValidTime(nightEnd);
+
+  const fetchTimetablePreview = async () => {
+    if (!token || !school.id) return;
+    setTimetablePreviewLoading(true);
+    try {
+      const q = new URLSearchParams();
+      q.set('school_id', school.id);
+      const res = await apiFetch<{
+        empty: boolean;
+        entry_count: number;
+        lesson_times_count: number;
+        class_sections: string[];
+        sample_entries: Array<{ day: number; lesson: number; class: string; subject: string }>;
+      }>(`/teacher-timetable/tv-schedule-preview?${q.toString()}`, { token });
+      setTimetablePreview(res);
+      if (res.empty) {
+        toast.message('TV’de ders grid’i boş görünebilir — yayınlanmış plan ve ders satırları kontrol edin.');
+      } else {
+        toast.success(`Önizleme: ${res.entry_count} hücre, ${res.lesson_times_count} ders saati`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Önizleme alınamadı');
+      setTimetablePreview(null);
+    } finally {
+      setTimetablePreviewLoading(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!token || !school.id) return;
@@ -1858,6 +2447,7 @@ function TvSettingsForm({
           tv_now_in_class_bar_title: nowInClassBarTitle.trim() || null,
           tv_now_in_class_bar_font_size: nowInClassBarFontSize ? parseInt(nowInClassBarFontSize, 10) : null,
           tv_now_in_class_bar_marquee_duration: nowInClassBarMarqueeDuration ? parseInt(nowInClassBarMarqueeDuration, 10) : null,
+          tv_timetable_use_school_plan: timetableUseSchoolPlan,
           tv_night_mode_start: nightStart.trim() || null,
           tv_night_mode_end: nightEnd.trim() || null,
           tv_logo_url: logoUrl.trim() || null,
@@ -1867,7 +2457,7 @@ function TvSettingsForm({
           tv_theme: theme,
           tv_primary_color: primaryColor.trim() || null,
           tv_visible_cards:
-            visibleCards.size === TV_CARD_OPTIONS.length
+            visibleCards.size === TV_VISIBILITY_OPTIONS.length
               ? null
               : visibleCards.size === 0
                 ? ''
@@ -1948,19 +2538,22 @@ function TvSettingsForm({
                   })
                 : null;
             })(),
-          tv_timetable_schedule:
-            (() => {
-              const validEntries = timetableEntries.filter((e) => e.day >= 1 && e.day <= 5 && e.lesson >= 1 && (e.class ?? '').trim() && (e.subject ?? '').trim());
-              const validSections = timetableClassSections.filter((s) => (s ?? '').trim());
-              const validTimes = timetableLessonTimes.filter((t) => t.num >= 1 && (t.start ?? '').trim() && (t.end ?? '').trim());
-              const derivedSections = validSections.length > 0 ? validSections : [...new Set(validEntries.map((e) => (e.class ?? '').trim()).filter(Boolean))].sort();
-              if (validEntries.length === 0) return null;
-              return JSON.stringify({
-                lesson_times: validTimes.length > 0 ? validTimes : [{ num: 1, start: '08:30', end: '09:10' }],
-                class_sections: derivedSections.length > 0 ? derivedSections : ['1A', '1B', '1C'],
-                entries: validEntries,
-              });
-            })(),
+          ...(timetableUseSchoolPlan
+            ? {}
+            : {
+                tv_timetable_schedule: (() => {
+                  const validEntries = timetableEntries.filter((e) => e.day >= 1 && e.day <= 5 && e.lesson >= 1 && (e.class ?? '').trim() && (e.subject ?? '').trim());
+                  const validSections = timetableClassSections.filter((s) => (s ?? '').trim());
+                  const validTimes = timetableLessonTimes.filter((t) => t.num >= 1 && (t.start ?? '').trim() && (t.end ?? '').trim());
+                  const derivedSections = validSections.length > 0 ? validSections : [...new Set(validEntries.map((e) => (e.class ?? '').trim()).filter(Boolean))].sort();
+                  if (validEntries.length === 0) return null;
+                  return JSON.stringify({
+                    lesson_times: validTimes.length > 0 ? validTimes : [{ num: 1, start: '08:30', end: '09:10' }],
+                    class_sections: derivedSections.length > 0 ? derivedSections : ['1A', '1B', '1C'],
+                    entries: validEntries,
+                  });
+                })(),
+              }),
         }),
       });
       onSaved(updated);
@@ -2058,7 +2651,7 @@ function TvSettingsForm({
     dutyEntries.some((e) => (e.title || e.info)?.trim()) ||
     specialDaysEntries.length > 0 ||
     birthdayEntries.length > 0 ||
-    timetableEntries.length > 0 ||
+    (timetableEntries.length > 0 && !timetableUseSchoolPlan) ||
     countdownTargets.length > 0;
 
   const TV_SETTINGS_TABS = [
@@ -2094,35 +2687,92 @@ function TvSettingsForm({
       {/* Sekme: Genel */}
       {settingsTab === 'genel' && (
         <div className="space-y-4">
-      <div className="rounded-lg border border-indigo-200/80 dark:border-indigo-800/50 bg-indigo-50/25 dark:bg-indigo-950/15 p-4">
-        <p className="mb-3 text-sm font-medium">
-          TV&apos;de görünecek kartlar ve alt şeritler
-          <span title="Yan panel kartları (nöbet, yemek, ders programı vb.) ve en alttaki kayan bantları buradan açar/kapatırsınız." className="ml-1.5 cursor-help">
-            <HelpCircle className="inline size-3.5 text-muted-foreground" />
-          </span>
+      <div className="space-y-3 rounded-lg border border-indigo-200/80 dark:border-indigo-800/50 bg-indigo-50/25 dark:bg-indigo-950/15 p-4">
+        <div className="flex flex-wrap items-start gap-2">
+          <p className="text-sm font-medium">
+            TV&apos;de ne görünsün?
+            <span title="Yan panel, alt şeritler ve orta alan slayt türleri. Listede hiç tik yoksa (veya kayıtta boş) hepsi açık kabul edilir; en az bir tik varsa yalnızca işaretlenenler gösterilir. Orta slayt tikleri yalnızca tik listesinde slide_ ile başlayan anahtar varsa uygulanır (eski kayıtlar: orta slaytlar hep açık)." className="ml-1.5 cursor-help inline-flex align-middle">
+              <HelpCircle className="size-3.5 text-muted-foreground" />
+            </span>
+          </p>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Hiçbirini işaretlemezseniz kayıtta tümü açık kalır. Kısmi seçimde yalnızca işaretlenenler yayında olur.
         </p>
-        <p className="mb-3 text-xs text-muted-foreground">
-          Yan panel kartları ve alttaki kayan bantlar buradan seçilir. Hiçbirini işaretlemezseniz tümü gösterilir. &quot;Alt:&quot; ile başlayanlar en alttaki şeritlerdir.
-        </p>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {TV_CARD_OPTIONS.map((opt) => (
-            <label key={opt.key} className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                checked={visibleCards.has(opt.key)}
-                onChange={(e) => {
-                  setVisibleCards((prev) => {
-                    const next = new Set(prev);
-                    if (e.target.checked) next.add(opt.key);
-                    else next.delete(opt.key);
-                    return next;
-                  });
-                }}
-                className="size-4 rounded border-input"
-              />
-              <span className="text-sm">{opt.label}</span>
-            </label>
-          ))}
+
+        <div className="rounded-md border border-indigo-200/60 bg-background/60 p-3 dark:border-indigo-800/40">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">Yan panel kartları</p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {TV_PANEL_OPTIONS.map((opt) => (
+              <label key={opt.key} className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={visibleCards.has(opt.key)}
+                  onChange={(e) => {
+                    setVisibleCards((prev) => {
+                      const next = new Set(prev);
+                      if (e.target.checked) next.add(opt.key);
+                      else next.delete(opt.key);
+                      return next;
+                    });
+                  }}
+                  className="size-4 rounded border-input"
+                />
+                <span className="text-sm">{opt.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-md border border-rose-200/60 bg-background/60 p-3 dark:border-rose-800/40">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300">Alt şeritler</p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {TV_BOTTOM_STRIP_OPTIONS.map((opt) => (
+              <label key={opt.key} className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={visibleCards.has(opt.key)}
+                  onChange={(e) => {
+                    setVisibleCards((prev) => {
+                      const next = new Set(prev);
+                      if (e.target.checked) next.add(opt.key);
+                      else next.delete(opt.key);
+                      return next;
+                    });
+                  }}
+                  className="size-4 rounded border-input"
+                />
+                <span className="text-sm">{opt.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-md border border-teal-200/60 bg-background/60 p-3 dark:border-teal-800/40">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-teal-800 dark:text-teal-300">Orta alan slaytları</p>
+          <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
+            Ders programı, doğum günü, müdür mesajı vb. döngüdeki slayt türleri. Bu grupta hiç tik yoksa (kayıtta slide_ yoksa) tüm slayt türleri eskisi gibi gösterilir.
+          </p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {TV_CENTER_SLIDE_OPTIONS.map((opt) => (
+              <label key={opt.key} className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={visibleCards.has(opt.key)}
+                  onChange={(e) => {
+                    setVisibleCards((prev) => {
+                      const next = new Set(prev);
+                      if (e.target.checked) next.add(opt.key);
+                      else next.delete(opt.key);
+                      return next;
+                    });
+                  }}
+                  className="size-4 rounded border-input"
+                />
+                <span className="text-sm">{opt.label}</span>
+              </label>
+            ))}
+          </div>
         </div>
       </div>
       <div className="rounded-lg border border-sky-200/80 dark:border-sky-800/50 bg-sky-50/25 dark:bg-sky-950/15 p-3">
@@ -2152,6 +2802,10 @@ function TvSettingsForm({
                   : null,
                 tv_special_days_calendar: specialDaysEntries.length > 0 ? { entries: specialDaysEntries } : null,
                 tv_birthday_calendar: birthdayEntries.length > 0 ? { entries: birthdayEntries } : null,
+                tv_timetable_use_school_plan: timetableUseSchoolPlan,
+                tv_timetable_schedule_note: timetableUseSchoolPlan
+                  ? 'Okul ders programından — manuel grid bu yedek dosyasında yer almaz.'
+                  : null,
                 tv_timetable_schedule: timetableEntries.length > 0
                   ? { lesson_times: timetableLessonTimes, class_sections: timetableClassSections, entries: timetableEntries }
                   : null,
@@ -2208,6 +2862,7 @@ function TvSettingsForm({
                     const bd = data.tv_birthday_calendar as { entries?: BirthdayEntry[] } | null;
                     if (bd?.entries?.length) setBirthdayEntries(bd.entries.filter((e): e is BirthdayEntry => e && typeof (e as BirthdayEntry).date === 'string').map((e) => ({ date: String((e as BirthdayEntry).date ?? '').slice(0, 10), name: String((e as BirthdayEntry).name ?? '').trim(), type: ((e as BirthdayEntry).type === 'student' ? 'student' : 'teacher') as 'teacher' | 'student', class_section: (e as BirthdayEntry).class_section ? String((e as BirthdayEntry).class_section).trim() || undefined : undefined })));
                     else setBirthdayEntries([]);
+                    if (typeof data.tv_timetable_use_school_plan === 'boolean') setTimetableUseSchoolPlan(data.tv_timetable_use_school_plan);
                     const tt = data.tv_timetable_schedule as { lesson_times?: TimetableLessonTime[]; class_sections?: string[]; entries?: TimetableEntry[] } | null;
                     if (tt?.entries?.length) {
                       setTimetableLessonTimes(Array.isArray(tt.lesson_times) && tt.lesson_times.length > 0 ? tt.lesson_times : [{ num: 1, start: '08:30', end: '09:10' }, { num: 2, start: '09:20', end: '10:00' }]);
@@ -2491,10 +3146,10 @@ function TvSettingsForm({
               value={gununSozuRssUrl}
               onChange={(e) => setGununSozuRssUrl(e.target.value)}
               className="mb-2 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
-              placeholder="https://emrah-okur1.webnode.com.tr/rss/gunun-sozu.xml"
+              placeholder="https://panel-adresiniz.com/gunun-sozu.xml"
             />
             <p className="mb-3 text-xs text-muted-foreground">
-              Webnode, Blogger vb. Günün Sözü RSS. Söz + yazar otomatik ayrıştırılır. Örnek: emrah-okur1.webnode.com.tr
+              Dahili örnek: panel kök URL + <code className="rounded bg-muted px-1">/gunun-sozu.xml</code> (içerik: <code className="rounded bg-muted px-1">src/app/gunun-sozu.xml/route.ts</code>). Harici RSS (Webnode vb.) da kullanılabilir; söz + yazar ayrıştırılır.
             </p>
             <div className="flex flex-wrap items-center gap-4">
               <div className="flex items-center gap-2">
@@ -2729,7 +3384,7 @@ function TvSettingsForm({
                     )
                   }
                   placeholder="Örn: Sınav, Tatil, Karne"
-                  className="min-w-[120px] rounded border border-input bg-background px-2 py-1.5 text-sm"
+                  className="w-full min-w-0 rounded border border-input bg-background px-2 py-1.5 text-sm sm:w-auto sm:min-w-[120px]"
                 />
                 <input
                   type="datetime-local"
@@ -2965,14 +3620,14 @@ function TvSettingsForm({
                   value={entry.title}
                   onChange={(e) => setMealEntries((prev) => prev.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))}
                   placeholder="Başlık (örn. Öğle Yemeği)"
-                  className="min-w-[120px] flex-1 rounded border border-input bg-background px-2 py-1.5 text-sm"
+                  className="w-full min-w-0 flex-1 rounded border border-input bg-background px-2 py-1.5 text-sm sm:w-auto sm:min-w-[120px]"
                 />
                 <input
                   type="text"
                   value={entry.menu}
                   onChange={(e) => setMealEntries((prev) => prev.map((x, j) => (j === i ? { ...x, menu: e.target.value } : x)))}
                   placeholder="Menü: Çorba, pilav, salata..."
-                  className="min-w-[180px] flex-1 rounded border border-input bg-background px-2 py-1.5 text-sm"
+                  className="w-full min-w-0 flex-1 rounded border border-input bg-background px-2 py-1.5 text-sm sm:w-auto sm:min-w-[180px]"
                 />
                 <button
                   type="button"
@@ -3234,14 +3889,14 @@ function TvSettingsForm({
                   value={entry.title}
                   onChange={(e) => setDutyEntries((prev) => prev.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))}
                   placeholder="Başlık (örn. Ahmet Yılmaz)"
-                  className="min-w-[120px] flex-1 rounded border border-input bg-background px-2 py-1.5 text-sm"
+                  className="w-full min-w-0 flex-1 rounded border border-input bg-background px-2 py-1.5 text-sm sm:w-auto sm:min-w-[120px]"
                 />
                 <input
                   type="text"
                   value={entry.info}
                   onChange={(e) => setDutyEntries((prev) => prev.map((x, j) => (j === i ? { ...x, info: e.target.value } : x)))}
                   placeholder="Bilgi (örn. 1. kat koridor)"
-                  className="min-w-[180px] flex-1 rounded border border-input bg-background px-2 py-1.5 text-sm"
+                  className="w-full min-w-0 flex-1 rounded border border-input bg-background px-2 py-1.5 text-sm sm:w-auto sm:min-w-[180px]"
                 />
                 <button
                   type="button"
@@ -3413,21 +4068,21 @@ function TvSettingsForm({
                   value={entry.title}
                   onChange={(e) => setSpecialDaysEntries((prev) => prev.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))}
                   placeholder="Başlık (örn. Kütüphane Haftası)"
-                  className="min-w-[140px] flex-1 rounded border border-input bg-background px-2 py-1.5 text-sm"
+                  className="w-full min-w-0 flex-1 rounded border border-input bg-background px-2 py-1.5 text-sm sm:w-auto sm:min-w-[140px]"
                 />
                 <input
                   type="text"
                   value={entry.responsible}
                   onChange={(e) => setSpecialDaysEntries((prev) => prev.map((x, j) => (j === i ? { ...x, responsible: e.target.value } : x)))}
                   placeholder="Görevli (örn. Ahmet Öğretmen)"
-                  className="min-w-[140px] flex-1 rounded border border-input bg-background px-2 py-1.5 text-sm"
+                  className="w-full min-w-0 flex-1 rounded border border-input bg-background px-2 py-1.5 text-sm sm:w-auto sm:min-w-[140px]"
                 />
                 <input
                   type="text"
                   value={entry.description ?? ''}
                   onChange={(e) => setSpecialDaysEntries((prev) => prev.map((x, j) => (j === i ? { ...x, description: e.target.value || undefined } : x)))}
                   placeholder="Açıklama (opsiyonel)"
-                  className="min-w-[140px] flex-1 rounded border border-input bg-background px-2 py-1.5 text-sm"
+                  className="w-full min-w-0 flex-1 rounded border border-input bg-background px-2 py-1.5 text-sm sm:w-auto sm:min-w-[140px]"
                 />
                 <ImageUrlInput
                   id={`special-day-img-${i}`}
@@ -3628,7 +4283,7 @@ function TvSettingsForm({
                 value={entry.name}
                 onChange={(e) => setBirthdayEntries((prev) => prev.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
                 placeholder="Ad"
-                className="min-w-[120px] rounded border border-input bg-background px-2 py-1.5 text-sm"
+                className="w-full min-w-0 rounded border border-input bg-background px-2 py-1.5 text-sm sm:w-auto sm:min-w-[120px]"
               />
               <select
                 value={entry.type}
@@ -3676,6 +4331,61 @@ function TvSettingsForm({
             Ders programı (Program slayt + Şu An Derste)
           </span>
         </label>
+        <label className="mb-3 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-background p-3">
+          <input type="checkbox" checked={timetableUseSchoolPlan} onChange={(e) => setTimetableUseSchoolPlan(e.target.checked)} className="mt-1 size-4 rounded border-input" />
+          <span>
+            <span className="text-sm font-medium text-foreground">Okul ders programından otomatik çek</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">Yayınlanmış plan ve okul ders saatleri (Nöbet ayarları). Bu sayfadaki manuel tablo / Excel gerekmez.</span>
+          </span>
+        </label>
+        {timetableUseSchoolPlan ? (
+          <div className="space-y-3 rounded-lg border border-emerald-200/80 bg-emerald-50/30 px-3 py-2.5 text-sm text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/25 dark:text-emerald-100">
+            <p className="text-xs leading-relaxed">
+              Ders hücreleri ve <strong>ders saatleri</strong> okul{' '}
+              <Link href="/ders-programi" className="font-medium text-primary underline">Ders Programı</Link> yayınlanmış planı ile; saatler{' '}
+              <Link href="/ders-programi/ayarlar" className="font-medium text-primary underline">Ders saatleri ve nöbet ayarları</Link> üzerinden gelir.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void fetchTimetablePreview()}
+                disabled={!token || timetablePreviewLoading}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-600/40 bg-emerald-600/10 px-3 py-1.5 text-xs font-medium text-emerald-900 hover:bg-emerald-600/15 disabled:opacity-50 dark:border-emerald-500/40 dark:text-emerald-100 dark:hover:bg-emerald-900/40"
+              >
+                {timetablePreviewLoading ? 'Yükleniyor…' : 'Sunucudan önizle'}
+              </button>
+              <span className="text-[11px] text-muted-foreground">TV API ile aynı derleme (5 dk önbellek).</span>
+            </div>
+            {timetablePreview && (
+              <div
+                className={`rounded-md border px-2.5 py-2 text-xs ${
+                  timetablePreview.empty
+                    ? 'border-amber-300/80 bg-amber-50/80 text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100'
+                    : 'border-emerald-300/50 bg-background/60 text-foreground dark:border-emerald-800'
+                }`}
+              >
+                {timetablePreview.empty ? (
+                  <p>Yayınlanmış planda ders satırı yok veya plan bulunamadı. Ders Programı’nda planı yayınlayın.</p>
+                ) : (
+                  <>
+                    <p className="font-medium">
+                      {timetablePreview.entry_count} hücre · {timetablePreview.lesson_times_count} ders saati ·{' '}
+                      {timetablePreview.class_sections.length} sınıf sütunu
+                    </p>
+                    <ul className="mt-1.5 list-inside list-disc text-[11px] text-muted-foreground">
+                      {timetablePreview.sample_entries.map((e, i) => (
+                        <li key={i}>
+                          {WEEKDAY_NAMES[e.day]} {e.lesson}. ders · {e.class} · {e.subject}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
         <p className="mb-3 text-xs text-muted-foreground">
           Görseldeki gibi ders programı grid ve alt bar &quot;Şu An Derste&quot; otomatik dolar. Ders saatleri ile anlık dersten hangi sınıfta ne okunduğu gösterilir. Excel ile toplu yükleme desteklenir.
         </p>
@@ -3812,6 +4522,7 @@ function TvSettingsForm({
                         }
                       }
                       if (entries.length === 0) { toast.error('Geçerli program satırı bulunamadı'); e.target.value = ''; return; }
+                      setTimetableUseSchoolPlan(false);
                       setTimetableEntries(entries);
                       toast.success(`${entries.length} ders programı kaydı yüklendi`);
                     } catch (err) {
@@ -3899,7 +4610,7 @@ function TvSettingsForm({
                               value={entry.subject}
                               onChange={(e) => setTimetableEntries((p) => p.map((x, j) => (j === idx ? { ...x, subject: e.target.value } : x)))}
                               placeholder="Ders adı"
-                              className="min-w-[100px] rounded border border-input bg-background px-2 py-1 text-xs"
+                              className="w-full min-w-0 rounded border border-input bg-background px-2 py-1 text-xs sm:min-w-[100px]"
                             />
                           </td>
                           <td className="px-1 py-1.5">
@@ -3931,6 +4642,8 @@ function TvSettingsForm({
           <p className="text-xs text-muted-foreground">
             {timetableEntries.length} kayıt. TV program slaytında grid, &quot;Şu An Derste&quot; barında anlık ders bilgisi gösterilir. Kaydet butonuna basın.
           </p>
+        )}
+          </>
         )}
       </div>
         </div>

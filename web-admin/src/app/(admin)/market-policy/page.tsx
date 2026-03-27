@@ -573,7 +573,7 @@ export default function MarketPolicyPage() {
             </div>
           ) : consumptionLedger && consumptionLedger.items.length > 0 ? (
             <>
-              <div className="overflow-x-auto">
+              <div className="table-x-scroll">
                 <table className="w-full min-w-[720px] text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/40 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -941,7 +941,7 @@ export default function MarketPolicyPage() {
             ayrı; API tarafında varsayılan aylık tarife kullanılır.
           </p>
         </CardHeader>
-        <CardContent className="overflow-x-auto px-0 sm:px-0">
+        <CardContent className="table-x-scroll px-0 sm:px-0">
           <div className="rounded-none border-y border-border/60 bg-card sm:mx-4 sm:my-4 sm:rounded-xl sm:border sm:shadow-inner">
           <table className="w-full min-w-[1180px] border-collapse text-sm">
             <thead>
@@ -1153,9 +1153,9 @@ export default function MarketPolicyPage() {
                       {side[kind].map((pack, i) => (
                         <div
                           key={`${kind}-${i}`}
-                          className="flex flex-wrap items-end gap-2 rounded-xl border border-border/70 bg-muted/15 p-3 shadow-sm transition-shadow hover:shadow-md"
+                          className="flex flex-col gap-2 rounded-xl border border-border/70 bg-muted/15 p-3 shadow-sm transition-shadow hover:shadow-md sm:flex-row sm:flex-wrap sm:items-end"
                         >
-                          <div className="min-w-[200px] flex-1 space-y-1">
+                          <div className="w-full min-w-0 flex-1 space-y-1 sm:min-w-[200px]">
                             <Label>product_id</Label>
                             <Input
                               value={pack.product_id}
@@ -1165,7 +1165,7 @@ export default function MarketPolicyPage() {
                               placeholder="com.app.jeton.100"
                             />
                           </div>
-                          <div className="w-28 space-y-1">
+                          <div className="w-full space-y-1 sm:w-28 sm:shrink-0">
                             <Label>Miktar</Label>
                             <Input
                               type="number"
@@ -1180,7 +1180,7 @@ export default function MarketPolicyPage() {
                               }
                             />
                           </div>
-                          <div className="min-w-[140px] flex-1 space-y-1">
+                          <div className="w-full min-w-0 flex-1 space-y-1 sm:min-w-[140px]">
                             <Label>Etiket (opsiyonel)</Label>
                             <Input
                               value={pack.label ?? ''}

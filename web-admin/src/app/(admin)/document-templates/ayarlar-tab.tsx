@@ -361,7 +361,7 @@ export function AyarlarTab({ variant }: { variant?: 'default' | 'bilsem' } = {})
               description="Ders ekle/düzenle ile Yıllık Plan İçerikleri ve Evrak filtrelerinde kullanılacak ders listesini oluşturun."
             />
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-border">
+            <div className="table-x-scroll rounded-lg border border-border">
               <table className="evrak-admin-table w-full text-sm">
                 <thead>
                   <tr>

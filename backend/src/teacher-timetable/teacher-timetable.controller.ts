@@ -11,6 +11,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  ForbiddenException,
   StreamableFile,
   Header,
 } from '@nestjs/common';
@@ -56,6 +57,50 @@ export class TeacherTimetableController {
         ? querySchoolId
         : payload.schoolId ?? null;
     return this.service.getDistinctClassSections(schoolId);
+  }
+
+  /** Duyuru TV ayarları: okul planından üretilecek grid önizlemesi (IP kısıtı yok). */
+  @Get('tv-schedule-preview')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.school_admin, UserRole.superadmin)
+  async tvSchedulePreview(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Query('school_id') querySchoolId?: string,
+  ) {
+    const schoolId =
+      (payload.user.role as UserRole) === UserRole.superadmin && querySchoolId
+        ? querySchoolId
+        : payload.schoolId ?? null;
+    if (!schoolId) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Okul seçin veya school_id verin.' });
+    }
+    const json = await this.service.buildTvTimetableScheduleJsonForTv(schoolId);
+    let entry_count = 0;
+    let lesson_times_count = 0;
+    const class_sections: string[] = [];
+    const sample_entries: Array<{ day: number; lesson: number; class: string; subject: string }> = [];
+    if (json) {
+      try {
+        const o = JSON.parse(json) as {
+          entries?: Array<{ day: number; lesson: number; class: string; subject: string }>;
+          lesson_times?: unknown[];
+          class_sections?: string[];
+        };
+        entry_count = Array.isArray(o.entries) ? o.entries.length : 0;
+        lesson_times_count = Array.isArray(o.lesson_times) ? o.lesson_times.length : 0;
+        if (Array.isArray(o.class_sections)) class_sections.push(...o.class_sections);
+        if (Array.isArray(o.entries)) sample_entries.push(...o.entries.slice(0, 8));
+      } catch {
+        /* ignore */
+      }
+    }
+    return {
+      empty: !json || entry_count === 0,
+      entry_count,
+      lesson_times_count,
+      class_sections,
+      sample_entries,
+    };
   }
 
   @Get('me')

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowUpCircle, Headphones, Inbox, Send, StickyNote } from 'lucide-react';
+import { ArrowUpCircle, Headphones, Inbox, Send, StickyNote, Building2, MapPinned, Layers3, UserRound, Power } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { Toolbar, ToolbarHeading, ToolbarPageTitle } from '@/components/layout/toolbar';
 import { ToolbarIconHints } from '@/components/layout/toolbar-icon-hints';
@@ -14,6 +14,7 @@ import { TicketAttachmentInput, type AttachmentItem } from '@/components/ticket-
 import { SupportStatusBadge } from '@/components/support/support-status-badge';
 import { SupportNotificationHint } from '@/components/support/support-notification-hint';
 import { cn } from '@/lib/utils';
+import { formatSchoolTypeLabel } from '@/lib/school-labels';
 
 type TicketMessage = {
   id: string;
@@ -36,10 +37,11 @@ type TicketItem = {
   requester?: { display_name: string | null } | null;
   assignedTo?: { display_name: string | null } | null;
   module?: { name: string } | null;
-  school?: { name: string } | null;
+  school?: { name: string | null; city?: string | null; district?: string | null; type?: string | null; segment?: string | null } | null;
 };
 
 type AssignableUser = { id: string; display_name: string | null; email: string; role: string };
+type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'WAITING_REQUESTER' | 'RESOLVED' | 'CLOSED';
 
 const STATUS_LABEL: Record<string, string> = {
   OPEN: 'Açık',
@@ -48,6 +50,18 @@ const STATUS_LABEL: Record<string, string> = {
   RESOLVED: 'Çözüldü',
   CLOSED: 'Kapatıldı',
 };
+
+function getAllowedStatusOptions(status: TicketStatus) {
+  const transitions: Record<TicketStatus, TicketStatus[]> = {
+    OPEN: ['IN_PROGRESS', 'WAITING_REQUESTER', 'RESOLVED', 'CLOSED'],
+    IN_PROGRESS: ['WAITING_REQUESTER', 'RESOLVED', 'CLOSED'],
+    WAITING_REQUESTER: ['IN_PROGRESS', 'RESOLVED', 'CLOSED'],
+    RESOLVED: ['IN_PROGRESS', 'CLOSED'],
+    CLOSED: ['IN_PROGRESS'],
+  };
+
+  return [status, ...transitions[status]];
+}
 
 export default function SupportPlatformPage() {
   const { token, me } = useAuth();
@@ -65,6 +79,21 @@ export default function SupportPlatformPage() {
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
   const [updatingAssignment, setUpdatingAssignment] = useState(false);
+  const [supportEnabled, setSupportEnabled] = useState(true);
+  const [togglingSupport, setTogglingSupport] = useState(false);
+
+  const formatSchoolMeta = (school?: TicketItem['school']) =>
+    [school?.city, school?.district, school?.type ? formatSchoolTypeLabel(school.type) : null, school?.segment]
+      .filter(Boolean)
+      .join(' • ');
+  const statusOptions = selectedTicket ? getAllowedStatusOptions(selectedTicket.status as TicketStatus) : [];
+
+  useEffect(() => {
+    if (me?.role !== 'superadmin') return;
+    apiFetch<{ support_enabled: boolean }>('/app-config/web-extras', { token })
+      .then((cfg) => setSupportEnabled(cfg.support_enabled))
+      .catch(() => setSupportEnabled(true));
+  }, [token, me?.role]);
 
   useEffect(() => {
     if (me?.role !== 'superadmin') return;
@@ -161,6 +190,25 @@ export default function SupportPlatformPage() {
     }
   };
 
+  const handleSupportToggle = async () => {
+    if (!token) return;
+    setTogglingSupport(true);
+    setError(null);
+    try {
+      const next = !supportEnabled;
+      await apiFetch('/app-config/web-extras', {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ support_enabled: next }),
+      });
+      setSupportEnabled(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Destek modülü güncellenemedi');
+    } finally {
+      setTogglingSupport(false);
+    }
+  };
+
   if (me?.role !== 'superadmin') return null;
 
   return (
@@ -184,7 +232,18 @@ export default function SupportPlatformPage() {
                 />
               </div>
             </div>
-            <SupportNotificationHint />
+            <div className="flex items-center gap-2">
+              <Button
+                variant={supportEnabled ? 'outline' : 'default'}
+                size="sm"
+                onClick={handleSupportToggle}
+                disabled={togglingSupport}
+              >
+                <Power className="size-4 mr-1.5" />
+                {supportEnabled ? 'Destek Açık' : 'Destek Kapalı'}
+              </Button>
+              <SupportNotificationHint />
+            </div>
           </div>
         </ToolbarHeading>
       </Toolbar>
@@ -228,6 +287,9 @@ export default function SupportPlatformPage() {
                   <p className="text-xs text-muted-foreground">
                     {t.school?.name ?? '-'} • {t.requester?.display_name ?? '-'} • {new Date(t.last_activity_at).toLocaleDateString('tr-TR')}
                   </p>
+                  {!!formatSchoolMeta(t.school) && (
+                    <p className="mt-1 text-[11px] text-muted-foreground">{formatSchoolMeta(t.school)}</p>
+                  )}
                 </button>
               ))
             ))}
@@ -251,6 +313,9 @@ export default function SupportPlatformPage() {
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {selectedTicket.ticket_number} • {selectedTicket.school?.name ?? '-'} • {selectedTicket.module?.name ?? '-'}
                 </p>
+                {!!formatSchoolMeta(selectedTicket.school) && (
+                  <p className="mt-2 text-[11px] text-muted-foreground">{formatSchoolMeta(selectedTicket.school)}</p>
+                )}
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {messages.items.map((m) => (
@@ -311,7 +376,7 @@ export default function SupportPlatformPage() {
                   disabled={updatingStatus}
                   className="mt-1 w-full rounded border px-2 py-1.5 text-sm"
                 >
-                  {['OPEN', 'IN_PROGRESS', 'WAITING_REQUESTER', 'RESOLVED', 'CLOSED'].map((s) => (
+                  {statusOptions.map((s) => (
                     <option key={s} value={s}>{STATUS_LABEL[s]}</option>
                   ))}
                 </select>
@@ -339,8 +404,42 @@ export default function SupportPlatformPage() {
                 <p className="font-medium text-sm">{selectedTicket.school?.name ?? '—'}</p>
               </div>
               <div>
+                <p className="text-xs text-muted-foreground">İl / İlçe</p>
+                <p className="font-medium text-sm">{[selectedTicket.school?.city, selectedTicket.school?.district].filter(Boolean).join(' / ') || '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Okul grubu</p>
+                <p className="font-medium text-sm">{[
+                  selectedTicket.school?.type ? formatSchoolTypeLabel(selectedTicket.school.type) : null,
+                  selectedTicket.school?.segment,
+                ].filter(Boolean).join(' • ') || '—'}</p>
+              </div>
+              <div>
                 <p className="text-xs text-muted-foreground">Talep açan</p>
                 <p className="font-medium text-sm">{selectedTicket.requester?.display_name ?? '-'}</p>
+              </div>
+              <div className="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-3">
+                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <Building2 className="size-3.5" />
+                  Okul bilgisi
+                </div>
+                <div className="grid gap-2 text-sm">
+                  <div className="flex items-start gap-2">
+                    <MapPinned className="mt-0.5 size-3.5 text-muted-foreground" />
+                    <span>{[selectedTicket.school?.city, selectedTicket.school?.district].filter(Boolean).join(' / ') || 'İl ve ilçe yok'}</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <Layers3 className="mt-0.5 size-3.5 text-muted-foreground" />
+                    <span>{[
+                      selectedTicket.school?.type ? formatSchoolTypeLabel(selectedTicket.school.type) : null,
+                      selectedTicket.school?.segment,
+                    ].filter(Boolean).join(' • ') || 'Okul grubu yok'}</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <UserRound className="mt-0.5 size-3.5 text-muted-foreground" />
+                    <span>{selectedTicket.requester?.display_name ?? 'Talep açan yok'}</span>
+                  </div>
+                </div>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Öncelik</p>

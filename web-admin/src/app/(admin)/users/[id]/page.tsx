@@ -421,8 +421,8 @@ export default function UserDetailPage() {
               «Onaysız» senaryosu için «Onay bekliyor» seçin. Öğretmenin bir okulu olmalı.
             </p>
           </CardHeader>
-          <CardContent className="flex flex-wrap items-end gap-4">
-            <div className="min-w-[200px]">
+          <CardContent className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
+            <div className="w-full min-w-0 sm:min-w-[200px]">
               <label htmlFor="u-tsm" className="mb-1 block text-sm font-medium text-foreground">
                 Kayıt durumu
               </label>
@@ -598,7 +598,7 @@ export default function UserDetailPage() {
                 <p className="py-6 text-center text-sm text-muted-foreground">Henüz yükleme kaydı yok.</p>
               ) : (
                 <>
-                  <div className="overflow-x-auto rounded-lg border border-border">
+                  <div className="table-x-scroll rounded-lg border border-border">
                     <table className="w-full text-left text-sm">
                       <thead>
                         <tr className="border-b border-border bg-muted/40">

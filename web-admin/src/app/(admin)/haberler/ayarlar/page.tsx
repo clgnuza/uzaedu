@@ -24,7 +24,12 @@ import {
   ImageOff,
   Globe,
   LayoutTemplate,
+  Clock,
+  CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -60,6 +65,30 @@ type SyncResult = {
   results: SyncSourceResult[];
   total_created: number;
 };
+type SyncSchedulePayload = {
+  schedule: { enabled: boolean; interval_minutes: number };
+  status: {
+    last_run_at: string | null;
+    last_ok: boolean | null;
+    last_message: string | null;
+    last_total_created: number;
+    last_trigger: 'manual' | 'cron' | null;
+    last_source_errors: { source_key: string; source_label: string; error: string }[];
+  };
+};
+
+const SYNC_INTERVAL_OPTIONS: { value: string; label: string }[] = [
+  { value: '15', label: '15 dakika' },
+  { value: '30', label: '30 dakika' },
+  { value: '60', label: '1 saat' },
+  { value: '120', label: '2 saat' },
+  { value: '180', label: '3 saat' },
+  { value: '360', label: '6 saat' },
+  { value: '720', label: '12 saat' },
+  { value: '1440', label: '24 saat' },
+  { value: '2880', label: '48 saat' },
+  { value: '10080', label: '7 gün' },
+];
 type ContentItem = {
   id: string;
   title: string;
@@ -101,6 +130,11 @@ export default function HaberlerAyarlarPage() {
   const [clearingPlaceholders, setClearingPlaceholders] = useState(false);
   const [itemsPage, setItemsPage] = useState(1);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
+  const [syncSchedulePayload, setSyncSchedulePayload] = useState<SyncSchedulePayload | null>(null);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [autoEnabled, setAutoEnabled] = useState(false);
+  const [autoIntervalMin, setAutoIntervalMin] = useState('360');
 
   const rawTab = searchParams.get('tab');
   const tab = (TABS.some((t) => t.id === rawTab) ? rawTab : 'kanallar') as (typeof TABS)[number]['id'];
@@ -177,6 +211,44 @@ export default function HaberlerAyarlarPage() {
     }
   }, [token, isAdmin, fetchChannels, fetchSources]);
 
+  const fetchSyncSchedule = useCallback(async () => {
+    if (!token || !isAdmin) return;
+    setScheduleLoading(true);
+    try {
+      const data = await apiFetch<SyncSchedulePayload>('/content/admin/sync-schedule', { token });
+      setSyncSchedulePayload(data);
+      setAutoEnabled(data.schedule.enabled);
+      setAutoIntervalMin(String(data.schedule.interval_minutes));
+    } catch {
+      setSyncSchedulePayload(null);
+    } finally {
+      setScheduleLoading(false);
+    }
+  }, [token, isAdmin]);
+
+  const saveAutoSchedule = async () => {
+    if (!token || !isAdmin) return;
+    setScheduleSaving(true);
+    try {
+      const data = await apiFetch<SyncSchedulePayload>('/content/admin/sync-schedule', {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({
+          enabled: autoEnabled,
+          interval_minutes: Number(autoIntervalMin),
+        }),
+      });
+      setSyncSchedulePayload(data);
+      setAutoEnabled(data.schedule.enabled);
+      setAutoIntervalMin(String(data.schedule.interval_minutes));
+      toast.success('Zamanlama kaydedildi.');
+    } catch {
+      toast.error('Kayıt başarısız.');
+    } finally {
+      setScheduleSaving(false);
+    }
+  };
+
   useEffect(() => {
     fetchData();
   }, [fetchData]);
@@ -186,6 +258,12 @@ export default function HaberlerAyarlarPage() {
       fetchItems();
     }
   }, [tab, token, itemsPage, fetchItems]);
+
+  useEffect(() => {
+    if (tab === 'sync' && token && isAdmin) {
+      fetchSyncSchedule();
+    }
+  }, [tab, token, isAdmin, fetchSyncSchedule]);
 
   const handleSync = async () => {
     if (!token || !isAdmin) return;
@@ -201,6 +279,7 @@ export default function HaberlerAyarlarPage() {
       }
       fetchSources();
       fetchItems();
+      fetchSyncSchedule();
     } catch (e) {
       toast.error('Senkronizasyon hatası.');
     } finally {
@@ -387,238 +466,221 @@ export default function HaberlerAyarlarPage() {
 
   if (!isAdmin) return null;
 
+  const syncableCount = sources.filter((s) => s.rssUrl || (s.baseUrl && s.scrapeConfig)).length;
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <button onClick={() => router.push('/haberler')} className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground">
+    <div className="space-y-5">
+      {/* Başlık */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => router.push('/haberler')}
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted/50 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
           <ArrowLeft className="h-4 w-4" />
-          Geri
         </button>
-        <h1 className="text-2xl font-semibold text-foreground flex items-center gap-2">
-          <Settings className="h-7 w-7" />
-          Haberler Ayarları
-        </h1>
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Haberler Ayarları</h1>
+          <p className="text-sm text-muted-foreground">Kanallar, kaynaklar ve senkronizasyon yönetimi</p>
+        </div>
       </div>
 
-      <div className="border-b border-border">
-        <nav className="-mb-px flex gap-1">
-          {TABS.map((t) => {
-            const Icon = t.icon;
-            const isActive = tab === t.id;
-            return (
-              <Link
-                key={t.id}
-                href={`/haberler/ayarlar?tab=${t.id}`}
-                className={cn(
-                  'flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors',
-                  isActive
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:border-muted-foreground/30 hover:text-foreground',
-                )}
-              >
-                <Icon className="size-4" />
-                {t.label}
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="mt-3 space-y-1.5 text-sm text-muted-foreground">
-          <p className="flex items-center gap-2">
-            <Globe className="size-4 shrink-0" />
-            <span>
-              Yayın SEO:{' '}
-              <Link href="/web-ayarlar?tab=seo" className="font-medium text-primary hover:underline">
-                Web Ayarları
-              </Link>
-            </span>
-          </p>
-          <p className="flex items-center gap-2 pl-6 sm:pl-0">
-            <LayoutTemplate className="size-4 shrink-0 text-muted-foreground/80" />
-            <span>
-              Kamu site / footer:{' '}
-              <Link href="/web-ayarlar?tab=site" className="font-medium text-primary hover:underline">
-                Site sekmesi
-              </Link>
-            </span>
-          </p>
+      {/* Segmented tab nav */}
+      <div className="rounded-2xl border border-border bg-card shadow-sm">
+        <div className="px-3 pt-3">
+          <div className="flex gap-0.5 overflow-x-auto rounded-xl bg-muted p-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {TABS.map((t) => {
+              const Icon = t.icon;
+              const isActive = tab === t.id;
+              return (
+                <Link
+                  key={t.id}
+                  href={`/haberler/ayarlar?tab=${t.id}`}
+                  className={cn(
+                    'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-all',
+                    isActive
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  <Icon className="size-4" />
+                  {t.label}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+        {/* Bağlantı kısayolları */}
+        <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 pb-3 pt-2 text-xs text-muted-foreground">
+          <Link href="/web-ayarlar?tab=seo" className="inline-flex items-center gap-1 hover:text-foreground">
+            <Globe className="size-3" /> Yayın SEO → Web Ayarları
+          </Link>
+          <Link href="/web-ayarlar?tab=site" className="inline-flex items-center gap-1 hover:text-foreground">
+            <LayoutTemplate className="size-3" /> Kamu site / footer → Site sekmesi
+          </Link>
         </div>
       </div>
 
       {loading && tab !== 'icerikler' ? (
-        <div className="flex justify-center py-12">
-          <LoadingSpinner />
-        </div>
+        <div className="flex justify-center py-12"><LoadingSpinner /></div>
       ) : (
         <>
+          {/* ── KANALLAR ── */}
           {tab === 'kanallar' && (
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader className="flex flex-row items-start justify-between gap-4 pb-3">
                 <div>
-                  <CardTitle className="text-lg">Kanallar</CardTitle>
-                  <p className="text-sm text-muted-foreground">MEB Duyuruları, Yarışmalar, Eğitim Duyuruları vb.</p>
+                  <CardTitle className="text-base">Kanallar</CardTitle>
+                  <p className="mt-0.5 text-sm text-muted-foreground">MEB Duyuruları, Yarışmalar, Eğitim Duyuruları vb.</p>
                 </div>
-                <Button onClick={() => openChannelModal()} size="sm">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Kanal Ekle
+                <Button onClick={() => openChannelModal()} size="sm" className="shrink-0">
+                  <Plus className="mr-1.5 h-4 w-4" /> Kanal Ekle
                 </Button>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-0">
                 {channels.length === 0 ? (
                   <EmptyState
                     icon={<Newspaper className="size-10" />}
                     title="Kanal yok"
-                    description="İlk kurulum için: Docker başlatın (docker start ogretmenpro-db), ardından backend dizininde npm run seed-content çalıştırın. Veya yukarıdaki Kanal Ekle ile manuel ekleyebilirsiniz."
+                    description="İlk kurulum için backend dizininde npm run seed-content çalıştırın veya Kanal Ekle ile manuel ekleyin."
                   />
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-left py-2 font-medium">Etiket</th>
-                          <th className="text-left py-2 font-medium">Key</th>
-                          <th className="text-left py-2 font-medium">Sıra</th>
-                          <th className="text-left py-2 font-medium">Kaynak</th>
-                          <th className="text-right py-2 font-medium">İşlem</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {channels.map((ch) => (
-                          <tr key={ch.id} className="border-b border-border">
-                            <td className="py-2">{ch.label}</td>
-                            <td className="py-2 text-muted-foreground">{ch.key}</td>
-                            <td className="py-2">{ch.sortOrder}</td>
-                            <td className="py-2">{ch.sources?.length ?? 0}</td>
-                            <td className="py-2 text-right">
-                              <button onClick={() => openChannelModal(ch)} className="text-primary hover:underline inline-flex items-center gap-1">
-                                <Pencil className="h-3 w-3" />
-                                Düzenle
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="divide-y divide-border">
+                    {channels.map((ch) => (
+                      <div key={ch.id} className="flex items-center justify-between gap-3 py-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className={cn('h-2 w-2 shrink-0 rounded-full', ch.isActive ? 'bg-emerald-500' : 'bg-muted-foreground/40')} />
+                          <div className="min-w-0">
+                            <p className="truncate font-medium text-sm">{ch.label}</p>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                              <span className="font-mono">{ch.key}</span>
+                              <span>Sıra: {ch.sortOrder}</span>
+                              <span>{ch.sources?.length ?? 0} kaynak</span>
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => openChannelModal(ch)}
+                          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        >
+                          <Pencil className="h-3 w-3" /> Düzenle
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 )}
               </CardContent>
             </Card>
           )}
 
+          {/* ── KAYNAKLAR ── */}
           {tab === 'kaynaklar' && (
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader className="flex flex-row items-start justify-between gap-4 pb-3">
                 <div>
-                  <CardTitle className="text-lg">Kaynaklar</CardTitle>
-                  <p className="text-sm text-muted-foreground">Personel GM, TEGM, OGM, YEĞİTEK vb.</p>
+                  <CardTitle className="text-base">Kaynaklar</CardTitle>
+                  <p className="mt-0.5 text-sm text-muted-foreground">Personel GM, TEGM, OGM, YEĞİTEK vb. RSS / Scrape kaynakları</p>
                 </div>
-                <Button onClick={() => openSourceModal()} size="sm">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Kaynak Ekle
+                <Button onClick={() => openSourceModal()} size="sm" className="shrink-0">
+                  <Plus className="mr-1.5 h-4 w-4" /> Kaynak Ekle
                 </Button>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-0">
                 {sources.length === 0 ? (
-                  <EmptyState icon={<Link2 className="size-10" />} title="Kaynak yok" description="Kaynak eklemek için yukarıdaki butonu kullanın." />
+                  <EmptyState icon={<Link2 className="size-10" />} title="Kaynak yok" description="Kaynak eklemek için Kaynak Ekle butonunu kullanın." />
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-left py-2 font-medium">Etiket</th>
-                          <th className="text-left py-2 font-medium">Key</th>
-                          <th className="text-left py-2 font-medium">URL</th>
-                          <th className="text-left py-2 font-medium">Tip</th>
-                          <th className="text-left py-2 font-medium">Son sync</th>
-                          <th className="text-right py-2 font-medium">İşlem</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sources.map((s) => {
-                          const hasRss = !!s.rssUrl?.trim();
-                          const hasScrape = !!(s.baseUrl && s.scrapeConfig);
-                          const tip = hasRss ? 'RSS' : hasScrape ? 'Scrape' : '-';
-                          const lastSync = s.lastSyncedAt ? new Date(s.lastSyncedAt).toLocaleString('tr-TR') : '-';
-                          return (
-                          <tr key={s.id} className="border-b border-border">
-                            <td className="py-2">{s.label}</td>
-                            <td className="py-2 text-muted-foreground">{s.key}</td>
-                            <td className="py-2 truncate max-w-[160px]" title={s.baseUrl ?? undefined}>{s.baseUrl ?? '-'}</td>
-                            <td className="py-2 text-muted-foreground">{tip}</td>
-                            <td className="py-2 text-muted-foreground text-xs">{lastSync}</td>
-                            <td className="py-2 text-right">
-                              <button onClick={() => openSourceModal(s)} className="text-primary hover:underline inline-flex items-center gap-1">
-                                <Pencil className="h-3 w-3" />
-                                Düzenle
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                        })}
-                      </tbody>
-                    </table>
+                  <div className="divide-y divide-border">
+                    {sources.map((s) => {
+                      const hasRss = !!s.rssUrl?.trim();
+                      const hasScrape = !!(s.baseUrl && s.scrapeConfig);
+                      const tip = hasRss ? 'RSS' : hasScrape ? 'Scrape' : null;
+                      const lastSync = s.lastSyncedAt ? new Date(s.lastSyncedAt).toLocaleString('tr-TR') : 'Hiç';
+                      return (
+                        <div key={s.id} className="flex items-center justify-between gap-3 py-3">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className={cn('h-2 w-2 shrink-0 rounded-full', s.isActive ? 'bg-emerald-500' : 'bg-muted-foreground/40')} />
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <p className="font-medium text-sm">{s.label}</p>
+                                {tip && (
+                                  <span className={cn(
+                                    'rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+                                    tip === 'RSS' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+                                  )}>
+                                    {tip}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                                <span className="font-mono">{s.key}</span>
+                                {s.baseUrl && <span className="max-w-40 truncate">{s.baseUrl}</span>}
+                                <span className="flex items-center gap-0.5"><Clock className="h-3 w-3" />{lastSync}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => openSourceModal(s)}
+                            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          >
+                            <Pencil className="h-3 w-3" /> Düzenle
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
             </Card>
           )}
 
+          {/* ── İÇERİKLER ── */}
           {tab === 'icerikler' && (
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader className="flex flex-row items-start justify-between gap-4 pb-3">
                 <div>
-                  <CardTitle className="text-lg">İçerikler</CardTitle>
-                  <p className="text-sm text-muted-foreground">Manuel eklenen veya sync ile gelen içerikler.</p>
+                  <CardTitle className="text-base">İçerikler</CardTitle>
+                  <p className="mt-0.5 text-sm text-muted-foreground">Manuel eklenen veya sync ile gelen içerikler.</p>
                 </div>
-                <Button onClick={openItemModal} size="sm" disabled={sources.length === 0}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  İçerik Ekle
+                <Button onClick={openItemModal} size="sm" disabled={sources.length === 0} className="shrink-0">
+                  <Plus className="mr-1.5 h-4 w-4" /> İçerik Ekle
                 </Button>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-0">
                 {sources.length === 0 ? (
                   <EmptyState icon={<FileText className="size-10" />} title="Önce kaynak ekleyin" description="İçerik eklemek için önce bir kaynak oluşturmalısınız." />
                 ) : loading ? (
-                  <div className="flex justify-center py-8">
-                    <LoadingSpinner />
-                  </div>
+                  <div className="flex justify-center py-8"><LoadingSpinner /></div>
                 ) : items.length === 0 ? (
-                  <EmptyState icon={<FileText className="size-10" />} title="İçerik yok" description="Manuel içerik eklemek için yukarıdaki butonu kullanın veya seed script çalıştırın." />
+                  <EmptyState icon={<FileText className="size-10" />} title="İçerik yok" description="Manuel içerik eklemek için İçerik Ekle butonunu kullanın." />
                 ) : (
                   <>
-                    <div className="space-y-2">
+                    <div className="divide-y divide-border">
                       {items.map((it) => (
-                        <div key={it.id} className="flex items-center justify-between py-2 border-b border-border">
+                        <div key={it.id} className="flex items-start justify-between gap-3 py-3">
                           <div className="min-w-0 flex-1">
-                            <p className="font-medium truncate">{it.title}</p>
-                            <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                            <p className="truncate text-sm font-medium">{it.title}</p>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
                               {it.source_label && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-muted text-muted-foreground border border-border/60">
-                                  <Tag className="h-3 w-3" />
-                                  {it.source_label}
+                                <span className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                                  <Tag className="h-2.5 w-2.5" />{it.source_label}
                                 </span>
                               )}
-                              <span className="inline-flex px-2 py-0.5 rounded-md text-xs font-medium bg-primary/10 text-primary">
+                              <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
                                 {CONTENT_TYPES.find((c) => c.value === it.content_type)?.label ?? it.content_type}
                               </span>
                             </div>
                           </div>
-                          <a href={it.source_url} target="_blank" rel="noopener noreferrer" className="text-primary text-sm hover:underline shrink-0 ml-2">
-                            Link
+                          <a href={it.source_url} target="_blank" rel="noopener noreferrer"
+                            className="shrink-0 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                            Aç ↗
                           </a>
                         </div>
                       ))}
                     </div>
                     {itemsTotal > 20 && (
-                      <div className="flex justify-center gap-2 pt-4">
-                        <Button variant="outline" size="sm" disabled={itemsPage <= 1} onClick={() => setItemsPage((p) => p - 1)}>
-                          Önceki
-                        </Button>
-                        <span className="px-3 py-1 text-sm text-muted-foreground">
-                          {itemsPage} / {Math.ceil(itemsTotal / 20)}
-                        </span>
-                        <Button variant="outline" size="sm" disabled={itemsPage >= Math.ceil(itemsTotal / 20)} onClick={() => setItemsPage((p) => p + 1)}>
-                          Sonraki
-                        </Button>
+                      <div className="flex items-center justify-center gap-2 border-t border-border pt-4">
+                        <Button variant="outline" size="sm" disabled={itemsPage <= 1} onClick={() => setItemsPage((p) => p - 1)}>Önceki</Button>
+                        <span className="text-sm text-muted-foreground">{itemsPage} / {Math.ceil(itemsTotal / 20)}</span>
+                        <Button variant="outline" size="sm" disabled={itemsPage >= Math.ceil(itemsTotal / 20)} onClick={() => setItemsPage((p) => p + 1)}>Sonraki</Button>
                       </div>
                     )}
                   </>
@@ -627,111 +689,198 @@ export default function HaberlerAyarlarPage() {
             </Card>
           )}
 
+          {/* ── SYNC ── */}
           {tab === 'sync' && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Senkronizasyon Kontrol</CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  RSS URL veya base_url + scrape_config tanımlı kaynaklardan otomatik içerik çekilir.
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex flex-wrap items-center gap-4">
-                  <Button onClick={handleSync} disabled={syncing}>
-                    <RefreshCw className={cn('h-4 w-4 mr-2', syncing && 'animate-spin')} />
-                    {syncing ? 'Senkronize ediliyor...' : 'Şimdi Senkronize Et'}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={handleClearPlaceholders}
-                    disabled={clearingPlaceholders}
-                    title="Logo ve mansetresim gibi genel görselleri kaldırır; yalnızca haber içeriğine ait görseller kalır"
-                  >
-                    <ImageOff className={cn('h-4 w-4 mr-2', clearingPlaceholders && 'animate-pulse')} />
-                    {clearingPlaceholders ? 'Temizleniyor...' : 'Placeholder Görselleri Temizle'}
-                  </Button>
-                  {sources.filter((s) => s.rssUrl || (s.baseUrl && s.scrapeConfig)).length > 0 && (
-                    <span className="text-sm text-muted-foreground">
-                      {sources.filter((s) => s.rssUrl || (s.baseUrl && s.scrapeConfig)).length} kaynak sync edilebilir
-                    </span>
-                  )}
-                </div>
-
-                {/* Kaynak durumu */}
-                <div>
-                  <h4 className="text-sm font-medium mb-2">Kaynaklar (son sync)</h4>
-                  <div className="border rounded-lg overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-muted/50 border-b border-border">
-                          <th className="text-left py-2 px-3 font-medium">Kaynak</th>
-                          <th className="text-left py-2 px-3 font-medium">Tip</th>
-                          <th className="text-left py-2 px-3 font-medium">Son sync</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sources.map((s) => {
-                          const hasRss = !!s.rssUrl?.trim();
-                          const hasScrape = !!(s.baseUrl && s.scrapeConfig);
-                          const syncable = hasRss || hasScrape;
-                          const tip = hasRss ? 'RSS' : hasScrape ? 'Scrape' : '-';
-                          const lastSync = s.lastSyncedAt
-                            ? new Date(s.lastSyncedAt).toLocaleString('tr-TR')
-                            : 'Hiç';
-                          return (
-                            <tr key={s.id} className="border-b border-border last:border-0">
-                              <td className="py-2 px-3">{s.label}</td>
-                              <td className="py-2 px-3">
-                                <span className={syncable ? 'text-primary' : 'text-muted-foreground'}>{tip}</span>
-                              </td>
-                              <td className="py-2 px-3 text-muted-foreground">{lastSync}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+            <div className="space-y-5">
+              {/* Kontrol */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <RefreshCw className="h-4 w-4" /> Senkronizasyon Kontrol
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">RSS veya Scrape yapılandırmalı kaynaklardan içerik çekilir.</p>
+                </CardHeader>
+                <CardContent className="space-y-4 pt-0">
+                  <div className="flex flex-wrap gap-2">
+                    <Button onClick={handleSync} disabled={syncing}>
+                      <RefreshCw className={cn('mr-1.5 h-4 w-4', syncing && 'animate-spin')} />
+                      {syncing ? 'Senkronize ediliyor…' : 'Şimdi Senkronize Et'}
+                    </Button>
+                    <Button variant="outline" onClick={handleClearPlaceholders} disabled={clearingPlaceholders}
+                      title="Logo ve manşet resim gibi genel görselleri kaldırır">
+                      <ImageOff className={cn('mr-1.5 h-4 w-4', clearingPlaceholders && 'animate-pulse')} />
+                      {clearingPlaceholders ? 'Temizleniyor…' : 'Placeholder Temizle'}
+                    </Button>
+                    {syncableCount > 0 && (
+                      <span className="flex items-center text-sm text-muted-foreground">
+                        {syncableCount} kaynak sync edilebilir
+                      </span>
+                    )}
                   </div>
-                </div>
 
-                {/* Son sync sonucu */}
-                {syncResult && (
+                  {/* Kaynak durum listesi */}
                   <div>
-                    <h4 className="text-sm font-medium mb-2">Son Sync Sonucu</h4>
-                    <div className="border rounded-lg overflow-hidden">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="bg-muted/50 border-b border-border">
-                            <th className="text-left py-2 px-3 font-medium">Kaynak</th>
-                            <th className="text-right py-2 px-3 font-medium">Eklenen</th>
-                            <th className="text-right py-2 px-3 font-medium">Atlanan</th>
-                            <th className="text-left py-2 px-3 font-medium">Durum</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {syncResult.results.map((r) => (
-                            <tr key={r.source_key} className="border-b border-border last:border-0">
-                              <td className="py-2 px-3">{r.source_label}</td>
-                              <td className="py-2 px-3 text-right">{r.created}</td>
-                              <td className="py-2 px-3 text-right">{r.skipped}</td>
-                              <td className="py-2 px-3">
-                                {r.error ? (
-                                  <span className="text-destructive text-xs">{r.error}</span>
-                                ) : (
-                                  <span className="text-muted-foreground">OK</span>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Kaynak durumları</p>
+                    <div className="divide-y divide-border rounded-xl border border-border">
+                      {sources.map((s) => {
+                        const hasRss = !!s.rssUrl?.trim();
+                        const hasScrape = !!(s.baseUrl && s.scrapeConfig);
+                        const syncable = hasRss || hasScrape;
+                        const tip = hasRss ? 'RSS' : hasScrape ? 'Scrape' : null;
+                        const lastSync = s.lastSyncedAt ? new Date(s.lastSyncedAt).toLocaleString('tr-TR') : 'Hiç';
+                        return (
+                          <div key={s.id} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className={cn('h-1.5 w-1.5 shrink-0 rounded-full', syncable ? 'bg-emerald-500' : 'bg-muted-foreground/30')} />
+                              <span className="truncate font-medium">{s.label}</span>
+                              {tip && (
+                                <span className={cn(
+                                  'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+                                  tip === 'RSS' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+                                )}>{tip}</span>
+                              )}
+                            </div>
+                            <span className="shrink-0 text-xs text-muted-foreground">{lastSync}</span>
+                          </div>
+                        );
+                      })}
                     </div>
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      Toplam {syncResult.total_created} yeni içerik eklendi.
-                    </p>
                   </div>
-                )}
-              </CardContent>
-            </Card>
+
+                  {/* Son sync sonucu */}
+                  {syncResult && (
+                    <div>
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        Son Sync — toplam {syncResult.total_created} yeni içerik
+                      </p>
+                      <div className="divide-y divide-border rounded-xl border border-border">
+                        {syncResult.results.map((r) => (
+                          <div key={r.source_key} className="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
+                            <span className="min-w-0 truncate font-medium">{r.source_label}</span>
+                            <div className="flex shrink-0 items-center gap-3 text-xs">
+                              <span className="text-emerald-600">+{r.created}</span>
+                              <span className="text-muted-foreground">skip {r.skipped}</span>
+                              {r.error
+                                ? <span className="max-w-32 truncate text-destructive" title={r.error}>{r.error}</span>
+                                : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Zamanlama */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Clock className="h-4 w-4" /> Otomatik Zamanlama
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Backend her 5 dk kontrol eder; belirlenen aralık dolunca kaynaklar senkronize edilir.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-5 pt-0">
+                  {scheduleLoading && !syncSchedulePayload ? (
+                    <div className="flex justify-center py-6"><LoadingSpinner /></div>
+                  ) : (
+                    <>
+                      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
+                        <label className="flex cursor-pointer items-center gap-2.5">
+                          <input
+                            id="auto-sync-enabled"
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-border"
+                            checked={autoEnabled}
+                            onChange={(e) => setAutoEnabled(e.target.checked)}
+                          />
+                          <span className="text-sm font-medium">Otomatik senkronu etkinleştir</span>
+                        </label>
+                        <div className="space-y-1.5 sm:min-w-48">
+                          <Label className="text-xs text-muted-foreground">Tekrar aralığı</Label>
+                          <Select value={autoIntervalMin} onValueChange={setAutoIntervalMin}>
+                            <SelectTrigger><SelectValue placeholder="Süre seçin" /></SelectTrigger>
+                            <SelectContent>
+                              {!SYNC_INTERVAL_OPTIONS.some((o) => o.value === autoIntervalMin) && (
+                                <SelectItem value={autoIntervalMin}>{autoIntervalMin} dakika</SelectItem>
+                              )}
+                              {SYNC_INTERVAL_OPTIONS.map((o) => (
+                                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Button type="button" onClick={saveAutoSchedule} disabled={scheduleSaving || scheduleLoading}>
+                          {scheduleSaving ? 'Kaydediliyor…' : 'Zamanlamayı Kaydet'}
+                        </Button>
+                      </div>
+
+                      {syncSchedulePayload?.status && (
+                        <div className="rounded-xl border border-border bg-muted/30 p-4">
+                          <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">Son Çalışma</p>
+                          <div className="grid gap-3 text-sm sm:grid-cols-2">
+                            <div className="flex items-start gap-2">
+                              <span className="mt-0.5 text-muted-foreground">Zaman</span>
+                              <span className="font-medium">
+                                {syncSchedulePayload.status.last_run_at
+                                  ? new Date(syncSchedulePayload.status.last_run_at).toLocaleString('tr-TR')
+                                  : '—'}
+                              </span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <span className="mt-0.5 text-muted-foreground">Tetikleyici</span>
+                              <span className="font-medium">
+                                {syncSchedulePayload.status.last_trigger === 'cron' ? 'Zamanlayıcı'
+                                  : syncSchedulePayload.status.last_trigger === 'manual' ? 'Manuel'
+                                  : '—'}
+                              </span>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <span className="mt-0.5 text-muted-foreground">Durum</span>
+                              {syncSchedulePayload.status.last_ok === true && (
+                                <span className="inline-flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
+                                  <CheckCircle2 className="h-3.5 w-3.5" /> Tamam
+                                </span>
+                              )}
+                              {syncSchedulePayload.status.last_ok === false && (
+                                <span className="inline-flex items-center gap-1 font-medium text-destructive">
+                                  <AlertTriangle className="h-3.5 w-3.5" /> Hata
+                                </span>
+                              )}
+                              {syncSchedulePayload.status.last_ok == null && <span className="text-muted-foreground">Kayıt yok</span>}
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <span className="mt-0.5 text-muted-foreground">Yeni içerik</span>
+                              <span className="font-medium">{syncSchedulePayload.status.last_total_created ?? 0}</span>
+                            </div>
+                          </div>
+                          {syncSchedulePayload.status.last_message && (
+                            <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground whitespace-pre-wrap">
+                              {syncSchedulePayload.status.last_message}
+                            </p>
+                          )}
+                          {syncSchedulePayload.status.last_source_errors.length > 0 && (
+                            <div className="mt-3 border-t border-border pt-3">
+                              <p className="mb-2 text-xs font-medium text-destructive">Kaynak hataları</p>
+                              <div className="divide-y divide-border rounded-lg border border-destructive/20">
+                                {syncSchedulePayload.status.last_source_errors.map((row) => (
+                                  <div key={row.source_key} className="flex gap-3 px-3 py-2 text-xs">
+                                    <span className="shrink-0 font-medium">{row.source_label || row.source_key}</span>
+                                    <span className="min-w-0 text-destructive wrap-break-word">{row.error}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           )}
         </>
       )}

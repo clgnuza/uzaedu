@@ -5,6 +5,7 @@ import { ContentSource } from './entities/content-source.entity';
 import { ContentItem } from './entities/content-item.entity';
 import { ContentService } from './content.service';
 import { ContentSyncService } from './content-sync.service';
+import { ContentSchedulerService } from './content-scheduler.service';
 import { ContentController } from './content.controller';
 import { ContentAdminController } from './content-admin.controller';
 import { ContentPublicController } from './content-public.controller';
@@ -18,7 +19,7 @@ import { AppConfigModule } from '../app-config/app-config.module';
     AppConfigModule,
   ],
   controllers: [ContentController, ContentAdminController, ContentPublicController],
-  providers: [ContentService, ContentSyncService],
+  providers: [ContentService, ContentSyncService, ContentSchedulerService],
   exports: [ContentService],
 })
 export class ContentModule {}

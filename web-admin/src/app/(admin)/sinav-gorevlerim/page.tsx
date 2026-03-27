@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
@@ -57,12 +57,23 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 const CATEGORY_BORDER: Record<string, string> = {
-  meb: 'border-l-4 border-l-amber-400 dark:border-l-amber-600',
-  osym: 'border-l-4 border-l-blue-400 dark:border-l-blue-600',
-  aof: 'border-l-4 border-l-emerald-400 dark:border-l-emerald-600',
-  ataaof: 'border-l-4 border-l-violet-400 dark:border-l-violet-600',
-  auzef: 'border-l-4 border-l-teal-400 dark:border-l-teal-600',
+  meb: 'border-l-[6px] border-l-amber-500 dark:border-l-amber-500',
+  osym: 'border-l-[6px] border-l-blue-500 dark:border-l-blue-500',
+  aof: 'border-l-[6px] border-l-emerald-500 dark:border-l-emerald-500',
+  ataaof: 'border-l-[6px] border-l-violet-500 dark:border-l-violet-500',
+  auzef: 'border-l-[6px] border-l-teal-500 dark:border-l-teal-500',
 };
+
+/** Üst şerit – kartları birbirinden ayırmak için */
+const CATEGORY_HEADER_ROW: Record<string, string> = {
+  meb: 'border-b border-amber-200/80 bg-amber-50/95 dark:border-amber-800/50 dark:bg-amber-950/40',
+  osym: 'border-b border-blue-200/80 bg-blue-50/95 dark:border-blue-800/50 dark:bg-blue-950/40',
+  aof: 'border-b border-emerald-200/80 bg-emerald-50/95 dark:border-emerald-800/50 dark:bg-emerald-950/40',
+  ataaof: 'border-b border-violet-200/80 bg-violet-50/95 dark:border-violet-800/50 dark:bg-violet-950/40',
+  auzef: 'border-b border-teal-200/80 bg-teal-50/95 dark:border-teal-800/50 dark:bg-teal-950/40',
+};
+const CATEGORY_HEADER_DEFAULT =
+  'border-b border-border/70 bg-muted/40 dark:bg-muted/25';
 
 type ExamDutyItem = {
   id: string;
@@ -141,6 +152,87 @@ function isWithinDays(s: string | null | undefined, days: number): boolean {
   }
 }
 
+const DATE_CHIP_VARIANT: Record<
+  'başvuru' | 'onay' | 'sınav' | 'sonuç',
+  { box: string; icon: string }
+> = {
+  başvuru: {
+    box: 'border-l-blue-200 bg-blue-50/50 dark:border-l-blue-800 dark:bg-blue-950/20',
+    icon: 'text-blue-600 dark:text-blue-400',
+  },
+  onay: {
+    box: 'border-l-violet-200 bg-violet-50/50 dark:border-l-violet-800 dark:bg-violet-950/20',
+    icon: 'text-violet-600 dark:text-violet-400',
+  },
+  sınav: {
+    box: 'border-l-amber-200 bg-amber-50/50 dark:border-l-amber-800 dark:bg-amber-950/20',
+    icon: 'text-amber-600 dark:text-amber-400',
+  },
+  sonuç: {
+    box: 'border-l-teal-200 bg-teal-50/50 dark:border-l-teal-800 dark:bg-teal-950/20',
+    icon: 'text-teal-600 dark:text-teal-400',
+  },
+};
+
+function ExamDutyDateChip({
+  icon: Icon,
+  label,
+  value,
+  status,
+  variant,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  status?: 'past' | 'soon' | null;
+  variant?: 'başvuru' | 'onay' | 'sınav' | 'sonuç';
+}) {
+  const v = variant ? DATE_CHIP_VARIANT[variant] : null;
+  return (
+    <div
+      className={cn(
+        'flex min-w-0 items-center gap-1.5 rounded-lg border border-border/50 px-2 py-1.5 shadow-sm border-l-[3px]',
+        v ? v.box : 'bg-muted/10'
+      )}
+    >
+      <Icon className={cn('size-3.5 shrink-0', v ? v.icon : 'text-muted-foreground/70')} />
+      <div className="min-w-0 flex-1">
+        <span className="block text-[9px] font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
+        <span className="flex flex-wrap items-baseline gap-1 text-xs font-medium leading-tight text-foreground">
+          {value}
+          {status === 'past' && <span className="text-[10px] font-normal text-destructive">geçti</span>}
+          {status === 'soon' && (
+            <span className="text-[10px] font-normal text-amber-600 dark:text-amber-400">yaklaşıyor</span>
+          )}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Öğretmen listesi: geçmiş en sonda; önce “yaklaşan”, sonra en yakın tarih */
+function compareExamDutiesForTeacher(a: ExamDutyItem, b: ExamDutyItem): number {
+  const pastA =
+    isDatePast(a.application_end ?? a.applicationEnd) || isDatePast(a.exam_date ?? a.examDate);
+  const pastB =
+    isDatePast(b.application_end ?? b.applicationEnd) || isDatePast(b.exam_date ?? b.examDate);
+  if (pastA !== pastB) return pastA ? 1 : -1;
+  const ts = (i: ExamDutyItem) => {
+    const raw = i.exam_date ?? i.examDate ?? i.application_end ?? i.applicationEnd;
+    const t = raw ? new Date(raw).getTime() : 0;
+    return Number.isNaN(t) ? 0 : t;
+  };
+  if (pastA) return ts(b) - ts(a);
+  const soonA =
+    isWithinDays(a.application_end ?? a.applicationEnd, 7) ||
+    isWithinDays(a.application_approval_end ?? a.applicationApprovalEnd, 7);
+  const soonB =
+    isWithinDays(b.application_end ?? b.applicationEnd, 7) ||
+    isWithinDays(b.application_approval_end ?? b.applicationApprovalEnd, 7);
+  if (soonA !== soonB) return soonA ? -1 : 1;
+  return ts(a) - ts(b);
+}
+
 export default function SinavGorevlerimPage() {
   const router = useRouter();
   const { token, me } = useAuth();
@@ -156,6 +248,18 @@ export default function SinavGorevlerimPage() {
   const [assignDayChoiceForId, setAssignDayChoiceForId] = useState<string | null>(null);
 
   const isTeacher = me?.role === 'teacher';
+
+  const filteredQuery = searchQuery.trim().toLowerCase();
+  const displayedItems = useMemo(() => {
+    const filtered = filteredQuery
+      ? items.filter(
+          (i) =>
+            i.title.toLowerCase().includes(filteredQuery) ||
+            (i.summary ?? '').toLowerCase().includes(filteredQuery)
+        )
+      : [...items];
+    return [...filtered].sort(compareExamDutiesForTeacher);
+  }, [items, filteredQuery]);
 
   const fetchList = useCallback(async () => {
     if (!token || !isTeacher) return;
@@ -289,6 +393,7 @@ export default function SinavGorevlerimPage() {
               <ToolbarPageTitle>Sınav Görevleri</ToolbarPageTitle>
               <ToolbarIconHints
                 compact
+                className="hidden sm:flex"
                 items={[
                   { label: 'Kurum duyuruları (MEB, ÖSYM vb.)', icon: Megaphone },
                   { label: 'Bildirimler', icon: Bell },
@@ -324,24 +429,37 @@ export default function SinavGorevlerimPage() {
       <Card className="overflow-hidden rounded-xl border border-border/50 shadow-sm">
         <CardHeader className="border-b border-border/40 bg-muted/10 py-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle className="flex items-center gap-2 text-base font-semibold">
-              <ClipboardList className="size-5 text-primary" />
-              Duyurular
+            <CardTitle className="flex flex-wrap items-center gap-x-2 gap-y-1 text-base font-semibold">
+              <span className="inline-flex items-center gap-2">
+                <ClipboardList className="size-5 text-primary" />
+                Duyurular
+              </span>
+              {!loading && items.length > 0 && (
+                <span className="rounded-md bg-muted/70 px-2 py-0.5 text-sm font-normal tabular-nums text-muted-foreground">
+                  {displayedItems.length}
+                  {filteredQuery ? (
+                    <span className="text-muted-foreground/80"> / {items.length}</span>
+                  ) : null}
+                </span>
+              )}
             </CardTitle>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative min-w-[160px] max-w-[220px]">
-                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
+              <div className="relative w-full sm:min-w-[160px] sm:max-w-[220px]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="Ara…"
+                  id="exam-duty-search"
+                  placeholder="Başlık veya özette ara…"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="h-9 pl-9 rounded-lg border-input bg-background text-sm"
+                  aria-label="Duyurularda ara"
                 />
               </div>
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
-                className="h-9 rounded-lg border border-input bg-background px-3 py-2 text-sm min-w-[120px] cursor-pointer"
+                className="h-9 w-full cursor-pointer rounded-lg border border-input bg-background px-3 py-2 text-sm sm:w-auto sm:min-w-[120px]"
+                aria-label="Kategori filtresi"
               >
                 {EXAM_DUTY_CATEGORIES.map((c) => (
                   <option key={c.value || 'all'} value={c.value}>
@@ -364,32 +482,21 @@ export default function SinavGorevlerimPage() {
               description="Yayınlanan sınav görevi duyuruları burada görünecek. Bildirim almak için yukarıdaki tercihler kartından ayarlarınızı yapın."
               className="py-16"
             />
+          ) : displayedItems.length === 0 ? (
+            <div className="flex flex-col items-center py-12">
+              <EmptyState
+                icon={<ClipboardList className="size-12 text-muted-foreground" />}
+                title="Aramanıza uygun duyuru yok"
+                description="Farklı anahtar kelime deneyin veya aramayı temizleyin."
+                className="py-8"
+              />
+              <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => setSearchQuery('')}>
+                Aramayı temizle
+              </Button>
+            </div>
           ) : (
-            <div className="space-y-3">
-              {(() => {
-                const q = searchQuery.trim().toLowerCase();
-                const filtered = q
-                  ? items.filter(
-                      (i) =>
-                        i.title.toLowerCase().includes(q) ||
-                        (i.summary ?? '').toLowerCase().includes(q)
-                    )
-                  : items;
-                if (filtered.length === 0) {
-                  return (
-                    <EmptyState
-                      icon={<ClipboardList className="size-12 text-muted-foreground" />}
-                      title={q ? 'Aramanıza uygun duyuru yok' : 'Henüz sınav görevi duyurusu yok'}
-                      description={
-                        q
-                          ? 'Farklı anahtar kelimeler deneyin veya filtreyi kaldırın.'
-                          : 'Yayınlanan sınav görevi duyuruları burada görünecek.'
-                      }
-                      className="py-16"
-                    />
-                  );
-                }
-                return filtered.map((i) => {
+            <div className="flex flex-col gap-3" role="list" aria-label="Sınav görevi duyuruları">
+              {displayedItems.map((i, idx) => {
                   const cat = i.category_slug ?? i.categorySlug ?? '';
                   const appUrl = i.application_url ?? i.applicationUrl;
                   const srcUrl = i.source_url ?? i.sourceUrl;
@@ -412,83 +519,72 @@ export default function SinavGorevlerimPage() {
 
                   const statusType = appEndPast || examPast ? 'past' : appEndSoon || appApprovalSoon ? 'soon' : 'active';
 
-                  const chipColors: Record<string, string> = {
-                    başvuru: 'border-l-blue-200 bg-blue-50/50 dark:border-l-blue-800 dark:bg-blue-950/20',
-                    onay: 'border-l-violet-200 bg-violet-50/50 dark:border-l-violet-800 dark:bg-violet-950/20',
-                    sınav: 'border-l-amber-200 bg-amber-50/50 dark:border-l-amber-800 dark:bg-amber-950/20',
-                    sonuç: 'border-l-teal-200 bg-teal-50/50 dark:border-l-teal-800 dark:bg-teal-950/20',
-                  };
-                  const chipIconColors: Record<string, string> = {
-                    başvuru: 'text-blue-600 dark:text-blue-400',
-                    onay: 'text-violet-600 dark:text-violet-400',
-                    sınav: 'text-amber-600 dark:text-amber-400',
-                    sonuç: 'text-teal-600 dark:text-teal-400',
-                  };
-                  const DateChip = ({
-                    icon: Icon,
-                    label,
-                    value,
-                    status,
-                    variant,
-                  }: {
-                    icon: LucideIcon;
-                    label: string;
-                    value: string;
-                    status?: 'past' | 'soon' | null;
-                    variant?: 'başvuru' | 'onay' | 'sınav' | 'sonuç';
-                  }) => (
-                    <div className={cn('flex min-w-0 items-center gap-2 rounded-lg border border-border/40 px-2.5 py-2 border-l-4', variant ? chipColors[variant] : 'bg-muted/10')}>
-                      <Icon className={cn('size-4 shrink-0', variant ? chipIconColors[variant] : 'text-muted-foreground/70')} />
-                      <div className="min-w-0 flex-1">
-                        <span className="block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
-                        <span className="flex items-baseline gap-1.5 text-sm font-medium text-foreground">
-                          {value}
-                          {status === 'past' && <span className="text-[10px] font-normal text-destructive">geçti</span>}
-                          {status === 'soon' && <span className="text-[10px] font-normal text-amber-600 dark:text-amber-400">yaklaşıyor</span>}
-                        </span>
-                      </div>
-                    </div>
-                  );
-
                   return (
                     <article
                       key={i.id}
+                      role="listitem"
                       className={cn(
-                        'group rounded-xl border bg-card transition-all duration-200',
-                        CATEGORY_BORDER[cat] ?? 'border-l-4 border-l-muted-foreground/30',
-                        statusType === 'past' && 'border-border/40 bg-muted/5 opacity-90',
-                        statusType === 'soon' && 'border-amber-200/60 bg-amber-50/20 dark:border-amber-800/40 dark:bg-amber-950/10',
-                        statusType === 'active' && 'border-border/50 hover:border-primary/20 hover:shadow-sm'
+                        'group overflow-hidden rounded-2xl border-2 bg-card shadow-md transition-[box-shadow,border-color] duration-200',
+                        'ring-1 ring-black/4 dark:ring-white/6',
+                        CATEGORY_BORDER[cat] ?? 'border-l-[6px] border-l-muted-foreground/40',
+                        statusType === 'past' &&
+                          'border-border/60 bg-muted/10 opacity-[0.92] saturate-75 shadow-sm',
+                        statusType === 'soon' &&
+                          'border-amber-300/70 shadow-md shadow-amber-500/10 ring-amber-500/15 dark:border-amber-700/50 dark:shadow-amber-900/20',
+                        statusType === 'active' && 'hover:border-primary/25 hover:shadow-md'
                       )}
                     >
-                      <div className="flex flex-col gap-4 p-4 sm:p-5">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div
+                        className={cn(
+                          'flex flex-wrap items-center justify-between gap-1.5 px-3 py-1.5 sm:px-4',
+                          CATEGORY_HEADER_ROW[cat] ?? CATEGORY_HEADER_DEFAULT
+                        )}
+                      >
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                          <span
+                            className="flex size-6 shrink-0 items-center justify-center rounded-md bg-background/80 text-[10px] font-bold tabular-nums text-muted-foreground shadow-sm ring-1 ring-border/60 dark:bg-background/40"
+                            aria-hidden
+                          >
+                            {idx + 1}
+                          </span>
+                          <span
+                            className={cn(
+                              'inline-flex rounded px-2 py-0.5 text-[11px] font-semibold tracking-wide',
+                              CATEGORY_COLORS[cat] ?? 'bg-muted text-muted-foreground'
+                            )}
+                          >
+                            {CATEGORY_LABELS[cat] ?? (cat || 'Diğer')}
+                          </span>
+                          {statusType === 'past' && (
+                            <span className="inline-flex items-center gap-1 rounded-md bg-destructive/15 px-2 py-0.5 text-xs font-semibold text-destructive ring-1 ring-destructive/20">
+                              <AlertTriangle className="size-3" /> Geçti
+                            </span>
+                          )}
+                          {statusType === 'soon' && (
+                            <span className="inline-flex items-center gap-1 rounded-md bg-amber-200/90 px-2 py-0.5 text-xs font-semibold text-amber-950 ring-1 ring-amber-400/40 dark:bg-amber-900/50 dark:text-amber-100 dark:ring-amber-600/40">
+                              <Sun className="size-3" /> Yaklaşıyor
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2.5 p-3 sm:p-4">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                           <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                              <span className={cn('inline-flex rounded-md px-2 py-0.5 text-xs font-medium', CATEGORY_COLORS[cat] ?? 'bg-muted text-muted-foreground')}>
-                                {CATEGORY_LABELS[cat] ?? cat}
-                              </span>
-                              {statusType === 'past' && (
-                                <span className="inline-flex items-center gap-1 rounded-md bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
-                                  <AlertTriangle className="size-3" /> Geçti
-                                </span>
-                              )}
-                              {statusType === 'soon' && (
-                                <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
-                                  <Sun className="size-3" /> Yaklaşıyor
-                                </span>
-                              )}
-                            </div>
-                            <h3 className="text-base font-semibold leading-snug text-foreground">{i.title}</h3>
+                            <h3 className="text-sm font-semibold leading-snug text-foreground sm:text-base">
+                              {i.title}
+                            </h3>
                             {i.summary && (
-                              <p className="mt-1 text-sm text-muted-foreground line-clamp-2">{i.summary}</p>
+                              <p className="mt-1 text-xs leading-snug text-muted-foreground line-clamp-2 sm:text-sm">
+                                {i.summary}
+                              </p>
                             )}
                           </div>
-                          <div className="flex shrink-0 flex-wrap items-center gap-2">
+                          <div className="flex w-full min-w-0 flex-col gap-1.5 sm:w-auto sm:max-w-full sm:flex-row sm:flex-wrap sm:items-start sm:justify-end sm:gap-1.5">
                           {assignedIds.has(i.id) ? (
                             <div className="inline-flex flex-wrap items-center gap-2">
-                              <span className="inline-flex items-center gap-2 rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-3 py-1.5 text-sm font-medium text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-950/20 dark:text-emerald-300">
-                                <CheckCircle2 className="size-4 shrink-0" />
+                              <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200/80 bg-emerald-50/80 px-2 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-950/20 dark:text-emerald-300">
+                                <CheckCircle2 className="size-3.5 shrink-0" />
                                 <span className="hidden sm:inline">Görev çıktı</span>
                                 {(examFirstYMD && examLastYMD && examFirstYMD !== examLastYMD
                                   ? ` – ${preferredDateMap[i.id] === examFirstYMD ? `İlk gün` : preferredDateMap[i.id] === examLastYMD ? `Son gün` : 'Her iki gün'}`
@@ -505,7 +601,7 @@ export default function SinavGorevlerimPage() {
                                       handleUpdatePreferredDate(i.id, v || null);
                                     }}
                                     disabled={!!assigningId}
-                                    className="h-8 rounded-md border border-border bg-background px-2 text-xs cursor-pointer"
+                                    className="h-7 rounded-md border border-border bg-background px-1.5 text-[11px] cursor-pointer"
                                   >
                                     <option value="">Her iki gün</option>
                                     <option value={examFirstYMD}>İlk gün ({examStart})</option>
@@ -516,7 +612,7 @@ export default function SinavGorevlerimPage() {
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                className="h-9 gap-1.5 text-muted-foreground hover:text-destructive"
+                                className="h-8 gap-1 text-muted-foreground hover:text-destructive"
                                 onClick={() => handleUnassignMe(i.id)}
                                 disabled={!!unassigningId}
                               >
@@ -529,7 +625,7 @@ export default function SinavGorevlerimPage() {
                                 examLastYMD &&
                                 examFirstYMD !== examLastYMD &&
                                 assignDayChoiceForId === i.id ? (
-                                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200/60 bg-amber-50/40 dark:border-amber-800/40 dark:bg-amber-950/20 p-2.5">
+                                <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-amber-200/60 bg-amber-50/40 p-2 dark:border-amber-800/40 dark:bg-amber-950/20">
                                   <span className="text-xs font-medium text-amber-800 dark:text-amber-200 w-full sm:w-auto">
                                     Hatırlatma hangi gün?
                                   </span>
@@ -553,7 +649,7 @@ export default function SinavGorevlerimPage() {
                                   type="button"
                                   variant="outline"
                                   size="sm"
-                                  className="gap-1.5 border-amber-200/80 bg-amber-50/60 text-amber-800 hover:bg-amber-100 dark:border-amber-800/60 dark:bg-amber-950/20 dark:text-amber-200 dark:hover:bg-amber-900/30"
+                                  className="w-full gap-1.5 border-amber-200/80 bg-amber-50/60 text-amber-800 hover:bg-amber-100 sm:w-auto dark:border-amber-800/60 dark:bg-amber-950/20 dark:text-amber-200 dark:hover:bg-amber-900/30"
                                   onClick={() =>
                                     examFirstYMD &&
                                     examLastYMD &&
@@ -578,9 +674,9 @@ export default function SinavGorevlerimPage() {
                               href={başvuruUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/10 hover:border-primary/50 transition-colors"
+                              className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:border-primary/50 hover:bg-primary/10 sm:w-auto sm:min-h-0 sm:justify-start"
                             >
-                              <ExternalLink className="size-4" />
+                              <ExternalLink className="size-3.5 shrink-0" />
                               Başvuru
                             </a>
                           )}
@@ -589,17 +685,17 @@ export default function SinavGorevlerimPage() {
                               href={srcUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                              className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:w-auto sm:min-h-0 sm:justify-start"
                             >
-                              <ExternalLink className="size-4" />
+                              <ExternalLink className="size-3.5 shrink-0" />
                               Kaynak
                             </a>
                           )}
                         </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                          <DateChip
+                        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
+                          <ExamDutyDateChip
                             icon={CalendarClock}
                             label="Başvuru"
                             value={`${appStart} – ${appEnd}`}
@@ -607,7 +703,7 @@ export default function SinavGorevlerimPage() {
                             variant="başvuru"
                           />
                           {appApprovalEnd !== '—' && (
-                            <DateChip
+                            <ExamDutyDateChip
                               icon={FileCheck}
                               label="Onay"
                               value={appApprovalEnd}
@@ -615,7 +711,7 @@ export default function SinavGorevlerimPage() {
                               variant="onay"
                             />
                           )}
-                          <DateChip
+                          <ExamDutyDateChip
                             icon={Calendar}
                             label="Sınav"
                             value={examEnd !== '—' ? `${examStart} – ${examEnd}` : examStart}
@@ -623,12 +719,12 @@ export default function SinavGorevlerimPage() {
                             variant="sınav"
                           />
                           {resultDt !== '—' && (
-                            <DateChip icon={ClipboardCheck} label="Sonuç" value={resultDt} variant="sonuç" />
+                            <ExamDutyDateChip icon={ClipboardCheck} label="Sonuç" value={resultDt} variant="sonuç" />
                           )}
                         </div>
 
                         {isExpanded && hasBody && (
-                          <div className="rounded-lg border border-border/40 bg-muted/10 p-4 text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap">
+                          <div className="rounded-md border border-border/40 bg-muted/10 p-3 text-xs leading-relaxed text-foreground/90 whitespace-pre-wrap sm:text-sm">
                             {i.body || i.summary}
                           </div>
                         )}
@@ -636,7 +732,7 @@ export default function SinavGorevlerimPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-8 gap-1.5 text-xs -ml-1"
+                            className="h-7 gap-1 text-xs -ml-1"
                             onClick={() => setExpandedId(isExpanded ? null : i.id)}
                           >
                             {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
@@ -646,8 +742,7 @@ export default function SinavGorevlerimPage() {
                       </div>
                     </article>
                   );
-                });
-              })()}
+                })}
             </div>
           )}
         </CardContent>

@@ -5,23 +5,23 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calculator, ChevronRight, Settings } from 'lucide-react';
+import { ChevronRight, ClipboardList, Settings } from 'lucide-react';
 
 /** Yeni hesaplama ayarları eklemek için bu diziyi genişletin. */
 const CALC_CARDS: { id: string; title: string; description: string; href: string; icon?: React.ReactNode }[] = [
-  {
-    id: 'ek-ders-calc',
-    title: 'Ek Ders Hesaplama',
-    description: 'Saat girişiyle brüt, vergi kesintileri ve net tahmini hesaplayın. Tüm kullanıcılar erişebilir.',
-    href: '/extra-lesson-calc',
-    icon: <Calculator className="size-6 text-primary" />,
-  },
   {
     id: 'ek-ders-params',
     title: 'Ek Ders Parametreleri',
     description: 'Bütçe dönemleri, gösterge tablosu, birim ücretler, vergi dilimleri ve merkezi sınav rolleri.',
     href: '/extra-lesson-params/ek-ders',
     icon: <Settings className="size-6 text-primary" />,
+  },
+  {
+    id: 'sinav-gorev-ucret',
+    title: 'Sınav görev ücretleri',
+    description: 'ÖSYM / AÖF / AUZEF vb. brüt görev ücret tabloları ve GV dilim referansı.',
+    href: '/sinav-gorev-ucretleri',
+    icon: <ClipboardList className="size-6 text-primary" />,
   },
   // Yeni hesaplama türleri buraya eklenebilir:
   // { id: 'diger', title: 'Diğer Hesaplama', description: '...', href: '/extra-lesson-params/diger', icon: <Icon /> },
@@ -66,9 +66,7 @@ export default function CalcParamsHubPage() {
                 <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
               </CardHeader>
               <CardContent className="pt-0">
-                <span className="text-sm font-medium text-primary">
-                  {card.href.includes('/extra-lesson-calc') ? 'Hesaplamaya git →' : 'Ayarlara git →'}
-                </span>
+                <span className="text-sm font-medium text-primary">Ayarlara git →</span>
               </CardContent>
             </Card>
           </Link>

@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
-import { ArrowLeft, FileText, Send, Upload, Download, FileDown, Zap, Trash2, ChevronDown, ChevronUp, Settings2 } from 'lucide-react';
+import { ArrowLeft, FileText, Send, Upload, Download, FileDown, Zap, Trash2, ChevronDown, ChevronUp, Settings2, BarChart2 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
@@ -58,6 +58,41 @@ function toYMD(d: Date) {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function trCap(s: string) {
+  if (!s) return s;
+  return s.charAt(0).toLocaleUpperCase('tr-TR') + s.slice(1);
+}
+
+/** Dönemden okunaklı plan adı: "Mart 2026", "1–15 Mart 2026", "1 Mart – 15 Nisan 2026" */
+function formatDutyPlanVersionLabel(periodStart: string, periodEnd: string): string {
+  if (!periodStart || !periodEnd || periodStart > periodEnd) return '';
+  const a = new Date(periodStart + 'T12:00:00');
+  const b = new Date(periodEnd + 'T12:00:00');
+  const sameDay = periodStart === periodEnd;
+  const sameMonth = a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+  const sameYear = a.getFullYear() === b.getFullYear();
+
+  const monthLong = (d: Date) => trCap(d.toLocaleDateString('tr-TR', { month: 'long' }));
+  const year = (d: Date) => d.getFullYear();
+  const day = (d: Date) => d.getDate();
+
+  if (sameDay) {
+    return trCap(a.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }));
+  }
+  if (sameMonth) {
+    const lastOfMonth = new Date(year(a), a.getMonth() + 1, 0).getDate();
+    const fullMonth = day(a) === 1 && day(b) === lastOfMonth;
+    if (fullMonth) {
+      return `${monthLong(a)} ${year(a)}`;
+    }
+    return `${day(a)}–${day(b)} ${monthLong(a)} ${year(a)}`;
+  }
+  if (sameYear) {
+    return `${day(a)} ${monthLong(a)} – ${day(b)} ${monthLong(b)} ${year(a)}`;
+  }
+  return `${day(a)} ${monthLong(a)} ${year(a)} – ${day(b)} ${monthLong(b)} ${year(b)}`;
 }
 
 function excelSerialToDate(serial: number): string {
@@ -122,6 +157,7 @@ export default function DutyPlanlarPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [autoGenerating, setAutoGenerating] = useState(false);
   const [autoForm, setAutoForm] = useState({ period_start: '', period_end: '', slots_per_day: 3, version: '', max_per_week: 0 });
+  const lastAutoVersionRef = useRef<string>('');
   const [dutyDaysPerWeek, setDutyDaysPerWeek] = useState<1 | 2>(1);
   const [lastCreatedPlanId, setLastCreatedPlanId] = useState<string | null>(null);
   const [autoGenWarning, setAutoGenWarning] = useState<string | null>(null);
@@ -133,7 +169,7 @@ export default function DutyPlanlarPage() {
     respect_preferences: true,
     enable_weekday_balance: true,
     prefer_fewer_lessons_day: true,
-    same_day_each_week: false,
+    equal_plan_totals: true,
     max_per_month: 0,
     min_days_between: 0,
   });
@@ -145,6 +181,7 @@ export default function DutyPlanlarPage() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [selectedPlanIds, setSelectedPlanIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [distributionLoadingId, setDistributionLoadingId] = useState<string | null>(null);
   const [prefsInRange, setPrefsInRange] = useState<{ preferConfirmed: number; unavailable: number } | null>(null);
   const [areasTotalSlots, setAreasTotalSlots] = useState<number | null>(null);
   const PERIOD_PRESETS = [
@@ -281,11 +318,35 @@ export default function DutyPlanlarPage() {
   }, [isAdmin, fetchAreasTotal]);
 
   useEffect(() => {
+    if (!isAdmin) return;
+    const onVis = () => {
+      if (document.visibilityState === 'visible') fetchAreasTotal();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [isAdmin, fetchAreasTotal]);
+
+  useEffect(() => {
     const minSlots = areasTotalSlots ?? 1;
     if (autoForm.slots_per_day < minSlots) {
       setAutoForm((f) => ({ ...f, slots_per_day: minSlots }));
     }
   }, [areasTotalSlots, autoForm.slots_per_day]);
+
+  useEffect(() => {
+    const s = autoForm.period_start;
+    const e = autoForm.period_end;
+    if (!s || !e || s > e) return;
+    const suggested = formatDutyPlanVersionLabel(s, e);
+    if (!suggested) return;
+    setAutoForm((f) => {
+      if (f.version !== '' && f.version !== lastAutoVersionRef.current) {
+        return f;
+      }
+      lastAutoVersionRef.current = suggested;
+      return { ...f, version: suggested };
+    });
+  }, [autoForm.period_start, autoForm.period_end]);
 
   const fetchPrefsInRange = useCallback(async () => {
     if (!token || !isAdmin || !autoForm.period_start || !autoForm.period_end || autoForm.period_start > autoForm.period_end) {
@@ -626,6 +687,7 @@ export default function DutyPlanlarPage() {
 
   const handleSoftDelete = async (planId: string) => {
     if (!token) return;
+    if (!confirm('Bu planı silmek istediğinize emin misiniz? Plan listeden kaldırılır ancak istatistikler korunur.')) return;
     setDeletingId(planId);
     try {
       await apiFetch(`/duty/plans/${planId}/soft-delete`, { token, method: 'POST' });
@@ -667,6 +729,25 @@ export default function DutyPlanlarPage() {
     });
   };
 
+  const handleOpenDistributionReport = async (planId: string) => {
+    if (!token) return;
+    setDistributionLoadingId(planId);
+    setAutoGenWarning(null);
+    setPriorityAreaExtendedMsg(null);
+    setLastCreatedPlanId(planId);
+    try {
+      const res = await apiFetch<{
+        distribution: { user_id: string; display_name: string | null; email: string; weekday_labels: Record<string, number>; total: number }[];
+      }>(`/duty/plans/${planId}/distribution`, { token });
+      setDistributionReport(res?.distribution ?? []);
+      setDistributionReportOpen(true);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Rapor yüklenemedi.');
+    } finally {
+      setDistributionLoadingId(null);
+    }
+  };
+
   const handleAutoGenerate = async () => {
     if (!token) return;
     if (autoGenerateError) {
@@ -698,6 +779,7 @@ export default function DutyPlanlarPage() {
           respect_preferences: ruleToggles.respect_preferences,
           enable_weekday_balance: ruleToggles.enable_weekday_balance,
           prefer_fewer_lessons_day: ruleToggles.prefer_fewer_lessons_day,
+          equal_plan_totals: ruleToggles.equal_plan_totals,
           same_day_each_week: true,
           max_per_month: ruleToggles.max_per_month > 0 ? ruleToggles.max_per_month : undefined,
           min_days_between: ruleToggles.min_days_between > 0 ? ruleToggles.min_days_between : undefined,
@@ -707,7 +789,9 @@ export default function DutyPlanlarPage() {
       if (result?.id) setLastCreatedPlanId(result.id);
       if (result?.warning) setAutoGenWarning(result.warning);
       setPriorityAreaExtendedMsg(result?.priority_area_extended ?? null);
-      toast.success('Taslak plan oluşturuldu. Dağıtım raporunu inceleyip planı el ile düzenleyebilirsiniz.');
+      toast.success('Taslak oluşturuldu. İsterseniz takvimden düzenleyin.');
+      setAdvancedRulesOpen(false);
+      lastAutoVersionRef.current = '';
       setAutoForm((f) => ({ ...f, period_start: '', period_end: '', version: '' }));
       fetchPlans();
       if (result?.distribution && result.distribution.length > 0) {
@@ -737,7 +821,7 @@ export default function DutyPlanlarPage() {
       </div>
 
       <p className="text-sm text-muted-foreground">
-        Oluşturulan nöbet planlarının listesi. Taslak planları yayınlayarak okulda görünür hale getirebilirsiniz.
+        Taslakları yayınlayınca nöbet takviminde görünür.
       </p>
 
       {isAdmin && (
@@ -745,20 +829,20 @@ export default function DutyPlanlarPage() {
           <CardContent className="p-4 space-y-4">
             <div className="flex items-center gap-2">
               <Zap className="size-5 text-primary" />
-              <h2 className="text-lg font-semibold">Tek Tuşla Otomatik Görevlendirme</h2>
+              <h2 className="text-lg font-semibold">Otomatik nöbet planı</h2>
             </div>
             <p className="text-sm text-muted-foreground">
-              Öğretmen istekleri (Tercih ediyorum / Dikkate alındı) planlamada öncelik alır. Her güne nöbet yerleri toplamı kadar nöbetçi atanır; oluşan planı takvimden sürükleyerek düzenleyebilirsiniz.
+              Tercihler (varsa) önce okunur. Günlük nöbet sayısı, Yerler sayfasındaki kayıtlara göre en az o kadardır. Planı sonra takvimden düzenleyebilirsiniz.
             </p>
             <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
               <div className="flex items-center gap-2">
                 <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">1</span>
-                <span className="text-sm font-semibold">Seçim – Tarih ve haftalık gün</span>
+                <span className="text-sm font-semibold">Tarih aralığı ve haftalık gün sayısı</span>
               </div>
             <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
-              <Label className="text-sm font-semibold">Öğretmene haftada kaç gün nöbet verilsin?</Label>
-              <div className="flex gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
+              <Label className="text-sm font-semibold">Her öğretmen haftada kaç gün nöbet tutsun?</Label>
+              <div className="flex flex-col gap-3 sm:flex-row sm:gap-6">
+                <label className="flex cursor-pointer items-center gap-2">
                   <input
                     type="radio"
                     name="duty_days_per_week"
@@ -767,9 +851,9 @@ export default function DutyPlanlarPage() {
                     className="accent-primary"
                   />
                   <span className="text-sm font-medium">1 gün</span>
-                  <span className="text-xs text-muted-foreground">Her hafta hep aynı 1 güne nöbet</span>
+                  <span className="text-xs text-muted-foreground">(Her hafta aynı tek gün)</span>
                 </label>
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex cursor-pointer items-center gap-2">
                   <input
                     type="radio"
                     name="duty_days_per_week"
@@ -778,7 +862,7 @@ export default function DutyPlanlarPage() {
                     className="accent-primary"
                   />
                   <span className="text-sm font-medium">2 gün</span>
-                  <span className="text-xs text-muted-foreground">Her hafta hep aynı 2 güne nöbet</span>
+                  <span className="text-xs text-muted-foreground">(Her hafta aynı iki gün)</span>
                 </label>
               </div>
             </div>
@@ -819,36 +903,52 @@ export default function DutyPlanlarPage() {
             <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
               <div className="flex items-center gap-2">
                 <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">2</span>
-                <span className="text-sm font-semibold">Veri girişi</span>
+                <span className="text-sm font-semibold">Günlük nöbet sayısı ve plan adı</span>
               </div>
               {areasTotalSlots != null && areasTotalSlots > 0 && (
-                <p className="text-xs text-muted-foreground rounded-lg bg-muted/50 px-3 py-2">
-                  <strong>Nöbet yerleri toplamı</strong> (Yerler sayfasındaki nöbetçi sayıları): <strong>{areasTotalSlots} nöbetçi/gün</strong>. Sistem günlük slot sayısını en az bu kadar kullanır; aşağıdan artırabilirsiniz.
+                <p className="text-xs text-muted-foreground rounded-lg bg-muted/50 px-3 py-2 space-y-1">
+                  <span className="block">
+                    Yerlerde tanımlı alanların günlük nöbetçi sayıları toplamı: <strong>{areasTotalSlots}</strong>. Otomatik planda bu,{' '}
+                    <strong>vardiya başına</strong> minimum günlük nöbet sayısıdır (backend ile aynı toplam).
+                  </span>
+                  {dutyEducationMode === 'double' && (
+                    <span className="block pt-1">
+                      Çift öğretimde seçili her vardiya (sabah/öğle) için ayrı ayrı bu kadar slot açılır; gün içi toplam atanış ≈{' '}
+                      <strong>{areasTotalSlots * Math.max(1, autoShifts.length)}</strong> (her iki vardiya seçiliyse).
+                    </span>
+                  )}
+                  <span className="block pt-1">Aşağıdaki sayı bu minimumu geçebilir (üst sınır 200).</span>
                 </p>
               )}
               <div className="flex flex-wrap items-end gap-4">
                 <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Günlük atanacak slot sayısı</Label>
+                  <Label className="text-xs text-muted-foreground">Vardiya başına günlük kaç nöbet açılsın?</Label>
                   <Input
                     type="number"
                     min={areasTotalSlots ?? 1}
-                    max={10}
+                    max={200}
                     value={autoForm.slots_per_day}
                     onChange={(e) => setAutoForm((f) => ({ ...f, slots_per_day: parseInt(e.target.value, 10) || (areasTotalSlots ?? 1) }))}
                     className="w-24"
                   />
-                  <p className="text-xs text-muted-foreground">En az {areasTotalSlots ?? 1} (nöbet yerleri toplamı); daha fazla yazarsanız o kullanılır.</p>
+                  <p className="text-xs text-muted-foreground">En az {areasTotalSlots ?? 1} (Yerler toplamı).</p>
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Öğretmen başına haftalık nöbet</Label>
+                  <Label className="text-xs text-muted-foreground">Öğretmen başına (hafta)</Label>
                   <p className="text-sm font-medium text-foreground">
-                    {dutyDaysPerWeek === 1 ? '1 nöbet/hafta' : '2 nöbet/hafta'} — yukarıdaki &quot;{dutyDaysPerWeek} gün&quot; seçimine göre otomatik.
+                    {dutyDaysPerWeek === 1 ? 'Haftada 1 nöbet' : 'Haftada 2 nöbet'}
                   </p>
-                  <p className="text-xs text-muted-foreground">Ayrıca bir üst sınır yok; tek kaynak &quot;1 gün&quot; / &quot;2 gün&quot; seçimidir.</p>
+                  <p className="text-xs text-muted-foreground">Yukarıdaki 1 veya 2 günlük seçime bağlıdır.</p>
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Plan adı (opsiyonel)</Label>
-                  <Input value={autoForm.version} onChange={(e) => setAutoForm((f) => ({ ...f, version: e.target.value }))} className="w-56" placeholder="Örn: Mart 2026" />
+                  <Label className="text-xs text-muted-foreground">Plan adı</Label>
+                  <Input
+                    value={autoForm.version}
+                    onChange={(e) => setAutoForm((f) => ({ ...f, version: e.target.value }))}
+                    className="min-w-56 max-w-full sm:w-72"
+                    placeholder="Dönem seçilince dolar"
+                  />
+                  <p className="text-[10px] text-muted-foreground">Dönemle otomatik; elle yazarsanız tarih değişince korunur.</p>
                 </div>
               </div>
             </div>
@@ -857,23 +957,23 @@ export default function DutyPlanlarPage() {
               <div className="space-y-2">
                 <div className="rounded-lg border border-muted bg-muted/30 px-4 py-3 text-sm">
                   <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
-                    <span><strong>İş günü:</strong> {estimatedWorkDays} gün</span>
-                    <span><strong>Hedef slot:</strong> ~{estimatedSlots}</span>
+                    <span><strong>İş günü:</strong> {estimatedWorkDays}</span>
+                    <span><strong>Tahmini toplam nöbet:</strong> ~{estimatedSlots}</span>
                     <span><strong>Öğretmen:</strong> {teachers.length}</span>
-                    <span><strong>Haftada gün:</strong> {dutyDaysPerWeek} (aynı gün(ler))</span>
+                    <span><strong>Haftalık nöbet günü:</strong> {dutyDaysPerWeek}</span>
                     {dutyEducationMode === 'double' && (
                       <span className="text-muted-foreground">
-                        Vardiya: {autoShifts.includes('morning') ? 'Sabah' : ''}
-                        {autoShifts.includes('morning') && autoShifts.includes('afternoon') ? ' + ' : ''}
+                        {autoShifts.includes('morning') ? 'Sabah' : ''}
+                        {autoShifts.includes('morning') && autoShifts.includes('afternoon') ? ' · ' : ''}
                         {autoShifts.includes('afternoon') ? 'Öğle' : ''}
                       </span>
                     )}
                   </div>
                   {prefsInRange != null && (prefsInRange.preferConfirmed > 0 || prefsInRange.unavailable > 0) && (
                     <p className="mt-2 pt-2 border-t border-muted text-muted-foreground">
-                      Bu aralıkta: <strong className="text-emerald-600 dark:text-emerald-400">{prefsInRange.preferConfirmed}</strong> onaylı tercih
+                      Bu tarihlerde: <strong className="text-emerald-600 dark:text-emerald-400">{prefsInRange.preferConfirmed}</strong> onaylı &quot;tercih ediyorum&quot;
                       {prefsInRange.unavailable > 0 && (
-                        <> · <strong className="text-amber-600 dark:text-amber-400">{prefsInRange.unavailable}</strong> müsait değil</>
+                        <> · <strong className="text-amber-600 dark:text-amber-400">{prefsInRange.unavailable}</strong> &quot;müsait değilim&quot;</>
                       )}
                     </p>
                   )}
@@ -893,23 +993,24 @@ export default function DutyPlanlarPage() {
               const ok = capacity >= required;
               return (
                 <p className={cn('text-sm', ok ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400')}>
-                  Kapasite: {teachers.length} öğretmen × {dutyDaysPerWeek} gün/hafta × ~{numWeeks} hafta = ~{capacity} nöbet-gün.
-                  Gerekli: ~{required} slot. {!ok && 'Öğretmen veya gün sayısı yetersiz olabilir; plan oluşturulduktan sonra el ile düzenleyebilirsiniz.'}
+                  Atanabilecek (yaklaşık): {capacity} · İhtiyaç (yaklaşık): {required}.
+                  {!ok && ' Sayılar yetmeyebilir; planı sonra elden düzeltin.'}
                 </p>
               );
             })()}
 
             <p className="text-xs text-muted-foreground">
-              Pazartesi–Cuma; tatil atlanır. Müsait değil tercihleri engellenir. <Link href="/duty/tercihler" className="underline">Tercihler</Link> · <Link href="/work-calendar" className="underline">Çalışma Takvimi</Link> · <Link href="/duty/yerler" className="underline">Nöbet Yerleri</Link>
+              Hafta içi günler; tatiller sayılmaz. <Link href="/duty/tercihler" className="underline">Tercihler</Link> ·{' '}
+              <Link href="/work-calendar" className="underline">Takvim</Link> · <Link href="/duty/yerler" className="underline">Yerler</Link>
             </p>
 
             {/* Kurallar – Tercihler vurgulu */}
             <div className="rounded-lg border border-primary/40 bg-primary/5 p-3">
-              <label className="flex items-start gap-3 cursor-pointer">
+              <label className="flex cursor-pointer items-start gap-3">
                 <input type="checkbox" className="mt-0.5 accent-primary" checked={ruleToggles.respect_preferences} onChange={(e) => setRuleToggles((r) => ({ ...r, respect_preferences: e.target.checked }))} />
                 <div>
-                  <p className="text-sm font-semibold text-primary">Öğretmen isteklerini (tercihleri) dikkate al</p>
-                  <p className="text-xs text-muted-foreground">&quot;Tercih ediyorum&quot; günleri öncelik alır; &quot;Dikkate alındı&quot; en yüksek önceliğe sahiptir.</p>
+                  <p className="text-sm font-semibold text-primary">Tercihleri kullan</p>
+                  <p className="text-xs text-muted-foreground">Okulun onayladığı &quot;tercih ediyorum&quot; günleri önce gelir; &quot;müsait değilim&quot; günlere atanmaz.</p>
                 </div>
               </label>
             </div>
@@ -923,29 +1024,24 @@ export default function DutyPlanlarPage() {
               >
                 <span className="flex items-center gap-2">
                   <Settings2 className="size-4 text-muted-foreground" />
-                  Gelişmiş Kurallar
-                  <span className="text-xs text-muted-foreground font-normal">(opsiyonel)</span>
+                  Ek kurallar
+                  <span className="text-xs font-normal text-muted-foreground">(isteğe bağlı)</span>
                 </span>
                 {advancedRulesOpen ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
               </button>
               {advancedRulesOpen && (
                 <div className="px-4 py-4 space-y-4 bg-background">
-                  <p className="text-xs text-muted-foreground">
-                    İlk nöbet dağıtımında uygulanacak kuralları özelleştirin. Devre dışı bırakılan kurallar görmezden gelinir.
-                  </p>
+                  <p className="text-xs text-muted-foreground">Açık olanlar uygulanır.</p>
                   <div className="grid gap-3 sm:grid-cols-2">
                     {[
-                      { key: 'prevent_consecutive_days' as const, label: 'Ardışık gün önleme', desc: 'Aynı öğretmene iki üst üste gün nöbet vermez.' },
-                      { key: 'enable_weekday_balance' as const, label: 'Haftaiçi gün dengesi', desc: 'Her öğretmen farklı haftaiçi günlerine dağıtılır. same_day_each_week etkinse devre dışıdır.' },
-                      { key: 'prefer_fewer_lessons_day' as const, label: 'MEB 91/a: Az dersli gün', desc: 'Dersi az olan güne nöbet tercih edilir.' },
-                      { key: 'same_day_each_week' as const, label: 'Her hafta aynı güne nöbet ver', desc: 'Yukarıda "1 gün" veya "2 gün" seçildiğinde otomatik uygulanır. Öğretmen atandığı gün(ler)de her hafta nöbet tutar.' },
+                      { key: 'prevent_consecutive_days' as const, label: 'Üst üste iki gün verme', desc: 'Aynı kişiye arka arkaya nöbet günü atanmaz.' },
+                      { key: 'enable_weekday_balance' as const, label: 'Günleri yay', desc: 'Herkesi mümkün olduğunca farklı hafta içi günlere yayar. (Üstteki sabit gün seçimiyle çakışırsa etkisi azalır.)' },
+                      { key: 'prefer_fewer_lessons_day' as const, label: 'Az dersli güne öncelik', desc: 'O gün ders saati az olanlara önce düşünür.' },
+                      { key: 'equal_plan_totals' as const, label: 'Bu planda eşit nöbet', desc: 'Geçmiş görevlendirme yükünü dikkate almaz; bu dönemde herkese mümkün olduğunca eşit atama (diğer kurallardan sonra).' },
                     ].map(({ key, label, desc }) => (
                       <label
                         key={key}
-                        className={cn(
-                          'flex items-start gap-3 cursor-pointer rounded-lg border p-3 hover:bg-muted/30 transition-colors',
-                          key === 'same_day_each_week' && 'border-primary/40 bg-primary/5',
-                        )}
+                        className="flex items-start gap-3 cursor-pointer rounded-lg border p-3 hover:bg-muted/30 transition-colors"
                       >
                         <input
                           type="checkbox"
@@ -954,7 +1050,7 @@ export default function DutyPlanlarPage() {
                           onChange={(e) => setRuleToggles((r) => ({ ...r, [key]: e.target.checked }))}
                         />
                         <div>
-                          <p className={cn('text-sm font-medium', key === 'same_day_each_week' && 'text-primary')}>{label}</p>
+                          <p className="text-sm font-medium">{label}</p>
                           <p className="text-xs text-muted-foreground">{desc}</p>
                         </div>
                       </label>
@@ -963,7 +1059,7 @@ export default function DutyPlanlarPage() {
                   <div className="flex flex-wrap gap-6 pt-1">
                     <div className="space-y-1">
                       <Label className="text-xs" title="0 = sınırsız">
-                        Aylık maks. nöbet <span className="text-muted-foreground">(0=∞)</span>
+                        Ayda en çok kaç nöbet <span className="text-muted-foreground">(0=sınır yok)</span>
                       </Label>
                       <Input
                         type="number"
@@ -972,12 +1068,12 @@ export default function DutyPlanlarPage() {
                         value={ruleToggles.max_per_month}
                         onChange={(e) => setRuleToggles((r) => ({ ...r, max_per_month: parseInt(e.target.value) || 0 }))}
                         className="w-24"
-                        placeholder="0=∞"
+                        placeholder="0"
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs" title="0 = devre dışı">
-                        Nöbetler arası min. gün <span className="text-muted-foreground">(0=kapalı)</span>
+                      <Label className="text-xs" title="0 = kullanılmaz">
+                        İki nöbet arası en az kaç gün <span className="text-muted-foreground">(0=yok)</span>
                       </Label>
                       <Input
                         type="number"
@@ -986,13 +1082,13 @@ export default function DutyPlanlarPage() {
                         value={ruleToggles.min_days_between}
                         onChange={(e) => setRuleToggles((r) => ({ ...r, min_days_between: parseInt(e.target.value) || 0 }))}
                         className="w-24"
-                        placeholder="0=kapalı"
+                        placeholder="0"
                       />
                     </div>
                   </div>
                   <label
                     className="flex items-start gap-3 cursor-pointer rounded-lg border p-3 hover:bg-muted/30 transition-colors border-dashed border-primary/30"
-                    title="İlk hafta şablon, sonraki haftalarda nöbet yerleri haftalık kaydırılır"
+                    title="Yerler haftadan haftaya bir sıra kayar"
                   >
                     <input
                       type="checkbox"
@@ -1001,10 +1097,8 @@ export default function DutyPlanlarPage() {
                       onChange={(e) => setRotateAreaByWeek(e.target.checked)}
                     />
                     <div>
-                      <p className="text-sm font-medium">Dönerli liste (Excel benzeri)</p>
-                      <p className="text-xs text-muted-foreground">
-                        İlk hafta şablon; sonraki haftalarda nöbet yerleri bir kaydırılır. Günler aynı kalır, yerler haftalık rotasyon yapar.
-                      </p>
+                      <p className="text-sm font-medium">Nöbet yerini haftaya göre kaydır</p>
+                      <p className="text-xs text-muted-foreground">Her yeni haftada koridor/bahçe vb. sırayla ilerler; günler değişmez.</p>
                     </div>
                   </label>
                 </div>
@@ -1023,10 +1117,9 @@ export default function DutyPlanlarPage() {
       {isAdmin && (
         <Card>
           <CardContent className="p-4 space-y-4">
-            <h3 className="font-medium text-foreground">Excel ile Plan Yükle</h3>
+            <h3 className="font-medium text-foreground">Excel’den yükle</h3>
             <p className="text-sm text-muted-foreground">
-              Tarih, Vardiya (Sabah/Öğle), Öğretmen (e-posta veya ad soyad), Alan, Giriş Saati, Çıkış Saati (HH:mm) sütunlarına
-              sahip Excel dosyası yükleyin. Öğretmenler okul kullanıcı listesiyle eşleştirilir. Vardiya ve saat sütunları opsiyoneldir.
+              Şablondaki sütunlara göre doldurun. Öğretmen, sistemdeki ad veya e-posta ile eşleşmeli. Vardiya ve saat zorunlu değil.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" onClick={downloadTemplate}>
@@ -1066,7 +1159,7 @@ export default function DutyPlanlarPage() {
                     />
                   ) : null;
                 })()}
-                <div className="overflow-x-auto max-h-[300px] overflow-y-auto rounded-lg border border-border">
+                <div className="table-x-scroll max-h-[300px] overflow-y-auto rounded-lg border border-border">
                   <table className="w-full text-sm">
                     <thead className="bg-muted/50 sticky top-0">
                       <tr>
@@ -1160,7 +1253,7 @@ export default function DutyPlanlarPage() {
                 </Button>
               </div>
             )}
-            <div className="overflow-x-auto">
+            <div className="table-x-scroll">
               <table className="evrak-admin-table w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/60">
@@ -1214,7 +1307,7 @@ export default function DutyPlanlarPage() {
                         {formatDate(plan.created_at?.slice(0, 10))}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <div className="flex justify-end gap-1">
+                        <div className="flex justify-end gap-1 flex-wrap">
                           <Button
                             variant="ghost"
                             size="sm"
@@ -1224,6 +1317,21 @@ export default function DutyPlanlarPage() {
                           >
                             <FileDown className="size-4" />
                           </Button>
+                          {isAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleOpenDistributionReport(plan.id)}
+                              disabled={!!distributionLoadingId}
+                              title="Dağıtım raporu"
+                            >
+                              {distributionLoadingId === plan.id ? (
+                                <LoadingSpinner className="size-4" />
+                              ) : (
+                                <BarChart2 className="size-4" />
+                              )}
+                            </Button>
+                          )}
                           {isAdmin && plan.status === 'draft' && (
                             <Button
                               variant="outline"
@@ -1306,6 +1414,9 @@ export default function DutyPlanlarPage() {
               <span className="text-xs text-muted-foreground">Slotları değiştirip, öğretmen atayıp kaldırabilirsiniz.</span>
             </div>
           )}
+          {distributionReport && distributionReport.length === 0 && (
+            <p className="text-sm text-muted-foreground">Bu planda atanmış nöbet yok.</p>
+          )}
           {distributionReport && distributionReport.length > 0 && (() => {
             const allDays = [...new Set(distributionReport.flatMap((r) => Object.keys(r.weekday_labels)))];
             const DAY_ORDER = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
@@ -1315,7 +1426,7 @@ export default function DutyPlanlarPage() {
                 <p className="text-sm text-muted-foreground">
                   Plan oluşturulduktan sonra öğretmen bazlı haftalık nöbet dağılımı aşağıdadır.
                 </p>
-                <div className="overflow-x-auto rounded-lg border border-border">
+                <div className="table-x-scroll rounded-lg border border-border">
                   <table className="w-full text-sm">
                     <thead className="bg-muted/50">
                       <tr>

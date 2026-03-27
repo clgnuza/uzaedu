@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { MENU_SIDEBAR } from '@/config/menu';
 import type { MenuItem, WebAdminRole } from '@/config/types';
 import { useAuth } from '@/hooks/use-auth';
+import { useSupportModuleAvailability } from '@/hooks/use-support-module-availability';
 
 interface SidebarMenuProps {
   role: WebAdminRole | null;
@@ -106,7 +107,8 @@ function filterMenuTree(
   items: MenuItem[],
   role: WebAdminRole | null,
   moderatorModules?: string[] | null,
-  schoolEnabledModules?: string[] | null
+  schoolEnabledModules?: string[] | null,
+  supportEnabled = true,
 ): MenuItem[] {
   if (!role) return [];
   const out: MenuItem[] = [];
@@ -117,7 +119,7 @@ function filterMenuTree(
       continue;
     }
     if (item.children?.length) {
-      const kids = filterMenuTree(item.children, role, moderatorModules, schoolEnabledModules);
+      const kids = filterMenuTree(item.children, role, moderatorModules, schoolEnabledModules, supportEnabled);
       if (kids.length === 0) continue;
       if (!item.allowedRoles.includes(role)) continue;
       if (role === 'moderator' && item.requiredModule) {
@@ -130,6 +132,7 @@ function filterMenuTree(
       continue;
     }
     if (!item.allowedRoles.includes(role)) continue;
+    if (!supportEnabled && role !== 'superadmin' && item.path?.startsWith('/support')) continue;
     if (role === 'moderator' && item.requiredModule) {
       if (!moderatorModules?.includes(item.requiredModule)) continue;
     }
@@ -149,11 +152,14 @@ function label(item: MenuItem, role: WebAdminRole | null, bilsemOkul?: boolean):
 export function SidebarMenu({ role, moderatorModules }: SidebarMenuProps) {
   const pathname = usePathname();
   const { me } = useAuth();
+  const { supportEnabled } = useSupportModuleAvailability();
+  const supportEnabledValue = supportEnabled ?? true;
   const items = filterMenuTree(
     MENU_SIDEBAR,
     role,
     moderatorModules ?? me?.moderator_modules ?? null,
-    me?.school?.enabled_modules ?? null
+    me?.school?.enabled_modules ?? null,
+    supportEnabledValue,
   );
   const bilsemOkul = me?.school?.enabled_modules?.includes('bilsem');
 

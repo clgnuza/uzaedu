@@ -10,6 +10,7 @@ import { CreateSchoolDto } from './dto/create-school.dto';
 import { BulkCreateSchoolDto } from './dto/bulk-create-school.dto';
 import { UpdateSchoolDto } from './dto/update-school.dto';
 import { ListSchoolsDto } from './dto/list-schools.dto';
+import { BulkSchoolModuleDto } from './dto/bulk-school-module.dto';
 
 @Controller('schools')
 @UseGuards(JwtAuthGuard)
@@ -51,6 +52,13 @@ export class SchoolsController {
   @Roles(UserRole.superadmin)
   async bulkCreate(@Body() dto: BulkCreateSchoolDto, @CurrentUser() payload: CurrentUserPayload) {
     return this.schoolsService.bulkCreate(dto, payload.userId);
+  }
+
+  @Patch('bulk-enabled-modules')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin)
+  async bulkEnabledModules(@Body() dto: BulkSchoolModuleDto, @CurrentUser() payload: CurrentUserPayload) {
+    return this.schoolsService.bulkToggleEnabledModuleForAllSchools(dto.module_key, dto.enable, payload.userId);
   }
 
   @Patch(':id')

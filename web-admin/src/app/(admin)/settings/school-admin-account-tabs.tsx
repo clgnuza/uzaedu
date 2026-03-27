@@ -134,7 +134,8 @@ export function SchoolAdminAccountTabs() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-1 rounded-xl border border-border/40 bg-linear-to-r from-muted/25 via-muted/35 to-muted/25 p-1 shadow-inner dark:from-zinc-800/70 dark:via-zinc-800/50 dark:to-zinc-800/70">
+        <div className="mobile-tab-scroll pb-1">
+          <div className="flex min-w-max gap-1 rounded-xl border border-border/40 bg-linear-to-r from-muted/25 via-muted/35 to-muted/25 p-1 shadow-inner dark:from-zinc-800/70 dark:via-zinc-800/50 dark:to-zinc-800/70">
           {TABS.map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
@@ -144,9 +145,9 @@ export function SchoolAdminAccountTabs() {
                 type="button"
                 onClick={() => goTab(t.id)}
                 className={cn(
-                  'flex min-w-0 flex-1 flex-col items-stretch gap-0.5 rounded-lg px-3 py-2.5 text-left transition-all duration-200 sm:min-w-[140px] sm:flex-initial',
+                  'flex min-w-[150px] shrink-0 flex-col items-stretch gap-0.5 rounded-lg px-3 py-2.5 text-left transition-all duration-200',
                   active
-                    ? 'bg-background/95 text-foreground shadow-md ring-1 ring-border/50 backdrop-blur-sm dark:bg-zinc-800/95 dark:ring-zinc-600/50'
+                    ? 'bg-background/95 text-foreground shadow-md ring-1 ring-primary/25 backdrop-blur-sm dark:bg-zinc-800/95 dark:ring-zinc-600/50'
                     : 'text-muted-foreground hover:bg-background/50 hover:text-foreground dark:hover:bg-zinc-800/60',
                 )}
               >
@@ -161,6 +162,7 @@ export function SchoolAdminAccountTabs() {
               </button>
             );
           })}
+          </div>
         </div>
       </div>
 

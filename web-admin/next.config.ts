@@ -1,6 +1,24 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  /** Tree-shake: yalnızca kullanılan ikonlar bundle’a girer */
+  experimental: {
+    optimizePackageImports: ["lucide-react"],
+  },
+  /** Firebase Google popup: window.closed için COOP gevşetilir */
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          {
+            key: "Cross-Origin-Opener-Policy",
+            value: "unsafe-none",
+          },
+        ],
+      },
+    ];
+  },
   async redirects() {
     return [
       {

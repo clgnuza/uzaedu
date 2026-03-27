@@ -24,6 +24,10 @@ export class DutyLog {
   @Column({ name: 'duty_slot_id', type: 'uuid', nullable: true })
   duty_slot_id: string | null;
 
+  /** Yayın / plandaki işlemler için (slot silindikten sonra da satır kalır) */
+  @Column({ name: 'duty_plan_id', type: 'uuid', nullable: true })
+  duty_plan_id: string | null;
+
   @Column({ name: 'old_user_id', type: 'uuid', nullable: true })
   old_user_id: string | null;
 

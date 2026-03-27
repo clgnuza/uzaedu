@@ -332,7 +332,7 @@ function LedgerTable({
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-border/80 bg-muted/20">
-      <div className="overflow-x-auto">
+      <div className="table-x-scroll">
         <table className="w-full min-w-[540px] text-sm">
           <thead>
             <tr className="border-b border-border/80 bg-muted/50 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -918,7 +918,7 @@ export default function MarketPage() {
                     Davet kullanımları
                   </p>
                   {teacherInviteRedemptions && teacherInviteRedemptions.items.length > 0 ? (
-                    <div className="overflow-x-auto">
+                    <div className="table-x-scroll">
                       <table className="w-full min-w-[280px] text-sm">
                         <thead>
                           <tr className="border-b border-border/60 bg-muted/30 text-left text-xs text-muted-foreground">
@@ -1001,7 +1001,7 @@ export default function MarketPage() {
                 Ödüllü reklamla kazanılan jetonlar
               </p>
               {rewardedAdCredits && rewardedAdCredits.items.length > 0 ? (
-                <div className="overflow-x-auto">
+                <div className="table-x-scroll">
                   <table className="w-full min-w-[280px] text-sm">
                     <thead>
                       <tr className="border-b border-border/60 bg-muted/30 text-left text-xs text-muted-foreground">
@@ -1050,7 +1050,7 @@ export default function MarketPage() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="overflow-x-auto">
+              <div className="table-x-scroll">
                 <table className="w-full min-w-[520px] text-sm">
                   <thead>
                     <tr className="border-b border-border/80 bg-muted/30 text-left text-xs font-medium text-muted-foreground">
@@ -1105,7 +1105,7 @@ export default function MarketPage() {
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
+                <div className="table-x-scroll">
                   <table className="w-full min-w-[520px] text-sm">
                     <thead>
                       <tr className="border-b border-border/80 bg-muted/30 text-left text-xs font-medium text-muted-foreground">
@@ -1245,7 +1245,7 @@ export default function MarketPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
+                <div className="table-x-scroll">
                   <table className="w-full min-w-[420px] text-sm">
                     <thead>
                       <tr className="border-b border-border/80 bg-muted/40 text-left text-xs font-medium text-muted-foreground">
@@ -1298,7 +1298,7 @@ export default function MarketPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
-                  <div className="overflow-x-auto">
+                  <div className="table-x-scroll">
                     <table className="w-full min-w-[420px] text-sm">
                       <thead>
                         <tr className="border-b border-border/80 bg-muted/40 text-left text-xs font-medium text-muted-foreground">
@@ -1359,7 +1359,7 @@ export default function MarketPage() {
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
+                <div className="table-x-scroll">
                   <table className="w-full min-w-[420px] text-sm">
                     <thead>
                       <tr className="border-b border-border/80 bg-muted/30 text-left text-xs font-medium text-muted-foreground">
@@ -1402,7 +1402,7 @@ export default function MarketPage() {
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
+                <div className="table-x-scroll">
                   <table className="w-full min-w-[420px] text-sm">
                     <thead>
                       <tr className="border-b border-border/80 bg-muted/30 text-left text-xs font-medium text-muted-foreground">
@@ -1521,7 +1521,7 @@ export default function MarketPage() {
               </div>
             ) : (
               <>
-                <div className="overflow-x-auto">
+                <div className="table-x-scroll">
                   <table className="w-full min-w-[880px] text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/40 text-left text-xs font-semibold text-muted-foreground">
@@ -1700,7 +1700,7 @@ export default function MarketPage() {
               </div>
             ) : (
               <>
-                <div className="overflow-x-auto">
+                <div className="table-x-scroll">
                   <table className="w-full min-w-[920px] text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/40 text-left text-xs font-semibold text-muted-foreground">
@@ -1880,7 +1880,7 @@ export default function MarketPage() {
                     </p>
                   ) : (
                     <>
-                      <div className="overflow-x-auto">
+                      <div className="table-x-scroll">
                         <table className="w-full min-w-[640px] text-sm">
                           <thead>
                             <tr className="border-b border-border bg-muted/35 text-left text-xs font-semibold text-muted-foreground">
@@ -2044,7 +2044,7 @@ export default function MarketPage() {
                     </p>
                   ) : (
                     <>
-                      <div className="overflow-x-auto">
+                      <div className="table-x-scroll">
                         <table className="w-full min-w-[640px] text-sm">
                           <thead>
                             <tr className="border-b border-border bg-muted/35 text-left text-xs font-semibold text-muted-foreground">

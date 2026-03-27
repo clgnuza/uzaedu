@@ -1,5 +1,6 @@
-import { IsBoolean, IsInt, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
+import { SchoolType } from '../../types/enums';
 
 export class CreateAcademicCalendarItemDto {
   @IsUUID()
@@ -31,4 +32,11 @@ export class CreateAcademicCalendarItemDto {
   @Type(() => Boolean)
   @IsBoolean()
   is_active?: boolean;
+
+  /** Boş veya yok = tüm kurumlar */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(16)
+  @IsEnum(SchoolType, { each: true })
+  school_types?: SchoolType[] | null;
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch, getApiUrl } from '@/lib/api';
+import { COOKIE_SESSION_TOKEN } from '@/lib/auth-session';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -62,8 +63,11 @@ export default function OptikFormlarPage() {
     setDownloadingId(item.id);
     try {
       const qs = prependBlank > 0 ? `?prepend_blank=${prependBlank}` : '';
+      const headers: Record<string, string> = {};
+      if (token !== COOKIE_SESSION_TOKEN) headers.Authorization = `Bearer ${token}`;
       const res = await fetch(getApiUrl(`/optik/form-templates/${item.id}/pdf${qs}`), {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        ...(Object.keys(headers).length > 0 && { headers }),
       });
       if (!res.ok) throw new Error('İndirme başarısız');
       const blob = await res.blob();
@@ -116,7 +120,7 @@ export default function OptikFormlarPage() {
               ))}
             </select>
           </div>
-          <div className="overflow-x-auto">
+          <div className="table-x-scroll">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">

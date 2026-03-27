@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Alert } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
+import { DutySubTabs } from '@/components/duty/duty-sub-tabs';
 
 type DutyArea = { id: string; name: string; sort_order: number; slots_required?: number; slotsRequired?: number };
 
@@ -282,27 +283,14 @@ export default function DutyYerlerPage() {
         <h1 className="text-2xl font-semibold text-foreground">Nöbet Ayarları</h1>
       </div>
 
-      {/* Bölüm sekmeleri */}
-      <div className="flex items-center gap-1 border-b border-border">
-        {SECTIONS.map((s) => {
-          const Icon = s.icon;
-          return (
-            <button
-              key={s.id}
-              onClick={() => setActiveSection(s.id)}
-              className={cn(
-                'flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px',
-                activeSection === s.id
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <Icon className="size-4" />
-              {s.label}
-            </button>
-          );
-        })}
-      </div>
+      <DutySubTabs
+        aria-label="Nöbet ayarları bölümleri"
+        items={SECTIONS.map((s) => ({ id: s.id, label: s.label, icon: s.icon }))}
+        value={activeSection}
+        onValueChange={(id) =>
+          setActiveSection(id as (typeof SECTIONS)[number]['id'])
+        }
+      />
 
       {/* BÖLÜM 1: Okul Ayarları – Belge bilgileri + Zaman çizelgesi */}
       {activeSection === 'school' && isAdmin && (
@@ -566,7 +554,7 @@ export default function DutyYerlerPage() {
                     <p className="text-xs text-muted-foreground mt-1">Yukarıdaki formdan ekleyebilirsiniz.</p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto rounded-lg border">
+                  <div className="table-x-scroll rounded-lg border">
                     <table className="w-full text-sm">
                       <thead className="bg-muted/60">
                         <tr>

@@ -13,6 +13,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Alert } from '@/components/ui/alert';
 import { DutyPageHeader } from '@/components/duty/duty-page-header';
 import { cn } from '@/lib/utils';
+import { isDutySchoolAdmin } from '@/lib/duty-role';
 import {
   Select,
   SelectContent,
@@ -154,7 +155,7 @@ function toYMD(d: Date) {
 
 export default function DutyLogsPage() {
   const { token, me } = useAuth();
-  const isAdmin = me?.role === 'school_admin';
+  const isAdmin = isDutySchoolAdmin(me);
   const [logs, setLogs] = useState<DutyLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -271,7 +272,7 @@ export default function DutyLogsPage() {
       ) : (
         <Card>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
+            <div className="table-x-scroll">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/40">

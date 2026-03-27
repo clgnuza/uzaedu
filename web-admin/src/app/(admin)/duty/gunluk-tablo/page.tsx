@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -19,7 +19,11 @@ import {
   Bell,
   MapPin,
   Users,
+  User,
+  Flag,
+  GraduationCap,
 } from 'lucide-react';
+import { buildColorMap, getTeacherColor } from '@/components/duty/teacher-color';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
@@ -320,62 +324,67 @@ export default function GunlukTabloPage() {
   const d = new Date(selectedDate + 'T12:00:00');
   const dateLabelShort = d.toLocaleDateString('tr-TR', { weekday: 'short', day: 'numeric', month: 'short' });
 
+  const teacherColorMap = useMemo(() => {
+    const ids = [...new Set((data?.slots ?? []).map((s) => s.user_id))];
+    return buildColorMap(ids);
+  }, [data?.slots]);
+
   return (
     <div className="space-y-6">
       {/* Öğretmen: modern header + özet */}
       {!isAdmin && (
         <div className="print:hidden space-y-4">
-          <div className="flex items-center justify-between gap-4">
-            <Link href="/duty" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <Link href="/duty" className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
               <ArrowLeft className="size-4" />
               Nöbet
             </Link>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 rounded-xl border border-border/80 bg-card/80 px-3 py-2 shadow-sm">
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => shiftDay(-1)} aria-label="Önceki gün">
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              <div className="flex min-w-0 flex-1 items-center justify-center gap-1 rounded-2xl border border-violet-200/60 bg-gradient-to-r from-violet-50/90 to-sky-50/70 px-2 py-1.5 shadow-sm dark:border-violet-800/40 dark:from-violet-950/40 dark:to-slate-900/60 sm:flex-initial sm:justify-start">
+                <Button variant="ghost" size="sm" className="h-9 w-9 shrink-0 p-0" onClick={() => shiftDay(-1)} aria-label="Önceki gün">
                   <ChevronLeft className="size-4" />
                 </Button>
                 <input
                   type="date"
                   value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
-                  className="w-36 border-0 bg-transparent text-sm font-medium focus:outline-none focus:ring-0"
+                  className="min-w-0 flex-1 border-0 bg-transparent text-center text-sm font-semibold text-foreground focus:outline-none focus:ring-0 sm:w-36 sm:flex-initial"
                 />
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => shiftDay(1)} aria-label="Sonraki gün">
+                <Button variant="ghost" size="sm" className="h-9 w-9 shrink-0 p-0" onClick={() => shiftDay(1)} aria-label="Sonraki gün">
                   <ChevronRight className="size-4" />
                 </Button>
               </div>
               {selectedDate !== todayYMD && (
-                <Button variant="outline" size="sm" onClick={() => setSelectedDate(todayYMD)} className="text-primary border-primary/40">
+                <Button variant="outline" size="sm" onClick={() => setSelectedDate(todayYMD)} className="rounded-xl border-teal-300/60 bg-teal-50/80 text-teal-800 hover:bg-teal-100/80 dark:border-teal-700/50 dark:bg-teal-950/40 dark:text-teal-200">
                   Bugün
                 </Button>
               )}
-              <Button variant="outline" size="sm" onClick={handleWhatsAppShare} disabled={!data?.slots?.length}>
+              <Button variant="outline" size="sm" onClick={handleWhatsAppShare} disabled={!data?.slots?.length} className="rounded-xl border-emerald-200/70 bg-emerald-50/50 text-emerald-800 dark:border-emerald-800/50 dark:bg-emerald-950/30 dark:text-emerald-200" title="WhatsApp">
                 <Share2 className="size-4" />
               </Button>
-              <Button variant="outline" size="sm" onClick={handlePrint}>
+              <Button variant="outline" size="sm" onClick={handlePrint} className="rounded-xl border-slate-200/80 bg-slate-50/80 dark:border-slate-700 dark:bg-slate-900/50" title="Yazdır">
                 <Printer className="size-4" />
               </Button>
             </div>
           </div>
           {!loading && data?.slots?.length && (
             mySlots.length > 0 ? (
-              <div className="rounded-xl border-2 border-emerald-400/60 bg-emerald-50/80 dark:bg-emerald-950/30 dark:border-emerald-500/50 p-4 shadow-sm">
-                <div className="flex items-start gap-4">
-                  <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-white">
+              <div className="rounded-2xl border border-emerald-200/70 bg-gradient-to-br from-emerald-50/95 via-teal-50/50 to-cyan-50/40 p-4 shadow-md shadow-emerald-500/10 ring-1 ring-emerald-200/40 dark:border-emerald-800/50 dark:from-emerald-950/50 dark:via-teal-950/30 dark:to-slate-900/40 dark:ring-emerald-800/30">
+                <div className="flex items-start gap-3 sm:gap-4">
+                  <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/25">
                     <CalendarCheck className="size-6" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-emerald-900 dark:text-emerald-100">
+                    <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">
                       {dateLabelShort} — {mySlots.length} nöbetiniz var
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {mySlots.map((s, i) => (
                         <span
                           key={i}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-white/90 dark:bg-emerald-950/50 px-3 py-1.5 text-sm font-medium text-emerald-800 dark:text-emerald-200 border border-emerald-200/80"
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-white/80 bg-white/90 px-3 py-1.5 text-sm font-medium text-emerald-900 shadow-sm dark:border-emerald-800/60 dark:bg-emerald-950/60 dark:text-emerald-100"
                         >
-                          <MapPin className="size-3.5 shrink-0" />
+                          <MapPin className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
                           {s.area_name || s.slot_name || 'Nöbet'}
                         </span>
                       ))}
@@ -384,10 +393,12 @@ export default function GunlukTabloPage() {
                 </div>
               </div>
             ) : (
-              <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
-                <p className="text-sm text-muted-foreground flex items-center gap-2">
-                  <Users className="size-4" />
-                  {dateLabelShort} — Bu gün nöbetiniz yok. Nöbetçi listesi aşağıda.
+              <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-r from-slate-50/90 to-violet-50/40 p-4 dark:border-slate-700 dark:from-slate-900/60 dark:to-violet-950/30">
+                <p className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600 dark:bg-violet-900/50 dark:text-violet-300">
+                    <Users className="size-4" />
+                  </span>
+                  <span>{dateLabelShort} — Bu gün nöbetiniz yok. Liste aşağıda.</span>
                 </p>
               </div>
             )
@@ -468,41 +479,81 @@ export default function GunlukTabloPage() {
       ) : (
         <Card className={cn(
           'overflow-hidden',
-          isAdmin ? 'rounded-xl' : 'rounded-xl border-border/80 shadow-md',
+          isAdmin ? 'rounded-xl' : 'rounded-2xl border border-violet-200/40 bg-gradient-to-b from-white via-violet-50/20 to-sky-50/30 shadow-lg shadow-violet-500/10 ring-1 ring-violet-100/80 dark:border-violet-900/40 dark:from-slate-950 dark:via-violet-950/15 dark:to-slate-900/80 dark:ring-violet-900/30',
         )}>
-          <CardHeader className={cn('pb-2', !isAdmin && 'py-4')}>
-            <CardTitle className={cn(
-              'text-base',
-              !isAdmin && 'text-sm font-medium text-muted-foreground',
-            )}>
-              {formatDateLabel(selectedDate)}
-              {educationMode === 'double' && (
-                <span className="ml-2 text-sm font-normal text-muted-foreground">({shift === 'morning' ? 'Sabah' : 'Öğle'} vardiyası)</span>
+          <CardHeader className={cn(
+            'pb-2',
+            !isAdmin && 'border-b border-violet-200/40 bg-gradient-to-r from-violet-100/60 via-violet-50/40 to-sky-50/50 py-4 dark:border-violet-800/40 dark:from-violet-950/50 dark:via-slate-900/60 dark:to-sky-950/25',
+          )}>
+            <div className={cn('flex items-start gap-3', !isAdmin && 'sm:items-center')}>
+              {!isAdmin && (
+                <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/90 text-violet-600 shadow-sm ring-1 ring-violet-200/60 dark:bg-violet-900/40 dark:text-violet-300 dark:ring-violet-700/50">
+                  <Table2 className="size-5" />
+                </span>
               )}
-            </CardTitle>
-            {isAdmin && (
-              <CardDescription>
-                Nöbetçi | Konum | 1.–N. Ders. Boş = nöbet; dolu = sınıf-ders.
-              </CardDescription>
-            )}
+              <div className="min-w-0 flex-1">
+                <CardTitle className={cn(
+                  'text-base',
+                  !isAdmin && 'text-base font-semibold text-violet-950 dark:text-violet-100',
+                )}>
+                  {formatDateLabel(selectedDate)}
+                  {educationMode === 'double' && (
+                    <span className="ml-2 text-sm font-medium text-violet-600/90 dark:text-violet-300/90">
+                      ({shift === 'morning' ? 'Sabah' : 'Öğle'} vardiyası)
+                    </span>
+                  )}
+                </CardTitle>
+                {isAdmin && (
+                  <CardDescription>
+                    Nöbetçi | Konum | 1.–N. Ders. Boş = nöbet; dolu = sınıf-ders.
+                  </CardDescription>
+                )}
+                {!isAdmin && (
+                  <p className="mt-1 text-xs text-violet-700/80 dark:text-violet-300/70">
+                    Ders sütunlarını görmek için tabloyu yatay kaydırın.
+                  </p>
+                )}
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
+            <div className={cn('table-x-scroll', !isAdmin && '-mx-1 px-1 sm:mx-0 sm:px-0')}>
               <table className="w-full border-collapse duty-print-table">
                 <thead>
-                  <tr className="border-b bg-muted/60">
-                    <th className="border-b border-r px-4 py-3 text-left text-sm font-semibold uppercase tracking-wide">
-                      Nöbetçi
+                  <tr className={cn(
+                    'border-b',
+                    isAdmin ? 'bg-muted/60' : 'border-violet-200/50 bg-gradient-to-r from-slate-100/95 to-violet-100/60 dark:border-violet-800/50 dark:from-slate-800/95 dark:to-violet-950/60',
+                  )}>
+                    <th className={cn(
+                      'border-b border-r px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide sm:px-4 sm:text-sm',
+                      !isAdmin && 'sticky left-0 z-20 min-w-[7.5rem] max-w-[38vw] border-violet-200/50 bg-slate-100/98 shadow-[4px_0_12px_-4px_rgba(15,23,42,0.12)] dark:border-violet-800/50 dark:bg-slate-800/98 sm:min-w-[10rem] sm:max-w-none',
+                    )}>
+                      <span className="inline-flex items-center gap-1.5 text-violet-800 dark:text-violet-200">
+                        <User className="size-3.5 shrink-0 opacity-80" />
+                        Nöbetçi
+                      </span>
                     </th>
-                    <th className="border-b border-r px-4 py-3 text-left text-sm font-semibold uppercase tracking-wide">
-                      Konum
+                    <th className={cn(
+                      'border-b border-r px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide sm:px-4 sm:text-sm',
+                      !isAdmin && 'min-w-[5.5rem] border-violet-200/50 bg-slate-100/95 dark:border-violet-800/50 dark:bg-slate-800/95 sm:min-w-[7rem]',
+                    )}>
+                      <span className="inline-flex items-center gap-1.5 text-violet-800 dark:text-violet-200">
+                        <MapPin className="size-3.5 shrink-0 opacity-80" />
+                        Konum
+                      </span>
                     </th>
                     {Array.from({ length: maxLessons }, (_, i) => (
                       <th
                         key={i}
-                        className="border-b border-r px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide"
+                        className={cn(
+                          'border-b border-r px-1.5 py-2 text-center text-[10px] font-semibold uppercase tracking-wide sm:px-2.5 sm:text-xs',
+                          !isAdmin && 'min-w-[3rem] border-violet-200/50 bg-violet-50/80 text-violet-900 dark:border-violet-800/40 dark:bg-violet-950/40 dark:text-violet-200',
+                        )}
                       >
-                        {i + 1}. Ders
+                        <span className="inline-flex flex-col items-center gap-0.5 sm:flex-row sm:gap-1">
+                          <GraduationCap className="mx-auto size-3 text-violet-400 opacity-90 sm:mx-0" aria-hidden />
+                          <span className="tabular-nums">{i + 1}. Ders</span>
+                        </span>
                       </th>
                     ))}
                     {isAdmin && (
@@ -513,41 +564,53 @@ export default function GunlukTabloPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.slots.map((slot) => (
+                  {data.slots.map((slot) => {
+                    const tc = getTeacherColor(slot.user_id, teacherColorMap);
+                    return (
                     <tr key={slot.id} className={cn(
-                      'border-b last:border-b-0 hover:bg-muted/30 transition-colors',
-                      slot.is_mine && !isAdmin && 'bg-emerald-50/60 dark:bg-emerald-950/20 border-l-4 border-l-emerald-500',
+                      'border-b border-border/25 transition-colors last:border-b-0',
+                      isAdmin && 'hover:bg-muted/30',
+                      !isAdmin && slot.is_mine && 'bg-gradient-to-r from-emerald-50/95 via-teal-50/35 to-white/80 dark:from-emerald-950/45 dark:via-teal-950/25 dark:to-slate-950/40',
+                      !isAdmin && !slot.is_mine && cn(tc.bg, tc.darkBg),
                     )}>
-                      <td className="border-r px-4 py-2.5 text-sm">
-                        <div className="flex flex-wrap items-center gap-1.5">
+                      <td className={cn(
+                        'border-r px-3 py-2.5 text-sm sm:px-4',
+                        !isAdmin && 'sticky left-0 z-10 border-violet-200/40 shadow-[4px_0_12px_-4px_rgba(15,23,42,0.1)] dark:border-violet-800/40',
+                        !isAdmin && slot.is_mine && 'bg-emerald-50/98 dark:bg-emerald-950/90',
+                        !isAdmin && !slot.is_mine && cn(tc.bg, tc.darkBg),
+                      )}>
+                        <div className={cn('relative flex flex-wrap items-center gap-1.5', !isAdmin && 'pl-0.5')}>
+                          {!isAdmin && (
+                            <span className={cn('absolute -left-0.5 top-1/2 block h-7 w-1 -translate-y-1/2 rounded-full sm:h-8', slot.is_mine ? 'bg-emerald-500' : tc.dot)} aria-hidden />
+                          )}
                           {slot.is_mine && !isAdmin && (
-                            <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                            <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-500/25 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800 ring-1 ring-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200">
                               Sizin
                             </span>
                           )}
-                          <span className={slot.absent_marked_at ? 'line-through text-muted-foreground' : ''}>
+                          <span className={slot.absent_marked_at ? 'line-through text-muted-foreground' : 'font-medium text-foreground'}>
                             {slot.user?.display_name || slot.user?.email || '—'}
                           </span>
                           {slot.user?.duty_exempt && (
-                            <span className="inline-flex items-center gap-0.5 rounded-full bg-orange-100 px-1.5 py-0.5 text-xs font-medium text-orange-700 dark:bg-orange-900/40 dark:text-orange-300">
-                              ✓ Muaf
+                            <span className="inline-flex items-center gap-0.5 rounded-full bg-orange-100/90 px-1.5 py-0.5 text-[10px] font-medium text-orange-800 dark:bg-orange-900/50 dark:text-orange-200">
+                              Muaf
                             </span>
                           )}
                           {slot.reassigned_from_user_id && (
-                            <span className="inline-flex rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                              Değiştirildi
+                            <span className="inline-flex rounded-md bg-sky-100/90 px-1.5 py-0.5 text-[10px] text-sky-800 dark:bg-sky-900/45 dark:text-sky-200">
+                              Değişti
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="border-r px-4 py-2.5 text-sm text-muted-foreground">
+                      <td className="border-r px-3 py-2.5 text-xs text-muted-foreground sm:text-sm">
                         <div className="flex flex-wrap items-center gap-1">
                           {slot.lesson_num && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
-                              {slot.lesson_num}. ders nöbeti
+                            <span className="inline-flex items-center rounded-lg bg-indigo-100/90 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-200">
+                              {slot.lesson_num}. ders
                             </span>
                           )}
-                          <span>{slot.area_name || (slot.lesson_num ? '' : '—')}</span>
+                          <span className="text-foreground/90">{slot.area_name || (slot.lesson_num ? '' : '—')}</span>
                         </div>
                       </td>
                       {Array.from({ length: maxLessons }, (_, i) => {
@@ -563,19 +626,22 @@ export default function GunlukTabloPage() {
                           <td
                             key={i}
                             className={cn(
-                              'border-r px-2 py-1.5 text-center text-xs',
-                              isDutyLesson && !cell && 'bg-indigo-50 dark:bg-indigo-950/30 font-semibold text-indigo-700 dark:text-indigo-300',
-                              assignedName && 'bg-emerald-50/70 dark:bg-emerald-950/20',
+                              'border-r px-1.5 py-1.5 text-center text-[10px] sm:px-2 sm:py-2 sm:text-xs',
+                              isDutyLesson && !cell && 'bg-gradient-to-br from-indigo-100/90 to-violet-100/60 font-semibold text-indigo-900 dark:from-indigo-950/50 dark:to-violet-950/40 dark:text-indigo-200',
+                              assignedName && 'bg-gradient-to-br from-emerald-50/95 to-teal-50/60 dark:from-emerald-950/35 dark:to-teal-950/25',
                             )}
                             title={assignedName ? `Yerine: ${assignedName}` : isDutyLesson ? 'Bu saatte nöbet görevi' : (text || 'Nöbet')}
                           >
                             {isDutyLesson && !cell ? (
-                              '⚑ Nöbet'
+                              <span className="inline-flex items-center justify-center gap-0.5 rounded-md bg-white/80 px-1 py-0.5 text-indigo-800 shadow-sm ring-1 ring-indigo-200/60 dark:bg-indigo-950/40 dark:text-indigo-100 dark:ring-indigo-700/50">
+                                <Flag className="size-3 shrink-0 text-indigo-500" aria-hidden />
+                                <span className="hidden sm:inline">Nöbet</span>
+                              </span>
                             ) : assignedName ? (
                               <span className="block">
-                                {text && <span className="block text-[10px] text-muted-foreground truncate">{text}</span>}
+                                {text && <span className="mb-0.5 block truncate text-[9px] text-muted-foreground sm:text-[10px]">{text}</span>}
                                 <span className="flex items-center justify-center gap-0.5">
-                                  <span className="font-medium text-emerald-700 dark:text-emerald-300">→ {assignedName}</span>
+                                  <span className="font-medium text-emerald-800 dark:text-emerald-200">→ {assignedName}</span>
                                   {isAdmin && cov && (
                                     <Button
                                       variant="ghost"
@@ -591,7 +657,7 @@ export default function GunlukTabloPage() {
                                 </span>
                               </span>
                             ) : (
-                              text || '—'
+                              text || <span className="text-muted-foreground/50">—</span>
                             )}
                           </td>
                         );
@@ -651,7 +717,8 @@ export default function GunlukTabloPage() {
                         </td>
                       )}
                     </tr>
-                  ))}
+                  );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { School } from '../schools/entities/school.entity';
 import { User } from '../users/entities/user.entity';
 import { Announcement } from '../announcements/entities/announcement.entity';
-import { SchoolStatus, UserRole } from '../types/enums';
+import { SchoolStatus, SchoolType, UserRole } from '../types/enums';
 
 /** `enabled_modules` ile uyumlu anahtarlar (web-admin `SCHOOL_MODULE_KEYS`) */
 const SCHOOL_MODULE_KEYS = [
@@ -42,6 +42,10 @@ export interface SuperadminStatsPayload {
     display_name: string | null;
     created_at: string;
   }[];
+  /** Okul türü → adet */
+  schools_by_type: Record<string, number>;
+  /** Tür alanı hâlâ yalnızca genel "lise" olan kayıtlar (inceleme için) */
+  schools_lise_unspecified_count: number;
 }
 
 export interface StatsResult {
@@ -140,6 +144,17 @@ export class StatsService {
       .getRawMany<{ status: string; cnt: string }>();
     const schools_by_status: Record<string, number> = {};
     for (const r of schoolStatusRows) schools_by_status[r.status] = parseInt(r.cnt, 10) || 0;
+
+    const schoolTypeRows = await this.schoolRepo
+      .createQueryBuilder('s')
+      .select('s.type', 'type')
+      .addSelect('COUNT(*)', 'cnt')
+      .groupBy('s.type')
+      .getRawMany<{ type: string; cnt: string }>();
+    const schools_by_type: Record<string, number> = {};
+    for (const r of schoolTypeRows) schools_by_type[r.type] = parseInt(r.cnt, 10) || 0;
+
+    const schools_lise_unspecified_count = await this.schoolRepo.count({ where: { type: SchoolType.lise } });
 
     const quotaNearRatio = (() => {
       const raw = process.env.STATS_TEACHER_QUOTA_NEAR_RATIO;
@@ -275,6 +290,8 @@ export class StatsService {
         display_name: r.display_name ?? null,
         created_at: toIso(r.created_at),
       })),
+      schools_by_type,
+      schools_lise_unspecified_count,
     };
   }
 

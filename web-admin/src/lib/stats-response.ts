@@ -18,6 +18,8 @@ export interface SuperadminStatsPayload {
     display_name: string | null;
     created_at: string;
   }[];
+  schools_by_type?: Record<string, number>;
+  schools_lise_unspecified_count?: number;
 }
 
 export interface StatsResponse {

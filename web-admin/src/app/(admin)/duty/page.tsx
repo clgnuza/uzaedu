@@ -958,7 +958,7 @@ export default function DutyPage() {
           ) : (
             <Card className="overflow-hidden rounded-xl">
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
+                <div className="table-x-scroll">
                   <table className="w-full border-collapse duty-print-table">
                     <thead>
                       <tr className="border-b bg-muted/60">

@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch, getApiUrl } from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { COOKIE_SESSION_TOKEN } from '@/lib/auth-session';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -254,11 +255,16 @@ function FormSablonlariTab({ token }: { token: string }) {
     setDownloadingId(item.id);
     try {
       const qs = prependBlank > 0 ? `?prepend_blank=${prependBlank}` : '';
-      const headers = { Authorization: `Bearer ${token}` };
+      const headers: Record<string, string> = {};
+      if (token !== COOKIE_SESSION_TOKEN) headers.Authorization = `Bearer ${token}`;
+      const fetchOpts =
+        Object.keys(headers).length > 0
+          ? { credentials: 'include' as const, headers }
+          : { credentials: 'include' as const };
       // Superadmin: once admin endpoint, 404 ise ana endpoint (superadmin her ikisine erisir)
-      let res = await fetch(getApiUrl(`/optik/admin/form-templates/${item.id}/pdf${qs}`), { headers });
+      let res = await fetch(getApiUrl(`/optik/admin/form-templates/${item.id}/pdf${qs}`), fetchOpts);
       if (res.status === 404) {
-        res = await fetch(getApiUrl(`/optik/form-templates/${item.id}/pdf${qs}`), { headers });
+        res = await fetch(getApiUrl(`/optik/form-templates/${item.id}/pdf${qs}`), fetchOpts);
       }
       if (!res.ok) throw new Error('İndirme başarısız');
       const blob = await res.blob();
@@ -363,7 +369,7 @@ function FormSablonlariTab({ token }: { token: string }) {
             ))}
           </select>
         </div>
-        <div className="overflow-x-auto">
+        <div className="table-x-scroll">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
@@ -655,7 +661,7 @@ function RubrikSablonlariTab({ token }: { token: string }) {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="overflow-x-auto">
+        <div className="table-x-scroll">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
@@ -926,15 +932,15 @@ function KullanimTab({ token }: { token: string }) {
 
         {stats && (
           <>
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
               <div className="rounded-lg border border-border bg-muted/30 p-4">
                 <p className="text-xs font-medium text-muted-foreground">Form okutma (OCR)</p>
-                <p className="mt-1 text-2xl font-semibold">{stats.totalOcr}</p>
+                <p className="mt-1 text-xl font-semibold sm:text-2xl">{stats.totalOcr}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">Optik form tarama sayısı</p>
               </div>
               <div className="rounded-lg border border-border bg-muted/30 p-4">
                 <p className="text-xs font-medium text-muted-foreground">Açık uçlu puanlama</p>
-                <p className="mt-1 text-2xl font-semibold">{stats.totalGrade}</p>
+                <p className="mt-1 text-xl font-semibold sm:text-2xl">{stats.totalGrade}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">GPT ile puanlanan cevap sayısı</p>
               </div>
             </div>
@@ -952,7 +958,7 @@ function KullanimTab({ token }: { token: string }) {
             {hasData && stats.byDay.length > 0 && (
               <div>
                 <h4 className="mb-2 text-sm font-medium">Günlük dağılım</h4>
-                <div className="overflow-x-auto rounded-md border border-border">
+                <div className="table-x-scroll rounded-md border border-border">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/50">
@@ -978,7 +984,7 @@ function KullanimTab({ token }: { token: string }) {
             {hasData && stats.bySchool.length > 0 && (
               <div>
                 <h4 className="mb-2 text-sm font-medium">Okul bazlı</h4>
-                <div className="overflow-x-auto rounded-md border border-border">
+                <div className="table-x-scroll rounded-md border border-border">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/50">
@@ -1328,23 +1334,77 @@ export default function OptikOkumaAyarlarPage() {
   if (me?.role !== 'superadmin') return null;
   if (loading || !config) {
     return (
-      <div className="flex min-h-[200px] items-center justify-center">
-        <LoadingSpinner className="size-8" />
+      <div className="mx-auto flex min-h-[min(420px,70vh)] max-w-6xl flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-border/60 bg-linear-to-b from-muted/30 to-muted/10 px-6 py-16">
+        <LoadingSpinner className="size-10 text-primary" />
+        <p className="text-sm font-medium text-foreground">Optik ayarları yükleniyor…</p>
+        <p className="max-w-sm text-center text-xs text-muted-foreground">Yapılandırma sunucudan alınıyor</p>
       </div>
     );
   }
 
+  const moduleOn = form.module_enabled ?? config.module_enabled;
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-foreground">Optik / Açık Uçlu Ayarları</h1>
-        <p className="text-sm text-muted-foreground">
-          AI ile el yazısı açık uçlu soru okuma ve puanlama modülü altyapı ayarları
-        </p>
+    <div className="mx-auto max-w-6xl space-y-8 pb-10">
+      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-linear-to-br from-primary/[0.07] via-background to-muted/50 p-6 shadow-md ring-1 ring-border/40 sm:p-8">
+        <div
+          className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-primary/8 blur-3xl"
+          aria-hidden
+        />
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex gap-4">
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary shadow-inner">
+              <ScanLine className="size-6" aria-hidden />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                  Optik / Açık Uçlu Ayarları
+                </h1>
+                <span className="rounded-full border border-border bg-background/80 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                  Süper yönetici
+                </span>
+              </div>
+              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                OCR, GPT puanlama, limitler ve şablonlar tek yerden. Okullar için modülü burada açıp kapatabilir,
+                yetkili okulları{' '}
+                <Link href="/schools" className="font-medium text-primary underline-offset-4 hover:underline">
+                  Okullar
+                </Link>{' '}
+                üzerinden seçebilirsiniz.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 sm:justify-end">
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium ${
+                moduleOn
+                  ? 'border border-green-500/30 bg-green-500/10 text-green-800 dark:text-green-300'
+                  : 'border border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200'
+              }`}
+            >
+              {moduleOn ? <CheckCircle2 className="size-3.5" /> : <AlertCircle className="size-3.5" />}
+              {moduleOn ? 'Modül platformda açık' : 'Modül platformda kapalı'}
+            </span>
+            {config.openai_api_key ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/80 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                <Zap className="size-3.5 text-primary" />
+                OpenAI anahtarı tanımlı
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-border px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                OpenAI anahtarı eksik
+              </span>
+            )}
+          </div>
+        </div>
       </div>
 
-      <div className="border-b border-border">
-        <nav className="-mb-px flex gap-1" aria-label="Optik ayar sekmeleri">
+      <div className="mobile-tab-scroll -mx-1 px-1">
+        <nav
+          className="flex min-w-max gap-0.5 rounded-2xl border border-border/50 bg-muted/40 p-1.5 shadow-inner ring-1 ring-border/30 backdrop-blur-md dark:bg-muted/20"
+          aria-label="Optik ayar sekmeleri"
+        >
           {TABS.map((t) => {
             const Icon = t.icon;
             const isActive = tab === t.id;
@@ -1353,13 +1413,13 @@ export default function OptikOkumaAyarlarPage() {
                 key={t.id}
                 href={`/optik-okuma-ayarlar?tab=${t.id}`}
                 aria-current={isActive ? 'page' : undefined}
-                className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
+                className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all duration-200 ${
                   isActive
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:border-muted-foreground/30 hover:text-foreground'
+                    ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-primary/20'
+                    : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'
                 }`}
               >
-                <Icon className="size-4" />
+                <Icon className={`size-4 shrink-0 ${isActive ? 'opacity-100' : 'opacity-80'}`} aria-hidden />
                 {t.label}
               </Link>
             );
@@ -1369,36 +1429,38 @@ export default function OptikOkumaAyarlarPage() {
 
       {tab === 'genel' && (
         <>
-          <Card>
+          <Card className="rounded-2xl border-border/50 shadow-sm">
             <CardHeader>
-              <CardTitle className="text-base">Genel Ayarlar</CardTitle>
-              <p className="text-sm text-muted-foreground">
+              <CardTitle className="text-lg">Genel Ayarlar</CardTitle>
+              <CardDescription className="text-sm">
                 Modül açık/kapalı ve varsayılan dil ayarları
-              </p>
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <label className="flex cursor-pointer items-center gap-3">
+            <CardContent className="space-y-6">
+              <div className="rounded-xl border border-border/50 bg-muted/30 p-4">
+                <label className="flex cursor-pointer items-start gap-4">
                   <input
                     type="checkbox"
                     checked={form.module_enabled ?? config.module_enabled}
                     onChange={(e) => setForm((f) => ({ ...f, module_enabled: e.target.checked }))}
-                    className="size-4 rounded border-border"
+                    className="mt-1 size-4 rounded-md border-border accent-primary"
                   />
-                  <span className="text-sm font-medium">Modülü aç</span>
+                  <span>
+                    <span className="block text-sm font-semibold text-foreground">Modülü aç</span>
+                    <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                      Açıksa yetkili okullara Optik Okuma modülü sunulur; kapalıysa modül hiçbir okulda görünmez.
+                    </span>
+                  </span>
                 </label>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Açıksa yetkili okullara Optik Okuma modülü sunulur; kapalıysa modül hiçbir okulda görünmez.
-                </p>
               </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium">Varsayılan dil</label>
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-foreground">Varsayılan dil</label>
                 <select
                   value={form.default_language ?? config.default_language}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, default_language: e.target.value as 'tr' | 'en' }))
                   }
-                  className="w-full max-w-xs rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  className="h-11 w-full max-w-xs rounded-xl border border-input bg-background px-4 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                 >
                   <option value="tr">Türkçe</option>
                   <option value="en">İngilizce</option>
@@ -1406,17 +1468,20 @@ export default function OptikOkumaAyarlarPage() {
               </div>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="flex flex-row items-start gap-3 pt-6">
-              <School className="mt-0.5 size-5 shrink-0 text-primary" />
+          <Card variant="sky" soft className="rounded-2xl border-border/40 shadow-sm">
+            <CardContent className="flex flex-row items-start gap-4 pt-6">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <School className="size-5" aria-hidden />
+              </div>
               <div>
-                <p className="font-medium text-foreground">Okul bazlı yetkilendirme</p>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <p className="font-semibold text-foreground">Okul bazlı yetkilendirme</p>
+                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
                   Hangi okulların optik modülünü kullanabileceğini{' '}
-                  <Link href="/schools" className="text-primary hover:underline">
+                  <Link href="/schools" className="font-medium text-primary underline-offset-4 hover:underline">
                     Okullar
                   </Link>
-                  {' '}sayfasından yönetin. Okul satırına tıklayıp &quot;Modül yetkilendirme&quot; kartında &quot;Optik Okuma&quot; kutusunu işaretleyin veya kaldırın.
+                  {' '}sayfasından yönetin. Okul satırına tıklayıp <strong className="font-medium text-foreground">Modül yetkilendirme</strong> kartında{' '}
+                  <strong className="font-medium text-foreground">Optik Okuma</strong> kutusunu işaretleyin veya kaldırın.
                 </p>
               </div>
             </CardContent>
@@ -2178,23 +2243,26 @@ export default function OptikOkumaAyarlarPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">e-Okul Entegrasyonu Yol Haritası</CardTitle>
-            <p className="text-sm text-muted-foreground">
+            <CardDescription className="text-sm">
               Mevcut özellikler ve planlanan e-Okul entegrasyonu adımları
-            </p>
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="rounded-lg border border-green-200 bg-green-50/50 dark:border-green-900/50 dark:bg-green-950/30 p-4 text-sm">
-              <p className="font-medium text-foreground">Mevcut durum (Faz 1 hazır)</p>
-              <ul className="mt-2 list-inside list-disc space-y-1 text-muted-foreground">
-                <li>Optik form okutma ve puanlama sonuçları Excel/PDF olarak dışa aktarılabilir</li>
-                <li>Öğretmen uygulamasından veya web üzerinden sonuçları indirip e-Okul&apos;a manuel aktarım yapılabilir</li>
+            <div className="rounded-xl border border-green-200/80 bg-green-50/60 p-5 text-sm shadow-sm dark:border-green-900/40 dark:bg-green-950/25">
+              <p className="flex items-center gap-2 font-semibold text-foreground">
+                <CheckCircle2 className="size-4 text-green-600 dark:text-green-400" />
+                Mevcut durum (Faz 1 hazır)
+              </p>
+              <ul className="mt-3 list-outside space-y-2 pl-1 text-muted-foreground">
+                <li className="ml-4 list-disc">Optik form okutma ve puanlama sonuçları Excel/PDF olarak dışa aktarılabilir</li>
+                <li className="ml-4 list-disc">Öğretmen uygulamasından veya web üzerinden sonuçları indirip e-Okul&apos;a manuel aktarım yapılabilir</li>
               </ul>
             </div>
-            <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
-              <p className="font-medium text-foreground">Planlanan fazlar</p>
-              <ul className="mt-2 list-inside list-disc space-y-2">
-                <li><strong>Faz 2:</strong> e-Okul formatında toplu not giriş dosyası üretimi</li>
-                <li><strong>Faz 3:</strong> MEB SSO / e-Okul API (resmi entegrasyon) — MEB onayı gerekir</li>
+            <div className="rounded-xl border border-border bg-muted/40 p-5 text-sm shadow-sm">
+              <p className="font-semibold text-foreground">Planlanan fazlar</p>
+              <ul className="mt-3 list-outside space-y-2.5 pl-1 text-muted-foreground">
+                <li className="ml-4 list-disc"><span className="font-medium text-foreground">Faz 2:</span> e-Okul formatında toplu not giriş dosyası üretimi</li>
+                <li className="ml-4 list-disc"><span className="font-medium text-foreground">Faz 3:</span> MEB SSO / e-Okul API (resmi entegrasyon) — MEB onayı gerekir</li>
               </ul>
             </div>
           </CardContent>
@@ -2206,20 +2274,32 @@ export default function OptikOkumaAyarlarPage() {
       )}
 
       {(tab === 'genel' || tab === 'ai' || tab === 'ocr' || tab === 'puanlama' || tab === 'limitler') && (
-        <div className="flex items-center gap-2">
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? 'Kaydediliyor…' : 'Kaydet'}
-          </Button>
-          <Link href="/settings">
-            <Button variant="outline">Ayarlara dön</Button>
-          </Link>
+        <div className="sticky bottom-4 z-10 flex flex-col gap-3 rounded-2xl border border-border/60 bg-background/85 p-4 shadow-lg backdrop-blur-md supports-backdrop-filter:bg-background/75 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            Yapılandırma değişiklikleri kaydedilene kadar sunucuda güncellenmez.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={handleSave} disabled={saving} className="min-w-28 rounded-xl shadow-sm">
+              {saving ? 'Kaydediliyor…' : 'Kaydet'}
+            </Button>
+            <Link href="/settings">
+              <Button variant="outline" className="rounded-xl">
+                Ayarlara dön
+              </Button>
+            </Link>
+          </div>
         </div>
       )}
       {(tab === 'form-sablonlari' || tab === 'rubrik-sablonlari' || tab === 'kullanim' || tab === 'e-okul' || tab === 'maliyet') && (
-        <div className="flex items-center gap-2">
-          <Link href="/settings">
-            <Button variant="outline">Ayarlara dön</Button>
-          </Link>
+        <div className="rounded-2xl border border-dashed border-border/60 bg-muted/15 p-4 backdrop-blur-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">Bu sekmede değişiklikler otomatik kaydedilir veya ilgili ekranda uygulanır.</p>
+            <Link href="/settings">
+              <Button variant="outline" className="rounded-xl">
+                Ayarlara dön
+              </Button>
+            </Link>
+          </div>
         </div>
       )}
     </div>

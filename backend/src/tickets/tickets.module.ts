@@ -8,9 +8,11 @@ import { TicketModule as TicketModuleEntity } from './entities/ticket-module.ent
 import { User } from '../users/entities/user.entity';
 import { School } from '../schools/entities/school.entity';
 import { TicketsService } from './tickets.service';
+import { TicketAutoCloseScheduler } from './ticket-auto-close.scheduler';
 import { TicketsController } from './tickets.controller';
 import { TicketModulesController } from './ticket-modules.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { AppConfigModule } from '../app-config/app-config.module';
 
 @Module({
   imports: [
@@ -24,9 +26,10 @@ import { NotificationsModule } from '../notifications/notifications.module';
       School,
     ]),
     NotificationsModule,
+    AppConfigModule,
   ],
   controllers: [TicketsController, TicketModulesController],
-  providers: [TicketsService],
+  providers: [TicketsService, TicketAutoCloseScheduler],
   exports: [TicketsService],
 })
 export class TicketsModule {}

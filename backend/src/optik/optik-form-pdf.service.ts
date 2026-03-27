@@ -158,6 +158,24 @@ interface TestBlock {
   choiceCount: number;
 }
 
+/** DB’den gelen test_blocks bazen eksik sayı içerir; NaN / boş dizi PDF’de 500 üretir */
+function normalizeTestBlocks(blocks: TestBlock[]): TestBlock[] {
+  const raw = Array.isArray(blocks) ? blocks : [];
+  const out: TestBlock[] = [];
+  for (const b of raw) {
+    const qc = Number((b as TestBlock).questionCount);
+    const cc = Number((b as TestBlock).choiceCount);
+    const q = Math.max(1, Math.min(200, Number.isFinite(qc) ? qc : 20));
+    const c = Math.max(1, Math.min(6, Number.isFinite(cc) ? cc : 5));
+    const label = String((b as TestBlock).label ?? 'CEVAPLAR').trim() || 'CEVAPLAR';
+    out.push({ label, questionCount: q, choiceCount: c });
+  }
+  if (out.length === 0) {
+    return [{ label: 'CEVAPLAR', questionCount: 20, choiceCount: 5 }];
+  }
+  return out;
+}
+
 /** LGS MEB dagilimi: Sozel 50 + Sayisal 40 = 90 soru */
 const LGS_BLOCKS: TestBlock[] = [
   { label: 'Türkçe', questionCount: 20, choiceCount: 4 },
@@ -265,16 +283,17 @@ export class OptikFormPdfService {
 
     let blocks: TestBlock[];
     if (Array.isArray(t.roiConfig?.test_blocks) && t.roiConfig.test_blocks.length > 0) {
-      blocks = t.roiConfig.test_blocks;
+      blocks = normalizeTestBlocks(t.roiConfig.test_blocks as TestBlock[]);
     } else if (t.gradeLevel === 'LGS' || /^lgs/i.test(String(t.slug ?? ''))) {
-      blocks = LGS_BLOCKS;
+      blocks = [...LGS_BLOCKS];
     } else if ((t.gradeLevel === 'YKS' || /^yks/i.test(String(t.slug ?? ''))) && /tyt|120/i.test(String(t.slug ?? ''))) {
-      blocks = YKS_TYT_BLOCKS;
+      blocks = [...YKS_TYT_BLOCKS];
     } else {
-      const q = Math.max(1, t.questionCount ?? 20);
-      const c = Math.max(1, Math.min(t.choiceCount ?? 5, 6));
+      const q = Math.max(1, Number(t.questionCount) || 20);
+      const c = Math.max(1, Math.min(Number(t.choiceCount) || 5, 6));
       blocks = [{ label: 'CEVAPLAR', questionCount: q, choiceCount: c }];
     }
+    blocks = normalizeTestBlocks(blocks);
     const questionCount = blocks.reduce((s, b) => s + b.questionCount, 0);
 
     let page = doc.addPage([pageWidth, pageHeight]);
@@ -521,7 +540,7 @@ export class OptikFormPdfService {
 
     // Soru yoğunluğuna göre sütun sayısı
     let numCols = questionCount >= 100 ? 5 : questionCount >= 70 ? 4 : questionCount >= 35 ? 3 : 2;
-    const maxChoiceCount = Math.max(...blocks.map((b) => Math.max(1, Math.min(6, b.choiceCount))));
+    const maxChoiceCount = Math.max(1, ...blocks.map((b) => Math.max(1, Math.min(6, b.choiceCount))));
     const minBubbleSize = 3.6;
     const minChoiceSpacing = 2 * minBubbleSize + 2.2;
     while (numCols > 2) {

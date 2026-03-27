@@ -25,6 +25,7 @@ export interface SyncResult {
 }
 
 const FETCH_TIMEOUT_MS = 12000;
+const TITLE_MAX_LEN = 512;
 const ARTICLE_IMAGE_TIMEOUT_MS = 8000;
 const RSS_ITEM_LIMIT = 100;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -47,6 +48,27 @@ function normalizeMebUrl(url: string): string {
     return 'https://' + u.slice(7);
   }
   return u;
+}
+
+/** İl MEB: RSS "duzcemeb.gov.tr" → DNS "duzce.meb.gov.tr" */
+function normalizeMebIlImageHost(url: string): string {
+  if (!url || typeof url !== 'string' || !url.trim().startsWith('http')) return url;
+  try {
+    const u = new URL(url.trim());
+    const m = /^([a-z0-9-]+)meb\.gov\.tr$/i.exec(u.hostname);
+    if (m) {
+      u.hostname = `${m[1]}.meb.gov.tr`;
+      return u.toString();
+    }
+  } catch {
+    /* ignore */
+  }
+  return url;
+}
+
+function normalizeMebImageAsset(url: string | null | undefined): string | null {
+  if (!url?.trim()) return null;
+  return normalizeMebUrl(normalizeMebIlImageHost(url.trim()));
 }
 
 /** MEB logosu, mansetresim vb. genel placeholder görselleri haber görseli sayma */
@@ -103,6 +125,7 @@ function extractImageFromEntry(entry: Record<string, unknown>, baseUrl?: string 
     if (!url) return null;
     let u = url.trim();
     if (baseUrl && u.startsWith('/')) u = baseUrl.replace(/\/$/, '') + u;
+    u = normalizeMebImageAsset(u) ?? u;
     return isPlaceholderImage(u) ? null : u;
   };
   // 1) Description/summary/content içindeki ilk img
@@ -156,7 +179,8 @@ async function fetchImageFromArticle(articleUrl: string): Promise<string | null>
 
     const toResult = (raw: string | undefined): string | null => {
       if (!raw?.trim()) return null;
-      const url = normalizeMebUrl(raw.trim());
+      const url = normalizeMebImageAsset(raw.trim());
+      if (!url) return null;
       return isPlaceholderImage(url) ? null : url;
     };
 
@@ -322,16 +346,22 @@ export class ContentSyncService {
 
   private async syncFromRss(source: ContentSource): Promise<{ created: number; skipped: number }> {
     const url = source.rssUrl!.trim();
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': USER_AGENT,
-        Accept: 'text/xml, application/xml, application/rss+xml, */*',
-      },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: {
+          'User-Agent': USER_AGENT,
+          Accept: 'text/xml, application/xml, application/rss+xml, */*',
+        },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(`RSS indirilemedi (${url}): ${msg}`);
+    }
 
     if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
+      throw new Error(`RSS HTTP ${res.status} (${url})`);
     }
 
     const buffer = await res.arrayBuffer();
@@ -342,8 +372,15 @@ export class ContentSyncService {
     ).decode(buffer);
 
     const parser = new XMLParser({ ignoreAttributes: false, trimValues: true });
-    const obj = parser.parse(xml);
-    const channel = obj?.rss?.channel ?? obj?.feed;
+    let obj: unknown;
+    try {
+      obj = parser.parse(xml);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(`RSS XML ayrıştırılamadı (${url}): ${msg}`);
+    }
+    const root = obj as { rss?: { channel?: unknown }; feed?: unknown } | undefined;
+    const channel = (root?.rss?.channel ?? root?.feed) as Record<string, unknown> | undefined;
     const rawItems = channel?.item ?? channel?.entry ?? [];
     const itemLimit = source.rssItemLimit ?? RSS_ITEM_LIMIT;
     const entries = (Array.isArray(rawItems) ? rawItems : [rawItems]).slice(0, itemLimit);
@@ -353,7 +390,7 @@ export class ContentSyncService {
 
     for (const entry of entries.filter(Boolean)) {
       const e = entry as Record<string, unknown>;
-      const title = extractText(e.title ?? e['title']);
+      const title = extractText(e.title ?? e['title']).slice(0, TITLE_MAX_LEN);
       if (!title) continue;
 
       let link = extractLink(e, source.baseUrl);
@@ -471,7 +508,7 @@ export class ContentSyncService {
         if (href.startsWith('/')) href = `${base}${href}`;
         else if (!href.startsWith('http')) href = `${base}/${href}`;
 
-        const title = (titleSelector ? $el.find(titleSelector).first() : $link).text().trim();
+        const title = (titleSelector ? $el.find(titleSelector).first() : $link).text().trim().slice(0, TITLE_MAX_LEN);
         if (!title) return;
 
         let dateStr = '';

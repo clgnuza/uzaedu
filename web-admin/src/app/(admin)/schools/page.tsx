@@ -16,6 +16,18 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SchoolBulkImport } from '@/components/school-bulk-import';
 import { TURKEY_CITIES, getDistrictsForCity } from '@/lib/turkey-addresses';
+import {
+  SCHOOL_TYPE_LABELS,
+  SCHOOL_TYPE_ORDER,
+  SCHOOL_TYPE_GROUP_ORDER,
+  SCHOOL_TYPE_GROUP_LABELS,
+  SCHOOL_SEGMENT_LABELS,
+  SCHOOL_STATUS_LABELS,
+  buildSchoolsListQuery,
+  formatSchoolTypeLabel,
+  MEB_INSTITUTION_CODE_HINT,
+  INSTITUTIONAL_EMAIL_HINT,
+} from '@/lib/school-labels';
 
 type SchoolItem = {
   id: string;
@@ -32,23 +44,6 @@ type SchoolItem = {
 
 type ListResponse = { total: number; page: number; limit: number; items: SchoolItem[] };
 
-const SCHOOL_TYPE_LABELS: Record<string, string> = { ilkokul: 'İlkokul', ortaokul: 'Ortaokul', lise: 'Lise', bilsem: 'BİLSEM' };
-const SCHOOL_SEGMENT_LABELS: Record<string, string> = { ozel: 'Özel', devlet: 'Devlet' };
-const SCHOOL_STATUS_LABELS: Record<string, string> = { deneme: 'Deneme', aktif: 'Aktif', askida: 'Askıda' };
-
-function buildSchoolsQuery(params: { page: number; limit: number; city?: string; district?: string; status?: string; type?: string; segment?: string; search?: string }) {
-  const u = new URLSearchParams();
-  u.set('page', String(params.page));
-  u.set('limit', String(params.limit));
-  if (params.city?.trim()) u.set('city', params.city.trim());
-  if (params.district?.trim()) u.set('district', params.district.trim());
-  if (params.status) u.set('status', params.status);
-  if (params.type) u.set('type', params.type);
-  if (params.segment) u.set('segment', params.segment);
-  if (params.search?.trim()) u.set('search', params.search.trim());
-  return u.toString();
-}
-
 export default function SchoolsPage() {
   const searchParams = useSearchParams();
   const { token, me } = useAuth();
@@ -58,7 +53,15 @@ export default function SchoolsPage() {
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [filters, setFilters] = useState({ city: '', district: '', status: '', type: '', segment: '', search: '' });
+  const [filters, setFilters] = useState({
+    city: '',
+    district: '',
+    status: '',
+    type: '',
+    type_group: '',
+    segment: '',
+    search: '',
+  });
   const limit = 25;
   const isSuperadmin = me?.role === 'superadmin';
 
@@ -67,7 +70,7 @@ export default function SchoolsPage() {
     setLoading(true);
     setError(null);
     try {
-      const q = buildSchoolsQuery({ ...filters, page, limit });
+      const q = buildSchoolsListQuery({ ...filters, page, limit });
       const res = await apiFetch<ListResponse>(`/schools?${q}`, { token });
       setData(res);
     } catch (e) {
@@ -75,7 +78,17 @@ export default function SchoolsPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, page, filters.city, filters.district, filters.status, filters.type, filters.segment, filters.search]);
+  }, [
+    token,
+    page,
+    filters.city,
+    filters.district,
+    filters.status,
+    filters.type,
+    filters.type_group,
+    filters.segment,
+    filters.search,
+  ]);
 
   useEffect(() => {
     fetchList();
@@ -137,7 +150,7 @@ export default function SchoolsPage() {
                     Yeni okul
                   </button>
                 </DialogTrigger>
-                <DialogContent title="Yeni okul" className="max-w-lg">
+                <DialogContent title="Yeni okul" className="max-w-2xl max-h-[90vh] overflow-y-auto">
                   <CreateSchoolForm
                     token={token}
                     onSuccess={() => {
@@ -202,16 +215,34 @@ export default function SchoolsPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-muted-foreground">Tür</label>
+                <label className="block text-xs font-medium text-muted-foreground">Kademe</label>
                 <select
-                  value={filters.type}
-                  onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value }))}
-                  className="mt-0.5 w-28 rounded border border-input bg-background px-2.5 py-1.5 text-sm"
+                  value={filters.type_group}
+                  onChange={(e) =>
+                    setFilters((f) => ({ ...f, type_group: e.target.value, type: e.target.value ? '' : f.type }))
+                  }
+                  className="mt-0.5 min-w-[11rem] max-w-[18rem] rounded border border-input bg-background px-2.5 py-1.5 text-sm"
                 >
                   <option value="">Tümü</option>
-                  <option value="ilkokul">İlkokul</option>
-                  <option value="ortaokul">Ortaokul</option>
-                  <option value="lise">Lise</option>
+                  {SCHOOL_TYPE_GROUP_ORDER.map((k) => (
+                    <option key={k} value={k}>{SCHOOL_TYPE_GROUP_LABELS[k] ?? k}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground">Tür (tek)</label>
+                <select
+                  value={filters.type}
+                  onChange={(e) =>
+                    setFilters((f) => ({ ...f, type: e.target.value, type_group: e.target.value ? '' : f.type_group }))
+                  }
+                  disabled={!!filters.type_group}
+                  className="mt-0.5 min-w-[10rem] max-w-[14rem] rounded border border-input bg-background px-2.5 py-1.5 text-sm disabled:opacity-50"
+                >
+                  <option value="">Tümü</option>
+                  {SCHOOL_TYPE_ORDER.map((k) => (
+                    <option key={k} value={k}>{SCHOOL_TYPE_LABELS[k] ?? k}</option>
+                  ))}
                 </select>
               </div>
               <div>
@@ -253,7 +284,7 @@ export default function SchoolsPage() {
           <LoadingSpinner label="Okul listesi yükleniyor…" />
         ) : data && data.items.length > 0 ? (
           <>
-            <div className="overflow-x-auto">
+            <div className="table-x-scroll">
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/40">
@@ -287,7 +318,7 @@ export default function SchoolsPage() {
                     <tr key={s.id} className="transition-colors hover:bg-muted/40">
                       <td className="px-5 py-4 font-medium text-foreground">{s.name}</td>
                       <td className="px-5 py-4 text-muted-foreground">
-                        {SCHOOL_TYPE_LABELS[s.type] ?? s.type}
+                        {formatSchoolTypeLabel(s.type)}
                       </td>
                       <td className="px-5 py-4 text-muted-foreground">
                         {SCHOOL_SEGMENT_LABELS[s.segment] ?? s.segment}
@@ -379,17 +410,33 @@ function CreateSchoolForm({
   const [segment, setSegment] = useState<string>('devlet');
   const [city, setCity] = useState('');
   const [district, setDistrict] = useState('');
+  const [institutionCode, setInstitutionCode] = useState('');
+  const [address, setAddress] = useState('');
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [phone, setPhone] = useState('');
+  const [fax, setFax] = useState('');
+  const [institutionalEmail, setInstitutionalEmail] = useState('');
+  const [principalName, setPrincipalName] = useState('');
   const [about, setAbout] = useState('');
   const [status, setStatus] = useState<string>('aktif');
   const [teacherLimit, setTeacherLimit] = useState(100);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [institutionCodeWarn, setInstitutionCodeWarn] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token || !name.trim()) return;
+    const ic = institutionCode.trim();
+    if (ic && !/^\d{4,16}$/.test(ic)) {
+      setError('MEB kurum kodu 4–16 hane ve yalnızca rakam olmalıdır.');
+      return;
+    }
+    const ie = institutionalEmail.trim();
+    if (ie && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ie)) {
+      setError('Kurumsal e-posta geçerli bir adres gibi görünmüyor.');
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -402,8 +449,13 @@ function CreateSchoolForm({
           segment,
           city: city.trim() || undefined,
           district: district.trim() || undefined,
+          institution_code: institutionCode.trim() || undefined,
+          address: address.trim() || undefined,
           website_url: websiteUrl.trim() || undefined,
           phone: phone.trim() || undefined,
+          fax: fax.trim() || undefined,
+          institutional_email: institutionalEmail.trim() || undefined,
+          principal_name: principalName.trim() || undefined,
           about_description: about.trim() || undefined,
           status,
           teacher_limit: teacherLimit,
@@ -435,68 +487,6 @@ function CreateSchoolForm({
           maxLength={255}
           required
           className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-        />
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-foreground">Tür</label>
-          <select
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-            className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-          >
-            <option value="ilkokul">İlkokul</option>
-            <option value="ortaokul">Ortaokul</option>
-            <option value="lise">Lise</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-foreground">Segment</label>
-          <select
-            value={segment}
-            onChange={(e) => setSegment(e.target.value)}
-            className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-          >
-            <option value="devlet">Devlet</option>
-            <option value="ozel">Özel</option>
-          </select>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label htmlFor="school-website" className="block text-sm font-medium text-foreground">Web sitesi</label>
-          <input
-            id="school-website"
-            type="url"
-            value={websiteUrl}
-            onChange={(e) => setWebsiteUrl(e.target.value)}
-            placeholder="https://..."
-            maxLength={512}
-            className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-          />
-        </div>
-        <div>
-          <label htmlFor="school-phone" className="block text-sm font-medium text-foreground">Telefon</label>
-          <input
-            id="school-phone"
-            type="text"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="0312 555 00 00"
-            maxLength={32}
-            className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-          />
-        </div>
-      </div>
-      <div>
-        <label htmlFor="school-about" className="block text-sm font-medium text-foreground">Detaylı Bilgi (Okulumuz Hakkında)</label>
-        <textarea
-          id="school-about"
-          value={about}
-          onChange={(e) => setAbout(e.target.value)}
-          placeholder="Okul hakkında kısa tanıtım..."
-          rows={3}
-          className="mt-1.5 w-full resize-none rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
         />
       </div>
       <div className="grid grid-cols-2 gap-4">
@@ -540,6 +530,150 @@ function CreateSchoolForm({
             />
           )}
         </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-foreground">Tür</label>
+          <select
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+            className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+          >
+            {SCHOOL_TYPE_ORDER.map((k) => (
+              <option key={k} value={k}>{SCHOOL_TYPE_LABELS[k] ?? k}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground">Segment</label>
+          <select
+            value={segment}
+            onChange={(e) => setSegment(e.target.value)}
+            className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+          >
+            <option value="devlet">Devlet</option>
+            <option value="ozel">Özel</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label htmlFor="school-meb-code" className="block text-sm font-medium text-foreground">MEB kurum kodu</label>
+        <input
+          id="school-meb-code"
+          type="text"
+          inputMode="numeric"
+          value={institutionCode}
+          onChange={(e) => {
+            setInstitutionCode(e.target.value);
+            setInstitutionCodeWarn(null);
+          }}
+          onBlur={() => {
+            const t = institutionCode.trim();
+            if (t && !/^\d{4,16}$/.test(t)) {
+              setInstitutionCodeWarn('Kurum kodu yalnızca rakam ve 4–16 hane olmalıdır.');
+            } else setInstitutionCodeWarn(null);
+          }}
+          placeholder="Devlet okulları için e-Okul / MEB kodu"
+          maxLength={16}
+          className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+        />
+        <p className="mt-1 text-[11px] text-muted-foreground">{MEB_INSTITUTION_CODE_HINT}</p>
+        {institutionCodeWarn && <p className="mt-0.5 text-[11px] text-amber-700 dark:text-amber-400">{institutionCodeWarn}</p>}
+      </div>
+      <div>
+        <label htmlFor="school-address" className="block text-sm font-medium text-foreground">Açık adres</label>
+        <input
+          id="school-address"
+          type="text"
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          placeholder="Mahalle, cadde, bina no"
+          maxLength={512}
+          className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label htmlFor="school-phone" className="block text-sm font-medium text-foreground">Telefon</label>
+          <input
+            id="school-phone"
+            type="text"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="0312 555 00 00"
+            maxLength={32}
+            className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+          />
+        </div>
+        <div>
+          <label htmlFor="school-fax" className="block text-sm font-medium text-foreground">Faks</label>
+          <input
+            id="school-fax"
+            type="text"
+            value={fax}
+            onChange={(e) => setFax(e.target.value)}
+            placeholder="0312 555 00 01"
+            maxLength={32}
+            className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label htmlFor="school-inst-email" className="block text-sm font-medium text-foreground">Kurumsal e-posta</label>
+          <input
+            id="school-inst-email"
+            type="email"
+            list="school-inst-email-suggestions"
+            value={institutionalEmail}
+            onChange={(e) => setInstitutionalEmail(e.target.value)}
+            placeholder="kurum@okul.il.meb.k12.tr"
+            maxLength={256}
+            autoComplete="email"
+            className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+          />
+          <datalist id="school-inst-email-suggestions">
+            <option value="bilgi@okul.meb.k12.tr" />
+            <option value="mudur@okuladi.ankara.meb.k12.tr" />
+            <option value="kurumsal@okul.meb.k12.tr" />
+          </datalist>
+          <p className="mt-1 text-[11px] text-muted-foreground">{INSTITUTIONAL_EMAIL_HINT}</p>
+        </div>
+        <div>
+          <label htmlFor="school-website" className="block text-sm font-medium text-foreground">Web sitesi</label>
+          <input
+            id="school-website"
+            type="url"
+            value={websiteUrl}
+            onChange={(e) => setWebsiteUrl(e.target.value)}
+            placeholder="https://..."
+            maxLength={512}
+            className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+          />
+        </div>
+      </div>
+      <div>
+        <label htmlFor="school-principal" className="block text-sm font-medium text-foreground">Okul müdürü</label>
+        <input
+          id="school-principal"
+          type="text"
+          value={principalName}
+          onChange={(e) => setPrincipalName(e.target.value)}
+          placeholder="Ad soyad"
+          maxLength={128}
+          className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+        />
+      </div>
+      <div>
+        <label htmlFor="school-about" className="block text-sm font-medium text-foreground">Detaylı Bilgi (Okulumuz Hakkında)</label>
+        <textarea
+          id="school-about"
+          value={about}
+          onChange={(e) => setAbout(e.target.value)}
+          placeholder="Okul hakkında kısa tanıtım..."
+          rows={3}
+          className="mt-1.5 w-full resize-none rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+        />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>

@@ -805,7 +805,7 @@ export default function DutyTebligPage() {
           </p>
 
           {haftalikData && haftalikData.areas.length > 0 && (
-            <div className="overflow-x-auto rounded-lg border">
+            <div className="table-x-scroll rounded-lg border">
               <p className="px-3 py-2 text-xs text-muted-foreground border-b">
                 Tablo hücrelerine tıklayarak düzenleyebilirsiniz. {haftalikData.education_mode === 'double' && '(İkili eğitim: SABAH / ÖĞLEN)'}
               </p>
@@ -975,7 +975,7 @@ export default function DutyTebligPage() {
             )}
           </div>
           {aylikData && aylikData.areas.length > 0 && (
-            <div className="overflow-x-auto rounded-xl border border-border/60 shadow-sm">
+            <div className="table-x-scroll rounded-xl border border-border/60 shadow-sm">
               <p className="px-4 py-2.5 text-xs text-muted-foreground border-b bg-muted/40">
                 {aylikData.education_mode === 'double' ? 'SABAH / ÖĞLEN sütunları' : 'Tekli eğitim'}
               </p>
@@ -1154,7 +1154,7 @@ export default function DutyTebligPage() {
                 <h4 className="text-sm font-medium mb-2">
                   {bosDersData.date_label ?? bosDersData.day_name} — Gelmeyen Öğretmenler
                 </h4>
-                <div className="overflow-x-auto rounded-lg border">
+                <div className="table-x-scroll rounded-lg border">
                   <table className="w-full min-w-[400px] text-sm">
                     <thead>
                       <tr className="bg-muted">
@@ -1194,7 +1194,7 @@ export default function DutyTebligPage() {
 
               <div>
                 <h4 className="text-sm font-medium mb-2">Yerine Görevlendirilen Öğretmenler</h4>
-                <div className="overflow-x-auto rounded-lg border">
+                <div className="table-x-scroll rounded-lg border">
                   <table className="w-full min-w-[400px] text-sm">
                     <thead>
                       <tr className="bg-muted">

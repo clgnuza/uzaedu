@@ -35,6 +35,10 @@ export class AdminMessage {
   @Column({ type: 'uuid' })
   created_by: string;
 
+  /** Aynı istekte birden fazla okula gönderilen mesajlar ortak batch ile gruplanır. Eski kayıtlar null (batch = id). */
+  @Column({ name: 'send_batch_id', type: 'uuid', nullable: true })
+  send_batch_id: string | null;
+
   @CreateDateColumn()
   created_at: Date;
 

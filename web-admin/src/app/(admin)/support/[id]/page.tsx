@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { Headphones, ArrowLeft, Send, ArrowUpCircle, StickyNote } from 'lucide-react';
+import { Headphones, ArrowLeft, Send, ArrowUpCircle, StickyNote, Sparkles, Clock3, Layers3 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { Toolbar, ToolbarHeading, ToolbarPageTitle } from '@/components/layout/toolbar';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, isSupportModuleDisabledError } from '@/lib/api';
+import { useSupportModuleAvailability } from '@/hooks/use-support-module-availability';
 import { Card, CardContent } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
@@ -31,6 +32,7 @@ type TicketMessage = {
 };
 
 type AssignableUser = { id: string; display_name: string | null; email: string; role: string };
+type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'WAITING_REQUESTER' | 'RESOLVED' | 'CLOSED';
 
 type Ticket = {
   id: string;
@@ -47,11 +49,32 @@ type Ticket = {
   assignedTo?: { display_name: string | null } | null;
 };
 
+function isStaffForTicket(ticket: Ticket | null, role?: string) {
+  if (!ticket) return false;
+  if (role === 'superadmin') return true;
+  return ticket.target_type === 'SCHOOL_SUPPORT' && (role === 'school_admin' || role === 'moderator');
+}
+
+function getAllowedStatusOptions(status: TicketStatus, canManageTicket: boolean) {
+  if (!canManageTicket) return [status];
+
+  const transitions: Record<TicketStatus, TicketStatus[]> = {
+    OPEN: ['IN_PROGRESS', 'WAITING_REQUESTER', 'RESOLVED', 'CLOSED'],
+    IN_PROGRESS: ['WAITING_REQUESTER', 'RESOLVED', 'CLOSED'],
+    WAITING_REQUESTER: ['IN_PROGRESS', 'RESOLVED', 'CLOSED'],
+    RESOLVED: ['IN_PROGRESS', 'CLOSED'],
+    CLOSED: ['IN_PROGRESS'],
+  };
+
+  return [status, ...transitions[status].filter((item) => item !== status)];
+}
+
 export default function TicketDetailPage() {
   const router = useRouter();
   const params = useParams();
   const id = params?.id as string;
   const { token, me } = useAuth();
+  const { supportEnabled, loading: supportLoading } = useSupportModuleAvailability();
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [messages, setMessages] = useState<{ items: TicketMessage[] } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,15 +90,17 @@ export default function TicketDetailPage() {
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
   const [updatingAssignment, setUpdatingAssignment] = useState(false);
+  const [supportBlocked, setSupportBlocked] = useState(false);
 
-  const isStaff = me?.role === 'school_admin' || me?.role === 'moderator' || me?.role === 'superadmin';
+  const canManageTicket = isStaffForTicket(ticket, me?.role);
   const canEscalate =
     me?.role === 'school_admin' &&
     ticket?.target_type === 'SCHOOL_SUPPORT' &&
     !ticket?.escalated_to_ticket_id;
+  const statusOptions = ticket ? getAllowedStatusOptions(ticket.status as TicketStatus, canManageTicket) : [];
 
   const load = () => {
-    if (!token || !id) return;
+    if (!token || !id || supportEnabled !== true || supportBlocked) return;
     setLoading(true);
     Promise.all([
       apiFetch<Ticket>(`/tickets/${id}`, { token }),
@@ -86,6 +111,13 @@ export default function TicketDetailPage() {
         setMessages(m);
       })
       .catch((e) => {
+        if (isSupportModuleDisabledError(e)) {
+          setSupportBlocked(true);
+          setError(null);
+          setTicket(null);
+          setMessages(null);
+          return;
+        }
         setError(e instanceof Error ? e.message : 'Yüklenemedi');
         setTicket(null);
         setMessages(null);
@@ -94,18 +126,22 @@ export default function TicketDetailPage() {
   };
 
   useEffect(() => {
+    if (supportEnabled === false || supportBlocked) {
+      setLoading(false);
+      return;
+    }
     load();
-  }, [token, id]);
+  }, [token, id, supportEnabled, supportBlocked]);
 
   useEffect(() => {
-    if (isStaff && token && ticket) {
+    if (canManageTicket && token && ticket && supportEnabled === true && !supportBlocked) {
       const schoolId = (ticket as { school_id?: string }).school_id;
       const q = schoolId ? `?school_id=${encodeURIComponent(schoolId)}` : '';
       apiFetch<AssignableUser[]>(`/tickets/assignable-users${q}`, { token })
         .then(setAssignableUsers)
         .catch(() => setAssignableUsers([]));
     }
-  }, [isStaff, token, ticket?.id, ticket?.school_id]);
+  }, [canManageTicket, token, ticket?.id, ticket?.school_id, supportEnabled, supportBlocked]);
 
   const handleReply = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -194,9 +230,10 @@ export default function TicketDetailPage() {
   };
 
   if (!id) return null;
+  if (supportLoading) return <LoadingSpinner label="Yükleniyor…" className="py-8" />;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <Toolbar>
         <ToolbarHeading>
           <div className="flex flex-wrap items-center gap-3">
@@ -224,19 +261,55 @@ export default function TicketDetailPage() {
       </Toolbar>
 
       {error && <Alert variant="error" message={error} className="py-2" />}
+      {(supportEnabled === false || supportBlocked) && me?.role !== 'superadmin' && (
+        <Alert variant="warning" message="Destek modülü şu anda kapalı. Talep detayı ve yazışmalar geçici olarak görüntülenemiyor." className="py-2" />
+      )}
       {!loading && ticket && (ticket.status === 'CLOSED' || ticket.status === 'RESOLVED') && (
         <Alert variant="info" showIcon className="py-2">
           Bu talep {ticket.status === 'CLOSED' ? 'kapatıldı' : 'çözüldü'}. Yeni yanıt ekleyemezsiniz.
         </Alert>
       )}
       {loading && <LoadingSpinner label="Yükleniyor…" className="py-6" />}
-      {!loading && ticket && messages && (
-        <div className="grid gap-4 lg:grid-cols-3">
-          <div className="lg:col-span-2 space-y-3">
-            <div className="space-y-2">
+      {!loading && supportEnabled !== false && !supportBlocked && ticket && messages && (
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="space-y-4">
+            <div className="rounded-3xl border border-border/60 bg-linear-to-br from-primary/8 via-background to-background p-5 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-background/80 px-3 py-1 text-xs font-medium text-primary shadow-sm">
+                    <Sparkles className="size-3.5" />
+                    Talep akışı
+                  </div>
+                  <h2 className="mt-3 text-xl font-semibold tracking-tight">{ticket.subject}</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {ticket.ticket_number} • {ticket.module?.name ?? 'Modül yok'}
+                  </p>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-border/60 bg-background/80 px-4 py-3 shadow-sm">
+                    <p className="text-[11px] text-muted-foreground">Durum</p>
+                    <div className="mt-2">{ticket && <SupportStatusBadge status={ticket.status} size="sm" />}</div>
+                  </div>
+                  <div className="rounded-2xl border border-border/60 bg-background/80 px-4 py-3 shadow-sm">
+                    <p className="text-[11px] text-muted-foreground">Oncelik</p>
+                    <p className="mt-2 text-sm font-semibold">{({ LOW: 'Düşük', MEDIUM: 'Orta', HIGH: 'Yüksek', URGENT: 'Acil' } as Record<string, string>)[ticket.priority] ?? ticket.priority}</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/60 bg-background/80 px-4 py-3 shadow-sm">
+                    <p className="text-[11px] text-muted-foreground">Mesaj</p>
+                    <p className="mt-2 text-sm font-semibold">{messages.items.length}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-3 rounded-3xl border border-border/60 bg-card/95 p-4 shadow-sm">
               {messages.items.map((m) => (
-                <Card key={m.id} className={m.message_type === 'INTERNAL_NOTE' ? 'border-amber-300/40 bg-amber-50/40 dark:bg-amber-950/20' : ''}>
-                  <CardContent className="pt-3 pb-3">
+                <Card
+                  key={m.id}
+                  className={m.message_type === 'INTERNAL_NOTE'
+                    ? 'ml-auto max-w-[92%] rounded-3xl border-amber-300/40 bg-amber-50/70 shadow-sm dark:bg-amber-950/20'
+                    : 'max-w-[92%] rounded-3xl border-border/60 bg-background/90 shadow-sm'}
+                >
+                  <CardContent className="pt-4 pb-4">
                     <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
                       <span>{m.author?.display_name ?? 'Sistem'}</span>
                       <span>{new Date(m.created_at).toLocaleString('tr-TR')}</span>
@@ -252,10 +325,10 @@ export default function TicketDetailPage() {
               ))}
             </div>
             {ticket.status !== 'CLOSED' && ticket.status !== 'RESOLVED' && (
-              <form onSubmit={handleReply} className="space-y-2">
-                {isStaff && (
-                  <div className="flex gap-2">
-                    <label className="flex items-center gap-2 text-sm">
+              <form onSubmit={handleReply} className="space-y-3 rounded-3xl border border-border/60 bg-card/95 p-4 shadow-sm">
+                {canManageTicket && (
+                  <div className="flex flex-wrap gap-2">
+                    <label className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/20 px-3 py-2 text-sm">
                       <input
                         type="radio"
                         checked={messageType === 'PUBLIC'}
@@ -263,7 +336,7 @@ export default function TicketDetailPage() {
                       />
                       Yanıt (görünür)
                     </label>
-                    <label className="flex items-center gap-2 text-sm">
+                    <label className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/20 px-3 py-2 text-sm">
                       <input
                         type="radio"
                         checked={messageType === 'INTERNAL_NOTE'}
@@ -285,38 +358,47 @@ export default function TicketDetailPage() {
                     value={reply}
                     onChange={(e) => setReply(e.target.value)}
                     placeholder={messageType === 'INTERNAL_NOTE' ? 'Sadece destek ekibine görünür not…' : 'Yanıtınızı yazın…'}
-                    className="min-h-[80px] flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                    className="min-h-[110px] flex-1 rounded-2xl border border-input bg-background px-4 py-3 text-sm shadow-sm"
                     disabled={submitting}
                   />
-                  <Button type="submit" disabled={submitting || !reply.trim()} size="icon" className="shrink-0">
+                  <Button type="submit" disabled={submitting || !reply.trim()} size="icon" className="h-11 w-11 shrink-0 rounded-2xl">
                     <Send className="size-4" />
                   </Button>
                 </div>
               </form>
             )}
           </div>
-          <div>
-            <Card>
-              <CardContent className="pt-3 space-y-3">
+          <div className="space-y-4">
+            <Card className="rounded-3xl border-border/60 shadow-sm">
+              <CardContent className="pt-5 space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <Layers3 className="size-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Talep detaylari</p>
+                    <p className="text-xs text-muted-foreground">Durum ve yönetim alanları</p>
+                  </div>
+                </div>
                 <div>
                   <p className="text-xs font-medium text-muted-foreground">Durum</p>
-                  {isStaff ? (
+                  {canManageTicket ? (
                     <select
                       value={ticket.status}
                       onChange={(e) => handleStatusChange(e.target.value)}
                       disabled={updatingStatus}
                       className="select-input mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-[inherit]"
                     >
-                      <option value="OPEN">Açık</option>
-                      <option value="IN_PROGRESS">İşlemde</option>
-                      <option value="WAITING_REQUESTER">Bilgi bekleniyor</option>
-                      <option value="RESOLVED">Çözüldü</option>
-                      <option value="CLOSED">Kapatıldı</option>
+                      {statusOptions.map((status) => (
+                        <option key={status} value={status}>
+                          {status === 'OPEN' ? 'Açık' : status === 'IN_PROGRESS' ? 'İşlemde' : status === 'WAITING_REQUESTER' ? 'Bilgi bekleniyor' : status === 'RESOLVED' ? 'Çözüldü' : 'Kapatıldı'}
+                        </option>
+                      ))}
                     </select>
                   ) : (
                     <SupportStatusBadge status={ticket.status} size="sm" />
                   )}
-                  {!isStaff && ticket.status !== 'CLOSED' && ticket.status !== 'RESOLVED' && (
+                  {!canManageTicket && ticket.status !== 'CLOSED' && ticket.status !== 'RESOLVED' && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -338,7 +420,7 @@ export default function TicketDetailPage() {
                 </div>
                 <div>
                   <p className="text-xs font-medium text-muted-foreground">Atanan kişi</p>
-                  {isStaff && assignableUsers.length > 0 ? (
+                  {canManageTicket && assignableUsers.length > 0 ? (
                     <select
                       value={ticket.assigned_to_user_id ?? ''}
                       onChange={(e) => handleAssignmentChange(e.target.value)}
@@ -359,13 +441,29 @@ export default function TicketDetailPage() {
                 {canEscalate && (
                   <Button
                     variant="outline"
-                    className="w-full"
+                    className="w-full rounded-2xl"
                     onClick={() => setEscalateOpen(true)}
                   >
                     <ArrowUpCircle className="size-4 mr-2" />
                     Üst birime aktar (Platform)
                   </Button>
                 )}
+              </CardContent>
+            </Card>
+            <Card className="rounded-3xl border-border/60 shadow-sm">
+              <CardContent className="space-y-3 pt-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-10 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-600">
+                    <Clock3 className="size-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Akis notu</p>
+                    <p className="text-xs text-muted-foreground">Yanıtlar sırayla burada görünür</p>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+                  Talep çözüldüğünde durumu güncelleyin; gerekirse aynı ekrandan yeni yanıt veya iç not bırakın.
+                </div>
               </CardContent>
             </Card>
           </div>

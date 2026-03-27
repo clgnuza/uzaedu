@@ -12,6 +12,7 @@ import { ListUsersDto } from './dto/list-users.dto';
 import { TeacherSchoolMembershipActionDto } from './dto/teacher-school-membership-action.dto';
 import { User } from './entities/user.entity';
 import { effectiveTeacherSchoolMembership } from '../common/utils/teacher-school-membership';
+import { schoolJoinStage } from '../common/utils/school-join-stage';
 
 function toUserResponse(user: User) {
   const eff = effectiveTeacherSchoolMembership(user);
@@ -33,6 +34,8 @@ function toUserResponse(user: User) {
     teacher_school_membership: eff,
     school_verified: eff === TeacherSchoolMembershipStatus.approved && !!user.school_id,
     teacher_public_name_masked: user.teacherPublicNameMasked,
+    school_join_stage: schoolJoinStage(user),
+    school_join_email_verified_at: user.schoolJoinEmailVerifiedAt?.toISOString() ?? null,
     created_at: user.created_at,
     updated_at: user.updated_at,
   };
@@ -41,6 +44,16 @@ function toUserResponse(user: User) {
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
+
+  @Get('school-join-queue')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.school_admin)
+  async schoolJoinQueue(@CurrentUser() payload: CurrentUserPayload) {
+    return this.usersService.listSchoolJoinQueue({
+      role: payload.user.role as UserRole,
+      schoolId: payload.schoolId,
+    });
+  }
 
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -91,8 +104,7 @@ export class UsersController {
 
   @Patch(':id/teacher-school-membership')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.school_admin)
-  @RequireModule('users')
+  @Roles(UserRole.superadmin, UserRole.school_admin)
   async setTeacherSchoolMembership(
     @Param('id') id: string,
     @Body() dto: TeacherSchoolMembershipActionDto,

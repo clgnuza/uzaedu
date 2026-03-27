@@ -236,10 +236,35 @@ export function AcademicCalendarPaletteItem({
   return (
     <span
       ref={setNodeRef}
+      title={title}
       {...attributes}
       {...listeners}
-      className={cn(baseClass, 'cursor-grab active:cursor-grabbing', isDragging && 'opacity-50')}
+      className={cn(baseClass, 'cursor-grab active:cursor-grabbing', isDragging && 'opacity-40')}
     >
+      {variant === 'belirli' && <Star className="size-3.5 shrink-0" aria-hidden />}
+      {variant === 'ogretmen' && (() => {
+        const Icon = getOgretmenIcon(title);
+        return <Icon className="size-3.5 shrink-0" aria-hidden />;
+      })()}
+      {title}
+    </span>
+  );
+}
+
+/** Sürüklerken DragOverlay içinde kullanılır */
+export function PaletteDragOverlayContent({
+  title,
+  variant,
+}: {
+  title: string;
+  variant: 'belirli' | 'ogretmen';
+}) {
+  const baseClass =
+    variant === 'belirli'
+      ? 'inline-flex items-center gap-1.5 rounded-full border-2 border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900 shadow-lg dark:border-amber-600 dark:bg-amber-950/90 dark:text-amber-100'
+      : 'inline-flex items-center gap-2 rounded-full border-2 border-blue-300 bg-blue-50 px-3.5 py-1.5 text-sm font-medium text-blue-900 shadow-lg dark:border-blue-600 dark:bg-blue-950/90 dark:text-blue-100';
+  return (
+    <span className={cn(baseClass, 'cursor-grabbing')}>
       {variant === 'belirli' && <Star className="size-3.5 shrink-0" aria-hidden />}
       {variant === 'ogretmen' && (() => {
         const Icon = getOgretmenIcon(title);
@@ -267,21 +292,43 @@ export function AcademicCalendarDropZone({
     id: dropId,
     data: { weekId, section },
   });
+  const sectionHint = section === 'belirli' ? 'turuncu' : 'mavi';
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        'min-h-[48px] min-w-[180px] rounded-lg py-2 transition-colors',
-        isOver && 'bg-primary/10 ring-2 ring-primary/30',
-        isEmpty && 'flex items-center'
+        'min-h-[52px] min-w-[min(100%,12rem)] rounded-lg px-2 py-2 transition-all',
+        isEmpty
+          ? 'flex items-center border-2 border-dashed border-muted-foreground/35 bg-muted/20'
+          : 'border border-transparent bg-muted/10',
+        isOver &&
+          'border-primary bg-primary/15 ring-2 ring-primary/40 ring-offset-2 ring-offset-background dark:ring-offset-background',
+        isEmpty && isOver && 'border-primary border-solid bg-primary/20'
       )}
     >
       {isEmpty ? (
-        <span className="w-full py-2 text-center text-xs text-muted-foreground">
-          Buraya bırakın
+        <span className="w-full px-1 text-center text-xs leading-snug text-muted-foreground">
+          {isOver ? (
+            <span className="font-medium text-primary">Bırakın — eklenecek</span>
+          ) : (
+            <>
+              {section === 'belirli' ? '★' : '●'} Buraya sürükleyin
+              <span className="mt-0.5 block text-[10px] opacity-80">({sectionHint} alan)</span>
+            </>
+          )}
         </span>
       ) : (
-        children
+        <div className="space-y-2">
+          {children}
+          <p
+            className={cn(
+              'text-center text-[10px] text-muted-foreground/80',
+              isOver && 'font-medium text-primary'
+            )}
+          >
+            {isOver ? '↑ Buraya bırakın (mevcutların yanına eklenir)' : '↑ Aynı haftaya başka öğe eklemek için buraya bırakın'}
+          </p>
+        </div>
       )}
     </div>
   );

@@ -25,6 +25,10 @@ export function downloadSuperadminStatsCsv(stats: StatsResponse, filename = 'pla
       const label = SCHOOL_MODULE_LABELS[m.key as SchoolModuleKey] ?? m.key;
       lines.push(`Modül,${esc(label)},${m.count}`);
     });
+    if (sa.schools_by_type) {
+      Object.entries(sa.schools_by_type).forEach(([k, v]) => lines.push(`Okul_türü,${esc(k)},${v}`));
+    }
+    lines.push(`Okul,genel_lise_sayısı_inceleme,${sa.schools_lise_unspecified_count ?? 0}`);
     stats.chart.forEach((c) => lines.push(`Duyuru_aylik,${esc(c.month)},${c.count}`));
     if (sa.users_registration_chart) {
       sa.users_registration_chart.forEach((c) => lines.push(`Kayit_aylik,${esc(c.month)},${c.count}`));

@@ -4,7 +4,6 @@ import { Strategy } from 'passport-custom';
 import { Request } from 'express';
 import * as admin from 'firebase-admin';
 import { AuthService } from '../auth.service';
-import { env } from '../../config/env';
 import { User } from '../../users/entities/user.entity';
 import { AUTH_COOKIE_NAME } from '../auth-cookie';
 
@@ -14,6 +13,16 @@ function getFirebaseApp(): admin.app.App | null {
   } catch {
     return null;
   }
+}
+
+/** Postgres / TypeORM user.id (UUID v4) */
+function looksLikeUserIdUuid(token: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(token.trim());
+}
+
+/** Firebase ID token (JWT) üç bölümlüdür. */
+function looksLikeFirebaseIdToken(token: string): boolean {
+  return token.split('.').length === 3;
 }
 
 @Injectable()
@@ -30,38 +39,37 @@ export class FirebaseStrategy extends PassportStrategy(Strategy, 'firebase') {
       typeof req.cookies === 'object' && req.cookies !== null
         ? String((req.cookies as Record<string, string>)[AUTH_COOKIE_NAME] ?? '').trim()
         : '';
-    const token = bearer || fromCookie;
-    if (!token) {
+    /** Çerez önce: Bearer’da eski Firebase JWT kalırsa bile parola oturumu (UUID) çalışsın. */
+    const candidates = [...new Set([fromCookie, bearer].filter((x) => x.length > 0))];
+    if (candidates.length === 0) {
       throw new UnauthorizedException({
         code: 'UNAUTHORIZED',
         message: 'Oturum açmanız gerekiyor.',
       });
     }
 
+    for (const raw of candidates) {
+      if (looksLikeUserIdUuid(raw)) {
+        const user = await this.authService.validateUserId(raw);
+        if (user) return user;
+      }
+    }
+
     const app = getFirebaseApp();
-    if (app) {
+    for (const raw of candidates) {
+      if (!app || !looksLikeFirebaseIdToken(raw)) continue;
       try {
-        const decoded = await app.auth().verifyIdToken(token);
+        const decoded = await app.auth().verifyIdToken(raw);
         const uid = decoded.uid;
         const user = await this.authService.validateFirebaseUid(uid);
-        if (!user) {
-          throw new UnauthorizedException({
-            code: 'UNAUTHORIZED',
-            message: 'Oturum açmanız gerekiyor.',
-          });
-        }
-        return user;
-      } catch {
+        if (user) return user;
         throw new UnauthorizedException({
           code: 'UNAUTHORIZED',
           message: 'Oturum açmanız gerekiyor.',
         });
+      } catch (e) {
+        if (e instanceof UnauthorizedException) throw e;
       }
-    }
-
-    if (!app && env.nodeEnv === 'local') {
-      const user = await this.authService.validateUserId(token);
-      if (user) return user;
     }
 
     throw new UnauthorizedException({

@@ -283,7 +283,7 @@ export function TeacherDetailPanel({
                 </Link>
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-border">
+              <div className="table-x-scroll rounded-lg border border-border">
                 <table className="w-full border-collapse text-xs">
                   <thead>
                     <tr className="border-b bg-muted/50">

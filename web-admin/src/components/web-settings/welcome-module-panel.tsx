@@ -20,6 +20,7 @@ import {
   RotateCcw,
   Save,
   LayoutDashboard,
+  Palette,
   Smartphone,
   CalendarDays,
   ListTree,
@@ -29,15 +30,24 @@ import {
   Download,
   Upload,
   AlertTriangle,
+  Stars,
 } from 'lucide-react';
 import { WELCOME_TODAY_API_PATH } from '@/lib/welcome-public';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { WelcomeMessageDisplay } from '@/components/web-settings/welcome-message-display';
 import { WelcomeMessageToolbar } from '@/components/web-settings/welcome-message-toolbar';
+import {
+  WELCOME_ZODIAC_THEMES,
+  getWelcomeZodiacKey,
+  getWelcomeZodiacTheme,
+} from '@/lib/welcome-zodiac';
+import { WelcomeZodiacPopupCard } from '@/components/dashboard/welcome-zodiac-modal';
 
 export type WelcomeModuleConfig = {
   enabled: boolean;
+  popup_enabled: boolean;
+  popup_mode: 'zodiac_auto';
   by_day: Record<string, string>;
   fallback_message: string | null;
   cache_ttl_welcome: number;
@@ -112,6 +122,8 @@ function countFilledInMonth(byDay: Record<string, string>, month1: number, year:
 
 function serializeWelcomeState(p: {
   enabled: boolean;
+  popupEnabled: boolean;
+  popupMode: 'zodiac_auto';
   fallback: string;
   cacheTtl: number;
   byDay: Record<string, string>;
@@ -125,6 +137,8 @@ function serializeWelcomeState(p: {
   for (const k of Object.keys(by).sort()) norm[k] = by[k];
   return JSON.stringify({
     enabled: p.enabled,
+    popup_enabled: p.popupEnabled,
+    popup_mode: p.popupMode,
     fallback: (p.fallback ?? '').trim(),
     cacheTtl: p.cacheTtl,
     by_day: norm,
@@ -153,13 +167,120 @@ function downloadTextFile(filename: string, content: string, mime: string) {
   URL.revokeObjectURL(a.href);
 }
 
+function generateYearDailyMessages(): Record<string, string> {
+  const closePool = [
+    'Bugün kurduğun denge, haftanın kalanına da güç verir.',
+    'Sakin ve net kaldığında sınıfın ritmi de güzelleşir.',
+    'Küçük bir temas bazen günün en değerli kazanımı olur.',
+    'Düzenli ilerleyen emek, yıl boyunca karşılığını verir.',
+    'İlham veren öğretmenlik çoğu zaman küçük anlarda görünür.',
+    'Kararlı ama yumuşak bir yaklaşım her zaman iz bırakır.',
+    'Bugün ayırdığın özen, yarının güvenli sınıf iklimini kurar.',
+    'Kendi enerjini koruduğunda öğrencilerine de alan açarsın.',
+  ];
+  const out: Record<string, string> = {};
+
+  for (let month = 1; month <= 12; month++) {
+    const monthName = MONTH_NAMES[month - 1];
+    const max = daysInMonth(month, 2024);
+    for (let day = 1; day <= max; day++) {
+      const close = closePool[(day * 2 + month) % closePool.length];
+      let title = `${day} ${monthName} öğretmen notu`;
+      let line1 = 'Bugün öğrencilerinle kurduğun bağı güçlendirmek için sade, net ve güven veren bir başlangıç yap.';
+      let line2 = '_Kendi ritmini koru, sınıfın enerjisini yumuşak bir kararlılıkla yönet._';
+
+      if (month === 9) {
+        title = `${day} ${monthName} uyum mesajı`;
+        line1 = 'Yeni eğitim döneminin temposu kurulurken sınıf düzenini, iletişimi ve güven duygusunu birlikte inşa et.';
+        line2 = '_İlk haftalardaki sakin ve net yaklaşım, yılın geri kalanını kolaylaştırır._';
+      } else if (month === 10) {
+        title = `${day} ${monthName} denge mesajı`;
+        line1 = 'Ders akışını oturturken öğrencilerinin katılımını görünür kılan küçük ama etkili adımlara odaklan.';
+        line2 = '_Rutini güçlendiren öğretmen, öğrenme iklimini de güçlendirir._';
+      } else if (month === 11) {
+        if (day >= 11 && day <= 17) {
+          title = `${day} ${monthName} ara tatil notu`;
+          line1 = 'Ara tatil günlerini zihnini dinlendirmek, küçük eksikleri toparlamak ve yeni haftalara tazelenmiş dönmek için kullan.';
+          line2 = '_Dinlenmek de öğretmen emeğinin doğal ve gerekli bir parçasıdır._';
+        } else {
+          title = `${day} ${monthName} odak mesajı`;
+          line1 = 'Dönem ilerlerken öğrencilerinin dikkatini toparlayan kısa hatırlatmalar ve sıcak bir sınıf dili fark yaratır.';
+          line2 = '_Yorucu haftalarda bile istikrarlı duruş, sınıfın pusulası olur._';
+        }
+      } else if (month === 12) {
+        title = `${day} ${monthName} güç mesajı`;
+        line1 = 'Yıl sonuna yaklaşırken öğrencilerinin emeğini fark eden, onları motive eden geri bildirimler günün değerini artırır.';
+        line2 = '_Yoğunluk artsa da sakin bir planlama seni rahatlatır._';
+      } else if (month === 1) {
+        if (day >= 20) {
+          title = `${day} ${monthName} yarıyıl mesajı`;
+          line1 = 'Yarıyılın eşiğinde geride kalan emeği takdir et, kendine nefes alanı aç ve ikinci dönem için zihnini tazele.';
+          line2 = '_Bazen en iyi hazırlık, kısa bir durup güç toplamaktır._';
+        } else {
+          title = `${day} ${monthName} kapanış mesajı`;
+          line1 = 'Dönem kapanırken değerlendirmeleri sadeleştir, öğrencilerine net ve destekleyici bir yön duygusu ver.';
+          line2 = '_Düzenli kapanış, güçlü bir yeni başlangıcın temelidir._';
+        }
+      } else if (month === 2) {
+        title = `${day} ${monthName} başlangıç mesajı`;
+        line1 = 'İkinci döneme başlarken sınıf içi motivasyonu tazeleyen kısa hedefler ve görünür rutinler kur.';
+        line2 = '_Yeni dönem, küçük ama kararlı bir yenilenmeyle güçlenir._';
+      } else if (month === 3) {
+        title = `${day} ${monthName} ilerleme mesajı`;
+        line1 = 'Bahar temposunda öğrencilerinle birlikte görünür ilerlemeler oluşturmaya ve olumlu sınıf iklimini korumaya odaklan.';
+        line2 = '_İstikrarlı öğretmenlik, yoğun haftalarda bile umut üretir._';
+      } else if (month === 4) {
+        if (day >= 1 && day <= 7) {
+          title = `${day} ${monthName} mola mesajı`;
+          line1 = 'Ara tatil günlerini dinlenmek, planlarını sadeleştirmek ve kalan dönem için enerjini yenilemek için değerlendir.';
+          line2 = '_Kısa bir mola, uzun bir döneme güçlü bir nefes olur._';
+        } else {
+          title = `${day} ${monthName} tazelenme mesajı`;
+          line1 = 'Tatilden dönüşte sınıfın ritmini yeniden kurarken sıcak bir başlangıç ve net beklentiler her şeyi kolaylaştırır.';
+          line2 = '_Taze enerji, sınıfın yeniden toparlanmasını hızlandırır._';
+        }
+      } else if (month === 5) {
+        title = `${day} ${monthName} emek mesajı`;
+        line1 = 'Yıl sonu yaklaşırken öğrencilerinin birikimini görünür kılan tekrarlar, net hedefler ve teşvik edici cümleler kullan.';
+        line2 = '_Bu dönemde sakin liderlik, öğrencilerin özgüvenini büyütür._';
+      } else if (month === 6) {
+        if (day >= 15) {
+          title = `${day} ${monthName} yıl sonu mesajı`;
+          line1 = 'Eğitim yılını tamamlarken öğrencilerinle birlikte biriken emeği görünür kıl, kapanışı umut ve teşekkürle yap.';
+          line2 = '_Güzel bir veda, yeni yılın da güzel başlangıcı olur._';
+        } else {
+          title = `${day} ${monthName} tamamlama mesajı`;
+          line1 = 'Yıl sonuna yaklaşırken işleri sadeleştir, önceliklerini netleştir ve sınıf içi huzuru koruyarak ilerle.';
+          line2 = '_Bitiriş döneminde sakinlik en güçlü desteğindir._';
+        }
+      } else if (month === 7) {
+        title = `${day} ${monthName} dinlenme mesajı`;
+        line1 = 'Yaz döneminde zihnini dinlendirmek, kendine zaman ayırmak ve yeni eğitim yılı için içten içe güç toplamak kıymetlidir.';
+        line2 = '_Dinlenmiş bir öğretmen, yeni döneme daha güçlü başlar._';
+      } else if (month === 8) {
+        title = `${day} ${monthName} hazırlık mesajı`;
+        line1 = 'Yeni eğitim yılı yaklaşırken beklentilerini sadeleştir, niyetini tazele ve seni rahatlatan bir hazırlık ritmi kur.';
+        line2 = '_En iyi hazırlık, sakin ama bilinçli bir başlangıçtır._';
+      }
+
+      out[mmdd(month, day)] = `**${title}**\n${line1}\n${line2}\n${close}`;
+    }
+  }
+
+  return out;
+}
+
 type ViewMode = 'calendar' | 'year';
+type WelcomeAdminTab = 'messages' | 'popup';
 
 export function WelcomeModulePanel() {
   const { token, me } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [adminTab, setAdminTab] = useState<WelcomeAdminTab>('messages');
   const [enabled, setEnabled] = useState(false);
+  const [popupEnabled, setPopupEnabled] = useState(true);
+  const [popupMode] = useState<'zodiac_auto'>('zodiac_auto');
   const [fallback, setFallback] = useState('');
   const [cacheTtl, setCacheTtl] = useState(120);
   const [byDay, setByDay] = useState<Record<string, string>>({});
@@ -179,6 +300,7 @@ export function WelcomeModulePanel() {
     try {
       const data = await apiFetch<WelcomeModuleConfig>('/app-config/welcome-module', { token });
       setEnabled(!!data.enabled);
+      setPopupEnabled(data.popup_enabled !== false);
       setFallback(data.fallback_message ?? '');
       setCacheTtl(data.cache_ttl_welcome ?? 120);
       setByDay(data.by_day && typeof data.by_day === 'object' ? { ...data.by_day } : {});
@@ -196,24 +318,33 @@ export function WelcomeModulePanel() {
   /** Backend `getWelcomeTodayPublic` ile aynı — taslak + Kaydet öncesi üst önizleme ile senkron. */
   const todayPublicPreview = useMemo(() => {
     const date_key = istanbulYmd().key;
-    if (!enabled) return { date_key, message: null as string | null };
+    const zodiac_key = getWelcomeZodiacKey(date_key);
+    if (!enabled) {
+      return {
+        date_key,
+        zodiac_key,
+        popup_enabled: popupEnabled,
+        popup_mode: popupMode,
+        message: null as string | null,
+      };
+    }
     const dayMsg = byDay[date_key]?.trim();
     const fb = fallback.trim();
     const message = (dayMsg || fb || null) as string | null;
-    return { date_key, message };
-  }, [enabled, byDay, fallback]);
+    return { date_key, zodiac_key, popup_enabled: popupEnabled, popup_mode: popupMode, message };
+  }, [enabled, popupEnabled, popupMode, byDay, fallback]);
 
   useEffect(() => {
     if (prevLoading.current && !loading) {
-      setSavedSig(serializeWelcomeState({ enabled, fallback, cacheTtl, byDay }));
+      setSavedSig(serializeWelcomeState({ enabled, popupEnabled, popupMode, fallback, cacheTtl, byDay }));
     }
     prevLoading.current = loading;
-  }, [loading, enabled, fallback, cacheTtl, byDay]);
+  }, [loading, enabled, popupEnabled, popupMode, fallback, cacheTtl, byDay]);
 
   const isDirty = useMemo(() => {
     if (savedSig === null) return false;
-    return serializeWelcomeState({ enabled, fallback, cacheTtl, byDay }) !== savedSig;
-  }, [savedSig, enabled, fallback, cacheTtl, byDay]);
+    return serializeWelcomeState({ enabled, popupEnabled, popupMode, fallback, cacheTtl, byDay }) !== savedSig;
+  }, [savedSig, enabled, popupEnabled, popupMode, fallback, cacheTtl, byDay]);
 
   useEffect(() => {
     if (!isDirty) return;
@@ -263,6 +394,8 @@ export function WelcomeModulePanel() {
         token,
         body: JSON.stringify({
           enabled,
+          popup_enabled: popupEnabled,
+          popup_mode: popupMode,
           fallback_message: fallback.trim() || null,
           cache_ttl_welcome: cacheTtl,
           by_day: byDay,
@@ -299,6 +432,8 @@ export function WelcomeModulePanel() {
       version: 1,
       exported_at: new Date().toISOString(),
       enabled,
+      popup_enabled: popupEnabled,
+      popup_mode: popupMode,
       fallback_message: fallback.trim() || null,
       cache_ttl_welcome: cacheTtl,
       by_day: Object.fromEntries(
@@ -335,12 +470,17 @@ export function WelcomeModulePanel() {
       try {
         const text = String(reader.result ?? '');
         if (file.name.endsWith('.json') || text.trim().startsWith('{')) {
-          const j = JSON.parse(text) as { by_day?: Record<string, string> };
+          const j = JSON.parse(text) as {
+            popup_enabled?: boolean;
+            popup_mode?: 'zodiac_auto';
+            by_day?: Record<string, string>;
+          };
           const incoming = j.by_day;
           if (!incoming || typeof incoming !== 'object') {
             toast.error('JSON içinde by_day yok');
             return;
           }
+          if (typeof j.popup_enabled === 'boolean') setPopupEnabled(j.popup_enabled);
           setByDay((prev) => {
             const next = { ...prev };
             for (const [k, v] of Object.entries(incoming)) {
@@ -368,6 +508,11 @@ export function WelcomeModulePanel() {
       e.target.value = '';
     };
     reader.readAsText(file);
+  };
+
+  const applyYearContentPack = () => {
+    setByDay((prev) => ({ ...prev, ...generateYearDailyMessages() }));
+    toast.success('365 günlük içerik paketi eklendi');
   };
 
   useEffect(() => {
@@ -437,8 +582,8 @@ export function WelcomeModulePanel() {
                   <LayoutDashboard className="mt-0.5 size-4 shrink-0 text-violet-600 dark:text-violet-400" />
                   <span>
                     <strong className="font-medium text-foreground">Web — öğretmen & okul yöneticisi:</strong> giriş
-                    sonrası <strong className="text-foreground">Ana sayfa (Dashboard)</strong> üst bölümünde modern
-                    kart olarak gösterilir.
+                    sonrası <strong className="text-foreground">Ana sayfa (Dashboard)</strong> açılışında öğretmene
+                    popup deneyimi ile gösterilir.
                   </span>
                 </li>
                 <li className="flex items-start gap-2.5 rounded-xl border border-border/40 bg-background/50 px-3 py-2.5">
@@ -492,8 +637,8 @@ export function WelcomeModulePanel() {
         className={cn(
           'flex flex-col gap-3 rounded-2xl border-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between',
           enabled
-            ? 'border-emerald-500/45 bg-emerald-500/[0.08] dark:bg-emerald-950/25'
-            : 'border-amber-500/50 bg-amber-500/[0.09] dark:bg-amber-950/20',
+            ? 'border-emerald-500/45 bg-emerald-500/8 dark:bg-emerald-950/25'
+            : 'border-amber-500/50 bg-amber-500/9 dark:bg-amber-950/20',
         )}
         role="status"
         aria-live="polite"
@@ -513,8 +658,8 @@ export function WelcomeModulePanel() {
           <p className="text-sm leading-snug text-foreground">
             {enabled ? (
               <>
-                Öğretmen ve okul yöneticisi <strong>dashboard</strong> ile mobilde mesajlar yayında. Gün metinleri
-                aşağıdan; <strong>Kaydet</strong> ile kalıcı olur.
+                Günlük mesajlar yayında. Öğretmen popup tasarımını ve metinleri aşağıdan güncelleyip{' '}
+                <strong>Kaydet</strong> ile kalıcı yapabilirsiniz.
               </>
             ) : (
               <>
@@ -526,6 +671,36 @@ export function WelcomeModulePanel() {
         </div>
       </div>
 
+      <nav className="flex flex-wrap gap-1 rounded-2xl border border-border/50 bg-muted/25 p-1">
+        <button
+          type="button"
+          onClick={() => setAdminTab('messages')}
+          className={cn(
+            'inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition-all',
+            adminTab === 'messages'
+              ? 'bg-background text-foreground shadow-sm ring-1 ring-border/60'
+              : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
+          )}
+        >
+          <CalendarDays className="size-4" />
+          Mesajlar
+        </button>
+        <button
+          type="button"
+          onClick={() => setAdminTab('popup')}
+          className={cn(
+            'inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition-all',
+            adminTab === 'popup'
+              ? 'bg-background text-foreground shadow-sm ring-1 ring-border/60'
+              : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
+          )}
+        >
+          <Palette className="size-4" />
+          Popup Tasarımı
+        </button>
+      </nav>
+
+      {adminTab === 'messages' ? (
       <div className="grid gap-6 lg:grid-cols-5">
         <Card className="border-border/50 bg-card/80 shadow-sm backdrop-blur-sm lg:col-span-2">
           <CardContent className="space-y-6 p-6">
@@ -549,7 +724,7 @@ export function WelcomeModulePanel() {
                   aria-label={enabled ? 'Modülü kapat' : 'Modülü aç'}
                   onClick={() => setEnabled(!enabled)}
                   className={cn(
-                    'relative inline-flex h-9 w-[3.75rem] shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
+                    'relative inline-flex h-9 w-15 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
                     enabled
                       ? 'bg-emerald-600 focus-visible:ring-emerald-500/50'
                       : 'bg-muted-foreground/30 focus-visible:ring-amber-500/40',
@@ -626,20 +801,30 @@ export function WelcomeModulePanel() {
               />
             </div>
 
-            <div className="space-y-2 rounded-2xl border border-border/50 bg-muted/20 p-4">
-              <p className="text-[13px] font-medium text-foreground/90">İçe / dışa aktar</p>
-              <p className="text-[11px] text-muted-foreground">
-                CSV: satır başına <code className="rounded bg-muted px-1">MM-DD;mesaj</code> · JSON: dışa aktarılan şema
-                ile aynı.
-              </p>
+            <div className="space-y-3 rounded-2xl border border-border/50 bg-muted/20 p-4">
+              <div className="space-y-1">
+                <p className="text-[13px] font-medium text-foreground/90">İçe ve dışa aktar</p>
+                <p className="text-[11px] text-muted-foreground">
+                  CSV biçimi: <code className="rounded bg-muted px-1">MM-DD;mesaj</code> · JSON biçimi: dışa aktarılan
+                  dosya şeması ile aynıdır.
+                </p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="rounded-xl border border-border/40 bg-background/60 px-3 py-2.5 text-xs text-muted-foreground">
+                  <strong className="text-foreground">CSV</strong> hızlı toplu düzenleme için uygundur.
+                </div>
+                <div className="rounded-xl border border-border/40 bg-background/60 px-3 py-2.5 text-xs text-muted-foreground">
+                  <strong className="text-foreground">JSON</strong> tüm ayarları yedeklemek için uygundur.
+                </div>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={exportJson}>
                   <Download className="mr-1.5 size-3.5" />
-                  JSON
+                  JSON indir
                 </Button>
                 <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={exportCsv}>
                   <Download className="mr-1.5 size-3.5" />
-                  CSV
+                  CSV indir
                 </Button>
                 <Button
                   type="button"
@@ -651,6 +836,10 @@ export function WelcomeModulePanel() {
                   <Upload className="mr-1.5 size-3.5" />
                   İçe aktar
                 </Button>
+                <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={applyYearContentPack}>
+                  <Sparkles className="mr-1.5 size-3.5" />
+                  365 gün paketi
+                </Button>
                 <input
                   ref={importInputRef}
                   type="file"
@@ -659,6 +848,10 @@ export function WelcomeModulePanel() {
                   onChange={onImportFile}
                 />
               </div>
+              <p className="text-[11px] text-muted-foreground">
+                Hazır paket, <strong className="text-foreground">yılın tüm günlerine</strong> örnek içerik mesajı ekler
+                (29 Şubat dahil).
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -911,7 +1104,7 @@ export function WelcomeModulePanel() {
                                 className={cn(
                                   'h-auto min-h-9 flex-1 rounded-xl py-2 text-sm',
                                   val.trim()
-                                    ? 'border-emerald-500/40 bg-emerald-500/[0.04]'
+                                    ? 'border-emerald-500/40 bg-emerald-500/4'
                                     : 'border-border/60',
                                 )}
                                 value={val}
@@ -932,6 +1125,138 @@ export function WelcomeModulePanel() {
           </CardContent>
         </Card>
       </div>
+      ) : (
+      <div className="grid gap-6 lg:grid-cols-5">
+        <Card className="border-border/50 bg-card/80 shadow-sm backdrop-blur-sm lg:col-span-2">
+          <CardContent className="space-y-6 p-6">
+            <div
+              className={cn(
+                'rounded-2xl border-2 px-4 py-4',
+                popupEnabled ? 'border-violet-500/35 bg-violet-500/5' : 'border-border bg-muted/30',
+              )}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold tracking-tight">Öğretmen popup yayını</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Günlük mesaj ilk dashboard girişinde bir kez açılır. Aynı gün tekrar gösterilmez.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={popupEnabled}
+                  aria-label={popupEnabled ? 'Popup kapat' : 'Popup aç'}
+                  onClick={() => setPopupEnabled(!popupEnabled)}
+                  className={cn(
+                    'relative inline-flex h-9 w-15 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
+                    popupEnabled
+                      ? 'bg-violet-600 focus-visible:ring-violet-500/50'
+                      : 'bg-muted-foreground/30 focus-visible:ring-muted-foreground/30',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'pointer-events-none absolute top-1 left-1 size-7 rounded-full bg-white shadow-md transition-transform',
+                      popupEnabled ? 'translate-x-6' : 'translate-x-0',
+                    )}
+                  />
+                </button>
+              </div>
+              <p className="mt-3 text-[11px] font-medium text-muted-foreground">
+                Mod: <span className="text-violet-700 dark:text-violet-300">Otomatik burç takvimi</span>
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-border/50 bg-muted/20 p-4">
+              <p className="text-sm font-semibold tracking-tight">Tasarım akışı</p>
+              <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+                <div className="rounded-xl border border-border/40 bg-background/50 px-3 py-2.5">
+                  1. Öğretmen dashboard açar.
+                </div>
+                <div className="rounded-xl border border-border/40 bg-background/50 px-3 py-2.5">
+                  2. Bugünün mesajı ve tarih aralığından burç teması seçilir.
+                </div>
+                <div className="rounded-xl border border-border/40 bg-background/50 px-3 py-2.5">
+                  3. Popup bir kez gösterilir, kapatılınca gün sonuna kadar tekrar açılmaz.
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border/50 bg-muted/20 p-4">
+              <p className="text-sm font-semibold tracking-tight">Bugünün teması</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {todayPublicPreview.date_key} · {getWelcomeZodiacTheme(todayPublicPreview.zodiac_key).name} ·{' '}
+                {getWelcomeZodiacTheme(todayPublicPreview.zodiac_key).rangeLabel}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="space-y-6 lg:col-span-3">
+          <Card className="overflow-hidden border-violet-500/20 bg-linear-to-r from-violet-500/8 via-transparent to-sky-500/8 shadow-sm">
+            <CardContent className="space-y-4 p-6">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-violet-600/90 dark:text-violet-400/90">
+                  Bugünün popup önizlemesi
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Öğretmen dashboard açılışında göreceği görünüm.
+                </p>
+              </div>
+              {todayPublicPreview.message ? (
+                <WelcomeZodiacPopupCard
+                  preview
+                  dateKey={todayPublicPreview.date_key}
+                  message={todayPublicPreview.message}
+                  zodiacKey={todayPublicPreview.zodiac_key}
+                />
+              ) : (
+                <div className="rounded-2xl border border-dashed border-border/60 bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
+                  Önizleme için bugün tarihine özel veya varsayılan bir mesaj girin.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/50 bg-card/80 shadow-sm backdrop-blur-sm">
+            <CardContent className="space-y-4 p-6">
+              <div className="flex items-center gap-2">
+                <Stars className="size-4 text-violet-500" />
+                <h2 className="text-base font-semibold tracking-tight">12 burç tema seti</h2>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {WELCOME_ZODIAC_THEMES.map((theme) => (
+                  <div
+                    key={theme.key}
+                    className={cn(
+                      'relative overflow-hidden rounded-2xl border p-4 shadow-sm',
+                      theme.shellClassName,
+                    )}
+                  >
+                    <div className="pointer-events-none absolute inset-0" aria-hidden>
+                      <div className="absolute right-2 top-1 text-6xl leading-none opacity-[0.18]">
+                        {theme.heroEmoji}
+                      </div>
+                    </div>
+                    <div className="relative flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold">{theme.name}</p>
+                        <p className="mt-1 text-xs text-white/70">{theme.rangeLabel}</p>
+                      </div>
+                      <span className={cn('rounded-full border px-2.5 py-1 text-[11px] font-medium', theme.badgeClassName)}>
+                        {theme.heroName}
+                      </span>
+                    </div>
+                    <p className="relative mt-3 text-xs text-white/70">{theme.accentLabel}</p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+      )}
 
       <Card className="overflow-hidden border-violet-500/20 bg-linear-to-r from-violet-500/8 via-transparent to-amber-500/8 shadow-sm">
         <CardContent className="flex flex-col gap-3 p-6 sm:flex-row sm:items-center sm:justify-between">
@@ -949,6 +1274,9 @@ export function WelcomeModulePanel() {
                 Bugün (İstanbul) — kullanıcıya gidecek metin
               </p>
               <p className="mt-1 font-mono text-xs text-muted-foreground">{todayPublicPreview.date_key}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Popup: {popupEnabled ? 'Açık' : 'Kapalı'} · Tema: {getWelcomeZodiacTheme(todayPublicPreview.zodiac_key).name}
+              </p>
               <div className="mt-2 text-pretty text-sm leading-relaxed text-foreground">
                 {todayPublicPreview.message ? (
                   <WelcomeMessageDisplay

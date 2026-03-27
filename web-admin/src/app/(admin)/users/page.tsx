@@ -6,19 +6,18 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Users as UsersIcon,
   UserPlus,
-  LayoutGrid,
-  List,
   Search,
   Pencil,
-  Mail,
-  Calendar,
-  School,
   Download,
   ChevronLeft,
   ChevronRight,
   Shield,
   UserCog,
   GraduationCap,
+  BadgeCheck,
+  Clock,
+  XCircle,
+  Minus,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
@@ -32,6 +31,8 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { SchoolSelectWithFilter } from '@/components/school-select-with-filter';
 import { UserAvatarBubble } from '@/components/user-avatar';
+import { ModeratorModulesField, getModeratorModuleLabel } from '@/components/users/moderator-modules-field';
+import { cn } from '@/lib/utils';
 
 type UserItem = {
   id: string;
@@ -53,20 +54,6 @@ type UserItem = {
   created_at: string;
   updated_at?: string;
 };
-
-const MODERATOR_MODULE_OPTIONS: { key: string; label: string }[] = [
-  { key: 'school_reviews', label: 'Okul Değerlendirmeleri' },
-  { key: 'school_profiles', label: 'Okul Profilleri (Moderasyon)' },
-  { key: 'announcements', label: 'Duyurular' },
-  { key: 'schools', label: 'Okullar' },
-  { key: 'users', label: 'Kullanıcılar' },
-  { key: 'market_policy', label: 'Market Politikası' },
-  { key: 'modules', label: 'Modüller' },
-  { key: 'document_templates', label: 'Evrak Şablonları' },
-  { key: 'extra_lesson_params', label: 'Hesaplama Parametreleri' },
-  { key: 'outcome_sets', label: 'Kazanım Setleri' },
-  { key: 'system_announcements', label: 'Sistem Duyuruları' },
-];
 
 type SchoolItem = { id: string; name: string; city?: string | null; district?: string | null };
 
@@ -112,6 +99,27 @@ const STATUS_STYLES: Record<string, string> = {
   deleted: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
 };
 
+const MEMBERSHIP_LABELS: Record<string, string> = {
+  none: 'Okul atanmamış',
+  pending: 'Onay bekliyor',
+  approved: 'Onaylı üye',
+  rejected: 'Reddedildi',
+};
+
+const MEMBERSHIP_STYLES: Record<string, string> = {
+  none: 'bg-slate-100 text-slate-700 dark:bg-slate-800/80 dark:text-slate-300',
+  pending: 'bg-amber-100 text-amber-900 dark:bg-amber-900/35 dark:text-amber-200',
+  approved: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/35 dark:text-emerald-200',
+  rejected: 'bg-red-100 text-red-900 dark:bg-red-950/40 dark:text-red-200',
+};
+
+const STATUS_SELECT_ACCENT: Record<string, string> = {
+  active: 'border-l-emerald-500',
+  passive: 'border-l-slate-400',
+  suspended: 'border-l-amber-500',
+  deleted: 'border-l-red-500',
+};
+
 function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('tr-TR', {
     day: 'numeric',
@@ -141,7 +149,6 @@ export default function UsersPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState<UserItem | null>(null);
   const limit = 20;
@@ -321,7 +328,7 @@ export default function UsersPage() {
                 Toplam <span className="font-medium text-foreground">{data?.total ?? 0}</span>
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2.5">
               <button
                 type="button"
                 onClick={handleExportCsv}
@@ -331,7 +338,7 @@ export default function UsersPage() {
                 <Download className="size-4" />
                 CSV İndir
               </button>
-              <div className="relative min-w-[180px] sm:min-w-[220px]">
+              <div className="relative w-full sm:min-w-[180px] sm:max-w-[280px]">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                 <input
                   type="search"
@@ -349,7 +356,7 @@ export default function UsersPage() {
                       setCityFilter(e.target.value);
                       setPage(1);
                     }}
-                    className="rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 transition-colors min-w-[120px]"
+                    className="w-full rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm text-foreground transition-colors focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 sm:w-auto sm:min-w-[120px]"
                   >
                     <option value="">Tüm iller</option>
                     {cities.map((c) => (
@@ -363,7 +370,7 @@ export default function UsersPage() {
                       setPage(1);
                     }}
                     disabled={!cityFilter}
-                    className="rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 transition-colors min-w-[120px] disabled:opacity-50"
+                    className="w-full rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm text-foreground transition-colors focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 disabled:opacity-50 sm:w-auto sm:min-w-[120px]"
                   >
                     <option value="">Tüm ilçeler</option>
                     {districts.map((d) => (
@@ -376,7 +383,7 @@ export default function UsersPage() {
                       setSchoolIdFilter(e.target.value);
                       setPage(1);
                     }}
-                    className="rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 transition-colors min-w-[180px]"
+                    className="w-full rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm text-foreground transition-colors focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 sm:w-auto sm:min-w-[180px]"
                   >
                     <option value="">Tüm okullar</option>
                     {schools.map((s) => (
@@ -391,7 +398,7 @@ export default function UsersPage() {
                   setRoleFilter(e.target.value);
                   setPage(1);
                 }}
-                className="rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 transition-colors"
+                className="w-full rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm text-foreground transition-colors focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 sm:w-auto"
               >
                 <option value="">Tüm roller</option>
                 <option value="superadmin">Süper Admin</option>
@@ -406,7 +413,7 @@ export default function UsersPage() {
                     setMembershipFilter(e.target.value);
                     setPage(1);
                   }}
-                  className="rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 transition-colors min-w-[160px]"
+                  className="w-full rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm text-foreground transition-colors focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 sm:w-auto sm:min-w-[160px]"
                   title="Öğretmen okul üyeliği"
                 >
                   <option value="">Tümü (üyelik)</option>
@@ -422,35 +429,13 @@ export default function UsersPage() {
                   setStatusFilter(e.target.value);
                   setPage(1);
                 }}
-                className="rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 transition-colors"
+                className="w-full rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm text-foreground transition-colors focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 sm:w-auto"
               >
                 <option value="">Tüm durumlar</option>
                 <option value="active">Aktif</option>
                 <option value="passive">Pasif</option>
                 <option value="suspended">Askıda</option>
               </select>
-              <div className="flex rounded-lg border border-border bg-background p-0.5" role="group" aria-label="Görünüm">
-                <button
-                  type="button"
-                  onClick={() => setViewMode('cards')}
-                  className={`rounded-md p-2 transition-colors ${
-                    viewMode === 'cards' ? 'bg-primary/15 text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                  }`}
-                  aria-label="Kart görünümü"
-                >
-                  <LayoutGrid className="size-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode('table')}
-                  className={`rounded-md p-2 transition-colors ${
-                    viewMode === 'table' ? 'bg-primary/15 text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                  }`}
-                  aria-label="Tablo görünümü"
-                >
-                  <List className="size-4" />
-                </button>
-              </div>
             </div>
           </div>
           {error && <Alert message={error} className="mt-4" />}
@@ -460,95 +445,161 @@ export default function UsersPage() {
             <LoadingSpinner label="Kullanıcı listesi yükleniyor…" />
           ) : data && data.items.length > 0 ? (
             <>
-              {viewMode === 'cards' ? (
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {filteredItems.map((u) => (
-                    <UserCard
-                      key={u.id}
-                      user={u}
-                      token={token}
-                      onEdit={() => setEditModalOpen(u)}
-                      onStatusChange={refreshAll}
-                      isSuperadmin={isSuperadmin}
-                      showSchool={isSuperadmin || (me?.role === 'moderator' && (me?.moderator_modules ?? []).includes('schools'))}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="overflow-x-auto rounded-lg border border-border">
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/30">
-                        <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kullanıcı</th>
-                        <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Rol</th>
-                        {(isSuperadmin || (me?.role === 'moderator' && (me?.moderator_modules ?? []).includes('schools'))) && (
-                          <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Okul</th>
-                        )}
-                        <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Durum</th>
-                        <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kayıt</th>
-                        <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">İşlem</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border bg-card">
-                      {filteredItems.map((u) => (
-                        <tr key={u.id} className="transition-colors hover:bg-muted/30">
-                          <td className="px-5 py-4">
-                            <div className="flex items-center gap-3">
-                              <UserAvatarBubble
-                                avatarKey={u.avatar_key}
-                                avatarUrl={u.avatar_url}
-                                displayName={u.display_name || u.email}
-                                email={u.email}
-                                size="md"
-                                verified={u.role === 'teacher' && !!u.school_verified}
-                              />
-                              <div>
-                                <Link href={`/users/${u.id}`} className="font-medium text-foreground hover:text-primary">
-                                  {u.display_name ?? '—'}
-                                </Link>
-                                <a href={`mailto:${u.email}`} className="block text-xs text-muted-foreground hover:text-primary">
-                                  {u.email}
-                                </a>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-5 py-4">
-                            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${ROLE_STYLES[u.role] ?? 'bg-muted'}`}>
-                              {ROLE_ICONS[u.role]}
-                              {ROLE_LABELS[u.role] ?? u.role}
-                            </span>
-                          </td>
-                          {(isSuperadmin || (me?.role === 'moderator' && (me?.moderator_modules ?? []).includes('schools'))) && (
-                            <td className="px-5 py-4">
-                              {u.school ? (
-                                <Link href={`/schools/${u.school.id}`} className="text-muted-foreground hover:text-primary">
-                                  {u.school.name}
-                                </Link>
-                              ) : (
-                                '—'
+              <div className="table-x-scroll rounded-xl border border-border/80 bg-card shadow-sm">
+                <table className="w-full min-w-[900px] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/50">
+                      <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Kullanıcı
+                      </th>
+                      <th className="whitespace-nowrap px-3 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Rol
+                      </th>
+                      {(isSuperadmin || (me?.role === 'moderator' && (me?.moderator_modules ?? []).includes('schools'))) && (
+                        <th className="min-w-32 px-3 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Okul
+                        </th>
+                      )}
+                      {isSuperadmin && (
+                        <th className="whitespace-nowrap px-3 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Okul üyeliği
+                        </th>
+                      )}
+                      <th className="whitespace-nowrap px-3 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Durum
+                      </th>
+                      <th className="whitespace-nowrap px-3 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Kayıt
+                      </th>
+                      <th className="w-px whitespace-nowrap px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        İşlem
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/80">
+                    {filteredItems.map((u) => (
+                      <tr
+                        key={u.id}
+                        className="transition-colors hover:bg-muted/40 dark:hover:bg-muted/20"
+                      >
+                        <td className="px-4 py-3 align-middle">
+                          <div className="flex max-w-[280px] items-center gap-3">
+                            <UserAvatarBubble
+                              avatarKey={u.avatar_key}
+                              avatarUrl={u.avatar_url}
+                              displayName={u.display_name || u.email}
+                              email={u.email}
+                              size="sm"
+                              verified={u.role === 'teacher' && !!u.school_verified}
+                            />
+                            <div className="min-w-0">
+                              <Link
+                                href={`/users/${u.id}`}
+                                className="font-medium text-foreground hover:text-primary line-clamp-1"
+                              >
+                                {u.display_name ?? '—'}
+                              </Link>
+                              <a
+                                href={`mailto:${u.email}`}
+                                className="block truncate text-xs text-muted-foreground hover:text-primary"
+                              >
+                                {u.email}
+                              </a>
+                              {u.role === 'moderator' && (u.moderator_modules?.length ?? 0) > 0 && (
+                                <p
+                                  className="mt-1 line-clamp-2 text-[10px] text-muted-foreground"
+                                  title={u.moderator_modules?.map((k) => getModeratorModuleLabel(k)).join(', ')}
+                                >
+                                  {u.moderator_modules?.slice(0, 2).map((k) => getModeratorModuleLabel(k)).join(' · ')}
+                                  {(u.moderator_modules?.length ?? 0) > 2
+                                    ? ` +${(u.moderator_modules?.length ?? 0) - 2}`
+                                    : ''}
+                                </p>
                               )}
-                            </td>
-                          )}
-                          <td className="px-5 py-4">
-                            <StatusSelect userId={u.id} currentStatus={u.status} token={token} onSuccess={refreshAll} />
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 align-middle">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${ROLE_STYLES[u.role] ?? 'bg-muted text-foreground'}`}
+                          >
+                            {ROLE_ICONS[u.role]}
+                            {ROLE_LABELS[u.role] ?? u.role}
+                          </span>
+                        </td>
+                        {(isSuperadmin || (me?.role === 'moderator' && (me?.moderator_modules ?? []).includes('schools'))) && (
+                          <td className="max-w-[200px] px-3 py-3 align-middle text-muted-foreground">
+                            {u.school ? (
+                              <Link
+                                href={`/schools/${u.school.id}`}
+                                className="line-clamp-2 text-xs hover:text-primary"
+                              >
+                                {u.school.name}
+                              </Link>
+                            ) : (
+                              <span className="text-xs text-muted-foreground/70">—</span>
+                            )}
                           </td>
-                          <td className="px-5 py-4 text-muted-foreground text-xs">{formatDate(u.created_at)}</td>
-                          <td className="px-5 py-4">
-                            <button
-                              type="button"
-                              onClick={() => setEditModalOpen(u)}
-                              className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                              title="Düzenle"
-                            >
-                              <Pencil className="size-4" />
-                            </button>
+                        )}
+                        {isSuperadmin && (
+                          <td className="px-3 py-3 align-middle">
+                            {u.role === 'teacher' ? (
+                              <div className="flex flex-col gap-1">
+                                <span
+                                  className={`inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${MEMBERSHIP_STYLES[u.teacher_school_membership ?? 'none'] ?? MEMBERSHIP_STYLES.none}`}
+                                >
+                                  {u.teacher_school_membership === 'approved' && (
+                                    <BadgeCheck className="size-3 shrink-0 opacity-90" aria-hidden />
+                                  )}
+                                  {u.teacher_school_membership === 'pending' && (
+                                    <Clock className="size-3 shrink-0 opacity-90" aria-hidden />
+                                  )}
+                                  {u.teacher_school_membership === 'rejected' && (
+                                    <XCircle className="size-3 shrink-0 opacity-90" aria-hidden />
+                                  )}
+                                  {(!u.teacher_school_membership || u.teacher_school_membership === 'none') && (
+                                    <Minus className="size-3 shrink-0 opacity-70" aria-hidden />
+                                  )}
+                                  {MEMBERSHIP_LABELS[u.teacher_school_membership ?? 'none'] ?? u.teacher_school_membership}
+                                </span>
+                                {u.school_verified && (
+                                  <span className="inline-flex w-fit items-center gap-0.5 rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:text-emerald-300">
+                                    <BadgeCheck className="size-2.5" aria-hidden />
+                                    E-posta doğrulandı
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground/60">—</span>
+                            )}
                           </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                        )}
+                        <td className="px-3 py-3 align-middle">
+                          <StatusSelect
+                            userId={u.id}
+                            currentStatus={u.status}
+                            token={token}
+                            onSuccess={refreshAll}
+                          />
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3 align-middle text-xs tabular-nums text-muted-foreground">
+                          {formatDate(u.created_at)}
+                        </td>
+                        <td className="px-3 py-3 align-middle text-right">
+                          <button
+                            type="button"
+                            onClick={() => setEditModalOpen(u)}
+                            className="inline-flex rounded-lg p-2 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                            title="Düzenle"
+                          >
+                            <Pencil className="size-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
               {data.total > limit && (
                 <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-5">
                   <p className="text-sm text-muted-foreground">
@@ -622,73 +673,6 @@ export default function UsersPage() {
   );
 }
 
-function UserCard({
-  user,
-  token,
-  onEdit,
-  onStatusChange,
-  isSuperadmin,
-  showSchool,
-}: {
-  user: UserItem;
-  token: string | null;
-  onEdit: () => void;
-  onStatusChange: () => void;
-  isSuperadmin: boolean;
-  showSchool?: boolean;
-}) {
-  return (
-    <div className="group flex flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-sm transition-all hover:shadow-md hover:border-muted-foreground/20">
-      <div className="flex items-start gap-3">
-        <UserAvatarBubble
-          avatarKey={user.avatar_key}
-          avatarUrl={user.avatar_url}
-          displayName={user.display_name || user.email}
-          email={user.email}
-          size="md"
-          verified={user.role === 'teacher' && !!user.school_verified}
-        />
-        <div className="min-w-0 flex-1">
-          <Link href={`/users/${user.id}`} className="font-semibold text-foreground hover:text-primary block truncate">
-            {user.display_name ?? 'İsim belirtilmemiş'}
-          </Link>
-          <a href={`mailto:${user.email}`} className="text-sm text-muted-foreground hover:text-primary flex items-center gap-1 truncate">
-            <Mail className="size-3.5" />
-            <span className="truncate">{user.email}</span>
-          </a>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${ROLE_STYLES[user.role] ?? 'bg-muted'}`}>
-              {ROLE_ICONS[user.role]}
-              {ROLE_LABELS[user.role] ?? user.role}
-            </span>
-            <StatusSelect userId={user.id} currentStatus={user.status} token={token} onSuccess={onStatusChange} />
-          </div>
-          {showSchool && user.school && (
-            <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <School className="size-3.5" />
-              <Link href={`/schools/${user.school.id}`} className="hover:text-primary">{user.school.name}</Link>
-            </p>
-          )}
-          <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Calendar className="size-3.5" />
-            {formatDate(user.created_at)}
-          </p>
-        </div>
-      </div>
-      <div className="flex justify-end border-t border-border pt-3">
-        <button
-          type="button"
-          onClick={onEdit}
-          className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-          title="Düzenle"
-        >
-          <Pencil className="size-4" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function StatusSelect({
   userId,
   currentStatus,
@@ -702,6 +686,10 @@ function StatusSelect({
 }) {
   const [status, setStatus] = useState(currentStatus);
   const [updating, setUpdating] = useState(false);
+
+  useEffect(() => {
+    setStatus(currentStatus);
+  }, [currentStatus]);
 
   const handleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newStatus = e.target.value;
@@ -724,7 +712,11 @@ function StatusSelect({
   };
 
   if (status === 'deleted') {
-    return <span className="text-xs text-muted-foreground">Silindi</span>;
+    return (
+      <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_STYLES.deleted}`}>
+        Silindi
+      </span>
+    );
   }
 
   return (
@@ -732,7 +724,11 @@ function StatusSelect({
       value={status}
       onChange={handleChange}
       disabled={updating}
-      className="rounded-lg border border-input bg-background px-2.5 py-1 text-xs transition-colors disabled:opacity-50 min-w-[85px] focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+      className={cn(
+        'rounded-lg border border-input bg-background px-2 py-1.5 text-[11px] font-semibold transition-colors disabled:opacity-50 min-w-30 focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20',
+        'border-l-[3px]',
+        STATUS_SELECT_ACCENT[status] ?? 'border-l-slate-400',
+      )}
     >
       <option value="active">Aktif</option>
       <option value="passive">Pasif</option>
@@ -796,7 +792,7 @@ function AddUserModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title="Kullanıcı ekle" className="max-w-lg">
+      <DialogContent title="Kullanıcı ekle" className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <Alert message={error} />}
           <div>
@@ -849,28 +845,7 @@ function AddUserModal({
             </div>
           </div>
           {role === 'moderator' && (
-            <div>
-              <label className="block text-sm font-medium mb-2">Moderatör modülleri</label>
-              <div className="flex flex-wrap gap-2">
-                {MODERATOR_MODULE_OPTIONS.map((opt) => (
-                  <label key={opt.key} className="inline-flex items-center gap-1.5 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={moderatorModules.includes(opt.key)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setModeratorModules((prev) => [...prev, opt.key]);
-                        } else {
-                          setModeratorModules((prev) => prev.filter((m) => m !== opt.key));
-                        }
-                      }}
-                      className="rounded border-input"
-                    />
-                    {opt.label}
-                  </label>
-                ))}
-              </div>
-            </div>
+            <ModeratorModulesField value={moderatorModules} onChange={setModeratorModules} idPrefix="user-add-mod" />
           )}
           {(role === 'school_admin' || role === 'teacher') && (
             <SchoolSelectWithFilter
@@ -955,7 +930,7 @@ function EditUserModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title="Kullanıcı düzenle" className="max-w-lg">
+      <DialogContent title="Kullanıcı düzenle" className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <Alert message={error} />}
           <p className="text-sm text-muted-foreground">{user.email}</p>
@@ -985,28 +960,7 @@ function EditUserModal({
                 </select>
               </div>
               {role === 'moderator' && (
-                <div>
-                  <label className="block text-sm font-medium mb-2">Moderatör modülleri</label>
-                  <div className="flex flex-wrap gap-2">
-                    {MODERATOR_MODULE_OPTIONS.map((opt) => (
-                      <label key={opt.key} className="inline-flex items-center gap-1.5 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={moderatorModules.includes(opt.key)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setModeratorModules((prev) => [...prev, opt.key]);
-                            } else {
-                              setModeratorModules((prev) => prev.filter((m) => m !== opt.key));
-                            }
-                          }}
-                          className="rounded border-input"
-                        />
-                        {opt.label}
-                      </label>
-                    ))}
-                  </div>
-                </div>
+                <ModeratorModulesField value={moderatorModules} onChange={setModeratorModules} idPrefix="user-edit-mod" />
               )}
               <SchoolSelectWithFilter
                 value={schoolId}

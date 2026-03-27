@@ -23,7 +23,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         loading={loading}
         moderatorModules={me?.moderator_modules ?? null}
         schoolEnabledModules={me?.school?.enabled_modules ?? null}
-        loginPath="/"
+        loginPath="/login"
       >
         <Demo1Layout>{children}</Demo1Layout>
       </RouteGuard>

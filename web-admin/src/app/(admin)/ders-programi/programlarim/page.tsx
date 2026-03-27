@@ -440,7 +440,7 @@ export default function ProgramlarimPage() {
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto bg-zinc-100/60 dark:bg-zinc-900/40">
+                <div className="table-x-scroll bg-zinc-100/60 dark:bg-zinc-900/40">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-zinc-200/80 dark:bg-zinc-800/80">
@@ -533,7 +533,7 @@ export default function ProgramlarimPage() {
               </CardHeader>
               {personalPrograms.length > 0 ? (
                 <CardContent className="p-0">
-                  <div className="overflow-x-auto">
+                  <div className="table-x-scroll">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="bg-muted/50">
@@ -675,7 +675,7 @@ export default function ProgramlarimPage() {
               </CardHeader>
               <CardContent className="p-0">
                 {viewMode === 'teacher' ? (
-                  <div className="overflow-x-auto bg-zinc-100/60 dark:bg-zinc-900/40">
+                  <div className="table-x-scroll bg-zinc-100/60 dark:bg-zinc-900/40">
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="bg-zinc-200/80 dark:bg-zinc-800/80">
@@ -786,7 +786,7 @@ export default function ProgramlarimPage() {
                         </button>
                       ))}
                     </div>
-                    <div className="overflow-x-auto bg-zinc-100/60 dark:bg-zinc-900/40">
+                    <div className="table-x-scroll bg-zinc-100/60 dark:bg-zinc-900/40">
                       <table className="w-full text-xs">
                         <thead>
                           <tr className="bg-zinc-200/80 dark:bg-zinc-800/80">

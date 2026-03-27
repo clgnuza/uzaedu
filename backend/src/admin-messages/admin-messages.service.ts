@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
@@ -7,7 +8,7 @@ import { School } from '../schools/entities/school.entity';
 import { UserRole } from '../types/enums';
 import { CreateAdminMessageDto } from './dto/create-admin-message.dto';
 import { ListAdminMessagesDto } from './dto/list-admin-messages.dto';
-import { paginate } from '../common/dtos/pagination.dto';
+import { PaginationDto, paginate } from '../common/dtos/pagination.dto';
 
 @Injectable()
 export class AdminMessagesService {
@@ -24,6 +25,7 @@ export class AdminMessagesService {
     dto: CreateAdminMessageDto,
     scope: { userId: string },
   ) {
+    const sendBatchId = randomUUID();
     const messages: AdminMessage[] = [];
     for (const schoolId of dto.school_ids) {
       const school = await this.schoolRepo.findOne({ where: { id: schoolId } });
@@ -34,11 +36,161 @@ export class AdminMessagesService {
         body: dto.body?.trim() || null,
         image_url: dto.image_url?.trim() || null,
         created_by: scope.userId,
+        send_batch_id: sendBatchId,
       });
       await this.messageRepo.save(msg);
       messages.push(msg);
     }
-    return { created: messages.length, ids: messages.map((m) => m.id) };
+    return {
+      created: messages.length,
+      ids: messages.map((m) => m.id),
+      send_batch_id: sendBatchId,
+    };
+  }
+
+  /** Superadmin: gönderim özetleri (batch başına bir satır). */
+  async listSentBatches(dto: PaginationDto) {
+    const page = dto.page ?? 1;
+    const limit = Math.min(dto.limit ?? 20, 100);
+    const offset = (page - 1) * limit;
+
+    const totalRow = await this.messageRepo.query(
+      `SELECT COUNT(*)::int AS c FROM (SELECT 1 FROM admin_messages GROUP BY COALESCE(send_batch_id, id)) x`,
+    );
+    const total = totalRow[0]?.c ?? 0;
+
+    const raw = (await this.messageRepo.query(
+      `SELECT
+         COALESCE(m.send_batch_id, m.id) AS batch_id,
+         MAX(m.created_at) AS created_at,
+         MAX(m.title) AS title,
+         COUNT(m.id)::int AS school_count,
+         COUNT(DISTINCT r.message_id)::int AS read_count
+       FROM admin_messages m
+       LEFT JOIN admin_message_reads r ON r.message_id = m.id
+       GROUP BY COALESCE(m.send_batch_id, m.id)
+       ORDER BY MAX(m.created_at) DESC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset],
+    )) as {
+      batch_id: string;
+      created_at: Date;
+      title: string;
+      school_count: number;
+      read_count: number;
+    }[];
+
+    if (!raw.length) {
+      return paginate([], total, page, limit);
+    }
+
+    const batchIds = raw.map((r) => r.batch_id);
+    const sampleRows = (await this.messageRepo.query(
+      `SELECT DISTINCT ON (COALESCE(send_batch_id, id)) COALESCE(send_batch_id, id) AS "batch_id", id AS "id"
+       FROM admin_messages
+       WHERE COALESCE(send_batch_id, id) = ANY($1::uuid[])
+       ORDER BY COALESCE(send_batch_id, id), created_at ASC`,
+      [batchIds],
+    )) as { batch_id: string; id: string }[];
+    const sampleIds = sampleRows.map((r) => r.id);
+    const sampleMsgs = sampleIds.length
+      ? await this.messageRepo.find({
+          where: { id: In(sampleIds) },
+          relations: ['creator'],
+        })
+      : [];
+    const byId = new Map(sampleMsgs.map((m) => [m.id, m]));
+    const firstByBatch = new Map<string, AdminMessage>();
+    for (const row of sampleRows) {
+      const m = byId.get(row.id);
+      if (m) firstByBatch.set(row.batch_id, m);
+    }
+
+    const items = raw.map((r) => {
+      const m = firstByBatch.get(r.batch_id);
+      return {
+        batch_id: r.batch_id,
+        title: r.title,
+        body: m?.body ?? null,
+        image_url: m?.image_url ?? null,
+        created_at: r.created_at,
+        school_count: r.school_count,
+        read_count: r.read_count,
+        creator: m?.creator
+          ? { display_name: m.creator.display_name ?? null, email: m.creator.email }
+          : null,
+      };
+    });
+
+    return paginate(items, total, page, limit);
+  }
+
+  /** Bir gönderimde okul bazlı iletim / okundu özeti. */
+  async getBatchDeliveryReport(batchId: string) {
+    const messages = await this.messageRepo
+      .createQueryBuilder('m')
+      .leftJoinAndSelect('m.school', 'school')
+      .leftJoinAndSelect('m.creator', 'creator')
+      .where(
+        '(m.send_batch_id = :batchId OR (m.send_batch_id IS NULL AND m.id = :batchId))',
+        { batchId },
+      )
+      .orderBy('school.name', 'ASC')
+      .getMany();
+    if (!messages.length) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Gönderim bulunamadı.' });
+    }
+
+    const messageIds = messages.map((m) => m.id);
+    const readRows =
+      messageIds.length === 0
+        ? []
+        : await this.readRepo
+            .createQueryBuilder('r')
+            .select('r.message_id', 'message_id')
+            .addSelect('MAX(r.read_at)', 'read_at')
+            .where('r.message_id IN (:...ids)', { ids: messageIds })
+            .groupBy('r.message_id')
+            .getRawMany<{ message_id: string; read_at: Date }>();
+
+    const readMap = new Map(readRows.map((x) => [x.message_id, new Date(x.read_at)]));
+
+    const head = messages[0];
+    const schools = messages.map((m) => ({
+      school_id: m.school_id,
+      school_name: m.school?.name ?? '',
+      city: m.school?.city ?? null,
+      district: m.school?.district ?? null,
+      message_id: m.id,
+      read_at: readMap.get(m.id)?.toISOString() ?? null,
+    }));
+
+    return {
+      batch_id: batchId,
+      title: head.title,
+      body: head.body,
+      image_url: head.image_url,
+      created_at: head.created_at,
+      creator: head.creator
+        ? { display_name: head.creator.display_name ?? null, email: head.creator.email }
+        : null,
+      school_count: schools.length,
+      read_count: schools.filter((s) => s.read_at).length,
+      schools,
+    };
+  }
+
+  /** Bir gönderimdeki tüm okul mesajlarını ve okuma kayıtlarını siler (CASCADE). */
+  async deleteBatch(batchId: string) {
+    const messages = await this.messageRepo
+      .createQueryBuilder('m')
+      .where('(m.send_batch_id = :batchId OR (m.send_batch_id IS NULL AND m.id = :batchId))', { batchId })
+      .getMany();
+    if (!messages.length) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Gönderim bulunamadı.' });
+    }
+    await this.messageRepo.remove(messages);
+    return { deleted: messages.length };
   }
 
   async list(

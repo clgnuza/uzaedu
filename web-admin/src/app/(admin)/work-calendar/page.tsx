@@ -455,7 +455,7 @@ export default function WorkCalendarPage(props?: { embedded?: boolean }) {
                   </button>
                 </div>
               </div>
-              <div className="overflow-x-auto max-h-[400px] overflow-y-auto rounded-lg border border-border">
+              <div className="table-x-scroll max-h-[400px] overflow-y-auto rounded-lg border border-border">
                 <table className="evrak-admin-table w-full text-sm">
                   <thead>
                     <tr>
@@ -498,7 +498,7 @@ export default function WorkCalendarPage(props?: { embedded?: boolean }) {
               description="Öğretim yılına göre hafta takvimi ekleyin. Yıllık plan üretiminde hafta tarihleri buradan alınır."
             />
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-border">
+            <div className="table-x-scroll rounded-lg border border-border">
               <table className="evrak-admin-table w-full text-sm">
                 <thead>
                   <tr>

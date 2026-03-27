@@ -4,6 +4,7 @@ import { Request } from 'express';
 import { UsersService } from '../users/users.service';
 import { TeacherSchoolMembershipStatus } from '../types/enums';
 import { effectiveTeacherSchoolMembership } from '../common/utils/teacher-school-membership';
+import { schoolJoinStage } from '../common/utils/school-join-stage';
 import { AuditService } from '../audit/audit.service';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
@@ -37,6 +38,8 @@ export class MeController {
       school_id: user.school_id,
       teacher_school_membership: eff,
       school_verified: eff === TeacherSchoolMembershipStatus.approved && !!user.school_id,
+      school_join_stage: schoolJoinStage(user),
+      school_join_email_verified_at: user.schoolJoinEmailVerifiedAt?.toISOString() ?? null,
       teacher_public_name_masked: user.teacherPublicNameMasked,
       teacher_branch: user.teacherBranch ?? null,
       school: user.school
@@ -61,6 +64,13 @@ export class MeController {
     };
   }
 
+  @Post('resend-school-join-email')
+  @Throttle({ default: { limit: 5, ttl: 600000 } })
+  @HttpCode(200)
+  async resendSchoolJoinEmail(@CurrentUser('userId') userId: string) {
+    return this.usersService.resendSchoolJoinEmail(userId);
+  }
+
   @Patch()
   async update(@CurrentUser('userId') userId: string, @Body() dto: UpdateMeDto) {
     const user = await this.usersService.updateMe(userId, dto);
@@ -75,6 +85,8 @@ export class MeController {
       school_id: user.school_id,
       teacher_school_membership: eff,
       school_verified: eff === TeacherSchoolMembershipStatus.approved && !!user.school_id,
+      school_join_stage: schoolJoinStage(user),
+      school_join_email_verified_at: user.schoolJoinEmailVerifiedAt?.toISOString() ?? null,
       teacher_public_name_masked: user.teacherPublicNameMasked,
       status: user.status,
       evrak_defaults: user.evrakDefaults ?? null,

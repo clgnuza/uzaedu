@@ -5,6 +5,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { canAccessRoute, getMatchedRoute } from '@/config/menu';
 import type { WebAdminRole } from '@/config/types';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { useSupportModuleAvailability } from '@/hooks/use-support-module-availability';
+import { isPublicAdminPath } from '@/lib/public-admin-paths';
 
 interface RouteGuardProps {
   children: React.ReactNode;
@@ -32,10 +34,13 @@ export function RouteGuard({
 }: RouteGuardProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { supportEnabled } = useSupportModuleAvailability();
+  const supportEnabledValue = supportEnabled ?? true;
 
   useEffect(() => {
     if (loading) return;
     if (!role) {
+      if (isPublicAdminPath(pathname)) return;
       router.replace(loginPath);
       return;
     }
@@ -44,7 +49,7 @@ export function RouteGuard({
       if (pathname !== '/dashboard' && pathname !== '/') router.replace('/dashboard');
       return;
     }
-    const allowed = canAccessRoute(pathname, role, moderatorModules, schoolEnabledModules);
+    const allowed = canAccessRoute(pathname, role, moderatorModules, schoolEnabledModules, supportEnabledValue);
     if (!allowed) {
       if ((pathname === '/school-reviews' || pathname.startsWith('/school-reviews/')) && role === 'school_admin') {
         router.replace('/school-reviews-report');
@@ -52,7 +57,7 @@ export function RouteGuard({
       }
       router.replace('/403');
     }
-  }, [loading, role, moderatorModules, schoolEnabledModules, pathname, router, loginPath]);
+  }, [loading, role, moderatorModules, schoolEnabledModules, pathname, router, loginPath, supportEnabledValue]);
 
   if (loading) {
     return (
@@ -62,9 +67,10 @@ export function RouteGuard({
     );
   }
   if (!role) {
+    if (isPublicAdminPath(pathname)) return <>{children}</>;
     return null;
   }
-  if (!canAccessRoute(pathname, role, moderatorModules, schoolEnabledModules)) {
+  if (!canAccessRoute(pathname, role, moderatorModules, schoolEnabledModules, supportEnabledValue)) {
     return null;
   }
   return <>{children}</>;

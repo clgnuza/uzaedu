@@ -6,7 +6,7 @@ import { memo, useEffect } from 'react';
 import { AuthTransitionLink } from '@/components/landing/auth-transition-link';
 import {
   ScanLine,
-  Sigma,
+  Calculator,
   Calendar,
   Shield,
   Sparkles,
@@ -16,15 +16,15 @@ import {
   Layers,
   CalendarClock,
   Target,
-  School,
+  Star,
   type LucideIcon,
 } from 'lucide-react';
 
 type HubItem = { label: string; href: string; icon: LucideIcon };
 
 const ITEMS: HubItem[] = [
-  { label: 'Haberler',    href: '/login?redirect=%2Fhaberler',          icon: Newspaper },
-  { label: 'Ek ders',     href: '/login?redirect=%2Fextra-lesson-calc', icon: Sigma },
+  { label: 'Haberler',    href: '/haberler',                            icon: Newspaper },
+  { label: 'Hesaplamalar', href: '/hesaplamalar', icon: Calculator },
   { label: 'Ders Prog.',  href: '/login?redirect=%2Fders-programi',     icon: Calendar },
   { label: 'Nöbet',       href: '/login?redirect=%2Fduty',              icon: Shield },
   { label: 'Bilsem',      href: '/login?redirect=%2Fbilsem%2Ftakvim',  icon: Sparkles },
@@ -34,7 +34,7 @@ const ITEMS: HubItem[] = [
   { label: 'Planlar',     href: '/login?redirect=%2Fduty%2Fplanlar',    icon: Layers },
   { label: 'Ajanda',      href: '/login?redirect=%2Fogretmen-ajandasi', icon: CalendarClock },
   { label: 'Kazanım',     href: '/login?redirect=%2Fkazanim-takip',     icon: Target },
-  { label: 'Okullar',     href: '/login?redirect=%2Fschools',           icon: School },
+  { label: 'Okul değerl.', href: '/okul-degerlendirmeleri', icon: Star },
 ];
 
 const OUTER_R = 46.5;

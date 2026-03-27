@@ -86,7 +86,7 @@ export function AgendaCalendarGrid({
   const dayLabels = viewMode === 'day' ? [format(month, 'd MMMM yyyy')] : ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
 
   return (
-    <div className="overflow-x-auto -mx-1">
+    <div className="table-x-scroll -mx-1">
       <div className="min-w-[280px] rounded-xl overflow-hidden border border-border/60 bg-card">
         <div className={`grid border-b-2 border-border/60 bg-muted/40 text-center text-[10px] sm:text-xs font-bold text-muted-foreground uppercase tracking-wider`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
           {dayLabels.map((day) => (

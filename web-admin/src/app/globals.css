@@ -242,6 +242,22 @@ body {
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
 }
+.mobile-tab-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.mobile-tab-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Geniş tablolar: yatay kaydırma (mobil dokunma) */
+.table-x-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x pan-y pinch-zoom;
+}
 
 /* Slick referansı: bileşen stilleri (Tailwind ile) */
 @layer components {
@@ -347,7 +363,12 @@ body {
 .container {
   margin-inline: auto;
   max-width: none;
-  padding-inline: 1rem;
+  padding-inline: 0.75rem;
+}
+@media (min-width: 640px) {
+  .container {
+    padding-inline: 1rem;
+  }
 }
 @media (min-width: 1024px) {
   .container {
@@ -358,7 +379,12 @@ body {
 .container-fluid {
   width: 100%;
   margin-inline: auto;
-  padding-inline: 1rem;
+  padding-inline: 0.75rem;
+}
+@media (min-width: 640px) {
+  .container-fluid {
+    padding-inline: 1rem;
+  }
 }
 @media (min-width: 1024px) {
   .container-fluid {
@@ -376,10 +402,22 @@ body {
     --sidebar-default-width: 280px;
     --header-height: 70px;
   }
+  .demo1.header-shell-density-compact {
+    --header-height: 56px;
+  }
+  .demo1.header-shell-density-comfortable {
+    --header-height: 76px;
+  }
   @media (max-width: 1023px) {
     .demo1 {
       --sidebar-width: 280px;
       --header-height: 60px;
+    }
+    .demo1.header-shell-density-compact {
+      --header-height: 52px;
+    }
+    .demo1.header-shell-density-comfortable {
+      --header-height: 64px;
     }
   }
 
@@ -601,6 +639,11 @@ body {
     background: #e5e7eb !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+  }
+  .duty-print-table .sticky {
+    position: static !important;
+    left: auto !important;
+    box-shadow: none !important;
   }
 
   /* Ders programı yazdırma – sadece tablo, chrome yok */

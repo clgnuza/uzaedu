@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeftRight,
@@ -18,6 +18,7 @@ import {
   BookOpen,
   ChevronRight,
   Trash2,
+  Undo2,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
@@ -48,6 +49,7 @@ type DutySlot = {
   id: string;
   date: string;
   area_name: string | null;
+  user_id?: string;
   user?: { display_name: string | null; email: string };
 };
 
@@ -56,6 +58,8 @@ type CoverageInfo = {
   lesson_num: number;
   class_section?: string;
   subject?: string;
+  covered_by_user_id?: string | null;
+  covered_by_user?: { display_name: string | null; email: string } | null;
 };
 
 type SwapRequest = {
@@ -65,7 +69,7 @@ type SwapRequest = {
   teacher2_status?: 'pending' | 'approved' | 'rejected' | null;
   coverage_id?: string | null;
   coverage?: CoverageInfo | null;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'reverted';
   admin_note: string | null;
   created_at: string;
   requested_by_user_id: string;
@@ -87,6 +91,11 @@ type MyCoverage = {
     user?: { display_name: string | null; email: string };
   };
 };
+
+function personName(u?: { display_name: string | null; email: string } | null) {
+  if (!u) return '—';
+  return u.display_name || u.email || '—';
+}
 
 function formatDate(s: string) {
   return new Date(s + 'T12:00:00').toLocaleDateString('tr-TR', {
@@ -119,6 +128,12 @@ const STATUS_CONFIG_SWAP = {
     badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
     border: 'border-l-rose-400',
   },
+  reverted: {
+    icon: Undo2,
+    label: 'Geri alındı',
+    badge: 'bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300',
+    border: 'border-l-slate-400',
+  },
 } as const;
 
 const TEACHER2_CONFIG = {
@@ -138,15 +153,17 @@ function StepIndicator({ request }: { request: SwapRequest }) {
             ? 'bg-amber-100 text-amber-700'
             : request.status === 'approved'
               ? 'bg-emerald-100 text-emerald-700'
-              : 'bg-rose-100 text-rose-700',
+              : request.status === 'reverted'
+                ? 'bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-200'
+                : 'bg-rose-100 text-rose-700',
         )}>
           Admin Onayı
         </span>
         <span className={cn(
           'px-2 py-0.5 rounded-full font-medium',
-          request.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-muted text-muted-foreground',
+          request.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : request.status === 'reverted' ? 'bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-200' : 'bg-muted text-muted-foreground',
         )}>
-          {request.status === 'approved' ? 'Tamamlandı' : request.status === 'rejected' ? 'Reddedildi' : 'Bekliyor'}
+          {request.status === 'approved' ? 'Tamamlandı' : request.status === 'reverted' ? 'Geri alındı' : request.status === 'rejected' ? 'Reddedildi' : 'Bekliyor'}
         </span>
       </div>
     );
@@ -172,11 +189,13 @@ function StepIndicator({ request }: { request: SwapRequest }) {
         'px-2 py-0.5 rounded-full font-medium',
         adminStep === 'approved'
           ? 'bg-emerald-100 text-emerald-700'
-          : adminStep === 'rejected'
-            ? 'bg-rose-100 text-rose-700'
-            : 'bg-muted text-muted-foreground',
+          : adminStep === 'reverted'
+            ? 'bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-200'
+            : adminStep === 'rejected'
+              ? 'bg-rose-100 text-rose-700'
+              : 'bg-muted text-muted-foreground',
       )}>
-        {adminStep === 'approved' ? '✓ Admin Onayı' : adminStep === 'rejected' ? '✗ Admin Reddi' : 'Admin Onayı'}
+        {adminStep === 'approved' ? '✓ Admin Onayı' : adminStep === 'reverted' ? '↩ Geri alındı' : adminStep === 'rejected' ? '✗ Admin Reddi' : 'Admin Onayı'}
       </span>
     </div>
   );
@@ -226,6 +245,7 @@ export default function TakasPage() {
 
   // Talep iptal (öğretmen: kendi talebi, admin: herhangi bekleyen)
   const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const [revertingId, setRevertingId] = useState<string | null>(null);
 
   const fetchRequests = useCallback(async () => {
     if (!token) return;
@@ -446,15 +466,88 @@ export default function TakasPage() {
     }
   };
 
+  const handleRevert = async (reqId: string) => {
+    if (!token) return;
+    if (!window.confirm('Onaylanan talebi geri almak istiyor musunuz? Nöbet veya ders görevi önceki öğretmene döner.')) return;
+    setRevertingId(reqId);
+    try {
+      await apiFetch(`/duty/swap-requests/${reqId}/revert`, { token, method: 'POST' });
+      toast.success('Talep geri alındı.');
+      fetchRequests();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Geri alınamadı.');
+    } finally {
+      setRevertingId(null);
+    }
+  };
+
   const pendingCount = requests.filter((r) => r.status === 'pending').length;
   const approvedCount = requests.filter((r) => r.status === 'approved').length;
   const rejectedCount = requests.filter((r) => r.status === 'rejected').length;
+  const revertedCount = requests.filter((r) => r.status === 'reverted').length;
 
-  const REQUEST_TYPE_LABELS: Record<string, { label: string; className: string }> = {
-    swap: { label: 'Nöbet Takası', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' },
-    day_change: { label: 'Gün Değişimi', className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
-    coverage_swap: { label: 'Ders Görevi Değişimi', className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' },
+  type RequestTypeKey = 'swap' | 'day_change' | 'coverage_swap';
+
+  const REQUEST_TYPE_LABELS: Record<RequestTypeKey, { label: string; className: string }> = {
+    swap: { label: 'Nöbet Takası', className: 'bg-sky-200/90 text-sky-900 dark:bg-sky-800/60 dark:text-sky-100' },
+    day_change: { label: 'Gün Değişimi', className: 'bg-violet-200/90 text-violet-900 dark:bg-violet-800/60 dark:text-violet-100' },
+    coverage_swap: { label: 'Ders Görevi Değişimi', className: 'bg-amber-200/90 text-amber-950 dark:bg-amber-800/60 dark:text-amber-100' },
   };
+
+  /** Talep kartları ve oluştur butonları — tipe göre pastel tema */
+  const TYPE_UI: Record<
+    RequestTypeKey,
+    {
+      createBtn: string;
+      section: string;
+      sectionTitle: string;
+      cardTint: string;
+    }
+  > = {
+    swap: {
+      createBtn:
+        'border-2 border-sky-400/70 bg-gradient-to-br from-sky-100 to-sky-50 text-sky-950 shadow-sm hover:from-sky-200 hover:to-sky-100 dark:border-sky-600 dark:from-sky-950/60 dark:to-sky-900/40 dark:text-sky-50 dark:hover:from-sky-900 dark:hover:to-sky-950',
+      section:
+        'rounded-2xl border-2 border-sky-300/70 bg-gradient-to-br from-sky-50/90 via-white to-sky-100/30 p-4 shadow-sm dark:border-sky-700/50 dark:from-sky-950/40 dark:via-slate-950/50 dark:to-sky-950/20',
+      sectionTitle: 'text-sky-900 dark:text-sky-100',
+      cardTint: 'bg-sky-50/60 dark:bg-sky-950/25',
+    },
+    day_change: {
+      createBtn:
+        'border-2 border-violet-400/70 bg-gradient-to-br from-violet-100 to-violet-50 text-violet-950 shadow-sm hover:from-violet-200 hover:to-violet-100 dark:border-violet-600 dark:from-violet-950/60 dark:to-violet-900/40 dark:text-violet-50 dark:hover:from-violet-900 dark:hover:to-violet-950',
+      section:
+        'rounded-2xl border-2 border-violet-300/70 bg-gradient-to-br from-violet-50/90 via-white to-fuchsia-50/30 p-4 shadow-sm dark:border-violet-700/50 dark:from-violet-950/40 dark:via-slate-950/50 dark:to-fuchsia-950/15',
+      sectionTitle: 'text-violet-900 dark:text-violet-100',
+      cardTint: 'bg-violet-50/60 dark:bg-violet-950/25',
+    },
+    coverage_swap: {
+      createBtn:
+        'border-2 border-amber-400/70 bg-gradient-to-br from-amber-100 to-amber-50 text-amber-950 shadow-sm hover:from-amber-200 hover:to-amber-100 dark:border-amber-600 dark:from-amber-950/60 dark:to-amber-900/40 dark:text-amber-50 dark:hover:from-amber-900 dark:hover:to-amber-950',
+      section:
+        'rounded-2xl border-2 border-amber-300/70 bg-gradient-to-br from-amber-50/90 via-white to-orange-50/30 p-4 shadow-sm dark:border-amber-700/50 dark:from-amber-950/40 dark:via-slate-950/50 dark:to-orange-950/15',
+      sectionTitle: 'text-amber-950 dark:text-amber-100',
+      cardTint: 'bg-amber-50/60 dark:bg-amber-950/25',
+    },
+  };
+
+  const requestsByType = useMemo(() => {
+    const swap: SwapRequest[] = [];
+    const day_change: SwapRequest[] = [];
+    const coverage_swap: SwapRequest[] = [];
+    for (const r of requests) {
+      const t = (r.request_type ?? 'swap') as RequestTypeKey;
+      if (t === 'day_change') day_change.push(r);
+      else if (t === 'coverage_swap') coverage_swap.push(r);
+      else swap.push(r);
+    }
+    return { swap, day_change, coverage_swap };
+  }, [requests]);
+
+  const TYPE_ORDER: { key: RequestTypeKey; title: string; Icon: typeof ArrowLeftRight }[] = [
+    { key: 'swap', title: 'Nöbet Takası', Icon: ArrowLeftRight },
+    { key: 'day_change', title: 'Gün Değişimi', Icon: CalendarDays },
+    { key: 'coverage_swap', title: 'Ders Görevi Değişimi', Icon: BookOpen },
+  ];
 
   if (isTeacher && swapEnabled === false) {
     return (
@@ -508,20 +601,21 @@ export default function TakasPage() {
               Yenile
             </Button>
             {isTeacher && (
-              <>
-                <Button size="sm" onClick={() => setCreateOpen(true)}>
-                  <Plus className="size-4" />
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:rounded-2xl sm:border sm:border-border/60 sm:bg-muted/30 sm:p-1.5">
+                <span className="hidden text-[11px] font-medium text-muted-foreground sm:mr-1 sm:inline">Yeni talep</span>
+                <Button size="sm" className={cn('gap-1.5', TYPE_UI.swap.createBtn)} onClick={() => setCreateOpen(true)}>
+                  <Plus className="size-4 shrink-0" />
                   Nöbet Takası
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => setDayChangeOpen(true)}>
-                  <CalendarDays className="size-4" />
+                <Button size="sm" className={cn('gap-1.5', TYPE_UI.day_change.createBtn)} onClick={() => setDayChangeOpen(true)}>
+                  <CalendarDays className="size-4 shrink-0" />
                   Gün Değişimi
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => setCoverageSwapOpen(true)}>
-                  <BookOpen className="size-4" />
-                  Ders Görevi Değişimi
+                <Button size="sm" className={cn('gap-1.5', TYPE_UI.coverage_swap.createBtn)} onClick={() => setCoverageSwapOpen(true)}>
+                  <BookOpen className="size-4 shrink-0" />
+                  Ders Görevi
                 </Button>
-              </>
+              </div>
             )}
           </div>
         }
@@ -529,11 +623,12 @@ export default function TakasPage() {
 
       {/* Özet sayaçlar */}
       {requests.length > 0 && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: 'Bekleyen', value: pendingCount, color: 'text-amber-700', bg: 'bg-amber-50 dark:bg-amber-950/20', Icon: Clock },
             { label: 'Onaylanan', value: approvedCount, color: 'text-emerald-700', bg: 'bg-emerald-50 dark:bg-emerald-950/20', Icon: CheckCircle2 },
             { label: 'Reddedilen', value: rejectedCount, color: 'text-rose-700', bg: 'bg-rose-50 dark:bg-rose-950/20', Icon: XCircle },
+            { label: 'Geri alınan', value: revertedCount, color: 'text-slate-700', bg: 'bg-slate-50 dark:bg-slate-950/30', Icon: Undo2 },
           ].map((s) => (
             <div key={s.label} className={cn('rounded-xl p-3 border border-border/50 flex items-center gap-3', s.bg)}>
               <s.Icon className={cn('size-5 shrink-0', s.color)} />
@@ -558,11 +653,37 @@ export default function TakasPage() {
           description={isAdmin ? 'Henüz talep bulunmuyor.' : 'Nöbet takası veya değişim talebi oluşturabilirsiniz.'}
         />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {requests.map((req) => {
+        <div className="space-y-8">
+          {TYPE_ORDER.map(({ key, title, Icon: SectionIcon }) => {
+            const list = requestsByType[key];
+            if (!list.length) return null;
+            const ui = TYPE_UI[key];
+            return (
+              <div key={key} className="space-y-3">
+                <div
+                  className={cn(
+                    'flex flex-wrap items-center gap-2.5 rounded-xl border px-3 py-2.5 sm:px-4',
+                    ui.section,
+                  )}
+                >
+                  <div
+                    className={cn(
+                      'flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/90 shadow-sm ring-1 ring-black/5 dark:bg-slate-900/90 dark:ring-white/10',
+                      ui.sectionTitle,
+                    )}
+                  >
+                    <SectionIcon className="size-4" aria-hidden />
+                  </div>
+                  <span className={cn('text-sm font-semibold sm:text-base', ui.sectionTitle)}>
+                    {title}{' '}
+                    <span className="font-normal text-muted-foreground">({list.length})</span>
+                  </span>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {list.map((req) => {
             const cfg = STATUS_CONFIG_SWAP[req.status as keyof typeof STATUS_CONFIG_SWAP] ?? STATUS_CONFIG_SWAP.pending;
             const Icon = cfg.icon;
-            const typeLabel = REQUEST_TYPE_LABELS[req.request_type ?? 'swap'];
+            const typeLabel = REQUEST_TYPE_LABELS[(req.request_type ?? 'swap') as RequestTypeKey];
             const isTeacher2 = isTeacher && req.proposed_user_id === me?.id && req.teacher2_status === 'pending' && req.status === 'pending';
 
             return (
@@ -571,6 +692,7 @@ export default function TakasPage() {
                 className={cn(
                   'rounded-xl border border-l-4 bg-card shadow-sm hover:shadow-md transition-shadow',
                   cfg.border,
+                  ui.cardTint,
                 )}
               >
                 <div className="p-4 pb-3">
@@ -622,24 +744,74 @@ export default function TakasPage() {
                   )}
 
                   {/* Transfer akışı */}
-                  <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 mb-2">
-                    <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                      <User className="size-3.5 text-muted-foreground shrink-0" />
-                      <span className="text-sm font-medium truncate">
-                        {req.requestedByUser?.display_name || req.requestedByUser?.email || '—'}
-                      </span>
-                    </div>
-                    <ArrowLeftRight className="size-4 text-primary shrink-0" />
-                    <div className="flex items-center gap-1.5 flex-1 min-w-0 justify-end">
-                      <span className="text-sm font-medium truncate text-right">
-                        {req.request_type === 'day_change'
-                          ? <span className="text-muted-foreground italic text-xs">Admin atayacak</span>
-                          : (req.proposedUser?.display_name || req.proposedUser?.email || '—')
+                  <div className="mb-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Talep özeti</p>
+                    <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
+                      <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                        <User className="size-3.5 text-muted-foreground shrink-0" />
+                        <span className="text-sm font-medium truncate">
+                          {req.requestedByUser?.display_name || req.requestedByUser?.email || '—'}
+                        </span>
+                      </div>
+                      <ArrowLeftRight className="size-4 text-primary shrink-0" />
+                      <div className="flex items-center gap-1.5 flex-1 min-w-0 justify-end">
+                        <span className="text-sm font-medium truncate text-right">
+                          {req.request_type === 'day_change' && req.status === 'pending'
+                            ? <span className="text-muted-foreground italic text-xs">Admin atayacak</span>
+                            : (req.proposedUser?.display_name || req.proposedUser?.email || '—')
                         }
-                      </span>
-                      <User className="size-3.5 text-muted-foreground shrink-0" />
+                        </span>
+                        <User className="size-3.5 text-muted-foreground shrink-0" />
+                      </div>
                     </div>
                   </div>
+
+                  {(req.status === 'approved' || req.status === 'reverted') && (
+                    <div
+                      className={cn(
+                        'rounded-lg border px-3 py-2.5 mb-2 space-y-1.5',
+                        req.status === 'approved'
+                          ? 'border-emerald-200/90 bg-emerald-50/70 dark:border-emerald-900/50 dark:bg-emerald-950/30'
+                          : 'border-slate-200 bg-slate-50/90 dark:border-slate-700 dark:bg-slate-900/40',
+                      )}
+                    >
+                      <p
+                        className={cn(
+                          'text-[10px] font-semibold uppercase tracking-wide',
+                          req.status === 'approved'
+                            ? 'text-emerald-800 dark:text-emerald-300'
+                            : 'text-slate-700 dark:text-slate-300',
+                        )}
+                      >
+                        {req.status === 'approved' ? 'Onay sonrası güncel kayıt' : 'Güncel kayıt (geri alındı)'}
+                      </p>
+                      {req.request_type === 'coverage_swap' ? (
+                        <>
+                          <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-xs">
+                            <span className="text-muted-foreground shrink-0">Ders görevini yürüten:</span>
+                            <span className="font-semibold text-foreground">
+                              {personName(req.coverage?.covered_by_user ?? req.proposedUser)}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-muted-foreground leading-snug">
+                            Talep: {personName(req.requestedByUser)} → onaylanan: {personName(req.proposedUser)}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-xs">
+                            <span className="text-muted-foreground shrink-0">Nöbet görevlisi (kayıtta):</span>
+                            <span className="font-semibold text-foreground">{personName(req.duty_slot?.user)}</span>
+                          </div>
+                          <div className="text-[11px] text-muted-foreground leading-snug">
+                            Devreden: {personName(req.requestedByUser)}
+                            <span className="text-border mx-1">·</span>
+                            Taleple onaylanan: {personName(req.proposedUser)}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
 
                   {/* 2-adım onay göstergesi */}
                   {req.request_type !== 'day_change' && (
@@ -721,6 +893,25 @@ export default function TakasPage() {
                     </Button>
                   </div>
                 )}
+
+                {isAdmin && req.status === 'approved' && (
+                  <div className="px-4 pb-4">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full h-8 text-xs border-slate-300"
+                      disabled={revertingId === req.id}
+                      onClick={() => handleRevert(req.id)}
+                    >
+                      {revertingId === req.id ? <LoadingSpinner className="size-3.5" /> : <Undo2 className="size-3.5" />}
+                      Onayı geri al
+                    </Button>
+                  </div>
+                )}
+              </div>
+            );
+                  })}
+                </div>
               </div>
             );
           })}
@@ -923,7 +1114,7 @@ export default function TakasPage() {
           {respondOpen && (
             <div className="space-y-4">
               <div className="rounded-md bg-muted/50 px-3 py-2 text-sm space-y-1">
-                <p><span className="text-muted-foreground">Talep tipi:</span> {REQUEST_TYPE_LABELS[respondOpen.request_type ?? 'swap']?.label}</p>
+                <p><span className="text-muted-foreground">Talep tipi:</span> {REQUEST_TYPE_LABELS[(respondOpen.request_type ?? 'swap') as RequestTypeKey]?.label}</p>
                 <p>
                   <span className="text-muted-foreground">Talep eden:</span>{' '}
                   {respondOpen.requestedByUser?.display_name || respondOpen.requestedByUser?.email}

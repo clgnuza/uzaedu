@@ -107,8 +107,38 @@ export class TicketsService {
     return false;
   }
 
-  private isStaffRole(scope: TicketScope): boolean {
-    return [UserRole.school_admin, UserRole.moderator, UserRole.superadmin].includes(scope.role);
+  private isStaffForTicket(ticket: Ticket, scope: TicketScope): boolean {
+    if (scope.role === UserRole.superadmin) return true;
+    if (ticket.target_type !== 'SCHOOL_SUPPORT') return false;
+    if (ticket.school_id !== scope.schoolId) return false;
+    if (scope.role === UserRole.school_admin) return true;
+    return (
+      scope.role === UserRole.moderator &&
+      Array.isArray(scope.moderatorModules) &&
+      scope.moderatorModules.includes('support')
+    );
+  }
+
+  private getAllowedStatusTransitions(ticket: Ticket, scope: TicketScope): TicketStatus[] {
+    if (!this.isStaffForTicket(ticket, scope)) {
+      if (ticket.status === 'CLOSED' || ticket.status === 'RESOLVED') return [];
+      return ['RESOLVED'];
+    }
+
+    switch (ticket.status) {
+      case 'OPEN':
+        return ['IN_PROGRESS', 'WAITING_REQUESTER', 'RESOLVED', 'CLOSED'];
+      case 'IN_PROGRESS':
+        return ['WAITING_REQUESTER', 'RESOLVED', 'CLOSED'];
+      case 'WAITING_REQUESTER':
+        return ['IN_PROGRESS', 'RESOLVED', 'CLOSED'];
+      case 'RESOLVED':
+        return ['IN_PROGRESS', 'CLOSED'];
+      case 'CLOSED':
+        return ['IN_PROGRESS'];
+      default:
+        return [];
+    }
   }
 
   async create(dto: CreateTicketDto, scope: TicketScope) {
@@ -298,30 +328,51 @@ export class TicketsService {
       });
     }
 
-    if (scope.role === UserRole.teacher) {
+    const canManageTicket = this.isStaffForTicket(ticket, scope);
+
+    if (!canManageTicket) {
+      if (dto.assigned_to_user_id !== undefined || dto.priority !== undefined || dto.module_id !== undefined) {
+        throw new ForbiddenException({
+          code: 'FORBIDDEN',
+          message: 'Talep sahibi sadece durumunu güncelleyebilir.',
+        });
+      }
       if (dto.status && dto.status !== 'RESOLVED') {
         throw new ForbiddenException({
           code: 'FORBIDDEN',
-          message: 'Öğretmen sadece "Çözüldü" işaretleyebilir.',
+          message: 'Talep sahibi sadece "Çözüldü" işaretleyebilir.',
         });
       }
     }
 
     if (dto.status) {
       const prevStatus = ticket.status;
+      if (dto.status !== prevStatus) {
+        const allowedTransitions = this.getAllowedStatusTransitions(ticket, scope);
+        if (!allowedTransitions.includes(dto.status as TicketStatus)) {
+          throw new ForbiddenException({
+            code: 'FORBIDDEN',
+            message: 'Bu durum geçişine izin verilmiyor.',
+          });
+        }
+      }
       ticket.status = dto.status as TicketStatus;
-      if (dto.status === 'RESOLVED') ticket.resolved_at = new Date();
-      if (dto.status === 'CLOSED') ticket.closed_at = new Date();
-      await this.eventRepo.save({
-        ticket_id: id,
-        actor_user_id: scope.userId,
-        event_type: 'status_changed',
-        payload_json: { from: prevStatus, to: dto.status },
-      });
+      ticket.resolved_at = dto.status === 'RESOLVED' ? new Date() : null;
+      ticket.closed_at = dto.status === 'CLOSED' ? new Date() : null;
+      if (dto.status !== prevStatus) {
+        ticket.last_activity_at = new Date();
+        await this.eventRepo.save({
+          ticket_id: id,
+          actor_user_id: scope.userId,
+          event_type: 'status_changed',
+          payload_json: { from: prevStatus, to: dto.status },
+        });
+      }
     }
     if (dto.assigned_to_user_id !== undefined) {
       const prev = ticket.assigned_to_user_id;
       ticket.assigned_to_user_id = dto.assigned_to_user_id;
+      ticket.last_activity_at = new Date();
       if (dto.assigned_to_user_id && dto.assigned_to_user_id !== prev) {
         await this.notificationsService.createInboxEntry({
           user_id: dto.assigned_to_user_id,
@@ -333,8 +384,14 @@ export class TicketsService {
         });
       }
     }
-    if (dto.priority) ticket.priority = dto.priority as any;
-    if (dto.module_id) ticket.module_id = dto.module_id;
+    if (dto.priority) {
+      ticket.priority = dto.priority as any;
+      ticket.last_activity_at = new Date();
+    }
+    if (dto.module_id) {
+      ticket.module_id = dto.module_id;
+      ticket.last_activity_at = new Date();
+    }
 
     await this.ticketRepo.save(ticket);
     return this.findById(id, scope);
@@ -454,7 +511,7 @@ export class TicketsService {
         message: 'Bu talebe mesaj yazma yetkiniz yok.',
       });
     }
-    if (dto.message_type === 'INTERNAL_NOTE' && !this.isStaffRole(scope)) {
+    if (dto.message_type === 'INTERNAL_NOTE' && !this.isStaffForTicket(ticket, scope)) {
       throw new ForbiddenException({
         code: 'FORBIDDEN',
         message: 'İç not yalnızca destek personeli ekleyebilir.',
@@ -467,6 +524,13 @@ export class TicketsService {
       });
     }
     if (ticket.status === 'WAITING_REQUESTER' && scope.userId === ticket.requester_user_id) {
+      ticket.status = 'IN_PROGRESS';
+      await this.ticketRepo.save(ticket);
+    } else if (
+      ticket.status === 'OPEN' &&
+      dto.message_type === 'PUBLIC' &&
+      this.isStaffForTicket(ticket, scope)
+    ) {
       ticket.status = 'IN_PROGRESS';
       await this.ticketRepo.save(ticket);
     }
@@ -525,7 +589,7 @@ export class TicketsService {
       .skip((page - 1) * limit)
       .take(limit);
 
-    if (ticket.requester_user_id === scope.userId && !this.isStaffRole(scope)) {
+    if (ticket.requester_user_id === scope.userId && !this.isStaffForTicket(ticket, scope)) {
       qb.andWhere('m.message_type = :pub', { pub: 'PUBLIC' });
     }
 

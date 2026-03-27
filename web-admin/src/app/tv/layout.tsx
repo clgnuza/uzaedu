@@ -17,9 +17,5 @@ export const viewport: Viewport = {
 export default function TvLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  return (
-    <div className="tv-root flex h-full min-h-screen w-full flex-col" lang="tr">
-      {children}
-    </div>
-  );
+  return children;
 }

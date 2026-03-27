@@ -19,7 +19,7 @@ export function ProjectsTableCard() {
         <CardTitle>Projeler / görevler</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="overflow-x-auto">
+        <div className="table-x-scroll">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/50">

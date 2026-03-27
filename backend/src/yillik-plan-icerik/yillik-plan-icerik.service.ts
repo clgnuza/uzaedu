@@ -409,6 +409,8 @@ export class YillikPlanIcerikService {
         .addOrderBy('yp.alt_grup', 'ASC');
     } else {
       qb.addGroupBy('yp.grade')
+        .addGroupBy('yp.ana_grup')
+        .addGroupBy('yp.alt_grup')
         .orderBy('yp.academic_year', 'DESC')
         .addOrderBy('yp.subject_label', 'ASC')
         .addOrderBy('yp.grade', 'ASC');

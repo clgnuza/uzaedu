@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  ParseUUIDPipe,
+} from '@nestjs/common';
 import { AdminMessagesService } from './admin-messages.service';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -8,6 +19,7 @@ import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-us
 import { UserRole } from '../types/enums';
 import { CreateAdminMessageDto } from './dto/create-admin-message.dto';
 import { ListAdminMessagesDto } from './dto/list-admin-messages.dto';
+import { PaginationDto } from '../common/dtos/pagination.dto';
 
 @Controller('admin-messages')
 @UseGuards(JwtAuthGuard)
@@ -31,6 +43,30 @@ export class AdminMessagesController {
       userId: payload.userId,
     });
     return { count };
+  }
+
+  @Get('sent-batches')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('announcements')
+  async listSentBatches(@Query() dto: PaginationDto) {
+    return this.adminMessagesService.listSentBatches(dto);
+  }
+
+  @Get('sent-batches/:batchId/report')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('announcements')
+  async getBatchDeliveryReport(@Param('batchId', ParseUUIDPipe) batchId: string) {
+    return this.adminMessagesService.getBatchDeliveryReport(batchId);
+  }
+
+  @Delete('sent-batches/:batchId')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('announcements')
+  async deleteSentBatch(@Param('batchId', ParseUUIDPipe) batchId: string) {
+    return this.adminMessagesService.deleteBatch(batchId);
   }
 
   @Get()

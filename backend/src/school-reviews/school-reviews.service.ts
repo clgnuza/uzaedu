@@ -1,4 +1,11 @@
-import { Injectable, NotFoundException, ForbiddenException, OnModuleInit } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ForbiddenException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { School } from '../schools/entities/school.entity';
@@ -27,20 +34,65 @@ import { CreateAnswerDto } from './dto/create-answer.dto';
 import { UpdateAnswerDto } from './dto/update-answer.dto';
 import { paginate } from '../common/dtos/pagination.dto';
 
-/** Projeye özel okul değerlendirme kriterleri (kaynaklardan farklı, konuya özel). */
+/** Varsayılan kriterler — puanlama 1–10 (1: çok zayıf, 10: çok iyi). */
+const CRITERIA_SCORE_MIN = 1;
+const CRITERIA_SCORE_MAX = 10;
+
 const DEFAULT_CRITERIA = [
-  { slug: 'calisma_ortami', label: 'Çalışma Ortamı ve Fiziksel Koşullar', hint: 'Sınıf, ofis ve sosyal alanlar', sort_order: 1 },
-  { slug: 'idari_destek', label: 'İdari Destek ve Yönetim Yaklaşımı', hint: null, sort_order: 2 },
-  { slug: 'is_yuku', label: 'İş Yükü ve Görev Dengesi', hint: '1 = çok yoğun', sort_order: 3 },
-  { slug: 'teknoloji', label: 'Dijital Altyapı ve Teknoloji', hint: null, sort_order: 4 },
-  { slug: 'iletisim', label: 'İletişim ve Koordinasyon', hint: null, sort_order: 5 },
-  { slug: 'konum_ulasim', label: 'Konum ve Ulaşım Kolaylığı', hint: null, sort_order: 6 },
-  { slug: 'kurum_kulturu', label: 'Kurum Kültürü ve Çalışan Huzuru', hint: null, sort_order: 7 },
-  { slug: 'gelisim', label: 'Mesleki Gelişim Fırsatları', hint: null, sort_order: 8 },
+  {
+    slug: 'fiziksel_ortam',
+    label: 'Fiziksel Ortam ve İş Güvenliği',
+    hint: 'Sınıf/ofis, hijyen, güvenlik (1–10)',
+    sort_order: 1,
+  },
+  {
+    slug: 'yonetim_destek',
+    label: 'Yönetim ve İdari Destek',
+    hint: 'Şeffaflık, çözüm üretme, öğretmeni dinleme',
+    sort_order: 2,
+  },
+  {
+    slug: 'is_yuku_denge',
+    label: 'İş Yükü ve Görev Dağılımı',
+    hint: '1: aşırı yoğun / adaletsiz … 10: dengeli',
+    sort_order: 3,
+  },
+  {
+    slug: 'mesleki_gelisim',
+    label: 'Mesleki Gelişim ve Öğrenme Fırsatları',
+    hint: 'Eğitim, seminer, paylaşım ortamı',
+    sort_order: 4,
+  },
+  {
+    slug: 'teknoloji_materyal',
+    label: 'Teknoloji ve Öğretim Kaynakları',
+    hint: 'Donanım, yazılım, materyal erişimi',
+    sort_order: 5,
+  },
+  {
+    slug: 'iletisim_katilim',
+    label: 'İletişim ve Katılım Kültürü',
+    hint: 'Görüş bildirme, geri bildirim',
+    sort_order: 6,
+  },
+  {
+    slug: 'kurum_kulturu',
+    label: 'Kurum Kültürü ve İş Birliği',
+    hint: 'Saygı, güven, takım çalışması',
+    sort_order: 7,
+  },
+  {
+    slug: 'konum_ulasim',
+    label: 'Konum ve Ulaşım',
+    hint: '1: çok zor … 10: kolay erişim',
+    sort_order: 8,
+  },
 ];
 
 @Injectable()
 export class SchoolReviewsService implements OnModuleInit {
+  private readonly logger = new Logger(SchoolReviewsService.name);
+
   constructor(
     @InjectRepository(School)
     private readonly schoolRepo: Repository<School>,
@@ -103,13 +155,19 @@ export class SchoolReviewsService implements OnModuleInit {
         message: 'Bu slug zaten kullanılıyor.',
       });
     }
+    const minS = dto.min_score ?? CRITERIA_SCORE_MIN;
+    const maxS = dto.max_score ?? CRITERIA_SCORE_MAX;
+    if (minS > maxS) {
+      throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Minimum puan, maksimumdan büyük olamaz.' });
+    }
     const c = this.criteriaRepo.create({
       slug: dto.slug.trim().toLowerCase().replace(/\s+/g, '_'),
       label: dto.label.trim(),
       hint: dto.hint?.trim() || null,
       sort_order: dto.sort_order ?? 0,
-      min_score: dto.min_score ?? 1,
-      max_score: dto.max_score ?? 5,
+      min_score: minS,
+      max_score: maxS,
+      is_active: dto.is_active ?? true,
     });
     return this.criteriaRepo.save(c);
   }
@@ -124,6 +182,9 @@ export class SchoolReviewsService implements OnModuleInit {
     if (dto.min_score !== undefined) c.min_score = dto.min_score;
     if (dto.max_score !== undefined) c.max_score = dto.max_score;
     if (dto.is_active !== undefined) c.is_active = dto.is_active;
+    if (c.min_score > c.max_score) {
+      throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Minimum puan, maksimumdan büyük olamaz.' });
+    }
     return this.criteriaRepo.save(c);
   }
 
@@ -328,9 +389,10 @@ export class SchoolReviewsService implements OnModuleInit {
     const viewCount = Number((school as { review_view_count?: number }).review_view_count ?? 0);
     await this.schoolRepo.increment({ id: schoolId }, 'review_view_count', 1);
 
-    const [criteria, avgResult, reviewCount, questionCount, reviewsWithCriteria, ratingDistributionRaw] =
+    const [criteria, cfg, avgResult, reviewCount, questionCount, reviewsWithCriteria, ratingDistributionRaw] =
       await Promise.all([
         this.listCriteria(),
+        this.appConfig.getSchoolReviewsConfig(),
         this.reviewRepo
           .createQueryBuilder('r')
           .select('AVG(r.rating)', 'avg')
@@ -354,10 +416,13 @@ export class SchoolReviewsService implements OnModuleInit {
       ]);
 
     const avgRating = avgResult?.avg ? parseFloat(avgResult.avg) : null;
-    const rating_distribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    const rMin = cfg.rating_min;
+    const rMax = cfg.rating_max;
+    const rating_distribution: Record<number, number> = {};
+    for (let s = rMin; s <= rMax; s++) rating_distribution[s] = 0;
     for (const row of ratingDistributionRaw) {
       const rating = parseInt(row.rating, 10);
-      if (rating >= 1 && rating <= 5) rating_distribution[rating] = parseInt(row.cnt, 10);
+      if (rating >= rMin && rating <= rMax) rating_distribution[rating] = parseInt(row.cnt, 10);
     }
     const criteriaAverages: Record<string, number> = {};
     if (criteria.length > 0 && reviewsWithCriteria.length > 0) {
@@ -493,8 +558,7 @@ export class SchoolReviewsService implements OnModuleInit {
       }
       const avg = values.reduce((a, b) => a + b, 0) / values.length;
       rating = Math.round(avg);
-      if (rating < 1) rating = 1;
-      if (rating > 5) rating = 5;
+      rating = Math.max(cfg.rating_min, Math.min(cfg.rating_max, rating));
     } else {
       const r = Math.round(Number(dto.rating ?? cfg.rating_min));
       if (r < cfg.rating_min || r > cfg.rating_max) {
@@ -540,6 +604,7 @@ export class SchoolReviewsService implements OnModuleInit {
     }
 
     const criteria = await this.listCriteria();
+    const cfg = await this.appConfig.getSchoolReviewsConfig();
     if (dto.criteria_ratings && criteria.length > 0) {
       const values: number[] = [];
       for (const c of criteria) {
@@ -557,10 +622,11 @@ export class SchoolReviewsService implements OnModuleInit {
       if (values.length === criteria.length) {
         review.criteria_ratings = dto.criteria_ratings;
         const avg = values.reduce((a, b) => a + b, 0) / values.length;
-        review.rating = Math.round(avg);
+        let next = Math.round(avg);
+        next = Math.max(cfg.rating_min, Math.min(cfg.rating_max, next));
+        review.rating = next;
       }
     }
-    const cfg = await this.appConfig.getSchoolReviewsConfig();
     if (dto.rating !== undefined && criteria.length === 0) {
       const r = Math.round(Number(dto.rating));
       if (r < cfg.rating_min || r > cfg.rating_max) {
@@ -619,6 +685,16 @@ export class SchoolReviewsService implements OnModuleInit {
         take: limit,
       });
     }
+    if (userId && page === 1) {
+      const ownReview = await this.reviewRepo.findOne({
+        where: { school_id: schoolId, user_id: userId },
+        relations: ['user'],
+      });
+      if (ownReview && ownReview.status !== 'hidden' && !items.some((r) => r.id === ownReview.id)) {
+        items = [ownReview, ...items].slice(0, limit);
+        total += 1;
+      }
+    }
     const reviewIds = items.map((r) => r.id);
     let likeCounts: Record<string, number> = {};
     let dislikeCounts: Record<string, number> = {};
@@ -660,6 +736,7 @@ export class SchoolReviewsService implements OnModuleInit {
       comment: r.comment,
       created_at: r.created_at,
       is_anonymous: r.is_anonymous,
+      status: r.status,
       author_display_name: r.is_anonymous ? 'Öğretmen' : (r.user?.display_name || 'Öğretmen'),
       is_own: !!userId && r.user_id === userId,
       like_count: likeCounts[r.id] ?? 0,
@@ -1183,11 +1260,54 @@ export class SchoolReviewsService implements OnModuleInit {
             label: item.label,
             hint: item.hint,
             sort_order: item.sort_order,
-            min_score: 1,
-            max_score: 5,
+            min_score: CRITERIA_SCORE_MIN,
+            max_score: CRITERIA_SCORE_MAX,
           }),
         );
       }
     }
+    try {
+      const { updated } = await this.normalizeCriteriaScoreRange();
+      if (updated > 0) {
+        this.logger.log(`Değerlendirme kriterleri: ${updated} satır 1–10 aralığına çekildi.`);
+      }
+    } catch (err) {
+      this.logger.error('Kriter puan aralığı (1–10) senkronu başarısız', err);
+    }
+  }
+
+  /**
+   * Tüm kriterleri siler ve varsayılan 1–10 kriter setini yükler.
+   * Mevcut değerlendirmelerdeki criteria_ratings (JSON) eski slug’larla kalır; süper yönetici bilinçli kullanmalıdır.
+   */
+  async reseedDefaultCriteria(): Promise<{ inserted: number }> {
+    await this.criteriaRepo.clear();
+    for (const item of DEFAULT_CRITERIA) {
+      await this.criteriaRepo.save(
+        this.criteriaRepo.create({
+          slug: item.slug,
+          label: item.label,
+          hint: item.hint,
+          sort_order: item.sort_order,
+          min_score: CRITERIA_SCORE_MIN,
+          max_score: CRITERIA_SCORE_MAX,
+        }),
+      );
+    }
+    return { inserted: DEFAULT_CRITERIA.length };
+  }
+
+  /** 1–10 dışındaki kriter satırlarını düzeltir (slug/başlık değişmez). */
+  async normalizeCriteriaScoreRange(): Promise<{ updated: number }> {
+    const r = await this.criteriaRepo
+      .createQueryBuilder()
+      .update(SchoolReviewCriteria)
+      .set({ min_score: CRITERIA_SCORE_MIN, max_score: CRITERIA_SCORE_MAX })
+      .where('min_score <> :min OR max_score <> :max', {
+        min: CRITERIA_SCORE_MIN,
+        max: CRITERIA_SCORE_MAX,
+      })
+      .execute();
+    return { updated: r.affected ?? 0 };
   }
 }

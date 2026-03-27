@@ -1,4 +1,11 @@
-import { Injectable, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  UnauthorizedException,
+  ConflictException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
@@ -11,9 +18,12 @@ import { SchoolsService } from '../schools/schools.service';
 import { env } from '../config/env';
 import { EmailService } from './services/email.service';
 import { TeacherInviteService } from '../teacher-invite/teacher-invite.service';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
@@ -22,6 +32,7 @@ export class AuthService {
     private readonly emailService: EmailService,
     private readonly schoolsService: SchoolsService,
     private readonly teacherInvites: TeacherInviteService,
+    private readonly mailService: MailService,
   ) {}
 
   /**
@@ -39,6 +50,17 @@ export class AuthService {
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) {
       throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'E-posta veya şifre hatalı.' });
+    }
+    if (
+      user.role === UserRole.teacher &&
+      user.school_id &&
+      user.teacherSchoolMembership === TeacherSchoolMembershipStatus.pending
+    ) {
+      throw new ForbiddenException({
+        code: 'TEACHER_PASSWORD_LOGIN_PENDING_SCHOOL_APPROVAL',
+        message:
+          'Okul onayı tamamlanana kadar e-posta ile giriş kullanılamaz. Google, Apple veya telefon ile giriş yapın.',
+      });
     }
     return { token: user.id, user };
   }
@@ -101,6 +123,8 @@ export class AuthService {
       membership = TeacherSchoolMembershipStatus.pending;
     }
     const passwordHash = await bcrypt.hash(password, 10);
+    const joinToken = school_id ? randomBytes(32).toString('hex') : null;
+    const joinExp = school_id ? new Date(Date.now() + 48 * 3600 * 1000) : null;
     const user = this.userRepo.create({
       email: normalized,
       display_name: displayName?.trim() || null,
@@ -111,6 +135,9 @@ export class AuthService {
       status: UserStatus.active,
       passwordHash,
       firebaseUid: null,
+      schoolJoinEmailToken: joinToken,
+      schoolJoinEmailTokenExpiresAt: joinExp,
+      schoolJoinEmailVerifiedAt: school_id ? null : null,
     });
     const saved = await this.userRepo.save(user);
     if (inviteCode?.trim()) {
@@ -122,7 +149,71 @@ export class AuthService {
       }
     }
     const withSchool = await this.userRepo.findOne({ where: { id: saved.id }, relations: ['school'] });
-    return { token: saved.id, user: withSchool ?? saved };
+    const u = withSchool ?? saved;
+    if (school_id && u.school && joinToken) {
+      const greet = u.display_name?.trim() || u.email.split('@')[0] || 'Merhaba';
+      void this.sendSchoolJoinVerifyMail(u, u.school.name, greet, joinToken).catch(() => {});
+    }
+    return { token: saved.id, user: u };
+  }
+
+  /** Public: e-postadaki doğrulama bağlantısı (token tek kullanımlık). */
+  async verifySchoolJoinEmail(tokenRaw: string): Promise<{ ok: boolean; already_verified?: boolean }> {
+    const token = tokenRaw?.trim();
+    if (!token || token.length < 32) {
+      throw new BadRequestException({ code: 'INVALID_TOKEN', message: 'Geçersiz doğrulama bağlantısı.' });
+    }
+    const user = await this.userRepo.findOne({
+      where: { schoolJoinEmailToken: token },
+      relations: ['school'],
+    });
+    if (!user) {
+      throw new BadRequestException({ code: 'INVALID_TOKEN', message: 'Doğrulama bağlantısı geçersiz veya kullanılmış.' });
+    }
+    if (user.schoolJoinEmailVerifiedAt) {
+      return { ok: true, already_verified: true };
+    }
+    if (user.schoolJoinEmailTokenExpiresAt && user.schoolJoinEmailTokenExpiresAt < new Date()) {
+      throw new BadRequestException({
+        code: 'TOKEN_EXPIRED',
+        message: 'Doğrulama süresi dolmuş. Giriş yapıp profilden yeniden bağlantı isteyin.',
+      });
+    }
+    user.schoolJoinEmailVerifiedAt = new Date();
+    user.schoolJoinEmailToken = null;
+    user.schoolJoinEmailTokenExpiresAt = null;
+    await this.userRepo.save(user);
+    return { ok: true };
+  }
+
+  private async sendSchoolJoinVerifyMail(
+    u: User,
+    schoolName: string,
+    greet: string,
+    token: string,
+  ): Promise<void> {
+    const base = await this.mailService.resolveAppBaseUrl();
+    const verifyUrl = `${base}/verify-school-email?token=${encodeURIComponent(token)}`;
+    await this.mailService.sendSchoolJoinVerifyEmail(u.email, {
+      schoolName,
+      recipientName: greet,
+      verifyUrl,
+    });
+  }
+
+  /** Sosyal giriş (Google/Apple/Telefon) ile gelen öğretmenin e-postasını otomatik doğrula ve kaydet */
+  private async autoVerifyEmailIfNeeded(user: User): Promise<void> {
+    if (
+      user.role === UserRole.teacher &&
+      user.school_id &&
+      user.teacherSchoolMembership === TeacherSchoolMembershipStatus.pending &&
+      !user.schoolJoinEmailVerifiedAt
+    ) {
+      user.schoolJoinEmailVerifiedAt = new Date();
+      user.schoolJoinEmailToken = null;
+      user.schoolJoinEmailTokenExpiresAt = null;
+      await this.userRepo.save(user);
+    }
   }
 
   /** Şifre sıfırlama: token oluştur, e-posta gönder (SMTP yoksa log). */
@@ -169,7 +260,7 @@ export class AuthService {
     return { ok: true };
   }
 
-  /** Firebase ID token doğrula; kullanıcı yoksa e-posta ile bul veya oluştur. Token olarak id_token döner (Bearer ile kullanılır). */
+  /** Firebase ID token doğrula; kullanıcı yoksa e-posta ile bul veya oluştur. Oturum token’ı user.id (UUID). */
   async exchangeFirebaseToken(idToken: string): Promise<{ token: string; user: User }> {
     let app: admin.app.App | null = null;
     try {
@@ -178,28 +269,80 @@ export class AuthService {
       // Firebase yok
     }
     if (!app) {
-      throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'Sosyal giriş şu an kullanılamıyor.' });
+      throw new BadRequestException({
+        code: 'FIREBASE_NOT_CONFIGURED',
+        message: 'Firebase Admin yapılandırması eksik. backend/.env içindeki Firebase servis hesabını kontrol edin.',
+      });
     }
-    const decoded = await app.auth().verifyIdToken(idToken);
+    let decoded: admin.auth.DecodedIdToken;
+    try {
+      decoded = await app.auth().verifyIdToken(idToken);
+    } catch (e: unknown) {
+      const fe = e as { code?: string; message?: string };
+      const firebaseError = typeof fe?.code === 'string' ? fe.code : 'unknown';
+      this.logger.warn(`verifyIdToken: ${firebaseError} ${fe?.message ?? ''}`);
+      throw new BadRequestException({
+        code: 'FIREBASE_TOKEN_INVALID',
+        message:
+          'Firebase jetonu doğrulanamadı. Servis hesabı JSON’daki project_id = backend FIREBASE_PROJECT_ID = web NEXT_PUBLIC_FIREBASE_PROJECT_ID olmalı. Anahtarda \\n kullanın.',
+        details: { firebaseError },
+      });
+    }
     const uid = decoded.uid;
     const email = (decoded.email as string)?.trim().toLowerCase() || null;
     const displayName = (decoded.name as string)?.trim() || null;
+    const phoneE164 = (decoded.phone_number as string)?.trim() || null;
 
     let user = await this.userRepo.findOne({ where: { firebaseUid: uid }, relations: ['school'] });
     if (user) {
-      return { token: idToken, user };
+      await this.autoVerifyEmailIfNeeded(user);
+      return { token: user.id, user };
     }
     if (email) {
       user = await this.userRepo.findOne({ where: { email }, relations: ['school'] });
       if (user) {
         user.firebaseUid = uid;
         if (displayName && !user.display_name) user.display_name = displayName;
+        if (phoneE164 && !user.teacherPhone) user.teacherPhone = phoneE164;
+        await this.autoVerifyEmailIfNeeded(user);
         await this.userRepo.save(user);
-        return { token: idToken, user };
+        return { token: user.id, user };
       }
     }
+    /** Sadece telefon ile Firebase hesabı: token’da e-posta yok; mevcut kaydı telefonla eşle veya sentetik e-posta ile öğretmen oluştur */
+    if (!email && phoneE164) {
+      user = await this.userRepo.findOne({
+        where: { teacherPhone: phoneE164 },
+        relations: ['school'],
+      });
+      if (user) {
+        user.firebaseUid = uid;
+        await this.autoVerifyEmailIfNeeded(user);
+        await this.userRepo.save(user);
+        return { token: user.id, user };
+      }
+      const localSafe = uid.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const syntheticEmail = `${localSafe}@phone.ogretmenpro.local`;
+      const newPhoneUser = this.userRepo.create({
+        email: syntheticEmail,
+        display_name: displayName || null,
+        role: UserRole.teacher,
+        school_id: null,
+        teacherSchoolMembership: TeacherSchoolMembershipStatus.none,
+        teacherPublicNameMasked: true,
+        status: UserStatus.active,
+        passwordHash: null,
+        firebaseUid: uid,
+        teacherPhone: phoneE164,
+      });
+      const savedPhone = await this.userRepo.save(newPhoneUser);
+      return { token: savedPhone.id, user: savedPhone };
+    }
     if (!email) {
-      throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'E-posta bilgisi alınamadı.' });
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'Hesap bilgisi alınamadı (e-posta veya telefon).',
+      });
     }
     const newUser = this.userRepo.create({
       email,
@@ -213,6 +356,6 @@ export class AuthService {
       firebaseUid: uid,
     });
     const saved = await this.userRepo.save(newUser);
-    return { token: idToken, user: saved };
+    return { token: saved.id, user: saved };
   }
 }

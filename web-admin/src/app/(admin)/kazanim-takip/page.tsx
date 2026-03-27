@@ -355,7 +355,7 @@ export default function KazanimTakipPage() {
             </span>
             <span>
               Kazanım Takip
-              <span className="block text-sm font-normal text-gray-600 dark:text-gray-400 mt-1">
+              <span className="mt-1 hidden text-sm font-normal text-gray-600 dark:text-gray-400 sm:block">
                 Yıllık planlarınızdaki kazanımları görüntüleyin, aşamalı takip yapın
               </span>
             </span>
@@ -394,7 +394,7 @@ export default function KazanimTakipPage() {
               Tüm Sınıflar <span className="font-semibold text-gray-900 dark:text-white">{allItems.length}</span> plan
             </span>
           </div>
-          <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-6 gap-3 sm:gap-4 lg:gap-5 w-full">
+          <div className="grid w-full grid-cols-3 gap-2.5 sm:grid-cols-6 sm:gap-4 lg:grid-cols-6 lg:gap-5">
             {GRADES.map((g) => {
               const count = allItems.filter((p) => p.grade === g).length;
               const isActive = filterGrade === g;
@@ -424,7 +424,7 @@ export default function KazanimTakipPage() {
                   type="button"
                   onClick={() => setFilterGrade(isActive ? null : g)}
                   style={bgStyle}
-                  className={`group relative flex flex-col items-center justify-center aspect-square min-h-[76px] sm:min-h-[88px] rounded-2xl overflow-hidden transition-all duration-300 ease-out
+                  className={`group relative flex aspect-square min-h-[68px] flex-col items-center justify-center overflow-hidden rounded-2xl transition-all duration-300 ease-out sm:min-h-[88px]
                     border-2 ${isActive ? 'border-white/60 dark:border-white/30 shadow-xl shadow-primary/15 ring-2 ring-primary/30' : 'border-white/20 dark:border-white/10 hover:border-white/40 hover:shadow-lg hover:scale-[1.03] hover:z-10'}
                     ${isActive ? 'scale-[1.04] z-10' : ''}`}
                 >
@@ -434,11 +434,11 @@ export default function KazanimTakipPage() {
                     style={{ background: `radial-gradient(circle, ${c2} 0%, transparent 70%)` }}
                   />
                   <span className={`relative z-10 flex items-baseline justify-center gap-0.5 ${isActive ? 'text-gray-900 dark:text-white drop-shadow-sm' : 'text-gray-800 dark:text-gray-100'}`}>
-                    <span className="text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight">{g}</span>
-                    <span className={`text-[11px] sm:text-xs font-semibold ${isActive ? 'text-gray-700 dark:text-gray-200' : 'text-gray-600 dark:text-gray-300'}`}>. Sınıf</span>
+                    <span className="text-xl font-extrabold tracking-tight sm:text-3xl lg:text-4xl">{g}</span>
+                    <span className={`text-[10px] font-semibold sm:text-xs ${isActive ? 'text-gray-700 dark:text-gray-200' : 'text-gray-600 dark:text-gray-300'}`}>. Sınıf</span>
                   </span>
                   {count > 0 && (
-                    <span className={`relative z-10 mt-2 sm:mt-2.5 text-[10px] sm:text-[11px] font-bold px-2.5 py-1 rounded-lg backdrop-blur-sm ${isActive ? 'bg-white/95 dark:bg-black/60 text-gray-800 dark:text-white' : 'bg-white/70 dark:bg-black/40 text-gray-700 dark:text-gray-200'}`}>
+                    <span className={`relative z-10 mt-1.5 rounded-lg px-2 py-1 text-[10px] font-bold backdrop-blur-sm sm:mt-2.5 sm:px-2.5 sm:text-[11px] ${isActive ? 'bg-white/95 dark:bg-black/60 text-gray-800 dark:text-white' : 'bg-white/70 dark:bg-black/40 text-gray-700 dark:text-gray-200'}`}>
                       {count} plan
                     </span>
                   )}

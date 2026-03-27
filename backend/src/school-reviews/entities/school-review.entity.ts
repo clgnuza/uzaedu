@@ -23,7 +23,7 @@ export class SchoolReview {
   user_id: string;
 
   /**
-   * Genel puan (1-5). Kriterler varsa ortalamadan hesaplanır; yoksa direkt.
+   * Genel puan (yapılandırılan aralık, varsayılan 1–10). Kriterler varsa ortalamadan hesaplanır; yoksa direkt.
    */
   @Column({ type: 'int' })
   rating: number;

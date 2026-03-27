@@ -736,7 +736,7 @@ export function SablonlarTab({ fixedCurriculumModel, excludeCurriculumModel }: S
               description="Yeni şablon ekleyerek başlayın. Öğretmenler evrak türü, sınıf ve ders seçerek şablonu indirebilir."
             />
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-border">
+            <div className="table-x-scroll rounded-lg border border-border">
               <table className="evrak-admin-table w-full text-sm">
                 <thead>
                   <tr>

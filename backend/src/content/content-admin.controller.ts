@@ -17,6 +17,7 @@ import { ListContentItemsDto } from './dto/list-content-items.dto';
 import { CreateContentChannelDto } from './dto/create-content-channel.dto';
 import { CreateContentSourceDto } from './dto/create-content-source.dto';
 import { CreateContentItemDto } from './dto/create-content-item.dto';
+import { UpdateContentSyncScheduleDto } from './dto/update-content-sync-schedule.dto';
 
 @Controller('content/admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -72,6 +73,16 @@ export class ContentAdminController {
   @Post('sync')
   sync() {
     return this.contentService.adminSync();
+  }
+
+  @Get('sync-schedule')
+  getSyncSchedule() {
+    return this.contentService.getSyncSchedule();
+  }
+
+  @Patch('sync-schedule')
+  updateSyncSchedule(@Body() dto: UpdateContentSyncScheduleDto) {
+    return this.contentService.updateSyncSchedule(dto);
   }
 
   @Post('clear-placeholder-images')

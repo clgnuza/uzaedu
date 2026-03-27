@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsInt, Min, Max, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsInt, Min, Max, MaxLength, IsBoolean } from 'class-validator';
 
 export class CreateCriteriaDto {
   @IsString()
@@ -30,4 +30,8 @@ export class CreateCriteriaDto {
   @Min(1)
   @Max(10)
   max_score?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  is_active?: boolean;
 }

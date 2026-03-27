@@ -1,7 +1,22 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Megaphone, Eye, Pencil, Trash2, MonitorPlay, AlertTriangle, Info, CalendarPlus } from 'lucide-react';
+import {
+  Megaphone,
+  Eye,
+  Pencil,
+  Trash2,
+  MonitorPlay,
+  AlertTriangle,
+  Info,
+  CalendarPlus,
+  Plus,
+  Sparkles,
+  Users,
+  MessageSquare,
+  LayoutList,
+} from 'lucide-react';
+import Link from 'next/link';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -112,6 +127,24 @@ const CATEGORY_ORDER = [
   'success', 'birthday', 'now_in_class', 'timetable', 'duty', 'meal', 'weather', 'countdown',
 ];
 
+/** Kategori başlığı altında kısa açıklama (tablo okunabilirliği) */
+const CATEGORY_SECTION_HINT: Record<string, string> = {
+  ticker: 'Duyuru TV: alt sarı kayan şerit',
+  general: 'Ana slayt + sarı şeritte özet',
+  principal_message: 'Duyuru TV: müdür slaytı',
+  staff: 'Duyuru TV: öğretmenler slaytı',
+  info_bank: 'Duyuru TV: bilgi slaytı',
+  success: 'Duyuru TV: başarı slaytı',
+  special_day: 'Duyuru TV: belirli günler',
+  birthday: 'Duyuru TV: doğum günü',
+  timetable: 'Duyuru TV: ders programı',
+  duty: 'Duyuru TV: nöbet (yan panel)',
+  meal: 'Duyuru TV: yemek (yan panel)',
+  weather: 'Duyuru TV: hava (yan panel)',
+  countdown: 'Duyuru TV: sayaç (yan panel)',
+  now_in_class: 'Duyuru TV: şu an derste',
+};
+
 function getCategoryColor(category: string) {
   return CATEGORY_COLORS[category] ?? CATEGORY_COLORS.general;
 }
@@ -137,12 +170,14 @@ function AnnouncementDetailModal({
   id,
   token,
   onClose,
+  showAddToAgenda = true,
 }: {
   id: string;
   token: string | null;
   onClose: () => void;
+  /** false: TV sayfasında önce Ayarlar sekmesi ziyaret edilmeden ajanda eklenmesin */
+  showAddToAgenda?: boolean;
 }) {
-  const [addToAgendaLoading, setAddToAgendaLoading] = useState(false);
   const [item, setItem] = useState<AnnouncementItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -248,34 +283,20 @@ function AnnouncementDetailModal({
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2 pt-2">
-              <button
-                type="button"
-                disabled={!token || addToAgendaLoading}
-                onClick={async () => {
-                  if (!token || !item) return;
-                  setAddToAgendaLoading(true);
-                  try {
-                    await apiFetch('/teacher-agenda/notes', {
-                      method: 'POST',
-                      token,
-                      body: JSON.stringify({
-                        title: item.title,
-                        body: (item.summary || item.body) ?? undefined,
-                        tags: ['duyuru'],
-                      }),
-                    });
-                    toast.success('Ajandaya eklendi');
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : 'Ajandaya eklenemedi');
-                  } finally {
-                    setAddToAgendaLoading(false);
-                  }
-                }}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-primary bg-primary/10 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/20 disabled:opacity-50"
-              >
-                <CalendarPlus className="size-4" />
-                {addToAgendaLoading ? 'Ekleniyor…' : 'Ajandaya ekle'}
-              </button>
+              {showAddToAgenda ? (
+                <Link
+                  href={`/ogretmen-ajandasi?fromTv=1&announcementId=${encodeURIComponent(item.id)}`}
+                  onClick={() => onClose()}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-primary bg-primary/10 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/20"
+                >
+                  <CalendarPlus className="size-4" />
+                  Ajandada aç / kaydet
+                </Link>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Ajandaya eklemek için önce <strong className="text-foreground">TV Ayarları</strong> sekmesini açın.
+                </p>
+              )}
               <button
                 type="button"
                 onClick={onClose}
@@ -312,8 +333,16 @@ function EditAnnouncementForm({
   const [category, setCategory] = useState(item.category || 'general');
   const [showOnTv, setShowOnTv] = useState(!!item.show_on_tv);
   const [tvSlot, setTvSlot] = useState(item.tv_slot ?? '');
-  const [tvAudience, setTvAudience] = useState(item.tv_audience || 'all');
+  const [tvAudience, setTvAudience] = useState(item.tv_audience || 'both');
   const [publish, setPublish] = useState(!!item.published_at);
+
+  useEffect(() => {
+    if (category === 'ticker') {
+      setShowOnTv(true);
+      setPublish(true);
+      setTvSlot((s) => s || 'ticker');
+    }
+  }, [category]);
   const [scheduledFrom, setScheduledFrom] = useState(isoToDatetimeLocal(item.scheduled_from));
   const [scheduledUntil, setScheduledUntil] = useState(isoToDatetimeLocal(item.scheduled_until));
   const [slideDuration, setSlideDuration] = useState(
@@ -640,22 +669,80 @@ function EditAnnouncementForm({
   );
 }
 
+const ANNOUNCEMENT_QUICK_TEMPLATES: Array<{
+  category: string;
+  label: string;
+  hint: string;
+  Icon: typeof Sparkles;
+  accent: { iconWrap: string; bar: string };
+}> = [
+  {
+    category: 'general',
+    label: 'Genel slayt',
+    hint: 'Orta bölüm, görsel',
+    Icon: Sparkles,
+    accent: {
+      iconWrap: 'bg-sky-500/15 text-sky-600 dark:bg-sky-500/20 dark:text-sky-300',
+      bar: 'from-sky-500/80',
+    },
+  },
+  {
+    category: 'ticker',
+    label: 'Sarı bar',
+    hint: 'Alt kayan şerit',
+    Icon: LayoutList,
+    accent: {
+      iconWrap: 'bg-amber-500/15 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
+      bar: 'from-amber-500/80',
+    },
+  },
+  {
+    category: 'staff',
+    label: 'Öğretmenler',
+    hint: 'Liste slaytı',
+    Icon: Users,
+    accent: {
+      iconWrap: 'bg-violet-500/15 text-violet-600 dark:bg-violet-500/20 dark:text-violet-300',
+      bar: 'from-violet-500/80',
+    },
+  },
+  {
+    category: 'principal_message',
+    label: 'Müdür mesajı',
+    hint: 'Tek vurgulu slayt',
+    Icon: MessageSquare,
+    accent: {
+      iconWrap: 'bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300',
+      bar: 'from-emerald-500/80',
+    },
+  },
+];
+
 export function AnnouncementListSection({
   token,
   isSchoolAdmin,
   onRefresh,
   onCreateClick,
+  onCreateWithTemplate,
   schoolId,
   refreshTrigger,
+  cardClassName,
+  showAddToAgenda = true,
 }: {
   token: string | null;
   isSchoolAdmin: boolean;
   onRefresh: () => void;
   onCreateClick?: () => void;
+  /** Şablon kartından kategori ile açılış (TV vb.). */
+  onCreateWithTemplate?: (category: string) => void;
   /** Superadmin: Hangi okulun duyuruları listelenecek. */
   schoolId?: string | null;
   /** Değişince liste yenilenir (örn. yeni duyuru sonrası). */
   refreshTrigger?: number;
+  /** Dış kart görünümü (örn. TV sayfası accent). */
+  cardClassName?: string;
+  /** false iken duyuru detayında ajandaya ekle gizlenir (TV: önce Ayarlar sekmesi). */
+  showAddToAgenda?: boolean;
 }) {
   const [data, setData] = useState<ListResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -718,104 +805,217 @@ export function AnnouncementListSection({
     return result;
   }, [data?.items]);
 
-  const renderItem = (a: AnnouncementItem) => (
-    <div
-      key={a.id}
-      className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3 last:border-0 hover:bg-muted/30 sm:flex-nowrap"
-    >
-      <div className="min-w-0 flex-1">
-        <div className="font-medium text-foreground">{a.title}</div>
-        {a.summary && (
-          <div className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{a.summary}</div>
-        )}
-        <div className="mt-1.5 flex flex-wrap items-center gap-2">
-          <span
-            className={cn(
-              'inline-flex rounded-full px-2 py-0.5 text-xs font-medium',
-              a.importance === 'urgent' && 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
-              a.importance === 'high' && 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
-              a.importance === 'normal' && 'bg-muted text-muted-foreground'
-            )}
-          >
-            {IMPORTANCE_LABELS[a.importance] ?? a.importance}
-          </span>
-          {a.published_at ? (
-            <span className="text-xs text-muted-foreground">Yayında</span>
-          ) : (
-            <span className="text-xs text-amber-600 dark:text-amber-400">Taslak</span>
-          )}
-          {a.show_on_tv && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200">
-              <MonitorPlay className="size-3" />
-              TV
+  const renderTableRow = (a: AnnouncementItem) => (
+    <tr key={a.id} className="border-b border-border/50 transition-colors hover:bg-muted/40">
+      <td className="min-w-[160px] max-w-[min(100vw,28rem)] px-3 py-3 align-top">
+        <div className="font-medium leading-snug text-foreground">{a.title || '—'}</div>
+        {a.summary ? (
+          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground md:hidden">{a.summary}</p>
+        ) : null}
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 md:hidden">
+          {a.show_on_tv ? (
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+              <MonitorPlay className="size-3 shrink-0" aria-hidden />
+              TV: {getTvAudienceLabel(a.tv_audience)}
             </span>
+          ) : (
+            <span className="text-[11px] text-muted-foreground">TV: kapalı</span>
           )}
           {isUrgentOverrideActive(a.urgent_override_until) && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-800 dark:bg-red-900/40 dark:text-red-200">
-              <AlertTriangle className="size-3" />
-              Acil
-            </span>
+            <span className="text-[11px] font-semibold text-red-600 dark:text-red-400">Acil yayın</span>
           )}
-          <span className="text-xs text-muted-foreground">
-            {new Date(a.created_at).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' })}
-          </span>
         </div>
-        {a.show_on_tv && (
-          <div className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Info className="size-3.5 shrink-0" aria-hidden />
-            <span>Yayın: {getTvAudienceLabel(a.tv_audience)}</span>
-          </div>
+      </td>
+      <td className="hidden max-w-xs px-3 py-3 align-top text-xs text-muted-foreground md:table-cell">
+        {a.summary ? <span className="line-clamp-2">{a.summary}</span> : <span className="text-muted-foreground/50">—</span>}
+      </td>
+      <td className="whitespace-nowrap px-2 py-3 align-middle sm:px-3">
+        {a.published_at ? (
+          <span className="inline-flex rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-900 dark:bg-emerald-900/35 dark:text-emerald-100">
+            Yayında
+          </span>
+        ) : (
+          <span className="inline-flex rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900 dark:bg-amber-900/35 dark:text-amber-100">
+            Taslak
+          </span>
         )}
-      </div>
-      <div className="flex shrink-0 items-center gap-0.5">
-        <button
-          type="button"
-          onClick={() => setDetailId(a.id)}
-          className="rounded p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
-          title="Detay"
+      </td>
+      <td className="hidden px-2 py-3 align-top text-xs md:table-cell md:min-w-[9rem] md:px-3">
+        {a.show_on_tv ? (
+          <div className="space-y-0.5">
+            <span className="inline-flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-300">
+              <MonitorPlay className="size-3.5 shrink-0" aria-hidden />
+              Açık
+            </span>
+            <p className="text-[11px] leading-snug text-muted-foreground">{getTvAudienceLabel(a.tv_audience)}</p>
+            {isUrgentOverrideActive(a.urgent_override_until) && (
+              <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-red-600 dark:text-red-400">
+                <AlertTriangle className="size-3" />
+                Acil
+              </span>
+            )}
+          </div>
+        ) : (
+          <span className="text-muted-foreground">Kapalı</span>
+        )}
+      </td>
+      <td className="whitespace-nowrap px-2 py-3 align-middle sm:px-3">
+        <span
+          className={cn(
+            'inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium',
+            a.importance === 'urgent' && 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+            a.importance === 'high' && 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
+            a.importance === 'normal' && 'bg-muted text-muted-foreground'
+          )}
         >
-          <Eye className="size-4" />
-        </button>
-        {isSchoolAdmin && a.show_on_tv && a.published_at && (
+          {IMPORTANCE_LABELS[a.importance] ?? a.importance}
+        </span>
+      </td>
+      <td className="whitespace-nowrap px-2 py-3 align-middle text-xs text-muted-foreground sm:px-3">
+        {new Date(a.created_at).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' })}
+      </td>
+      <td className="whitespace-nowrap px-1 py-2 align-middle text-right sm:px-2">
+        <div className="inline-flex items-center gap-0.5">
           <button
             type="button"
-            onClick={() => setUrgentItem(a)}
-            className="rounded p-2 text-amber-600 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-900/30"
-            title="Acil duyuru"
+            onClick={() => setDetailId(a.id)}
+            className="rounded p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+            title="Detay"
           >
-            <AlertTriangle className="size-4" />
+            <Eye className="size-4" />
           </button>
-        )}
-        {isSchoolAdmin && (
-          <>
+          {isSchoolAdmin && a.show_on_tv && a.published_at && (
             <button
               type="button"
-              onClick={() => setEditItem(a)}
-              className="rounded p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
-              title="Düzenle"
+              onClick={() => setUrgentItem(a)}
+              className="rounded p-2 text-amber-600 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-900/30"
+              title="Acil duyuru"
             >
-              <Pencil className="size-4" />
+              <AlertTriangle className="size-4" />
             </button>
-            <button
-              type="button"
-              onClick={() => setDeleteId(a.id)}
-              className="rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-              title="Sil"
-            >
-              <Trash2 className="size-4" />
-            </button>
-          </>
-        )}
-      </div>
-    </div>
+          )}
+          {isSchoolAdmin && (
+            <>
+              <button
+                type="button"
+                onClick={() => setEditItem(a)}
+                className="rounded p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                title="Düzenle"
+              >
+                <Pencil className="size-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeleteId(a.id)}
+                className="rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                title="Sil"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            </>
+          )}
+        </div>
+      </td>
+    </tr>
   );
 
+  const openTemplate = (category: string) => {
+    if (onCreateWithTemplate) onCreateWithTemplate(category);
+    else onCreateClick?.();
+  };
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Okul duyuruları</CardTitle>
-        <p className="text-sm text-muted-foreground">Eklenen duyurular aşağıda kategoriye ve renge göre listelenir</p>
-        {error && <Alert message={error} className="mt-2" />}
+    <Card
+      className={cn(
+        'overflow-hidden rounded-2xl border-border/60 shadow-md shadow-black/[0.04] ring-1 ring-black/[0.03] dark:shadow-black/20 dark:ring-white/[0.06]',
+        'bg-card',
+        cardClassName,
+      )}
+    >
+      <CardHeader className="relative space-y-0 border-b border-border/50 bg-muted/30 px-0 pb-0 pt-0">
+        <div className="relative overflow-hidden px-5 pb-6 pt-6 sm:px-6">
+          <div
+            className="pointer-events-none absolute inset-0 opacity-[0.65] dark:opacity-40"
+            style={{
+              background:
+                'radial-gradient(ellipse 90% 60% at 0% 0%, color-mix(in srgb, var(--primary) 12%, transparent), transparent 55%), radial-gradient(ellipse 70% 50% at 100% 0%, color-mix(in srgb, oklch(0.55 0.2 280) 10%, transparent), transparent 50%)',
+            }}
+            aria-hidden
+          />
+          <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between lg:gap-8">
+            <div className="min-w-0 space-y-2.5">
+              <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground shadow-sm backdrop-blur-sm">
+                <span className="flex size-6 items-center justify-center rounded-full bg-primary/15 text-primary">
+                  <Megaphone className="size-3.5" aria-hidden />
+                </span>
+                Duyuru merkezi
+              </div>
+              <div>
+                <CardTitle className="text-xl font-semibold tracking-tight sm:text-2xl">Okul duyuruları</CardTitle>
+                <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-muted-foreground">
+                  Kategorilere göre tabloda listelenir; durum, Duyuru TV ve özet sütunlarından takip edebilirsiniz.
+                </p>
+              </div>
+            </div>
+            {isSchoolAdmin && onCreateClick ? (
+              <button
+                type="button"
+                onClick={onCreateClick}
+                className="group relative inline-flex w-full shrink-0 items-center justify-center gap-2.5 overflow-hidden rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 transition-all hover:bg-primary/92 hover:shadow-xl hover:shadow-primary/30 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 sm:w-auto"
+              >
+                <span className="flex size-9 items-center justify-center rounded-xl bg-white/20 transition group-hover:bg-white/25">
+                  <Plus className="size-5" aria-hidden />
+                </span>
+                <span className="pr-0.5">Yeni duyuru</span>
+              </button>
+            ) : null}
+          </div>
+        </div>
+        {isSchoolAdmin && (onCreateWithTemplate || onCreateClick) ? (
+          <div className="border-t border-border/50 bg-muted/20 px-5 py-5 sm:px-6">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Hızlı şablon</p>
+              <span className="hidden text-[11px] text-muted-foreground/80 sm:inline">Bir kategori seçin — form açılır</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {ANNOUNCEMENT_QUICK_TEMPLATES.map(({ category, label, hint, Icon, accent }) => (
+                <button
+                  key={category}
+                  type="button"
+                  onClick={() => openTemplate(category)}
+                  className={cn(
+                    'group relative flex flex-col gap-2.5 overflow-hidden rounded-2xl border border-border/70 bg-card p-3.5 text-left shadow-sm transition-all',
+                    'hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md',
+                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'absolute inset-y-0 left-0 w-1 rounded-l-2xl bg-gradient-to-b to-transparent opacity-90',
+                      accent.bar,
+                    )}
+                    aria-hidden
+                  />
+                  <span
+                    className={cn(
+                      'flex size-10 items-center justify-center rounded-xl transition group-hover:scale-[1.03]',
+                      accent.iconWrap,
+                    )}
+                  >
+                    <Icon className="size-5 shrink-0" aria-hidden />
+                  </span>
+                  <span className="text-sm font-semibold leading-snug text-foreground">{label}</span>
+                  <span className="text-[11px] leading-snug text-muted-foreground">{hint}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {error && (
+          <div className="px-5 pb-4 sm:px-6">
+            <Alert message={error} />
+          </div>
+        )}
       </CardHeader>
       <CardContent className="pt-0">
         {loading ? (
@@ -826,6 +1026,7 @@ export function AnnouncementListSection({
               {byCategory.map(({ category, items }) => {
                 const colors = getCategoryColor(category);
                 const label = CATEGORY_LABELS[category] ?? category ?? 'Genel';
+                const hint = CATEGORY_SECTION_HINT[category];
                 return (
                   <div
                     key={category}
@@ -833,15 +1034,33 @@ export function AnnouncementListSection({
                   >
                     <div
                       className={cn(
-                        'flex items-center justify-between px-4 py-2.5 text-sm font-semibold',
+                        'flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3',
                         colors.header
                       )}
                     >
-                      <span>{label}</span>
-                      <span className="text-xs font-normal opacity-90">({items.length})</span>
+                      <div className="min-w-0">
+                        <span className="text-sm font-semibold">{label}</span>
+                        {hint ? (
+                          <p className="mt-0.5 text-xs font-normal opacity-90">{hint}</p>
+                        ) : null}
+                      </div>
+                      <span className="shrink-0 text-xs font-medium opacity-90">{items.length} kayıt</span>
                     </div>
-                    <div className="divide-y divide-border/50">
-                      {items.map(renderItem)}
+                    <div className="overflow-x-auto border-t border-border/40 bg-background/80 dark:bg-background/40">
+                      <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+                        <thead>
+                          <tr className="border-b border-border/50 bg-muted/40 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            <th className="px-3 py-2.5">Başlık</th>
+                            <th className="hidden px-3 py-2.5 md:table-cell">Özet</th>
+                            <th className="whitespace-nowrap px-2 py-2.5 sm:px-3">Durum</th>
+                            <th className="hidden px-2 py-2.5 md:table-cell md:min-w-[9rem]">Duyuru TV</th>
+                            <th className="whitespace-nowrap px-2 py-2.5 sm:px-3">Önem</th>
+                            <th className="whitespace-nowrap px-2 py-2.5 sm:px-3">Oluşturulma</th>
+                            <th className="w-28 whitespace-nowrap px-2 py-2.5 text-right sm:px-3">İşlem</th>
+                          </tr>
+                        </thead>
+                        <tbody>{items.map(renderTableRow)}</tbody>
+                      </table>
                     </div>
                   </div>
                 );
@@ -872,27 +1091,35 @@ export function AnnouncementListSection({
             )}
           </>
         ) : (
-          <EmptyState
-            icon={<Megaphone />}
-            title="Henüz duyuru yok"
-            description="İlk duyuruyu oluşturarak başlayabilirsiniz."
-            action={
-              isSchoolAdmin && onCreateClick ? (
-                <button
-                  type="button"
-                  onClick={onCreateClick}
-                  className="text-sm font-medium text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
-                >
-                  İlk duyuruyu oluştur
-                </button>
-              ) : undefined
-            }
-          />
+          <div className="mx-5 mb-5 mt-0 rounded-2xl border border-dashed border-border/70 bg-muted/25 px-5 py-14 sm:mx-6">
+            <EmptyState
+              icon={<Megaphone className="size-10 text-primary/90" />}
+              title="Henüz duyuru yok"
+              description="Üstteki hızlı şablonlardan birini kullanın veya sıfırdan duyuru oluşturun."
+              action={
+                isSchoolAdmin && onCreateClick ? (
+                  <button
+                    type="button"
+                    onClick={onCreateClick}
+                    className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-md hover:bg-primary/90"
+                  >
+                    <Plus className="size-4" aria-hidden />
+                    Boş duyuru ile başla
+                  </button>
+                ) : undefined
+              }
+            />
+          </div>
         )}
       </CardContent>
 
       {detailId && (
-        <AnnouncementDetailModal id={detailId} token={token} onClose={() => setDetailId(null)} />
+        <AnnouncementDetailModal
+          id={detailId}
+          token={token}
+          onClose={() => setDetailId(null)}
+          showAddToAgenda={showAddToAgenda}
+        />
       )}
       {editItem && (
         <Dialog open={!!editItem} onOpenChange={(open) => !open && setEditItem(null)}>

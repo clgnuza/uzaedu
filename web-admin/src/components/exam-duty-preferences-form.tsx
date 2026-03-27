@@ -34,7 +34,16 @@ const CATEGORY_ACCENTS: Record<string, string> = {
   auzef: 'border-teal-200/60 bg-teal-50/50 dark:border-teal-800/40 dark:bg-teal-950/20',
 };
 
-const MORNING_TIME_OPTIONS = ['07:00', '07:30', '08:00', '08:30', '09:00', '09:30'];
+/** Tercih yokken backend’de kullanılan sabah hatırlatması (Türkiye) */
+const DEFAULT_SYSTEM_MORNING_TIME = '07:00';
+
+/** HTML time input için HH:mm (API tek haneli saat dönebilir) */
+function toTimeInputValue(t: string | null | undefined): string {
+  if (t == null || t === '') return '';
+  const m = String(t).trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return '';
+  return `${m[1].padStart(2, '0')}:${m[2]}`;
+}
 
 type CategoryPref = {
   slug: string;
@@ -44,7 +53,8 @@ type CategoryPref = {
   pref_exam_minus_1d: boolean;
   pref_exam_plus_1d: boolean;
   pref_exam_day_morning: boolean;
-  pref_exam_day_morning_time?: string;
+  /** Boş/null = sistem varsayılanı 07:00 */
+  pref_exam_day_morning_time?: string | null;
 };
 
 const PREF_OPTIONS = [
@@ -108,7 +118,8 @@ export function ExamDutyPreferencesForm() {
           ...p,
           pref_approval_day: p.pref_approval_day ?? true,
           pref_exam_day_morning: p.pref_exam_day_morning ?? true,
-          pref_exam_day_morning_time: (p as { pref_exam_day_morning_time?: string }).pref_exam_day_morning_time ?? '08:00',
+          pref_exam_day_morning_time:
+            (p as { pref_exam_day_morning_time?: string | null }).pref_exam_day_morning_time ?? null,
         }))
       );
     } catch {
@@ -122,17 +133,18 @@ export function ExamDutyPreferencesForm() {
     fetchPrefs();
   }, [fetchPrefs]);
 
-  const updateLocal = (slug: string, field: keyof CategoryPref, value: boolean | string) => {
+  const updateLocal = (slug: string, field: keyof CategoryPref, value: boolean | string | null) => {
     setItems((prev) =>
       prev.map((p) => (p.slug === slug ? { ...p, [field]: value } : p))
     );
   };
 
   const updateMorningTimeAll = (time: string) => {
-    setItems((prev) => prev.map((p) => ({ ...p, pref_exam_day_morning_time: time })));
+    const v = time === '' ? null : time;
+    setItems((prev) => prev.map((p) => ({ ...p, pref_exam_day_morning_time: v })));
   };
 
-  const morningTime = items[0]?.pref_exam_day_morning_time ?? '08:00';
+  const morningTime = items[0]?.pref_exam_day_morning_time ?? '';
 
   const handleSave = async () => {
     if (!token || me?.role !== 'teacher') return;
@@ -150,7 +162,10 @@ export function ExamDutyPreferencesForm() {
             pref_exam_minus_1d: p.pref_exam_minus_1d ?? true,
             pref_exam_plus_1d: p.pref_exam_plus_1d ?? true,
             pref_exam_day_morning: p.pref_exam_day_morning ?? true,
-            pref_exam_day_morning_time: p.pref_exam_day_morning_time ?? '08:00',
+            pref_exam_day_morning_time:
+              p.pref_exam_day_morning_time && p.pref_exam_day_morning_time !== ''
+                ? p.pref_exam_day_morning_time
+                : null,
           })),
         }),
       });
@@ -174,7 +189,7 @@ export function ExamDutyPreferencesForm() {
               <span className="break-words">Bildirim Tercihleri</span>
             </CardTitle>
             <p className="mt-1 break-words text-xs text-muted-foreground sm:text-sm">
-              Varsayılan olarak tüm kategorilerden bildirim alırsınız. Sınav günü sabah hatırlatmasının saatini aşağıdan seçebilirsiniz.
+              Varsayılan olarak tüm kategorilerden bildirim alırsınız. Sınav günü sabah hatırlatması için 06:00–13:59 arası istediğiniz dakikayı seçebilirsiniz; varsayılanı işaretlerseniz sistem 07:00 kullanır.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -193,7 +208,7 @@ export function ExamDutyPreferencesForm() {
                     pref_exam_minus_1d: true,
                     pref_exam_plus_1d: true,
                     pref_exam_day_morning: true,
-                    pref_exam_day_morning_time: morningTime,
+                    pref_exam_day_morning_time: morningTime === '' ? null : morningTime,
                   }))
                 )
               }
@@ -265,20 +280,44 @@ export function ExamDutyPreferencesForm() {
                 </div>
               ))}
             </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3">
-              <span className="min-w-0 break-words text-xs font-medium text-foreground sm:text-sm">Sınav günü sabah hatırlatması saati</span>
-              <select
-                value={morningTime}
-                onChange={(e) => updateMorningTimeAll(e.target.value)}
-                className="h-11 shrink-0 sm:h-9 rounded-lg border border-input bg-background px-3 py-1.5 text-xs touch-manipulation sm:text-sm"
-              >
-                {MORNING_TIME_OPTIONS.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-              <span className="min-w-0 break-words text-[11px] text-muted-foreground sm:text-xs">(Görev çıktı işaretlediğiniz sınavlar için)</span>
+            <div className="flex min-w-0 flex-col gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3">
+              <span className="min-w-0 break-words text-xs font-medium text-foreground sm:text-sm">
+                Sınav günü sabah hatırlatması saati
+              </span>
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-foreground sm:text-sm">
+                <input
+                  type="checkbox"
+                  checked={morningTime === ''}
+                  onChange={(e) => {
+                    if (e.target.checked) updateMorningTimeAll('');
+                    else updateMorningTimeAll(DEFAULT_SYSTEM_MORNING_TIME);
+                  }}
+                  className="size-4 shrink-0 rounded border-2 border-input accent-primary"
+                />
+                Sistem varsayılanı (07:00)
+              </label>
+              {morningTime !== '' && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Özel saat (Türkiye)</span>
+                  <input
+                    type="time"
+                    min="06:00"
+                    max="13:59"
+                    step={60}
+                    value={toTimeInputValue(morningTime)}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v) updateMorningTimeAll(v);
+                      else updateMorningTimeAll(DEFAULT_SYSTEM_MORNING_TIME);
+                    }}
+                    className="h-11 rounded-lg border border-input bg-background px-2 py-1 text-sm touch-manipulation sm:h-9"
+                    aria-label="Sabah hatırlatması özel saati"
+                  />
+                </div>
+              )}
+              <span className="min-w-0 break-words text-[11px] text-muted-foreground sm:text-xs">
+                Görev çıktı işaretlediğiniz sınavlar için. Özel saat 06:00–13:59 arası; bildirim seçtiğiniz dakikada tetiklenir (varsayılan: 07:00).
+              </span>
             </div>
             <div className="flex justify-end border-t border-border/50 pt-4">
               <Button onClick={handleSave} disabled={saving} className="gap-2 text-xs sm:text-sm">

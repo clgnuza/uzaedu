@@ -89,14 +89,14 @@ export function ImageUrlInput({
 
   const inputClass = compact
     ? 'min-w-[140px] flex-1 rounded border border-input bg-background px-2 py-1.5 text-sm'
-    : 'flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20';
+    : 'min-w-0 flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20';
   const btnClass = compact
     ? 'inline-flex shrink-0 cursor-pointer items-center gap-1 rounded border border-input bg-muted/50 px-2 py-1.5 text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50'
     : 'inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-input bg-muted/50 px-3 py-2 text-sm font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50';
 
   return (
-    <div className={compact ? 'flex min-w-0 flex-1 items-center gap-1.5' : 'space-y-1.5'}>
-      <div className={compact ? 'flex min-w-0 flex-1 gap-1.5' : 'flex gap-2'}>
+    <div className={compact ? 'flex min-w-0 flex-1 items-center gap-1.5' : 'space-y-2'}>
+      <div className={compact ? 'flex min-w-0 flex-1 gap-1.5' : 'flex min-w-0 flex-wrap gap-2'}>
         <input
           ref={inputRef}
           id={id}
@@ -130,7 +130,9 @@ export function ImageUrlInput({
           />
         </div>
       )}
-      {!compact && hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {!compact && hint && (
+        <p className="border-t border-border/50 pt-2 text-xs leading-relaxed text-muted-foreground">{hint}</p>
+      )}
     </div>
   );
 }

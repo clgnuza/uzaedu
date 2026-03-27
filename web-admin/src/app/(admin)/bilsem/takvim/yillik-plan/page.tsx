@@ -198,7 +198,7 @@ export default function BilsemYillikPlanPage() {
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border-2 border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900 print:border print:border-black">
+          <div className="table-x-scroll rounded-lg border-2 border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900 print:border print:border-black">
             <table className="yillik-plani-table w-full min-w-[640px] table-fixed border-collapse text-black print:text-black">
               <colgroup>
                 <col style={{ width: '10%' }} />

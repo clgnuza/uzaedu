@@ -103,8 +103,8 @@ export default function DocumentTemplatesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="border-b border-border">
-        <nav className="-mb-px flex flex-wrap gap-1" aria-label="Evrak sekmeleri">
+      <div className="mobile-tab-scroll border-b border-border pb-1">
+        <nav className="flex min-w-max gap-1 rounded-xl border border-border/70 bg-muted/30 p-1 shadow-sm" aria-label="Evrak sekmeleri">
           {TABS.filter((t) => !(t as { superadminOnly?: boolean }).superadminOnly || isSuperadmin).map((t) => {
             const Icon = t.icon;
             const isActive = tab === t.id;
@@ -112,10 +112,10 @@ export default function DocumentTemplatesPage() {
               <Link
                 key={t.id}
                 href={`/document-templates?tab=${t.id}`}
-                className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
+                className={`flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-all ${
                   isActive
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:border-muted-foreground/30 hover:text-foreground'
+                    ? 'border-primary/30 bg-primary/10 text-primary shadow-sm'
+                    : 'border-transparent text-muted-foreground hover:bg-background/80 hover:text-foreground'
                 }`}
               >
                 <Icon className="size-4" />

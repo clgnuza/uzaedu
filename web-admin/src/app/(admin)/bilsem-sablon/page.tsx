@@ -89,10 +89,10 @@ export default function BilsemSablonPage() {
   if (!isSuperadmin) return null;
 
   const tabLinkClass = (active: boolean) =>
-    `flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
+    `flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-all ${
       active
-        ? 'border-violet-600 text-violet-700 dark:border-violet-500 dark:text-violet-300'
-        : 'border-transparent text-muted-foreground hover:border-muted-foreground/30 hover:text-foreground'
+        ? 'border-violet-500/30 bg-violet-500/10 text-violet-700 shadow-sm dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-300'
+        : 'border-transparent text-muted-foreground hover:bg-background/80 hover:text-foreground'
     }`;
 
   return (
@@ -112,8 +112,8 @@ export default function BilsemSablonPage() {
         </p>
       </div>
 
-      <div className="border-b border-border">
-        <nav className="-mb-px flex flex-wrap gap-1" aria-label="BİLSEM sekmeleri">
+      <div className="mobile-tab-scroll border-b border-border pb-1">
+        <nav className="flex min-w-max gap-1 rounded-xl border border-border/70 bg-muted/30 p-1 shadow-sm" aria-label="BİLSEM sekmeleri">
           {TABS.map((t) => {
             const Icon = t.icon;
             const isActive = tab === t.id;

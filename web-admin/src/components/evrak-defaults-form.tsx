@@ -299,7 +299,7 @@ export function EvrakDefaultsForm({
             Zümre Listesi
           </h3>
           {zumreList.length > 0 ? (
-            <div className="overflow-x-auto rounded-lg border border-border">
+            <div className="table-x-scroll rounded-lg border border-border">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/50">

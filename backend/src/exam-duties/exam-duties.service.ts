@@ -30,6 +30,9 @@ const EVENT_MAP: Record<ExamDutyNotificationReason, string> = {
   exam_day_morning: 'exam_duty.exam_day_morning',
 };
 
+/** pref_exam_day_morning_time null/boş: eşleşecek varsayılan saat (Türkiye HH:mm) */
+const DEFAULT_EXAM_DAY_MORNING_TIME = '07:00';
+
 @Injectable()
 export class ExamDutiesService {
   constructor(
@@ -520,7 +523,7 @@ export class ExamDutiesService {
    * Sadece "görev çıktı" işaretleyen öğretmenlere sınav günü sabah hatırlatması gönderir.
    * Tercihte "Sınav günü sabah hatırlatma" kapalı veya sinav_gorevi kapalı olanlar hariç.
    * preferred_exam_date setli atamalarda sadece today ile eşleşen günde gönderilir.
-   * currentTime (HH:mm Turkey) ile eşleşen pref_exam_day_morning_time tercihine sahip kullanıcılara gönderilir.
+   * currentTime (HH:mm Turkey) ile eşleşen pref_exam_day_morning_time tercihine sahip kullanıcılara gönderilir (null = varsayılan 07:00).
    */
   async sendNotificationsForExamDayMorning(
     examDuty: ExamDuty,
@@ -547,13 +550,13 @@ export class ExamDutiesService {
     });
     const optedOut = new Set(prefs.filter((p) => p.prefExamDayMorning === false).map((p) => p.userId));
     const normalizeTime = (t: string) => {
-      const s = (t || '08:00').trim();
+      const s = (t || DEFAULT_EXAM_DAY_MORNING_TIME).trim();
       const m = s.match(/^(\d{1,2}):(\d{2})$/);
-      return m ? `${m[1]!.padStart(2, '0')}:${m[2]}` : '08:00';
+      return m ? `${m[1]!.padStart(2, '0')}:${m[2]}` : DEFAULT_EXAM_DAY_MORNING_TIME;
     };
     const currentNorm = normalizeTime(currentTime);
     const matchesTime = (p: { prefExamDayMorningTime?: string | null }) =>
-      normalizeTime(p.prefExamDayMorningTime ?? '08:00') === currentNorm;
+      normalizeTime(p.prefExamDayMorningTime ?? DEFAULT_EXAM_DAY_MORNING_TIME) === currentNorm;
     const candidateIds = assignedIds.filter((id) => {
       if (optedOut.has(id)) return false;
       const p = prefs.find((x) => x.userId === id);

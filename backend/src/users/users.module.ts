@@ -5,9 +5,10 @@ import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
 import { SchoolsModule } from '../schools/schools.module';
 import { TeacherAgendaModule } from '../teacher-agenda/teacher-agenda.module';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User]), SchoolsModule, TeacherAgendaModule],
+  imports: [TypeOrmModule.forFeature([User]), SchoolsModule, TeacherAgendaModule, MailModule],
   controllers: [UsersController],
   providers: [UsersService],
   exports: [UsersService, TypeOrmModule],

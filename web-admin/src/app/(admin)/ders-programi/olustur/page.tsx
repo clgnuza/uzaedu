@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch, getApiUrl } from '@/lib/api';
+import { COOKIE_SESSION_TOKEN } from '@/lib/auth-session';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -68,8 +69,11 @@ export default function OlusturPage() {
   const handleDownloadExample = async () => {
     if (!token) return;
     try {
+      const headers: Record<string, string> = {};
+      if (token !== COOKIE_SESSION_TOKEN) headers.Authorization = `Bearer ${token}`;
       const res = await fetch(getApiUrl('/teacher-timetable/example-template'), {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        ...(Object.keys(headers).length > 0 && { headers }),
       });
       if (!res.ok) throw new Error('İndirme başarısız.');
       const blob = await res.blob();

@@ -59,9 +59,9 @@ export function SupportStatusBadge({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-md border font-medium',
+        'inline-flex items-center gap-1.5 rounded-full border font-medium shadow-sm backdrop-blur-sm',
         config.className,
-        size === 'xs' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5 text-xs',
+        size === 'xs' ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1 text-xs',
       )}
       title={config.label}
     >

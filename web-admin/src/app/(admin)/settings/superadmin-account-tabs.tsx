@@ -17,6 +17,7 @@ import {
   Megaphone,
   Puzzle,
   School,
+  Star,
   Server,
   Settings,
   Shield,
@@ -39,7 +40,12 @@ type TabId = 'hesap' | 'platform' | 'kaynak';
 const TABS: { id: TabId; label: string; hint: string; icon: React.ElementType }[] = [
   { id: 'hesap', label: 'Hesap', hint: 'Profil, şifre ve veri hakları', icon: User },
   { id: 'platform', label: 'Platform', hint: 'Yönetim linkleri ve sistem', icon: LayoutDashboard },
-  { id: 'kaynak', label: 'Kaynak & dağıtım', hint: 'Git ve canlı ortam referansı', icon: GitBranch },
+  {
+    id: 'kaynak',
+    label: 'Kaynak & dağıtım',
+    hint: 'Depo adresi, canlı URL’ler ve dağıtım notları',
+    icon: GitBranch,
+  },
 ];
 
 const PLATFORM_GROUPS: {
@@ -47,6 +53,15 @@ const PLATFORM_GROUPS: {
   description: string;
   items: { href: string; label: string; sub: string; icon: React.ElementType }[];
 }[] = [
+  {
+    title: 'Operasyon',
+    description: 'Destek ve parametreler',
+    items: [
+      { href: '/support/platform', label: 'Platform desteği', sub: 'Talepler', icon: BookOpen },
+      { href: '/extra-lesson-params', label: 'Hesaplama parametreleri', sub: 'Ek ders bütçe kuralları', icon: Calculator },
+      { href: '/bilsem-sablon', label: 'BİLSEM altyapı', sub: 'Takvim ve şablon', icon: BookOpen },
+    ],
+  },
   {
     title: 'Genel yönetim',
     description: 'Pano, kurumlar ve kullanıcılar',
@@ -65,15 +80,12 @@ const PLATFORM_GROUPS: {
       { href: '/market-policy', label: 'Market politikası', sub: 'Ürün ve fiyatlar', icon: Settings },
       { href: '/announcements', label: 'Duyurular', sub: 'İçerik yönetimi', icon: Megaphone },
       { href: '/web-ayarlar', label: 'Web ayarları', sub: 'Site ve entegrasyon', icon: Wrench },
-    ],
-  },
-  {
-    title: 'Operasyon',
-    description: 'Destek ve parametreler',
-    items: [
-      { href: '/support/platform', label: 'Platform desteği', sub: 'Talepler', icon: BookOpen },
-      { href: '/extra-lesson-params', label: 'Hesaplama parametreleri', sub: 'Ek ders bütçe kuralları', icon: Calculator },
-      { href: '/bilsem-sablon', label: 'BİLSEM altyapı', sub: 'Takvim ve şablon', icon: BookOpen },
+      {
+        href: '/school-reviews-settings',
+        label: 'Okul değerlendirme',
+        sub: 'Modül, kriterler (1–10)',
+        icon: Star,
+      },
     ],
   },
 ];
@@ -130,19 +142,20 @@ export function SuperadminAccountTabs() {
               <Sparkles className="size-5" aria-hidden />
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground">Süper yönetici — hesap merkezi</p>
+              <p className="text-sm font-semibold text-foreground">Süper yönetici ayarları — hesap merkezi</p>
               <p className="text-pretty text-xs text-muted-foreground sm:text-sm">
                 {tab === 'hesap'
                   ? 'Görünen ad, şifre ve KVKK işlemleri; profil sayfasıyla aynı hesap.'
                   : tab === 'platform'
-                    ? 'Platform sayfalarına geçiş ve canlı sistem durumu.'
-                    : 'Git deposu ve canlı ortam URL’leri; dağıtım notları (referans).'}
+                    ? 'Yönetim sayfalarına kısayol ve canlı sistem durumu.'
+                    : 'Git deposu (ör. GitHub) adresi, canlı API ve web URL’leri; dağıtım notları — yalnızca referans, gizli bilgi tutmayın.'}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-1 rounded-xl border border-border/40 bg-muted/20 p-1 dark:bg-zinc-900/50">
+        <div className="mobile-tab-scroll pb-1">
+          <div className="flex min-w-max gap-1 rounded-xl border border-border/40 bg-muted/25 p-1 shadow-sm dark:bg-zinc-900/50">
           {TABS.map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
@@ -152,9 +165,9 @@ export function SuperadminAccountTabs() {
                 type="button"
                 onClick={() => goTab(t.id)}
                 className={cn(
-                  'flex min-w-0 flex-1 flex-col items-stretch gap-0.5 rounded-lg px-3 py-2.5 text-left transition-all duration-200 sm:min-w-[140px] sm:flex-initial',
+                  'flex min-w-[150px] shrink-0 flex-col items-stretch gap-0.5 rounded-lg px-3 py-2.5 text-left transition-all duration-200',
                   active
-                    ? 'bg-background text-foreground shadow-md ring-1 ring-border/50 dark:bg-zinc-800'
+                    ? 'bg-background text-foreground shadow-md ring-1 ring-primary/25 dark:bg-zinc-800'
                     : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
                 )}
               >
@@ -166,6 +179,7 @@ export function SuperadminAccountTabs() {
               </button>
             );
           })}
+          </div>
         </div>
       </div>
 

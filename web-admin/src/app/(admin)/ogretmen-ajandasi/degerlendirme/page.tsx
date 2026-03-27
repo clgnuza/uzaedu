@@ -335,7 +335,7 @@ export default function DegerlendirmePage() {
               </span>
             </div>
           </CardHeader>
-          <CardContent className="p-0 overflow-x-auto">
+          <CardContent className="p-0 table-x-scroll">
             {useDemo && (
               <div className="rounded-xl bg-primary/5 border border-primary/20 px-4 py-2.5 mx-4 mt-2 text-sm text-muted-foreground flex items-center justify-between">
                 <span className="font-medium text-primary">Örnek veriler gösteriliyor.</span>

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsUrl, MaxLength, IsInt, Min, IsDateString } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, MaxLength, IsInt, Min, IsDateString } from 'class-validator';
 
 export class UpdateAnnouncementDto {
   @IsOptional()
@@ -55,7 +55,7 @@ export class UpdateAnnouncementDto {
   publish?: boolean;
 
   @IsOptional()
-  @IsUrl()
+  @IsString()
   @MaxLength(512)
   attachment_url?: string | null;
 

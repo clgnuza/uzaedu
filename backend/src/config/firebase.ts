@@ -3,6 +3,10 @@ import { env } from './env';
 
 let initialized = false;
 
+export function isFirebaseAdminReady(): boolean {
+  return initialized;
+}
+
 export function initFirebase(): void {
   if (initialized) return;
   const { projectId, clientEmail, privateKey } = env.firebase;
@@ -14,9 +18,10 @@ export function initFirebase(): void {
         clientEmail,
         privateKey,
       }),
+      projectId,
     });
     initialized = true;
-  } catch {
-    // Log but do not throw; backend can run in local without Firebase (dev Bearer userId)
+  } catch (e) {
+    console.error('[Firebase] initializeApp başarısız:', e);
   }
 }

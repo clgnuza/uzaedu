@@ -29,7 +29,7 @@ export function Header({ role, moderatorModules, onOpenSidebar }: HeaderProps) {
   }, [pathname]);
 
   return (
-    <header className="header fixed left-0 right-0 top-0 z-10 flex h-[var(--header-height)] items-center border-b border-border bg-background">
+    <header className="header fixed left-0 right-0 top-0 z-30 flex h-[var(--header-height)] items-center border-b border-border bg-background">
       <div className="container-fluid flex w-full items-center justify-between gap-4">
         {/* Sol: mobil menü butonu */}
         <div className="flex items-center gap-2">

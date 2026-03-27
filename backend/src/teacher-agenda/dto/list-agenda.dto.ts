@@ -38,6 +38,11 @@ export class ListAgendaNotesDto {
   source?: string;
 
   @IsOptional()
+  @IsUUID()
+  /** Duyuru TV ile eşleşen ajanda notu (tags: duyuru_ann + duyuru kimliği) */
+  announcementId?: string;
+
+  @IsOptional()
   includeArchived?: boolean;
 }
 

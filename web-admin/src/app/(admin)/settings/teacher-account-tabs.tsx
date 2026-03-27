@@ -29,16 +29,7 @@ import type { EvrakDefaults } from '@/components/evrak-defaults-form';
 import { DeleteAccountButton } from '@/components/account/data-privacy-actions';
 import { BackupExportPanel } from '@/components/account/backup-export-panel';
 import { AvatarPickerField } from '@/components/account/avatar-picker';
-
-const SCHOOL_TYPE_LABELS: Record<string, string> = {
-  ilkokul: 'İlkokul',
-  ortaokul: 'Ortaokul',
-  lise: 'Lise',
-  gsl: 'Güzel Sanatlar Lisesi',
-  spor_l: 'Spor Lisesi',
-  meslek: 'Meslek Lisesi',
-  mesem: 'Mesleki Eğitim Merkezi',
-};
+import { formatSchoolTypeLabel } from '@/lib/school-labels';
 
 /** Branş seçenekleri (MEB ders kataloğundan) */
 const BRANCH_OPTIONS = [
@@ -225,7 +216,8 @@ export function TeacherAccountTabs() {
   return (
     <div className="space-y-4">
       {/* Sekme navigasyonu – kompakt pill, bulutsal geçiş */}
-      <div className="flex flex-wrap gap-0.5 rounded-xl border border-border/60 bg-linear-to-r from-muted/20 via-muted/30 to-muted/20 dark:from-zinc-800/80 dark:via-zinc-800/60 dark:to-zinc-800/80 dark:border-zinc-700/60 p-1 shadow-inner">
+      <div className="mobile-tab-scroll pb-1">
+        <div className="flex min-w-max gap-1 rounded-xl border border-border/60 bg-linear-to-r from-muted/20 via-muted/30 to-muted/20 p-1 shadow-inner dark:border-zinc-700/60 dark:from-zinc-800/80 dark:via-zinc-800/60 dark:to-zinc-800/80">
         {TABS.map((t) => {
           const Icon = t.icon;
           const isActive = tab === t.id;
@@ -235,9 +227,9 @@ export function TeacherAccountTabs() {
               type="button"
               onClick={() => setTab(t.id)}
               className={cn(
-                'flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-300 ease-out',
+                'flex min-w-[132px] shrink-0 items-center gap-1.5 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-300 ease-out',
                 isActive
-                  ? 'bg-background/90 text-foreground shadow-sm ring-1 ring-border/40 backdrop-blur-sm dark:bg-zinc-800/90 dark:ring-zinc-600/50'
+                  ? 'bg-background/95 text-foreground shadow-sm ring-1 ring-primary/25 backdrop-blur-sm dark:bg-zinc-800/90 dark:ring-zinc-600/50'
                   : 'text-muted-foreground hover:bg-background/40 hover:text-foreground dark:hover:bg-zinc-800/50',
               )}
             >
@@ -246,6 +238,7 @@ export function TeacherAccountTabs() {
             </button>
           );
         })}
+        </div>
       </div>
 
       {/* Sekme içerikleri */}
@@ -273,8 +266,8 @@ export function TeacherAccountTabs() {
                 </span>
                 Görünen ad
               </label>
-              <form onSubmit={handleSaveProfile} className="flex flex-wrap items-end gap-3">
-                <div className="flex-1 min-w-[180px]">
+              <form onSubmit={handleSaveProfile} className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                <div className="w-full min-w-0 sm:min-w-[180px] sm:flex-1">
                   <input
                     id="hesap-ad"
                     type="text"
@@ -493,7 +486,7 @@ export function TeacherAccountTabs() {
                   Kurum Türü
                 </label>
                 <p className={cn('text-sm font-medium', school?.type ? 'text-foreground' : 'text-muted-foreground/70 italic')}>
-                  {school?.type ? SCHOOL_TYPE_LABELS[school.type] ?? school.type : 'Okul seçin'}
+                  {school?.type ? formatSchoolTypeLabel(school.type) : 'Okul seçin'}
                 </p>
               </div>
               <div className="flex justify-end">

@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Headphones, ArrowLeft, Building2, Send, Users } from 'lucide-react';
+import { Headphones, ArrowLeft, Building2, Send, Users, Sparkles, ShieldCheck, Clock3 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { Toolbar, ToolbarHeading, ToolbarPageTitle } from '@/components/layout/toolbar';
 import { ToolbarIconHints } from '@/components/layout/toolbar-icon-hints';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, isSupportModuleDisabledError } from '@/lib/api';
+import { useSupportModuleAvailability } from '@/hooks/use-support-module-availability';
 import { Card, CardContent } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
@@ -20,10 +21,12 @@ type TicketModule = { id: string; name: string; icon_key: string; target_availab
 export default function NewTicketPage() {
   const router = useRouter();
   const { token, me } = useAuth();
+  const { supportEnabled, loading: supportLoading } = useSupportModuleAvailability();
   const [modules, setModules] = useState<TicketModule[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [supportBlocked, setSupportBlocked] = useState(false);
   const [targetType, setTargetType] = useState<'SCHOOL_SUPPORT' | 'PLATFORM_SUPPORT'>('SCHOOL_SUPPORT');
   const [moduleId, setModuleId] = useState('');
   const [issueType, setIssueType] = useState<'BUG' | 'QUESTION' | 'REQUEST' | 'IMPROVEMENT'>('QUESTION');
@@ -33,7 +36,11 @@ export default function NewTicketPage() {
   const [attachments, setAttachments] = useState<{ key: string; filename: string; mime_type?: string; size_bytes?: number }[]>([]);
 
   useEffect(() => {
-    if (!token) return;
+    if (supportEnabled === false || supportBlocked) {
+      setLoading(false);
+      return;
+    }
+    if (!token || supportEnabled !== true) return;
     setLoading(true);
     const target = targetType === 'PLATFORM_SUPPORT' ? 'PLATFORM_SUPPORT' : 'SCHOOL_SUPPORT';
     apiFetch<TicketModule[]>(`/tickets/modules?target_type=${target}`, { token })
@@ -42,9 +49,19 @@ export default function NewTicketPage() {
         if (list.length && !moduleId) setModuleId(list[0].id);
         else if (!list.some((m) => m.id === moduleId) && list.length) setModuleId(list[0].id);
       })
-      .catch(() => setModules([]))
+      .catch((e) => {
+        if (isSupportModuleDisabledError(e)) {
+          setSupportBlocked(true);
+          setError(null);
+          setModules([]);
+          return;
+        }
+        setModules([]);
+      })
       .finally(() => setLoading(false));
-  }, [token, targetType]);
+  }, [token, targetType, supportEnabled, supportBlocked]);
+
+  if (supportLoading) return <LoadingSpinner label="Yükleniyor…" className="py-8" />;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,6 +84,11 @@ export default function NewTicketPage() {
       });
       router.push(`/support/${res.id}`);
     } catch (err) {
+      if (isSupportModuleDisabledError(err)) {
+        setSupportBlocked(true);
+        setError(null);
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Talep oluşturulamadı');
     } finally {
       setSubmitting(false);
@@ -74,14 +96,14 @@ export default function NewTicketPage() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <Toolbar>
         <ToolbarHeading>
           <div className="flex items-center gap-3">
             <button onClick={() => router.back()} className="rounded-lg p-1.5 hover:bg-muted" aria-label="Geri">
               <ArrowLeft className="size-4" />
             </button>
-            <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10">
+            <div className="flex size-10 items-center justify-center rounded-2xl bg-primary/10 shadow-sm ring-1 ring-primary/10">
               <Headphones className="size-4 text-primary" />
             </div>
             <div>
@@ -101,20 +123,51 @@ export default function NewTicketPage() {
       </Toolbar>
 
       {error && <Alert variant="error" message={error} className="py-2" />}
+      {(supportEnabled === false || supportBlocked) && me?.role !== 'superadmin' && (
+        <Alert variant="warning" message="Destek modülü şu anda kapalı. Yeni destek talebi oluşturamazsınız." className="py-2" />
+      )}
 
-      <Card>
-        <CardContent className="pt-4">
+      {supportEnabled !== false && !supportBlocked && (
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <Card className="overflow-hidden rounded-3xl border-border/60 shadow-sm">
+          <CardContent className="pt-5">
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-4">
+            <div className="rounded-3xl border border-border/60 bg-linear-to-br from-primary/8 via-background to-background p-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-background/80 px-3 py-1 text-xs font-medium text-primary shadow-sm">
+                    <Sparkles className="size-3.5" />
+                    Hızlı talep akışı
+                  </div>
+                  <h2 className="mt-3 text-xl font-semibold tracking-tight">Sorununuzu net bir akışla iletin</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">Birimi seçin, konuyu yazın, gerekirse dosya ekleyin.</p>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-border/60 bg-background/80 px-4 py-3 text-center shadow-sm">
+                    <p className="text-[11px] text-muted-foreground">Kapsam</p>
+                    <p className="mt-1 text-sm font-semibold">{targetType === 'SCHOOL_SUPPORT' ? 'Okul içi' : 'Platform'}</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/60 bg-background/80 px-4 py-3 text-center shadow-sm">
+                    <p className="text-[11px] text-muted-foreground">Konu türü</p>
+                    <p className="mt-1 text-sm font-semibold">{issueType === 'QUESTION' ? 'Soru' : issueType === 'BUG' ? 'Hata' : issueType === 'REQUEST' ? 'Talep' : 'Öneri'}</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/60 bg-background/80 px-4 py-3 text-center shadow-sm">
+                    <p className="text-[11px] text-muted-foreground">Öncelik</p>
+                    <p className="mt-1 text-sm font-semibold">{priority === 'LOW' ? 'Düşük' : priority === 'MEDIUM' ? 'Orta' : priority === 'HIGH' ? 'Yüksek' : 'Acil'}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2 rounded-3xl border border-border/60 bg-muted/20 p-5">
               <Label className="text-sm font-medium">Destek Kapsamı</Label>
               <p className="text-xs text-muted-foreground">Talebin hangi birime iletileceğini seçin</p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label
                   className={[
-                    'flex cursor-pointer flex-col gap-2 rounded-xl border-2 p-4 transition-all',
+                    'flex cursor-pointer flex-col gap-2 rounded-2xl border p-4 transition-all',
                     targetType === 'SCHOOL_SUPPORT'
-                      ? 'border-primary bg-primary/5 shadow-sm'
-                      : 'border-transparent bg-card hover:border-muted-foreground/30',
+                      ? 'border-primary/40 bg-primary/5 shadow-md shadow-primary/10'
+                      : 'border-border/60 bg-card hover:border-muted-foreground/30',
                   ].join(' ')}
                 >
                   <input
@@ -132,10 +185,10 @@ export default function NewTicketPage() {
                 </label>
                 <label
                   className={[
-                    'flex cursor-pointer flex-col gap-2 rounded-xl border-2 p-4 transition-all',
+                    'flex cursor-pointer flex-col gap-2 rounded-2xl border p-4 transition-all',
                     targetType === 'PLATFORM_SUPPORT'
-                      ? 'border-primary bg-primary/5 shadow-sm'
-                      : 'border-transparent bg-card hover:border-muted-foreground/30',
+                      ? 'border-primary/40 bg-primary/5 shadow-md shadow-primary/10'
+                      : 'border-border/60 bg-card hover:border-muted-foreground/30',
                   ].join(' ')}
                 >
                   <input
@@ -156,7 +209,7 @@ export default function NewTicketPage() {
             {loading ? (
               <LoadingSpinner label="Modüller yükleniyor…" />
             ) : (
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 rounded-3xl border border-border/60 bg-card/70 p-5">
                 <Label htmlFor="module-select" className="text-sm font-medium">İlgili Modül</Label>
                 <select
                   id="module-select"
@@ -174,7 +227,7 @@ export default function NewTicketPage() {
               </div>
             )}
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 rounded-3xl border border-border/60 bg-card/70 p-5">
                 <Label htmlFor="issue-type" className="text-sm font-medium">Konu türü</Label>
                 <select
                   id="issue-type"
@@ -188,7 +241,7 @@ export default function NewTicketPage() {
                   <option value="IMPROVEMENT">Öneri / İyileştirme</option>
                 </select>
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 rounded-3xl border border-border/60 bg-card/70 p-5">
                 <Label htmlFor="priority" className="text-sm font-medium">Öncelik</Label>
                 <select
                   id="priority"
@@ -203,7 +256,7 @@ export default function NewTicketPage() {
                 </select>
               </div>
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 rounded-3xl border border-border/60 bg-card/70 p-5">
               <Label htmlFor="subject" className="text-sm font-medium">Konu (başlık)</Label>
               <Input
                 id="subject"
@@ -215,7 +268,7 @@ export default function NewTicketPage() {
                 required
               />
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 rounded-3xl border border-border/60 bg-card/70 p-5">
               <Label className="text-sm font-medium">Dosya ekle (isteğe bağlı)</Label>
               <p className="text-xs text-muted-foreground">Ekran görüntüsü veya belge ekleyebilirsiniz</p>
               <TicketAttachmentInput
@@ -225,7 +278,7 @@ export default function NewTicketPage() {
                 disabled={submitting}
               />
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 rounded-3xl border border-border/60 bg-card/70 p-5">
               <Label htmlFor="description" className="text-sm font-medium">Açıklama</Label>
               <textarea
                 id="description"
@@ -236,7 +289,7 @@ export default function NewTicketPage() {
                 required
               />
             </div>
-            <div className="flex gap-2 pt-1">
+            <div className="flex flex-wrap gap-2 pt-1">
               <Button type="submit" size="sm" disabled={submitting || !moduleId}>
                 {submitting ? 'Gönderiliyor…' : 'Talep Oluştur'}
               </Button>
@@ -245,8 +298,55 @@ export default function NewTicketPage() {
               </Button>
             </div>
           </form>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+        <div className="space-y-4">
+          <Card className="rounded-3xl border-border/60 shadow-sm">
+            <CardContent className="space-y-4 pt-5">
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-600">
+                  <ShieldCheck className="size-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">Talep özeti</p>
+                  <p className="text-xs text-muted-foreground">Gönderim öncesi hızlı kontrol</p>
+                </div>
+              </div>
+              <div className="space-y-3 text-sm">
+                <div className="rounded-2xl border border-border/60 bg-muted/20 p-4">
+                  <p className="text-xs text-muted-foreground">Yönlendirilecek birim</p>
+                  <p className="mt-1 font-medium">{targetType === 'SCHOOL_SUPPORT' ? 'Okul yönetimi ve destek ekibi' : 'Platform / sistem yönetimi'}</p>
+                </div>
+                <div className="rounded-2xl border border-border/60 bg-muted/20 p-4">
+                  <p className="text-xs text-muted-foreground">Başlık</p>
+                  <p className="mt-1 font-medium">{subject.trim() || 'Henüz girilmedi'}</p>
+                </div>
+                <div className="rounded-2xl border border-border/60 bg-muted/20 p-4">
+                  <p className="text-xs text-muted-foreground">Ek dosya</p>
+                  <p className="mt-1 font-medium">{attachments.length ? `${attachments.length} dosya eklendi` : 'Dosya eklenmedi'}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="rounded-3xl border-border/60 shadow-sm">
+            <CardContent className="space-y-3 pt-5">
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                  <Clock3 className="size-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">Yazım ipuçları</p>
+                  <p className="text-xs text-muted-foreground">Daha hızlı çözüm için</p>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+                Kısa ve net bir başlık yazın, mümkünse sorunun oluştuğu adımları ve zamanı belirtin.
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+      )}
     </div>
   );
 }

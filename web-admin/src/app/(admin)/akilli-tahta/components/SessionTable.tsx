@@ -36,7 +36,7 @@ export function SessionTable({
             description="Bugün henüz tahtaya bağlanan olmadı."
           />
         ) : (
-          <div className="overflow-x-auto">
+          <div className="table-x-scroll">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">

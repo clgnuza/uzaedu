@@ -1,5 +1,6 @@
 import {
   Controller,
+  ForbiddenException,
   Get,
   Post,
   Patch,
@@ -10,10 +11,10 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { TicketsService } from './tickets.service';
+import { AppConfigService } from '../app-config/app-config.service';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
-import { RequireModule } from '../common/decorators/require-module.decorator';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
 import { UserRole } from '../types/enums';
 import { CreateTicketDto } from './dto/create-ticket.dto';
@@ -51,12 +52,26 @@ function toScope(payload: CurrentUserPayload) {
 @Controller('tickets')
 @UseGuards(JwtAuthGuard)
 export class TicketsController {
-  constructor(private readonly ticketsService: TicketsService) {}
+  constructor(
+    private readonly ticketsService: TicketsService,
+    private readonly appConfigService: AppConfigService,
+  ) {}
+
+  private async ensureSupportEnabled(payload: CurrentUserPayload): Promise<void> {
+    if (payload.user.role === UserRole.superadmin) return;
+    const webExtras = await this.appConfigService.getWebExtrasConfig();
+    if (webExtras.support_enabled) return;
+    throw new ForbiddenException({
+      code: 'MODULE_DISABLED',
+      message: 'Destek modülü şu anda kapalı.',
+    });
+  }
 
   @Post()
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin)
   async create(@Body() dto: CreateTicketDto, @CurrentUser() payload: CurrentUserPayload) {
+    await this.ensureSupportEnabled(payload);
     return this.ticketsService.create(dto, toScope(payload));
   }
 
@@ -67,6 +82,7 @@ export class TicketsController {
     @Query('school_id') schoolId: string | undefined,
     @CurrentUser() payload: CurrentUserPayload,
   ) {
+    await this.ensureSupportEnabled(payload);
     if (payload.user.role === UserRole.moderator && !(payload.user.moderatorModules ?? []).includes('support')) {
       throw new (await import('@nestjs/common').then((m) => m.ForbiddenException))({
         code: 'FORBIDDEN',
@@ -79,7 +95,11 @@ export class TicketsController {
   @Get('modules')
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin, UserRole.moderator, UserRole.superadmin)
-  async getModules(@Query('target_type') targetType?: 'SCHOOL_SUPPORT' | 'PLATFORM_SUPPORT') {
+  async getModules(
+    @Query('target_type') targetType: 'SCHOOL_SUPPORT' | 'PLATFORM_SUPPORT' | undefined,
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    await this.ensureSupportEnabled(payload);
     return this.ticketsService.getModules(targetType);
   }
 
@@ -87,6 +107,7 @@ export class TicketsController {
   @UseGuards(RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin, UserRole.moderator, UserRole.superadmin)
   async list(@Query() dto: ListTicketsDto, @CurrentUser() payload: CurrentUserPayload) {
+    await this.ensureSupportEnabled(payload);
     if (payload.user.role === UserRole.moderator) {
       if (!(payload.user.moderatorModules ?? []).includes('support')) {
         return { total: 0, page: dto.page ?? 1, limit: dto.limit ?? 20, items: [] };
@@ -102,6 +123,7 @@ export class TicketsController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() payload: CurrentUserPayload,
   ) {
+    await this.ensureSupportEnabled(payload);
     if (payload.user.role === UserRole.moderator && !(payload.user.moderatorModules ?? []).includes('support')) {
       throw new (await import('@nestjs/common').then((m) => m.ForbiddenException))({
         code: 'FORBIDDEN',
@@ -119,6 +141,7 @@ export class TicketsController {
     @Body() dto: UpdateTicketDto,
     @CurrentUser() payload: CurrentUserPayload,
   ) {
+    await this.ensureSupportEnabled(payload);
     if (payload.user.role === UserRole.moderator && !(payload.user.moderatorModules ?? []).includes('support')) {
       throw new (await import('@nestjs/common').then((m) => m.ForbiddenException))({
         code: 'FORBIDDEN',
@@ -136,6 +159,7 @@ export class TicketsController {
     @Body() dto: EscalateTicketDto,
     @CurrentUser() payload: CurrentUserPayload,
   ) {
+    await this.ensureSupportEnabled(payload);
     return this.ticketsService.escalate(
       id,
       dto.reason,
@@ -152,6 +176,7 @@ export class TicketsController {
     @Body() dto: CreateTicketMessageDto,
     @CurrentUser() payload: CurrentUserPayload,
   ) {
+    await this.ensureSupportEnabled(payload);
     if (payload.user.role === UserRole.moderator && !(payload.user.moderatorModules ?? []).includes('support')) {
       throw new (await import('@nestjs/common').then((m) => m.ForbiddenException))({
         code: 'FORBIDDEN',
@@ -169,6 +194,7 @@ export class TicketsController {
     @Query() dto: ListMessagesDto,
     @CurrentUser() payload: CurrentUserPayload,
   ) {
+    await this.ensureSupportEnabled(payload);
     if (payload.user.role === UserRole.moderator && !(payload.user.moderatorModules ?? []).includes('support')) {
       throw new (await import('@nestjs/common').then((m) => m.ForbiddenException))({
         code: 'FORBIDDEN',

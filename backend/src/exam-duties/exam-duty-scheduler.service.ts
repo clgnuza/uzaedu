@@ -56,8 +56,8 @@ export class ExamDutySchedulerService {
     }
   }
 
-  /** Her 30 dk 04:00–09:30 UTC ≈ 07:00–12:30 Turkey – kullanıcının tercih ettiği saatte sabah hatırlatması */
-  @Cron('0,30 4,5,6,7,8,9 * * *')
+  /** Her dakika 03:00–10:59 UTC ≈ 06:00–13:59 Turkey – tercih edilen HH:mm ile eşleşen sabah hatırlatması */
+  @Cron('*/1 3-10 * * *')
   async runExamDayMorningNotifications() {
     const today = getTodayTurkey();
     const nowTime = getCurrentTimeTurkey();

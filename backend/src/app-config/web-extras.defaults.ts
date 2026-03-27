@@ -73,6 +73,7 @@ export const DEFAULT_WEB_EXTRAS = {
   app_store_url: null as string | null,
   play_store_url: null as string | null,
   help_center_url: null as string | null,
+  support_enabled: true,
   /** Reklam API ana şalteri (web; GET /ads-public boş döner) */
   ads_enabled: true,
   /**
@@ -80,4 +81,25 @@ export const DEFAULT_WEB_EXTRAS = {
    * İstemci cookie_consent=accepted göndermeli (KVKK / ePrivacy uyumu).
    */
   ads_web_targeting_requires_cookie_consent: true,
+  /**
+   * Giriş yapmadan açılan Öğretmen Pro kabuğu (haberler, hesaplamalar…).
+   * Yollar `isPublicAdminPath` ile uyumlu tutulmalı.
+   */
+  guest_public_web_shell_nav: {
+    top_bar_enabled: true,
+    top_bar_items: [
+      { label: 'Haberler', href: '/haberler', icon_key: 'newspaper' },
+      { label: 'Hesaplamalar', href: '/hesaplamalar', icon_key: 'calculator' },
+      { label: 'Ek ders hesabı', href: '/extra-lesson-calc', icon_key: 'book-open' },
+      { label: 'Sınav görev ücretleri', href: '/sinav-gorev-ucretleri', icon_key: 'graduation-cap' },
+    ] as { label: string; href: string; icon_key: string | null }[],
+    bottom_bar_enabled: true,
+    bottom_bar_items: [
+      { label: 'Haberler', href: '/haberler', icon_key: 'newspaper' },
+      { label: 'Hesaplamalar', href: '/hesaplamalar', icon_key: 'calculator' },
+      { label: 'Ek ders', href: '/extra-lesson-calc', icon_key: 'book-open' },
+      { label: 'Sınav görev', href: '/sinav-gorev-ucretleri', icon_key: 'graduation-cap' },
+    ] as { label: string; href: string; icon_key: string | null }[],
+    bottom_bar_mobile_only: true,
+  },
 } as const;
