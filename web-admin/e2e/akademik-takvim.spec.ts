@@ -34,7 +34,7 @@ test.describe('Akademik Takvim sayfası', () => {
     // 5) "ŞU AN BU HAFTADASINIZ" section
     await expect(page.getByText('ŞU AN BU HAFTADASINIZ')).toBeVisible({ timeout: 5000 });
 
-    // 6) Category cards section - "Akademik Takvim" h2 and cards (or EmptyState if no data)
-    await expect(page.getByRole('heading', { name: 'Akademik Takvim', level: 2 })).toBeVisible({ timeout: 5000 });
+    // 6) Calendar section heading
+    await expect(page.getByRole('heading', { name: 'Hafta ve özet görünüm', level: 2 })).toBeVisible({ timeout: 5000 });
   });
 });

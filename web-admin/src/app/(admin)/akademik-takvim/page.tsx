@@ -110,6 +110,7 @@ export default function AkademikTakvimPage() {
   const isSuperadmin = me?.role === 'superadmin';
   const academicYears = getAcademicYears();
   const [academicYear, setAcademicYear] = useState(DEFAULT_ACADEMIC_YEAR);
+  const [previewSchoolType, setPreviewSchoolType] = useState('ilkokul');
   const progress = useAcademicProgress();
   const currentWeekOrder = getCurrentWeekOrder(weeks);
   const currentWeekData = weeks.find((w) => w.weekNumber === currentWeekOrder);
@@ -120,7 +121,14 @@ export default function AkademikTakvimPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiFetch<WeekWithItems[]>(`/academic-calendar?academic_year=${encodeURIComponent(academicYear)}`, { token });
+      const st =
+        isSuperadmin && previewSchoolType
+          ? `&school_type=${encodeURIComponent(previewSchoolType)}`
+          : '';
+      const data = await apiFetch<WeekWithItems[]>(
+        `/academic-calendar?academic_year=${encodeURIComponent(academicYear)}${st}`,
+        { token },
+      );
       setWeeks(Array.isArray(data) ? data : []);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Yüklenemedi');
@@ -128,7 +136,7 @@ export default function AkademikTakvimPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, academicYear]);
+  }, [token, academicYear, isSuperadmin, previewSchoolType]);
 
   useEffect(() => {
     fetchData();
@@ -161,6 +169,48 @@ export default function AkademikTakvimPage() {
                 </option>
               ))}
             </select>
+            {isSuperadmin && (
+              <select
+                value={previewSchoolType}
+                onChange={(e) => setPreviewSchoolType(e.target.value)}
+                className="rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-sm font-medium text-white backdrop-blur focus:border-white/50 focus:outline-none focus:ring-2 focus:ring-white/20"
+                aria-label="Önizleme kurum türü"
+              >
+                <option value="ilkokul" className="bg-slate-800 text-white">
+                  İlkokul önizleme
+                </option>
+                <option value="__global__" className="bg-slate-800 text-white">
+                  Yalnız ortak
+                </option>
+                <option value="anaokul" className="bg-slate-800 text-white">
+                  Anaokul
+                </option>
+                <option value="ortaokul" className="bg-slate-800 text-white">
+                  Ortaokul
+                </option>
+                <option value="lise" className="bg-slate-800 text-white">
+                  Lise
+                </option>
+                <option value="meslek_lisesi" className="bg-slate-800 text-white">
+                  Meslek lisesi
+                </option>
+                <option value="imam_hatip_ortaokul" className="bg-slate-800 text-white">
+                  İHL ortaokul
+                </option>
+                <option value="imam_hatip_lise" className="bg-slate-800 text-white">
+                  İHL lise
+                </option>
+                <option value="ozel_egitim" className="bg-slate-800 text-white">
+                  Özel eğitim
+                </option>
+                <option value="halk_egitim" className="bg-slate-800 text-white">
+                  Halk eğitim
+                </option>
+                <option value="bilsem" className="bg-slate-800 text-white">
+                  BİLSEM
+                </option>
+              </select>
+            )}
             <div className="flex rounded-lg border border-white/30 bg-white/10 p-0.5">
               <button
                 type="button"
@@ -238,7 +288,9 @@ export default function AkademikTakvimPage() {
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-2">
                 <Pin className="size-5 text-primary" aria-hidden />
-                <span className="font-semibold">Şu an bu haftadasınız</span>
+                <a href="#akademik-takvim-icerik" className="font-semibold text-foreground underline-offset-4 hover:underline">
+                  Şu an bu haftadasınız
+                </a>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/15 px-3 py-1.5 text-sm font-medium text-primary">
@@ -259,8 +311,17 @@ export default function AkademikTakvimPage() {
       )}
 
       {/* Takvim görünümü – hafta (varsayılan) / ay (opsiyonel) */}
-      <div>
-        <h2 className="mb-4 text-lg font-semibold">Takvim</h2>
+      <div id="akademik-takvim-icerik">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold tracking-tight">Hafta ve özet görünüm</h2>
+          <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-muted-foreground">
+            <li>
+              Kaydırırken üstte sabit kalan bardan <span className="font-medium text-foreground">hafta seçin</span> veya{' '}
+              <span className="font-medium text-foreground">Hafta / Liste</span> görünümünü değiştirin.
+            </li>
+            <li>Hızlı şeritte yana kaydırarak yakın haftalara geçebilirsiniz (mobil).</li>
+          </ul>
+        </div>
 
         {loading && (
           <div className="flex justify-center py-16">

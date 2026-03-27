@@ -22,18 +22,34 @@ import {
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import {
   DndContext,
+  DragOverlay,
   pointerWithin,
   PointerSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
 } from '@dnd-kit/core';
 import {
   AcademicCalendarPaletteItem,
   AcademicCalendarDropZone,
+  PaletteDragOverlayContent,
 } from '@/components/academic-calendar/academic-calendar-timeline';
-import { OGRETMEN_PALETTE } from '@/config/academic-calendar-palette';
+import { BELIRLI_PALETTE, OGRETMEN_PALETTE } from '@/config/academic-calendar-palette';
 import { ArrowLeft, Calendar, Eye, Filter, GripVertical, Plus, Trash2, UserPlus } from 'lucide-react';
+
+const SCHOOL_TYPE_LABEL: Record<string, string> = {
+  anaokul: 'Anaokul',
+  ilkokul: 'İlkokul',
+  ortaokul: 'Ortaokul',
+  lise: 'Lise',
+  meslek_lisesi: 'Meslek lisesi',
+  imam_hatip_ortaokul: 'İmam Hatip ortaokul',
+  imam_hatip_lise: 'İmam Hatip lise',
+  ozel_egitim: 'Özel eğitim',
+  halk_egitim: 'Halk eğitim',
+  bilsem: 'BİLSEM',
+};
 import { toast } from 'sonner';
 
 /** Tarih aralığını kısa formatta göster (örn: "8–12 Eyl") */
@@ -99,7 +115,17 @@ export default function AkademikTakvimAyarlarPage() {
   const [assignForm, setAssignForm] = useState({ itemId: '', itemTitle: '', userId: '', gorevTipi: 'sorumlu' as 'sorumlu' | 'yardimci' });
   const [filterMonth, setFilterMonth] = useState<string>('');
   const [filterSearch, setFilterSearch] = useState('');
+  const [paletteQuery, setPaletteQuery] = useState('');
+  const [activePaletteDrag, setActivePaletteDrag] = useState<{ title: string; variant: 'belirli' | 'ogretmen' } | null>(null);
   const academicYear = '2025-2026';
+
+  const paletteQ = paletteQuery.trim().toLowerCase();
+  const belirliPaletteFiltered = paletteQ
+    ? BELIRLI_PALETTE.filter((t) => t.toLowerCase().includes(paletteQ))
+    : BELIRLI_PALETTE;
+  const ogretmenPaletteFiltered = paletteQ
+    ? OGRETMEN_PALETTE.filter(({ title }) => title.toLowerCase().includes(paletteQ))
+    : OGRETMEN_PALETTE;
 
   const fetchData = useCallback(async () => {
     if (!token || me?.role !== 'school_admin') return;
@@ -265,7 +291,14 @@ export default function AkademikTakvimAyarlarPage() {
     }
   };
 
-  const sensors = useSensors(useSensor(PointerSensor));
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+
+  const handlePaletteDragStart = (event: DragStartEvent) => {
+    const d = event.active.data?.current as
+      | { type?: string; section?: 'belirli' | 'ogretmen'; title?: string }
+      | undefined;
+    if (d?.type === 'palette' && d.title && d.section) setActivePaletteDrag({ title: d.title, variant: d.section });
+  };
 
   const handleDropFromPalette = (event: DragEndEvent) => {
     const activeData = event.active.data?.current as
@@ -275,8 +308,18 @@ export default function AkademikTakvimAyarlarPage() {
     if (activeData?.type !== 'palette' || !overId.startsWith('drop__') || !activeData.title) return;
     const [, weekId, section] = overId.split('__');
     if (!weekId || !section) return;
-    const path = section === 'ogretmen' ? OGRETMEN_PALETTE.find((p) => p.title === activeData.title)?.path ?? '/evrak' : undefined;
+    const path =
+      section === 'ogretmen'
+        ? OGRETMEN_PALETTE.find((p) => p.title === activeData.title)?.path ?? '/evrak'
+        : undefined;
     const type = section === 'belirli' ? 'belirli_gun_hafta' : 'ogretmen_isleri';
+    const duplicate = (overrides.customItems ?? []).some(
+      (c) => c.weekId === weekId && c.type === type && c.title === activeData.title,
+    );
+    if (duplicate) {
+      toast.error('Bu öğe bu haftada zaten ekli.');
+      return;
+    }
     const maxOrder = Math.max(0, ...(overrides.customItems ?? []).filter((c) => c.weekId === weekId).map((c) => c.sortOrder));
     const newItem = {
       id: `custom-${Date.now()}`,
@@ -289,6 +332,9 @@ export default function AkademikTakvimAyarlarPage() {
     setOverrides((o) => ({ ...o, customItems: [...(o.customItems ?? []), newItem] }));
     toast.success(`"${activeData.title}" eklendi. Kaydet butonuna basın.`);
   };
+
+  const schoolTypeKey = me?.school?.type ?? '';
+  const schoolTypeLabel = schoolTypeKey ? SCHOOL_TYPE_LABEL[schoolTypeKey] ?? schoolTypeKey : null;
 
   if (!me && token) {
     return (
@@ -309,7 +355,11 @@ export default function AkademikTakvimAyarlarPage() {
               { label: 'Özel öğe ekleme', icon: Plus },
               { label: 'Akademik takvim', icon: Calendar },
             ]}
-            summary="Okulunuzun akademik takviminde hangi öğelerin görüneceğini yönetin. Gizleyebilir veya özel öğe ekleyebilirsiniz."
+            summary={
+              schoolTypeLabel
+                ? `Kurum türü (${schoolTypeLabel}) şablonu yüklendi. Öğeleri gizleyin, listeden özel öğe ekleyin veya aşağıdan sürükleyip bırakın. Kaydet ile kaydedilir.`
+                : 'Okulunuzun akademik takviminde hangi öğelerin görüneceğini yönetin. Gizleyebilir veya özel öğe ekleyebilirsiniz.'
+            }
           />
         </ToolbarHeading>
         <ToolbarActions>
@@ -331,24 +381,91 @@ export default function AkademikTakvimAyarlarPage() {
         </div>
       )}
       {!loading && (
-        <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragEnd={handleDropFromPalette}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={pointerWithin}
+          onDragStart={handlePaletteDragStart}
+          onDragCancel={() => setActivePaletteDrag(null)}
+          onDragEnd={(e) => {
+            handleDropFromPalette(e);
+            setActivePaletteDrag(null);
+          }}
+        >
           <div className="space-y-6">
             {weeks.length > 0 && (
-              <div className="rounded-xl border border-dashed border-primary/40 bg-primary/5 p-4">
-                <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <GripVertical className="size-4 text-muted-foreground" aria-hidden />
-                  Öğretmen İşleri — Haftalara sürükleyip bırakın (veya Özel Öğe Ekle)
-                </h3>
-                <div className="flex flex-wrap gap-2">
-                  {OGRETMEN_PALETTE.map(({ title }) => (
-                    <AcademicCalendarPaletteItem
-                      key={title}
-                      id={`palette-ogretmen-${title}`}
-                      title={title}
-                      variant="ogretmen"
-                    />
-                  ))}
+              <div
+                className="sticky top-[var(--header-height)] z-20 my-2 max-h-[min(44vh,340px)] overflow-y-auto overscroll-contain rounded-xl border border-dashed border-primary/40 bg-background/95 p-3 shadow-md backdrop-blur-sm supports-[backdrop-filter]:bg-background/90 dark:border-primary/35"
+              >
+              <div className="space-y-4 rounded-xl border border-dashed border-primary/20 bg-primary/5 p-3 sm:p-4">
+                {schoolTypeLabel && (
+                  <p className="text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">Aktif şablon:</span> {schoolTypeLabel}
+                    {me?.school?.name ? ` — ${me.school.name}` : ''}
+                  </p>
+                )}
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">İpucu:</span> Öğeyi seçip ~8px sürükleyin; hedef hafta kartındaki turuncu veya mavi
+                    alanın üzerine bırakın.
+                  </p>
+                  <Input
+                    placeholder="Paletten ara…"
+                    value={paletteQuery}
+                    onChange={(e) => setPaletteQuery(e.target.value)}
+                    className="h-9 max-w-xs text-sm"
+                    aria-label="Paletten ara"
+                  />
                 </div>
+                <div>
+                  <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <GripVertical className="size-4 text-muted-foreground" aria-hidden />
+                    Belirli Gün ve Haftalar — turuncu alana bırakın
+                    <span className="ml-auto text-xs font-normal text-muted-foreground">
+                      {belirliPaletteFiltered.length} öğe
+                    </span>
+                  </h3>
+                  <details open className="text-muted-foreground">
+                    <summary className="cursor-pointer text-xs font-medium">Liste (daralt / genişlet)</summary>
+                    <div className="mt-2 flex max-h-32 flex-wrap gap-2 overflow-y-auto rounded-md border border-border/60 bg-background/50 p-2">
+                      {belirliPaletteFiltered.length === 0 ? (
+                        <span className="w-full py-4 text-center text-xs text-muted-foreground">Arama sonucu yok.</span>
+                      ) : (
+                        belirliPaletteFiltered.map((title) => (
+                          <AcademicCalendarPaletteItem
+                            key={title}
+                            id={`palette-belirli-${title}`}
+                            title={title}
+                            variant="belirli"
+                          />
+                        ))
+                      )}
+                    </div>
+                  </details>
+                </div>
+                <div>
+                  <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <GripVertical className="size-4 text-muted-foreground" aria-hidden />
+                    Öğretmen İşleri — mavi alana bırakın
+                    <span className="ml-auto text-xs font-normal text-muted-foreground">
+                      {ogretmenPaletteFiltered.length} öğe
+                    </span>
+                  </h3>
+                  <div className="flex max-h-36 flex-wrap gap-2 overflow-y-auto rounded-md border border-border/60 bg-background/50 p-2">
+                    {ogretmenPaletteFiltered.length === 0 ? (
+                      <span className="w-full py-4 text-center text-xs text-muted-foreground">Arama sonucu yok.</span>
+                    ) : (
+                      ogretmenPaletteFiltered.map(({ title }) => (
+                        <AcademicCalendarPaletteItem
+                          key={title}
+                          id={`palette-ogretmen-${title}`}
+                          title={title}
+                          variant="ogretmen"
+                        />
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
               </div>
             )}
 
@@ -655,6 +772,11 @@ export default function AkademikTakvimAyarlarPage() {
               </Card>
             )}
           </div>
+          <DragOverlay dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }}>
+            {activePaletteDrag ? (
+              <PaletteDragOverlayContent title={activePaletteDrag.title} variant={activePaletteDrag.variant} />
+            ) : null}
+          </DragOverlay>
         </DndContext>
       )}
     </div>
