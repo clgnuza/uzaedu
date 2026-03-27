@@ -18,6 +18,10 @@ export class GenerateDraftDto {
   @IsString()
   section?: string;
 
+  @IsOptional()
+  @IsString()
+  school_profile?: string;
+
   @IsString()
   academic_year!: string;
 

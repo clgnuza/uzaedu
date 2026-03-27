@@ -84,10 +84,13 @@ export class TeacherTimetableController {
         const o = JSON.parse(json) as {
           entries?: Array<{ day: number; lesson: number; class: string; subject: string }>;
           lesson_times?: unknown[];
+          lesson_times_weekend?: unknown[];
           class_sections?: string[];
         };
         entry_count = Array.isArray(o.entries) ? o.entries.length : 0;
-        lesson_times_count = Array.isArray(o.lesson_times) ? o.lesson_times.length : 0;
+        const nWd = Array.isArray(o.lesson_times) ? o.lesson_times.length : 0;
+        const nWk = Array.isArray(o.lesson_times_weekend) ? o.lesson_times_weekend.length : 0;
+        lesson_times_count = Math.max(nWd, nWk);
         if (Array.isArray(o.class_sections)) class_sections.push(...o.class_sections);
         if (Array.isArray(o.entries)) sample_entries.push(...o.entries.slice(0, 8));
       } catch {
@@ -108,6 +111,14 @@ export class TeacherTimetableController {
   @Roles(UserRole.school_admin, UserRole.teacher)
   async getMe(@CurrentUser() payload: CurrentUserPayload, @Query('date') date?: string) {
     return this.service.getByMe(payload.schoolId ?? null, payload.userId, date);
+  }
+
+  /** Öğretmen: okul + kişisel program özeti; çakışma tespiti (çift kişisel programda aynı slotta farklı ders). */
+  @Get('me/program-overview')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.teacher)
+  async getMeProgramOverview(@CurrentUser() payload: CurrentUserPayload) {
+    return this.service.getTeacherProgramOverview(payload.schoolId ?? null, payload.userId);
   }
 
   @Get('my-programs')

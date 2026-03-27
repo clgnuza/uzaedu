@@ -554,6 +554,8 @@ export class DutyController {
       duty_start_time_pm?: string | null;
       duty_end_time_pm?: string | null;
       lesson_schedule_pm?: { lesson_num: number; start_time: string; end_time: string }[] | null;
+      lesson_schedule_weekend?: { lesson_num: number; start_time: string; end_time: string }[] | null;
+      lesson_schedule_weekend_pm?: { lesson_num: number; start_time: string; end_time: string }[] | null;
       principal_name?: string | null;
       district?: string | null;
     },

@@ -18,6 +18,15 @@ const FORMATS = [
   { value: 'pdf', label: 'PDF' },
 ] as const;
 
+/** API camelCase (fileUrl) veya snake_case; boş string ile ?? zincirinde kaybolmasın */
+function pickTemplateFileUrl(row: Record<string, unknown>): string {
+  for (const k of ['file_url', 'fileUrl'] as const) {
+    const v = row[k];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return '';
+}
+
 type DocumentTemplate = {
   id: string;
   type: string;
@@ -225,35 +234,54 @@ export function SablonlarTab({ fixedCurriculumModel, excludeCurriculumModel }: S
     setShowForm(true);
   };
 
-  const openEdit = (t: DocumentTemplate) => {
-    const tt = t as Record<string, unknown>;
-    setForm({
-      type: (tt.type as string) ?? '',
-      sub_type: (tt.sub_type ?? tt.subType) as string ?? '',
-      school_type: (tt.school_type ?? tt.schoolType) as string ?? '',
-      grade: tt.grade != null ? String(tt.grade) : '',
-      section: (tt.section as string) ?? '',
-      subject_code: (tt.subject_code ?? tt.subjectCode) as string ?? '',
-      subject_label: (tt.subject_label ?? tt.subjectLabel) as string ?? '',
-      academic_year: (tt.academic_year ?? tt.academicYear) as string ?? '',
-      version: (tt.version as string) ?? '',
-      file_url: (tt.file_url ?? tt.fileUrl) as string ?? '',
-      file_url_local: (tt.file_url_local ?? tt.fileUrlLocal) as string ?? '',
-      file_format: (tt.file_format ?? tt.fileFormat) as string ?? 'docx',
-      is_active: (tt.is_active ?? tt.isActive) as boolean ?? true,
-      requires_merge: (tt.requires_merge ?? tt.requiresMerge) as boolean ?? false,
-      form_schema: Array.isArray(tt.form_schema ?? tt.formSchema)
-        ? JSON.stringify((tt.form_schema ?? tt.formSchema) as unknown[], null, 2)
-        : '',
-      sort_order: tt.sort_order != null || tt.sortOrder != null ? String(tt.sort_order ?? tt.sortOrder) : '',
-    });
-    setEditing(t);
-    setShowForm(true);
+  const openEdit = async (t: DocumentTemplate) => {
+    if (!token) return;
+    try {
+      const full = await apiFetch<DocumentTemplate>(`/document-templates/${t.id}`, { token });
+      const tt = full as Record<string, unknown>;
+      setForm({
+        type: (tt.type as string) ?? '',
+        sub_type: (tt.sub_type ?? tt.subType) as string ?? '',
+        school_type: (tt.school_type ?? tt.schoolType) as string ?? '',
+        grade: tt.grade != null ? String(tt.grade) : '',
+        section: (tt.section as string) ?? '',
+        subject_code: (tt.subject_code ?? tt.subjectCode) as string ?? '',
+        subject_label: (tt.subject_label ?? tt.subjectLabel) as string ?? '',
+        academic_year: (tt.academic_year ?? tt.academicYear) as string ?? '',
+        version: (tt.version as string) ?? '',
+        file_url: pickTemplateFileUrl(tt),
+        file_url_local: (() => {
+          const loc = tt.file_url_local ?? tt.fileUrlLocal;
+          return typeof loc === 'string' ? loc : '';
+        })(),
+        file_format: (tt.file_format ?? tt.fileFormat) as string ?? 'docx',
+        is_active: (tt.is_active ?? tt.isActive) as boolean ?? true,
+        requires_merge: (tt.requires_merge ?? tt.requiresMerge) as boolean ?? false,
+        form_schema: Array.isArray(tt.form_schema ?? tt.formSchema)
+          ? JSON.stringify((tt.form_schema ?? tt.formSchema) as unknown[], null, 2)
+          : '',
+        sort_order: tt.sort_order != null || tt.sortOrder != null ? String(tt.sort_order ?? tt.sortOrder) : '',
+      });
+      setEditing(full);
+      setShowForm(true);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Şablon detayı alınamadı');
+    }
   };
 
   const handleSave = async () => {
     if (!token) return;
-    if (!form.file_url.trim()) {
+    const editingRow = editing as Record<string, unknown> | null;
+    const fileUrlResolved =
+      form.file_url.trim() ||
+      (editingRow ? pickTemplateFileUrl(editingRow) : '');
+    const fileUrlLocalResolved =
+      form.file_url_local.trim() ||
+      (() => {
+        const loc = editingRow?.file_url_local ?? editingRow?.fileUrlLocal;
+        return typeof loc === 'string' ? loc.trim() : '';
+      })();
+    if (!fileUrlResolved && !fileUrlLocalResolved) {
       toast.error('Dosya URL veya R2 key girin veya yükleyin.');
       return;
     }
@@ -294,8 +322,8 @@ export function SablonlarTab({ fixedCurriculumModel, excludeCurriculumModel }: S
         subject_label: form.subject_label.trim() || undefined,
         academic_year: form.academic_year.trim() || undefined,
         version: form.version.trim(),
-        file_url: form.file_url.trim(),
-        file_url_local: form.file_url_local.trim() || undefined,
+        ...(fileUrlResolved || !editing ? { file_url: fileUrlResolved || fileUrlLocalResolved } : {}),
+        ...(fileUrlLocalResolved ? { file_url_local: fileUrlLocalResolved } : {}),
         file_format: form.file_format,
         is_active: form.is_active,
         requires_merge: form.requires_merge,
@@ -786,7 +814,7 @@ export function SablonlarTab({ fixedCurriculumModel, excludeCurriculumModel }: S
                           </button>
                           <button
                             type="button"
-                            onClick={() => openEdit(t)}
+                            onClick={() => void openEdit(t)}
                             title="Düzenle"
                             className="rounded p-1.5 hover:bg-muted"
                           >

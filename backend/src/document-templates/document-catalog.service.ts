@@ -54,6 +54,9 @@ export class DocumentCatalogService implements OnModuleInit {
     } else if (grade != null && grade >= 1 && grade <= 12) {
       qb.andWhere('(c.grade_min IS NULL OR c.grade_min <= :grade)', { grade });
       qb.andWhere('(c.grade_max IS NULL OR c.grade_max >= :grade)', { grade });
+      qb.andWhere(
+        "NOT (c.grade_min IS NULL AND c.grade_max IS NULL AND (c.section_filter IS NULL OR TRIM(c.section_filter) = ''))",
+      );
       if (section) {
         qb.andWhere('(c.section_filter IS NULL OR c.section_filter = :section)', {
           section,

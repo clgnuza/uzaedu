@@ -7,18 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
-import {
   ArrowRight,
   BarChart3,
   Bell,
@@ -44,18 +32,126 @@ import {
   ShoppingBag,
   Lock,
   CheckCircle2,
+  UserPlus,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { WelcomeMotivationBanner } from '@/components/dashboard/welcome-motivation-banner';
-
-export type SchoolAdminStatsPayload = {
-  schools: number;
-  users: number;
-  announcements: number;
-  chart: { month: string; count: number }[];
-};
+import type { StatsResponse } from '@/lib/stats-response';
 
 const CHART_COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)'];
+
+const ROLE_LABELS: Record<string, string> = {
+  teacher: 'Öğretmen',
+  school_admin: 'Okul yöneticisi',
+  moderator: 'Moderatör',
+  superadmin: 'Süper Admin',
+};
+const STATUS_LABELS: Record<string, string> = {
+  active: 'Aktif',
+  passive: 'Pasif',
+  suspended: 'Askıda',
+  deleted: 'Silinmiş',
+};
+const SEG_PALETTE = [
+  'hsl(var(--primary))',
+  'hsl(var(--chart-2))',
+  'hsl(var(--chart-3))',
+  'hsl(var(--chart-4))',
+  'hsl(var(--chart-5))',
+];
+const STATUS_PALETTE = [
+  'hsl(142 76% 36%)',
+  'hsl(var(--muted-foreground))',
+  'hsl(38 92% 50%)',
+  'hsl(0 72% 50%)',
+];
+
+function DistributionStrip({
+  entries,
+  labelMap,
+  colors,
+}: {
+  entries: Record<string, number>;
+  labelMap: Record<string, string>;
+  colors: string[];
+}) {
+  const pairs = Object.entries(entries).filter(([, v]) => v > 0);
+  const total = pairs.reduce((s, [, v]) => s + v, 0);
+  if (total === 0) {
+    return <p className="text-sm text-muted-foreground">Henüz kayıt yok</p>;
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
+        {pairs.map(([k], i) => (
+          <div
+            key={k}
+            className="min-w-0 transition-[width]"
+            style={{
+              width: `${(entries[k]! / total) * 100}%`,
+              backgroundColor: colors[i % colors.length],
+            }}
+            title={`${labelMap[k] ?? k}: ${entries[k]}`}
+          />
+        ))}
+      </div>
+      <ul className="space-y-1 text-xs">
+        {pairs.map(([k], i) => (
+          <li key={k} className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <span className="size-2 shrink-0 rounded-sm" style={{ backgroundColor: colors[i % colors.length] }} />
+              {labelMap[k] ?? k}
+            </span>
+            <span className="font-medium tabular-nums text-foreground">{entries[k]}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function MonthlyCssBars({
+  rows,
+  maxVal,
+  ariaLabel,
+  emptyHint,
+}: {
+  rows: { name: string; deger: number }[];
+  maxVal: number;
+  ariaLabel: string;
+  emptyHint: string;
+}) {
+  if (!rows.length) {
+    return (
+      <div className="flex h-[160px] items-center justify-center rounded-lg border border-dashed border-border/60 bg-muted/15 px-2 text-center text-xs text-muted-foreground">
+        {emptyHint}
+      </div>
+    );
+  }
+  return (
+    <div className="flex h-[180px] items-end justify-between gap-0.5 sm:gap-1" role="img" aria-label={ariaLabel}>
+      {rows.map((row, i) => {
+        const pct = maxVal > 0 ? (row.deger / maxVal) * 100 : 0;
+        return (
+          <div key={`${row.name}-${i}`} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1">
+            <span className="text-[9px] font-semibold tabular-nums text-foreground sm:text-[10px]">{row.deger}</span>
+            <div className="flex h-[120px] w-full flex-col justify-end sm:h-[128px]">
+              <div
+                className={cn('w-full rounded-t-sm', row.deger > 0 && 'min-h-[4px]')}
+                style={{
+                  height: `${pct}%`,
+                  backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
+                }}
+                title={`${row.name}: ${row.deger}`}
+              />
+            </div>
+            <span className="w-full truncate text-center text-[8px] leading-tight text-muted-foreground sm:text-[9px]">{row.name}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 /** Okul modül anahtarı + okul yöneticisinin erişebildiği rota (ROUTE_ROLES ile uyumlu). */
 const MODULE_CATALOG: { key: string; label: string; href: string; icon: LucideIcon }[] = [
@@ -105,7 +201,7 @@ function formatTodayTr(): string {
 export type SchoolAdminHomeProps = {
   me: Me;
   displayName: string;
-  stats: SchoolAdminStatsPayload | null;
+  stats: StatsResponse | null;
   statsError: string | null;
   isLoadingStats: boolean;
   adminMessagesUnread: number;
@@ -128,17 +224,14 @@ export function SchoolAdminHome({
   const inactiveCount = Math.max(0, totalModules - activeCount);
   const allOpen = !enabledModules || enabledModules.length === 0;
 
-  const pieData = allOpen
-    ? [
-        { name: 'Tüm modüller', value: 1, fill: 'hsl(var(--primary) / 0.85)' },
-      ]
-    : [
-        { name: 'Açık', value: activeCount, fill: 'hsl(var(--primary) / 0.9)' },
-        { name: 'Kapalı', value: inactiveCount, fill: 'hsl(var(--muted-foreground) / 0.25)' },
-      ];
-
+  const sa = stats?.school_admin;
   const chartData = stats?.chart ?? [];
   const barRows = chartData.length ? chartData.map((d) => ({ name: d.month, deger: d.count })) : [];
+  const annMax = barRows.length ? Math.max(...barRows.map((r) => r.deger), 1) : 1;
+  const userBarRows = sa?.users_monthly_chart?.length
+    ? sa.users_monthly_chart.map((d) => ({ name: d.month, deger: d.count }))
+    : [];
+  const userMax = userBarRows.length ? Math.max(...userBarRows.map((r) => r.deger), 1) : 1;
   const schoolName = me.school?.name;
 
   return (
@@ -312,52 +405,85 @@ export function SchoolAdminHome({
       </div>
 
       <div className="grid gap-6 xl:grid-cols-12 xl:items-start">
-        <div className="space-y-6 xl:col-span-7">
+        <div className="space-y-6 xl:col-span-8">
           <Card className="overflow-hidden rounded-2xl border-border/60 shadow-sm sm:rounded-3xl">
             <CardHeader className="border-b border-border/40 bg-muted/20">
-              <CardTitle className="text-base">Duyuru oluşturma — bu yıl (aylık)</CardTitle>
-              <p className="text-xs font-normal text-muted-foreground">Okulunuza ait duyuru kayıtlarının dağılımı</p>
+              <CardTitle className="text-base">Okulunuzda özet</CardTitle>
+              <p className="text-xs font-normal text-muted-foreground">
+                Kullanıcı dağılımı ve bu yıl aylık trend — yönetim için özet
+              </p>
             </CardHeader>
-            <CardContent className="pt-5">
-              <div className="h-[260px] w-full min-h-[200px]">
-                {isLoadingStats ? (
-                  <div className="flex h-full items-center justify-center">
-                    <Skeleton className="h-full w-full rounded-lg" />
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 400, height: 260 }}>
-                    <BarChart
-                      data={barRows.length ? barRows : [{ name: '—', deger: 0 }]}
-                      margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+            <CardContent className="space-y-6 pt-5">
+              {isLoadingStats ? (
+                <div className="space-y-4">
+                  <Skeleton className="h-24 w-full rounded-lg" />
+                  <Skeleton className="h-24 w-full rounded-lg" />
+                  <Skeleton className="h-44 w-full rounded-lg" />
+                </div>
+              ) : (
+                <>
+                  {(sa?.teachers_pending_approval ?? 0) > 0 && (
+                    <Link
+                      href="/school-join-queue"
+                      className="flex items-center justify-between gap-3 rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-sm transition-colors hover:bg-amber-500/15"
                     >
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis dataKey="name" tick={{ fontSize: 11 }} className="text-muted-foreground" />
-                      <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" allowDecimals={false} />
-                      <Tooltip
-                        contentStyle={{
-                          borderRadius: '0.5rem',
-                          border: '1px solid var(--border)',
-                          background: 'var(--card)',
-                        }}
-                        labelStyle={{ color: 'var(--foreground)' }}
+                      <span className="flex items-center gap-2 font-medium text-amber-950 dark:text-amber-100">
+                        <UserPlus className="size-4 shrink-0" aria-hidden />
+                        {sa!.teachers_pending_approval} öğretmen onay bekliyor
+                      </span>
+                      <ArrowRight className="size-4 shrink-0 text-amber-800 dark:text-amber-200" />
+                    </Link>
+                  )}
+                  <div className="grid gap-6 sm:grid-cols-2">
+                    <div className="rounded-xl border border-border/50 bg-muted/10 p-4">
+                      <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Rol</p>
+                      {sa ? (
+                        <DistributionStrip entries={sa.users_by_role} labelMap={ROLE_LABELS} colors={SEG_PALETTE} />
+                      ) : (
+                        <p className="text-sm text-muted-foreground">Veri yüklenemedi</p>
+                      )}
+                    </div>
+                    <div className="rounded-xl border border-border/50 bg-muted/10 p-4">
+                      <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Hesap durumu</p>
+                      {sa ? (
+                        <DistributionStrip entries={sa.users_by_status} labelMap={STATUS_LABELS} colors={STATUS_PALETTE} />
+                      ) : (
+                        <p className="text-sm text-muted-foreground">Veri yüklenemedi</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid gap-6 lg:grid-cols-2">
+                    <div className="rounded-xl border border-border/50 bg-muted/10 p-4">
+                      <p className="mb-2 text-xs font-semibold text-foreground">Bu yıl eklenen kullanıcılar</p>
+                      <p className="mb-3 text-[11px] text-muted-foreground">Okula kayıt tarihi bu yıl olan hesaplar (aylık)</p>
+                      <MonthlyCssBars
+                        rows={userBarRows}
+                        maxVal={userMax}
+                        ariaLabel="Aylık yeni kullanıcı sayıları"
+                        emptyHint="Bu yıl henüz yeni kullanıcı yok"
                       />
-                      <Bar dataKey="deger" name="Adet" radius={[4, 4, 0, 0]}>
-                        {(barRows.length ? barRows : [{ name: '—', deger: 0 }]).map((_, i) => (
-                          <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
+                    </div>
+                    <div className="rounded-xl border border-border/50 bg-muted/10 p-4">
+                      <p className="mb-2 text-xs font-semibold text-foreground">Bu yıl oluşturulan duyurular</p>
+                      <p className="mb-3 text-[11px] text-muted-foreground">Yayınlanan duyuru kayıtları (aylık)</p>
+                      <MonthlyCssBars
+                        rows={barRows}
+                        maxVal={annMax}
+                        ariaLabel="Aylık duyuru sayıları"
+                        emptyHint="Bu yıl henüz duyuru yok"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
               {statsError && (
-                <Alert message="Grafik verisi yüklenemedi. Sayfayı yenileyin." className="mt-3" />
+                <Alert message="Özet verileri yüklenemedi. Sayfayı yenileyin." className="mt-1" />
               )}
             </CardContent>
           </Card>
         </div>
 
-        <div className="space-y-6 xl:col-span-5">
+        <div className="space-y-6 xl:col-span-4">
           <Card className="overflow-hidden rounded-2xl border-border/60 shadow-sm sm:rounded-3xl">
             <CardHeader className="border-b border-border/40 bg-muted/20">
               <CardTitle className="text-base">Modül durumu</CardTitle>
@@ -366,39 +492,48 @@ export function SchoolAdminHome({
               </p>
             </CardHeader>
             <CardContent className="flex flex-col gap-4 pt-6">
-              <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="h-[200px] w-full max-w-[200px] shrink-0">
-                  <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 200, height: 200 }}>
-                    <PieChart>
-                      <Pie
-                        data={pieData}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={52}
-                        outerRadius={78}
-                        paddingAngle={allOpen ? 0 : 2}
-                      >
-                        {pieData.map((entry, i) => (
-                          <Cell key={i} fill={entry.fill} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(v: number | undefined) => [allOpen ? 'Tam erişim' : (v ?? 0), allOpen ? '' : 'Adet']}
-                        contentStyle={{ borderRadius: '0.5rem', border: '1px solid var(--border)', background: 'var(--card)' }}
+              <div className="space-y-3">
+                <p className="text-sm font-medium text-foreground">
+                  {allOpen ? 'Kısıtlama yok — tüm modüller açık' : `${activeCount} açık · ${inactiveCount} kapalı`}
+                </p>
+                {allOpen ? (
+                  <div className="h-3 w-full overflow-hidden rounded-full bg-primary/20">
+                    <div className="h-full w-full rounded-full bg-primary/80" title="Tam erişim" />
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="min-w-0 transition-[width]"
+                        style={{
+                          width: `${activeCount + inactiveCount > 0 ? (activeCount / (activeCount + inactiveCount)) * 100 : 0}%`,
+                          backgroundColor: 'hsl(var(--primary))',
+                        }}
+                        title={`Açık: ${activeCount}`}
                       />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="min-w-0 flex-1 space-y-2 text-sm">
-                  <p className="font-medium text-foreground">
-                    {allOpen ? 'Kısıtlama yok' : `${activeCount} açık · ${inactiveCount} kapalı`}
-                  </p>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
-                    Modül listesi merkezi ayarlardan yönetilir. Menüde yalnızca açık modüller görünür.
-                  </p>
-                </div>
+                      <div
+                        className="min-w-0 bg-muted-foreground/30"
+                        style={{
+                          width: `${activeCount + inactiveCount > 0 ? (inactiveCount / (activeCount + inactiveCount)) * 100 : 0}%`,
+                        }}
+                        title={`Kapalı: ${inactiveCount}`}
+                      />
+                    </div>
+                    <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <li className="flex items-center gap-1.5">
+                        <span className="size-2 rounded-sm bg-primary" />
+                        Açık modül
+                      </li>
+                      <li className="flex items-center gap-1.5">
+                        <span className="size-2 rounded-sm bg-muted-foreground/40" />
+                        Kapalı modül
+                      </li>
+                    </ul>
+                  </>
+                )}
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Modül listesi merkezi ayarlardan yönetilir. Menüde yalnızca açık modüller görünür.
+                </p>
               </div>
               {!allOpen && (
                 <div className="flex flex-col gap-4 border-t border-border/40 pt-4">

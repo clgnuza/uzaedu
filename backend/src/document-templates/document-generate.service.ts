@@ -165,6 +165,7 @@ export class DocumentGenerateService {
       const haftalar = await this.fetchHaftalarForMerge(
         template,
         formData,
+        mergeData as Record<string, string>,
       );
       const zumreOgretmenleriArray = this.parseZumreOgretmenleri(
         formData,
@@ -272,7 +273,7 @@ export class DocumentGenerateService {
     formData: Record<string, string | number>,
   ): Promise<Buffer> {
     const base = this.buildMergeData(user, formData, template);
-    const haftalar = await this.fetchHaftalarForMerge(template, formData);
+    const haftalar = await this.fetchHaftalarForMerge(template, formData, base);
     const zumreList = this.parseZumreOgretmenleri(formData, user, template); // [{isim}]
 
     const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '') || '';
@@ -906,8 +907,8 @@ export class DocumentGenerateService {
 
     // Yıllık plan DOCX: tüm plan tablosu + imza bloğu – küçük önizleme
     if (template.type === 'yillik_plan' && format === 'docx') {
-      const haftalar = await this.fetchHaftalarForMerge(template, formData);
       const base = this.buildMergeData(user, formData, template);
+      const haftalar = await this.fetchHaftalarForMerge(template, formData, base);
       const zumreList = this.parseZumreOgretmenleri(formData, user, template);
       const ogretmenUnvani = base.ders_adi_ogretmeni ?? 'Öğretmen';
       const okulAdi = base.okul_adi ?? '';
@@ -1362,6 +1363,7 @@ export class DocumentGenerateService {
   private async fetchHaftalarForMerge(
     template: DocumentTemplate,
     formData: Record<string, string | number>,
+    mergeBase?: Record<string, string>,
   ): Promise<Record<string, unknown>[]> {
     const s = (v: unknown) => (typeof v === 'string' ? v.trim() : '') || undefined;
     const draftRaw = s((formData as Record<string, unknown>).bilsem_yillik_draft_json);
@@ -1369,11 +1371,16 @@ export class DocumentGenerateService {
       const input = this.bilsemYillikPlanService.parseDraftJson(draftRaw);
       return this.bilsemYillikPlanService.buildHaftalarFromDraft(input);
     }
+    /** buildMergeData ile aynı yıl/sınıf (formda ogretim_yili yoksa evrak_defaults devreye girer; burada da kullanılmalı). */
     const ogretimYili =
-      s(formData.ogretim_yili) ??
-      s(formData.academic_year) ??
+      mergeBase?.ogretim_yili?.trim() ||
+      s(formData.ogretim_yili) ||
+      s(formData.academic_year) ||
       '2024-2025';
-    const sinifRaw = s(formData.sinif) ?? (template.grade != null ? String(template.grade) : '');
+    const sinifRaw =
+      mergeBase?.sinif?.trim() ||
+      s(formData.sinif) ||
+      (template.grade != null ? String(template.grade) : '');
     const grade = sinifRaw ? parseInt(sinifRaw, 10) : template.grade ?? 9;
     // Birleşik şablon (subject_code null): ders formdan gelir
     let subjectCode =
@@ -1403,6 +1410,28 @@ export class DocumentGenerateService {
       alt_grup: isBilsemPlan ? s(formData.alt_grup) : undefined,
     });
     const sortedPlanItems = this.sortYillikPlanItemsForMerge(items);
+    const hasMeaningfulPlanContent = sortedPlanItems.some((i) =>
+      Boolean(
+        String(i.unite ?? '').trim() ||
+        String(i.konu ?? '').trim() ||
+        String(i.kazanimlar ?? '').trim() ||
+        String(i.surecBilesenleri ?? '').trim() ||
+        String(i.olcmeDegerlendirme ?? '').trim() ||
+        String(i.belirliGunHaftalar ?? '').trim() ||
+        String(i.sosyalDuygusal ?? '').trim() ||
+        String(i.degerler ?? '').trim() ||
+        String(i.okuryazarlikBecerileri ?? '').trim() ||
+        String(i.zenginlestirme ?? '').trim() ||
+        String(i.okulTemelliPlanlama ?? '').trim() ||
+        Number(i.dersSaati ?? 0) > 0
+      )
+    );
+    if (!hasMeaningfulPlanContent) {
+      throw new BadRequestException({
+        code: 'PLAN_CONTENT_EMPTY',
+        message: `Bu ders/yıl için yıllık plan içeriği bulunamadı veya boş. Ders: ${subjectCode || '-'}, yıl: ${ogretimYili}.`,
+      });
+    }
     const planByWeek = this.planByWeekDedupeFirst(sortedPlanItems);
     const calendarDb = await this.workCalendarService.findAll(ogretimYili);
     let planCalWeeks = this.workCalendarService.sortWeeksLikeFindAll(
@@ -1442,6 +1471,41 @@ export class DocumentGenerateService {
     if (planCalWeeks.length > 0) {
       calendarWeeks = this.workCalendarService.buildOrderedWeeksForPlanMerge(planCalWeeks, itemsMax).weeks;
     }
+
+    /** Takvim haftası 1..N ile plandaki week_order farklı başlangıçta (ör. plan 5’ten) eşleşmez; kaydır. */
+    const cMinWeek =
+      calendarWeeks.length > 0 ? Math.min(...calendarWeeks.map((x) => x.weekOrder)) : 0;
+    const pMinWeek =
+      sortedPlanItems.length > 0 ? Math.min(...sortedPlanItems.map((x) => x.weekOrder)) : 0;
+    let weekShift = 0;
+    if (
+      cMinWeek > 0 &&
+      pMinWeek > 0 &&
+      pMinWeek > cMinWeek &&
+      !planByWeek.has(cMinWeek) &&
+      planByWeek.has(pMinWeek)
+    ) {
+      weekShift = pMinWeek - cMinWeek;
+    }
+    const planWeekKeys = new Set(planByWeek.keys());
+    const anyOverlapCalendarWeek = calendarWeeks.some((w) => planWeekKeys.has(w.weekOrder));
+    const resolvePlanRow = (calendarWeekOrder: number, weekIndex: number): YillikPlanIcerik | undefined => {
+      let row = planByWeek.get(calendarWeekOrder);
+      if (row) return row;
+      if (weekShift !== 0) {
+        row = planByWeek.get(calendarWeekOrder + weekShift);
+        if (row) return row;
+      }
+      if (
+        !anyOverlapCalendarWeek &&
+        sortedPlanItems.length === calendarWeeks.length &&
+        weekIndex >= 0 &&
+        weekIndex < sortedPlanItems.length
+      ) {
+        return sortedPlanItems[weekIndex];
+      }
+      return undefined;
+    };
 
     const fillBilsemPuy = isBilsemPlan;
 
@@ -1485,9 +1549,9 @@ export class DocumentGenerateService {
       });
     }
 
-    return calendarWeeks.map((w) => {
+    return calendarWeeks.map((w, weekIndex) => {
       const key = `${ogretimYili}:${w.weekOrder}`;
-      const i = planByWeek.get(w.weekOrder);
+      const i = resolvePlanRow(w.weekOrder, weekIndex);
       const tatil = weekTatilMap.get(key);
       const haftaLabel = weekLabelMap.get(key) ?? `${w.weekOrder}. Hafta`;
       const isTatil = (tatil?.isTatil ?? w.isTatil) ?? false;

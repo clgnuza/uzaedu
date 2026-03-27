@@ -22,10 +22,18 @@ export interface SuperadminStatsPayload {
   schools_lise_unspecified_count?: number;
 }
 
+export interface SchoolAdminStatsPayload {
+  users_by_role: Record<string, number>;
+  users_by_status: Record<string, number>;
+  teachers_pending_approval: number;
+  users_monthly_chart: { month: string; count: number }[];
+}
+
 export interface StatsResponse {
   schools: number;
   users: number;
   announcements: number;
   chart: { month: string; count: number }[];
   superadmin?: SuperadminStatsPayload;
+  school_admin?: SchoolAdminStatsPayload;
 }

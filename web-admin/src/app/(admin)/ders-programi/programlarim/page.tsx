@@ -1,8 +1,20 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Table2, ShieldOff, PlusCircle, Pencil, Building2, Users, CalendarDays, Upload, Calendar } from 'lucide-react';
+import {
+  ArrowLeft,
+  Table2,
+  PlusCircle,
+  Pencil,
+  Building2,
+  Users,
+  CalendarDays,
+  Upload,
+  Calendar,
+  Minus,
+  Search,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
 import { useSchoolTimetableSettings } from '@/hooks/use-school-timetable-settings';
@@ -15,6 +27,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { cn } from '@/lib/utils';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LessonCellCard } from '@/components/ders-programi/lesson-cell-card';
+import { TEACHER_WEEK_THEME } from '@/components/ders-programi/timetable-pastel-theme';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 
@@ -60,8 +73,8 @@ type TimetablePlan = {
   entry_count: number;
 };
 
-const DAYS = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma'];
-const DAY_SHORT = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum'];
+const DAYS = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
+const DAY_SHORT = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
 
 /** Öğretmen blokları için sol kenar vurgu rengi (border-l) */
 const TEACHER_ACCENT = [
@@ -85,7 +98,7 @@ function fmtUntil(validUntil: string | null): string {
 
 export default function ProgramlarimPage() {
   const { token, me } = useAuth();
-  const { maxLessons: schoolMaxLessons, timeSlots } = useSchoolTimetableSettings();
+  const { maxLessons: schoolMaxLessons, getTimeRangeForDay } = useSchoolTimetableSettings();
   const [entries, setEntries] = useState<TimetableEntry[] | null>(null);
   const [personalPrograms, setPersonalPrograms] = useState<PersonalProgram[]>([]);
   const [teachers, setTeachers] = useState<TeacherInfo[]>([]);
@@ -102,6 +115,9 @@ export default function ProgramlarimPage() {
   const [editOpenEnded, setEditOpenEnded] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [teacherQuery, setTeacherQuery] = useState('');
+  const [teacherSort, setTeacherSort] = useState<'name_asc' | 'name_desc' | 'lessons_desc' | 'lessons_asc'>('name_asc');
+  const [exemptFilter, setExemptFilter] = useState<'all' | 'exempt' | 'not_exempt'>('all');
 
   const isAdmin = me?.role === 'school_admin';
   const isTeacher = me?.role === 'teacher';
@@ -110,6 +126,11 @@ export default function ProgramlarimPage() {
   const publishedPlans = plans.filter((p) => p.status === 'published');
   const selectedDate =
     selectedView === 'today' ? today : publishedPlans.find((p) => p.id === selectedView)?.valid_from ?? today;
+
+  const todayDayOfWeek = useMemo(() => {
+    const d = new Date().getDay();
+    return d === 0 ? 7 : d;
+  }, []);
 
   useEffect(() => {
     if (!token) return;
@@ -146,6 +167,43 @@ export default function ProgramlarimPage() {
     };
     load();
   }, [token, isAdmin, selectedDate, refreshTrigger]);
+
+  useEffect(() => {
+    if (!token || !isTeacher || !me?.school_id) return;
+    const key = 'dp_teacher_program_overview_toast';
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(key)) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch<{
+          has_school_and_personal: boolean;
+          personal_program_count: number;
+          personal_slot_conflicts: Array<{ day_of_week: number; lesson_num: number }>;
+        }>('/teacher-timetable/me/program-overview', { token });
+        if (cancelled) return;
+        if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(key, '1');
+        if (res.has_school_and_personal) {
+          toast.info(
+            'Haftalık görünümde geçerli olan okul (idare) programıdır. Kişisel programlar aşağıda ayrı listelenir.',
+            { duration: 9000 },
+          );
+        }
+        if (res.personal_slot_conflicts.length > 0) {
+          toast.warning(
+            `Kişisel programlarınızda ${res.personal_slot_conflicts.length} saatte çakışma var (aynı gün ve ders saatinde farklı sınıf/ders).`,
+            { duration: 12000 },
+          );
+        } else if (res.personal_program_count >= 2) {
+          toast.info('Birden fazla kişisel programınız var; her biri ayrı kayıttır.', { duration: 7000 });
+        }
+      } catch {
+        /* sessiz */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, isTeacher, me?.school_id]);
 
   const openEditDialog = () => {
     if (!planInfo) return;
@@ -208,22 +266,60 @@ export default function ProgramlarimPage() {
 
   const teachersWithEntries = entries ? [...new Set(entries.map((e) => e.user_id))] : [];
   const teacherMap = new Map(teachers.map((t) => [t.id, t]));
+
+  const lessonCountByTeacher = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const e of entries ?? []) {
+      m.set(e.user_id, (m.get(e.user_id) ?? 0) + 1);
+    }
+    return m;
+  }, [entries]);
+
+  const visibleTeacherIds = useMemo(() => {
+    let list = [...teachersWithEntries];
+    const q = teacherQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter((uid) => {
+        const t = teacherMap.get(uid);
+        const name = (t?.display_name ?? '').toLowerCase();
+        const email = (t?.email ?? '').toLowerCase();
+        return name.includes(q) || email.includes(q);
+      });
+    }
+    if (exemptFilter !== 'all') {
+      list = list.filter((uid) => {
+        const ex = teacherMap.get(uid)?.duty_exempt;
+        return exemptFilter === 'exempt' ? !!ex : !ex;
+      });
+    }
+    const sortKey = (uid: string) =>
+      (teacherMap.get(uid)?.display_name || teacherMap.get(uid)?.email || uid).toLowerCase();
+    list.sort((a, b) => {
+      if (teacherSort === 'name_asc' || teacherSort === 'name_desc') {
+        const cmp = sortKey(a).localeCompare(sortKey(b), 'tr');
+        return teacherSort === 'name_asc' ? cmp : -cmp;
+      }
+      const ca = lessonCountByTeacher.get(a) ?? 0;
+      const cb = lessonCountByTeacher.get(b) ?? 0;
+      return teacherSort === 'lessons_desc' ? cb - ca : ca - cb;
+    });
+    return list;
+  }, [teachersWithEntries, teacherMap, teacherQuery, exemptFilter, teacherSort, lessonCountByTeacher]);
   const { map } = buildTimetableMap();
   const lessonNums = Array.from({ length: schoolMaxLessons }, (_, i) => i + 1);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <Link
-            href="/ders-programi"
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="size-4" />
-            Ders Programı
-          </Link>
-        </div>
-        <h1 className="text-2xl font-semibold text-foreground">Programlarım</h1>
+    <div className="mx-auto w-full max-w-6xl space-y-4">
+      <div className="rounded-xl border border-border/70 bg-linear-to-br from-primary/5 via-background to-muted/25 px-3 py-3 sm:px-4">
+        <Link
+          href="/ders-programi"
+          className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground sm:text-xs"
+        >
+          <ArrowLeft className="size-3.5 shrink-0" />
+          Ders Programı
+        </Link>
+        <h1 className="mt-2 text-base font-semibold tracking-tight text-foreground sm:text-lg">Programlarım</h1>
+        <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">Okul programınız ve kişisel programlarınız</p>
       </div>
 
       {loading ? (
@@ -287,7 +383,7 @@ export default function ProgramlarimPage() {
         <>
           {/* Admin: Geçerlilik tarihleri + Plan seçici */}
           {isAdmin && publishedPlans.length > 0 && (
-            <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
+            <Card className="border-primary/20 bg-linear-to-br from-primary/5 to-transparent">
               <CardContent className="py-4">
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="flex items-center gap-2">
@@ -425,79 +521,104 @@ export default function ProgramlarimPage() {
 
           {/* Öğretmen: Okul programı (admin yüklediyse) */}
           {!isAdmin && entries && entries.length > 0 && (
-            <Card className="border-border shadow-md overflow-hidden rounded-xl">
-              <CardHeader className="pb-4 pt-5 px-5 bg-muted/30 border-b border-border">
-                <div className="flex items-center gap-3">
-                  <div className="flex size-11 items-center justify-center rounded-xl bg-primary/15 shadow-inner">
-                    <Building2 className="size-6 text-primary" />
+            <Card className="overflow-hidden rounded-xl border-border/80 shadow-md">
+              <CardHeader className="border-b border-border/70 bg-linear-to-r from-muted/25 to-transparent px-3 py-3 sm:px-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
+                    <Building2 className="size-[18px]" />
                   </div>
-                  <div>
-                    <CardTitle className="text-lg font-semibold">Okul Programı</CardTitle>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Resmi program · {entries.length} ders
-                    </p>
+                  <div className="min-w-0">
+                    <CardTitle className="text-base font-semibold leading-tight">Okul programı</CardTitle>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">Resmi program · {entries.length} ders</p>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="table-x-scroll bg-zinc-100/60 dark:bg-zinc-900/40">
-                  <table className="w-full text-xs">
+                <p className="px-3 pt-2 text-center text-[11px] text-muted-foreground md:hidden">
+                  Tabloyu yatay kaydırarak tüm günleri görebilirsiniz
+                </p>
+                <div className="overflow-x-auto border-t border-border/50 bg-muted/10 pb-1">
+                  <table className="w-full min-w-[880px] border-separate border-spacing-0 text-sm">
                     <thead>
-                      <tr className="bg-zinc-200/80 dark:bg-zinc-800/80">
-                        <th className="w-10 px-2 py-2 text-center text-xs font-semibold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 border-b border-r border-zinc-300 dark:border-zinc-700">
-                          Ders
+                      <tr>
+                        <th className="sticky left-0 z-20 min-w-[72px] border-b border-r border-border/70 bg-card px-2 py-2 text-left shadow-[6px_0_12px_-6px_rgba(0,0,0,0.1)] sm:min-w-[88px] sm:px-3 sm:py-2.5">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Ders</span>
                         </th>
-                        {DAY_SHORT.map((d, i) => (
-                          <th
-                            key={d}
-                            className={cn(
-                              'px-2 py-2 text-center text-xs font-semibold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 border-b border-r last:border-r-0 border-zinc-300 dark:border-zinc-700 min-w-[88px]',
-                              i % 2 === 1 && 'bg-zinc-300/50 dark:bg-zinc-700/50',
-                            )}
-                          >
-                            {d}
-                          </th>
-                        ))}
+                        {DAY_SHORT.map((d, i) => {
+                          const dayNum = i + 1;
+                          const isToday = dayNum === todayDayOfWeek;
+                          const th = TEACHER_WEEK_THEME[i] ?? TEACHER_WEEK_THEME[0];
+                          return (
+                            <th
+                              key={d}
+                              className={cn(
+                                'border-b border-r border-border/50 px-1 py-2 text-center text-[10px] font-bold uppercase leading-tight sm:px-2 sm:text-[11px]',
+                                th.head,
+                                isToday && th.headToday,
+                                i === 6 && 'border-r-0',
+                              )}
+                            >
+                              <span className="block">{d}</span>
+                              {isToday && (
+                                <span className="mt-1 inline-block rounded-full bg-white/60 px-1.5 py-0.5 text-[9px] font-semibold text-foreground dark:bg-black/25">
+                                  Bugün
+                                </span>
+                              )}
+                            </th>
+                          );
+                        })}
                       </tr>
                     </thead>
                     <tbody>
-                      {lessonNums.map((ln, idx) => (
-                        <tr
-                          key={ln}
-                          className={cn(
-                            'transition-colors hover:bg-zinc-200/40 dark:hover:bg-zinc-700/30',
-                            idx % 2 === 0 ? 'bg-white dark:bg-zinc-900/60' : 'bg-zinc-50 dark:bg-zinc-800/40',
-                          )}
-                        >
-                          <td className="px-2 py-1.5 border-b border-r border-zinc-200 dark:border-zinc-700">
-                            <div className="flex size-7 items-center justify-center rounded bg-primary/15 text-xs font-bold text-primary">
-                              {ln}
-                            </div>
-                          </td>
-                          {[1, 2, 3, 4, 5].map((day) => {
-                            const key = `${me?.id ?? ''}-${day}`;
-                            const entry = map.get(key)?.get(String(ln));
-                            const slot = timeSlots.find((s) => !s.isLunch && s.lessonNum === ln);
-                            return (
-                              <td key={day} className="px-1.5 py-1.5 border-b border-r last:border-r-0 border-zinc-200 dark:border-zinc-700 align-top min-w-[88px]">
-                                {entry ? (
-                                  <LessonCellCard
-                                    subject={entry.subject}
-                                    classSection={entry.class_section}
-                                    timeRange={slot?.timeRange ?? '—'}
-                                    kazanimHref={getKazanimHref(entry.subject, entry.class_section)}
-                                    compact
-                                  />
-                                ) : (
-                                  <div className="flex h-7 items-center justify-center rounded border border-dashed border-zinc-300 dark:border-zinc-600 bg-zinc-50/50 dark:bg-zinc-800/30">
-                                    <span className="text-[10px] text-zinc-400">—</span>
-                                  </div>
-                                )}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
+                      {lessonNums.map((ln, idx) => {
+                        const isLast = idx === lessonNums.length - 1;
+                        return (
+                          <tr key={ln} className="transition-colors hover:bg-muted/20">
+                            <td
+                              className={cn(
+                                'sticky left-0 z-10 border-b border-r border-border/60 bg-card px-2 py-1.5 align-middle shadow-[6px_0_12px_-6px_rgba(0,0,0,0.08)] sm:px-3 sm:py-2',
+                                isLast && 'rounded-bl-xl',
+                              )}
+                            >
+                              <span className="flex size-8 items-center justify-center rounded-lg bg-linear-to-br from-primary/20 to-primary/10 text-xs font-bold text-primary">
+                                {ln}
+                              </span>
+                            </td>
+                            {[1, 2, 3, 4, 5, 6, 7].map((day) => {
+                              const key = `${me?.id ?? ''}-${day}`;
+                              const entry = map.get(key)?.get(String(ln));
+                              const isTodayCol = day === todayDayOfWeek;
+                              const th = TEACHER_WEEK_THEME[day - 1] ?? TEACHER_WEEK_THEME[0];
+                              const timeRange = getTimeRangeForDay(day, ln);
+                              return (
+                                <td
+                                  key={day}
+                                  className={cn(
+                                    'border-b border-r border-border/40 p-1.5 align-top sm:min-w-[100px] sm:p-2',
+                                    day === 7 && 'border-r-0',
+                                    isTodayCol ? th.cellToday : th.cell,
+                                  )}
+                                >
+                                  {entry ? (
+                                    <LessonCellCard
+                                      subject={entry.subject}
+                                      classSection={entry.class_section}
+                                      timeRange={timeRange}
+                                      kazanimHref={getKazanimHref(entry.subject, entry.class_section)}
+                                      compact
+                                      dayTone={day - 1}
+                                    />
+                                  ) : (
+                                    <div className="flex min-h-10 items-center justify-center rounded-lg border border-dashed border-border/50 bg-background/40 py-1 dark:bg-background/20">
+                                      <Minus className="size-3 text-muted-foreground/35" aria-hidden />
+                                    </div>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -505,55 +626,95 @@ export default function ProgramlarimPage() {
             </Card>
           )}
 
-          {/* Öğretmen: Kendi programları tablosu */}
+          {/* Öğretmen: Kendi programları */}
           {!isAdmin && (
-            <Card className="border-border shadow-md overflow-hidden rounded-xl">
-              <CardHeader className="pb-4 pt-5 px-5 bg-muted/30 border-b border-border">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex size-11 items-center justify-center rounded-xl bg-primary/15 shadow-inner">
-                      <Table2 className="size-6 text-primary" />
+            <Card className="overflow-hidden rounded-xl border-border/80 shadow-md">
+              <CardHeader className="border-b border-border/70 bg-linear-to-r from-violet-500/8 via-background to-sky-500/8 px-3 py-3 sm:px-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-700 dark:text-violet-300">
+                      <Table2 className="size-[18px]" />
                     </div>
-                    <div>
-                      <CardTitle className="text-lg font-semibold">Kendi Programlarım</CardTitle>
-                      <p className="mt-1 text-sm text-muted-foreground">
+                    <div className="min-w-0">
+                      <CardTitle className="text-base font-semibold leading-tight">Kendi programlarım</CardTitle>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">
                         {personalPrograms.length === 0
-                          ? 'Kendi oluşturduğunuz programlar burada listelenir.'
+                          ? 'Excel veya el ile oluşturduğunuz programlar'
                           : `${personalPrograms.length} program`}
                       </p>
                     </div>
                   </div>
-                  <Button asChild size="sm" className="shadow-sm">
-                    <Link href="/ders-programi/olustur" className="gap-2">
+                  <Button asChild size="sm" className="h-9 w-full shrink-0 rounded-lg sm:w-auto">
+                    <Link href="/ders-programi/olustur" className="gap-1.5">
                       <PlusCircle className="size-4" />
-                      Yeni Program
+                      Yeni program
                     </Link>
                   </Button>
                 </div>
               </CardHeader>
               {personalPrograms.length > 0 ? (
                 <CardContent className="p-0">
-                  <div className="table-x-scroll">
-                    <table className="w-full text-sm">
+                  <div className="space-y-2 p-3 md:hidden">
+                    {personalPrograms.map((p) => (
+                      <div
+                        key={p.id}
+                        className="rounded-xl border border-border/70 bg-linear-to-br from-card to-muted/20 p-3 shadow-sm"
+                      >
+                        <p className="font-semibold leading-snug text-foreground">{p.name}</p>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+                          <div>
+                            <span className="text-muted-foreground">Akademik yıl</span>
+                            <p className="font-medium text-foreground">{p.academic_year}</p>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Dönem</span>
+                            <p className="font-medium text-foreground">{p.term}</p>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Ders saati</span>
+                            <p>
+                              <span className="inline-flex rounded-md bg-primary/12 px-2 py-0.5 text-xs font-semibold text-primary">
+                                {p.total_hours} saat
+                              </span>
+                            </p>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Oluşturulma</span>
+                            <p className="font-medium text-foreground">
+                              {new Date(p.created_at).toLocaleDateString('tr-TR')}
+                            </p>
+                          </div>
+                        </div>
+                        <Button variant="secondary" size="sm" className="mt-3 h-9 w-full rounded-lg" asChild>
+                          <Link href={`/ders-programi/olustur/${p.id}`} className="gap-1.5">
+                            <Pencil className="size-3.5" />
+                            Düzenle
+                          </Link>
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="hidden overflow-x-auto md:block">
+                    <table className="w-full min-w-[720px] border-separate border-spacing-0 text-sm">
                       <thead>
-                        <tr className="bg-muted/50">
-                          <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">
-                            Program Adı
+                        <tr className="bg-linear-to-r from-sky-50/90 to-violet-50/90 dark:from-sky-950/25 dark:to-violet-950/25">
+                          <th className="border-b border-border/60 px-4 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                            Program
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">
-                            Akademik Yıl
+                          <th className="border-b border-border/60 px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                            Yıl
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">
+                          <th className="border-b border-border/60 px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
                             Dönem
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">
-                            Ders Saati
+                          <th className="border-b border-border/60 px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                            Saat
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">
-                            Oluşturulma
+                          <th className="border-b border-border/60 px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                            Tarih
                           </th>
-                          <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">
-                            İşlemler
+                          <th className="border-b border-border/60 px-4 py-2.5 text-right text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                            İşlem
                           </th>
                         </tr>
                       </thead>
@@ -562,24 +723,26 @@ export default function ProgramlarimPage() {
                           <tr
                             key={p.id}
                             className={cn(
-                              'transition-colors hover:bg-muted/25',
-                              idx % 2 === 1 && 'bg-muted/5',
+                              'border-b border-border/40 transition-colors hover:bg-muted/30',
+                              idx % 2 === 1 && 'bg-muted/15',
                             )}
                           >
-                            <td className="px-5 py-3 font-medium">{p.name}</td>
-                            <td className="px-4 py-3 text-muted-foreground">{p.academic_year}</td>
-                            <td className="px-4 py-3 text-muted-foreground">{p.term}</td>
-                            <td className="px-4 py-3">
-                              <span className="inline-flex items-center rounded-lg bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+                            <td className="max-w-[220px] px-4 py-2.5 font-medium leading-snug text-foreground">
+                              {p.name}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">{p.academic_year}</td>
+                            <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">{p.term}</td>
+                            <td className="px-3 py-2.5">
+                              <span className="inline-flex rounded-lg bg-emerald-500/12 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:text-emerald-200">
                                 {p.total_hours} saat
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-sm text-muted-foreground">
+                            <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">
                               {new Date(p.created_at).toLocaleDateString('tr-TR')}
                             </td>
-                            <td className="px-4 py-3 text-right">
-                              <Button variant="outline" size="sm" asChild className="shadow-sm">
-                                <Link href={`/ders-programi/olustur/${p.id}`} className="gap-1.5">
+                            <td className="px-4 py-2.5 text-right">
+                              <Button variant="outline" size="sm" className="h-8 rounded-lg" asChild>
+                                <Link href={`/ders-programi/olustur/${p.id}`} className="gap-1">
                                   <Pencil className="size-3.5" />
                                   Düzenle
                                 </Link>
@@ -592,14 +755,14 @@ export default function ProgramlarimPage() {
                   </div>
                 </CardContent>
               ) : (
-                <CardContent className="py-10">
+                <CardContent className="px-4 py-8 sm:py-10">
                   <p className="text-center text-sm text-muted-foreground">
                     Henüz kendi programınız yok. Yeni program oluşturabilirsiniz.
                   </p>
-                  <Button asChild className="mt-5 mx-auto flex">
+                  <Button asChild className="mx-auto mt-4 flex h-10 rounded-lg">
                     <Link href="/ders-programi/olustur" className="gap-2">
                       <PlusCircle className="size-4" />
-                      Yeni Program Oluştur
+                      Yeni program oluştur
                     </Link>
                   </Button>
                 </CardContent>
@@ -621,7 +784,11 @@ export default function ProgramlarimPage() {
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                         <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 font-medium text-primary">
                           <Users className="size-3.5" />
-                          {teachersWithEntries.length} öğretmen
+                          {visibleTeacherIds.length}
+                          {visibleTeacherIds.length !== teachersWithEntries.length
+                            ? ` / ${teachersWithEntries.length}`
+                            : ''}{' '}
+                          öğretmen
                         </span>
                         <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-1 font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
                           <CalendarDays className="size-3.5" />
@@ -672,11 +839,56 @@ export default function ProgramlarimPage() {
                     </button>
                   </div>
                 </div>
+                <div className="mt-4 flex flex-col gap-2 border-t border-border/60 pt-4 sm:flex-row sm:flex-wrap sm:items-center">
+                  <div className="relative min-w-0 flex-1 sm:max-w-xs">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={teacherQuery}
+                      onChange={(e) => setTeacherQuery(e.target.value)}
+                      placeholder="Öğretmen ara (ad veya e-posta)…"
+                      className="h-9 pl-8 text-sm"
+                      aria-label="Öğretmen ara"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Label htmlFor="teacher-sort" className="sr-only">
+                      Sıralama
+                    </Label>
+                    <select
+                      id="teacher-sort"
+                      className="h-9 rounded-md border border-border bg-background px-2.5 text-sm"
+                      value={teacherSort}
+                      onChange={(e) => setTeacherSort(e.target.value as typeof teacherSort)}
+                    >
+                      <option value="name_asc">Ad (A → Z)</option>
+                      <option value="name_desc">Ad (Z → A)</option>
+                      <option value="lessons_desc">Ders sayısı (çoğa)</option>
+                      <option value="lessons_asc">Ders sayısı (aza)</option>
+                    </select>
+                    <Label htmlFor="exempt-filter" className="sr-only">
+                      Muafiyet
+                    </Label>
+                    <select
+                      id="exempt-filter"
+                      className="h-9 rounded-md border border-border bg-background px-2.5 text-sm"
+                      value={exemptFilter}
+                      onChange={(e) => setExemptFilter(e.target.value as typeof exemptFilter)}
+                    >
+                      <option value="all">Tümü</option>
+                      <option value="exempt">Muaf</option>
+                      <option value="not_exempt">Muaf değil</option>
+                    </select>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="p-0">
-                {viewMode === 'teacher' ? (
+                {visibleTeacherIds.length === 0 ? (
+                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    Filtreye uyan öğretmen yok. Aramayı veya muafiyet seçimini değiştirin.
+                  </div>
+                ) : viewMode === 'teacher' ? (
                   <div className="table-x-scroll bg-zinc-100/60 dark:bg-zinc-900/40">
-                    <table className="w-full text-xs">
+                    <table className="w-full min-w-[900px] text-xs">
                       <thead>
                         <tr className="bg-zinc-200/80 dark:bg-zinc-800/80">
                           <th className="sticky left-0 z-10 bg-zinc-200/80 dark:bg-zinc-800/80 px-3 py-2 text-left font-semibold text-zinc-600 dark:text-zinc-400 border-b border-r border-zinc-300 dark:border-zinc-700 min-w-[100px]">
@@ -691,7 +903,7 @@ export default function ProgramlarimPage() {
                               className={cn(
                                 'px-2 py-2 text-center font-semibold text-zinc-600 dark:text-zinc-400 border-b border-r border-zinc-300 dark:border-zinc-700 min-w-[88px]',
                                 i % 2 === 1 && 'bg-zinc-300/50 dark:bg-zinc-700/50',
-                                i === 4 && 'border-r-0',
+                                i === 6 && 'border-r-0',
                               )}
                             >
                               {d}
@@ -700,7 +912,7 @@ export default function ProgramlarimPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {teachersWithEntries.flatMap((uid, teacherIdx) => {
+                        {visibleTeacherIds.flatMap((uid, teacherIdx) => {
                           const t = teacherMap.get(uid);
                           const name = t?.display_name || t?.email || uid.slice(0, 8);
                           const isExempt = t?.duty_exempt;
@@ -736,7 +948,7 @@ export default function ProgramlarimPage() {
                               <td className="px-1 py-1.5 text-center border-b border-r border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400">
                                 {ln}
                               </td>
-                              {[1, 2, 3, 4, 5].map((dayNum, dayIdx) => {
+                              {[1, 2, 3, 4, 5, 6, 7].map((dayNum, dayIdx) => {
                                 const key = `${uid}-${dayNum}`;
                                 const dayLessons = map.get(key);
                                 const entry = dayLessons?.get(String(ln));
@@ -745,7 +957,7 @@ export default function ProgramlarimPage() {
                                     key={dayNum}
                                     className={cn(
                                       'px-1.5 py-1.5 border-b border-r border-zinc-200 dark:border-zinc-700 align-top min-w-[88px]',
-                                      dayIdx === 4 && 'border-r-0',
+                                      dayIdx === 6 && 'border-r-0',
                                     )}
                                   >
                                     {entry ? (
@@ -793,7 +1005,7 @@ export default function ProgramlarimPage() {
                             <th className="sticky left-0 z-10 bg-zinc-200/80 dark:bg-zinc-800/80 w-8 px-2 py-2 text-center font-semibold text-zinc-600 dark:text-zinc-400 border-b border-r border-zinc-300 dark:border-zinc-700">
                               #
                             </th>
-                            {teachersWithEntries.map((uid, colIdx) => {
+                            {visibleTeacherIds.map((uid, colIdx) => {
                               const t = teacherMap.get(uid);
                               const name = t?.display_name || t?.email || uid.slice(0, 8);
                               const isExempt = t?.duty_exempt;
@@ -805,7 +1017,7 @@ export default function ProgramlarimPage() {
                                     'px-2 py-2 text-center border-b border-r border-zinc-300 dark:border-zinc-700 min-w-[88px]',
                                     colIdx > 0 && 'border-l-2',
                                     colIdx > 0 && accent,
-                                    colIdx === teachersWithEntries.length - 1 && 'border-r-0',
+                                    colIdx === visibleTeacherIds.length - 1 && 'border-r-0',
                                     colIdx % 2 === 1 ? 'bg-zinc-300/50 dark:bg-zinc-700/50' : 'bg-zinc-200/80 dark:bg-zinc-800/80',
                                   )}
                                 >
@@ -824,7 +1036,7 @@ export default function ProgramlarimPage() {
                               <td className="sticky left-0 z-10 px-2 py-1.5 border-b border-r border-zinc-200 dark:border-zinc-700 text-center text-zinc-500 dark:text-zinc-400 bg-inherit">
                                 {ln}
                               </td>
-                              {teachersWithEntries.map((uid, colIdx) => {
+                              {visibleTeacherIds.map((uid, colIdx) => {
                                 const key = `${uid}-${selectedDay}`;
                                 const entry = map.get(key)?.get(String(ln));
                                 const accent = TEACHER_ACCENT[colIdx % TEACHER_ACCENT.length];
@@ -835,7 +1047,7 @@ export default function ProgramlarimPage() {
                                       'px-1.5 py-1.5 border-b border-r border-zinc-200 dark:border-zinc-700 align-top min-w-[88px] bg-inherit',
                                       colIdx > 0 && 'border-l-2',
                                       colIdx > 0 && accent,
-                                      colIdx === teachersWithEntries.length - 1 && 'border-r-0',
+                                      colIdx === visibleTeacherIds.length - 1 && 'border-r-0',
                                     )}
                                   >
                                     {entry ? (

@@ -157,6 +157,70 @@ export class TeacherTimetableService {
     }));
   }
 
+  /**
+   * Öğretmen: okul (idare) programı + kişisel programlar özeti.
+   * Haftalık ana tabloda yalnızca okul planı (getByMe) geçerlidir; kişisel programlar ayrı düzenlenir.
+   * İki kişisel programda aynı gün+saatte farklı sınıf/ders tanımı → çakışma listesi.
+   */
+  async getTeacherProgramOverview(schoolId: string | null, userId: string): Promise<{
+    canonical_weekly_display: 'school';
+    school_entry_count: number;
+    personal_program_count: number;
+    has_school_and_personal: boolean;
+    personal_slot_conflicts: Array<{ day_of_week: number; lesson_num: number; program_ids: string[] }>;
+  }> {
+    if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    await this.dedupeImportedAdminPrograms(schoolId, userId);
+    const schoolEntries = await this.getByMe(schoolId, userId);
+    const programs = await this.personalProgramRepo.find({
+      where: { school_id: schoolId, user_id: userId },
+      order: { updated_at: 'DESC' },
+      relations: ['entries'],
+    });
+    const personal_program_count = programs.length;
+    const school_entry_count = schoolEntries.length;
+    const has_school_and_personal = school_entry_count > 0 && personal_program_count > 0;
+
+    const slotMap = new Map<string, Map<string, Set<string>>>(); // key -> fingerprint -> program ids
+    for (const p of programs) {
+      for (const e of p.entries ?? []) {
+        const dk = `${e.day_of_week}-${e.lesson_num}`;
+        const fp = `${String(e.class_section ?? '').trim()}|${String(e.subject ?? '').trim()}`;
+        if (!slotMap.has(dk)) slotMap.set(dk, new Map());
+        const fpMap = slotMap.get(dk)!;
+        if (!fpMap.has(fp)) fpMap.set(fp, new Set());
+        fpMap.get(fp)!.add(p.id);
+      }
+    }
+    const personal_slot_conflicts: Array<{ day_of_week: number; lesson_num: number; program_ids: string[] }> = [];
+    for (const [dk, fpMap] of slotMap) {
+      if (fpMap.size <= 1) continue;
+      const [dStr, lStr] = dk.split('-');
+      const day_of_week = parseInt(dStr!, 10);
+      const lesson_num = parseInt(lStr!, 10);
+      const programIds = new Set<string>();
+      for (const ids of fpMap.values()) {
+        for (const id of ids) programIds.add(id);
+      }
+      if (programIds.size > 1) {
+        personal_slot_conflicts.push({
+          day_of_week,
+          lesson_num,
+          program_ids: [...programIds],
+        });
+      }
+    }
+    personal_slot_conflicts.sort((a, b) => a.day_of_week - b.day_of_week || a.lesson_num - b.lesson_num);
+
+    return {
+      canonical_weekly_display: 'school',
+      school_entry_count,
+      personal_program_count,
+      has_school_and_personal,
+      personal_slot_conflicts,
+    };
+  }
+
   /** Öğretmenin kendi ders programı (scope: sadece kendi user_id). */
   async getByMe(schoolId: string | null, userId: string, date?: string): Promise<TimetableEntry[]> {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
@@ -961,8 +1025,22 @@ export class TeacherTimetableService {
 
   // ── Öğretmen kişisel program CRUD ─────────────────────────────────────────
 
+  /** Aynı isimle birden fazla "İdare Programı (Aktarılan)" kaldıysa en güncel olanı tutar. */
+  private async dedupeImportedAdminPrograms(schoolId: string, userId: string): Promise<void> {
+    const importName = 'İdare Programı (Aktarılan)';
+    const existing = await this.personalProgramRepo.find({
+      where: { school_id: schoolId, user_id: userId, name: importName },
+      order: { updated_at: 'DESC' },
+    });
+    if (existing.length <= 1) return;
+    for (const p of existing.slice(1)) {
+      await this.personalProgramRepo.remove(p);
+    }
+  }
+
   async listPersonalPrograms(schoolId: string | null, userId: string): Promise<PersonalProgramDto[]> {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    await this.dedupeImportedAdminPrograms(schoolId, userId);
     const programs = await this.personalProgramRepo.find({
       where: { school_id: schoolId, user_id: userId },
       order: { updated_at: 'DESC' },
@@ -1095,7 +1173,7 @@ export class TeacherTimetableService {
     return { success: true };
   }
 
-  /** Öğretmenin idare programını (getByMe) kendi programlarına aktarır. Düzenlenebilir kopya oluşturur. */
+  /** Öğretmenin idare programını (getByMe) kendi programlarına aktarır. Aynı isimde kayıt varsa günceller; çiftleri temizler. */
   async importFromAdmin(schoolId: string | null, userId: string): Promise<PersonalProgramWithEntriesDto> {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     const entries = await this.getByMe(schoolId, userId);
@@ -1107,16 +1185,38 @@ export class TeacherTimetableService {
     }
     const year = new Date().getFullYear();
     const academicYear = `${year}-${year + 1}`;
+    const importName = 'İdare Programı (Aktarılan)';
+    const mapped = entries.map((e) => ({
+      day_of_week: e.day_of_week,
+      lesson_num: e.lesson_num,
+      class_section: e.class_section,
+      subject: e.subject,
+    }));
+
+    const existing = await this.personalProgramRepo.find({
+      where: { school_id: schoolId, user_id: userId, name: importName },
+      order: { updated_at: 'DESC' },
+    });
+
+    if (existing.length > 0) {
+      const keep = existing[0]!;
+      if (existing.length > 1) {
+        for (const p of existing.slice(1)) {
+          await this.personalProgramRepo.remove(p);
+        }
+      }
+      return this.updatePersonalProgram(keep.id, schoolId, userId, {
+        academic_year: academicYear,
+        term: 'Tüm Yıl',
+        entries: mapped,
+      });
+    }
+
     return this.createPersonalProgram(schoolId, userId, {
-      name: 'İdare Programı (Aktarılan)',
+      name: importName,
       academic_year: academicYear,
       term: 'Tüm Yıl',
-      entries: entries.map((e) => ({
-        day_of_week: e.day_of_week,
-        lesson_num: e.lesson_num,
-        class_section: e.class_section,
-        subject: e.subject,
-      })),
+      entries: mapped,
     });
   }
 
@@ -1233,25 +1333,13 @@ export class TeacherTimetableService {
     return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
   }
 
-  /**
-   * Duyuru TV: yayınlanmış okul ders programı + okul ders saatleri ile tv_timetable_schedule JSON üretir.
-   */
-  async buildTvTimetableScheduleJsonForTv(schoolId: string): Promise<string | null> {
-    const school = await this.schoolRepo.findOne({
-      where: { id: schoolId },
-      select: ['lesson_schedule', 'lesson_schedule_pm', 'duty_education_mode'],
-    });
-    if (!school) return null;
-    const rows = await this.getBySchool(schoolId);
-    const toHHMM = (t: string) => {
-      const s = String(t || '').trim();
-      const m = s.match(/^(\d{1,2}):(\d{2})/);
-      if (m) return `${String(Math.min(23, Math.max(0, parseInt(m[1], 10)))).padStart(2, '0')}:${m[2]}`;
-      return s.slice(0, 5);
-    };
-    const am = Array.isArray(school.lesson_schedule) ? school.lesson_schedule : [];
-    const pm = Array.isArray(school.lesson_schedule_pm) ? school.lesson_schedule_pm : [];
-    const mode = school.duty_education_mode === 'double' ? 'double' : 'single';
+  /** TV JSON: sabah + (ikili ise) öğle vardiyası aynı ders numarasında birleştirilir. */
+  private buildLessonTimesForTv(
+    am: { lesson_num: number; start_time: string; end_time: string }[],
+    pm: { lesson_num: number; start_time: string; end_time: string }[],
+    mode: 'single' | 'double',
+    toHHMM: (t: string) => string,
+  ): { num: number; start: string; end: string }[] {
     const byNum = new Map<number, { num: number; start: string; end: string }>();
     for (const slot of am) {
       if (slot && typeof slot.lesson_num === 'number' && slot.start_time && slot.end_time) {
@@ -1273,17 +1361,50 @@ export class TeacherTimetableService {
         }
       }
     }
-    let lesson_times = [...byNum.values()].sort((a, b) => a.num - b.num);
+    return [...byNum.values()].sort((a, b) => a.num - b.num);
+  }
+
+  /**
+   * Duyuru TV: yayınlanmış okul ders programı + okul ders saatleri ile tv_timetable_schedule JSON üretir.
+   */
+  async buildTvTimetableScheduleJsonForTv(schoolId: string): Promise<string | null> {
+    const school = await this.schoolRepo.findOne({
+      where: { id: schoolId },
+      select: [
+        'lesson_schedule',
+        'lesson_schedule_pm',
+        'lesson_schedule_weekend',
+        'lesson_schedule_weekend_pm',
+        'duty_education_mode',
+      ],
+    });
+    if (!school) return null;
+    const rows = await this.getBySchool(schoolId);
+    const toHHMM = (t: string) => {
+      const s = String(t || '').trim();
+      const m = s.match(/^(\d{1,2}):(\d{2})/);
+      if (m) return `${String(Math.min(23, Math.max(0, parseInt(m[1], 10)))).padStart(2, '0')}:${m[2]}`;
+      return s.slice(0, 5);
+    };
+    const am = Array.isArray(school.lesson_schedule) ? school.lesson_schedule : [];
+    const pm = Array.isArray(school.lesson_schedule_pm) ? school.lesson_schedule_pm : [];
+    const mode = school.duty_education_mode === 'double' ? 'double' : 'single';
+    let lesson_times = this.buildLessonTimesForTv(am, pm, mode, toHHMM);
     if (lesson_times.length === 0) {
       lesson_times = [
         { num: 1, start: '08:30', end: '09:10' },
         { num: 2, start: '09:20', end: '10:00' },
       ];
     }
+    const wkAm = Array.isArray(school.lesson_schedule_weekend) ? school.lesson_schedule_weekend : [];
+    const wkPm = Array.isArray(school.lesson_schedule_weekend_pm) ? school.lesson_schedule_weekend_pm : [];
+    const lesson_times_weekend =
+      wkAm.length > 0 ? this.buildLessonTimesForTv(wkAm, wkPm, mode, toHHMM) : null;
+
     const entryMap = new Map<string, { day: number; lesson: number; class: string; subject: string }>();
     for (const r of rows) {
       const day = r.day_of_week;
-      if (day < 1 || day > 5) continue;
+      if (day < 1 || day > 7) continue;
       const lesson = r.lesson_num;
       const cls = (r.class_section || '').trim();
       const subj = (r.subject || '').trim();
@@ -1296,10 +1417,14 @@ export class TeacherTimetableService {
     const entries = Array.from(entryMap.values());
     if (entries.length === 0) return null;
     const class_sections = [...new Set(entries.map((e) => e.class))].sort((a, b) => a.localeCompare(b, 'tr'));
-    return JSON.stringify({
+    const payload: Record<string, unknown> = {
       lesson_times,
       class_sections,
       entries,
-    });
+    };
+    if (lesson_times_weekend && lesson_times_weekend.length > 0) {
+      payload.lesson_times_weekend = lesson_times_weekend;
+    }
+    return JSON.stringify(payload);
   }
 }

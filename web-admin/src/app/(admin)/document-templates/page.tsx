@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useAuth } from '@/hooks/use-auth';
-import { FileText, CalendarClock, BookOpen, Settings } from 'lucide-react';
+import { FileText, CalendarClock, BookOpen, Settings, Layers, ExternalLink } from 'lucide-react';
 import { SablonlarTab } from './sablonlar-tab';
 import { AyarlarTab } from './ayarlar-tab';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -102,9 +102,48 @@ export default function DocumentTemplatesPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      <header className="relative overflow-hidden rounded-2xl border border-border/80 bg-linear-to-br from-primary/[0.07] via-background to-muted/30 p-6 shadow-sm sm:p-8">
+        <div className="pointer-events-none absolute -right-16 -top-16 size-48 rounded-full bg-primary/6 blur-2xl" aria-hidden />
+        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex gap-4">
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary shadow-inner">
+              <Layers className="size-6" aria-hidden />
+            </div>
+            <div className="min-w-0 space-y-1.5">
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
+                Evrak & Plan Altyapısı
+              </h1>
+              <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                MEB çalışma takvimi, yıllık plan içerikleri ve Word/Excel evrak şablonları (MEB ve okul
+                modeli). Öğretmenler bu şablonlarla{' '}
+                <span className="font-medium text-foreground/90">/evrak</span> üzerinden üretim yapar.
+              </p>
+              {isSuperadmin && (
+                <p className="text-xs text-muted-foreground">
+                  BİLSEM yetenek alanı şablonları ve iş planı{' '}
+                  <span className="font-medium text-foreground">ayrı sayfada</span> yönetilir — karışmaması için.
+                </p>
+              )}
+            </div>
+          </div>
+          {isSuperadmin && (
+            <Link
+              href="/bilsem-sablon"
+              className="inline-flex shrink-0 items-center gap-2 self-start rounded-xl border border-violet-500/25 bg-violet-500/8 px-4 py-2.5 text-sm font-medium text-violet-800 shadow-sm transition hover:border-violet-500/40 hover:bg-violet-500/12 dark:text-violet-200"
+            >
+              <span>BİLSEM altyapısı</span>
+              <ExternalLink className="size-4 opacity-80" aria-hidden />
+            </Link>
+          )}
+        </div>
+      </header>
+
       <div className="mobile-tab-scroll border-b border-border pb-1">
-        <nav className="flex min-w-max gap-1 rounded-xl border border-border/70 bg-muted/30 p-1 shadow-sm" aria-label="Evrak sekmeleri">
+        <nav
+          className="flex min-w-max gap-1 rounded-xl border border-border/70 bg-muted/40 p-1 shadow-sm backdrop-blur-sm"
+          aria-label="Evrak sekmeleri"
+        >
           {TABS.filter((t) => !(t as { superadminOnly?: boolean }).superadminOnly || isSuperadmin).map((t) => {
             const Icon = t.icon;
             const isActive = tab === t.id;
@@ -114,8 +153,8 @@ export default function DocumentTemplatesPage() {
                 href={`/document-templates?tab=${t.id}`}
                 className={`flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-all ${
                   isActive
-                    ? 'border-primary/30 bg-primary/10 text-primary shadow-sm'
-                    : 'border-transparent text-muted-foreground hover:bg-background/80 hover:text-foreground'
+                    ? 'border-primary/35 bg-background text-primary shadow-md ring-1 ring-primary/15'
+                    : 'border-transparent text-muted-foreground hover:bg-background/90 hover:text-foreground'
                 }`}
               >
                 <Icon className="size-4" />

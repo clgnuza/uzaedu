@@ -429,6 +429,8 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
           if (bilsemQuery?.academic_year?.trim()) params.set('academic_year', bilsemQuery.academic_year.trim());
           if (bilsemQuery?.ana_grup?.trim()) params.set('ana_grup', bilsemQuery.ana_grup.trim());
           if (bilsemQuery?.alt_grup?.trim()) params.set('alt_grup', bilsemQuery.alt_grup.trim());
+        } else if (filters.academic_year?.trim()) {
+          params.set('academic_year', filters.academic_year.trim());
         }
         const res = await apiFetch<SubjectsResponse>(
           `/document-templates/subjects?${params}`,
@@ -476,7 +478,14 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
       if (filters.section) params.set('section', filters.section);
       if (filters.subject_code) params.set('subject_code', filters.subject_code);
       if (filters.academic_year) params.set('academic_year', filters.academic_year);
-      if (filters.curriculum_model?.trim()) params.set('curriculum_model', filters.curriculum_model.trim());
+      if (scope === 'bilsem') {
+        if (filters.curriculum_model?.trim()) params.set('curriculum_model', filters.curriculum_model.trim());
+        else params.set('curriculum_model', 'bilsem');
+      } else if (filters.curriculum_model?.trim()) {
+        params.set('curriculum_model', filters.curriculum_model.trim());
+      } else {
+        params.set('exclude_curriculum_model', 'bilsem');
+      }
       const res = await apiFetch<ListResponse>(`/document-templates?${params}`, { token });
       setTemplates(res);
       saveFiltersToStorage(scope, filters);
@@ -710,6 +719,10 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
           weekly_lesson_hours: Math.max(1, Math.min(20, parseInt(bilsemWeeklyHours, 10) || 2)),
         });
       }
+    } else {
+      const ay = filters.academic_year || ogretimYiliFallback;
+      if (!String(initial.ogretim_yili ?? '').trim()) initial.ogretim_yili = ay;
+      if (!String(initial.academic_year ?? '').trim()) initial.academic_year = ay;
     }
     setGenerateForm(initial);
     setGenerateModal(t);
@@ -985,6 +998,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
         if (subjectCode) params.set('subject_code', subjectCode);
         if (academicYear) params.set('academic_year', academicYear);
         if (scope === 'bilsem') params.set('curriculum_model', 'bilsem');
+        else params.set('exclude_curriculum_model', 'bilsem');
         const res = await apiFetch<ListResponse>(`/document-templates?${params}`, { token });
         setTemplates(res);
       } catch {

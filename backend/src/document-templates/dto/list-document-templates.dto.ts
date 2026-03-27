@@ -1,5 +1,5 @@
 import { IsOptional, IsString, IsInt, IsBoolean, Min, Max } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 
 export class ListDocumentTemplatesDto {
   @IsOptional()
@@ -44,7 +44,15 @@ export class ListDocumentTemplatesDto {
   exclude_curriculum_model?: string;
 
   @IsOptional()
-  @Type(() => Boolean)
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      const v = value.trim().toLowerCase();
+      if (v === 'true') return true;
+      if (v === 'false') return false;
+    }
+    return value;
+  })
   @IsBoolean()
   active_only?: boolean;
 

@@ -24,5 +24,9 @@ export class GenerateDraftFromExcelDto {
 
   @IsOptional()
   @IsString()
+  school_profile?: string;
+
+  @IsOptional()
+  @IsString()
   model?: string;
 }

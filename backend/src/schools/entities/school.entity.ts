@@ -348,6 +348,16 @@ export class School {
   @Column({ name: 'lesson_schedule_pm', type: 'jsonb', nullable: true })
   lesson_schedule_pm: { lesson_num: number; start_time: string; end_time: string }[] | null;
 
+  /**
+   * Hafta sonu (Cumartesi–Pazar) ders saatleri. Boş veya null ise hafta içi (lesson_schedule) kullanılır.
+   */
+  @Column({ name: 'lesson_schedule_weekend', type: 'jsonb', nullable: true })
+  lesson_schedule_weekend: { lesson_num: number; start_time: string; end_time: string }[] | null;
+
+  /** İkili eğitim: hafta sonu öğle vardiyası ders saatleri. Boşsa hafta sonu sabah + lesson_schedule_pm birleşimi veya hafta içi PM. */
+  @Column({ name: 'lesson_schedule_weekend_pm', type: 'jsonb', nullable: true })
+  lesson_schedule_weekend_pm: { lesson_num: number; start_time: string; end_time: string }[] | null;
+
   /** Nöbet: Öğretmenlere Görev Devri açık mı. false ise menüde gizlenir/erişim engellenir. */
   @Column({ name: 'duty_teacher_swap_enabled', type: 'boolean', default: true })
   duty_teacher_swap_enabled: boolean;

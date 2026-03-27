@@ -11,6 +11,8 @@ import {
   X,
   FileEdit,
   Calendar,
+  CalendarDays,
+  CalendarRange,
   Clock,
   Sun,
   Info,
@@ -18,9 +20,13 @@ import {
   AlertTriangle,
   Check,
   Eraser,
+  Table2,
+  Tag,
+  GraduationCap,
+  Layers,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
-import { useSchoolTimetableSettings } from '@/hooks/use-school-timetable-settings';
+import { isWeekendDow, useSchoolTimetableSettings } from '@/hooks/use-school-timetable-settings';
 import { useSchoolClassesSubjects } from '@/hooks/use-school-classes-subjects';
 import { apiFetch } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -78,6 +84,63 @@ function formatTime(min: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+type SlotDisplay = {
+  label: string;
+  timeRange: string;
+  lessonNum?: number;
+  isLunch?: boolean;
+};
+
+function buildScheduleRowsFromSlots(
+  slots: Array<{ timeRange: string; lessonNum?: number; isLunch?: boolean }>,
+  idPrefix: string,
+): ScheduleRow[] {
+  const rows: ScheduleRow[] = [];
+  slots.forEach((slot, i) => {
+    const [start, end] = slot.timeRange.split(' - ');
+    rows.push({
+      id: `${idPrefix}-${i}`,
+      type: slot.isLunch ? 'ogle' : 'ders',
+      startTime: (start ?? '').trim(),
+      endTime: (end ?? '').trim(),
+      breakMin: slot.isLunch ? 0 : 10,
+      lessonNum: slot.lessonNum,
+    });
+  });
+  return rows;
+}
+
+function slotsFromScheduleRows(rows: ScheduleRow[]): SlotDisplay[] {
+  let lessonNum = 0;
+  return rows.map((row) => {
+    if (row.type === 'ogle') {
+      return { label: 'Öğle Tatili', timeRange: `${row.startTime} - ${row.endTime}`, isLunch: true };
+    }
+    lessonNum += 1;
+    const num = lessonNum;
+    return {
+      label: `${num}. Ders`,
+      timeRange: `${row.startTime} - ${row.endTime}`,
+      lessonNum: num,
+      isLunch: false,
+    };
+  });
+}
+
+function maxLessonFromSlots(slots: SlotDisplay[]) {
+  return Math.max(0, ...slots.filter((s) => s.lessonNum != null).map((s) => s.lessonNum!), 0);
+}
+
+function getLessonRangeFromRows(rows: ScheduleRow[], lessonNum: number): string | null {
+  let ln = 0;
+  for (const row of rows) {
+    if (row.type === 'ogle') continue;
+    ln += 1;
+    if (ln === lessonNum) return `${row.startTime} - ${row.endTime}`;
+  }
+  return null;
+}
+
 function computeTimeSlotsLocal(config: {
   schoolStart: string;
   lessonMin: number;
@@ -107,7 +170,13 @@ export default function ProgramEditPage() {
   const router = useRouter();
   const { token, me } = useAuth();
   const id = params.id as string;
-  const { timeSlots: schoolTimeSlots, maxLessons: schoolMaxLessons, settings: schoolSettings } = useSchoolTimetableSettings();
+  const {
+    timeSlots: schoolTimeSlots,
+    maxLessons: schoolMaxLessons,
+    settings: schoolSettings,
+    getTimeRangeForDay,
+    getTimeSlotsForDay,
+  } = useSchoolTimetableSettings();
   const { classes: schoolClasses, subjects: schoolSubjects } = useSchoolClassesSubjects();
 
   const [program, setProgram] = useState<ProgramWithEntries | null>(null);
@@ -126,7 +195,9 @@ export default function ProgramEditPage() {
   const [lunchActive, setLunchActive] = useState(true);
   const [manualTimes, setManualTimes] = useState(false);
   const [schoolInitDone, setSchoolInitDone] = useState(false);
-  const [scheduleRows, setScheduleRows] = useState<ScheduleRow[]>([]);
+  const [manualScheduleTab, setManualScheduleTab] = useState<'weekday' | 'weekend'>('weekday');
+  const [scheduleRowsWeekday, setScheduleRowsWeekday] = useState<ScheduleRow[]>([]);
+  const [scheduleRowsWeekend, setScheduleRowsWeekend] = useState<ScheduleRow[]>([]);
   const [activeSection, setActiveSection] = useState<'general' | 'times' | 'weekly'>('general');
   const sectionRefs = useRef<{ general: HTMLElement | null; times: HTMLElement | null; weekly: HTMLElement | null }>({
     general: null,
@@ -142,35 +213,23 @@ export default function ProgramEditPage() {
     el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const initScheduleRowsFromSlots = useCallback(
-    (slots: Array<{ timeRange: string; lessonNum?: number; isLunch?: boolean }>) => {
-      const rows: ScheduleRow[] = [];
-      slots.forEach((slot, i) => {
-        const [start, end] = slot.timeRange.split(' - ');
-        rows.push({
-          id: `row-${i}`,
-          type: slot.isLunch ? 'ogle' : 'ders',
-          startTime: (start ?? '').trim(),
-          endTime: (end ?? '').trim(),
-          breakMin: slot.isLunch ? 0 : 10,
-          lessonNum: slot.lessonNum,
-        });
-      });
-      setScheduleRows(rows);
-    },
-    [],
-  );
-
   useEffect(() => {
-    if (manualTimes && scheduleRows.length === 0) {
-      const slots = schoolTimeSlots.map((s) => ({
-        timeRange: s.timeRange,
-        lessonNum: s.lessonNum,
-        isLunch: s.isLunch,
-      }));
-      initScheduleRowsFromSlots(slots);
-    }
-  }, [manualTimes, schoolTimeSlots, scheduleRows.length, initScheduleRowsFromSlots]);
+    if (!manualTimes) return;
+    if (scheduleRowsWeekday.length > 0 || scheduleRowsWeekend.length > 0) return;
+    const slotsWd = schoolTimeSlots.map((s) => ({
+      timeRange: s.timeRange,
+      lessonNum: s.lessonNum,
+      isLunch: s.isLunch,
+    }));
+    setScheduleRowsWeekday(buildScheduleRowsFromSlots(slotsWd, 'wd'));
+    const we = getTimeSlotsForDay(6);
+    const slotsWe = we.map((s) => ({
+      timeRange: s.timeRange,
+      lessonNum: s.lessonNum,
+      isLunch: s.isLunch,
+    }));
+    setScheduleRowsWeekend(buildScheduleRowsFromSlots(slotsWe, 'we'));
+  }, [manualTimes, schoolTimeSlots, getTimeSlotsForDay, scheduleRowsWeekday.length, scheduleRowsWeekend.length]);
 
   useEffect(() => {
     if (schoolInitDone || !schoolSettings?.lesson_schedule?.length || manualTimes) return;
@@ -188,21 +247,17 @@ export default function ProgramEditPage() {
   }, [schoolSettings, manualTimes, schoolInitDone]);
 
   const timeSlots = useMemo(() => {
-    if (manualTimes && scheduleRows.length > 0) {
-      let lessonNum = 0;
-      return scheduleRows.map((row) => {
-        if (row.type === 'ogle') {
-          return { label: 'Öğle Tatili', timeRange: `${row.startTime} - ${row.endTime}`, isLunch: true };
-        }
-        lessonNum += 1;
-        const num = lessonNum;
-        return {
-          label: `${num}. Ders`,
-          timeRange: `${row.startTime} - ${row.endTime}`,
-          lessonNum: num,
-          isLunch: false,
-        };
-      });
+    if (manualTimes && (scheduleRowsWeekday.length > 0 || scheduleRowsWeekend.length > 0)) {
+      const ws = slotsFromScheduleRows(scheduleRowsWeekday);
+      const wes = slotsFromScheduleRows(scheduleRowsWeekend);
+      const maxW = maxLessonFromSlots(ws);
+      const maxWe = maxLessonFromSlots(wes);
+      if (maxWe > maxW) {
+        const extra = wes.filter((s) => s.lessonNum != null && s.lessonNum > maxW);
+        return [...ws, ...extra];
+      }
+      if (ws.length > 0) return ws;
+      return wes;
     }
     if (manualTimes) {
       return computeTimeSlotsLocal({
@@ -218,7 +273,39 @@ export default function ProgramEditPage() {
     return schoolTimeSlots.map((slot) =>
       slot.isLunch ? { ...slot, label: 'Öğle Tatili' } : { ...slot, label: `${slot.lessonNum}. Ders` },
     );
-  }, [manualTimes, scheduleRows, schoolStart, lessonMin, breakMin, lunchStart, lunchEnd, lunchActive, schoolTimeSlots, schoolMaxLessons]);
+  }, [
+    manualTimes,
+    scheduleRowsWeekday,
+    scheduleRowsWeekend,
+    schoolStart,
+    lessonMin,
+    breakMin,
+    lunchStart,
+    lunchEnd,
+    lunchActive,
+    schoolTimeSlots,
+    schoolMaxLessons,
+  ]);
+
+  const getCellTimeRange = useCallback(
+    (day: number, lessonNum: number) => {
+      if (!manualTimes) return getTimeRangeForDay(day, lessonNum);
+      const rows = isWeekendDow(day) ? scheduleRowsWeekend : scheduleRowsWeekday;
+      const r = getLessonRangeFromRows(rows, lessonNum);
+      return r ?? '—';
+    },
+    [manualTimes, getTimeRangeForDay, scheduleRowsWeekday, scheduleRowsWeekend],
+  );
+
+  const setActiveScheduleRows = useCallback(
+    (updater: (prev: ScheduleRow[]) => ScheduleRow[]) => {
+      if (manualScheduleTab === 'weekday') setScheduleRowsWeekday(updater);
+      else setScheduleRowsWeekend(updater);
+    },
+    [manualScheduleTab],
+  );
+
+  const activeScheduleRows = manualScheduleTab === 'weekday' ? scheduleRowsWeekday : scheduleRowsWeekend;
 
   const lunchDurationMins = useMemo(() => {
     const s = parseTime(lunchStart);
@@ -379,115 +466,194 @@ export default function ProgramEditPage() {
   return (
     <div className="space-y-6">
       {/* Sticky header + sekmeler */}
-      <div className="sticky top-0 z-20 space-y-2 print:static">
-        <div className="flex items-center justify-between rounded-t-xl bg-primary px-4 py-3 text-primary-foreground shadow-md print:shadow-none">
-          <div className="flex items-center gap-3">
-            <div className="flex size-9 items-center justify-center rounded-lg bg-white/20">
+      <div className="sticky top-0 z-20 space-y-2 border-b border-border/40 bg-background/90 pb-2 pt-0.5 shadow-sm backdrop-blur-md print:static print:border-0 print:bg-transparent print:pb-0 print:shadow-none">
+        <div className="flex items-center justify-between gap-3 rounded-t-xl bg-primary px-3 py-3 text-primary-foreground shadow-md sm:px-4 print:shadow-none">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/20">
               <FileEdit className="size-5" />
             </div>
-            <h1 className="text-lg font-semibold">
+            <h1 className="truncate text-base font-semibold leading-snug sm:text-lg" title={`Program Düzenle: ${program.name}`}>
               Program Düzenle: {program.name}
             </h1>
           </div>
-          <Button size="sm" asChild className="bg-white/90 hover:bg-white text-primary border-0 shadow-sm">
+          <Button size="sm" asChild className="shrink-0 bg-white/90 hover:bg-white text-primary border-0 shadow-sm">
             <Link href="/ders-programi/programlarim" className="gap-2">
               <ArrowLeft className="size-4" />
-              Geri Dön
+              <span className="hidden sm:inline">Geri Dön</span>
+              <span className="sm:hidden">Geri</span>
             </Link>
           </Button>
         </div>
-        <div className="flex gap-1 rounded-lg bg-muted/50 p-1 border border-border/50 print:hidden">
-        <button
-          type="button"
-          onClick={() => scrollToSection('general')}
-          className={cn(
-            'flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-            activeSection === 'general' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          Genel Bilgiler
-        </button>
-        <button
-          type="button"
-          onClick={() => scrollToSection('times')}
-          className={cn(
-            'flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-            activeSection === 'times' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          Ders Saatleri
-        </button>
-        <button
-          type="button"
-          onClick={() => scrollToSection('weekly')}
-          className={cn(
-            'flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-            activeSection === 'weekly' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          Haftalık Program
-        </button>
+        <div className="rounded-xl border-2 border-primary/30 bg-linear-to-br from-primary/10 via-muted/40 to-muted/25 p-2.5 shadow-md ring-1 ring-primary/15 dark:border-primary/40 dark:from-primary/15 dark:ring-primary/20 print:hidden">
+          <p className="mb-2 text-center text-[11px] font-bold uppercase tracking-wider text-primary sm:text-left" id="program-section-tabs-label">
+            Sayfa bölümleri
+          </p>
+          <div
+            className="-mx-0.5 flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1 sm:mx-0 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0"
+            role="tablist"
+            aria-labelledby="program-section-tabs-label"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeSection === 'general'}
+              id="tab-program-general"
+              onClick={() => scrollToSection('general')}
+              className={cn(
+                'flex min-h-[52px] min-w-[calc(100vw-4rem)] shrink-0 snap-center flex-col items-center justify-center gap-0.5 rounded-lg border-2 px-3 py-2.5 text-center transition-all duration-200 sm:min-h-[56px] sm:min-w-0 sm:snap-none sm:px-3',
+                activeSection === 'general'
+                  ? 'border-primary bg-primary text-primary-foreground shadow-lg ring-2 ring-primary/35'
+                  : 'border-border/80 bg-background/90 text-foreground hover:border-primary/45 hover:bg-muted/60 active:scale-[0.99] dark:border-border/60',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+              )}
+            >
+              <Calendar className="size-5 shrink-0 opacity-95" aria-hidden />
+              <span className="text-sm font-bold leading-tight">Genel Bilgiler</span>
+              <span className="text-[10px] font-medium opacity-90 sm:text-[11px]">Ad, yıl, dönem</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeSection === 'times'}
+              id="tab-program-times"
+              onClick={() => scrollToSection('times')}
+              className={cn(
+                'flex min-h-[52px] min-w-[calc(100vw-4rem)] shrink-0 snap-center flex-col items-center justify-center gap-0.5 rounded-lg border-2 px-3 py-2.5 text-center transition-all duration-200 sm:min-h-[56px] sm:min-w-0 sm:snap-none sm:px-3',
+                activeSection === 'times'
+                  ? 'border-primary bg-primary text-primary-foreground shadow-lg ring-2 ring-primary/35'
+                  : 'border-border/80 bg-background/90 text-foreground hover:border-primary/45 hover:bg-muted/60 active:scale-[0.99] dark:border-border/60',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+              )}
+            >
+              <Clock className="size-5 shrink-0 opacity-95" aria-hidden />
+              <span className="text-sm font-bold leading-tight">Program saatleri</span>
+              <span className="text-[10px] font-medium opacity-90 sm:text-[11px]">Günlük çizelge</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeSection === 'weekly'}
+              id="tab-program-weekly"
+              onClick={() => scrollToSection('weekly')}
+              className={cn(
+                'flex min-h-[52px] min-w-[calc(100vw-4rem)] shrink-0 snap-center flex-col items-center justify-center gap-0.5 rounded-lg border-2 px-3 py-2.5 text-center transition-all duration-200 sm:min-h-[56px] sm:min-w-0 sm:snap-none sm:px-3',
+                activeSection === 'weekly'
+                  ? 'border-primary bg-primary text-primary-foreground shadow-lg ring-2 ring-primary/35'
+                  : 'border-border/80 bg-background/90 text-foreground hover:border-primary/45 hover:bg-muted/60 active:scale-[0.99] dark:border-border/60',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+              )}
+            >
+              <Table2 className="size-5 shrink-0 opacity-95" aria-hidden />
+              <span className="text-sm font-bold leading-tight">Haftalık Program</span>
+              <span className="text-[10px] font-medium opacity-90 sm:text-[11px]">Ders yerleşimi</span>
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="space-y-6 rounded-b-xl border border-t-0 border-border p-4">
         {/* Program Bilgileri */}
-        <section ref={(el) => { sectionRefs.current.general = el; }} className="space-y-4 scroll-mt-4">
-          <h2 className="text-sm font-semibold text-foreground">Genel Bilgiler</h2>
+        <section
+          ref={(el) => {
+            sectionRefs.current.general = el;
+          }}
+          className="space-y-4 scroll-mt-40 sm:scroll-mt-44"
+        >
+          <div className="space-y-1">
+            <h2 className="text-base font-semibold tracking-tight text-foreground">Genel bilgiler</h2>
+            <p className="text-sm text-muted-foreground">
+              Programınızı tanımlayan üç alan. <span className="text-foreground/80">Programlarım</span> listesinde ve düzenlerken bu bilgiler birlikte gösterilir.
+            </p>
+          </div>
           <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2 text-sm">
-                <Calendar className="size-4 text-muted-foreground" />
-                Program Adı <span className="text-destructive">*</span>
+            <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-card/50 p-4 shadow-sm">
+              <Label htmlFor="program-name" className="flex items-start gap-2 text-sm font-semibold text-foreground">
+                <Tag className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                <span>
+                  Program adı <span className="text-destructive">*</span>
+                </span>
               </Label>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Kısa ve ayırt edici bir ad verin (ör. sınıf veya branş). Okul programından aktarıldıysa başlıkta bunu belirtebilirsiniz.
+              </p>
               <Input
+                id="program-name"
                 value={program.name}
                 onChange={(e) => setProgram((p) => (p ? { ...p, name: e.target.value } : p))}
-                placeholder="2024-2025 Haftalık Ders Programı"
+                placeholder="Örn. İdare Programı (Aktarılan), 10-A haftalık planı"
+                className="h-11"
+                autoComplete="off"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2 text-sm">
-                <Calendar className="size-4 text-muted-foreground" />
-                Akademik Yıl <span className="text-destructive">*</span>
+            <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-card/50 p-4 shadow-sm">
+              <Label htmlFor="program-academic-year" className="flex items-start gap-2 text-sm font-semibold text-foreground">
+                <GraduationCap className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                <span>
+                  Akademik yıl <span className="text-destructive">*</span>
+                </span>
               </Label>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Eğitim-öğretim yılı, iki yıl arası tire ile: <span className="font-medium text-foreground/90">2026-2027</span>
+              </p>
               <Input
+                id="program-academic-year"
                 value={program.academic_year}
                 onChange={(e) => setProgram((p) => (p ? { ...p, academic_year: e.target.value } : p))}
-                placeholder="2025-2026"
+                placeholder="2026-2027"
+                inputMode="numeric"
+                className="h-11 font-mono tabular-nums"
+                autoComplete="off"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2 text-sm">
-                <Calendar className="size-4 text-muted-foreground" />
-                Dönem <span className="text-destructive">*</span>
+            <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-card/50 p-4 shadow-sm">
+              <Label htmlFor="program-term" className="flex items-start gap-2 text-sm font-semibold text-foreground">
+                <Layers className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                <span>
+                  Dönem <span className="text-destructive">*</span>
+                </span>
               </Label>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Tüm yıl veya dönem bazlı; haftalık tablo ile aynı kapsamı seçtiğinizden emin olun.
+              </p>
               <select
+                id="program-term"
                 value={program.term}
                 onChange={(e) => setProgram((p) => (p ? { ...p, term: e.target.value } : p))}
-                className="flex h-10 w-full rounded-lg border border-input bg-background px-4 py-2 pr-8 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex h-11 w-full rounded-lg border border-input bg-background px-3 py-2 pr-8 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {allTermOptions.map((opt) => (
-                  <option key={opt} value={opt}>{opt}</option>
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
                 ))}
               </select>
             </div>
           </div>
         </section>
 
-        {/* Okul Saatleri */}
-        <section ref={(el) => { sectionRefs.current.times = el; }} className="space-y-4 scroll-mt-4">
-          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-            <Clock className="size-4 text-muted-foreground" />
-            Okul Saatleri
-          </h2>
+        {/* Kişisel program için temel çizelge (okul genel ayarını değiştirmez) */}
+        <section
+          ref={(el) => {
+            sectionRefs.current.times = el;
+          }}
+          className="space-y-4 scroll-mt-40 sm:scroll-mt-44"
+        >
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <Clock className="size-4 text-muted-foreground" />
+              Program için temel saatler
+            </h2>
+            <p className="text-xs text-muted-foreground leading-snug">
+              Yalnızca <strong className="text-foreground/90">bu programa</strong> ait çizelgeyi ayarlarsınız; okulun genel ders saatleri ve diğer öğretmenler etkilenmez.
+            </p>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-2">
-              <Label className="text-sm">Okul Başlangıç Saati *</Label>
+              <Label className="text-sm">İlk ders başlangıcı *</Label>
               <Input type="time" value={schoolStart} onChange={(e) => setSchoolStart(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label className="text-sm">Okul Bitiş Saati *</Label>
+              <Label className="text-sm">Referans bitiş (4. ders sonu) *</Label>
               <Input type="time" value={schoolEnd} onChange={(e) => setSchoolEnd(e.target.value)} />
             </div>
             <div className="space-y-2">
@@ -513,12 +679,15 @@ export default function ProgramEditPage() {
           </div>
         </section>
 
-        {/* Öğle Tatili */}
+        {/* Öğle — bu program önizlemesi */}
         <section className="space-y-4">
-          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-            <Sun className="size-4 text-muted-foreground" />
-            Öğle Tatili
-          </h2>
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <Sun className="size-4 text-muted-foreground" />
+              Öğle arası (bu program)
+            </h2>
+            <p className="text-xs text-muted-foreground">Haftalık tabloda öğle satırı; sadece sizin program görünümünüz için.</p>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-2">
               <Label className="text-sm">Öğle Tatili Başlangıç *</Label>
@@ -558,27 +727,39 @@ export default function ProgramEditPage() {
           </div>
         </section>
 
-        {/* Günlük Ders Saatleri – referans: yeşil bar, sarı uyarı, toggle, tablo */}
+        {/* Günlük çizelge — kişisel program */}
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-            <Clock className="size-4 text-muted-foreground" />
-            Günlük Ders Saatleri
-          </h2>
-          <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-foreground flex gap-3 dark:bg-green-950/30 dark:border-green-800">
-            <Zap className="size-5 shrink-0 text-green-600 dark:text-green-400 mt-0.5" />
-            <span><strong>Otomatik Yerleştirme:</strong> Ders başlangıç/bitiş saatlerini veya teneffüs süresini değiştirdiğinizde, sonraki dersler otomatik olarak yeniden yerleştirilecektir.</span>
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <Clock className="size-4 text-muted-foreground" />
+              Günlük ders saatleri (sadece bu program)
+            </h2>
+            <p className="text-xs text-muted-foreground leading-snug">
+              Aşağıdaki tablo yalnızca <strong className="text-foreground/90">sizin bu programınızın</strong> haftalık görünümünde kullanılır.
+            </p>
           </div>
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-foreground flex gap-3 dark:bg-amber-950/30 dark:border-amber-800">
-            <AlertTriangle className="size-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
-            <span><strong>Önemli:</strong> Günlük ders saatlerinde yaptığınız değişikliklerin haftalık program tablosuna tam olarak yansıması için &quot;Programı Güncelle&quot; butonuna tıklamanız gerekmektedir. Diğer değişiklikler otomatik kaydedilir ancak bu bölümdeki değişiklikler için ana güncelle butonunu kullanmalısınız.</span>
+          <div className="flex gap-2.5 rounded-lg border border-green-200 bg-green-50 px-3 py-2.5 text-sm text-foreground dark:border-green-800 dark:bg-green-950/30 sm:gap-3 sm:px-4 sm:py-3">
+            <Zap className="mt-0.5 size-5 shrink-0 text-green-600 dark:text-green-400" />
+            <span className="min-w-0 flex-1 wrap-break-word leading-snug">
+              <strong>Otomatik yerleştirme:</strong> Başlangıç/bitiş veya teneffüs değişince sonraki dersler yeniden hesaplanır (yalnızca bu ekranda, sizin programınız için).
+            </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-foreground dark:border-amber-800 dark:bg-amber-950/30 sm:gap-3 sm:px-4 sm:py-3">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span className="min-w-0 flex-1 wrap-break-word leading-snug">
+              <strong>Önemli:</strong> Bu tablodaki değişikliklerin <strong>haftalık program tablonuza</strong> yansıması için alttaki <strong>Programı Güncelle</strong> ile kaydedin (okul genel programını değiştirmez).
+            </span>
+          </div>
+          <div className="flex max-w-full flex-col gap-1.5 rounded-lg border border-border/60 bg-muted/15 px-2.5 py-2 sm:flex-row sm:items-center sm:gap-3">
             <button
               type="button"
               role="switch"
               aria-checked={manualTimes}
               onClick={() => {
-                if (manualTimes) setScheduleRows([]);
+                if (manualTimes) {
+                  setScheduleRowsWeekday([]);
+                  setScheduleRowsWeekend([]);
+                }
                 setManualTimes(!manualTimes);
               }}
               className={cn(
@@ -588,109 +769,190 @@ export default function ProgramEditPage() {
             >
               <span className={cn('pointer-events-none block size-5 rounded-full bg-white shadow transition-transform', manualTimes ? 'translate-x-6' : 'translate-x-1')} />
             </button>
-            <Label className="text-sm">Manuel ders saatleri kullan</Label>
+            <div className="min-w-0 flex-1">
+              <Label className="text-sm font-medium leading-snug">Manuel ders saatleri kullan</Label>
+              <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground sm:text-xs">
+                Açıkken hafta içi ve hafta sonu için ayrı saat tabloları düzenlenir; okulun resmi çizelgesini değiştirmez.
+              </p>
+            </div>
           </div>
-          <p className="text-xs text-muted-foreground">Bu seçenek aktifse, aşağıdaki ders saatlerini kullanacaksınız.</p>
 
           {manualTimes && (
             <Card className="overflow-hidden">
-              <CardContent className="p-0">
-                <div className="max-h-[320px] overflow-y-auto">
-                  <table className="w-full text-sm border-collapse">
-                    <thead className="sticky top-0 bg-muted/80 z-10">
+              <CardContent className="space-y-3 p-3 sm:p-4">
+                <div className="rounded-xl border-2 border-primary/30 bg-linear-to-br from-primary/8 via-muted/40 to-muted/20 p-2 shadow-md ring-1 ring-primary/10 dark:border-primary/35 dark:from-primary/12 dark:ring-primary/15">
+                  <p className="mb-2 px-0.5 text-center text-[11px] font-bold uppercase tracking-wider text-primary sm:text-left">
+                    Hangi günlerin saatleri?
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-row sm:gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setManualScheduleTab('weekday')}
+                      className={cn(
+                        'flex min-h-[52px] flex-col items-center justify-center gap-0.5 rounded-lg border-2 px-3 py-2 text-center transition-all sm:min-h-[56px] sm:min-w-[160px] sm:flex-1',
+                        manualScheduleTab === 'weekday'
+                          ? 'border-primary bg-primary text-primary-foreground shadow-lg ring-2 ring-primary/30'
+                          : 'border-border/70 bg-background/80 text-foreground hover:border-primary/40 hover:bg-muted/50',
+                      )}
+                    >
+                      <CalendarDays className="size-5 shrink-0 opacity-90 sm:size-5" aria-hidden />
+                      <span className="text-sm font-bold leading-tight">Hafta içi</span>
+                      <span className="text-[10px] font-medium opacity-90 sm:text-[11px]">Pzt – Cuma</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setManualScheduleTab('weekend')}
+                      className={cn(
+                        'flex min-h-[52px] flex-col items-center justify-center gap-0.5 rounded-lg border-2 px-3 py-2 text-center transition-all sm:min-h-[56px] sm:min-w-[160px] sm:flex-1',
+                        manualScheduleTab === 'weekend'
+                          ? 'border-primary bg-primary text-primary-foreground shadow-lg ring-2 ring-primary/30'
+                          : 'border-border/70 bg-background/80 text-foreground hover:border-primary/40 hover:bg-muted/50',
+                      )}
+                    >
+                      <CalendarRange className="size-5 shrink-0 opacity-90 sm:size-5" aria-hidden />
+                      <span className="text-sm font-bold leading-tight">Hafta sonu</span>
+                      <span className="text-[10px] font-medium opacity-90 sm:text-[11px]">Cmt – Paz</span>
+                    </button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 border-2"
+                    onClick={() => {
+                      const copy = scheduleRowsWeekday.map((r, i) => ({
+                        ...r,
+                        id: `we-copy-${i}-${Date.now()}`,
+                      }));
+                      setScheduleRowsWeekend(copy);
+                      setManualScheduleTab('weekend');
+                      toast.success('Hafta içi saatleri hafta sonuna kopyalandı; düzenleyebilirsiniz.');
+                    }}
+                  >
+                    Hafta içini hafta sonuna kopyala
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground sm:text-xs">
+                  Şu an düzenlenen:{' '}
+                  <strong className="text-foreground">
+                    {manualScheduleTab === 'weekday' ? 'Pazartesi–Cuma' : 'Cumartesi–Pazar'}
+                  </strong>
+                </p>
+              </CardContent>
+              <CardContent className="border-t border-border/60 p-0">
+                <div className="max-h-[min(50vh,24rem)] overflow-auto overscroll-x-contain">
+                  <div className="min-w-0 overflow-x-auto">
+                  <table className="w-full min-w-xl table-fixed border-collapse text-sm">
+                    <thead className="sticky top-0 z-10 border-b border-border bg-muted/90 backdrop-blur-sm">
                       <tr>
-                        <th className="px-3 py-2.5 text-left font-semibold border-b border-border w-20">Sıra No</th>
-                        <th className="px-3 py-2.5 text-left font-semibold border-b border-border w-32">Tür</th>
-                        <th className="px-3 py-2.5 text-left font-semibold border-b border-border w-28">Başlangıç</th>
-                        <th className="px-3 py-2.5 text-left font-semibold border-b border-border w-28">Bitiş</th>
-                        <th className="px-3 py-2.5 text-left font-semibold border-b border-border w-24 bg-green-50 dark:bg-green-950/20">Süre (dk)</th>
-                        <th className="px-3 py-2.5 text-left font-semibold border-b border-border w-24">Teneffüs (dk)</th>
-                        <th className="px-3 py-2.5 text-center font-semibold border-b border-border w-16">İşlemler</th>
+                        <th className="w-13 px-1.5 py-2 text-left text-[10px] font-semibold uppercase leading-tight text-muted-foreground sm:w-14 sm:px-2 sm:text-xs" title="Sıra">
+                          Sıra
+                        </th>
+                        <th className="w-18 px-1.5 py-2 text-left text-[10px] font-semibold uppercase leading-tight text-muted-foreground sm:w-24 sm:px-2 sm:text-xs" title="Tür">
+                          Tür
+                        </th>
+                        <th className="w-22 px-1.5 py-2 text-left text-[10px] font-semibold uppercase leading-tight text-muted-foreground sm:w-28 sm:px-2 sm:text-xs" title="Başlangıç">
+                          Başl.
+                        </th>
+                        <th className="w-22 px-1.5 py-2 text-left text-[10px] font-semibold uppercase leading-tight text-muted-foreground sm:w-28 sm:px-2 sm:text-xs" title="Bitiş">
+                          Bitiş
+                        </th>
+                        <th className="w-17 bg-green-50 px-1.5 py-2 text-left text-[10px] font-semibold uppercase leading-tight text-muted-foreground dark:bg-green-950/25 sm:w-24 sm:px-2 sm:text-xs" title="Süre (dakika)">
+                          Süre
+                        </th>
+                        <th className="w-17 px-1.5 py-2 text-left text-[10px] font-semibold uppercase leading-tight text-muted-foreground sm:w-24 sm:px-2 sm:text-xs" title="Teneffüs (dakika)">
+                          Tnf.
+                        </th>
+                        <th className="w-12 px-1 py-2 text-center text-[10px] font-semibold uppercase leading-tight text-muted-foreground sm:w-14 sm:px-2 sm:text-xs" title="Sil">
+                          Sil
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {scheduleRows.map((row, idx) => {
+                      {activeScheduleRows.map((row, idx) => {
                         const dur = row.startTime && row.endTime
                           ? Math.max(0, parseTime(row.endTime) - parseTime(row.startTime))
                           : 0;
                         return (
                           <tr key={row.id} className="border-b border-border hover:bg-muted/30">
-                            <td className="px-3 py-2">
-                              <span className="inline-flex items-center justify-center rounded-lg bg-primary/20 text-primary font-semibold px-2 py-1 text-xs">
+                            <td className="px-1.5 py-1.5 align-middle sm:px-2">
+                              <span className="inline-flex min-w-7 items-center justify-center rounded-md bg-primary/20 px-1.5 py-0.5 text-[11px] font-semibold text-primary sm:text-xs">
                                 {idx + 1}
                               </span>
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="min-w-0 px-1.5 py-1.5 align-middle sm:px-2">
                               <select
                                 value={row.type}
                                 onChange={(e) =>
-                                  setScheduleRows((r) =>
+                                  setActiveScheduleRows((r) =>
                                     r.map((x) =>
                                       x.id === row.id ? { ...x, type: e.target.value as 'ders' | 'ogle' } : x,
                                     ),
                                   )
                                 }
-                                className="flex h-9 w-full rounded-lg border border-input bg-background px-2 text-sm"
+                                className="h-9 w-full min-w-0 max-w-full truncate rounded-md border border-input bg-background px-1 text-xs sm:px-2 sm:text-sm"
                               >
                                 <option value="ders">Ders</option>
-                                <option value="ogle">Öğle Tatili</option>
+                                <option value="ogle">Öğle</option>
                               </select>
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="min-w-0 px-1.5 py-1.5 align-middle sm:px-2">
                               <Input
                                 type="time"
                                 value={row.startTime}
                                 onChange={(e) =>
-                                  setScheduleRows((r) =>
+                                  setActiveScheduleRows((r) =>
                                     r.map((x) => (x.id === row.id ? { ...x, startTime: e.target.value } : x)),
                                   )
                                 }
-                                className="h-9"
+                                className="h-9 w-full min-w-0 max-w-full px-1 text-xs sm:text-sm"
                               />
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="min-w-0 px-1.5 py-1.5 align-middle sm:px-2">
                               <Input
                                 type="time"
                                 value={row.endTime}
                                 onChange={(e) =>
-                                  setScheduleRows((r) =>
+                                  setActiveScheduleRows((r) =>
                                     r.map((x) => (x.id === row.id ? { ...x, endTime: e.target.value } : x)),
                                   )
                                 }
-                                className="h-9"
+                                className="h-9 w-full min-w-0 max-w-full px-1 text-xs sm:text-sm"
                               />
                             </td>
-                            <td className="px-3 py-2">
-                              <div className="flex items-center gap-1">
+                            <td className="min-w-0 px-1.5 py-1.5 align-middle sm:px-2">
+                              <div className="flex min-w-0 items-center gap-0.5">
                                 <Input
                                   type="number"
                                   value={dur}
                                   readOnly
-                                  className="h-9 bg-green-50 dark:bg-green-950/20 w-16"
+                                  className="h-9 min-w-0 flex-1 bg-green-50 px-1 text-xs tabular-nums dark:bg-green-950/20 sm:max-w-14"
                                 />
-                                <span className="text-xs text-muted-foreground">dk</span>
+                                <span className="shrink-0 text-[10px] text-muted-foreground sm:text-xs">dk</span>
                               </div>
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="min-w-0 px-1.5 py-1.5 align-middle sm:px-2">
                               <Input
                                 type="number"
                                 min={0}
                                 max={30}
                                 value={row.breakMin}
                                 onChange={(e) =>
-                                  setScheduleRows((r) =>
+                                  setActiveScheduleRows((r) =>
                                     r.map((x) =>
                                       x.id === row.id ? { ...x, breakMin: Number(e.target.value) || 0 } : x,
                                     ),
                                   )
                                 }
-                                className="h-9 w-20"
+                                className="h-9 w-full min-w-0 max-w-16 px-1 text-xs tabular-nums sm:text-sm"
                               />
                             </td>
-                            <td className="px-3 py-2 text-center">
+                            <td className="px-1 py-1.5 text-center align-middle sm:px-2">
                               <button
                                 type="button"
-                                onClick={() => setScheduleRows((r) => r.filter((x) => x.id !== row.id))}
+                                onClick={() => setActiveScheduleRows((r) => r.filter((x) => x.id !== row.id))}
                                 className="rounded-full p-1.5 text-destructive hover:bg-destructive/10 transition-colors"
                                 title="Sil"
                               >
@@ -702,26 +964,26 @@ export default function ProgramEditPage() {
                       })}
                     </tbody>
                   </table>
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-2 p-4 border-t border-border bg-muted/20">
+                <div className="flex flex-wrap gap-2 border-t border-border bg-muted/20 p-3 sm:p-4">
                   <Button
                     type="button"
                     variant="default"
                     className="bg-emerald-600 hover:bg-emerald-700 text-white"
                     onClick={() => {
                       const id = `row-${Date.now()}`;
-                      const last = scheduleRows[scheduleRows.length - 1];
-                      let start = '08:30';
-                      if (last?.endTime) {
-                        const endMin = parseTime(last.endTime);
-                        const breakMin = last.type === 'ogle' ? 0 : last.breakMin;
-                        start = formatTime(endMin + breakMin);
-                      }
-                      const end = formatTime(parseTime(start) + 40);
-                      setScheduleRows((r) => [
-                        ...r,
-                        { id, type: 'ders', startTime: start, endTime: end, breakMin: 10 },
-                      ]);
+                      setActiveScheduleRows((r) => {
+                        const last = r[r.length - 1];
+                        let start = '08:30';
+                        if (last?.endTime) {
+                          const endMin = parseTime(last.endTime);
+                          const br = last.type === 'ogle' ? 0 : last.breakMin;
+                          start = formatTime(endMin + br);
+                        }
+                        const end = formatTime(parseTime(start) + 40);
+                        return [...r, { id, type: 'ders' as const, startTime: start, endTime: end, breakMin: 10 }];
+                      });
                     }}
                   >
                     <Plus className="size-4" />
@@ -756,7 +1018,7 @@ export default function ProgramEditPage() {
                           cur = end + breakMin;
                         }
                       }
-                      setScheduleRows(rows);
+                      setActiveScheduleRows(() => rows);
                       toast.success('Otomatik hesaplandı.');
                     }}
                   >
@@ -768,7 +1030,7 @@ export default function ProgramEditPage() {
                     variant="outline"
                     className="border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/30"
                     onClick={() => {
-                      setScheduleRows([]);
+                      setActiveScheduleRows(() => []);
                       toast.success('Temizlendi.');
                     }}
                   >
@@ -788,8 +1050,13 @@ export default function ProgramEditPage() {
       </div>
 
       {/* Haftalık Ders Programı Tablosu */}
-      <Card ref={(el) => { sectionRefs.current.weekly = el; }} className="scroll-mt-4 border-border shadow-md overflow-hidden">
-        <CardHeader className="bg-gradient-to-r from-muted/30 to-transparent border-b border-border">
+      <Card
+        ref={(el) => {
+          sectionRefs.current.weekly = el;
+        }}
+        className="scroll-mt-40 border-border shadow-md overflow-hidden sm:scroll-mt-44"
+      >
+        <CardHeader className="border-b border-border bg-linear-to-r from-muted/30 to-transparent">
           <div className="flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-xl bg-primary/15 shadow-inner">
               <Calendar className="size-5 text-primary" />
@@ -801,9 +1068,9 @@ export default function ProgramEditPage() {
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="bg-muted/50">
-                <th className="px-3 py-3 text-left font-semibold text-foreground border-b border-r border-border min-w-[140px] rounded-tl-lg">SAAT</th>
+                <th className="min-w-32 rounded-tl-lg border-b border-r border-border px-2 py-2 text-left text-[11px] font-semibold text-foreground sm:min-w-36 sm:px-2.5 sm:py-2.5 sm:text-xs">SAAT</th>
                 {DAYS_FULL.map((d) => (
-                  <th key={d} className="px-2 py-3 text-center font-semibold text-foreground border-b border-r last:border-r-0 border-border min-w-[100px]">
+                  <th key={d} className="min-w-21 border-b border-r border-border px-1.5 py-2 text-center text-[11px] font-semibold text-foreground last:border-r-0 sm:min-w-20 sm:px-2 sm:py-2.5 sm:text-xs">
                     {d}
                   </th>
                 ))}
@@ -812,12 +1079,32 @@ export default function ProgramEditPage() {
             <tbody>
               {timeSlots.map((slot, idx) => (
                 <tr key={idx} className={cn('hover:bg-muted/15 transition-colors', slot.isLunch && 'bg-amber-50/30 dark:bg-amber-950/10')}>
-                  <td className="px-3 py-2.5 border-b border-r border-border align-top">
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground font-medium">{slot.timeRange}</div>
+                  <td className="border-b border-r border-border px-2 py-1.5 align-top sm:px-2.5 sm:py-2">
+                    <div className="space-y-0.5">
+                      <div className="text-[10px] font-medium text-muted-foreground sm:text-xs">{slot.timeRange}</div>
+                      {!slot.isLunch &&
+                        slot.lessonNum != null &&
+                        (manualTimes
+                          ? (() => {
+                              const wd = getLessonRangeFromRows(scheduleRowsWeekday, slot.lessonNum);
+                              const we = getLessonRangeFromRows(scheduleRowsWeekend, slot.lessonNum);
+                              if (wd && we && wd !== we) {
+                                return (
+                                  <div className="text-[9px] leading-tight text-muted-foreground/90 sm:text-[10px]">
+                                    Hafta sonu: {we}
+                                  </div>
+                                );
+                              }
+                              return null;
+                            })()
+                          : getTimeRangeForDay(6, slot.lessonNum) !== getTimeRangeForDay(1, slot.lessonNum) && (
+                              <div className="text-[9px] leading-tight text-muted-foreground/90 sm:text-[10px]">
+                                Hafta sonu: {getTimeRangeForDay(6, slot.lessonNum)}
+                              </div>
+                            ))}
                       <span
                         className={cn(
-                          'inline-block rounded-lg px-2 py-0.5 text-xs font-semibold',
+                          'inline-block rounded-md px-1.5 py-px text-[10px] font-semibold sm:px-2 sm:py-0.5 sm:text-xs',
                           slot.isLunch ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300' : 'bg-primary/10 text-primary',
                         )}
                       >
@@ -828,8 +1115,8 @@ export default function ProgramEditPage() {
                   {[1, 2, 3, 4, 5, 6, 7].map((day) => {
                     if (slot.isLunch) {
                       return (
-                        <td key={day} className="p-2 border-b border-r last:border-r-0 border-border align-top bg-amber-50/20 dark:bg-amber-950/5">
-                          <div className="flex items-center justify-center rounded-lg bg-amber-100/50 dark:bg-amber-900/20 py-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+                        <td key={day} className="border-b border-r border-border bg-amber-50/20 p-1 align-top last:border-r-0 dark:bg-amber-950/5">
+                          <div className="flex items-center justify-center rounded-md bg-amber-100/50 py-1.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/20 dark:text-amber-300 sm:py-2 sm:text-xs">
                             Öğle Tatili
                           </div>
                         </td>
@@ -838,23 +1125,31 @@ export default function ProgramEditPage() {
                     const lessonNum = slot.lessonNum!;
                     const entry = getCellEntry(day, lessonNum);
                     return (
-                      <td key={day} className="p-2 border-b border-r last:border-r-0 border-border align-top min-h-[56px] min-w-[110px]">
+                      <td
+                        key={day}
+                        className="w-[min(100%,6rem)] min-w-21 border-b border-r border-border align-middle p-1 last:border-r-0 sm:min-w-20 sm:p-1.5"
+                      >
                         {entry ? (
-                          <LessonCellCard
-                            subject={entry.subject}
-                            classSection={entry.class_section}
-                            timeRange={slot.timeRange}
-                            onRemove={() => handleRemoveLesson(day, lessonNum)}
-                            editable
-                          />
+                          <div className="flex h-full min-h-14 w-full items-stretch justify-center sm:min-h-16">
+                            <LessonCellCard
+                              subject={entry.subject}
+                              classSection={entry.class_section}
+                              timeRange={getCellTimeRange(day, lessonNum)}
+                              onRemove={() => handleRemoveLesson(day, lessonNum)}
+                              editable
+                              teacherCell
+                            />
+                          </div>
                         ) : (
                           <button
                             type="button"
                             onClick={() => setAddModal({ day, lesson: lessonNum })}
-                            className="w-full flex items-center justify-center gap-1.5 py-3 rounded-lg border-2 border-dashed border-muted-foreground/30 text-muted-foreground hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-all text-xs font-medium"
+                            className="flex h-full min-h-14 w-full max-w-full flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-muted-foreground/35 bg-muted/5 px-1.5 py-1.5 text-center text-muted-foreground transition-all hover:border-primary/45 hover:bg-primary/5 hover:text-primary touch-manipulation active:bg-primary/10 sm:min-h-16 sm:gap-1"
                           >
-                            <Plus className="size-3.5" />
-                            Ders Ekle
+                            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted/70 text-muted-foreground ring-1 ring-border/50 sm:size-8">
+                              <Plus className="size-3.5 sm:size-4" />
+                            </span>
+                            <span className="text-[9px] font-semibold uppercase leading-tight tracking-wide sm:text-[10px]">Ders ekle</span>
                           </button>
                         )}
                       </td>

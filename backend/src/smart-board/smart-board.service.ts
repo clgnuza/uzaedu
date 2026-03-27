@@ -100,6 +100,21 @@ export class SmartBoardService {
     return (h ?? 0) * 60 + (m ?? 0);
   }
 
+  /** Cmt (6) ve Pazar (0): lesson_schedule_weekend doluysa onu, değilse lesson_schedule. */
+  private getEffectiveLessonSchedule(
+    school: {
+      lesson_schedule?: { lesson_num: number; start_time: string; end_time: string }[] | null;
+      lesson_schedule_weekend?: { lesson_num: number; start_time: string; end_time: string }[] | null;
+    } | null,
+    dayOfWeekTr: number,
+  ): { lesson_num: number; start_time: string; end_time: string }[] | null {
+    if (!school) return null;
+    const isWeekend = dayOfWeekTr === 0 || dayOfWeekTr === 6;
+    const wknd = school.lesson_schedule_weekend;
+    if (isWeekend && wknd && wknd.length > 0) return wknd;
+    return school.lesson_schedule ?? null;
+  }
+
   /** Okulun lesson_schedule'ına göre şu anki ders numarası. Yoksa null. */
   private getCurrentLessonNum(
     lessonSchedule: { lesson_num: number; start_time: string; end_time: string }[] | null,
@@ -134,7 +149,7 @@ export class SmartBoardService {
     let currentLessonNum: number | null = null;
     if (schoolId) {
       const school = await this.schoolsService.findById(schoolId);
-      currentLessonNum = this.getCurrentLessonNum(school?.lesson_schedule ?? null, now);
+      currentLessonNum = this.getCurrentLessonNum(this.getEffectiveLessonSchedule(school, dayOfWeek), now);
     }
 
     if (dayOfWeek >= 1 && dayOfWeek <= 5 && currentLessonNum != null && schoolId) {
@@ -551,8 +566,10 @@ export class SmartBoardService {
     if (device?.school_id) {
       try {
         const school = await this.schoolsService.findById(device.school_id);
-        if (school?.smartBoardAutoDisconnectLessonEnd && school.lesson_schedule?.length) {
-          const lastLesson = school.lesson_schedule.reduce((a, b) =>
+        const dow = this.getDayOfWeekTR(now);
+        const sched = this.getEffectiveLessonSchedule(school, dow);
+        if (school?.smartBoardAutoDisconnectLessonEnd && sched?.length) {
+          const lastLesson = sched.reduce((a, b) =>
             (b.lesson_num ?? 0) > (a.lesson_num ?? 0) ? b : a
           );
           const endMin = this.parseTimeToMinutes(lastLesson.end_time ?? '23:59');
@@ -607,7 +624,7 @@ export class SmartBoardService {
     const now = new Date();
     const dayOfWeek = this.getDayOfWeekTR(now);
     const school = await this.schoolsService.findById(schoolId);
-    const currentLessonNum = this.getCurrentLessonNum(school?.lesson_schedule ?? null, now);
+    const currentLessonNum = this.getCurrentLessonNum(this.getEffectiveLessonSchedule(school, dayOfWeek), now);
     if (dayOfWeek < 1 || dayOfWeek > 5 || currentLessonNum == null) return null;
 
     const today = now.toISOString().slice(0, 10);

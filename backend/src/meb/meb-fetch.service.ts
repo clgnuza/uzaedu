@@ -33,31 +33,36 @@ export interface ImportMebTaslakResult {
 
 /** Sütun adı eşlemesi – farklı Excel formatlarına uyum (TYMM, Temel Eğitim varyantları) */
 const COL_ALIASES: Record<string, string[]> = {
-  week_order: ['hafta', 'hafteno', 'hafta no', 'hafta no.', 'no', 'sıra', 'sira', 'sıra no'],
+  week_order: ['hafta', 'hafteno', 'hafta no', 'hafta no.', 'no', 'sıra', 'sira', 'sıra no', 'week', 'weeks'],
   unite: [
     'ünite', 'unite', 'ünite/tema', 'ünite / tema', 'ünite tema', 'tema', 'tema/ünite', 'unit',
-    'ünite ve tema', 'unite ve tema',
+    'ünite ve tema', 'unite ve tema', 'theme', 'unit/theme', 'theme/unit',
   ],
   konu: [
     'konu', 'işlenen konu', 'islenen konu', 'içerik çerçevesi', 'icerik cercevesi',
     'içerik', 'icerik', 'konu içeriği', 'işlenecek konu',
+    'functions', 'language functions', 'communicative functions', 'topics', 'content',
   ],
   kazanimlar: [
     'kazanımlar', 'kazanimlar', 'öğrenme çıktıları', 'ogrenme ciktilari', 'kazanim', 'öğrenme çıktısı',
     'öğrenme çıktısı', 'ogrenme ciktisi', 'kazanım', 'öğrenme',
+    'learning outcomes', 'learning outcome', 'outcomes', 'students will be able',
   ],
-  ders_saati: ['ders saati', 'derssaati', 'saat', 'toplam saat'],
+  ders_saati: ['ders saati', 'derssaati', 'saat', 'toplam saat', 'hour', 'hours'],
   belirli_gun_haftalar: [
     'belirli gün ve haftalar', 'belirli gun', 'belirli gun ve haftalar',
     'belirli gün', 'özel gün', 'belirli gün ve h.', 'b.g. ve h.', 'bel. gün',
+    'special days', 'special days and weeks',
   ],
   surec_bilesenleri: [
     'süreç bileşenleri', 'surec bilesenleri', 'süreç bileşen', 'süreç', 'programlar arası',
     'tymm süreç', 'surec',
+    'language skills', 'skills',
   ],
   olcme_degerlendirme: [
     'ölçme ve değerlendirme', 'olcme degerlendirme', 'ölçme değerlendirme',
     'ölçme', 'olcme', 'değerlendirme', 'degerlendirme',
+    'materials', 'tools and materials', 'assessment',
   ],
   sosyal_duygusal: [
     'sosyal duygusal', 'sosyal-duygusal', 'sosyal duygusal öğrenme',
@@ -72,12 +77,47 @@ const COL_ALIASES: Record<string, string[]> = {
   zenginlestirme: ['zenginleştirme', 'zenginlestirme', 'zenginleştirme etkinlikleri', 'farklılaştırma', 'farklilastirma', 'farklılaştırma etkinlikleri'],
   okul_temelli_planlama: [
     'okul temelli', 'okul temelli planlama', 'okul temelli planlama ve uygulama',
-    'okul temelli planlama ve uygulamalar',
+    'okul temelli planlama ve uygulamalar', 'in-class adaptations', 'adaptations',
   ],
 };
 
 @Injectable()
 export class MebFetchService {
+  private extractInlineWeekOrder(text: string | number | null | undefined): number | null {
+    const s = String(text ?? '').trim();
+    if (!s) return null;
+    const patterns = [
+      /^week\s*(\d{1,2})\b/i,
+      /\bweek\s*(\d{1,2})\b/i,
+      /^hafta\s*(\d{1,2})\b/i,
+      /\bhafta\s*(\d{1,2})\b/i,
+      /^(\d{1,2})\.\s*hafta\b/i,
+      /^(\d{1,2})\.\s*week\b/i,
+    ];
+    for (const pattern of patterns) {
+      const match = s.match(pattern);
+      if (!match) continue;
+      const value = parseInt(match[1], 10);
+      if (value >= 1 && value <= 38) return value;
+    }
+    return null;
+  }
+
+  private stripWeekAndDateArtifacts(text: string | null | undefined): string | null {
+    const raw = String(text ?? '').trim();
+    if (!raw) return null;
+    const cleaned = raw
+      .replace(/\bweek\s*\d{1,2}\s*:?\s*/gi, '')
+      .replace(/\b\d{1,2}\.\s*week\s*:?\s*/gi, '')
+      .replace(/\bhafta\s*\d{1,2}\s*:?\s*/gi, '')
+      .replace(/\b\d{1,2}\.\s*hafta\s*:?\s*/gi, '')
+      .replace(/\b\d{1,2}\s*[-/]\s*\d{1,2}\s+(january|february|march|april|may|june|july|august|september|october|november|december)\b/gi, '')
+      .replace(/\b\d{1,2}\s*[-/]\s*\d{1,2}\s+(ocak|subat|şubat|mart|nisan|mayis|mayıs|haziran|temmuz|agustos|ağustos|eylul|eylül|ekim|kasim|kasım|aralik|aralık)\b/gi, '')
+      .replace(/\n{2,}/g, '\n')
+      .trim();
+    return cleaned || null;
+  }
+
   private normalizeForMatch(value: string): string {
     return String(value ?? '')
       .toLocaleLowerCase('tr-TR')
@@ -469,9 +509,12 @@ export class MebFetchService {
       const rawBelirliGun = this.getStr(row, colMap, 'belirli_gun_haftalar') || '';
       const rawZengin = this.getStr(row, colMap, 'zenginlestirme') || '';
       const rawOkulTemelli = this.getStr(row, colMap, 'okul_temelli_planlama') || '';
-      const uniteCell = rawUnite || lastUnite;
-      const konuCell = rawKonu || lastKonu;
-      const kazanimCell = rawKazanim || lastKazanim;
+      const uniteRawClean = this.stripWeekAndDateArtifacts(rawUnite);
+      const konuRawClean = this.stripWeekAndDateArtifacts(rawKonu);
+      const kazanimRawClean = this.stripWeekAndDateArtifacts(rawKazanim);
+      const uniteCell = uniteRawClean || lastUnite;
+      const konuCell = konuRawClean || lastKonu;
+      const kazanimCell = kazanimRawClean || lastKazanim;
       const surecCell = rawSurec || lastSurec;
       const olcmeCell = rawOlcme || lastOlcme;
       const sosyalCell = rawSosyal || lastSosyal;
@@ -695,7 +738,7 @@ export class MebFetchService {
     if (firstCells.some((c) => /^\d+$/.test(c) && parseInt(c, 10) >= 1 && parseInt(c, 10) <= 38))
       return false;
     const concat = firstCells.join(' ');
-    const headerKeywords = ['hafta', 'ünite', 'unite', 'konu', 'kazanım', 'öğrenme'];
+    const headerKeywords = ['hafta', 'ünite', 'unite', 'konu', 'kazanım', 'öğrenme', 'week', 'theme', 'functions', 'learning', 'outcomes', 'date'];
     return headerKeywords.filter((kw) => concat.includes(kw)).length >= 2;
   }
 
@@ -716,6 +759,8 @@ export class MebFetchService {
           const n = parseInt(m[1], 10);
           if (n >= 1 && n <= 38) return n;
         }
+        const inline = this.extractInlineWeekOrder(s);
+        if (inline != null) return inline;
       }
     }
 
@@ -728,6 +773,8 @@ export class MebFetchService {
         const n = parseInt(m[1], 10);
         if (n >= 1 && n <= 38) return n;
       }
+      const inline = this.extractInlineWeekOrder(s);
+      if (inline != null) return inline;
       const num = Number(cell);
       if (Number.isFinite(num) && num >= 1 && num <= 38) return Math.round(num);
     }
@@ -766,6 +813,22 @@ export class MebFetchService {
     if (requiredFields.some((f) => map[f] == null) && arr.length >= 5) {
       const first = normalize(String(arr[0] ?? ''));
       const second = normalize(String(arr[1] ?? ''));
+      const joined = arr
+        .slice(0, 8)
+        .map((v) => normalize(String(v ?? '')))
+        .join(' ');
+      const isEnglishTemplate =
+        joined.includes('week') ||
+        joined.includes('theme') ||
+        joined.includes('functions') ||
+        joined.includes('learning outcomes') ||
+        second.includes('date') ||
+        second.includes('dates');
+      const hasDateColumn =
+        second.includes('date') ||
+        second.includes('dates') ||
+        second.includes('tarih') ||
+        /\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/.test(second);
       const hasAyColumn =
         first === 'ay' ||
         first.includes('eylul') ||
@@ -778,23 +841,38 @@ export class MebFetchService {
         first.includes('nisan') ||
         first.includes('mayis') ||
         first.includes('haziran') ||
-        second.includes('hafta');
-      const o = hasAyColumn ? 1 : 0;
-      const fallback: Record<string, number> = {
-        week_order: 0 + o,
-        unite: 1 + o,
-        ders_saati: 2 + o,
-        konu: 3 + o,
-        kazanimlar: 4 + o,
-        surec_bilesenleri: 5 + o,
-        olcme_degerlendirme: 6 + o,
-        sosyal_duygusal: 7 + o,
-        degerler: 8 + o,
-        okuryazarlik_becerileri: 9 + o,
-        belirli_gun_haftalar: 10 + o,
-        zenginlestirme: 11 + o,
-        okul_temelli_planlama: 12 + o,
-      };
+        second.includes('hafta') ||
+        hasDateColumn;
+      const fallback: Record<string, number> = isEnglishTemplate
+        ? {
+            week_order: 0,
+            ders_saati: 2,
+            unite: 3,
+            konu: 4,
+            kazanimlar: 5,
+            surec_bilesenleri: 6,
+            belirli_gun_haftalar: 7,
+            degerler: 8,
+            okuryazarlik_becerileri: 9,
+            olcme_degerlendirme: 10,
+            zenginlestirme: 11,
+            okul_temelli_planlama: 12,
+          }
+        : {
+            week_order: hasAyColumn ? 1 : 0,
+            unite: hasAyColumn ? 2 : 1,
+            ders_saati: hasAyColumn ? 3 : 2,
+            konu: hasAyColumn ? 4 : 3,
+            kazanimlar: hasAyColumn ? 5 : 4,
+            surec_bilesenleri: hasAyColumn ? 6 : 5,
+            olcme_degerlendirme: hasAyColumn ? 7 : 6,
+            sosyal_duygusal: hasAyColumn ? 8 : 7,
+            degerler: hasAyColumn ? 9 : 8,
+            okuryazarlik_becerileri: hasAyColumn ? 10 : 9,
+            belirli_gun_haftalar: hasAyColumn ? 11 : 10,
+            zenginlestirme: hasAyColumn ? 12 : 11,
+            okul_temelli_planlama: hasAyColumn ? 13 : 12,
+          };
       for (const [f, i] of Object.entries(fallback)) {
         if (map[f] == null && i < arr.length) map[f] = i;
       }

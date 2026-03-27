@@ -7,10 +7,12 @@ import type { ParsedPlanRow } from '../meb/meb-fetch.service';
 import { generateMebWorkCalendar, hasMebCalendar } from '../config/meb-calendar';
 import { CURRICULUM_UNITES, KAZANIM_PREFIX } from '../config/curriculum-unites';
 import {
+  CURRICULUM_KAZANIMLAR,
   formatMebKazanimlarForPrompt,
   hasMebKazanimlar,
+  type MebKazanim,
 } from '../config/curriculum-kazanimlar';
-import { getTymmFetchUrl, getTymmSourceUrls } from '../config/meb-sources';
+import { getTymmFetchUrl, getTymmSourceUrls, normalizeSubjectCodeForMeb } from '../config/meb-sources';
 import { AppConfigService } from '../app-config/app-config.service';
 import { getDersSaatiStatic } from '../config/ders-saati';
 
@@ -59,6 +61,18 @@ export interface DraftPlanItem {
 export interface GenerateDraftResult {
   items: DraftPlanItem[];
   warnings: string[];
+  source?: 'gpt' | 'tymm' | 'meb_fallback';
+  quality?: {
+    total_weeks: number;
+    filled_weeks: number;
+    placeholder_weeks: number;
+    official_gain_count?: number;
+    covered_gain_count?: number;
+    coverage_percent?: number;
+  };
+  can_save?: boolean;
+  save_status?: 'ok' | 'warning' | 'blocked';
+  save_block_reason?: string;
   token_usage?: { input: number; output: number };
 }
 
@@ -79,6 +93,463 @@ export class YillikPlanGptService {
 
   isAvailable(): boolean {
     return this.openai != null;
+  }
+
+  private looksLikePlanNote(s: string | null | undefined): boolean {
+    const t = String(s ?? '').trim().toLowerCase();
+    if (!t) return false;
+    return (
+      t.includes('okul dışı öğrenme etkinlikleri') ||
+      t.includes('zümre öğretmenleri toplantısında') ||
+      t.includes('ders yılı başı okul zümre') ||
+      t.includes('zümre öğretmenler kurulu tarafından') ||
+      t.includes('planlama, zümre öğretmenler kurulunda')
+    );
+  }
+
+  private sanitizePlanNoteColumns<T extends {
+    konu?: string | null;
+    kazanimlar?: string | null;
+    okul_temelli_planlama?: string | null;
+  }>(row: T): T {
+    const out = { ...row };
+    const konu = String(out.konu ?? '').trim();
+    const kazanim = String(out.kazanimlar ?? '').trim();
+    const okulTemelli = String(out.okul_temelli_planlama ?? '').trim();
+    const note = this.looksLikePlanNote(kazanim) ? kazanim : this.looksLikePlanNote(konu) ? konu : '';
+    if (!note) return out;
+    if (!okulTemelli) out.okul_temelli_planlama = note;
+    if (this.looksLikePlanNote(kazanim)) out.kazanimlar = null;
+    if (this.looksLikePlanNote(konu)) out.konu = null;
+    return out;
+  }
+
+  private getSupportColumnDefaults(): Pick<
+    DraftPlanItem,
+    | 'belirli_gun_haftalar'
+    | 'surec_bilesenleri'
+    | 'olcme_degerlendirme'
+    | 'sosyal_duygusal'
+    | 'degerler'
+    | 'okuryazarlik_becerileri'
+    | 'zenginlestirme'
+    | 'okul_temelli_planlama'
+  > {
+    return {
+      // belirli_gun_haftalar: tarihe özgü – default boş; asla taşıma
+      belirli_gun_haftalar: '',
+      surec_bilesenleri: 'DB1.1',
+      olcme_degerlendirme: 'Soru-cevap',
+      sosyal_duygusal: 'Oz duzenleme',
+      degerler: 'Sorumluluk',
+      okuryazarlik_becerileri: 'Okuma',
+      zenginlestirme: 'Ek alistirma',
+      okul_temelli_planlama: 'Ders ici uyarlama',
+    };
+  }
+
+  private stablePickIndex(seed: string): number {
+    let h = 2166136261;
+    for (let i = 0; i < seed.length; i++) {
+      h ^= seed.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return Math.abs(h);
+  }
+
+  /** Boş veya yalnızca şablondaki varsayılan ise ünite–konu–kazanıma göre türetilmiş değeri kullanır */
+  private mergePedagogicalField(current: string | null | undefined, derived: string, defaultVal: string): string {
+    const t = String(current ?? '').trim();
+    if (!t) return derived;
+    if (this.normalizeMatchText(t) === this.normalizeMatchText(defaultVal)) return derived;
+    return t;
+  }
+
+  /** Süreç / sosyal-duygusal / değer / okuryazarlık / farklılaştırma / okul temelli — haftaya özgü (ünite+konu+kazanım tohumlu) */
+  private derivePedagogicalSupportColumns(item: DraftPlanItem): Pick<
+    DraftPlanItem,
+    | 'surec_bilesenleri'
+    | 'sosyal_duygusal'
+    | 'degerler'
+    | 'okuryazarlik_becerileri'
+    | 'zenginlestirme'
+    | 'okul_temelli_planlama'
+  > {
+    const seedBase = `${item.week_order}|${item.unite}|${item.konu}|${(item.kazanimlar ?? '').slice(0, 280)}`;
+    const pick = (arr: string[], salt: string) => arr[this.stablePickIndex(seedBase + salt) % arr.length];
+
+    const surec = ['DB1.1', 'DB1.2', 'DB2.1', 'DB2.2', 'SDB1.1', 'SDB2.1', 'DB2.3', 'SDB2.3', 'DB1.1 SDB1.1', 'DB2.2 SDB2.2'];
+    const sos = ['Öz düzenleme', 'Öz yeterlilik', 'Sosyal farkındalık', 'İşbirliği', 'Empati', 'Karar verme'];
+    const deger = ['Sorumluluk', 'Saygı', 'Adalet', 'Öz disiplin', 'Özen', 'Sabır'];
+    const okur = [
+      'OB1. Bilgi okuryazarlığı',
+      'OB2. Dijital okuryazarlığı',
+      'OB5. Kültür okuryazarlığı',
+      'OB9. Sanat okuryazarlığı',
+      'OB3. Medya okuryazarlığı',
+      'OB6. Bilimsel okuryazarlık',
+    ];
+    const zeng = [
+      'Proje çalışması',
+      'Araştırma ödevi',
+      'Görsel materyal desteği',
+      'Dijital kaynak kullanımı',
+      'Grup tartışması',
+      'Senaryo çalışması',
+    ];
+    const okul = [
+      'Yerel tarih incelemesi',
+      'Alan gezisi önerisi',
+      'Müze/kütüphane bağlantısı',
+      'Okul köşesi zenginleştirme',
+      'Farklılaştırılmış öğretim etkinliği',
+      'Disiplinler arası bağlantı',
+    ];
+
+    return {
+      surec_bilesenleri: pick(surec, 's'),
+      sosyal_duygusal: pick(sos, 'so'),
+      degerler: pick(deger, 'd'),
+      okuryazarlik_becerileri: pick(okur, 'o'),
+      zenginlestirme: pick(zeng, 'z'),
+      okul_temelli_planlama: pick(okul, 'ok'),
+    };
+  }
+
+  private applyDerivedPedagogicalSupport(item: DraftPlanItem, tatilWeeks: number[]): void {
+    if (tatilWeeks.includes(item.week_order)) return;
+    const d = this.getSupportColumnDefaults();
+    const der = this.derivePedagogicalSupportColumns(item);
+    item.surec_bilesenleri = this.mergePedagogicalField(item.surec_bilesenleri, der.surec_bilesenleri, d.surec_bilesenleri);
+    item.sosyal_duygusal = this.mergePedagogicalField(item.sosyal_duygusal, der.sosyal_duygusal, d.sosyal_duygusal);
+    item.degerler = this.mergePedagogicalField(item.degerler, der.degerler, d.degerler);
+    item.okuryazarlik_becerileri = this.mergePedagogicalField(item.okuryazarlik_becerileri, der.okuryazarlik_becerileri, d.okuryazarlik_becerileri);
+    item.zenginlestirme = this.mergePedagogicalField(item.zenginlestirme, der.zenginlestirme, d.zenginlestirme);
+    item.okul_temelli_planlama = this.mergePedagogicalField(item.okul_temelli_planlama, der.okul_temelli_planlama, d.okul_temelli_planlama);
+  }
+
+  /**
+   * Hafta sırasına göre o haftaya denk gelen resmi belirli gün/hafta.
+   * MEB resmî takviminden türetilmiş statik harita (2025-2026 ve genel).
+   */
+  private getMebBelirliGun(weekStart: string | null | undefined): string {
+    if (!weekStart) return '';
+    const d = new Date(weekStart + 'T12:00:00Z');
+    const mm = d.getUTCMonth() + 1; // 1-12
+    const dd = d.getUTCDate();
+    const inRange = (wStart: string, wEnd: string) => {
+      const s = new Date(wStart + 'T12:00:00Z');
+      const e = new Date(wEnd + 'T12:00:00Z');
+      return d >= s && d <= e;
+    };
+    if (mm === 9 && dd <= 20) return '';
+    if (mm === 9 && dd <= 27) return '18-24 Eylül İlk Yardım Haftası';
+    if (mm === 10 && dd <= 4) return '';
+    if (mm === 10 && dd <= 11) return '1-7 Ekim Dünya Yetişkin Eğitimi Haftası';
+    if (inRange(`${d.getUTCFullYear()}-10-21`, `${d.getUTCFullYear()}-10-27`)) return '21-27 Ekim Dünya Okul Kütüphaneleri Haftası';
+    if (inRange(`${d.getUTCFullYear()}-10-28`, `${d.getUTCFullYear()}-11-03`)) return '29 Ekim Cumhuriyet Bayramı';
+    if (inRange(`${d.getUTCFullYear()}-11-04`, `${d.getUTCFullYear()}-11-10`)) return '10 Kasım Atatürk\'ü Anma; 3-9 Kasım Deprem Haftası';
+    if (mm === 11 && dd >= 18 && dd <= 24) return '18-24 Kasım Dünya Felsefe Haftası';
+    if (mm === 12 && dd >= 1 && dd <= 7) return '3-9 Aralık Engelliler Haftası';
+    if (mm === 12 && dd >= 10 && dd <= 16) return '10 Aralık İnsan Hakları Günü';
+    if (mm === 1 && dd >= 12 && dd <= 18) return '13-19 Ocak Enerji Verimliliği Haftası';
+    if (mm === 2 && dd <= 7) return '';
+    if (mm === 2 && dd >= 16 && dd <= 22) return '15-21 Şubat Mesleki Eğitim Haftası';
+    if (mm === 3 && dd >= 1 && dd <= 8) return '8 Mart Dünya Kadınlar Günü';
+    if (mm === 3 && dd >= 15 && dd <= 22) return '18 Mart Çanakkale Şehitlerini Anma Günü; 16-22 Mart Türk Dünyası ve Toplulukları Haftası';
+    if (mm === 4 && dd >= 7 && dd <= 13) return '7-13 Nisan Dünya Sağlık Haftası';
+    if (mm === 4 && dd >= 21 && dd <= 27) return '23 Nisan Ulusal Egemenlik ve Çocuk Bayramı';
+    if (mm === 5 && dd >= 12 && dd <= 18) return '12-18 Mayıs Müzeler Haftası';
+    if (mm === 5 && dd >= 19 && dd <= 25) return '19 Mayıs Atatürk\'ü Anma, Gençlik ve Spor Bayramı';
+    if (mm === 5 && dd >= 26 && dd <= 31) return '25-31 Mayıs İstanbul\'un Fethi (29 Mayıs)';
+    if (mm === 6 && dd >= 1 && dd <= 7) return '5 Haziran Dünya Çevre Günü';
+    return '';
+  }
+
+  private getMebBelirliGunForWeekOrder(
+    weekOrder: number,
+    teachingWeeks: Array<{ weekOrder: number; weekStart: string }>,
+  ): string {
+    const w = teachingWeeks.find((tw) => tw.weekOrder === weekOrder);
+    if (!w) return '';
+    return this.getMebBelirliGun(w.weekStart);
+  }
+
+  private validateSchoolProfileSubject(subjectCode: string, schoolProfile?: string): void {
+    const code = String(subjectCode ?? '').trim().toLowerCase();
+    const profile = String(schoolProfile ?? '').trim().toLowerCase();
+    if (!profile) return;
+    const invalid =
+      (profile === 'anadolu' && (/_maarif_(fl|sbl)$/i.test(code) || ['kuran_kerim_maarif', 'temel_dini_bilgiler_maarif'].includes(code))) ||
+      (profile === 'fen' && (/_maarif_(al|sbl)$/i.test(code) || ['gorsel_sanatlar', 'gorsel_sanatlar_maarif', 'muzik', 'muzik_maarif', 'kuran_kerim_maarif', 'temel_dini_bilgiler_maarif'].includes(code))) ||
+      (profile === 'sosyal' && (/_maarif_(al|fl)$/i.test(code) || ['bilgisayar_bilimi', 'kuran_kerim_maarif', 'temel_dini_bilgiler_maarif'].includes(code))) ||
+      (profile === 'aihl' && (/_maarif_(al|fl|sbl)$/i.test(code) || ['bilgisayar_bilimi'].includes(code)));
+    if (invalid) {
+      throw new BadRequestException({
+        code: 'SUBJECT_PROFILE_MISMATCH',
+        message: 'Seçilen ders okul profili ile uyumlu değil.',
+      });
+    }
+  }
+
+  private containsInvalidArtifacts(items: DraftPlanItem[], subjectCode: string): boolean {
+    const base = normalizeSubjectCodeForMeb(subjectCode);
+    const sample = items
+      .slice(0, 6)
+      .map((r) => `${r.unite} ${r.konu} ${r.kazanimlar}`)
+      .join(' ')
+      .toLocaleLowerCase('tr-TR');
+    const hasWeekDateLeak =
+      /week\s+\d+/i.test(sample) ||
+      /\b\d{1,2}\s*[-/]\s*\d{1,2}\s+(january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(sample) ||
+      /\batatürk haftası\b/i.test(sample);
+    if (base === 'ingilizce') return hasWeekDateLeak;
+    return (
+      sample.includes('students will be able') ||
+      sample.includes('theme') ||
+      sample.includes('listening') ||
+      sample.includes('telephone conversation') ||
+      sample.includes('generation z') ||
+      sample.includes('never give up') ||
+      hasWeekDateLeak
+    );
+  }
+
+  private buildDraftFromMebKazanimlar(params: {
+    subjectCode: string;
+    grade: number;
+    calendarWeekOrders: Set<number>;
+    tatilWeeks: number[];
+    totalWeeks: number;
+    expectedSaati: number;
+    teachingWeeks?: Array<{ weekOrder: number; weekStart: string }>;
+  }): { items: DraftPlanItem[]; warnings: string[] } {
+    const list = CURRICULUM_KAZANIMLAR[normalizeSubjectCodeForMeb(params.subjectCode)]?.[params.grade] ?? [];
+    const weeks = [...params.calendarWeekOrders].sort((a, b) => a - b);
+    const teachWeeks = weeks.filter((w) => !params.tatilWeeks.includes(w) && w < 37);
+    const support = this.getSupportColumnDefaults();
+    const warnings = ['GPT çıktısı reddedildi; resmi MEB kazanımlarıyla güvenli taslak üretildi.'];
+    if (!list.length) {
+      return {
+        items: weeks.map((w) => ({
+          week_order: w,
+          unite: params.tatilWeeks.includes(w) ? '—' : w === 37 ? 'OKUL TEMELLİ PLANLAMA*' : w === 38 ? 'SOSYAL ETKİNLİK' : '—',
+          konu: params.tatilWeeks.includes(w) ? '—' : w === 37 ? 'Zümre öğretmenler kurulu kararıyla araştırma, proje, yerel çalışmalar vb.' : w === 38 ? 'Yıl sonu etkinlikleri, sosyal etkinlik çalışmaları' : '—',
+          kazanimlar: params.tatilWeeks.includes(w) ? '—' : w === 37 ? 'Okul temelli planlama; zümre öğretmenler kurulu tarafından ders kapsamında gerçekleştirilmesi kararlaştırılan araştırma ve gözlem, sosyal etkinlikler, proje çalışmaları, yerel çalışmalar, okuma çalışmaları vb. çalışmaları kapsamaktadır.' : w === 38 ? 'Sosyal etkinlik çalışmaları kapsamında yapılan faaliyetler.' : '—',
+          ders_saati: params.tatilWeeks.includes(w) ? 0 : w >= 37 ? 2 : params.expectedSaati,
+          ...support,
+        })),
+        warnings,
+      };
+    }
+    const perGain = Math.max(1, Math.ceil(teachWeeks.length / list.length));
+    const items: DraftPlanItem[] = [];
+    let gainIndex = 0;
+    let usedForCurrentGain = 0;
+    for (const w of weeks) {
+      const isTatil = params.tatilWeeks.includes(w);
+      if (isTatil) {
+        items.push({
+          week_order: w,
+          unite: '—',
+          konu: '—',
+          kazanimlar: '—',
+          ders_saati: 0,
+          ...support,
+        });
+        continue;
+      }
+      if (w === 37) {
+        items.push({
+          week_order: w,
+          unite: 'OKUL TEMELLİ PLANLAMA*',
+          konu: 'Zümre öğretmenler kurulu kararıyla araştırma, proje, yerel çalışmalar vb.',
+          kazanimlar: 'Okul temelli planlama; zümre öğretmenler kurulu tarafından ders kapsamında gerçekleştirilmesi kararlaştırılan araştırma ve gözlem, sosyal etkinlikler, proje çalışmaları, yerel çalışmalar, okuma çalışmaları vb. çalışmaları kapsamaktadır.',
+          ders_saati: 2,
+          ...support,
+        });
+        continue;
+      }
+      if (w === 38) {
+        items.push({
+          week_order: w,
+          unite: 'SOSYAL ETKİNLİK',
+          konu: 'Yıl sonu etkinlikleri, sosyal etkinlik çalışmaları',
+          kazanimlar: 'Sosyal etkinlik çalışmaları kapsamında yapılan faaliyetler.',
+          ders_saati: 2,
+          ...support,
+        });
+        continue;
+      }
+      const gain: MebKazanim = list[Math.min(gainIndex, list.length - 1)]!;
+      items.push({
+        week_order: w,
+        unite: gain.unite,
+        konu: gain.konu_suggest || gain.metin.replace(/^[A-ZÇĞİÖŞÜ.\d]+\s*/, '').slice(0, 120),
+        kazanimlar: gain.metin,
+        ders_saati: params.expectedSaati,
+        ...support,
+      });
+      usedForCurrentGain++;
+      if (usedForCurrentGain >= perGain && gainIndex < list.length - 1) {
+        gainIndex++;
+        usedForCurrentGain = 0;
+      }
+    }
+    // belirli_gun_haftalar: statik MEB haritasından doldur
+    if (params.teachingWeeks?.length) {
+      for (const item of items) {
+        item.belirli_gun_haftalar = params.tatilWeeks.includes(item.week_order)
+          ? ''
+          : this.getMebBelirliGunForWeekOrder(item.week_order, params.teachingWeeks);
+      }
+    }
+    return { items, warnings };
+  }
+
+  private normalizeMatchText(value: string | null | undefined): string {
+    return String(value ?? '')
+      .toLocaleLowerCase('tr-TR')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /** Unite alanındaki tarih/hafta etiket artefaktlarını temizler */
+  private cleanUniteField(s: string): string {
+    return s
+      .replace(/^\d+\.\s*hafta\s*:\s*[\d\s\-–]+\w+\s*/i, '')
+      .replace(/^week\s+\d+\s*:\s*[\d\s\-–]+\w+\s*/i, '')
+      .replace(/^(EYLÜL|EKİM|KASIM|ARALIK|OCAK|ŞUBAT|MART|NİSAN|MAYIS|HAZİRAN)\s+\d+\.?\s*$/i, '')
+      .trim();
+  }
+
+  /** Source row'un unite'inin geçerli bir ünite adı olup olmadığını kontrol eder */
+  private isValidUniteValue(s: string | null | undefined): boolean {
+    const t = String(s ?? '').trim();
+    if (!t || t === '—') return false;
+    if (t.length > 220) return false;
+    if (/\d+\.\s*hafta\s*[:：]/i.test(t)) return false;
+    if (/week\s+\d+\s*[:：]/i.test(t)) return false;
+    if (/\b\d{1,2}[-–]\d{1,2}\s+(january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(t)) return false;
+    if (/[A-ZÇĞİÖŞÜ]{2,4}\.\d+\.\d+\.\d+/.test(t)) return false;
+    if (/(^|[\s\n])[a-zçğıöşü]\)\s/.test(t)) return false;
+    if (t.includes('belirler') || t.includes('yorumlar') || t.includes('çözümler')) return false;
+    return true;
+  }
+
+  private inferKonuFromKazanim(kazanim: string | null | undefined, unite: string | null | undefined): string {
+    const raw = String(kazanim ?? '').trim();
+    if (!raw || raw === '—') return '';
+    const t = raw
+      .replace(/^[A-ZÇĞİÖŞÜ]{2,4}\.\d+\.\d+\.\d+\.?\s*/g, '')
+      .replace(/(^|\n)\s*[a-zçğıöşü]\)\s*/gi, '$1')
+      .split('\n')
+      .map((x) => x.trim())
+      .filter(Boolean)[0] ?? '';
+    if (!t) return '';
+    const lower = t.toLocaleLowerCase('tr-TR');
+    if (lower.includes('öğrenme çıktıları;') || lower.includes('çalışma yaprağı') || lower.includes('performans görevi')) {
+      return '';
+    }
+    const firstSentence = t.split(/[.;]/)[0]?.trim() ?? t;
+    const normalizedUnite = this.normalizeMatchText(unite);
+    const normalizedTopic = this.normalizeMatchText(firstSentence);
+    if (!normalizedTopic || normalizedTopic === normalizedUnite) return '';
+    return firstSentence.slice(0, 180);
+  }
+
+  private ensureMebGainCoverage(params: {
+    items: DraftPlanItem[];
+    subjectCode: string;
+    grade: number;
+    tatilWeeks: number[];
+  }): { items: DraftPlanItem[]; warnings: string[] } {
+    const gains = CURRICULUM_KAZANIMLAR[normalizeSubjectCodeForMeb(params.subjectCode)]?.[params.grade] ?? [];
+    if (!gains.length) return { items: params.items, warnings: [] };
+    const warnings: string[] = [];
+    const out = params.items.map((item) => ({ ...item }));
+    const eligible = out.filter((item) => !params.tatilWeeks.includes(item.week_order) && item.week_order < 37);
+    if (!eligible.length) return { items: out, warnings };
+    const covered = new Set<string>();
+    for (const gain of gains) {
+      const matched = out.some((item) => {
+        const text = this.normalizeMatchText(item.kazanimlar);
+        return text.includes(this.normalizeMatchText(gain.code)) || text.includes(this.normalizeMatchText(gain.metin));
+      });
+      if (matched) covered.add(gain.code);
+    }
+    const missing = gains.filter((gain) => !covered.has(gain.code));
+    if (!missing.length) return { items: out, warnings };
+    warnings.push(`${missing.length} resmi MEB kazanımı eksikti; plana otomatik dağıtıldı.`);
+    let cursor = Math.max(0, eligible.length - missing.length);
+    for (const gain of missing) {
+      const target = eligible[cursor % eligible.length]!;
+      const current = String(target.kazanimlar ?? '').trim();
+      const gainText = gain.metin.trim();
+      if (!current || current === '—') {
+        target.kazanimlar = gainText;
+      } else if (!this.normalizeMatchText(current).includes(this.normalizeMatchText(gainText))) {
+        target.kazanimlar = `${current}\n${gainText}`.slice(0, 4000);
+      }
+      if (!String(target.unite ?? '').trim() || target.unite === '—') target.unite = gain.unite;
+      if (!String(target.konu ?? '').trim() || target.konu === '—') target.konu = gain.konu_suggest || gain.unite;
+      cursor++;
+    }
+    return { items: out, warnings };
+  }
+
+  private buildDraftQuality(params: {
+    items: DraftPlanItem[];
+    subjectCode: string;
+    grade: number;
+    tatilWeeks: number[];
+  }): GenerateDraftResult['quality'] {
+    const teachWeeks = params.items.filter((item) => !params.tatilWeeks.includes(item.week_order));
+    const placeholderWeeks = teachWeeks.filter((item) => {
+      const unite = String(item.unite ?? '').trim();
+      const konu = String(item.konu ?? '').trim();
+      const kazanim = String(item.kazanimlar ?? '').trim();
+      return !unite || !konu || !kazanim || unite === '—' || konu === '—' || kazanim === '—';
+    }).length;
+    const gains = CURRICULUM_KAZANIMLAR[normalizeSubjectCodeForMeb(params.subjectCode)]?.[params.grade] ?? [];
+    const coveredGainCount = gains.filter((gain) =>
+      params.items.some((item) => {
+        const text = this.normalizeMatchText(item.kazanimlar);
+        return text.includes(this.normalizeMatchText(gain.code)) || text.includes(this.normalizeMatchText(gain.metin));
+      }),
+    ).length;
+    return {
+      total_weeks: params.items.length,
+      filled_weeks: teachWeeks.length - placeholderWeeks,
+      placeholder_weeks: placeholderWeeks,
+      official_gain_count: gains.length || undefined,
+      covered_gain_count: gains.length ? coveredGainCount : undefined,
+      coverage_percent: gains.length ? Math.round((coveredGainCount / gains.length) * 100) : undefined,
+    };
+  }
+
+  private buildSaveDecision(
+    quality: GenerateDraftResult['quality'],
+  ): Pick<GenerateDraftResult, 'can_save' | 'save_status' | 'save_block_reason'> {
+    if (!quality) return { can_save: true, save_status: 'ok' };
+    if (quality.placeholder_weeks > 0) {
+      return {
+        can_save: false,
+        save_status: 'blocked',
+        save_block_reason: 'Placeholder kalan haftalar var.',
+      };
+    }
+    if ((quality.official_gain_count ?? 0) > 0 && (quality.coverage_percent ?? 100) < 100) {
+      return {
+        can_save: true,
+        save_status: 'warning',
+        save_block_reason:
+          (quality.coverage_percent ?? 0) < 90
+            ? 'Bazı MEB kazanımları eksik; kaydetmeden önce kontrol edin.'
+            : 'Bazı resmi kazanımlar otomatik tamamlandı; kontrol önerilir.',
+      };
+    }
+    return { can_save: true, save_status: 'ok' };
   }
 
   /**
@@ -105,12 +576,42 @@ export class YillikPlanGptService {
       return t.includes('öğrenme çıktıları;') || t.includes('performans görevi') || t.includes('çalışma yaprağı');
     };
 
+    const looksLikeUniteName = (s: string | null | undefined): boolean => {
+      const t = String(s ?? '').trim();
+      if (!t || t === '—' || t.length > 150) return false;
+      const letters = (t.match(/[a-zA-ZçğışöüÇĞİŞÖÜ]/g) ?? []).length;
+      const upper = (t.match(/[A-ZÇĞİÖŞÜ]/g) ?? []).length;
+      if (letters > 3 && upper / letters < 0.5) return false;
+      if (/(^|[\s\n])[a-zçğıöşü]\)\s/.test(t)) return false;
+      if (/[A-ZÇĞİÖŞÜ]{2,4}\.\d+\.\d+\.\d+/.test(t)) return false;
+      if (t.includes('belirler') || t.includes('karşılaştırır') || t.includes('açıklar') ||
+          t.includes('yorumlar') || t.includes('ilişkilendirir')) return false;
+      return true;
+    };
+
     return rows.map((r) => {
       const row = { ...r };
+      let unite = String(row.unite ?? '').trim();
       let konu = String(row.konu ?? '').trim();
       let kazanim = String(row.kazanimlar ?? '').trim();
       let surec = String(row.surec_bilesenleri ?? '').trim();
       let olcme = String(row.olcme_degerlendirme ?? '').trim();
+
+      // kazanımlar alanında ünite adı var, unite boş → taşı
+      if (looksLikeUniteName(kazanim) && (!unite || unite === '—')) {
+        unite = kazanim;
+        if (looksLikeKazanim(konu)) {
+          kazanim = konu;
+          konu = '';
+        } else {
+          kazanim = '';
+        }
+      }
+      if (looksLikeAssessment(unite) && looksLikeUniteName(surec)) {
+        if (!olcme) olcme = unite;
+        unite = surec;
+        surec = '';
+      }
 
       if (looksLikeKazanim(konu) && !looksLikeKazanim(kazanim) && looksLikeKonu(kazanim)) {
         [konu, kazanim] = [kazanim, konu];
@@ -118,17 +619,24 @@ export class YillikPlanGptService {
       if (looksLikeProcessCodes(kazanim) && looksLikeKazanim(surec)) {
         [kazanim, surec] = [surec, kazanim];
       }
+      if (looksLikeAssessment(kazanim) && !looksLikeAssessment(olcme)) {
+        olcme = kazanim;
+        kazanim = '';
+      }
       if (looksLikeAssessment(surec) && !looksLikeAssessment(olcme)) {
         olcme = surec;
         surec = '';
       }
 
       return {
-        ...row,
-        konu: konu || null,
-        kazanimlar: kazanim || null,
-        surec_bilesenleri: surec || null,
-        olcme_degerlendirme: olcme || null,
+        ...this.sanitizePlanNoteColumns({
+          ...row,
+          konu: konu || null,
+          kazanimlar: kazanim || null,
+          surec_bilesenleri: surec || null,
+          olcme_degerlendirme: olcme || null,
+        }),
+        unite: unite || null,
       };
     });
   }
@@ -211,7 +719,7 @@ DİĞER KURALLAR:
               konu: { type: 'string' },
               kazanimlar: { type: 'string' },
               ders_saati: { type: 'integer' },
-              belirli_gun_haftalar: { type: 'string' },
+              belirli_gun_haftalar: { type: 'string', description: 'DAIMA "" (bos string) dondur. Sistem otomatik dolduracak.' },
               surec_bilesenleri: { type: 'string' },
               olcme_degerlendirme: { type: 'string' },
               sosyal_duygusal: { type: 'string' },
@@ -457,23 +965,43 @@ ZORUNLU KURALLAR:
     return foundGrade >= 1 && foundGrade <= 12 && foundGrade !== grade;
   }
 
+  private isSourceRowsCompatibleWithSubject(subjectCode: string, rows: ParsedPlanRow[]): boolean {
+    const base = normalizeSubjectCodeForMeb(subjectCode);
+    if (!rows.length) return true;
+    const sample = rows
+      .slice(0, 8)
+      .map((r) => `${r.unite ?? ''} ${r.konu ?? ''} ${r.kazanimlar ?? ''}`)
+      .join(' ')
+      .toLocaleLowerCase('tr-TR');
+    const hasWeekDateLeak =
+      /week\s+\d+/i.test(sample) ||
+      /\b\d{1,2}\s*[-/]\s*\d{1,2}\s+(january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(sample);
+    if (base === 'ingilizce') return !hasWeekDateLeak;
+    const looksLikeEnglishPlan =
+      sample.includes('students will be able') ||
+      sample.includes('theme') ||
+      sample.includes('listening') ||
+      sample.includes('speaking') ||
+      sample.includes('telephone conversation') ||
+      sample.includes('generation z') ||
+      sample.includes('never give up') ||
+      sample.includes('environment');
+    return !looksLikeEnglishPlan;
+  }
+
   async generateDraft(params: {
     subject_code: string;
     subject_label: string;
     grade: number;
     section?: string;
+    school_profile?: string;
     academic_year: string;
     model?: string;
     /** Excel yüklemeyle verilen satırlar – varsa TYMM fetch atlanır. */
     customSourceRows?: ParsedPlanRow[];
   }): Promise<GenerateDraftResult> {
-    if (!this.openai) {
-      throw new BadRequestException({
-        code: 'GPT_NOT_CONFIGURED',
-        message: 'OpenAI API anahtarı tanımlı değil. OPENAI_API_KEY environment variable kontrol edin.',
-      });
-    }
-
+    this.validateSchoolProfileSubject(params.subject_code, params.school_profile);
+    const draftWarnings: string[] = [];
     const calendar = await this.workCalendarService.findAll(params.academic_year);
     type WeekInfo = { weekOrder: number; weekStart: string; weekEnd: string; ay: string; haftaLabel: string | null };
     let teachingWeeks: WeekInfo[] = this.workCalendarService
@@ -499,6 +1027,12 @@ ZORUNLU KURALLAR:
     const kazanimPrefix = KAZANIM_PREFIX[subjectCodeLower] ?? params.subject_code.slice(0, 3).toUpperCase();
     const mebKazanimlarBlock = formatMebKazanimlarForPrompt(subjectCodeLower, params.grade);
     const hasMeb = hasMebKazanimlar(subjectCodeLower, params.grade);
+    if (!this.openai && !hasMeb) {
+      throw new BadRequestException({
+        code: 'GPT_NOT_CONFIGURED',
+        message: 'OpenAI API anahtarı tanımlı değil. OPENAI_API_KEY environment variable kontrol edin.',
+      });
+    }
 
     // Tatil: DB takviminde isTatil=true olan haftalar. MEB config'ten 36 hafta geldiyse tatil yok (tatil blokları week_order=0 ile ayrı).
     const tatilWeeks = calendar
@@ -531,6 +1065,10 @@ ZORUNLU KURALLAR:
     const tymmUrls = getTymmSourceUrls(params.subject_code, params.grade);
     let tymmExcelBlock = '';
     let tymmExcelRows: ParsedPlanRow[] = params.customSourceRows ?? [];
+    if (tymmExcelRows.length > 0 && !this.isSourceRowsCompatibleWithSubject(params.subject_code, tymmExcelRows)) {
+      draftWarnings.push('Yüklenen/kaynak plan seçilen dersle uyuşmadığı için dikkate alınmadı.');
+      tymmExcelRows = [];
+    }
     if (tymmExcelRows.length === 0 && getTymmFetchUrl(params.subject_code, params.grade)) {
       try {
         const excelRows = await this.mebFetchService.fetchAndParseTymmTaslak({
@@ -538,8 +1076,8 @@ ZORUNLU KURALLAR:
           grade: params.grade,
           academic_year: params.academic_year,
         });
-        tymmExcelRows = excelRows;
-        if (excelRows.length > 0) {
+        if (excelRows.length > 0 && this.isSourceRowsCompatibleWithSubject(params.subject_code, excelRows)) {
+          tymmExcelRows = excelRows;
           const lines = excelRows.map(
             (r) =>
               `Hafta ${r.week_order}: unite="${r.unite ?? ''}" konu="${r.konu ?? ''}" kazanimlar="${(r.kazanimlar ?? '').slice(0, 200)}" ders_saati=${r.ders_saati} belirli_gun="${r.belirli_gun_haftalar ?? ''}" surec="${r.surec_bilesenleri ?? ''}" olcme="${r.olcme_degerlendirme ?? ''}" sosyal_duygusal="${r.sosyal_duygusal ?? ''}" degerler="${r.degerler ?? ''}" okuryazarlik="${r.okuryazarlik_becerileri ?? ''}" zenginlestirme="${r.zenginlestirme ?? ''}" okul_temelli="${r.okul_temelli_planlama ?? ''}"`,
@@ -549,6 +1087,8 @@ ZORUNLU KURALLAR:
               ? `\nTatil haftaları (bu haftalarda placeholder ver): ${tatilWeeks.join(', ')}`
               : '';
           tymmExcelBlock = `\n\n--- TYMM TASLAK ÇERÇEVE PLANI (${tymmUrls.taslakPlanPage} - ${params.subject_label} ${params.grade}. sınıf Excel planı) ---\nAşağıdaki veri MEB TYMM sayfasındaki ${params.subject_label} taslak planından alınmıştır. Bu veriyi KESINLIKLE AYNEN KULLAN.${tatilHint} Tatil haftalarında: unite="—" konu="—" kazanimlar="—" ders_saati=0. Diğer haftalarda Excel verisini birebir kopyala. Hiçbir metni değiştirme veya uydurma.\n\n${lines.join('\n')}\n--- TYMM veri sonu ---\n`;
+        } else if (excelRows.length > 0) {
+          draftWarnings.push('TYMM kaynağı seçilen dersle uyumsuz bulundu; MEB kazanımlarıyla yeniden üretildi.');
         }
       } catch {
         /* TYMM fetch başarısız, normal prompt ile devam */
@@ -573,11 +1113,11 @@ ${totalWeeks >= 38 ? '- Hafta 38: unite="SOSYAL ETKİNLİK" konu="Yıl sonu etki
       : '';
 
     const alanKurallariBlock = `ALAN KURALLARI (ZORUNLU – veriyi doğru sütuna yaz):
-- unite: SADECE ünite/tema adı. Örn: "Tema 1: Okuma Kültürü", "2. Ünite: Sayılar", "OKUL TEMELLİ PLANLAMA*", "SOSYAL ETKİNLİK". YASAK: "36. Hafta", tarih, hafta etiketi.
+- unite: SADECE ünite/tema adı (kısa, max ~100 karakter). Örn: "Tema 1: Okuma Kültürü", "2. Ünite: Sayılar", "COĞRAFYANIN DOĞASI". KESINLIKLE YASAK: "1. Hafta:", "Week 9:", tarih, ay adı, kazanım kodu (COĞ.9.x.x), a)/b)/c) madde listesi, uzun açıklama. Tatil olmayan 37. hafta → "OKUL TEMELLİ PLANLAMA*", 38. hafta → "SOSYAL ETKİNLİK".
 - konu: SADECE İçerik Çerçevesi / işlenecek konu özeti. Örn: "Dinleme/izlemeyi yönetebilme", "Doğal sayılar". YASAK: Kazanım tam metni, DB/SDB kodları.
 - kazanimlar: SADECE öğrenme çıktıları tam metni (kod + açıklama). Örn: "T.D.1.1. Dinleyeceklerini/izleyeceklerini amacına uygun olarak seçer." YASAK: Ünite adı, konu özeti.
 - surec_bilesenleri: SADECE TYMM kodları. Örn: "DB1.1", "SDB2.2", "SDB1.1 SDB2.1". YASAK: Kazanım metni, "a) b) c)" maddeleri, konu açıklaması.
-- belirli_gun_haftalar: SADECE "29 Ekim", "10 Kasım" vb. veya "".
+- belirli_gun_haftalar: Bu sütunu kendin doldurma. MUTLAKA "" (boş string) döndür. Sistem otomatik dolduracak.
 - olcme_degerlendirme, sosyal_duygusal, degerler, okuryazarlik_becerileri: Kısa metin (max 80 karakter) veya "".`;
 
     const mebKaynakBlock = `VERİ KAYNAĞI (ZORUNLU): Tüm veri SADECE şu MEB TYMM sayfalarından ve ilgili alt sayfalarından alınmalıdır:
@@ -588,10 +1128,42 @@ ${tymmUrls.taslakRarUrl ? `- Bu dersin taslak Excel planı: ${tymmUrls.taslakRar
 KURALLAR: Kendi metin üretme, uydurma kesinlikle yasak. Verilen TYMM Excel verisi varsa onu AYNEN kullan. Yoksa program sayfasındaki ünite/kazanım yapısına TAM uy.`;
 
     const haftalikDersSaati = await this.appConfigService.getDersSaati(params.subject_code, params.grade);
+    if (!this.openai && hasMeb) {
+      const fallback = this.buildDraftFromMebKazanimlar({
+        subjectCode: params.subject_code,
+        grade: params.grade,
+        calendarWeekOrders,
+        tatilWeeks,
+        totalWeeks,
+        expectedSaati: haftalikDersSaati,
+        teachingWeeks,
+      });
+      const coverage = this.ensureMebGainCoverage({
+        items: fallback.items,
+        subjectCode: params.subject_code,
+        grade: params.grade,
+        tatilWeeks,
+      });
+      const quality = this.buildDraftQuality({
+        items: coverage.items,
+        subjectCode: params.subject_code,
+        grade: params.grade,
+        tatilWeeks,
+      });
+      return {
+        items: coverage.items,
+        warnings: [...draftWarnings, 'OpenAI kullanılamadı; resmi MEB kazanımlarıyla güvenli taslak üretildi.', ...fallback.warnings, ...coverage.warnings],
+        source: 'meb_fallback',
+        quality,
+        ...this.buildSaveDecision(quality),
+      };
+    }
     const hasTymmExcel = tymmExcelBlock.length > 0;
 
     // Excel yükleme ile gelen customSourceRows: GPT devreye sok – parser hatalarını düzeltir, eksikleri tamamlar.
-    if (params.customSourceRows && params.customSourceRows.length > 0) {
+    // tymmExcelRows'dan temizlenmediyse (uyumsuz reddedildiyse) customSourceRows da atlanır.
+    const customSourceValid = params.customSourceRows && params.customSourceRows.length > 0 && tymmExcelRows.length > 0;
+    if (customSourceValid) {
       const gptResult = await this.planFromParsedRows({
         subject_code: params.subject_code,
         subject_label: params.subject_label,
@@ -599,7 +1171,7 @@ KURALLAR: Kendi metin üretme, uydurma kesinlikle yasak. Verilen TYMM Excel veri
         academic_year: params.academic_year,
         targetWeeks: totalWeeks,
         tatilWeeks,
-        sourceRows: params.customSourceRows,
+        sourceRows: params.customSourceRows!,
         model: params.model,
       });
       if (gptResult.items.length >= Math.max(1, totalWeeks - 5)) {
@@ -638,14 +1210,30 @@ KURALLAR: Kendi metin üretme, uydurma kesinlikle yasak. Verilen TYMM Excel veri
         }
         const hardened = this.hardenDraftResult({
           items: draftItems,
-          sourceRows: params.customSourceRows,
+          sourceRows: params.customSourceRows!,
           tatilWeeks,
           totalWeeks,
           expectedSaati: haftalikDersSaati,
+          teachingWeeks,
+        });
+        const coverage = this.ensureMebGainCoverage({
+          items: hardened.items,
+          subjectCode: params.subject_code,
+          grade: params.grade,
+          tatilWeeks,
+        });
+        const quality = this.buildDraftQuality({
+          items: coverage.items,
+          subjectCode: params.subject_code,
+          grade: params.grade,
+          tatilWeeks,
         });
         return {
-          items: hardened.items,
-          warnings: gptResult.warnings,
+          items: coverage.items,
+          warnings: [...draftWarnings, ...gptResult.warnings, ...coverage.warnings],
+          source: 'gpt',
+          quality,
+          ...this.buildSaveDecision(quality),
         };
       }
       // GPT yetersiz döndüyse deterministik fallback
@@ -659,6 +1247,7 @@ KURALLAR: Kendi metin üretme, uydurma kesinlikle yasak. Verilen TYMM Excel veri
         tatilWeeks,
         totalWeeks,
         expectedSaati: haftalikDersSaati,
+        teachingWeeks,
       });
       const hardened = this.hardenDraftResult({
         items: sourceDraft.items,
@@ -666,10 +1255,26 @@ KURALLAR: Kendi metin üretme, uydurma kesinlikle yasak. Verilen TYMM Excel veri
         tatilWeeks,
         totalWeeks,
         expectedSaati: haftalikDersSaati,
+        teachingWeeks,
+      });
+      const coverage = this.ensureMebGainCoverage({
+        items: hardened.items,
+        subjectCode: params.subject_code,
+        grade: params.grade,
+        tatilWeeks,
+      });
+      const quality = this.buildDraftQuality({
+        items: coverage.items,
+        subjectCode: params.subject_code,
+        grade: params.grade,
+        tatilWeeks,
       });
       return {
-        items: hardened.items,
-        warnings: sourceDraft.warnings,
+        items: coverage.items,
+        warnings: [...draftWarnings, ...sourceDraft.warnings, ...coverage.warnings],
+        source: 'tymm',
+        quality,
+        ...this.buildSaveDecision(quality),
       };
     }
     const baseRules = hasTymmExcel
@@ -697,10 +1302,11 @@ ${mebKaynakBlock}
 ${baseRules}
 
 ${hasTymmExcel ? '' : `## MÜFREDAT ÜNİTELERİ\n${unitesBlock}`}
-${mebKazanimlarBlock && !hasTymmExcel ? `\n## MEB KAZANIM TAM METİNLERİ (kazanimlar alanında SADECE bunları kullan, aynen kopyala)\n${mebKazanimlarBlock}` : ''}${tymmExcelBlock}`;
+${mebKazanimlarBlock ? `\n## MEB KAZANIM TAM METİNLERİ (kazanimlar alanında SADECE bunları kullan, aynen kopyala; TYMM ile uyumsuzluk varsa MEB kazanımını esas al)\n${mebKazanimlarBlock}` : ''}${tymmExcelBlock}`;
 
     const userPrompt = `## GÖREV
 ${params.subject_label} ${params.grade}. Sınıf ${params.academic_year} yıllık planı oluştur. Haftalık ${haftalikDersSaati} saat.
+${params.school_profile ? `Okul profili: ${params.school_profile}. Sadece bu profile uygun ders bağlamında üret.` : ''}
 
 ## ÇALIŞMA TAKVİMİ (${totalWeeks} HAFTA – BUNLARA TAM UY)
 ${weekLabelsBlock || `Hafta 1-${totalWeeks} (tarih bilgisi yok)`}
@@ -709,6 +1315,8 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
 ## ÇIKTI ZORUNLULUKLARI
 - items dizisinde TAM ${totalWeeks} öğe; week_order 1, 2, 3, ... ${totalWeeks} sırayla
 - Her hafta: unite, konu, kazanimlar, ders_saati=${haftalikDersSaati} (tatilde 0), surec_bilesenleri (DB/SDB)
+- Tatil dışı haftalarda unite, konu, kazanimlar, surec_bilesenleri, olcme_degerlendirme, sosyal_duygusal, degerler, okuryazarlik_becerileri, zenginlestirme, okul_temelli_planlama BOS OLAMAZ
+- Kazanimlar alanı mümkünse MEB kazanım tam metinlerinden birebir seçilmelidir
 - Tatil dışı haftalarda "—" YASAK; boş kalacaksa önceki hafta sürekliliği veya OKUL TEMELLİ PLANLAMA kullan`;
 
     const jsonSchema = {
@@ -726,14 +1334,14 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
               konu: { type: 'string', description: 'Sadece İçerik Çerçevesi / konu özeti. Kazanım tam metni YAZMA.' },
               kazanimlar: { type: 'string', description: 'Sadece öğrenme çıktıları tam metni (kod + açıklama). Ünite adı YAZMA.' },
               ders_saati: { type: 'integer', description: 'O hafta ders saati (0-10)' },
-              belirli_gun_haftalar: { type: 'string', description: 'Belirli gün/hafta (29 Ekim vb.) veya ""' },
-              surec_bilesenleri: { type: 'string', description: 'Sadece TYMM kodları: DB1.1, SDB2.2 vb. Kazanım veya konu metni YAZMA.' },
-              olcme_degerlendirme: { type: 'string', description: 'Ölçme yöntemi kısa; yoksa ""' },
-              sosyal_duygusal: { type: 'string', description: 'Sosyal-duygusal beceri; yoksa ""' },
-              degerler: { type: 'string', description: 'Değer; yoksa ""' },
-              okuryazarlik_becerileri: { type: 'string', description: 'Okuryazarlık becerisi; yoksa ""' },
-              zenginlestirme: { type: 'string', description: 'Farklılaştırma; yoksa ""' },
-              okul_temelli_planlama: { type: 'string', description: 'Okul temelli planlama; yoksa ""' },
+              belirli_gun_haftalar: { type: 'string', description: 'DAIMA "" (bos string) dondur. Sistem tarih bazli otomatik dolduracak.' },
+              surec_bilesenleri: { type: 'string', description: 'Sadece TYMM kodlari: DB1.1, SDB2.2 vb. Bos birakma.' },
+              olcme_degerlendirme: { type: 'string', description: 'Kisa olcme yontemi. Bos birakma.' },
+              sosyal_duygusal: { type: 'string', description: 'Kisa sosyal-duygusal beceri. Bos birakma.' },
+              degerler: { type: 'string', description: 'Kisa deger ifadesi. Bos birakma.' },
+              okuryazarlik_becerileri: { type: 'string', description: 'Kisa okuryazarlik becerisi. Bos birakma.' },
+              zenginlestirme: { type: 'string', description: 'Kisa farklilastirma/zenginlestirme. Bos birakma.' },
+              okul_temelli_planlama: { type: 'string', description: 'Kisa okul temelli planlama notu. Bos birakma.' },
             },
             required: [
               'week_order', 'unite', 'konu', 'kazanimlar', 'ders_saati',
@@ -753,11 +1361,18 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
       params.model && GPT_TASLAK_MODELS.some((m) => m.id === params.model)
         ? params.model
         : DEFAULT_GPT_MODEL;
+    const openai = this.openai;
+    if (!openai) {
+      throw new BadRequestException({
+        code: 'GPT_NOT_CONFIGURED',
+        message: 'OpenAI API anahtarı tanımlı değil. OPENAI_API_KEY environment variable kontrol edin.',
+      });
+    }
     const temp1Only = MODELS_TEMP_1_ONLY.includes(modelToUse);
     let lastError: Error | null = null;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const completion = await this.openai.chat.completions.create({
+        const completion = await openai.chat.completions.create({
           model: modelToUse,
           messages: [
             { role: 'system', content: systemPrompt },
@@ -788,6 +1403,7 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
           calendarWeekOrders,
           tatilWeeks,
           totalWeeks,
+          teachingWeeks,
         );
         const hardenedItems = this.hardenDraftResult({
           items: validated.items,
@@ -795,11 +1411,61 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
           tatilWeeks,
           totalWeeks,
           expectedSaati: haftalikDersSaati,
+          teachingWeeks,
         });
 
-        return {
+        if (this.containsInvalidArtifacts(hardenedItems.items, params.subject_code) && hasMeb) {
+          const fallback = this.buildDraftFromMebKazanimlar({
+            subjectCode: params.subject_code,
+            grade: params.grade,
+            calendarWeekOrders,
+            tatilWeeks,
+            totalWeeks,
+            expectedSaati: haftalikDersSaati,
+            teachingWeeks,
+          });
+          const coverage = this.ensureMebGainCoverage({
+            items: fallback.items,
+            subjectCode: params.subject_code,
+            grade: params.grade,
+            tatilWeeks,
+          });
+          const quality = this.buildDraftQuality({
+            items: coverage.items,
+            subjectCode: params.subject_code,
+            grade: params.grade,
+            tatilWeeks,
+          });
+          return {
+            items: coverage.items,
+            warnings: [...draftWarnings, ...validated.warnings, ...fallback.warnings, ...coverage.warnings],
+            source: 'meb_fallback',
+            quality,
+            ...this.buildSaveDecision(quality),
+            token_usage: completion.usage
+              ? { input: completion.usage.prompt_tokens, output: completion.usage.completion_tokens }
+              : undefined,
+          };
+        }
+
+        const coverage = this.ensureMebGainCoverage({
           items: hardenedItems.items,
-          warnings: validated.warnings,
+          subjectCode: params.subject_code,
+          grade: params.grade,
+          tatilWeeks,
+        });
+        const quality = this.buildDraftQuality({
+          items: coverage.items,
+          subjectCode: params.subject_code,
+          grade: params.grade,
+          tatilWeeks,
+        });
+        return {
+          items: coverage.items,
+          warnings: [...draftWarnings, ...validated.warnings, ...coverage.warnings],
+          source: 'gpt',
+          quality,
+          ...this.buildSaveDecision(quality),
           token_usage: completion.usage
             ? { input: completion.usage.prompt_tokens, output: completion.usage.completion_tokens }
             : undefined,
@@ -822,6 +1488,7 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
     calendarWeekOrders: Set<number>,
     tatilWeeks: number[],
     totalWeeks: number,
+    teachingWeeks?: Array<{ weekOrder: number; weekStart: string }>,
   ): { items: DraftPlanItem[]; warnings: string[] } {
     const warnings: string[] = [];
     const byWeek = new Map<number, DraftPlanItem>();
@@ -839,9 +1506,22 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
       const isTatil = tatilWeeks.includes(weekOrder);
       const dersSaati = isTatil ? 0 : expectedSaati;
 
-      const unite = String(item.unite ?? '').trim().slice(0, 256) || '—';
-      const konu = String(item.konu ?? '').trim().slice(0, 512) || '—';
+      let unite = String(item.unite ?? '').trim();
+      let konu = String(item.konu ?? '').trim();
       const kazanimlar = String(item.kazanimlar ?? '').trim().slice(0, 4000) || '—';
+
+      // Unite'den tarih/hafta artefaktlarını temizle
+      if (unite) unite = this.cleanUniteField(unite);
+
+      // Unite çok uzun ve konu kısa → muhtemelen yer değiştirmiş, swap et
+      const uniteHasKazanimCode = /[A-ZÇĞİÖŞÜ]{2,4}\.\d+\.\d+\.\d+/.test(unite);
+      const konuIsShortTitle = konu.length < 120 && konu.length > 2 && !/[A-ZÇĞİÖŞÜ]{2,4}\.\d+\.\d+\.\d+/.test(konu);
+      if ((unite.length > 200 || uniteHasKazanimCode) && konuIsShortTitle) {
+        [unite, konu] = [konu, unite];
+      }
+
+      const uniteVal = unite.slice(0, 256) || '—';
+      const konuVal = konu.slice(0, 512) || '—';
 
       if (!isTatil && kazanimlar === '—') {
         warnings.push(`${weekOrder}. hafta: Kazanım boş`);
@@ -849,8 +1529,8 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
 
       byWeek.set(weekOrder, {
         week_order: weekOrder,
-        unite,
-        konu,
+        unite: uniteVal,
+        konu: konuVal,
         kazanimlar,
         ders_saati: dersSaati,
         belirli_gun_haftalar: emptyStr(item.belirli_gun_haftalar, 256),
@@ -902,10 +1582,20 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
       kazanimlar: 'Sosyal etkinlik çalışmaları kapsamında yapılan faaliyetler.',
     };
 
+    // belirli_gun_haftalar: statik MEB haritasından doldur (GPT çıktısını sıfırla)
+    if (teachingWeeks?.length) {
+      for (const it of items) {
+        it.belirli_gun_haftalar = tatilWeeks.includes(it.week_order)
+          ? ''
+          : this.getMebBelirliGunForWeekOrder(it.week_order, teachingWeeks);
+      }
+    }
+
     // Tatil dışı haftalarda "—" olan alanları doldur (GPT boş bırakma sorununu gider)
     let lastUnite = '';
     let lastKonu = '';
     let lastKazanimlar = '';
+    let lastOlcme = '';
     for (const it of items) {
       const isTatil = tatilWeeks.includes(it.week_order);
       if (isTatil) continue;
@@ -944,6 +1634,18 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
       if (needsUnite || needsKonu || needsKazanimlar) {
         warnings.push(`${w}. hafta: Boş alanlar dolduruldu${w === 37 || w === 38 ? ` (son hafta standardı)` : ''}`);
       }
+      const supportDefaults = this.getSupportColumnDefaults();
+      // belirli_gun_haftalar tarihe özgü – önceki haftadan TAŞIMA
+      it.belirli_gun_haftalar = it.belirli_gun_haftalar?.trim() || '';
+      it.olcme_degerlendirme = it.olcme_degerlendirme?.trim() || lastOlcme || supportDefaults.olcme_degerlendirme;
+      it.surec_bilesenleri = it.surec_bilesenleri?.trim() || supportDefaults.surec_bilesenleri;
+      it.sosyal_duygusal = it.sosyal_duygusal?.trim() || supportDefaults.sosyal_duygusal;
+      it.degerler = it.degerler?.trim() || supportDefaults.degerler;
+      it.okuryazarlik_becerileri = it.okuryazarlik_becerileri?.trim() || supportDefaults.okuryazarlik_becerileri;
+      it.zenginlestirme = it.zenginlestirme?.trim() || supportDefaults.zenginlestirme;
+      it.okul_temelli_planlama = it.okul_temelli_planlama?.trim() || supportDefaults.okul_temelli_planlama;
+      this.applyDerivedPedagogicalSupport(it, tatilWeeks);
+      if (String(it.olcme_degerlendirme ?? '').trim()) lastOlcme = String(it.olcme_degerlendirme).trim();
       if (it.unite && it.unite !== '—') lastUnite = it.unite;
       if (it.konu && it.konu !== '—') lastKonu = it.konu;
       if (it.kazanimlar && it.kazanimlar !== '—') lastKazanimlar = it.kazanimlar;
@@ -958,6 +1660,7 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
     tatilWeeks: number[];
     totalWeeks: number;
     expectedSaati: number;
+    teachingWeeks?: Array<{ weekOrder: number; weekStart: string }>;
   }): { items: DraftPlanItem[] } {
     const sourceByWeek = new Map<number, ParsedPlanRow>(
       (params.sourceRows ?? [])
@@ -986,29 +1689,76 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
       const s = String(v ?? '').toLowerCase();
       return s.includes('öğrenme çıktıları;') || s.includes('değerlendirilebilir') || s.includes('performans görevi');
     };
+    /** Kısa, büyük harfli metin → ünite adı gibi görünüyor */
+    const looksLikeUniteName = (s: string | null | undefined): boolean => {
+      const t = String(s ?? '').trim();
+      if (!t || t === '—' || t.length > 150) return false;
+      const letters = (t.match(/[a-zA-ZçğışöüÇĞİŞÖÜ]/g) ?? []).length;
+      const upper = (t.match(/[A-ZÇĞİÖŞÜ]/g) ?? []).length;
+      if (letters > 3 && upper / letters < 0.5) return false; // çoğunlukla küçük harf → değil
+      if (/(^|[\s\n])[a-zçğıöşü]\)\s/.test(t)) return false; // a) b) c) maddesi
+      if (/[A-ZÇĞİÖŞÜ]{2,4}\.\d+\.\d+\.\d+/.test(t)) return false; // kazanım kodu
+      if (t.includes('belirler') || t.includes('karşılaştırır') || t.includes('açıklar') ||
+          t.includes('yorumlar') || t.includes('ilişkilendirir')) return false;
+      return true;
+    };
     const normalizeSourceRow = (src?: ParsedPlanRow | null): ParsedPlanRow | null => {
       if (!src) return null;
       const row: ParsedPlanRow = { ...src };
-      const k = String(row.kazanimlar ?? '').trim();
+      let u = String(row.unite ?? '').trim();
+      let k = String(row.konu ?? '').trim();
+      let kaz = String(row.kazanimlar ?? '').trim();
       const s = String(row.surec_bilesenleri ?? '').trim();
       const o = String(row.olcme_degerlendirme ?? '').trim();
 
-      if (looksLikeProcessCodes(k) && looksLikeLearningOutcomes(s)) {
-        row.kazanimlar = s || null;
-        row.surec_bilesenleri = k || null;
+      // kazanimlar alanında ünite adı var, unite boş → taşı; konu'daki kazanımları kazanimlar'a al
+      if (looksLikeUniteName(kaz) && (!u || u === '—')) {
+        u = kaz;
+        if (looksLikeLearningOutcomes(k)) {
+          kaz = k;
+          k = '';
+        } else {
+          kaz = '';
+        }
+        row.unite = u || null;
+        row.konu = k || null;
+        row.kazanimlar = kaz || null;
       }
+
+      // Güncelle (yukarıdaki değişiklikler yansısın)
+      kaz = String(row.kazanimlar ?? '').trim();
+
+      // kazanimlar → süreç kodu swap
+      if (looksLikeProcessCodes(kaz) && looksLikeLearningOutcomes(s)) {
+        row.kazanimlar = s || null;
+        row.surec_bilesenleri = kaz || null;
+      }
+
+      // kazanimlar'da ölçme açıklaması var → olcme_degerlendirme'ye taşı
+      if (looksLikeAssessment(kaz) && !looksLikeAssessment(o)) {
+        row.olcme_degerlendirme = kaz || null;
+        row.kazanimlar = null;
+      }
+
+      // surec_bilesenleri'nde ölçme açıklaması → olcme'ye taşı
       if (looksLikeAssessment(s) && !looksLikeAssessment(o)) {
         row.olcme_degerlendirme = s || null;
         row.surec_bilesenleri = String(row.surec_bilesenleri ?? '')
           .replace(s, '')
           .trim() || null;
       }
-      return row;
+      // Bazı TYMM satırlarında konu, süreç sütununa kayıyor
+      if ((!row.konu || String(row.konu).trim() === '—') && looksLikeUniteName(row.surec_bilesenleri) && !looksLikeProcessCodes(row.surec_bilesenleri)) {
+        row.konu = String(row.surec_bilesenleri).trim();
+        row.surec_bilesenleri = null;
+      }
+      return this.sanitizePlanNoteColumns(row);
     };
     const out = [...params.items].sort((a, b) => a.week_order - b.week_order);
     let lastUnite = '';
     let lastKonu = '';
     let lastKazanim = '';
+    let lastOlcme = '';
 
     for (let i = 0; i < out.length; i++) {
       const w = out[i].week_order;
@@ -1036,7 +1786,7 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
       } else if (!isTatil) {
         // TYMM kaynağı varsa hafta bazında kilitle: konu sırası/kolon kaymasını önlemek için
         if (source) {
-          if (!isPlaceholder(source.unite)) out[i].unite = String(source.unite);
+          if (!isPlaceholder(source.unite) && this.isValidUniteValue(source.unite)) out[i].unite = String(source.unite);
           if (!isPlaceholder(source.konu)) out[i].konu = String(source.konu);
           if (!isPlaceholder(source.kazanimlar)) out[i].kazanimlar = String(source.kazanimlar).slice(0, 4000);
           if (!isPlaceholder(source.belirli_gun_haftalar)) out[i].belirli_gun_haftalar = String(source.belirli_gun_haftalar);
@@ -1050,7 +1800,7 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
         }
 
         // Boş alan varsa önce aynı haftanın TYMM parse kaynağıyla doldur
-        if (isPlaceholder(out[i].unite) && source && !isPlaceholder(source.unite)) {
+        if (isPlaceholder(out[i].unite) && source && !isPlaceholder(source.unite) && this.isValidUniteValue(source.unite)) {
           out[i].unite = String(source.unite);
         }
         if (isPlaceholder(out[i].konu) && source && !isPlaceholder(source.konu)) {
@@ -1067,6 +1817,15 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
         else if (isPlaceholder(out[i].konu) || out[i].konu === 'Önceki konuların pekiştirilmesi') out[i].konu = lastKonu || '—';
         if (isPlaceholder(out[i].kazanimlar) && lastKazanim) out[i].kazanimlar = lastKazanim;
         else if (isPlaceholder(out[i].kazanimlar) || out[i].kazanimlar === 'Ünite kazanımlarının pekiştirilmesi') out[i].kazanimlar = lastKazanim || '—';
+        if (
+          isPlaceholder(out[i].konu) ||
+          this.normalizeMatchText(out[i].konu) === this.normalizeMatchText(out[i].unite) ||
+          (this.isValidUniteValue(out[i].konu) &&
+            this.normalizeMatchText(out[i].konu) !== this.normalizeMatchText(out[i].unite))
+        ) {
+          const inferred = this.inferKonuFromKazanim(out[i].kazanimlar, out[i].unite);
+          if (inferred) out[i].konu = inferred;
+        }
 
         // Normal haftalarda önce TYMM kaynağındaki saat korunur; yoksa beklenen saat kullanılır
         out[i].ders_saati =
@@ -1078,9 +1837,52 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
       if (isLongSchoolNote(out[i].okul_temelli_planlama)) {
         out[i].okul_temelli_planlama = '';
       }
+      if (this.looksLikePlanNote(out[i].kazanimlar) || this.looksLikePlanNote(out[i].konu)) {
+        const note =
+          this.looksLikePlanNote(out[i].kazanimlar) ? out[i].kazanimlar : out[i].konu;
+        if (!String(out[i].okul_temelli_planlama ?? '').trim()) {
+          out[i].okul_temelli_planlama = String(note ?? '').trim();
+        }
+        if (this.looksLikePlanNote(out[i].kazanimlar)) {
+          out[i].kazanimlar =
+            source && !isPlaceholder(source.kazanimlar) && !this.looksLikePlanNote(source.kazanimlar)
+              ? String(source.kazanimlar).slice(0, 4000)
+              : lastKazanim || '—';
+        }
+        if (this.looksLikePlanNote(out[i].konu)) {
+          out[i].konu =
+            source && !isPlaceholder(source.konu) && !this.looksLikePlanNote(source.konu)
+              ? String(source.konu)
+              : lastKonu || '—';
+        }
+      }
+      const supportDefaults = this.getSupportColumnDefaults();
+      // belirli_gun_haftalar tarihe özgü – önceki haftadan TAŞIMA
+      out[i].belirli_gun_haftalar = String(out[i].belirli_gun_haftalar ?? '').trim() || '';
+      out[i].olcme_degerlendirme =
+        String(out[i].olcme_degerlendirme ?? '').trim() || lastOlcme || supportDefaults.olcme_degerlendirme;
+      out[i].surec_bilesenleri = String(out[i].surec_bilesenleri ?? '').trim() || supportDefaults.surec_bilesenleri;
+      out[i].sosyal_duygusal = String(out[i].sosyal_duygusal ?? '').trim() || supportDefaults.sosyal_duygusal;
+      out[i].degerler = String(out[i].degerler ?? '').trim() || supportDefaults.degerler;
+      out[i].okuryazarlik_becerileri = String(out[i].okuryazarlik_becerileri ?? '').trim() || supportDefaults.okuryazarlik_becerileri;
+      out[i].zenginlestirme = String(out[i].zenginlestirme ?? '').trim() || supportDefaults.zenginlestirme;
+      out[i].okul_temelli_planlama = String(out[i].okul_temelli_planlama ?? '').trim() || supportDefaults.okul_temelli_planlama;
+      this.applyDerivedPedagogicalSupport(out[i], params.tatilWeeks);
+      if (String(out[i].olcme_degerlendirme ?? '').trim()) lastOlcme = String(out[i].olcme_degerlendirme).trim();
       if (!isPlaceholder(out[i].unite)) lastUnite = out[i].unite;
       if (!isPlaceholder(out[i].konu)) lastKonu = out[i].konu;
       if (!isPlaceholder(out[i].kazanimlar)) lastKazanim = out[i].kazanimlar;
+    }
+
+    // belirli_gun_haftalar: statik MEB takvimi eşlemesi uygula
+    if (params.teachingWeeks && params.teachingWeeks.length > 0) {
+      for (const item of out) {
+        if (!params.tatilWeeks.includes(item.week_order)) {
+          item.belirli_gun_haftalar = this.getMebBelirliGunForWeekOrder(item.week_order, params.teachingWeeks);
+        } else {
+          item.belirli_gun_haftalar = '';
+        }
+      }
     }
 
     return { items: out };
@@ -1092,6 +1894,7 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
     tatilWeeks: number[];
     totalWeeks: number;
     expectedSaati: number;
+    teachingWeeks?: Array<{ weekOrder: number; weekStart: string }>;
   }): { items: DraftPlanItem[]; warnings: string[] } {
     const warnings: string[] = [];
     const byWeek = new Map<number, ParsedPlanRow>(
@@ -1115,34 +1918,75 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
     };
     const looksLikeAssessment = (v: string | null | undefined) => {
       const s = String(v ?? '').toLowerCase();
-      return s.includes('öğrenme çıktıları;') || s.includes('değerlendirilebilir') || s.includes('performans görevi');
+      return (
+        s.includes('öğrenme çıktıları;') ||
+        s.includes('değerlendirilebilir') ||
+        s.includes('performans görevi') ||
+        s.includes('çalışma yaprağı') ||
+        s.includes('bilgi görseli')
+      );
+    };
+    const looksLikeUniteName = (v: string | null | undefined) => {
+      const s = String(v ?? '').trim();
+      if (!this.isValidUniteValue(s) || s.length > 150) return false;
+      const letters = (s.match(/[a-zA-ZçğışöüÇĞİŞÖÜ]/g) ?? []).length;
+      const upper = (s.match(/[A-ZÇĞİÖŞÜ]/g) ?? []).length;
+      return letters <= 3 || upper / Math.max(letters, 1) >= 0.5;
     };
     const normalizeSourceRow = (src?: ParsedPlanRow | null): ParsedPlanRow | null => {
       if (!src) return null;
       const row: ParsedPlanRow = { ...src };
-      const k = String(row.kazanimlar ?? '').trim();
-      const s = String(row.surec_bilesenleri ?? '').trim();
-      const o = String(row.olcme_degerlendirme ?? '').trim();
+      let u = String(row.unite ?? '').trim();
+      let k = String(row.konu ?? '').trim();
+      let kaz = String(row.kazanimlar ?? '').trim();
+      let s = String(row.surec_bilesenleri ?? '').trim();
+      let o = String(row.olcme_degerlendirme ?? '').trim();
 
       // Bazı TYMM şablonlarında kazanım/süreç kayabiliyor: SDB kodları kazanımda, a)-b) maddeleri süreçte.
-      if (looksLikeProcessCodes(k) && looksLikeLearningOutcomes(s)) {
-        row.kazanimlar = s || null;
-        row.surec_bilesenleri = k || null;
+      if (looksLikeProcessCodes(kaz) && looksLikeLearningOutcomes(s)) {
+        [kaz, s] = [s, kaz];
+      }
+      if (looksLikeUniteName(kaz) && (!u || u === '—')) {
+        u = kaz;
+        kaz = looksLikeLearningOutcomes(k) ? k : '';
+        if (looksLikeLearningOutcomes(k)) k = '';
+      }
+      if (looksLikeAssessment(u) && looksLikeUniteName(s)) {
+        if (!o) o = u;
+        u = s;
+        s = '';
+      }
+      if (looksLikeAssessment(kaz) && !looksLikeAssessment(o)) {
+        o = kaz;
+        kaz = '';
       }
       // Ölçme metni yanlışlıkla süreçe geldiyse ölçmeye taşı.
       if (looksLikeAssessment(s) && !looksLikeAssessment(o)) {
-        row.olcme_degerlendirme = s || null;
-        row.surec_bilesenleri = String(row.surec_bilesenleri ?? '')
-          .replace(s, '')
-          .trim() || null;
+        o = s;
+        s = '';
       }
-      return row;
+      // Bazı TYMM satırlarında konu, süreç sütununa kayıyor
+      if ((!k || k === '—') && looksLikeUniteName(s) && !looksLikeProcessCodes(s)) {
+        k = s;
+        s = '';
+      }
+      return {
+        ...this.sanitizePlanNoteColumns({
+          ...row,
+          konu: k || null,
+          kazanimlar: kaz || null,
+          surec_bilesenleri: s || null,
+          olcme_degerlendirme: o || null,
+        }),
+        unite: u || null,
+      };
     };
 
     const out: DraftPlanItem[] = [];
     let lastUnite = '';
     let lastKonu = '';
     let lastKazanim = '';
+    let lastOlcme = '';
     for (const w of [...params.calendarWeekOrders].sort((a, b) => a - b)) {
       const isTatil = params.tatilWeeks.includes(w);
       const src = normalizeSourceRow(byWeek.get(w));
@@ -1168,13 +2012,21 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
         if (isPlaceholder(unite)) unite = '—';
         if (isPlaceholder(konu)) konu = '—';
         if (isPlaceholder(kazanim)) kazanim = '—';
+        if (
+          this.normalizeMatchText(konu) === this.normalizeMatchText(unite) ||
+          konu === '—' ||
+          (this.isValidUniteValue(konu) && this.normalizeMatchText(konu) !== this.normalizeMatchText(unite))
+        ) {
+          const inferred = this.inferKonuFromKazanim(kazanim, unite);
+          if (inferred) konu = inferred;
+        }
       } else {
         unite = '—';
         konu = '—';
         kazanim = '—';
       }
 
-      const item: DraftPlanItem = {
+      const item = this.sanitizePlanNoteColumns({
         week_order: w,
         unite: String(unite).trim() || '—',
         konu: String(konu).trim() || '—',
@@ -1188,7 +2040,22 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
         okuryazarlik_becerileri: String(src?.okuryazarlik_becerileri ?? '').trim(),
         zenginlestirme: String(src?.zenginlestirme ?? '').trim(),
         okul_temelli_planlama: String(src?.okul_temelli_planlama ?? '').trim(),
-      };
+      }) as DraftPlanItem;
+
+      if (!isTatil && item.konu == null) item.konu = lastKonu || '—';
+      if (!isTatil && item.kazanimlar == null) item.kazanimlar = lastKazanim || '—';
+      const supportDefaults = this.getSupportColumnDefaults();
+      // belirli_gun_haftalar tarihe özgü – önceki haftadan TAŞIMA
+      item.belirli_gun_haftalar = item.belirli_gun_haftalar?.trim() || '';
+      item.olcme_degerlendirme = item.olcme_degerlendirme?.trim() || lastOlcme || supportDefaults.olcme_degerlendirme;
+      item.surec_bilesenleri = item.surec_bilesenleri?.trim() || supportDefaults.surec_bilesenleri;
+      item.sosyal_duygusal = item.sosyal_duygusal?.trim() || supportDefaults.sosyal_duygusal;
+      item.degerler = item.degerler?.trim() || supportDefaults.degerler;
+      item.okuryazarlik_becerileri = item.okuryazarlik_becerileri?.trim() || supportDefaults.okuryazarlik_becerileri;
+      item.zenginlestirme = item.zenginlestirme?.trim() || supportDefaults.zenginlestirme;
+      item.okul_temelli_planlama = item.okul_temelli_planlama?.trim() || supportDefaults.okul_temelli_planlama;
+      this.applyDerivedPedagogicalSupport(item, params.tatilWeeks);
+      if (String(item.olcme_degerlendirme ?? '').trim()) lastOlcme = String(item.olcme_degerlendirme).trim();
 
       if (!isTatil && item.unite === '—' && (item.konu === '—' || item.kazanimlar === '—')) {
         warnings.push(`${w}. hafta: Kaynakta eksik içerik`);
@@ -1197,6 +2064,14 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
       if (!isPlaceholder(item.konu)) lastKonu = item.konu;
       if (!isPlaceholder(item.kazanimlar)) lastKazanim = item.kazanimlar;
       out.push(item);
+    }
+    // belirli_gun_haftalar: statik MEB haritasından doldur
+    if (params.teachingWeeks?.length) {
+      for (const item of out) {
+        item.belirli_gun_haftalar = params.tatilWeeks.includes(item.week_order)
+          ? ''
+          : this.getMebBelirliGunForWeekOrder(item.week_order, params.teachingWeeks);
+      }
     }
     return { items: out, warnings };
   }

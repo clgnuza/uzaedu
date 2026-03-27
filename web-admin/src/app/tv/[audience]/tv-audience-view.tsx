@@ -452,35 +452,43 @@ export default function TvAudienceContent() {
     try {
       const o = JSON.parse(raw) as {
         lesson_times?: Array<{ num: number; start: string; end: string }>;
+        lesson_times_weekend?: Array<{ num: number; start: string; end: string }>;
         class_sections?: string[];
         entries?: Array<{ day: number; lesson: number; class: string; subject: string }>;
       };
       const entries = Array.isArray(o.entries) ? o.entries : [];
       const sections = Array.isArray(o.class_sections) ? o.class_sections : [];
       const times = Array.isArray(o.lesson_times) ? o.lesson_times : [];
+      const timesWeekend = Array.isArray(o.lesson_times_weekend) ? o.lesson_times_weekend : undefined;
       if (entries.length === 0) return null;
-      return { entries, sections, times };
+      return { entries, sections, times, timesWeekend };
     } catch {
       return null;
     }
   }, [data?.school?.tv_timetable_schedule]);
 
   const currentLessonNum = useMemo(() => {
-    if (!timetableData?.times?.length) return 0;
-    const t = now;
-    const nowMins = t.getHours() * 60 + t.getMinutes();
+    const js = now.getDay();
+    const turkishDow = js === 0 ? 7 : js;
+    const isWeekend = turkishDow === 6 || turkishDow === 7;
+    const slotList =
+      isWeekend && timetableData?.timesWeekend && timetableData.timesWeekend.length > 0
+        ? timetableData.timesWeekend
+        : timetableData?.times;
+    if (!slotList?.length) return 0;
+    const nowMins = now.getHours() * 60 + now.getMinutes();
     const parseTime = (s: string) => {
       const [h, m] = String(s).split(':').map(Number);
       return (h || 0) * 60 + (m || 0);
     };
-    for (let i = timetableData.times.length - 1; i >= 0; i--) {
-      const lt = timetableData.times[i];
+    for (let i = slotList.length - 1; i >= 0; i--) {
+      const lt = slotList[i]!;
       const start = parseTime(lt.start);
       const end = parseTime(lt.end);
       if (nowMins >= start && nowMins <= end) return lt.num;
     }
     return 0;
-  }, [timetableData?.times, now]);
+  }, [timetableData?.times, timetableData?.timesWeekend, now]);
 
   const timetableItems = useMemo(() => {
     const announcementTimetable = byCategory.timetable ?? [];
@@ -536,12 +544,14 @@ export default function TvAudienceContent() {
       ];
     }
     const announcementNowInClass = byCategory.now_in_class ?? [];
-    /* Türkçe hafta: 1=Pazartesi, 5=Cuma. JS getDay(): 0=Paz, 1=Pzt...6=Cmt */
-    const dow = now.getDay();
-    const isWeekday = dow >= 1 && dow <= 5;
+    /* entries.day: 1=Pzt … 7=Paz — JS getDay: 0=Paz, 1=Pzt … 6=Cmt */
+    const jsDow = now.getDay();
+    const turkishDow = jsDow === 0 ? 7 : jsDow;
     const timetableEntries: Array<{ id: string; summary: string; body: string; title: string }> = [];
-    if (timetableData && currentLessonNum > 0 && isWeekday) {
-      const filteredEntries = timetableData.entries.filter((e) => e.day === dow && e.lesson === currentLessonNum);
+    if (timetableData && currentLessonNum > 0) {
+      const filteredEntries = timetableData.entries.filter(
+        (e) => e.day === turkishDow && e.lesson === currentLessonNum,
+      );
       filteredEntries.forEach((e, i) => {
         timetableEntries.push({
           id: `now-t-${i}`,
@@ -1597,6 +1607,7 @@ type TimetableData = {
   entries: Array<{ day: number; lesson: number; class: string; subject: string }>;
   sections: string[];
   times: Array<{ num: number; start: string; end: string }>;
+  timesWeekend?: Array<{ num: number; start: string; end: string }>;
 } | null;
 
 function SlideView({
@@ -2202,10 +2213,12 @@ function TimetableGrid({
 }: {
   data: TimetableData;
   currentLessonNum: number;
+  /** JS getDay(): 0–6 */
   currentDay?: number;
 }) {
   if (!data) return null;
-  const day = currentDay >= 1 && currentDay <= 5 ? currentDay : 1;
+  const turkishFromJs = currentDay === 0 ? 7 : (currentDay ?? 1);
+  const day = turkishFromJs >= 1 && turkishFromJs <= 7 ? turkishFromJs : 1;
   const lessons = [...new Set(data.entries.filter((e) => e.day === day).map((e) => e.lesson))].sort((a, b) => a - b);
   const sections = data.sections.length > 0 ? data.sections : [...new Set(data.entries.map((e) => e.class))].sort();
   const getCell = (lesson: number, cls: string) =>

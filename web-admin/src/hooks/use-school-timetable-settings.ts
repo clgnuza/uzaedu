@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 
@@ -15,6 +15,8 @@ export type SchoolTimetableSettings = {
   duty_education_mode: 'single' | 'double';
   lesson_schedule: LessonSlot[];
   lesson_schedule_pm: LessonSlot[];
+  lesson_schedule_weekend: LessonSlot[];
+  lesson_schedule_weekend_pm: LessonSlot[];
 };
 
 const DEFAULT_MAX_LESSONS = 10;
@@ -31,7 +33,11 @@ const DEFAULT_SCHEDULE: LessonSlot[] = [
   { lesson_num: 10, start_time: '17:50', end_time: '18:30' },
 ];
 
-/** Lunch slot between lesson 4 and 5 for single education. */
+/** 1=Mon … 7=Sun */
+export function isWeekendDow(dayOfWeek: number) {
+  return dayOfWeek === 6 || dayOfWeek === 7;
+}
+
 const LUNCH_SLOT = {
   label: 'Öğle',
   timeRange: '12:30 - 13:30',
@@ -44,6 +50,57 @@ export type TimeSlotDisplay = {
   lessonNum?: number;
   isLunch?: boolean;
 };
+
+function sortSchedule(s: LessonSlot[]) {
+  return [...s].sort((a, b) => a.lesson_num - b.lesson_num);
+}
+
+/** Hafta içi / hafta sonu; ikili eğitimde öğle vardiyası aynı ders no ile üst yazar (TV ile uyumlu). */
+function effectiveScheduleForDay(settings: SchoolTimetableSettings | null, dayOfWeek: number): LessonSlot[] {
+  const mode = settings?.duty_education_mode ?? 'single';
+  const isWknd = isWeekendDow(dayOfWeek);
+  const wdAm = settings?.lesson_schedule?.length ? sortSchedule(settings.lesson_schedule) : DEFAULT_SCHEDULE;
+  const am = isWknd
+    ? settings?.lesson_schedule_weekend?.length
+      ? sortSchedule(settings.lesson_schedule_weekend)
+      : wdAm
+    : wdAm;
+
+  if (mode !== 'double') return am;
+
+  const wdPm = settings?.lesson_schedule_pm?.length ? sortSchedule(settings.lesson_schedule_pm) : [];
+  const pm = isWknd
+    ? settings?.lesson_schedule_weekend_pm?.length
+      ? sortSchedule(settings.lesson_schedule_weekend_pm)
+      : wdPm
+    : wdPm;
+
+  const byNum = new Map<number, LessonSlot>();
+  for (const s of am) byNum.set(s.lesson_num, { ...s });
+  for (const s of pm) byNum.set(s.lesson_num, { ...s });
+  return [...byNum.values()].sort((a, b) => a.lesson_num - b.lesson_num);
+}
+
+function buildTimeSlotsDisplay(
+  schedule: LessonSlot[],
+  educationMode: 'single' | 'double',
+  cappedMax: number,
+): TimeSlotDisplay[] {
+  const getTimeRange = (lessonNum: number) => {
+    const entry = schedule.find((s) => s.lesson_num === lessonNum) ?? DEFAULT_SCHEDULE.find((s) => s.lesson_num === lessonNum);
+    return entry ? `${entry.start_time} - ${entry.end_time}` : '—';
+  };
+
+  const slots: TimeSlotDisplay[] = [];
+  const LUNCH_AFTER = 4;
+  for (let i = 1; i <= cappedMax; i++) {
+    if (educationMode === 'single' && i === LUNCH_AFTER + 1) {
+      slots.push(LUNCH_SLOT);
+    }
+    slots.push({ label: `${i}`, timeRange: getTimeRange(i), lessonNum: i });
+  }
+  return slots;
+}
 
 export function useSchoolTimetableSettings() {
   const { token, me } = useAuth();
@@ -62,12 +119,16 @@ export function useSchoolTimetableSettings() {
         duty_education_mode: 'single' | 'double';
         lesson_schedule?: LessonSlot[];
         lesson_schedule_pm?: LessonSlot[];
+        lesson_schedule_weekend?: LessonSlot[];
+        lesson_schedule_weekend_pm?: LessonSlot[];
       }>('/duty/school-default-times', { token });
       setSettings({
         duty_max_lessons: data.duty_max_lessons ?? null,
         duty_education_mode: data.duty_education_mode ?? 'single',
         lesson_schedule: Array.isArray(data.lesson_schedule) ? data.lesson_schedule : [],
         lesson_schedule_pm: Array.isArray(data.lesson_schedule_pm) ? data.lesson_schedule_pm : [],
+        lesson_schedule_weekend: Array.isArray(data.lesson_schedule_weekend) ? data.lesson_schedule_weekend : [],
+        lesson_schedule_weekend_pm: Array.isArray(data.lesson_schedule_weekend_pm) ? data.lesson_schedule_weekend_pm : [],
       });
     } catch {
       setSettings(null);
@@ -85,27 +146,27 @@ export function useSchoolTimetableSettings() {
 
   const educationMode = settings?.duty_education_mode ?? 'single';
 
-  /** Build display slots from school lesson_schedule or defaults. Single education: lunch row between 4 and 5. */
-  const timeSlots: TimeSlotDisplay[] = (() => {
-    const schedule = settings?.lesson_schedule?.length
-      ? [...settings.lesson_schedule].sort((a, b) => a.lesson_num - b.lesson_num)
-      : DEFAULT_SCHEDULE;
+  const timeSlots: TimeSlotDisplay[] = useMemo(() => {
+    const sched = effectiveScheduleForDay(settings, 1);
+    return buildTimeSlotsDisplay(sched, educationMode, cappedMax);
+  }, [settings, educationMode, cappedMax]);
 
-    const getTimeRange = (lessonNum: number) => {
-      const entry = schedule.find((s) => s.lesson_num === lessonNum) ?? DEFAULT_SCHEDULE.find((s) => s.lesson_num === lessonNum);
+  const getTimeSlotsForDay = useCallback(
+    (dayOfWeek: number) => {
+      const sched = effectiveScheduleForDay(settings, dayOfWeek);
+      return buildTimeSlotsDisplay(sched, educationMode, cappedMax);
+    },
+    [settings, educationMode, cappedMax],
+  );
+
+  const getTimeRangeForDay = useCallback(
+    (dayOfWeek: number, lessonNum: number) => {
+      const sched = effectiveScheduleForDay(settings, dayOfWeek);
+      const entry = sched.find((s) => s.lesson_num === lessonNum) ?? DEFAULT_SCHEDULE.find((s) => s.lesson_num === lessonNum);
       return entry ? `${entry.start_time} - ${entry.end_time}` : '—';
-    };
-
-    const slots: TimeSlotDisplay[] = [];
-    const LUNCH_AFTER = 4;
-    for (let i = 1; i <= cappedMax; i++) {
-      if (educationMode === 'single' && i === LUNCH_AFTER + 1) {
-        slots.push(LUNCH_SLOT);
-      }
-      slots.push({ label: `${i}`, timeRange: getTimeRange(i), lessonNum: i });
-    }
-    return slots;
-  })();
+    },
+    [settings],
+  );
 
   return {
     settings,
@@ -114,6 +175,8 @@ export function useSchoolTimetableSettings() {
     maxLessons: cappedMax,
     educationMode,
     timeSlots,
+    getTimeSlotsForDay,
+    getTimeRangeForDay,
     isDoubleShift: educationMode === 'double',
   };
 }

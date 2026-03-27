@@ -1386,6 +1386,8 @@ export class DutyService {
         'duty_start_time_pm',
         'duty_end_time_pm',
         'lesson_schedule_pm',
+        'lesson_schedule_weekend',
+        'lesson_schedule_weekend_pm',
         'principalName',
         'district',
       ],
@@ -1399,6 +1401,8 @@ export class DutyService {
       duty_start_time_pm: school?.duty_start_time_pm ?? null,
       duty_end_time_pm: school?.duty_end_time_pm ?? null,
       lesson_schedule_pm: school?.lesson_schedule_pm ?? [],
+      lesson_schedule_weekend: school?.lesson_schedule_weekend != null ? school.lesson_schedule_weekend : null,
+      lesson_schedule_weekend_pm: school?.lesson_schedule_weekend_pm != null ? school.lesson_schedule_weekend_pm : null,
       principal_name: school?.principalName ?? null,
       district: school?.district ?? null,
     };
@@ -1554,6 +1558,8 @@ export class DutyService {
       duty_start_time_pm?: string | null;
       duty_end_time_pm?: string | null;
       lesson_schedule_pm?: { lesson_num: number; start_time: string; end_time: string }[] | null;
+      lesson_schedule_weekend?: { lesson_num: number; start_time: string; end_time: string }[] | null;
+      lesson_schedule_weekend_pm?: { lesson_num: number; start_time: string; end_time: string }[] | null;
       principal_name?: string | null;
       district?: string | null;
     },
@@ -1581,6 +1587,12 @@ export class DutyService {
     if (body.lesson_schedule_pm !== undefined) {
       school.lesson_schedule_pm = Array.isArray(body.lesson_schedule_pm) ? body.lesson_schedule_pm : null;
     }
+    if (body.lesson_schedule_weekend !== undefined) {
+      school.lesson_schedule_weekend = Array.isArray(body.lesson_schedule_weekend) ? body.lesson_schedule_weekend : null;
+    }
+    if (body.lesson_schedule_weekend_pm !== undefined) {
+      school.lesson_schedule_weekend_pm = Array.isArray(body.lesson_schedule_weekend_pm) ? body.lesson_schedule_weekend_pm : null;
+    }
     if (body.principal_name !== undefined) school.principalName = body.principal_name?.trim() || null;
     if (body.district !== undefined) school.district = body.district?.trim() || null;
     await this.schoolRepo.save(school);
@@ -1593,6 +1605,8 @@ export class DutyService {
       duty_start_time_pm: school.duty_start_time_pm ?? null,
       duty_end_time_pm: school.duty_end_time_pm ?? null,
       lesson_schedule_pm: school.lesson_schedule_pm ?? [],
+      lesson_schedule_weekend: school.lesson_schedule_weekend != null ? school.lesson_schedule_weekend : null,
+      lesson_schedule_weekend_pm: school.lesson_schedule_weekend_pm != null ? school.lesson_schedule_weekend_pm : null,
       principal_name: school.principalName ?? null,
       district: school.district ?? null,
     };

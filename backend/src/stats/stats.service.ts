@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { School } from '../schools/entities/school.entity';
 import { User } from '../users/entities/user.entity';
 import { Announcement } from '../announcements/entities/announcement.entity';
-import { SchoolStatus, SchoolType, UserRole } from '../types/enums';
+import { SchoolStatus, SchoolType, TeacherSchoolMembershipStatus, UserRole } from '../types/enums';
 
 /** `enabled_modules` ile uyumlu anahtarlar (web-admin `SCHOOL_MODULE_KEYS`) */
 const SCHOOL_MODULE_KEYS = [
@@ -48,12 +48,23 @@ export interface SuperadminStatsPayload {
   schools_lise_unspecified_count: number;
 }
 
+/** Okul yöneticisi paneli — yalnızca kendi okulu */
+export interface SchoolAdminStatsPayload {
+  users_by_role: Record<string, number>;
+  users_by_status: Record<string, number>;
+  /** Bu okula bağlı, üyelik onayı bekleyen öğretmen sayısı */
+  teachers_pending_approval: number;
+  /** Bu yıl okula eklenen kullanıcılar (aylık) */
+  users_monthly_chart: { month: string; count: number }[];
+}
+
 export interface StatsResult {
   schools: number;
   users: number;
   announcements: number;
   chart: { month: string; count: number }[];
   superadmin?: SuperadminStatsPayload;
+  school_admin?: SchoolAdminStatsPayload;
 }
 
 @Injectable()
@@ -95,11 +106,81 @@ export class StatsService {
     const chart = await this.getMonthlyChart(role, schoolId);
 
     if (!isSuperadmin) {
-      return { schools, users, announcements, chart };
+      const school_admin = schoolId ? await this.getSchoolAdminPayload(schoolId) : undefined;
+      return { schools, users, announcements, chart, school_admin };
     }
 
     const superadmin = await this.getSuperadminPayload();
     return { schools, users, announcements, chart, superadmin };
+  }
+
+  private async getSchoolAdminPayload(schoolId: string): Promise<SchoolAdminStatsPayload> {
+    const roleRows = await this.userRepo
+      .createQueryBuilder('u')
+      .select('u.role', 'role')
+      .addSelect('COUNT(*)', 'cnt')
+      .where('u.school_id = :schoolId', { schoolId })
+      .groupBy('u.role')
+      .getRawMany<{ role: string; cnt: string }>();
+
+    const statusRows = await this.userRepo
+      .createQueryBuilder('u')
+      .select('u.status', 'status')
+      .addSelect('COUNT(*)', 'cnt')
+      .where('u.school_id = :schoolId', { schoolId })
+      .groupBy('u.status')
+      .getRawMany<{ status: string; cnt: string }>();
+
+    const users_by_role: Record<string, number> = {};
+    for (const r of roleRows) users_by_role[r.role] = parseInt(r.cnt, 10) || 0;
+    const users_by_status: Record<string, number> = {};
+    for (const r of statusRows) users_by_status[r.status] = parseInt(r.cnt, 10) || 0;
+
+    const teachers_pending_approval = await this.userRepo
+      .createQueryBuilder('u')
+      .where('u.school_id = :schoolId', { schoolId })
+      .andWhere('u.role = :role', { role: UserRole.teacher })
+      .andWhere('u.teacher_school_membership = :ms', { ms: TeacherSchoolMembershipStatus.pending })
+      .getCount();
+
+    const users_monthly_chart = await this.getUsersMonthlyChartForSchool(schoolId);
+
+    return {
+      users_by_role,
+      users_by_status,
+      teachers_pending_approval,
+      users_monthly_chart,
+    };
+  }
+
+  private async getUsersMonthlyChartForSchool(schoolId: string): Promise<{ month: string; count: number }[]> {
+    const months = [
+      'Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz',
+      'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara',
+    ];
+    const year = new Date().getFullYear();
+    const start = new Date(year, 0, 1);
+    const end = new Date(year, 11, 31, 23, 59, 59);
+
+    const list = await this.userRepo
+      .createQueryBuilder('u')
+      .select('u.created_at', 'created_at')
+      .where('u.school_id = :schoolId', { schoolId })
+      .andWhere('u.created_at >= :start', { start })
+      .andWhere('u.created_at <= :end', { end })
+      .getMany();
+
+    const countByMonth = new Map<number, number>();
+    for (let i = 0; i < 12; i++) countByMonth.set(i, 0);
+    list.forEach((u) => {
+      const m = new Date(u.created_at).getMonth();
+      countByMonth.set(m, (countByMonth.get(m) ?? 0) + 1);
+    });
+
+    return months.map((month, i) => ({
+      month,
+      count: countByMonth.get(i) ?? 0,
+    }));
   }
 
   private async getSuperadminPayload(): Promise<SuperadminStatsPayload> {
@@ -133,7 +214,7 @@ export class StatsService {
     const pendingRaw = await this.userRepo
       .createQueryBuilder('u')
       .where('u.role = :role', { role: UserRole.teacher })
-      .andWhere('u.teacher_school_membership = :ms', { ms: 'pending' })
+      .andWhere('u.teacher_school_membership = :ms', { ms: TeacherSchoolMembershipStatus.pending })
       .getCount();
 
     const schoolStatusRows = await this.schoolRepo

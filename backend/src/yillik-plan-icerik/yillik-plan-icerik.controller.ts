@@ -715,6 +715,7 @@ export class YillikPlanIcerikController {
       subject_label: dto.subject_label,
       grade: dto.grade,
       section: dto.section,
+      school_profile: dto.school_profile,
       academic_year: dto.academic_year,
       model: dto.model,
     });
@@ -774,6 +775,7 @@ export class YillikPlanIcerikController {
         subject_label: subjectLabel,
         grade,
         section: dto.section ?? undefined,
+        school_profile: dto.school_profile ?? undefined,
         academic_year: academicYear,
         model: dto.model ?? undefined,
         customSourceRows: items,
