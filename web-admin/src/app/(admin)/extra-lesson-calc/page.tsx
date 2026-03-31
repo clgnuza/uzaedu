@@ -168,6 +168,7 @@ export default function ExtraLessonCalcPage() {
         gvExemptionRemaining: 0,
         dvExemptionMatrahUsed: 0,
         dvExemptionMatrahRemaining: 0,
+        totalKesinti: 0,
       };
     return computeResult(p, hours, effectiveCentralExam, education, {
       taxRate,
@@ -180,6 +181,21 @@ export default function ExtraLessonCalcPage() {
   }, [p, hours, effectiveCentralExam, education, taxRate, taxMatrah, taxBrackets, gvUsed, dvUsed, unvan]);
 
   const hasInput = Object.values(hours).some((v) => v && v > 0) || centralExam.some(Boolean);
+
+  const inputSummary = useMemo(() => {
+    const hourLines = effectiveHourlyLineItems
+      .filter((li) => (hours[li.key] ?? 0) > 0)
+      .map((li) => ({ key: li.key, label: li.label, h: hours[li.key] ?? 0 }));
+    const totalHourly = hourLines.reduce((s, x) => s + x.h, 0);
+    const examSlots = centralExam
+      .map((key, i) => {
+        if (!key) return null;
+        const label = p?.central_exam_roles?.find((r) => r.key === key)?.label ?? key;
+        return { slot: i + 1, label };
+      })
+      .filter(Boolean) as { slot: number; label: string }[];
+    return { hourLines, totalHourly, examSlots };
+  }, [effectiveHourlyLineItems, hours, centralExam, p?.central_exam_roles]);
 
   const handleHourChange = useCallback((key: string, value: number) => {
     setHours((prev) => {
@@ -302,9 +318,13 @@ export default function ExtraLessonCalcPage() {
       `  Bütçe dönemi: ${dönemLabel}`,
       `  Ünvan: ${unvanLabel}`,
       `  Öğrenim: ${eduLabel}`,
-      `  Vergi dilimi: %${taxRate}`,
     ];
-    if (taxMatrah) lines.push(`  Geçen aylar matrah: ${formatTL(parseNum(taxMatrah))}`);
+    if (parseNum(taxMatrah) > 0) {
+      lines.push(`  GV: GVK ücret tarifesi (dilim dilim, artımlı)`);
+      lines.push(`  Önceki dönem brüt matrah: ${formatTL(parseNum(taxMatrah))}`);
+    } else {
+      lines.push(`  Vergi dilimi (kabaca): %${taxRate}`);
+    }
     if (gvUsed > 0) lines.push(`  GV istisna kullanılan: ${formatTL(gvUsed)}`);
     if (dvUsed > 0) lines.push(`  DV istisna matrah kullanılan: ${formatTL(dvUsed)}`);
 
@@ -321,14 +341,22 @@ export default function ExtraLessonCalcPage() {
       examSelected.forEach((l, i) => lines.push(`  Görev ${i + 1}: ${l}`));
     }
 
+    const totalH = hourItems.reduce((s, li) => s + (hours[li.key] ?? 0), 0);
+    lines.push(
+      '',
+      'ÖZET (hesaplanan girdiler)',
+      `  Toplam ek ders saati: ${totalH} saat`,
+      `  Merkezi sınav görevi: ${examSelected.length} adet${examSelected.length === 0 ? ' (yok)' : ''}`,
+    );
+
     lines.push(
       '',
       '───────────────────────────────',
       'SONUÇ',
       '───────────────────────────────',
       `  Net: ${formatTL(result.net)}`,
-      `  Brüt: ${formatTL(result.totalBrut)}`,
-      `  GV: −${formatTL(result.gvKesinti)} | DV: −${formatTL(result.dvKesinti)}${result.sgkKesinti > 0 ? ` | SGK: −${formatTL(result.sgkKesinti)}` : ''}`,
+      `  Gelir toplamı (brüt): ${formatTL(result.totalBrut)}`,
+      `  Kesinti toplamı: −${formatTL(result.totalKesinti)} (GV −${formatTL(result.gvKesinti)} | DV −${formatTL(result.dvKesinti)}${result.sgkKesinti > 0 ? ` | SGK −${formatTL(result.sgkKesinti)}` : ''})`,
       '',
       'Kalemler:',
       ...result.breakdown.map((b) => `  ${b.label}: ${formatTL(b.brut)}`),
@@ -358,6 +386,7 @@ export default function ExtraLessonCalcPage() {
     try {
       if (typeof navigator !== 'undefined' && navigator.share) {
         let shareData: ShareData = { title: 'Ek Ders Hesaplama', text };
+        let withImage = false;
         if (resultCardRef.current && typeof window !== 'undefined') {
           try {
             const html2canvas = (await import('html2canvas')).default;
@@ -374,6 +403,7 @@ export default function ExtraLessonCalcPage() {
               const withFile = { ...shareData, files: [file] } as ShareData;
               if (navigator.canShare?.(withFile)) {
                 shareData = withFile;
+                withImage = true;
               }
             }
           } catch {
@@ -381,7 +411,7 @@ export default function ExtraLessonCalcPage() {
           }
         }
         await navigator.share(shareData);
-        toast.success('Paylaşıldı');
+        toast.success(withImage ? 'Kart görseli + metin paylaşıldı' : 'Metin paylaşıldı (görsel eklenemedi veya desteklenmiyor)');
       } else if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
         toast.success('Metin panoya kopyalandı');
@@ -648,6 +678,9 @@ export default function ExtraLessonCalcPage() {
                           </option>
                         ))}
                       </select>
+                      <p className="mt-1 text-[11px] leading-snug text-zinc-500 dark:text-zinc-500">
+                        Matrah girilmediyse kabaca tahmin için tek oran kullanılır.
+                      </p>
                     </div>
                   </div>
                   {/* Vergi istisnaları - 2 sütun, daha geniş */}
@@ -668,7 +701,7 @@ export default function ExtraLessonCalcPage() {
                         className={inputCls}
                       />
                       <p className="mt-1 text-[11px] leading-snug text-zinc-500 dark:text-zinc-500">
-                        Toplam brüt matrah. Net değil.
+                        Bu ödemeye kadar toplam brüt ücret matrahı (net değil). Girildiğinde GV, GVK ücret tarifesine göre dilim dilim (artımlı) hesaplanır.
                       </p>
                     </div>
                     <div className="min-w-0">
@@ -909,9 +942,41 @@ export default function ExtraLessonCalcPage() {
                         </p>
                       </div>
 
+                      {(inputSummary.hourLines.length > 0 || inputSummary.examSlots.length > 0) && (
+                        <div className="mb-5 rounded-xl border border-emerald-200/70 bg-emerald-50/40 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                          <p className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
+                            Hesaplanan girdiler
+                          </p>
+                          {inputSummary.hourLines.length > 0 && (
+                            <ul className="mb-2 space-y-1 text-xs text-zinc-700 dark:text-zinc-300">
+                              {inputSummary.hourLines.map((row) => (
+                                <li key={row.key} className="flex justify-between gap-2">
+                                  <span className="min-w-0 truncate">{row.label}</span>
+                                  <span className="shrink-0 tabular-nums font-medium">{row.h} saat</span>
+                                </li>
+                              ))}
+                              <li className="flex justify-between gap-2 border-t border-emerald-200/60 pt-2 font-semibold text-zinc-900 dark:text-zinc-100">
+                                <span>Toplam ek ders saati</span>
+                                <span className="tabular-nums">{inputSummary.totalHourly} saat</span>
+                              </li>
+                            </ul>
+                          )}
+                          {inputSummary.examSlots.length > 0 && (
+                            <ul className="space-y-1 border-t border-emerald-200/50 pt-2 text-xs text-zinc-700 dark:border-emerald-900/40 dark:text-zinc-300">
+                              {inputSummary.examSlots.map((ex) => (
+                                <li key={ex.slot} className="flex justify-between gap-2">
+                                  <span className="min-w-0 truncate">Görev {ex.slot}</span>
+                                  <span className="min-w-0 text-right font-medium">{ex.label}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+
                       <dl className="space-y-2.5 text-sm">
                         <div className="flex justify-between rounded-lg bg-zinc-50 px-3 py-2.5 dark:bg-zinc-800/50">
-                          <dt className="text-zinc-600 dark:text-zinc-400">Brüt gelir toplamı</dt>
+                          <dt className="text-zinc-600 dark:text-zinc-400">Gelir toplamı (brüt)</dt>
                           <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{formatTL(result.totalBrut)}</dd>
                         </div>
                         <div className="flex justify-between rounded-lg bg-red-50 px-3 py-2.5 dark:bg-red-950/30">
@@ -926,6 +991,12 @@ export default function ExtraLessonCalcPage() {
                           <div className="flex justify-between rounded-lg bg-red-50 px-3 py-2.5 dark:bg-red-950/30">
                             <dt className="text-red-700 dark:text-red-400">Sigorta primi</dt>
                             <dd className="tabular-nums font-medium text-red-700 dark:text-red-400">−{formatTL(result.sgkKesinti)}</dd>
+                          </div>
+                        )}
+                        {result.totalKesinti > 0 && (
+                          <div className="flex justify-between rounded-lg border border-red-200/80 bg-red-50/90 px-3 py-2.5 dark:border-red-900/50 dark:bg-red-950/40">
+                            <dt className="font-medium text-red-800 dark:text-red-300">Kesinti toplamı</dt>
+                            <dd className="tabular-nums font-semibold text-red-800 dark:text-red-300">−{formatTL(result.totalKesinti)}</dd>
                           </div>
                         )}
                       </dl>

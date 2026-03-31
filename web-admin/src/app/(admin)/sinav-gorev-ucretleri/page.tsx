@@ -347,35 +347,73 @@ export default function SinavGorevUcretleriPage() {
 
   const buildShareText = useCallback(() => {
     if (!catalog || !selectedRole || !selectedCategory) return '';
+    const meta = getCatMeta(selectedCategory.id);
+    const kurumAd = meta.label || selectedCategory.label;
     return [
       '══════════════════════════════',
       '  SINAV GÖREV ÜCRETİ',
       '══════════════════════════════',
       '',
-      `Dönem: ${catalog.period_label}`,
-      `Kurum: ${selectedCategory.label}`,
-      `Görev: ${selectedRole.label}`,
-      `Adet: ${quantity}`,
-      `GV dilimi: %${taxRate}`,
+      'GİRDİLER',
+      `  Dönem: ${catalog.period_label}`,
+      `  Kurum: ${kurumAd}`,
+      `  Görev: ${selectedRole.label}`,
+      `  Birim brüt: ${formatTL(selectedRole.brut_tl)}`,
+      `  Oturum / adet: ${quantity}`,
+      `  GV dilimi (kabaca): %${taxRate}`,
+      `  GV istisna kullanılan: ${formatTL(gvUsed)} / ${formatTL(catalog.gv_exemption_max_tl)}`,
+      `  DV istisna matrah kullanılan: ${formatTL(dvUsed)} / ${formatTL(catalog.dv_exemption_max_tl)}`,
+      '',
+      'ÖZET',
+      `  Toplam brüt: ${formatTL(result.totalBrut)} (${quantity} × ${formatTL(result.unitBrut)})`,
       '',
       '──────────────────────────────',
-      `  Brüt:  ${formatTL(result.totalBrut)}`,
-      `  GV:    -${formatTL(result.gvKesinti)}`,
-      `  DV:    -${formatTL(result.dvKesinti)}`,
+      'SONUÇ',
+      '──────────────────────────────',
       `  Net:   ${formatTL(result.net)}`,
+      `  Brüt:  ${formatTL(result.totalBrut)}`,
+      `  GV:    −${formatTL(result.gvKesinti)} (hesaplanan GV ${formatTL(result.taxOnBrut)})`,
+      `  DV:    −${formatTL(result.dvKesinti)}`,
+      '',
+      'Bilgilendirme amaçlıdır. Kurum uygulamasına göre farklılık olabilir.',
     ].join('\n');
-  }, [catalog, selectedCategory, selectedRole, quantity, taxRate, result]);
+  }, [catalog, selectedCategory, selectedRole, quantity, taxRate, gvUsed, dvUsed, result]);
+
+  const resultCardRef = useRef<HTMLDivElement>(null);
 
   const handleShare = useCallback(async () => {
     const text = buildShareText();
     if (!text) return;
     try {
       if (typeof navigator !== 'undefined' && navigator.share) {
-        await navigator.share({ title: 'Sınav görev ücreti', text });
-        toast.success('Paylaşıldı');
+        let shareData: ShareData = { title: 'Sınav görev ücreti', text };
+        let withImage = false;
+        if (resultCardRef.current && typeof window !== 'undefined') {
+          try {
+            const html2canvas = (await import('html2canvas')).default;
+            const canvas = await html2canvas(resultCardRef.current, {
+              backgroundColor: '#ffffff',
+              scale: 2,
+              useCORS: true,
+            });
+            const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png', 0.95));
+            if (blob) {
+              const file = new File([blob], 'sinav-gorev-sonuc.png', { type: 'image/png' });
+              const withFile = { ...shareData, files: [file] } as ShareData;
+              if (navigator.canShare?.(withFile)) {
+                shareData = withFile;
+                withImage = true;
+              }
+            }
+          } catch {
+            /* görsel yoksa yalnız metin */
+          }
+        }
+        await navigator.share(shareData);
+        toast.success(withImage ? 'Kart görseli + metin paylaşıldı' : 'Metin paylaşıldı (görsel eklenemedi veya desteklenmiyor)');
       } else if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
-        toast.success('Panoya kopyalandı');
+        toast.success('Metin panoya kopyalandı');
       } else {
         toast.error('Paylaşım desteklenmiyor');
       }
@@ -875,7 +913,10 @@ export default function SinavGorevUcretleriPage() {
 
             {/* ── right aside — result ── */}
             <aside className="order-2 lg:sticky lg:top-6 lg:self-start" role="region" aria-live="polite" aria-label="Hesaplama sonucu">
-              <div className="relative overflow-hidden rounded-t-3xl border border-b-0 border-violet-200/80 bg-white shadow-[0_-8px_32px_-8px_rgba(0,0,0,0.1)] dark:border-violet-900/50 dark:bg-zinc-900 lg:rounded-2xl lg:border-b lg:shadow-lg">
+              <div
+                ref={resultCardRef}
+                className="relative overflow-hidden rounded-t-3xl border border-b-0 border-violet-200/80 bg-white shadow-[0_-8px_32px_-8px_rgba(0,0,0,0.1)] dark:border-violet-900/50 dark:bg-zinc-900 lg:rounded-2xl lg:border-b lg:shadow-lg"
+              >
                 <div className="absolute inset-0 bg-linear-to-br from-violet-500/10 via-fuchsia-500/5 to-amber-500/5" />
                 <DotPattern />
                 <div className="relative p-6 pb-8 sm:pb-6" style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}>
@@ -915,6 +956,47 @@ export default function SinavGorevUcretleriPage() {
                           {quantity > 1 ? ` · ${quantity} oturum` : ''}
                         </p>
                       </div>
+
+                      {selectedCategory && selectedRole ? (
+                        <div className="mb-5 rounded-xl border border-violet-200/70 bg-violet-50/40 p-4 dark:border-violet-900/40 dark:bg-violet-950/25">
+                          <p className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-violet-800 dark:text-violet-300">
+                            Hesaplanan girdiler
+                          </p>
+                          <ul className="space-y-1.5 text-xs text-zinc-700 dark:text-zinc-300">
+                            <li className="flex justify-between gap-2">
+                              <span className="text-zinc-500 dark:text-zinc-400">Dönem</span>
+                              <span className="min-w-0 text-right font-medium">{catalog.period_label}</span>
+                            </li>
+                            <li className="flex justify-between gap-2">
+                              <span className="text-zinc-500 dark:text-zinc-400">Kurum</span>
+                              <span className="min-w-0 text-right font-medium">
+                                {getCatMeta(selectedCategory.id).label || selectedCategory.label}
+                              </span>
+                            </li>
+                            <li className="flex justify-between gap-2">
+                              <span className="text-zinc-500 dark:text-zinc-400">Görev</span>
+                              <span className="min-w-0 text-right font-medium">{selectedRole.label}</span>
+                            </li>
+                            <li className="flex justify-between gap-2 border-t border-violet-200/50 pt-2 dark:border-violet-900/40">
+                              <span className="text-zinc-500 dark:text-zinc-400">Birim brüt</span>
+                              <span className="tabular-nums font-semibold text-zinc-900 dark:text-zinc-100">
+                                {formatTL(result.unitBrut)}
+                              </span>
+                            </li>
+                            <li className="flex justify-between gap-2">
+                              <span className="text-zinc-500 dark:text-zinc-400">Oturum / adet</span>
+                              <span className="tabular-nums font-semibold text-zinc-900 dark:text-zinc-100">{quantity}</span>
+                            </li>
+                            <li className="flex justify-between gap-2 font-semibold text-zinc-900 dark:text-zinc-100">
+                              <span>Brüt toplam</span>
+                              <span className="tabular-nums">
+                                {formatTL(result.totalBrut)}
+                                {quantity > 1 ? ` (${quantity}×)` : ''}
+                              </span>
+                            </li>
+                          </ul>
+                        </div>
+                      ) : null}
 
                       {/* breakdown */}
                       <dl className="space-y-2 text-sm">
