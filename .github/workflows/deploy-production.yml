@@ -1,5 +1,6 @@
 # Production: SSH to server, run scripts/deploy/server-deploy.sh (git pull, build, pm2).
 # Repo secrets: DEPLOY_SSH_HOST, DEPLOY_SSH_USER, DEPLOY_SSH_KEY
+# Sunucu firewall: SSH (22) GitHub runner IP’leri dinamik; UFW’de 22’yi test için genisletebilir veya self-hosted runner kullanin.
 
 name: Deploy production
 
@@ -33,10 +34,12 @@ jobs:
           username: ${{ secrets.DEPLOY_SSH_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: 22
+          timeout: 60s
           command_timeout: 20m
           script_stop: true
+          debug: true
           script: |
-            set -e
+            set -eux
             test -d /opt/uzaedu
             cd /opt/uzaedu
             bash scripts/deploy/server-deploy.sh
