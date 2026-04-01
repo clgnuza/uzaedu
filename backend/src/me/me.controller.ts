@@ -6,7 +6,7 @@ import { TeacherSchoolMembershipStatus } from '../types/enums';
 import { effectiveTeacherSchoolMembership } from '../common/utils/teacher-school-membership';
 import { schoolJoinStage } from '../common/utils/school-join-stage';
 import { AuditService } from '../audit/audit.service';
-import { JwtAuthGuard } from '../auth/guards/auth.guard';
+import { JwtAuthGuard, OptionalJwtAuthGuard } from '../auth/guards/auth.guard';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
 import { UpdateMeDto } from '../users/dto/update-me.dto';
 import { ChangePasswordDto } from '../users/dto/change-password.dto';
@@ -15,7 +15,6 @@ import { MeDataExportService } from './me-data-export.service';
 import { MeDataImportService } from './me-data-import.service';
 
 @Controller('me')
-@UseGuards(JwtAuthGuard)
 export class MeController {
   constructor(
     private readonly usersService: UsersService,
@@ -24,8 +23,13 @@ export class MeController {
     private readonly meDataImportService: MeDataImportService,
   ) {}
 
+  /** Oturum yoksa 401 değil 200 + null (tarayıcı konsol gürültüsü ve önbellek uyumu). */
   @Get()
-  async get(@CurrentUser() payload: CurrentUserPayload) {
+  @UseGuards(OptionalJwtAuthGuard)
+  async get(@CurrentUser() payload: CurrentUserPayload | null) {
+    if (!payload?.userId) {
+      return null;
+    }
     const user = await this.usersService.findById(payload.userId);
     const eff = effectiveTeacherSchoolMembership(user);
     return {
@@ -65,6 +69,7 @@ export class MeController {
   }
 
   @Post('resend-school-join-email')
+  @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 5, ttl: 600000 } })
   @HttpCode(200)
   async resendSchoolJoinEmail(@CurrentUser('userId') userId: string) {
@@ -72,6 +77,7 @@ export class MeController {
   }
 
   @Patch()
+  @UseGuards(JwtAuthGuard)
   async update(@CurrentUser('userId') userId: string, @Body() dto: UpdateMeDto) {
     const user = await this.usersService.updateMe(userId, dto);
     const eff = effectiveTeacherSchoolMembership(user);
@@ -95,6 +101,7 @@ export class MeController {
   }
 
   @Patch('password')
+  @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 15, ttl: 60000 } })
   async changePassword(
     @CurrentUser() payload: CurrentUserPayload,
@@ -118,6 +125,7 @@ export class MeController {
   }
 
   @Get('data-export')
+  @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 10, ttl: 3600000 } })
   async dataExport(
     @CurrentUser() payload: CurrentUserPayload,
@@ -137,6 +145,7 @@ export class MeController {
   }
 
   @Post('data-import')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(200)
   @Throttle({ default: { limit: 5, ttl: 3600000 } })
   async dataImport(
@@ -159,6 +168,7 @@ export class MeController {
   }
 
   @Delete('account')
+  @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 5, ttl: 3600000 } })
   async deleteAccount(
     @CurrentUser() payload: CurrentUserPayload,

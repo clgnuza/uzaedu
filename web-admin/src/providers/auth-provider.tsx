@@ -103,7 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const runOnce = async (): Promise<Me | null> => {
       const requestKey = noCache ? `nocache:${token ?? 'cookie'}:${Date.now()}` : `cache:${token ?? 'cookie'}`;
       const existing = meRequestCache.get(requestKey);
-      const request = existing ?? apiFetch<Me>(
+      const request = existing ?? apiFetch<Me | null>(
         noCache ? `/me?_=${Date.now()}` : '/me',
         { token: token ?? undefined, ...(noCache && { cache: 'no-store' }) }
       );
@@ -120,9 +120,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       try {
         const data = await request;
-        setMe(data);
+        setMe(data ?? null);
         setError(null);
-        return data;
+        return data ?? null;
       } catch (e) {
         const ae = e as ApiError;
         if (ae.status === 401 && token && !retried401) {
