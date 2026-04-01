@@ -16,7 +16,7 @@ import { safeStorageGetItem, safeStorageRemoveItem, safeStorageSetItem } from '@
 import type { WebAdminRole } from '@/config/types';
 
 const TOKEN_KEY = 'ogretmenpro_token';
-const meRequestCache = new Map<string, Promise<Me>>();
+const meRequestCache = new Map<string, Promise<Me | null>>();
 const PUBLIC_AUTH_PATHS = new Set(['/login', '/register', '/forgot-password', '/reset-password', '/verify-school-email']);
 
 /** Evrak formu varsayılan değerleri (profil ayarlarından) */
