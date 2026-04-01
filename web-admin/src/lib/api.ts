@@ -38,8 +38,14 @@ const CONNECTION_ERROR_MESSAGE =
   'Backend bağlantısı kurulamadı. Önce backend\'i başlatın (backend: npm run start:dev), birkaç saniye bekleyip sayfayı yenileyin.';
 
 export function getApiUrl(path: string): string {
+  return buildApiUrl(path, baseUrl);
+}
+
+/** İsteğe bağlı farklı API kökü (ör. yerel geliştirmede sadece /deploy için canlı API). */
+export function buildApiUrl(path: string, apiRoot: string): string {
+  const root = apiRoot.replace(/\/$/, '');
   const p = path.startsWith('/') ? path : `/${path}`;
-  return `${baseUrl.replace(/\/$/, '')}${p}`;
+  return `${root}${p}`;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -94,9 +100,10 @@ export function isAbortError(e: unknown): boolean {
 
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit & { token?: string | null } = {}
+  options: RequestInit & { token?: string | null; apiBase?: string | null } = {}
 ): Promise<T> {
-  const { token, ...init } = options;
+  const { token, apiBase, ...init } = options;
+  const requestBase = (apiBase != null && String(apiBase).trim() !== '' ? String(apiBase).trim() : null) ?? baseUrl;
   const isFormData = init.body instanceof FormData;
   const headers: Record<string, string> = {
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
@@ -109,7 +116,7 @@ export async function apiFetch<T>(
   let lastConn: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const res = await fetch(getApiUrl(path), {
+      const res = await fetch(buildApiUrl(path, requestBase), {
         ...init,
         headers,
         cache: init.cache ?? 'no-store',
