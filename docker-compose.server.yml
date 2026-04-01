@@ -1,0 +1,31 @@
+# Sunucu (Hetzner): PostgreSQL — yerel docker-compose.yml ile aynı imaj (postgres:16-alpine)
+#
+# Kurulum (sunucuda, /opt/uzaedu):
+#   apt install -y docker.io docker-compose-v2
+#   systemctl enable --now docker
+#
+# İlk kez: yerel PostgreSQL (apt) ile 5432 çakışır — önce veri yedekle, servisi durdur:
+#   sudo -u postgres pg_dump -Fc ogretmenpro > /root/ogretmenpro.dump
+#   systemctl stop postgresql && systemctl disable postgresql
+#
+# Çalıştır:
+#   cd /opt/uzaedu && docker compose -f docker-compose.server.yml --env-file backend/.env up -d
+#
+# DB_PASSWORD: guclu deger kullan; sunucuda degistirme: infra/scripts/rotate-postgres-password.sh
+# Sadece localhost’tan DB erişimi (güvenlik):
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ogretmenpro-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-ogretmenpro}
+      POSTGRES_USER: ${DB_USERNAME:-ogretmenpro}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ogretmenpro_pgdata:/var/lib/postgresql/data
+
+volumes:
+  ogretmenpro_pgdata:
