@@ -35,7 +35,12 @@ export const env = {
     secret: process.env.JWT_SECRET || 'dev-secret',
     expire: parseInt(process.env.JWT_EXPIRE || '86400', 10),
   },
-  corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001').split(',').map((s) => s.trim()),
+  corsOrigins: (
+    process.env.CORS_ORIGINS ||
+    'http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001,https://admin.uzaedu.com,https://uzaedu.com,https://www.uzaedu.com'
+  )
+    .split(',')
+    .map((s) => s.trim()),
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
   /** Nginx / load balancer arkasında doğru client IP için (X-Forwarded-For) */
   trustProxy: process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY === '1',
