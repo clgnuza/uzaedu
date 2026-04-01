@@ -1,12 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   User,
   Building2,
   Users,
-  BarChart3,
   Mail,
   Info,
   CheckCircle2,
@@ -58,20 +57,21 @@ const BRANCH_OPTIONS = [
   'Birleştirilmiş Sınıf (1-2, 3-4)',
 ];
 
-type TabId = 'hesap' | 'okul' | 'zumre' | 'limitlerim' | 'yedek';
+type TabId = 'hesap' | 'okul' | 'zumre' | 'yedek';
 
-const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
-  { id: 'hesap', label: 'Hesap', icon: User },
-  { id: 'okul', label: 'Okul ve Branş', icon: Building2 },
-  { id: 'zumre', label: 'Zümre', icon: Users },
-  { id: 'limitlerim', label: 'Limitlerim', icon: BarChart3 },
-  { id: 'yedek', label: 'Yedek', icon: FileDown },
+const TABS: { id: TabId; label: string; ariaLabel: string; icon: React.ElementType }[] = [
+  { id: 'hesap', label: 'Hesap', ariaLabel: 'Hesap', icon: User },
+  { id: 'okul', label: 'Okul', ariaLabel: 'Okul ve branş', icon: Building2 },
+  { id: 'zumre', label: 'Zümre', ariaLabel: 'Zümre', icon: Users },
+  { id: 'yedek', label: 'Yedek', ariaLabel: 'Yedek', icon: FileDown },
 ];
 
-const TAB_IDS: TabId[] = ['hesap', 'okul', 'zumre', 'limitlerim', 'yedek'];
+const TAB_IDS: TabId[] = ['hesap', 'okul', 'zumre', 'yedek'];
 
 export function TeacherAccountTabs() {
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
   const { token, me, refetchMe } = useAuth();
   const [tab, setTab] = useState<TabId>('hesap');
   const [displayName, setDisplayName] = useState(me?.display_name ?? '');
@@ -112,6 +112,14 @@ export function TeacherAccountTabs() {
   useEffect(() => {
     setNameMasked(me?.teacher_public_name_masked !== false);
   }, [me?.teacher_public_name_masked]);
+
+  const goTab = (id: TabId) => {
+    if (tab === id) return;
+    setTab(id);
+    const next = new URLSearchParams(searchParams.toString());
+    next.set('tab', id);
+    router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+  };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -215,29 +223,38 @@ export function TeacherAccountTabs() {
 
   return (
     <div className="space-y-4">
-      {/* Sekme navigasyonu – kompakt pill, bulutsal geçiş */}
-      <div className="mobile-tab-scroll pb-1">
-        <div className="flex min-w-max gap-1 rounded-xl border border-border/60 bg-linear-to-r from-muted/20 via-muted/30 to-muted/20 p-1 shadow-inner dark:border-zinc-700/60 dark:from-zinc-800/80 dark:via-zinc-800/60 dark:to-zinc-800/80">
-        {TABS.map((t) => {
-          const Icon = t.icon;
-          const isActive = tab === t.id;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={cn(
-                'flex min-w-[132px] shrink-0 items-center gap-1.5 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-300 ease-out',
-                isActive
-                  ? 'bg-background/95 text-foreground shadow-sm ring-1 ring-primary/25 backdrop-blur-sm dark:bg-zinc-800/90 dark:ring-zinc-600/50'
-                  : 'text-muted-foreground hover:bg-background/40 hover:text-foreground dark:hover:bg-zinc-800/50',
-              )}
-            >
-              <Icon className={cn('size-3.5 shrink-0', isActive ? 'text-primary' : '')} />
-              {t.label}
-            </button>
-          );
-        })}
+      <div
+        className="rounded-2xl border border-border/50 bg-muted/45 p-1 dark:border-zinc-800 dark:bg-zinc-900/55"
+        role="tablist"
+        aria-label="Profil bölümleri"
+      >
+        <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
+          {TABS.map((t) => {
+            const Icon = t.icon;
+            const isActive = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                aria-label={t.ariaLabel}
+                onClick={() => goTab(t.id)}
+                className={cn(
+                  'flex min-h-11 items-center justify-center gap-2 rounded-xl px-2 py-2.5 text-center text-sm font-medium transition-[color,box-shadow,background-color] duration-200',
+                  isActive
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:bg-background/80 hover:text-foreground dark:hover:bg-zinc-800/50',
+                )}
+              >
+                <Icon
+                  className={cn('size-4 shrink-0', isActive ? 'text-primary-foreground' : 'opacity-80')}
+                  aria-hidden
+                />
+                <span className="truncate">{t.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -523,24 +540,6 @@ export function TeacherAccountTabs() {
               schoolPrincipal={me?.school?.principalName ?? undefined}
               onSuccess={refetchMe}
             />
-          </CardContent>
-        </Card>
-      )}
-
-      {tab === 'limitlerim' && (
-        <Card className="overflow-hidden border-border/50 shadow-sm bg-card/90 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/95">
-          <CardContent className="py-12 md:py-14">
-            <div className="flex flex-col items-center justify-center gap-4 text-center">
-              <div className="flex size-14 items-center justify-center rounded-2xl bg-linear-to-br from-muted/60 via-muted/40 to-muted/60 dark:from-zinc-800 dark:via-zinc-700/80 dark:to-zinc-800 ring-2 ring-border/20 dark:ring-zinc-600/40 transition-all duration-300">
-                <BarChart3 className="size-7 text-muted-foreground" />
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-foreground">Limitlerim</h3>
-                <p className="mt-1.5 max-w-xs text-sm text-muted-foreground leading-relaxed">
-                  Kullanım limitleri ve kotanız burada görüntülenecektir. Bu özellik yakında eklenecektir.
-                </p>
-              </div>
-            </div>
           </CardContent>
         </Card>
       )}

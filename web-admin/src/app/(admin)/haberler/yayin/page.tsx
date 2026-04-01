@@ -11,10 +11,8 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
 import {
   Newspaper,
-  ExternalLink,
   ArrowLeft,
   MapPin,
-  Sparkles,
   Layers,
   Clock,
   ChevronLeft,
@@ -29,6 +27,8 @@ import {
 } from 'lucide-react';
 import { contentReadPath } from '@/lib/content-read-path';
 import { normalizeMebIlImageUrl } from '@/lib/meb-image-url';
+import { CONTENT_TYPE_LABELS } from '@/lib/haber-news-overlay';
+import { HaberOverlayBands } from '@/components/haber/haber-overlay-bands';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 type Source = { id: string; key: string; label: string };
@@ -62,11 +62,6 @@ function formatRelativeDate(iso: string | null): string {
   return formatDate(iso);
 }
 
-function stripHtml(html: string | null): string {
-  if (!html) return '';
-  return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
-}
-
 /** Aynı haber farklı kaynaklardan veya tekrar sync ile çift satırda gelebilir; URL’ye göre ilk kaydı tut (API sırası: en güncel önce). */
 function dedupeContentItemsByUrl(items: ContentItem[]): ContentItem[] {
   const seen = new Set<string>();
@@ -79,56 +74,6 @@ function dedupeContentItemsByUrl(items: ContentItem[]): ContentItem[] {
     out.push(item);
   }
   return out;
-}
-
-function IlNewsCard({ item }: { item: ContentItem }) {
-  const [imgError, setImgError] = useState(false);
-  return (
-    <Card className="overflow-hidden transition-all hover:shadow-md hover:border-emerald-300/60 dark:hover:border-emerald-700/60 group">
-      <a
-        href={item.source_url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex min-h-[72px] flex-row sm:h-20"
-      >
-        <div className="relative h-[72px] w-20 min-w-[80px] shrink-0 overflow-hidden bg-muted sm:h-20">
-          {item.image_url && !imgError ? (
-            <img
-              src={normalizeMebIlImageUrl(item.image_url) ?? item.image_url}
-              alt=""
-              referrerPolicy="no-referrer"
-              onError={() => setImgError(true)}
-              className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center">
-              <Newspaper className="h-6 w-6 text-muted-foreground/50" />
-            </div>
-          )}
-        </div>
-        <div className="flex min-w-0 flex-1 flex-col justify-between p-3">
-          <div>
-            <span className="mb-1 inline-flex items-center gap-1 rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
-              {item.source_label ?? 'İl MEB'}
-            </span>
-            <h3 className="line-clamp-2 text-sm font-medium leading-snug text-foreground transition-colors group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
-              {item.title}
-            </h3>
-            {item.published_at && (
-              <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                <Clock className="h-3 w-3" />
-                {formatRelativeDate(item.published_at) || formatDate(item.published_at)}
-              </span>
-            )}
-          </div>
-          <span className="mt-1.5 inline-flex w-fit items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-            <ExternalLink className="h-3 w-3" />
-            Kaynağa git
-          </span>
-        </div>
-      </a>
-    </Card>
-  );
 }
 
 function NewsCardImage({ src, isHero }: { src: string; isHero: boolean }) {
@@ -147,8 +92,79 @@ function NewsCardImage({ src, isHero }: { src: string; isHero: boolean }) {
       alt=""
       referrerPolicy="no-referrer"
       onError={() => setError(true)}
-      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+      className="h-full w-full object-cover motion-safe:transition-transform motion-safe:duration-500 motion-reduce:transition-none group-hover/card:scale-[1.03]"
     />
+  );
+}
+
+/** Yayın kartı: gridde alt bar yok; yalnızca hero’da alt bilgi şeridi. */
+function YayinBroadcastCard({ item, variant }: { item: ContentItem; variant: 'hero' | 'default' }) {
+  const isHero = variant === 'hero';
+  const typeLabel = CONTENT_TYPE_LABELS[item.content_type] ?? item.content_type;
+
+  const metaHero = (
+    <div className="absolute inset-x-0 bottom-0 z-20 flex h-10 items-center justify-between gap-2 border-t border-white/15 bg-black/85 px-2.5 backdrop-blur-md sm:h-11 sm:px-3">
+      <span className="inline-flex max-w-[44%] shrink-0 truncate rounded-md border border-white/15 bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-100">
+        {typeLabel}
+      </span>
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-[11px] text-zinc-400 sm:text-xs">
+        <span className="truncate font-medium text-zinc-100">{item.source_label ?? 'Kaynak'}</span>
+        {item.published_at && (
+          <span className="flex shrink-0 items-center gap-1 tabular-nums text-zinc-500">
+            <Clock className="h-3.5 w-3.5 opacity-90" />
+            {formatRelativeDate(item.published_at) || formatDate(item.published_at)}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <Card
+      className={cn(
+        'group/card overflow-hidden border border-zinc-800/90 bg-zinc-950 shadow-lg ring-1 ring-white/5 transition-all duration-300 hover:border-amber-500/30 hover:shadow-xl hover:ring-amber-500/15',
+        isHero && 'mx-auto max-w-5xl border-zinc-700/80 shadow-2xl',
+      )}
+    >
+      <a
+        href={item.source_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={item.title}
+        className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+      >
+        <div
+          className={cn(
+            'relative overflow-hidden bg-black after:pointer-events-none after:absolute after:inset-0',
+            isHero
+              ? 'aspect-2/1 min-h-[200px] after:shadow-[inset_0_-40px_64px_-24px_rgba(0,0,0,0.5)] sm:aspect-21/9 sm:min-h-[260px]'
+              : 'aspect-video after:shadow-[inset_0_-24px_40px_-14px_rgba(0,0,0,0.32)]',
+          )}
+        >
+          {item.image_url ? (
+            <NewsCardImage src={item.image_url} isHero={isHero} />
+          ) : (
+            <div className="flex h-full min-h-[120px] w-full items-center justify-center bg-zinc-900">
+              <Newspaper className={cn('text-zinc-600', isHero ? 'h-16 w-16' : 'h-12 w-12')} />
+            </div>
+          )}
+          <div
+            className={cn(
+              'pointer-events-none absolute inset-x-0 bg-linear-to-t to-transparent',
+              isHero ? 'bottom-0 h-[58%] from-black/85 via-black/35' : 'bottom-0 h-[50%] from-black/65 via-black/28',
+            )}
+            aria-hidden
+          />
+          <HaberOverlayBands
+            item={item}
+            density={isHero ? 'broadcastHero' : 'broadcast'}
+            compact={!isHero}
+            bottomOffsetClass={isHero ? 'bottom-11 sm:bottom-12' : undefined}
+          />
+          {isHero && metaHero}
+        </div>
+      </a>
+    </Card>
   );
 }
 
@@ -357,59 +373,6 @@ export default function HaberYayinPage() {
   const [mebHero, ...mebRest] = mebItems;
   const currentSlideItem = allItems[slideIndex] ?? allItems[0];
 
-  function NewsCard({ item, variant = 'default' }: { item: ContentItem; variant?: 'hero' | 'default' }) {
-    const isHero = variant === 'hero';
-    return (
-      <Card className="overflow-hidden transition-all hover:shadow-lg group">
-        <a
-          href={item.source_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block"
-        >
-          <div className={cn('relative overflow-hidden', isHero ? 'aspect-21/9 min-h-[180px]' : 'aspect-video')}>
-            {item.image_url ? (
-              <NewsCardImage src={item.image_url} isHero={isHero} />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center bg-muted">
-                <Newspaper className={cn('text-muted-foreground', isHero ? 'h-16 w-16' : 'h-12 w-12')} />
-              </div>
-            )}
-            <div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/20 to-transparent" />
-            <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-5">
-              <h3 className={cn(
-                'font-semibold leading-snug text-white',
-                isHero ? 'text-lg sm:text-xl line-clamp-3' : 'text-base line-clamp-2',
-              )}>
-                {item.title}
-              </h3>
-              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-white/90">
-                <span className="rounded-md bg-white/25 px-2 py-0.5 text-xs font-medium backdrop-blur-sm">
-                  {item.source_label ?? 'MEB'}
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <Clock className="h-3.5 w-3.5" />
-                  {formatRelativeDate(item.published_at) || formatDate(item.published_at)}
-                </span>
-              </div>
-            </div>
-          </div>
-          {isHero && item.summary && stripHtml(item.summary) && (
-            <div className="border-t border-border p-4 sm:p-5">
-              <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">
-                {stripHtml(item.summary)}
-              </p>
-              <span className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-primary">
-                <ExternalLink className="h-4 w-4" />
-                Kaynağa git
-              </span>
-            </div>
-          )}
-        </a>
-      </Card>
-    );
-  }
-
   const fullscreenOverlay = fullscreenMode && allItems.length > 0 && (
     <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-card/95 px-4 py-2 shadow-lg backdrop-blur-sm">
       <button
@@ -440,77 +403,67 @@ export default function HaberYayinPage() {
   );
 
   return (
-    <div ref={containerRef} className="relative">
-      {/* Bulutsu arka plan – yumuşak renk geçişi */}
+    <div
+      ref={containerRef}
+      className="relative pb-[calc(6rem+env(safe-area-inset-bottom,0px))] md:pb-20"
+    >
       <div
         className="pointer-events-none absolute inset-0 -z-10 rounded-2xl"
         aria-hidden
         style={{
           background: `
-            radial-gradient(ellipse 80% 50% at 20% 10%, rgba(59, 130, 246, 0.15) 0%, transparent 55%),
-            radial-gradient(ellipse 60% 40% at 85% 85%, rgba(34, 197, 94, 0.1) 0%, transparent 50%),
-            radial-gradient(ellipse 70% 60% at 50% 50%, rgba(147, 197, 253, 0.08) 0%, transparent 65%),
-            linear-gradient(180deg, hsl(var(--background)) 0%, hsl(220 14% 96%) 35%, hsl(214 32% 91%) 100%)
+            radial-gradient(ellipse 70% 45% at 15% 0%, rgba(251, 191, 36, 0.08) 0%, transparent 50%),
+            radial-gradient(ellipse 50% 35% at 90% 20%, rgba(59, 130, 246, 0.06) 0%, transparent 45%),
+            linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--background)) 100%)
           `,
         }}
       />
-      <div className="space-y-5">
-      {/* Başlık */}
-      <header className="relative overflow-hidden rounded-2xl border border-border/70 bg-card/80 p-5 shadow-sm ring-1 ring-border/30 backdrop-blur-sm sm:p-6">
-        <div
-          className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-primary/12 blur-3xl"
-          aria-hidden
-        />
-        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 space-y-2">
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-widest text-primary">
-              <Sparkles className="h-3.5 w-3.5" />
-              Canlı önizleme
-            </div>
-            <h1 className="text-balance text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-              Haber Yayını
-            </h1>
-            <p className="max-w-lg text-sm leading-relaxed text-muted-foreground">
-              MEB içeriklerini slayt veya tam ekranda sunun; birim seçerek akışı daraltın.
-            </p>
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
-            <Link
-              href="/haberler"
-              className="inline-flex items-center gap-2 rounded-xl border border-border bg-background/80 px-3.5 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-muted"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              <span className="hidden sm:inline">Haberler</span>
-            </Link>
-            {isAdmin && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="rounded-xl border-border/80"
-                  onClick={handleRefresh}
-                  disabled={refreshing}
+      <div className="space-y-6">
+      <header className="flex flex-col gap-4 rounded-2xl border border-border/60 bg-card/90 p-4 shadow-sm ring-1 ring-border/25 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div className="min-w-0 space-y-1">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Yayın</p>
+          <h1 className="text-balance text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+            Haber yayını
+          </h1>
+          <p className="max-w-xl text-sm text-muted-foreground">
+            MEB akışı, slayt ve tam ekran. Birim seçerek daraltın.
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Link
+            href="/haberler"
+            className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-medium transition-colors hover:bg-muted"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Haberler
+          </Link>
+          {isAdmin && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl"
+                onClick={handleRefresh}
+                disabled={refreshing}
+              >
+                <RefreshCw className={cn('mr-1.5 h-4 w-4', refreshing && 'animate-spin')} />
+                {refreshing ? '…' : 'Yenile'}
+              </Button>
+              {me?.role === 'superadmin' && (
+                <Link
+                  href="/haberler/ayarlar"
+                  className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-medium transition-colors hover:bg-muted"
                 >
-                  <RefreshCw className={cn('mr-1.5 h-4 w-4', refreshing && 'animate-spin')} />
-                  <span className="hidden sm:inline">{refreshing ? 'Yenileniyor…' : 'Yenile'}</span>
-                </Button>
-                {me?.role === 'superadmin' && (
-                  <Link
-                    href="/haberler/ayarlar"
-                    className="inline-flex items-center gap-2 rounded-xl border border-border bg-background/80 px-3.5 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-muted"
-                  >
-                    <Settings className="h-4 w-4" />
-                    <span className="hidden sm:inline">Ayarlar</span>
-                  </Link>
-                )}
-              </>
-            )}
-          </div>
+                  <Settings className="h-4 w-4" />
+                  <span className="hidden sm:inline">Ayarlar</span>
+                </Link>
+              )}
+            </>
+          )}
         </div>
       </header>
 
-      {/* Sticky: birim + oynatıcı */}
-      <div className="sticky top-0 z-1 w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/70 bg-background/90 shadow-md ring-1 ring-border/40 backdrop-blur-md">
+      <div className="sticky top-0 z-10 w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/60 bg-background/95 shadow-sm ring-1 ring-border/30 backdrop-blur-md">
         {(sources.length > 0 || loadingSources) && (
           <>
             <div className="border-b border-border/50 px-4 pb-3 pt-4 md:hidden">
@@ -677,99 +630,85 @@ export default function HaberYayinPage() {
       ) : (slideMode || fullscreenMode) && currentSlideItem ? (
         <div className={cn(fullscreenMode && 'flex min-h-[60vh] items-center justify-center')}>
           <div className="w-full max-w-4xl">
-            <NewsCard item={currentSlideItem} variant="hero" />
+            <YayinBroadcastCard item={currentSlideItem} variant="hero" />
           </div>
         </div>
       ) : (
-        <div className="space-y-6">
-          {mebHero && <NewsCard item={mebHero} variant="hero" />}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="space-y-8">
+          {mebHero && <YayinBroadcastCard item={mebHero} variant="hero" />}
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {mebRest.slice(0, 8).map((item) => (
-              <NewsCard key={item.id} item={item} />
+              <YayinBroadcastCard key={item.id} item={item} variant="default" />
             ))}
           </div>
         </div>
       )}
 
-      {/* İl Haberleri – farklı tasarım: emerald ton, yatay kartlar */}
-      <Card className="overflow-hidden border-emerald-200/60 bg-linear-to-br from-emerald-50/50 to-transparent dark:border-emerald-900/40 dark:from-emerald-950/20">
-        <div className="border-l-4 border-emerald-500">
-          <CardContent className="p-5">
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-900/50">
-                <MapPin className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">
-                  {userCity ? `${userCity} İl Haberleri` : 'İl Haberleri'}
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  {userCity ? 'İlinize özel duyurular' : 'Okul profilinizde il tanımlı olmalı'}
-                </p>
-              </div>
-            </div>
-
-            {!userCity ? (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/30">
-                <p className="text-sm text-amber-800 dark:text-amber-200">
-                  İl haberlerini görmek için okul profilinizde il bilgisi tanımlı olmalıdır.
-                </p>
-              </div>
-            ) : loadingIl ? (
-              <div className="flex justify-center py-8">
-                <LoadingSpinner />
-              </div>
-            ) : ilItems.length === 0 ? (
-              <EmptyState
-                icon={<Newspaper className="size-10 text-muted-foreground" />}
-                title={`${userCity} için henüz haber yok`}
-                description="İl millî eğitim duyuruları senkronize edildiğinde burada listelenecek."
-              />
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {ilItems.slice(0, 8).map((item) => (
-                  <IlNewsCard key={item.id} item={item} />
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </div>
-      </Card>
-
-      {/* Alt bölüm: Kısayollar, Yenile, Ayarlar */}
-      <Card className="border-dashed">
-        <CardContent className="py-4">
-          <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-            <div className="flex flex-wrap items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Keyboard className="h-4 w-4 text-muted-foreground" />
-                <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Klavye kısayolları
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                <kbd className="rounded border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-xs">←</kbd>
-                <kbd className="rounded border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-xs">→</kbd>
-                Önceki/Sonraki
-                <span className="text-border">·</span>
-                <kbd className="rounded border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-xs">F</kbd>
-                Tam ekran
-                <span className="text-border">·</span>
-                <kbd className="rounded border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-xs">Space</kbd>
-                Slayt başlat/durdur
-                <span className="text-border">·</span>
-                <kbd className="rounded border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-xs">Esc</kbd>
-                Tam ekrandan çık
-              </div>
-            </div>
-            <div className="flex items-center gap-2 border-t border-border pt-4 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
-              <span className="text-xs text-muted-foreground">
-                Son güncelleme: {formatRelativeTime(lastFetchAt)}
-              </span>
-            </div>
+      <section className="rounded-2xl border border-emerald-500/25 bg-emerald-950/10 p-4 sm:p-5 dark:bg-emerald-950/20">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+            <MapPin className="h-5 w-5" />
           </div>
-        </CardContent>
-      </Card>
+          <div>
+            <h2 className="text-base font-semibold tracking-tight">
+              {userCity ? `${userCity} · İl haberleri` : 'İl haberleri'}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {userCity ? 'İl duyuruları' : 'Okul profilinde il gerekir'}
+            </p>
+          </div>
+        </div>
+
+        {!userCity ? (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
+            İl listesi için okul profilinizde il tanımlayın.
+          </p>
+        ) : loadingIl ? (
+          <div className="flex justify-center py-8">
+            <LoadingSpinner />
+          </div>
+        ) : ilItems.length === 0 ? (
+          <EmptyState
+            icon={<Newspaper className="size-10 text-muted-foreground" />}
+            title={`${userCity} için henüz haber yok`}
+            description="Senkron sonrası il duyuruları burada görünür."
+          />
+        ) : (
+          <div className="grid gap-5 sm:grid-cols-2">
+            {ilItems.slice(0, 8).map((item) => (
+              <YayinBroadcastCard key={item.id} item={item} variant="default" />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <details className="group rounded-xl border border-dashed border-border/60 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+        <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">
+          <Keyboard className="h-4 w-4 shrink-0 opacity-70" />
+          Klavye kısayolları
+          <span className="ml-auto text-xs opacity-70 group-open:hidden">Aç</span>
+        </summary>
+        <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t border-border/40 pt-3 text-xs">
+          <span>
+            <kbd className="rounded border bg-background px-1 py-0.5 font-mono">←</kbd>{' '}
+            <kbd className="rounded border bg-background px-1 py-0.5 font-mono">→</kbd> slayt
+          </span>
+          <span>
+            <kbd className="rounded border bg-background px-1 py-0.5 font-mono">F</kbd> tam ekran
+          </span>
+          <span>
+            <kbd className="rounded border bg-background px-1 py-0.5 font-mono">Space</kbd> slayt aç/kapa
+          </span>
+          <span>
+            <kbd className="rounded border bg-background px-1 py-0.5 font-mono">Esc</kbd> çık
+          </span>
+          {lastFetchAt && (
+            <span className="w-full pt-1 text-[11px] text-muted-foreground sm:ml-auto sm:w-auto">
+              Güncelleme: {formatRelativeTime(lastFetchAt)}
+            </span>
+          )}
+        </div>
+      </details>
 
       {fullscreenOverlay}
       </div>

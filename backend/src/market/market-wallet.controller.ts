@@ -1,11 +1,14 @@
-import { Controller, ForbiddenException, Get, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { MarketRewardedAdSsvService } from './market-rewarded-ad-ssv.service';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
 import { UserRole } from '../types/enums';
+import type { MarketModuleKey } from '../app-config/market-policy.defaults';
 import { MarketWalletService } from './market-wallet.service';
+import { MarketModuleActivationService } from './market-module-activation.service';
+import { ActivateModuleDto } from './dto/activate-module.dto';
 import { MarketSchoolCreditService } from './market-school-credit.service';
 import { MarketUserCreditService } from './market-user-credit.service';
 
@@ -44,7 +47,42 @@ export class MarketWalletController {
     private readonly schoolCredits: MarketSchoolCreditService,
     private readonly userCredits: MarketUserCreditService,
     private readonly rewardedAdSsv: MarketRewardedAdSsvService,
+    private readonly moduleActivation: MarketModuleActivationService,
   ) {}
+
+  /**
+   * Ücretli modül: superadmin tarifesindeki aylık veya yıllık jeton/ek ders ile bir kez etkinleştirir.
+   * billing_period yoksa: aylık tarife varsa ay, yoksa yıl. Tarife tamamen 0 ise ücretsiz kayıt.
+   */
+  @Post('modules/activate')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  async activateModule(@CurrentUser() payload: CurrentUserPayload, @Body() dto: ActivateModuleDto) {
+    return this.moduleActivation.activateModule(
+      payload.user,
+      dto.module_key as MarketModuleKey,
+      dto.billing_period,
+      dto.target_month,
+      dto.pay_with,
+      dto.idempotency_key,
+    );
+  }
+
+  /** Modülün tüm sekmelerinde tek doğruluk: ücretli ve etkin değilse arayüz tamamen kilitlenir. */
+  @Get('modules/activation-status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  async getModulesActivationStatus(@CurrentUser() payload: CurrentUserPayload) {
+    return this.moduleActivation.getActivationStatus(payload.user);
+  }
+
+  @Get('modules/activation-ledger')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  async getActivationLedger(@CurrentUser() payload: CurrentUserPayload, @Query('limit') limit?: string) {
+    const n = limit ? parseInt(limit, 10) : 30;
+    return this.moduleActivation.listActivationLedger(payload.user, Number.isFinite(n) ? n : 30);
+  }
 
   @Get('wallet')
   @UseGuards(JwtAuthGuard, RolesGuard)

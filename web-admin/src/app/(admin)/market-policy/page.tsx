@@ -41,7 +41,16 @@ import { WEB_SETTINGS_TEXTAREA } from '@/components/web-settings/web-settings-sh
 
 type CurrencyPair = { jeton: number; ekders: number };
 type ModuleScopeUsage = { monthly: CurrencyPair; yearly: CurrencyPair };
-type ModuleEntryNotice = { notice_tr: string | null; notice_en: string | null };
+type ModuleEntryNotice = {
+  notice_tr: string | null;
+  notice_en: string | null;
+  market_href: string | null;
+  cta_market_tr: string | null;
+  cta_market_en: string | null;
+  purchase_href: string | null;
+  cta_purchase_tr: string | null;
+  cta_purchase_en: string | null;
+};
 type ModuleRow = { school: ModuleScopeUsage; teacher: ModuleScopeUsage; entry_notice: ModuleEntryNotice };
 
 function emptyModuleRow(): ModuleRow {
@@ -49,7 +58,16 @@ function emptyModuleRow(): ModuleRow {
   return {
     school: { monthly: z(), yearly: z() },
     teacher: { monthly: z(), yearly: z() },
-    entry_notice: { notice_tr: null, notice_en: null },
+    entry_notice: {
+      notice_tr: null,
+      notice_en: null,
+      market_href: null,
+      cta_market_tr: null,
+      cta_market_en: null,
+      purchase_href: null,
+      cta_purchase_tr: null,
+      cta_purchase_en: null,
+    },
   };
 }
 type IapPack = { product_id: string; amount: number; label?: string | null };
@@ -302,21 +320,19 @@ export default function MarketPolicyPage() {
     });
   };
 
-  const setEntryNotice = (mod: SchoolModuleKey, field: 'notice_tr' | 'notice_en', value: string) => {
+  const patchEntryNotice = (mod: SchoolModuleKey, patch: Partial<ModuleEntryNotice>) => {
     setCfg((prev) => {
       if (!prev) return prev;
       const row = prev.module_prices[mod] ?? emptyModuleRow();
-      const cur = row.entry_notice ?? { notice_tr: null, notice_en: null };
+      const base = emptyModuleRow().entry_notice;
+      const cur = { ...base, ...row.entry_notice };
       return {
         ...prev,
         module_prices: {
           ...prev.module_prices,
           [mod]: {
             ...row,
-            entry_notice: {
-              ...cur,
-              [field]: value.trim().length ? value : null,
-            },
+            entry_notice: { ...cur, ...patch },
           },
         },
       };
@@ -445,7 +461,7 @@ export default function MarketPolicyPage() {
               { label: 'Mobil satın alma', icon: Smartphone },
               { label: 'Mağaza', icon: ShoppingBag },
             ]}
-            summary="Modül kullanımı için okul ve öğretmen tarafında aylık / yıllık jeton ve ek ders düşümü; mobil IAP ürünleri. Kayıtta 6 basamağa yuvarlanır. Sunucu varsayılan olarak aylık tarifeyi kullanır."
+            summary="Modül tarifeleri; giriş paneli (metin, Market ve mağaza yönlendirmesi); mobil IAP ürünleri. Kayıt 6 ondalık. Sunucu varsayılan aylık tarife kullanır."
           />
         </ToolbarHeading>
         <div className="flex flex-wrap gap-2">
@@ -1074,29 +1090,36 @@ export default function MarketPolicyPage() {
 
       <Card className="overflow-hidden shadow-sm">
         <CardHeader className="border-b border-border/60 bg-muted/10">
-          <CardTitle className="text-lg">Modül giriş uyarı metinleri</CardTitle>
+          <CardTitle className="text-lg">Modül giriş paneli — metin, yönlendirme, satın alma</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Öğretmen ve okul kullanıcıları ilgili modüle girdiğinde üstte kısa bilgilendirme görür. Boş bırakılan
-            modüllerde tarife tanımlıysa otomatik genel mesaj gösterilir. İngilizce alanı mobil EN dilinde kullanılabilir.
+            Kullanıcı ilgili modül sayfasına girdiğinde geniş bir bilgi kutusu gösterilir: açıklama metni,{' '}
+            <span className="font-medium text-foreground">Market / cüzdan</span> butonu ve isteğe bağlı{' '}
+            <span className="font-medium text-foreground">harici mağaza</span> bağlantısı. Boş metinlerde tarife
+            tanımlıysa varsayılan uyarı kullanılır. İngilizce alanlar EN arayüzde kullanılabilir.
           </p>
         </CardHeader>
         <CardContent className="space-y-6">
           {SCHOOL_MODULE_KEYS.map((k) => {
             const row = modPrices[k] ?? emptyModuleRow();
-            const en = row.entry_notice ?? { notice_tr: null, notice_en: null };
+            const en = { ...emptyModuleRow().entry_notice, ...row.entry_notice };
             return (
-              <div key={k} className="rounded-xl border border-border/70 bg-muted/10 p-4">
-                <p className="mb-3 font-medium text-foreground">{SCHOOL_MODULE_LABELS[k]}</p>
+              <div
+                key={k}
+                className="rounded-xl border border-border/70 bg-linear-to-br from-muted/40 to-card p-4 shadow-sm ring-1 ring-black/3 dark:ring-white/10"
+              >
+                <p className="mb-4 text-base font-semibold text-foreground">{SCHOOL_MODULE_LABELS[k]}</p>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor={`notice-tr-${k}`}>Türkçe</Label>
+                    <Label htmlFor={`notice-tr-${k}`}>Türkçe açıklama</Label>
                     <textarea
                       id={`notice-tr-${k}`}
                       className={WEB_SETTINGS_TEXTAREA}
                       rows={3}
                       placeholder="Örn: Bu modülde kullanım başına jeton veya ek ders düşebilir. Bakiyenizi Market’ten kontrol edebilirsiniz."
                       value={en.notice_tr ?? ''}
-                      onChange={(e) => setEntryNotice(k, 'notice_tr', e.target.value)}
+                      onChange={(e) =>
+                        patchEntryNotice(k, { notice_tr: e.target.value.trim() ? e.target.value : null })
+                      }
                     />
                   </div>
                   <div className="space-y-2">
@@ -1107,8 +1130,89 @@ export default function MarketPolicyPage() {
                       rows={3}
                       placeholder="Short notice for English UI."
                       value={en.notice_en ?? ''}
-                      onChange={(e) => setEntryNotice(k, 'notice_en', e.target.value)}
+                      onChange={(e) =>
+                        patchEntryNotice(k, { notice_en: e.target.value.trim() ? e.target.value : null })
+                      }
                     />
+                  </div>
+                </div>
+                <div className="mt-5 border-t border-border/60 pt-4">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Butonlar ve bağlantılar
+                  </p>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor={`market-href-${k}`}>Market / cüzdan yolu (web)</Label>
+                      <Input
+                        id={`market-href-${k}`}
+                        placeholder="/market"
+                        value={en.market_href ?? ''}
+                        onChange={(e) =>
+                          patchEntryNotice(k, { market_href: e.target.value.trim() || null })
+                        }
+                      />
+                      <p className="text-[11px] text-muted-foreground">Boş bırakılırsa /market kullanılır.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor={`purchase-href-${k}`}>Mağaza / satın alma URL (https)</Label>
+                      <Input
+                        id={`purchase-href-${k}`}
+                        placeholder="https://play.google.com/store/apps/details?id=..."
+                        value={en.purchase_href ?? ''}
+                        onChange={(e) =>
+                          patchEntryNotice(k, { purchase_href: e.target.value.trim() || null })
+                        }
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Doluysa ikinci buton gösterilir. Boşsa kısa mobil mağaza notu çıkar.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="space-y-2">
+                      <Label htmlFor={`cta-m-tr-${k}`}>Market butonu (TR)</Label>
+                      <Input
+                        id={`cta-m-tr-${k}`}
+                        placeholder="Cüzdan ve Market"
+                        value={en.cta_market_tr ?? ''}
+                        onChange={(e) =>
+                          patchEntryNotice(k, { cta_market_tr: e.target.value.trim() || null })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor={`cta-m-en-${k}`}>Market butonu (EN)</Label>
+                      <Input
+                        id={`cta-m-en-${k}`}
+                        placeholder="Wallet & Market"
+                        value={en.cta_market_en ?? ''}
+                        onChange={(e) =>
+                          patchEntryNotice(k, { cta_market_en: e.target.value.trim() || null })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor={`cta-p-tr-${k}`}>Mağaza butonu (TR)</Label>
+                      <Input
+                        id={`cta-p-tr-${k}`}
+                        placeholder="Satın alma (mağaza)"
+                        value={en.cta_purchase_tr ?? ''}
+                        onChange={(e) =>
+                          patchEntryNotice(k, { cta_purchase_tr: e.target.value.trim() || null })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor={`cta-p-en-${k}`}>Mağaza butonu (EN)</Label>
+                      <Input
+                        id={`cta-p-en-${k}`}
+                        placeholder="Buy (store)"
+                        value={en.cta_purchase_en ?? ''}
+                        onChange={(e) =>
+                          patchEntryNotice(k, { cta_purchase_en: e.target.value.trim() || null })
+                        }
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

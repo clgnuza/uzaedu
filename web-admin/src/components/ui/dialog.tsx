@@ -54,10 +54,11 @@ export function DialogTrigger({
 
 export function DialogContent({
   title,
+  descriptionId,
   className,
   children,
   ...props
-}: React.HTMLAttributes<HTMLDivElement> & { title?: string }) {
+}: React.HTMLAttributes<HTMLDivElement> & { title?: string; descriptionId?: string }) {
   const { open, onOpenChange } = useDialog();
   const [mounted, setMounted] = React.useState(false);
   React.useEffect(() => setMounted(true), []);
@@ -86,6 +87,7 @@ export function DialogContent({
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? 'dialog-title' : undefined}
+        aria-describedby={descriptionId}
         className={cn(
           'fixed left-1/2 top-1/2 z-50 flex max-h-[min(90vh,calc(100dvh-2rem))] w-[min(100%,calc(100vw-2rem))] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-border/80 bg-background shadow-2xl',
           className,

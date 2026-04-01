@@ -3,13 +3,14 @@ import { TvDevicesService } from './tv-devices.service';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
 import { RequireSchoolModule } from '../common/decorators/require-school-module.decorator';
+import { RequireModuleActivationGuard } from '../market/guards/require-module-activation.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
 import { UserRole } from '../types/enums';
 
 @Controller('tv-devices')
-@UseGuards(JwtAuthGuard, RequireSchoolModuleGuard)
+@UseGuards(JwtAuthGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
 @RequireSchoolModule('tv')
 export class TvDevicesController {
   constructor(private readonly service: TvDevicesService) {}

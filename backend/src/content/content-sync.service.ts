@@ -30,6 +30,17 @@ const ARTICLE_IMAGE_TIMEOUT_MS = 8000;
 const RSS_ITEM_LIMIT = 100;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
+/** Başlıkta yarışma/olimpiyat geçen içerikleri competition olarak işaretle (tüm MEB kaynakları) */
+function inferCompetitionContentTypeFromTitle(title: string): 'competition' | 'news' {
+  if (!title || title.length < 4) return 'news';
+  if (
+    /yarışma|yarışması|yarismasi|olimpiyat|ölimpiyat|ödüllü\s+yarışma|yarışması\s+sonuç/i.test(title)
+  ) {
+    return 'competition';
+  }
+  return 'news';
+}
+
 function extractText(value: unknown): string {
   if (value == null) return '';
   if (typeof value === 'string') return value.trim();
@@ -425,11 +436,15 @@ export class ContentSyncService {
         if (hasPlaceholder) {
           exists.imageUrl = null;
         }
+        const inferred = inferCompetitionContentTypeFromTitle(title);
+        if (inferred === 'competition' && exists.contentType !== 'competition') {
+          exists.contentType = 'competition';
+        }
         if ((!exists.imageUrl || hasPlaceholder) && img) {
           exists.imageUrl = img;
           exists.summary = summary || exists.summary;
           await this.itemRepo.save(exists);
-        } else if (hasPlaceholder) {
+        } else if (hasPlaceholder || inferred === 'competition') {
           await this.itemRepo.save(exists);
         }
         continue;
@@ -438,7 +453,7 @@ export class ContentSyncService {
       const cityFilter = source.key.startsWith('il_') ? source.key.replace(/^il_/, '') : null;
       const item = this.itemRepo.create({
         sourceId: source.id,
-        contentType: 'news',
+        contentType: inferCompetitionContentTypeFromTitle(title),
         title,
         summary: summary || null,
         sourceUrl: link,
@@ -536,9 +551,10 @@ export class ContentSyncService {
         continue;
       }
 
+      const inferred = inferCompetitionContentTypeFromTitle(c.title);
       const item = this.itemRepo.create({
         sourceId: source.id,
-        contentType: c.contentType,
+        contentType: inferred === 'competition' ? 'competition' : c.contentType,
         title: c.title,
         summary: null,
         sourceUrl: c.href,

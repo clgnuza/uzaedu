@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
-import { ArrowLeft, FileText, Send, Upload, Download, FileDown, Zap, Trash2, ChevronDown, ChevronUp, Settings2, BarChart2 } from 'lucide-react';
+import { ArrowLeft, FileText, Send, Upload, Download, FileDown, Zap, Trash2, ChevronDown, ChevronUp, Settings2, BarChart2, Archive, ArchiveRestore } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
@@ -32,6 +32,7 @@ type DutyPlan = {
   period_end: string | null;
   academic_year: string | null;
   created_at: string;
+  archived_at?: string | null;
 };
 
 type UserItem = { id: string; display_name: string | null; email: string; role?: string; status?: string };
@@ -182,6 +183,9 @@ export default function DutyPlanlarPage() {
   const [selectedPlanIds, setSelectedPlanIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [distributionLoadingId, setDistributionLoadingId] = useState<string | null>(null);
+  const [planScope, setPlanScope] = useState<'active' | 'archived'>('active');
+  const [plansRefreshKey, setPlansRefreshKey] = useState(0);
+  const [archivingId, setArchivingId] = useState<string | null>(null);
   const [prefsInRange, setPrefsInRange] = useState<{ preferConfirmed: number; unavailable: number } | null>(null);
   const [areasTotalSlots, setAreasTotalSlots] = useState<number | null>(null);
   const PERIOD_PRESETS = [
@@ -246,14 +250,15 @@ export default function DutyPlanlarPage() {
     if (!token) return;
     setLoading(true);
     try {
-      const list = await apiFetch<DutyPlan[]>('/duty/plans', { token });
+      const q = planScope === 'archived' ? '?scope=archived' : '';
+      const list = await apiFetch<DutyPlan[]>(`/duty/plans${q}`, { token });
       setPlans(Array.isArray(list) ? list : []);
     } catch {
       setPlans([]);
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, planScope]);
 
   const fetchTeachers = useCallback(async () => {
     if (!token || !isAdmin) return;
@@ -290,7 +295,11 @@ export default function DutyPlanlarPage() {
 
   useEffect(() => {
     fetchPlans();
-  }, [fetchPlans]);
+  }, [fetchPlans, plansRefreshKey]);
+
+  useEffect(() => {
+    setSelectedPlanIds(new Set());
+  }, [planScope]);
 
   useEffect(() => {
     if (isAdmin) fetchTeachers();
@@ -376,11 +385,39 @@ export default function DutyPlanlarPage() {
     try {
       await apiFetch(`/duty/plans/${id}/publish`, { token, method: 'POST' });
       toast.success('Plan yayınlandı.');
-      fetchPlans();
+      setPlansRefreshKey((k) => k + 1);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Yayınlama başarısız.');
     } finally {
       setPublishing(null);
+    }
+  };
+
+  const handleArchivePlan = async (id: string) => {
+    if (!token) return;
+    setArchivingId(id);
+    try {
+      await apiFetch(`/duty/plans/${id}/archive`, { token, method: 'POST' });
+      toast.success('Plan arşivlendi.');
+      setPlansRefreshKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Arşivlenemedi.');
+    } finally {
+      setArchivingId(null);
+    }
+  };
+
+  const handleUnarchivePlan = async (id: string) => {
+    if (!token) return;
+    setArchivingId(id);
+    try {
+      await apiFetch(`/duty/plans/${id}/unarchive`, { token, method: 'POST' });
+      toast.success('Plan arşivden çıkarıldı.');
+      setPlansRefreshKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'İşlem başarısız.');
+    } finally {
+      setArchivingId(null);
     }
   };
 
@@ -670,7 +707,7 @@ export default function DutyPlanlarPage() {
       });
       toast.success(`${valid.length} nöbet kaydı ile taslak plan oluşturuldu. Planlar listesinden yayınlayabilirsiniz.`);
       setParsedRows(null);
-      fetchPlans();
+      setPlansRefreshKey((k) => k + 1);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Plan oluşturulamadı.';
       const details = (e as { details?: Record<string, unknown> })?.details;
@@ -692,7 +729,7 @@ export default function DutyPlanlarPage() {
     try {
       await apiFetch(`/duty/plans/${planId}/soft-delete`, { token, method: 'POST' });
       toast.success('Plan silindi. İstatistikler korunur.');
-      fetchPlans();
+      setPlansRefreshKey((k) => k + 1);
     } catch {
       toast.error('Plan silinemedi.');
     } finally {
@@ -712,7 +749,7 @@ export default function DutyPlanlarPage() {
       toast.success(`${res?.deleted_count ?? selectedPlanIds.size} plan silindi. İstatistikler korunur.`);
       setSelectedPlanIds(new Set());
       setBulkDeleteOpen(false);
-      fetchPlans();
+      setPlansRefreshKey((k) => k + 1);
     } catch {
       toast.error('Planlar silinemedi.');
     } finally {
@@ -793,7 +830,7 @@ export default function DutyPlanlarPage() {
       setAdvancedRulesOpen(false);
       lastAutoVersionRef.current = '';
       setAutoForm((f) => ({ ...f, period_start: '', period_end: '', version: '' }));
-      fetchPlans();
+      setPlansRefreshKey((k) => k + 1);
       if (result?.distribution && result.distribution.length > 0) {
         setDistributionReport(result.distribution);
         setDistributionReportOpen(true);
@@ -1215,6 +1252,34 @@ export default function DutyPlanlarPage() {
         </Card>
       )}
 
+      {isAdmin && (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant={planScope === 'active' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => {
+              setPlanScope('active');
+              setPlansRefreshKey((k) => k + 1);
+            }}
+          >
+            Aktif planlar
+          </Button>
+          <Button
+            type="button"
+            variant={planScope === 'archived' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => {
+              setPlanScope('archived');
+              setPlansRefreshKey((k) => k + 1);
+            }}
+          >
+            <Archive className="size-4" />
+            Arşiv
+          </Button>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex justify-center py-12">
           <LoadingSpinner />
@@ -1223,12 +1288,18 @@ export default function DutyPlanlarPage() {
         <Card>
           <EmptyState
             icon={<FileText className="size-10 text-muted-foreground" />}
-            title="Henüz plan yok"
-            description="Nöbet sayfasından yeni plan oluşturabilir veya Excel ile yükleyebilirsiniz."
+            title={planScope === 'archived' ? 'Arşivde plan yok' : 'Henüz plan yok'}
+            description={
+              planScope === 'archived'
+                ? 'Arşivlenmiş plan burada listelenir. Aktif listeden planı arşivleyebilirsiniz.'
+                : 'Nöbet sayfasından yeni plan oluşturabilir veya Excel ile yükleyebilirsiniz.'
+            }
             action={
+              planScope === 'archived' ? undefined : (
               <Link href="/duty">
                 <Button>Planlama Sayfasına Git</Button>
               </Link>
+            )
             }
           />
         </Card>
@@ -1292,16 +1363,23 @@ export default function DutyPlanlarPage() {
                           : plan.academic_year || '—'}
                       </td>
                       <td className="px-4 py-3">
-                        <span
-                          className={cn(
-                            'inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium',
-                            plan.status === 'published'
-                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
-                              : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {planScope === 'archived' && (
+                            <span className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium bg-slate-100 text-slate-800 dark:bg-slate-800/80 dark:text-slate-200">
+                              Arşivde
+                            </span>
                           )}
-                        >
-                          {plan.status === 'published' ? 'Yayınlandı' : 'Taslak'}
-                        </span>
+                          <span
+                            className={cn(
+                              'inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium',
+                              plan.status === 'published'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
+                                : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+                            )}
+                          >
+                            {plan.status === 'published' ? 'Yayınlandı' : 'Taslak'}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         {formatDate(plan.created_at?.slice(0, 10))}
@@ -1332,7 +1410,7 @@ export default function DutyPlanlarPage() {
                               )}
                             </Button>
                           )}
-                          {isAdmin && plan.status === 'draft' && (
+                          {isAdmin && planScope === 'active' && plan.status === 'draft' && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -1341,6 +1419,30 @@ export default function DutyPlanlarPage() {
                             >
                               <Send className="size-4" />
                               Yayınla
+                            </Button>
+                          )}
+                          {isAdmin && planScope === 'active' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleArchivePlan(plan.id)}
+                              disabled={!!archivingId}
+                              title="Arşivle (günlük nöbet görünümünden düşer)"
+                            >
+                              {archivingId === plan.id ? <LoadingSpinner className="size-4" /> : <Archive className="size-4" />}
+                              Arşivle
+                            </Button>
+                          )}
+                          {isAdmin && planScope === 'archived' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleUnarchivePlan(plan.id)}
+                              disabled={!!archivingId}
+                              title="Aktif planlar listesine al"
+                            >
+                              {archivingId === plan.id ? <LoadingSpinner className="size-4" /> : <ArchiveRestore className="size-4" />}
+                              Arşivden çıkar
                             </Button>
                           )}
                           {isAdmin && (

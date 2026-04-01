@@ -27,6 +27,7 @@ import { TeacherTimetableModule } from '../teacher-timetable/teacher-timetable.m
 import { SchoolsModule } from '../schools/schools.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
+import { MarketModule } from '../market/market.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { RequireSchoolModuleGuard } from '../common/guards/require-school-module
     TeacherTimetableModule,
     SchoolsModule,
     NotificationsModule,
+    MarketModule,
   ],
   controllers: [TeacherAgendaController],
   providers: [TeacherAgendaService, TeacherAgendaImportService, RequireSchoolModuleGuard],

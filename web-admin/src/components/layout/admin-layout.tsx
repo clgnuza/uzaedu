@@ -4,6 +4,7 @@ import { LayoutProvider } from './context';
 import { Demo1Layout } from './demo1/layout';
 import { useAuth } from '@/hooks/use-auth';
 import { RouteGuard } from '@/guards/route-guard';
+import { ModuleActivationListener } from '@/components/market/module-activation-listener';
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -25,7 +26,10 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         schoolEnabledModules={me?.school?.enabled_modules ?? null}
         loginPath="/login"
       >
-        <Demo1Layout>{children}</Demo1Layout>
+        <Demo1Layout>
+          <ModuleActivationListener />
+          {children}
+        </Demo1Layout>
       </RouteGuard>
     </LayoutProvider>
   );

@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, IsNull } from 'typeorm';
+import { Repository, In, IsNull, SelectQueryBuilder } from 'typeorm';
 import { ExamDuty } from './entities/exam-duty.entity';
 import { ExamDutyPreference } from './entities/exam-duty-preference.entity';
 import { ExamDutyNotificationLog } from './entities/exam-duty-notification-log.entity';
@@ -51,17 +51,12 @@ export class ExamDutiesService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
-  /** Teacher: sadece published. Admin: tümü. */
-  async list(dto: ListExamDutiesDto, isAdmin: boolean) {
-    const page = dto.page ?? 1;
-    const limit = dto.limit ?? 20;
-
-    const qb = this.examDutyRepo
-      .createQueryBuilder('e')
-      .where('e.deleted_at IS NULL')
-      .orderBy('e.created_at', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit);
+  /** Liste filtresi (sayfalama / sıralama hariç) */
+  private buildExamDutyListQuery(
+    dto: ListExamDutiesDto,
+    isAdmin: boolean,
+  ): SelectQueryBuilder<ExamDuty> {
+    const qb = this.examDutyRepo.createQueryBuilder('e').where('e.deleted_at IS NULL');
 
     if (!isAdmin) {
       qb.andWhere('e.status = :status', { status: 'published' });
@@ -73,6 +68,22 @@ export class ExamDutiesService {
       qb.andWhere('e.category_slug = :cat', { cat: dto.category_slug });
     }
 
+    if (isAdmin && dto.missing_source_dates === true) {
+      qb.andWhere('e.source_key IS NOT NULL');
+      qb.andWhere('e.application_end IS NULL');
+      qb.andWhere('e.exam_date IS NULL');
+      qb.andWhere('e.exam_date_end IS NULL');
+    }
+
+    if (isAdmin && dto.missing_exam_date === true) {
+      qb.andWhere('e.exam_date IS NULL');
+      qb.andWhere('e.exam_date_end IS NULL');
+    }
+
+    if (isAdmin && dto.has_exam_date === true) {
+      qb.andWhere('(e.exam_date IS NOT NULL OR e.exam_date_end IS NOT NULL)');
+    }
+
     const hidePast = dto.hide_past !== false;
     if (hidePast) {
       const cutoff = new Date();
@@ -81,8 +92,40 @@ export class ExamDutiesService {
       qb.andWhere('(e.exam_date_end IS NULL OR e.exam_date_end >= :cutoff)', { cutoff });
     }
 
+    return qb;
+  }
+
+  /** Admin: mevcut liste filtresiyle taslak / yayında sayıları */
+  private async adminListStatusCounts(dto: ListExamDutiesDto): Promise<{
+    draft_count: number;
+    published_count: number;
+  }> {
+    const draftQb = this.buildExamDutyListQuery(dto, true);
+    draftQb.andWhere('e.status = :st', { st: 'draft' });
+    const publishedQb = this.buildExamDutyListQuery(dto, true);
+    publishedQb.andWhere('e.status = :st', { st: 'published' });
+    const [draft_count, published_count] = await Promise.all([
+      draftQb.getCount(),
+      publishedQb.getCount(),
+    ]);
+    return { draft_count, published_count };
+  }
+
+  /** Teacher: sadece published. Admin: tümü. */
+  async list(dto: ListExamDutiesDto, isAdmin: boolean) {
+    const page = dto.page ?? 1;
+    const limit = dto.limit ?? 20;
+
+    const qb = this.buildExamDutyListQuery(dto, isAdmin);
+    qb.orderBy('e.created_at', 'DESC').skip((page - 1) * limit).take(limit);
+
     const [items, total] = await qb.getManyAndCount();
-    return paginate(items, total, page, limit);
+    const base = paginate(items, total, page, limit);
+    if (isAdmin) {
+      const counts = await this.adminListStatusCounts(dto);
+      return { ...base, ...counts };
+    }
+    return base;
   }
 
   async findById(id: string, isAdmin: boolean): Promise<ExamDuty> {

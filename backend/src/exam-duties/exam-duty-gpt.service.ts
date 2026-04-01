@@ -95,10 +95,17 @@ KURALLAR:
 - son_basvuru = "Son başvuru", "Son istek zamanı", "Başvuru son tarihi". Sınavın yapıldığı gün ASLA son_basvuru değildir.
 - Çoklu sınav: TUS+STS, 4 Adalet sınavı vb. → sinav_1_gunu en erken, sinav_2_gunu en geç, son_basvuru en geç başvuru bitişi.
 - baslangic metinde yoksa null dön.
-- is_application_announcement: son_basvuru veya sinav_1_gunu bulunduysa true. Hiçbiri yoksa (sadece ücret tablosu) false.`;
+- is_application_announcement: Yalnızca resmi başvuru/tercih çağrısı (yeni sınav görevi, son başvuru, görev tercihi) ise true. Olay haberi, köşe yazısı, disiplin/iptal/geç kalma/kare kod uygulaması, "bugün X ilinde oldu" gibi metinler başvuru duyurusu DEĞİLDİR → false ve tüm tarihler null.
+- Örnek FALSE: "Geç gelen öğretmenlerin görevleri iptal edildi", "kare kod ile bina girişi", haberde geçen saat (10.00, 09.00) sınav programı değil olay anlatımıdır; sinav_1_gunu/son_basvuru yazma.
+- Resmi duyuruda da son_basvuru ve sinav_* yoksa (sadece ücret tablosu vb.) is_application_announcement false.
+- KRİTİK: RSS/feed yayın tarihi, "Yayın tarihi", "Güncelleme", haberin listedeki görünür tarihi = sınav günü veya son başvuru DEĞİLDİR. Bu tarihleri sinav_1_gunu, sinav_2_gunu veya son_basvuru alanına YAZMA; yalnızca metinde başvuru/sınav olarak açıkça geçiyorsa doldur. Şüphede sinav alanlarını null bırak.`;
+
+    const pubHint = input.fallbackStartDate?.trim()
+      ? `\n(REFERANS — kullanma: Aşağıdaki tarih yalnızca RSS/liste yayın veya görünürlük tarihi olabilir; son_basvuru veya sinav_* alanlarına kopyalama. Metinde aynı gün sınav/başvuru olarak yazılmıyorsa yoksay.)\nYAYIN_REF: ${input.fallbackStartDate.trim()}\n`
+      : '';
 
     const userPrompt = `İçeriğin tamamını oku. Son başvuru, 1. sınav günü, 2. sınav günü (varsa), ilk yayınlanma (varsa) bul. Tablo olarak döndür.
-
+${pubHint}
 BAŞLIK: ${input.title}
 
 İÇERİK:

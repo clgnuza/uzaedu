@@ -43,8 +43,8 @@ export type UsageModuleSlice = UsageSlice & {
 
 export type MarketUsageBreakdown = {
   periods: {
-    month: { label: string; ends_at: string };
-    year: { label: string; ends_at: string };
+    month: { label: string; starts_at: string; ends_at: string };
+    year: { label: string; starts_at: string; ends_at: string };
   };
   user: { month: UsageModuleSlice; year: UsageModuleSlice };
   school: { month: UsageModuleSlice; year: UsageModuleSlice } | null;
@@ -149,14 +149,20 @@ export class MarketUsageService {
     const periodRows = await this.repo.query(`
       SELECT
         to_char(date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'UTC'), 'YYYY-MM') AS month_lbl,
+        date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AS month_start,
         (date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + interval '1 month') AS month_end,
         to_char(date_trunc('year', CURRENT_TIMESTAMP AT TIME ZONE 'UTC'), 'YYYY') AS year_lbl,
+        date_trunc('year', CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AS year_start,
         (date_trunc('year', CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + interval '1 year') AS year_end
     `);
     const pr = periodRows?.[0];
+    const fbMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
     const fbMonthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0));
+    const fbYearStart = new Date(Date.UTC(now.getUTCFullYear(), 0, 1, 0, 0, 0, 0));
     const fbYearEnd = new Date(Date.UTC(now.getUTCFullYear() + 1, 0, 1, 0, 0, 0, 0));
+    const monthStartIso = pgTimestampToIso(pr?.month_start, fbMonthStart);
     const monthEndIso = pgTimestampToIso(pr?.month_end, fbMonthEnd);
+    const yearStartIso = pgTimestampToIso(pr?.year_start, fbYearStart);
     const yearEndIso = pgTimestampToIso(pr?.year_end, fbYearEnd);
 
     const [
@@ -237,8 +243,8 @@ export class MarketUsageService {
 
     return {
       periods: {
-        month: { label: String(pr?.month_lbl ?? monthLabel), ends_at: monthEndIso },
-        year: { label: String(pr?.year_lbl ?? yearLabel), ends_at: yearEndIso },
+        month: { label: String(pr?.month_lbl ?? monthLabel), starts_at: monthStartIso, ends_at: monthEndIso },
+        year: { label: String(pr?.year_lbl ?? yearLabel), starts_at: yearStartIso, ends_at: yearEndIso },
       },
       user: {
         month: { period_label: monthLabel, ...umTot, by_module: umMod },

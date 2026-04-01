@@ -5,14 +5,30 @@
 
 import { COOKIE_SESSION_TOKEN } from './auth-session';
 import { markSupportModuleDisabledByApi } from './support-module-cache';
+import { dispatchModuleActivationRequired } from './module-activation-events';
 
 const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000/api';
 
-/** Bağlantı hatası sayılacak hata mesajı parçacıkları */
-const CONNECTION_ERROR_PATTERNS = ['fetch', 'connection', 'network', 'failed', 'err_connection', 'econnrefused'];
+/** Bağlantı hatası sayılacak hata mesajı parçacıkları (HTTP yanıtı alındıysa buraya düşmez) */
+const CONNECTION_ERROR_PATTERNS = [
+  'failed to fetch',
+  'fetch failed',
+  'networkerror',
+  'load failed',
+  'network request failed',
+  'connection',
+  'err_connection',
+  'econnrefused',
+  'connection refused',
+  'econnreset',
+  'etimedout',
+  'socket hang up',
+];
 
 /** Bağlantı hatası mı kontrol et */
 function isConnectionError(e: unknown): boolean {
+  const withStatus = e as { status?: number };
+  if (typeof withStatus?.status === 'number' && withStatus.status > 0) return false;
   const msg = String(e instanceof Error ? e.message : e).toLowerCase();
   return CONNECTION_ERROR_PATTERNS.some((p) => msg.includes(p));
 }
@@ -26,7 +42,17 @@ export function getApiUrl(path: string): string {
   return `${baseUrl.replace(/\/$/, '')}${p}`;
 }
 
-/** Bağlantı hatasında tekrar deneme yok (konsolda çoklu ERR_CONNECTION_REFUSED önlenir). */
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function getRetryAfterMs(res: Response): number | null {
+  const raw = res.headers.get('retry-after');
+  if (!raw) return null;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const dateMs = Date.parse(raw);
+  if (Number.isFinite(dateMs)) return Math.max(0, dateMs - Date.now());
+  return null;
+}
 
 export interface ApiError extends Error {
   code?: string;
@@ -39,6 +65,10 @@ export function isApiErrorCode(e: unknown, code: string): boolean {
   return !!e && typeof e === 'object' && 'code' in e && (e as ApiError).code === code;
 }
 
+export function isModuleActivationRequiredError(e: unknown): boolean {
+  return isApiErrorCode(e, 'MODULE_ACTIVATION_REQUIRED');
+}
+
 export function isSupportModuleDisabledError(e: unknown): boolean {
   if (isApiErrorCode(e, 'MODULE_DISABLED')) return true;
   const err = e as ApiError;
@@ -48,6 +78,7 @@ export function isSupportModuleDisabledError(e: unknown): boolean {
 
 /** Kullanıcıya gösterilecek sabit HTTP mesajları (backend İngilizce döndüğünde) */
 const HTTP_STATUS_USER_MESSAGE: Record<number, string> = {
+  402: 'Bu işlem için modül etkinleştirmesi veya ek bakiye gerekebilir.',
   429: 'Çok fazla istek. Lütfen kısa süre sonra tekrar deneyin.',
   503: 'Sunucu geçici olarak yanıt veremiyor. Lütfen tekrar deneyin.',
   502: 'Sunucu bağlantısı kurulamadı.',
@@ -74,39 +105,64 @@ export async function apiFetch<T>(
   if (token && token !== COOKIE_SESSION_TOKEN) headers['Authorization'] = `Bearer ${token}`;
   if (isFormData) delete headers['Content-Type'];
 
-  try {
-    const res = await fetch(getApiUrl(path), {
-      ...init,
-      headers,
-      cache: init.cache ?? 'no-store',
-      credentials: init.credentials ?? 'include',
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as {
-        message?: string | string[];
-        code?: string;
-        details?: Record<string, unknown>;
-      };
-      const msg = body?.message;
-      const fromBody = Array.isArray(msg) ? msg[0] : msg;
-      const fallback = res.statusText || 'İstek başarısız';
-      const userMsg = HTTP_STATUS_USER_MESSAGE[res.status];
-      const text = userMsg ?? fromBody ?? fallback;
-      if (body?.code === 'MODULE_DISABLED' || (res.status === 403 && typeof text === 'string' && text.includes('Destek modülü şu anda kapalı'))) {
-        markSupportModuleDisabledByApi();
+  const maxAttempts = 4;
+  let lastConn: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(getApiUrl(path), {
+        ...init,
+        headers,
+        cache: init.cache ?? 'no-store',
+        credentials: init.credentials ?? 'include',
+      });
+      if (!res.ok) {
+        if (
+          res.status === 429 &&
+          attempt < maxAttempts &&
+          (init.method == null || /^(GET|HEAD)$/i.test(init.method))
+        ) {
+          await sleep(getRetryAfterMs(res) ?? 400 * attempt);
+          continue;
+        }
+        const body = (await res.json().catch(() => ({}))) as {
+          message?: string | string[];
+          code?: string;
+          details?: Record<string, unknown>;
+        };
+        const msg = body?.message;
+        const fromBody = Array.isArray(msg) ? msg[0] : msg;
+        const fallback = res.statusText || 'İstek başarısız';
+        const userMsg = HTTP_STATUS_USER_MESSAGE[res.status];
+        const text = userMsg ?? fromBody ?? fallback;
+        if (body?.code === 'MODULE_DISABLED' || (res.status === 403 && typeof text === 'string' && text.includes('Destek modülü şu anda kapalı'))) {
+          markSupportModuleDisabledByApi();
+        }
+        const err = new Error(text) as ApiError;
+        err.code = body?.code;
+        err.details = body?.details;
+        err.status = res.status;
+        if (body?.code === 'MODULE_ACTIVATION_REQUIRED' && typeof window !== 'undefined') {
+          dispatchModuleActivationRequired({
+            code: body.code,
+            message: text,
+            details: body.details,
+          });
+        }
+        throw err;
       }
-      const err = new Error(text) as ApiError;
-      err.code = body?.code;
-      err.details = body?.details;
-      err.status = res.status;
-      throw err;
+      return res.json() as Promise<T>;
+    } catch (e) {
+      if (isAbortError(e)) throw e;
+      if (isConnectionError(e)) {
+        lastConn = e;
+        if (attempt < maxAttempts) {
+          await sleep(400 * attempt);
+          continue;
+        }
+        throw new Error(CONNECTION_ERROR_MESSAGE);
+      }
+      throw e;
     }
-    return res.json() as Promise<T>;
-  } catch (e) {
-    if (isAbortError(e)) throw e;
-    if (isConnectionError(e)) {
-      throw new Error(CONNECTION_ERROR_MESSAGE);
-    }
-    throw e;
   }
+  throw lastConn instanceof Error ? lastConn : new Error(CONNECTION_ERROR_MESSAGE);
 }

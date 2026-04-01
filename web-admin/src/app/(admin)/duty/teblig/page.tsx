@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { FileSignature, Save, Printer, BookOpen, Calendar, CalendarRange } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
@@ -46,6 +46,15 @@ function mergePlaceholders(
   return out;
 }
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function toYMD(d: Date) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -65,6 +74,8 @@ type BosDersTebligResponse = {
   date_label: string;
   day_name: string;
   max_lessons: number;
+  /** Tabloda gösterilecek ders sütunları (en az bir satırda dolu olanlar) */
+  lesson_columns?: number[];
   gelmeyenler: BosDersRow[];
   gorevlendirilenler: BosDersRow[];
 };
@@ -84,10 +95,29 @@ type AylikCizelgeResponse = {
   principal_name: string | null;
   month: number;
   year: number;
+  period_start: string;
+  period_end: string;
   education_mode: 'single' | 'double';
   areas: string[];
   dates: { date: string; day_name: string; morning: Record<string, string>; afternoon: Record<string, string> }[];
 };
+
+function formatAylikDocTitle(data: AylikCizelgeResponse, monthNames: readonly string[]): string {
+  const ps = data.period_start;
+  const pe = data.period_end;
+  const first = new Date(ps + 'T12:00:00');
+  const y = first.getFullYear();
+  const m = first.getMonth() + 1;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const lastOfMonth = new Date(y, m, 0);
+  const fullMonth = ps === `${y}-${pad(m)}-01` && pe === toYMD(lastOfMonth);
+  if (fullMonth) {
+    return `${monthNames[data.month - 1]} ${data.year} ÖĞRETMEN NÖBET ÇİZELGESİ`;
+  }
+  const fmt = (d: Date) =>
+    d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
+  return `${fmt(new Date(ps + 'T12:00:00'))} – ${fmt(new Date(pe + 'T12:00:00'))} ÖĞRETMEN NÖBET ÇİZELGESİ`.toLocaleUpperCase('tr-TR');
+}
 
 function getMondayOfWeek(ymd: string): string {
   const d = new Date(ymd + 'T12:00:00');
@@ -123,8 +153,20 @@ export default function DutyTebligPage() {
   const [haftalikEditedAreaNames, setHaftalikEditedAreaNames] = useState<Record<string, string>>({});
   const [haftalikDateRange, setHaftalikDateRange] = useState('');
 
-  const [aylikMonth, setAylikMonth] = useState(() => new Date().getMonth() + 1);
-  const [aylikYear, setAylikYear] = useState(() => new Date().getFullYear());
+  const [aylikFrom, setAylikFrom] = useState(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = d.getMonth() + 1;
+    return `${y}-${String(m).padStart(2, '0')}-01`;
+  });
+  const [aylikTo, setAylikTo] = useState(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = d.getMonth() + 1;
+    return toYMD(new Date(y, m, 0));
+  });
+  /** Yazdırma / önizlemede müdür altı tarih; boş = gösterme */
+  const [aylikImzaTarihi, setAylikImzaTarihi] = useState('');
   const [aylikData, setAylikData] = useState<AylikCizelgeResponse | null>(null);
   const [aylikLoading, setAylikLoading] = useState(false);
 
@@ -203,11 +245,11 @@ export default function DutyTebligPage() {
   }, [token, haftalikWeekStart]);
 
   const fetchAylikCizelge = useCallback(async () => {
-    if (!token) return;
+    if (!token || !aylikFrom || !aylikTo || aylikFrom > aylikTo) return;
     setAylikLoading(true);
     try {
       const res = await apiFetch<AylikCizelgeResponse>(
-        `/duty/aylik-cizelge?month=${aylikMonth}&year=${aylikYear}`,
+        `/duty/aylik-cizelge?from=${encodeURIComponent(aylikFrom)}&to=${encodeURIComponent(aylikTo)}`,
         { token },
       );
       setAylikData(res ?? null);
@@ -217,15 +259,15 @@ export default function DutyTebligPage() {
     } finally {
       setAylikLoading(false);
     }
-  }, [token, aylikMonth, aylikYear]);
+  }, [token, aylikFrom, aylikTo]);
 
   useEffect(() => {
     if (token && haftalikWeekStart) fetchHaftalikCizelge();
   }, [token, haftalikWeekStart, fetchHaftalikCizelge]);
 
   useEffect(() => {
-    if (token && aylikMonth && aylikYear) fetchAylikCizelge();
-  }, [token, aylikMonth, aylikYear, fetchAylikCizelge]);
+    if (token && aylikFrom && aylikTo && aylikFrom <= aylikTo) fetchAylikCizelge();
+  }, [token, aylikFrom, aylikTo, fetchAylikCizelge]);
 
   const handleSaveHaftalik = async () => {
     if (!token || !isAdmin) return;
@@ -301,7 +343,10 @@ export default function DutyTebligPage() {
     }
     const today = new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
     const maxL = bosDersData.max_lessons;
-    const lessonCols = Array.from({ length: maxL }, (_, i) => i + 1);
+    const lessonCols =
+      bosDersData.lesson_columns?.length
+        ? bosDersData.lesson_columns
+        : Array.from({ length: maxL }, (_, i) => i + 1);
     const konu = bosDersKonu || DEFAULT_BOS_DERS_KONU;
     const dateLabelFull = bosDersData.date_label ?? `${today} ${bosDersData.day_name}`;
     const paragraf = mergePlaceholders(bosDersParagraf || DEFAULT_BOS_DERS_PARAGRAF, {
@@ -311,18 +356,21 @@ export default function DutyTebligPage() {
       '{{gun_adi}}': dateLabelFull,
       '{{mudur_adi}}': principalName ?? 'Okul Müdürü',
     });
+    const paragrafHtml = escapeHtml(paragraf).replace(/\n/g, '<br>');
+    const esc = escapeHtml;
+    const cell = (v: string | undefined | null) => esc(v ?? '—');
 
     const gelmeyenRows = bosDersData.gelmeyenler
       .map(
         (r) =>
-          `<tr><td>${r.teacher_name}</td>${lessonCols.map((n) => `<td>${r.lessons[n] ?? '—'}</td>`).join('')}<td>${r.absent_type ?? '—'}</td></tr>`,
+          `<tr><td>${esc(r.teacher_name)}</td>${lessonCols.map((n) => `<td>${cell(r.lessons[n])}</td>`).join('')}<td>${cell(r.absent_type)}</td></tr>`,
       )
       .join('');
 
     const gorevRows = bosDersData.gorevlendirilenler
       .map(
         (r) =>
-          `<tr><td>${r.teacher_name}</td>${lessonCols.map((n) => `<td>${r.lessons[n] ?? '—'}</td>`).join('')}<td></td></tr>`,
+          `<tr><td>${esc(r.teacher_name)}</td>${lessonCols.map((n) => `<td>${cell(r.lessons[n])}</td>`).join('')}<td></td></tr>`,
       )
       .join('');
 
@@ -331,7 +379,7 @@ export default function DutyTebligPage() {
         ? bosDersData.gorevlendirilenler
             .map(
               (r, i) =>
-                `<tr><td>${i + 1}.</td><td>${r.teacher_name}</td><td></td><td></td></tr>`,
+                `<tr><td>${i + 1}.</td><td>${esc(r.teacher_name)}</td><td></td><td></td></tr>`,
             )
             .join('')
         : '';
@@ -370,34 +418,34 @@ export default function DutyTebligPage() {
 <body>
   <div class="header">
     <p>T.C.</p>
-    ${schoolDistrict ? `<p>${schoolDistrict.toUpperCase()} KAYMAKAMLIĞI</p>` : ''}
-    <p>${schoolName}</p>
+    ${schoolDistrict ? `<p>${esc(schoolDistrict.toUpperCase())} KAYMAKAMLIĞI</p>` : ''}
+    <p>${esc(schoolName)}</p>
   </div>
   <div class="konu">
     <p>Sayı: _______________</p>
-    <p>Tarih: ${today}</p>
-    <p><strong>Konu:</strong> ${konu}</p>
+    <p>Tarih: ${esc(today)}</p>
+    <p><strong>Konu:</strong> ${esc(konu)}</p>
   </div>
-  <div class="paragraf">${paragraf.replace(/\n/g, '<br>')}</div>
+  <div class="paragraf">${paragrafHtml}</div>
   <div class="imza-block">
     <div class="line">&nbsp;</div>
-    <p class="name">${principalName ?? '_________________________'}</p>
+    <p class="name">${esc(principalName?.trim() || '_________________________')}</p>
     <p class="unvan">Okul Müdürü</p>
   </div>
-  <p class="day-title">${dateLabelFull}</p>
+  <p class="day-title">${esc(dateLabelFull)}</p>
   <p><strong>Gelmeyen Öğretmen</strong></p>
   <table>
     <thead><tr><th>Gelmeyen Öğretmenin Adı Soyadı</th>${headerCells}<th>Mazeret Nedeni</th></tr></thead>
-    <tbody>${gelmeyenRows || '<tr><td colspan="' + (maxL + 2) + '">Bu tarihte gelmeyen öğretmen bulunmamaktadır.</td></tr>'}</tbody>
+    <tbody>${gelmeyenRows || '<tr><td colspan="' + (lessonCols.length + 2) + '">Bu tarihte gelmeyen öğretmen bulunmamaktadır.</td></tr>'}</tbody>
   </table>
   <p><strong>Yerine Görevlendirilen Nöbetçi Öğretmen</strong></p>
   <table>
     <thead><tr><th>Nöbetçi Öğretmenin Adı Soyadı</th>${headerCells}<th>İmza</th></tr></thead>
-    <tbody>${gorevRows || '<tr><td colspan="' + (maxL + 2) + '">Bu tarihte yerine görevlendirilen öğretmen bulunmamaktadır.</td></tr>'}</tbody>
+    <tbody>${gorevRows || '<tr><td colspan="' + (lessonCols.length + 2) + '">Bu tarihte yerine görevlendirilen öğretmen bulunmamaktadır.</td></tr>'}</tbody>
   </table>
   <div class="imza-block" style="margin-top: 12px;">
     <div class="line">&nbsp;</div>
-    <p class="name">${deputyPrincipalName?.trim() || '_________________________'}</p>
+    <p class="name">${esc(deputyPrincipalName?.trim() || '_________________________')}</p>
     <p class="unvan">Nöbetçi Müdür Yardımcısı</p>
   </div>
   ${imzaListesiRows ? `
@@ -409,11 +457,6 @@ export default function DutyTebligPage() {
     </table>
   </div>
   ` : ''}
-  <script>
-    try { history.replaceState({}, '', location.origin + '/'); } catch(e){}
-    window.print();
-    window.close();
-  </script>
 </body>
 </html>`;
     const w = window.open('', '_blank');
@@ -421,9 +464,29 @@ export default function DutyTebligPage() {
       toast.error('Pop-up engellendi. Yazdırmak için tarayıcı ayarlarını kontrol edin.');
       return;
     }
+    w.document.open();
     w.document.write(html);
     w.document.close();
-    try { w.history.replaceState({}, '', window.location.origin + '/'); } catch (_) {}
+    const runPrint = () => {
+      try {
+        w.focus();
+        w.print();
+      } catch {
+        /* ignore */
+      }
+      setTimeout(() => {
+        try {
+          w.close();
+        } catch {
+          /* ignore */
+        }
+      }, 300);
+    };
+    if (w.document.readyState === 'complete') {
+      setTimeout(runPrint, 0);
+    } else {
+      w.onload = runPrint;
+    }
   };
 
   const handlePrintHaftalik = () => {
@@ -588,8 +651,7 @@ export default function DutyTebligPage() {
       toast.error('Veri yok veya okul adı eksik');
       return;
     }
-    const monthName = MONTH_NAMES[aylikData.month - 1] ?? '';
-    const docTitle = `${monthName} ${aylikData.year} ÖĞRETMEN NÖBET ÇİZELGESİ`;
+    const docTitle = formatAylikDocTitle(aylikData, MONTH_NAMES);
     const district = aylikData.school_district ?? schoolDistrict;
     const school = aylikData.school_name ?? schoolName;
     const escapeHtml = (s: string) =>
@@ -623,6 +685,10 @@ export default function DutyTebligPage() {
       });
       return `<tr><td style="padding:4px 6px;font-size:9pt;border:1px solid #000;">${fmtDate(d.date)}</td><td style="padding:4px 6px;font-size:9pt;border:1px solid #000;font-weight:600;">${escapeHtml(d.day_name)}</td>${cells.join('')}</tr>`;
     });
+
+    const imzaTarihStr = aylikImzaTarihi
+      ? new Date(aylikImzaTarihi + 'T12:00:00').toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+      : '';
 
     const html = `
 <!DOCTYPE html>
@@ -667,7 +733,7 @@ export default function DutyTebligPage() {
   </table>
   <p class="footer">
     <span class="name">${escapeHtml(aylikData.principal_name || principalName || '_________________________')}</span><br/>
-    <span class="date">${new Date().toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+    ${imzaTarihStr ? `<span class="date">${escapeHtml(imzaTarihStr)}</span>` : ''}
   </p>
   <script>
     try { history.replaceState({}, '', location.origin + '/'); } catch(e){}
@@ -685,6 +751,13 @@ export default function DutyTebligPage() {
     w.document.close();
     try { w.history.replaceState({}, '', window.location.origin + '/'); } catch (_) {}
   };
+
+  const bosLessonCols = useMemo(() => {
+    if (!bosDersData) return [] as number[];
+    return bosDersData.lesson_columns?.length
+      ? bosDersData.lesson_columns
+      : Array.from({ length: bosDersData.max_lessons }, (_, i) => i + 1);
+  }, [bosDersData]);
 
   if (!isAdmin) {
     return (
@@ -919,7 +992,7 @@ export default function DutyTebligPage() {
             Aylık Nöbet Tebliği
           </CardTitle>
           <CardDescription>
-            Ay ve yıl seçin, tabloyu görüntüleyip yazdırın. Başlık: T.C. → İlçe KAYMAKAMLIĞI → Okul adı → [Ay] [Yıl] ÖĞRETMEN NÖBET ÇİZELGESİ
+            Ay/yıl veya başlangıç–bitiş tarihi seçin (en fazla 93 gün). İmza tarihi isteğe bağlıdır.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -931,7 +1004,7 @@ export default function DutyTebligPage() {
               )}
               <p className="text-sm font-bold">{aylikData.school_name ?? schoolName}</p>
               <p className="mt-1 text-sm font-bold text-primary">
-                {MONTH_NAMES[aylikData.month - 1] ?? ''} {aylikData.year} ÖĞRETMEN NÖBET ÇİZELGESİ
+                {formatAylikDocTitle(aylikData, MONTH_NAMES)}
               </p>
               <hr className="my-2 border-border" />
             </div>
@@ -941,8 +1014,13 @@ export default function DutyTebligPage() {
               <Label htmlFor="aylik-month">Ay</Label>
               <select
                 id="aylik-month"
-                value={aylikMonth}
-                onChange={(e) => setAylikMonth(Number(e.target.value))}
+                value={parseInt(aylikFrom.slice(5, 7), 10)}
+                onChange={(e) => {
+                  const m = Number(e.target.value);
+                  const y = parseInt(aylikFrom.slice(0, 4), 10);
+                  setAylikFrom(`${y}-${String(m).padStart(2, '0')}-01`);
+                  setAylikTo(toYMD(new Date(y, m, 0)));
+                }}
                 className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm w-36"
               >
                 {MONTH_NAMES.map((name, i) => (
@@ -959,10 +1037,68 @@ export default function DutyTebligPage() {
                 type="number"
                 min={2024}
                 max={2030}
-                value={aylikYear}
-                onChange={(e) => setAylikYear(Number(e.target.value) || new Date().getFullYear())}
+                value={parseInt(aylikFrom.slice(0, 4), 10)}
+                onChange={(e) => {
+                  const y = Number(e.target.value) || new Date().getFullYear();
+                  const m = parseInt(aylikFrom.slice(5, 7), 10);
+                  setAylikFrom(`${y}-${String(m).padStart(2, '0')}-01`);
+                  setAylikTo(toYMD(new Date(y, m, 0)));
+                }}
                 className="w-24"
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="aylik-from">Başlangıç</Label>
+              <Input
+                id="aylik-from"
+                type="date"
+                value={aylikFrom}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (!v) return;
+                  if (v > aylikTo) {
+                    toast.error('Başlangıç bitişten sonra olamaz.');
+                    return;
+                  }
+                  setAylikFrom(v);
+                }}
+                className="w-44"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="aylik-to">Bitiş</Label>
+              <Input
+                id="aylik-to"
+                type="date"
+                value={aylikTo}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (!v) return;
+                  if (v < aylikFrom) {
+                    toast.error('Bitiş başlangıçtan önce olamaz.');
+                    return;
+                  }
+                  setAylikTo(v);
+                }}
+                className="w-44"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="aylik-imza-tarihi">İmza tarihi (opsiyonel)</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="aylik-imza-tarihi"
+                  type="date"
+                  value={aylikImzaTarihi}
+                  onChange={(e) => setAylikImzaTarihi(e.target.value)}
+                  className="w-44"
+                />
+                {aylikImzaTarihi ? (
+                  <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={() => setAylikImzaTarihi('')}>
+                    Temizle
+                  </Button>
+                ) : null}
+              </div>
             </div>
             <Button variant="outline" size="sm" onClick={fetchAylikCizelge} disabled={aylikLoading}>
               {aylikLoading ? 'Yükleniyor…' : 'Yenile'}
@@ -1037,9 +1173,11 @@ export default function DutyTebligPage() {
             <div className="mt-6 flex justify-end gap-8 border-t pt-4">
               <div className="text-right">
                 <p className="font-semibold">{aylikData.principal_name || principalName || '—'}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {new Date().toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                </p>
+                {aylikImzaTarihi ? (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {new Date(aylikImzaTarihi + 'T12:00:00').toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  </p>
+                ) : null}
               </div>
             </div>
           )}
@@ -1159,9 +1297,9 @@ export default function DutyTebligPage() {
                     <thead>
                       <tr className="bg-muted">
                         <th className="text-left px-3 py-2 border-b">Adı Soyadı</th>
-                        {Array.from({ length: bosDersData.max_lessons }, (_, i) => (
-                          <th key={i} className="px-2 py-2 border-b text-center">
-                            {i + 1}.Ders
+                        {bosLessonCols.map((n) => (
+                          <th key={n} className="px-2 py-2 border-b text-center">
+                            {n}.Ders
                           </th>
                         ))}
                         <th className="text-left px-3 py-2 border-b">Mazeret</th>
@@ -1170,7 +1308,7 @@ export default function DutyTebligPage() {
                     <tbody>
                       {bosDersData.gelmeyenler.length === 0 ? (
                         <tr>
-                          <td colSpan={bosDersData.max_lessons + 2} className="px-3 py-4 text-center text-muted-foreground">
+                          <td colSpan={bosLessonCols.length + 2} className="px-3 py-4 text-center text-muted-foreground">
                             Bu tarihte gelmeyen öğretmen bulunmamaktadır.
                           </td>
                         </tr>
@@ -1178,9 +1316,9 @@ export default function DutyTebligPage() {
                         bosDersData.gelmeyenler.map((r) => (
                           <tr key={r.teacher_id} className="border-b last:border-0">
                             <td className="px-3 py-2">{r.teacher_name}</td>
-                            {Array.from({ length: bosDersData.max_lessons }, (_, i) => (
-                              <td key={i} className="px-2 py-2 text-center">
-                                {r.lessons[i + 1] ?? '—'}
+                            {bosLessonCols.map((n) => (
+                              <td key={n} className="px-2 py-2 text-center">
+                                {r.lessons[n] ?? '—'}
                               </td>
                             ))}
                             <td className="px-3 py-2">{r.absent_type ?? '—'}</td>
@@ -1199,9 +1337,9 @@ export default function DutyTebligPage() {
                     <thead>
                       <tr className="bg-muted">
                         <th className="text-left px-3 py-2 border-b">Adı Soyadı</th>
-                        {Array.from({ length: bosDersData.max_lessons }, (_, i) => (
-                          <th key={i} className="px-2 py-2 border-b text-center">
-                            {i + 1}.Ders
+                        {bosLessonCols.map((n) => (
+                          <th key={n} className="px-2 py-2 border-b text-center">
+                            {n}.Ders
                           </th>
                         ))}
                         <th className="text-left px-3 py-2 border-b">İmza</th>
@@ -1210,7 +1348,7 @@ export default function DutyTebligPage() {
                     <tbody>
                       {bosDersData.gorevlendirilenler.length === 0 ? (
                         <tr>
-                          <td colSpan={bosDersData.max_lessons + 2} className="px-3 py-4 text-center text-muted-foreground">
+                          <td colSpan={bosLessonCols.length + 2} className="px-3 py-4 text-center text-muted-foreground">
                             Bu tarihte yerine görevlendirilen öğretmen bulunmamaktadır.
                           </td>
                         </tr>
@@ -1218,9 +1356,9 @@ export default function DutyTebligPage() {
                         bosDersData.gorevlendirilenler.map((r) => (
                           <tr key={r.teacher_id} className="border-b last:border-0">
                             <td className="px-3 py-2">{r.teacher_name}</td>
-                            {Array.from({ length: bosDersData.max_lessons }, (_, i) => (
-                              <td key={i} className="px-2 py-2 text-center">
-                                {r.lessons[i + 1] ?? '—'}
+                            {bosLessonCols.map((n) => (
+                              <td key={n} className="px-2 py-2 text-center">
+                                {r.lessons[n] ?? '—'}
                               </td>
                             ))}
                             <td className="px-3 py-2"> </td>

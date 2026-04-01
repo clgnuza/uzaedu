@@ -38,13 +38,6 @@ const RECAPTCHA_ID = 'recaptcha-phone';
 
 type AuthResponse = { token: string };
 
-/** Demo hesaplar (backend seed ile oluşturulur) */
-const DEMO_ACCOUNTS = {
-  superadmin: { email: 'superadmin@demo.local', password: 'Demo123!', label: 'Superadmin' },
-  school_admin: { email: 'school_admin@demo.local', password: 'Demo123!', label: 'Okul Admin' },
-  teacher: { email: 'teacher@demo.local', password: 'Demo123!', label: 'Test Öğretmen' },
-} as const;
-
 const inputBase =
   'w-full rounded-xl border border-input bg-background px-3 py-2.5 pl-10 text-sm text-foreground placeholder:text-muted-foreground/70 shadow-sm transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20';
 
@@ -196,43 +189,11 @@ function LoginForm() {
 
   const firebaseReady = isFirebaseConfigured();
   const phoneAuthReady = firebaseReady && isFirebasePhoneAuthConfigured();
-  const hasAltOptions = firebaseReady || true; // demo hesaplar her zaman var
+  const hasAltOptions = firebaseReady || true;
 
   return (
     <AuthPageShell>
       <div className="w-full max-w-md mx-auto px-1">
-          <div className="mb-4 space-y-1.5">
-            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Hızlı giriş</p>
-            <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] sm:grid sm:grid-cols-3 sm:overflow-visible [&::-webkit-scrollbar]:hidden">
-              <button
-                type="button"
-                onClick={(e) => doLogin(e, DEMO_ACCOUNTS.teacher.email, DEMO_ACCOUNTS.teacher.password)}
-                disabled={loading}
-                className="flex min-h-10 min-w-[calc(50%-4px)] shrink-0 snap-center items-center justify-center gap-1.5 rounded-xl border border-primary/35 bg-primary/5 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-0"
-              >
-                <GraduationCap className="size-3.5" aria-hidden />
-                {DEMO_ACCOUNTS.teacher.label}
-              </button>
-              <button
-                type="button"
-                onClick={(e) => doLogin(e, DEMO_ACCOUNTS.school_admin.email, DEMO_ACCOUNTS.school_admin.password)}
-                disabled={loading}
-                className="flex min-h-10 min-w-[calc(50%-4px)] shrink-0 snap-center items-center justify-center rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-0"
-              >
-                {DEMO_ACCOUNTS.school_admin.label}
-              </button>
-              <button
-                type="button"
-                onClick={(e) => doLogin(e, DEMO_ACCOUNTS.superadmin.email, DEMO_ACCOUNTS.superadmin.password)}
-                disabled={loading}
-                className="flex min-h-10 min-w-[calc(50%-4px)] shrink-0 snap-center items-center justify-center rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-0"
-              >
-                {DEMO_ACCOUNTS.superadmin.label}
-              </button>
-            </div>
-            <p className="text-[10px] text-muted-foreground">Demo şifre: Demo123!</p>
-          </div>
-
           <AuthCard>
             <CardHeader className="space-y-1 px-4 pb-2 pt-3.5 sm:px-5">
               <h2 className="text-base font-semibold tracking-tight text-foreground">E-posta ile giriş</h2>
@@ -512,7 +473,7 @@ function LoginForm() {
                         </div>
                       ) : (
                         <p className="text-[11px] leading-relaxed text-muted-foreground">
-                          Google, Apple ve SMS için Firebase yapılandırması gerekir. Üstteki hızlı girişi kullanabilirsiniz.
+                          Google, Apple ve SMS için Firebase yapılandırması gerekir. E-posta ile giriş için hesap bilgilerinizi kullanın.
                         </p>
                       )}
                     </div>

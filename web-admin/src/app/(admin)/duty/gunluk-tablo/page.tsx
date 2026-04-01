@@ -46,6 +46,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { getDutyLogActionLabel } from '@/lib/duty-log-labels';
 import LessonCoverageDialog from '@/components/duty/LessonCoverageDialog';
 
 type DutySlot = {
@@ -80,6 +81,8 @@ type RecentLog = {
   old_user_id: string | null;
   new_user_id: string | null;
   performedByUser?: { display_name: string | null; email: string };
+  oldUser?: { display_name: string | null; email: string } | null;
+  newUser?: { display_name: string | null; email: string } | null;
 };
 
 type CoverageItem = {
@@ -203,9 +206,21 @@ export default function GunlukTabloPage() {
     setSelectedDate(toYMD(d));
   };
 
-  const handlePrint = () => {
+  const handlePrint = useCallback(() => {
+    const existing = document.getElementById('duty-gunluk-print-atpage');
+    existing?.remove();
+    const style = document.createElement('style');
+    style.id = 'duty-gunluk-print-atpage';
+    style.textContent = '@media print { @page { size: A4 landscape; margin: 10mm; } }';
+    document.head.appendChild(style);
+    const cleanup = () => {
+      style.remove();
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
     window.print();
-  };
+    setTimeout(cleanup, 5000);
+  }, []);
 
   const handleSendNotifications = async () => {
     if (!token || !isAdmin) return;
@@ -330,7 +345,7 @@ export default function GunlukTabloPage() {
   }, [data?.slots]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 print:space-y-3">
       {/* Öğretmen: modern header + özet */}
       {!isAdmin && (
         <div className="print:hidden space-y-4">
@@ -465,11 +480,11 @@ export default function GunlukTabloPage() {
 
       {/* Tablo üstte – hemen gösterilir */}
       {loading ? (
-        <div className="flex justify-center py-12">
+        <div className="flex justify-center py-12 print:hidden">
           <LoadingSpinner />
         </div>
       ) : !data?.slots?.length ? (
-        <Card>
+        <Card className="print:hidden">
           <EmptyState
             icon={<Table2 className="size-10 text-muted-foreground" />}
             title="Nöbet kaydı yok"
@@ -477,25 +492,31 @@ export default function GunlukTabloPage() {
           />
         </Card>
       ) : (
-        <Card className={cn(
-          'overflow-hidden',
-          isAdmin ? 'rounded-xl' : 'rounded-2xl border border-violet-200/40 bg-gradient-to-b from-white via-violet-50/20 to-sky-50/30 shadow-lg shadow-violet-500/10 ring-1 ring-violet-100/80 dark:border-violet-900/40 dark:from-slate-950 dark:via-violet-950/15 dark:to-slate-900/80 dark:ring-violet-900/30',
-        )}>
-          <CardHeader className={cn(
-            'pb-2',
-            !isAdmin && 'border-b border-violet-200/40 bg-gradient-to-r from-violet-100/60 via-violet-50/40 to-sky-50/50 py-4 dark:border-violet-800/40 dark:from-violet-950/50 dark:via-slate-900/60 dark:to-sky-950/25',
-          )}>
+        <Card
+          className={cn(
+            'duty-gunluk-print-document overflow-hidden print:border print:border-black print:bg-white print:shadow-none',
+            isAdmin ? 'rounded-xl' : 'rounded-2xl border border-violet-200/40 bg-gradient-to-b from-white via-violet-50/20 to-sky-50/30 shadow-lg shadow-violet-500/10 ring-1 ring-violet-100/80 dark:border-violet-900/40 dark:from-slate-950 dark:via-violet-950/15 dark:to-slate-900/80 dark:ring-violet-900/30',
+          )}
+        >
+          <CardHeader
+            className={cn(
+              'pb-2 print:hidden',
+              !isAdmin && 'border-b border-violet-200/40 bg-gradient-to-r from-violet-100/60 via-violet-50/40 to-sky-50/50 py-4 dark:border-violet-800/40 dark:from-violet-950/50 dark:via-slate-900/60 dark:to-sky-950/25',
+            )}
+          >
             <div className={cn('flex items-start gap-3', !isAdmin && 'sm:items-center')}>
               {!isAdmin && (
-                <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/90 text-violet-600 shadow-sm ring-1 ring-violet-200/60 dark:bg-violet-900/40 dark:text-violet-300 dark:ring-violet-700/50">
+                <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/90 text-violet-600 shadow-sm ring-1 ring-violet-200/60 print:hidden dark:bg-violet-900/40 dark:text-violet-300 dark:ring-violet-700/50">
                   <Table2 className="size-5" />
                 </span>
               )}
               <div className="min-w-0 flex-1">
-                <CardTitle className={cn(
-                  'text-base',
-                  !isAdmin && 'text-base font-semibold text-violet-950 dark:text-violet-100',
-                )}>
+                <CardTitle
+                  className={cn(
+                    'text-base',
+                    !isAdmin && 'text-base font-semibold text-violet-950 dark:text-violet-100',
+                  )}
+                >
                   {formatDateLabel(selectedDate)}
                   {educationMode === 'double' && (
                     <span className="ml-2 text-sm font-medium text-violet-600/90 dark:text-violet-300/90">
@@ -509,7 +530,7 @@ export default function GunlukTabloPage() {
                   </CardDescription>
                 )}
                 {!isAdmin && (
-                  <p className="mt-1 text-xs text-violet-700/80 dark:text-violet-300/70">
+                  <p className="mt-1 text-xs text-violet-700/80 print:hidden dark:text-violet-300/70">
                     Ders sütunlarını görmek için tabloyu yatay kaydırın.
                   </p>
                 )}
@@ -635,7 +656,7 @@ export default function GunlukTabloPage() {
                             {isDutyLesson && !cell ? (
                               <span className="inline-flex items-center justify-center gap-0.5 rounded-md bg-white/80 px-1 py-0.5 text-indigo-800 shadow-sm ring-1 ring-indigo-200/60 dark:bg-indigo-950/40 dark:text-indigo-100 dark:ring-indigo-700/50">
                                 <Flag className="size-3 shrink-0 text-indigo-500" aria-hidden />
-                                <span className="hidden sm:inline">Nöbet</span>
+                                <span className="hidden sm:inline print:inline">Nöbet</span>
                               </span>
                             ) : assignedName ? (
                               <span className="block">
@@ -741,7 +762,6 @@ export default function GunlukTabloPage() {
         }, 0);
         const allDone = pendingCount === 0;
         return (
-          <>
           <div
             className={cn(
               'sticky top-0 z-40 rounded-xl border-2 p-4 shadow-lg flex flex-wrap items-center justify-between gap-4 print:hidden',
@@ -779,107 +799,12 @@ export default function GunlukTabloPage() {
               </Button>
             )}
           </div>
-      <Card className="rounded-xl print:hidden">
-        <CardContent className="p-4">
-          <div className="flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => shiftDay(-1)} aria-label="Önceki gün">
-            <ChevronLeft className="size-4" />
-          </Button>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="rounded-lg border border-input bg-background px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/30"
-          />
-          <Button variant="outline" size="sm" onClick={() => shiftDay(1)} aria-label="Sonraki gün">
-            <ChevronRight className="size-4" />
-          </Button>
-          {selectedDate !== todayYMD && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setSelectedDate(todayYMD)}
-              className="border-primary/40 text-primary hover:bg-primary/10"
-            >
-              <CalendarCheck className="size-4" />
-              Bugün
-            </Button>
-          )}
-          {latestPlanDate && selectedDate !== latestPlanDate && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setSelectedDate(latestPlanDate)}
-              className="border-emerald-500/40 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400"
-            >
-              <CalendarCheck className="size-4" />
-              Son Plan
-            </Button>
-          )}
-        </div>
-        {educationMode === 'double' && (
-          <div className="flex items-center gap-2">
-            <Button
-              variant={shift === 'morning' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setShift('morning')}
-            >
-              Sabah
-            </Button>
-            <Button
-              variant={shift === 'afternoon' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setShift('afternoon')}
-            >
-              Öğle
-            </Button>
-          </div>
-        )}
-        <Button variant="outline" size="sm" onClick={handleWhatsAppShare} disabled={!data?.slots?.length}>
-          <Share2 className="size-4" />
-          WhatsApp&apos;ta Paylaş
-        </Button>
-        <Button variant="outline" size="sm" onClick={handlePrint}>
-          <Printer className="size-4" />
-          Yazdır
-        </Button>
-        {isAdmin && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSendNotifications}
-            disabled={sendingNotify || !data?.slots?.length}
-            className="border-blue-500/40 text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/20"
-          >
-            {sendingNotify ? <RotateCcw className="size-4 animate-spin" /> : <Bell className="size-4" />}
-            Bildirimleri Gönder
-          </Button>
-        )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="overflow-hidden rounded-xl border-emerald-600/30 bg-emerald-50/50 dark:bg-emerald-950/20 print:border print:bg-white print:dark:bg-white">
-        <CardContent className="p-4">
-          <h2 className="text-lg font-semibold text-emerald-800 dark:text-emerald-200 print:text-black">
-            {formatDateLabel(selectedDate)}
-            {educationMode === 'double' && (
-              <span className="ml-2 text-sm font-medium text-emerald-700/80 dark:text-emerald-200/80 print:text-black">
-                ({shift === 'morning' ? 'Sabah' : 'Öğle'} vardiyası)
-              </span>
-            )}
-          </h2>
-        </CardContent>
-      </Card>
-
-          </>
         );
       })()}
 
       {/* Son İşlemler mini paneli – sadece admin */}
       {isAdmin && recentLogs.length > 0 && (
-        <Card className="rounded-xl border-dashed border-muted-foreground/30">
+        <Card className="rounded-xl border-dashed border-muted-foreground/30 print:hidden">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-3">
               <History className="size-4 text-muted-foreground" />
@@ -888,14 +813,6 @@ export default function GunlukTabloPage() {
             </div>
             <div className="space-y-1.5">
               {recentLogs.map((log) => {
-                const ACTION_LABELS: Record<string, string> = {
-                  reassign: 'Yerine görevlendirme',
-                  absent_marked: 'Gelmeyen işaretlendi',
-                  coverage_assigned: 'Ders ataması',
-                  duty_exempt_set: 'Muafiyet eklendi',
-                  duty_exempt_cleared: 'Muafiyet kaldırıldı',
-                  publish: 'Plan yayınlandı',
-                };
                 const ageMs = Date.now() - new Date(log.created_at).getTime();
                 const canUndo = !log.undone_at && ageMs < 24 * 60 * 60 * 1000 &&
                   ['reassign', 'absent_marked', 'coverage_assigned', 'duty_exempt_set', 'duty_exempt_cleared'].includes(log.action);
@@ -912,7 +829,7 @@ export default function GunlukTabloPage() {
                         'px-1.5 py-0.5 rounded font-medium',
                         log.undone_at ? 'bg-muted text-muted-foreground line-through' : 'bg-background',
                       )}>
-                        {ACTION_LABELS[log.action] ?? log.action}
+                        {getDutyLogActionLabel(log.action)}
                       </span>
                       <span className="text-muted-foreground truncate">
                         {log.performedByUser?.display_name || log.performedByUser?.email || ''}

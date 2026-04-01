@@ -42,6 +42,8 @@ const ABSENT_TYPE_CONFIG: Record<string, { label: string; className: string; Ico
   izinli: { label: 'İzinli', className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', Icon: HeartHandshake },
 };
 
+const STORAGE_INCLUDE_ARCHIVED = 'duty-ozet-include-archived';
+
 function formatDate(s: string) {
   return new Date(s + 'T12:00:00').toLocaleDateString('tr-TR', {
     weekday: 'short',
@@ -57,6 +59,8 @@ export default function GorevlendirilenPage() {
   const [slots, setSlots] = useState<ReassignedSlot[]>([]);
   const [coverages, setCoverages] = useState<CoverageAssignment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [includeArchived, setIncludeArchived] = useState(false);
+
   const [dateRange, setDateRange] = useState<{ from: string; to: string }>(() => {
     const now = new Date();
     const y = now.getFullYear();
@@ -67,13 +71,20 @@ export default function GorevlendirilenPage() {
     return { from, to };
   });
 
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(STORAGE_INCLUDE_ARCHIVED);
+      if (v === '1') setIncludeArchived(true);
+    } catch { /* ignore */ }
+  }, []);
+
   // En son yayınlanan planın ayına git
   useEffect(() => {
     if (!token || !isAdmin) return;
-    apiFetch<{ period_start: string | null; period_end: string | null; status: string }[]>('/duty/plans', { token })
+    apiFetch<{ period_start: string | null; period_end: string | null; status: string; archived_at?: string | null }[]>('/duty/plans', { token })
       .then((plans) => {
         const published = Array.isArray(plans)
-          ? plans.filter((p) => p.status === 'published' && p.period_start)
+          ? plans.filter((p) => p.status === 'published' && p.period_start && !p.archived_at)
               .sort((a, b) => (b.period_start! > a.period_start! ? 1 : -1))
           : [];
         if (published[0]?.period_start) {
@@ -89,9 +100,10 @@ export default function GorevlendirilenPage() {
     if (!token || !isAdmin) return;
     setLoading(true);
     try {
+      const arch = includeArchived ? '&include_archived=1' : '';
       const [slotsRes, coveragesRes] = await Promise.all([
-        apiFetch<ReassignedSlot[]>(`/duty/reassigned?from=${dateRange.from}&to=${dateRange.to}`, { token }),
-        apiFetch<CoverageAssignment[]>(`/duty/coverages?from=${dateRange.from}&to=${dateRange.to}`, { token }),
+        apiFetch<ReassignedSlot[]>(`/duty/reassigned?from=${dateRange.from}&to=${dateRange.to}${arch}`, { token }),
+        apiFetch<CoverageAssignment[]>(`/duty/coverages?from=${dateRange.from}&to=${dateRange.to}${arch}`, { token }),
       ]);
       setSlots(Array.isArray(slotsRes) ? slotsRes : []);
       setCoverages(Array.isArray(coveragesRes) ? coveragesRes : []);
@@ -101,7 +113,7 @@ export default function GorevlendirilenPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, isAdmin, dateRange.from, dateRange.to]);
+  }, [token, isAdmin, dateRange.from, dateRange.to, includeArchived]);
 
   useEffect(() => {
     if (isAdmin) fetchData();
@@ -156,6 +168,22 @@ export default function GorevlendirilenPage() {
           </div>
         }
       />
+
+      <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none print:hidden">
+        <input
+          type="checkbox"
+          className="rounded border-border accent-primary"
+          checked={includeArchived}
+          onChange={(e) => {
+            const on = e.target.checked;
+            setIncludeArchived(on);
+            try {
+              localStorage.setItem(STORAGE_INCLUDE_ARCHIVED, on ? '1' : '0');
+            } catch { /* ignore */ }
+          }}
+        />
+        Arşivlenmiş planları hesaba kat
+      </label>
 
       {/* Özet */}
       {(slots.length > 0 || coverages.length > 0) && (

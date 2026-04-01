@@ -65,12 +65,13 @@ function ilLabel(sub: string): string {
   return IL_LABELS[sub] ?? sub.charAt(0).toUpperCase() + sub.slice(1);
 }
 
+/** Sıra: MEB(0), Haberler(1), Eğitim(2), İl(3), Yarışmalar(4) */
 const CHANNELS = [
   { key: 'meb_duyurulari', label: 'MEB Duyuruları', sort_order: 0 },
-  { key: 'il_duyurulari', label: 'İl Duyuruları', sort_order: 1 },
-  { key: 'haberler', label: 'Haberler', sort_order: 2 },
-  { key: 'yarismalar', label: 'Yarışmalar', sort_order: 3 },
-  { key: 'egitim_duyurulari', label: 'Eğitim Duyuruları', sort_order: 4 },
+  { key: 'haberler', label: 'Haberler', sort_order: 1 },
+  { key: 'egitim_duyurulari', label: 'Eğitim Duyuruları', sort_order: 2 },
+  { key: 'il_duyurulari', label: 'İl Duyuruları', sort_order: 3 },
+  { key: 'yarismalar', label: 'Yarışmalar', sort_order: 4 },
 ];
 
 async function run() {
@@ -145,7 +146,7 @@ async function run() {
     await ds.query(
       `INSERT INTO content_channels (id, key, label, sort_order, is_active)
        VALUES (gen_random_uuid(), $1, $2, $3, true)
-       ON CONFLICT (key) DO NOTHING`,
+       ON CONFLICT (key) DO UPDATE SET label = EXCLUDED.label, sort_order = EXCLUDED.sort_order, is_active = true`,
       [c.key, c.label, c.sort_order],
     );
   }

@@ -60,6 +60,7 @@ import {
   SkipForward,
   CalendarPlus,
   CalendarX,
+  CalendarOff,
   FileCheck,
   Bell,
   Megaphone,
@@ -118,6 +119,8 @@ type ExamDutyItem = {
 type ListResponse = {
   items: ExamDutyItem[];
   total: number;
+  draft_count?: number;
+  published_count?: number;
 };
 
 type SyncSourceItem = {
@@ -619,6 +622,7 @@ export default function SinavGorevleriPage() {
   const [items, setItems] = useState<ExamDutyItem[]>([]);
   const [calendarItems, setCalendarItems] = useState<ExamDutyItem[]>([]);
   const [total, setTotal] = useState(0);
+  const [listStats, setListStats] = useState({ draft: 0, published: 0 });
   const [loading, setLoading] = useState(true);
   const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -626,7 +630,7 @@ export default function SinavGorevleriPage() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
-  const [mainView, setMainView] = useState<'list' | 'flow-calendar' | 'skipped'>('list');
+  const [mainView, setMainView] = useState<'list' | 'flow-calendar' | 'skipped' | 'no-dates' | 'no-exam'>('list');
   const systemTimeTurkey = useTurkeyClock();
   const [skippedItems, setSkippedItems] = useState<SkippedItem[]>([]);
   const [skippedSyncedAt, setSkippedSyncedAt] = useState<string | null>(null);
@@ -713,6 +717,9 @@ export default function SinavGorevleriPage() {
       const params = new URLSearchParams();
       if (categoryFilter) params.set('category_slug', categoryFilter);
       if (statusFilter && !forCalendar) params.set('status', statusFilter);
+      if (forCalendar || mainView === 'list') params.set('has_exam_date', '1');
+      if (!forCalendar && mainView === 'no-dates') params.set('missing_source_dates', '1');
+      if (!forCalendar && mainView === 'no-exam') params.set('missing_exam_date', '1');
       params.set('page', String(forCalendar ? 1 : page));
       params.set('limit', String(forCalendar ? 100 : limit));
       const res = await apiFetch<ListResponse>(`/admin/exam-duties?${params}`, { token });
@@ -721,18 +728,23 @@ export default function SinavGorevleriPage() {
         setCalendarItems(list);
       } else {
         setItems(list);
-        setTotal(res.total ?? list.length);
       }
+      setTotal(res.total ?? list.length);
+      setListStats({
+        draft: res.draft_count ?? 0,
+        published: res.published_count ?? 0,
+      });
     } catch {
       if (forCalendar) setCalendarItems([]);
       else {
         setItems([]);
-        setTotal(0);
       }
+      setTotal(0);
+      setListStats({ draft: 0, published: 0 });
     } finally {
       setLoading(false);
     }
-  }, [token, isSuperadmin, categoryFilter, statusFilter, page, limit]);
+  }, [token, isSuperadmin, categoryFilter, statusFilter, page, limit, mainView]);
 
   useEffect(() => {
     if (!isSuperadmin) {
@@ -760,7 +772,7 @@ export default function SinavGorevleriPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [categoryFilter, statusFilter, limit]);
+  }, [categoryFilter, statusFilter, limit, mainView]);
 
   const openCreate = () => {
     setEditing(null);
@@ -922,15 +934,15 @@ export default function SinavGorevleriPage() {
       )
     : items;
 
-  /** Soldan sağa tarihe göre sıralı liste (en erken tarih önce) */
+  /** Bşv. Açılış (application_start): yeniden eskiye — bugüne yakın üstte; tarihsiz en altta */
   const sortedItems = useMemo(() => {
     return [...filteredItems].sort((a, b) => {
-      const dA = a.application_start ?? a.applicationStart ?? a.exam_date ?? a.examDate ?? '';
-      const dB = b.application_start ?? b.applicationStart ?? b.exam_date ?? b.examDate ?? '';
+      const dA = a.application_start ?? a.applicationStart ?? '';
+      const dB = b.application_start ?? b.applicationStart ?? '';
       if (!dA && !dB) return 0;
       if (!dA) return 1;
       if (!dB) return -1;
-      return new Date(dA).getTime() - new Date(dB).getTime();
+      return new Date(dB).getTime() - new Date(dA).getTime();
     });
   }, [filteredItems]);
 
@@ -1076,7 +1088,11 @@ export default function SinavGorevleriPage() {
         token,
         body: JSON.stringify({}),
       });
-      toast.success(`${res.deleted} taslak silindi, ${res.sources_reset} kaynak sıfırlandı`);
+      toast.success(
+        res.deleted > 0
+          ? `${res.deleted} taslak silindi, ${res.sources_reset} kaynak sıfırlandı`
+          : `Silinecek sync taslağı yok; ${res.sources_reset} kaynağın sync konumu sıfırlandı`,
+      );
       fetchList();
       fetchSyncSources();
     } catch (e) {
@@ -1086,9 +1102,22 @@ export default function SinavGorevleriPage() {
     }
   };
 
-  const draftCount = items.filter((i) => i.status === 'draft').length;
-  const publishedCount = items.filter((i) => i.status === 'published').length;
+  const draftCount = listStats.draft;
+  const publishedCount = listStats.published;
   const totalPages = Math.ceil(total / limit) || 1;
+
+  const statsScopeLabel =
+    mainView === 'list'
+      ? 'Sınav tarihi olan duyurular'
+      : mainView === 'no-dates'
+        ? 'Kaynakta başvuru/sınav tarihi yok'
+        : mainView === 'no-exam'
+          ? 'Sınav tarihi eksik'
+          : mainView === 'flow-calendar'
+            ? 'Takvim (sınav tarihi olan)'
+            : mainView === 'skipped'
+              ? 'Kurum/durum + gizleme kuralları (görünüm sekmesi filtresiz)'
+              : 'Filtreye göre';
 
   if (!isSuperadmin) return null;
 
@@ -1162,40 +1191,43 @@ export default function SinavGorevleriPage() {
         </ToolbarHeading>
       </Toolbar>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="overflow-hidden rounded-xl border-amber-200/60 bg-amber-50/50 shadow-sm dark:border-amber-800/40 dark:bg-amber-950/20">
-          <CardContent className="flex items-center gap-4 p-6">
-            <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/40">
-              <FileEdit className="size-6 text-amber-700 dark:text-amber-400" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-2xl font-bold tabular-nums text-foreground">{draftCount}</p>
-              <p className="text-sm font-medium text-muted-foreground">Taslak</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="overflow-hidden rounded-xl border-green-200/60 bg-green-50/50 shadow-sm dark:border-green-800/40 dark:bg-green-950/20">
-          <CardContent className="flex items-center gap-4 p-6">
-            <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-green-100 dark:bg-green-900/40">
-              <CheckCircle2 className="size-6 text-green-700 dark:text-green-400" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-2xl font-bold tabular-nums text-foreground">{publishedCount}</p>
-              <p className="text-sm font-medium text-muted-foreground">Yayında</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="overflow-hidden rounded-xl border-blue-200/60 bg-blue-50/50 shadow-sm dark:border-blue-800/40 dark:bg-blue-950/20">
-          <CardContent className="flex items-center gap-4 p-6">
-            <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/40">
-              <ClipboardList className="size-6 text-blue-700 dark:text-blue-400" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-2xl font-bold tabular-nums text-foreground">{total}</p>
-              <p className="text-sm font-medium text-muted-foreground">Toplam</p>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="space-y-2">
+        <p className="text-xs text-muted-foreground px-0.5">{statsScopeLabel}</p>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Card className="overflow-hidden rounded-xl border-amber-200/60 bg-amber-50/50 shadow-sm dark:border-amber-800/40 dark:bg-amber-950/20">
+            <CardContent className="flex items-center gap-4 p-6">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/40">
+                <FileEdit className="size-6 text-amber-700 dark:text-amber-400" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-2xl font-bold tabular-nums text-foreground">{draftCount}</p>
+                <p className="text-sm font-medium text-muted-foreground">Taslak</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="overflow-hidden rounded-xl border-green-200/60 bg-green-50/50 shadow-sm dark:border-green-800/40 dark:bg-green-950/20">
+            <CardContent className="flex items-center gap-4 p-6">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-green-100 dark:bg-green-900/40">
+                <CheckCircle2 className="size-6 text-green-700 dark:text-green-400" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-2xl font-bold tabular-nums text-foreground">{publishedCount}</p>
+                <p className="text-sm font-medium text-muted-foreground">Yayında</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="overflow-hidden rounded-xl border-blue-200/60 bg-blue-50/50 shadow-sm dark:border-blue-800/40 dark:bg-blue-950/20">
+            <CardContent className="flex items-center gap-4 p-6">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/40">
+                <ClipboardList className="size-6 text-blue-700 dark:text-blue-400" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-2xl font-bold tabular-nums text-foreground">{total}</p>
+                <p className="text-sm font-medium text-muted-foreground">Toplam</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       {/* Görünüm seçici: Liste / Akış Takvimi / Atlananlar */}
@@ -1257,6 +1289,44 @@ export default function SinavGorevleriPage() {
             </span>
             <span className={cn('text-xs', mainView === 'skipped' ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
               Eklenmeyen kayıtlar
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMainView('no-dates')}
+            title="GPT veya kaynak metninden başvuru/sınav tarihi çıkarılamayan sync duyuruları"
+            className={cn(
+              'flex min-h-[48px] w-full flex-col items-start gap-0.5 rounded-xl border px-4 py-3 text-left transition-all sm:min-w-[120px] sm:w-auto',
+              mainView === 'no-dates'
+                ? 'bg-primary text-primary-foreground border-primary shadow-md'
+                : 'bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent'
+            )}
+          >
+            <span className="flex items-center gap-2 font-medium">
+              <CalendarX className="size-4 shrink-0" />
+              Tarihsiz
+            </span>
+            <span className={cn('text-xs', mainView === 'no-dates' ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+              Kaynakta tarih yok
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMainView('no-exam')}
+            title="Sınav başlangıç/bitiş tarihi kayıtta olmayan duyurular"
+            className={cn(
+              'flex min-h-[48px] w-full flex-col items-start gap-0.5 rounded-xl border px-4 py-3 text-left transition-all sm:min-w-[120px] sm:w-auto',
+              mainView === 'no-exam'
+                ? 'bg-primary text-primary-foreground border-primary shadow-md'
+                : 'bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent'
+            )}
+          >
+            <span className="flex items-center gap-2 font-medium">
+              <CalendarOff className="size-4 shrink-0" />
+              Sınav tarihi yok
+            </span>
+            <span className={cn('text-xs', mainView === 'no-exam' ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+              Tespit edilemeyen
             </span>
           </button>
         </div>
@@ -1479,18 +1549,32 @@ export default function SinavGorevleriPage() {
         </Card>
       )}
 
-      {mainView === 'list' && (
+      {(mainView === 'list' || mainView === 'no-dates' || mainView === 'no-exam') && (
       <Card className="overflow-hidden rounded-xl border-border/80 shadow-sm">
         <CardHeader className="border-b border-border/50 bg-muted/20">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
                 <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
-                  <ClipboardList className="size-5 text-primary" />
+                  {mainView === 'no-dates' ? (
+                    <CalendarX className="size-5 text-amber-600 dark:text-amber-400" />
+                  ) : mainView === 'no-exam' ? (
+                    <CalendarOff className="size-5 text-rose-600 dark:text-rose-400" />
+                  ) : (
+                    <ClipboardList className="size-5 text-primary" />
+                  )}
                 </div>
                 <div>
-                  <CardTitle className="text-base font-semibold">Liste</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-0.5">Duyuruları tablo veya kart olarak filtreleyip düzenleyin</p>
+                  <CardTitle className="text-base font-semibold">
+                    {mainView === 'no-dates' ? 'Kaynakta tarih yok' : mainView === 'no-exam' ? 'Sınav tarihi yok' : 'Liste'}
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {mainView === 'no-dates'
+                      ? 'Sync ile gelen, GPT/kaynak metninden başvuru bitişi ve sınav tarihleri tespit edilemeyen duyurular (elle tarih girin veya yayınlamayın).'
+                      : mainView === 'no-exam'
+                        ? 'Kayıtta sınav başlangıç ve bitiş tarihi olmayan duyurular (başvuru tarihi olsa bile). Elle sınav tarihi girin veya yayınlamayın.'
+                        : 'Duyuruları tablo veya kart olarak filtreleyip düzenleyin'}
+                  </p>
                 </div>
                 <Button
                   variant="ghost"

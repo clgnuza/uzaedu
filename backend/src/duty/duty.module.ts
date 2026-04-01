@@ -18,12 +18,14 @@ import { DutyReminderService } from './duty-reminder.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { Notification } from '../notifications/entities/notification.entity';
 import { TeacherTimetableModule } from '../teacher-timetable/teacher-timetable.module';
+import { MarketModule } from '../market/market.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([DutyPlan, DutySlot, DutyLog, DutyArea, DutySwapRequest, DutyPreference, DutyAbsence, DutyCoverage, User, Notification, School, WorkCalendar]),
     NotificationsModule,
     TeacherTimetableModule,
+    MarketModule,
   ],
   controllers: [DutyController],
   providers: [DutyService, DutyReminderService, RequireSchoolModuleGuard],

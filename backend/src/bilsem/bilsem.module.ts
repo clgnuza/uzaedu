@@ -15,6 +15,8 @@ import { BilsemYillikPlanService } from './bilsem-yillik-plan.service';
 import { BilsemController } from './bilsem.controller';
 import { BilsemCalendarReminderService } from './bilsem-calendar-reminder.service';
 import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
+import { MarketModule } from '../market/market.module';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -29,6 +31,7 @@ import { RequireSchoolModuleGuard } from '../common/guards/require-school-module
     ]),
     WorkCalendarModule,
     NotificationsModule,
+    MarketModule,
   ],
   controllers: [BilsemController],
   providers: [BilsemService, BilsemYillikPlanService, BilsemCalendarReminderService, RequireSchoolModuleGuard],

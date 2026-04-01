@@ -49,6 +49,10 @@ export class DutyPlan {
   @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deleted_at: Date | null;
 
+  /** Arşiv: yayınlı plan günlük görünümde kullanılmaz; istatistikte parametreye bağlı */
+  @Column({ name: 'archived_at', type: 'timestamptz', nullable: true })
+  archived_at: Date | null;
+
   @ManyToOne(() => School)
   @JoinColumn({ name: 'school_id' })
   school: School;

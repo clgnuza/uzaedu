@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { LogIn, UserPlus, Star } from 'lucide-react';
+import { LogIn, UserPlus } from 'lucide-react';
 import { AuthTransitionLink } from '@/components/landing/auth-transition-link';
 import { SealHub } from '@/components/landing/seal-hub';
 import { CookiePreferencesLink } from '@/components/cookie-preferences-link';
@@ -91,16 +91,6 @@ export default function HomePage() {
           </div>
 
           <div className="flex w-full min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
-            <Link
-              href="/okul-degerlendirmeleri"
-              className="group flex min-h-[52px] min-w-0 flex-1 items-center justify-center gap-3 rounded-2xl border border-amber-900/40 bg-amber-950/30 px-4 py-3 text-left transition hover:border-amber-700/50 hover:bg-amber-950/50 sm:min-h-0 sm:flex-initial sm:justify-start sm:px-5"
-            >
-              <Star className="size-7 shrink-0 text-amber-400 fill-amber-500/90" aria-hidden />
-              <div className="min-w-0 text-left">
-                <p className="text-[9px] font-medium uppercase tracking-widest text-amber-200/80 group-hover:text-amber-100">Herkese açık</p>
-                <p className="text-[13px] font-bold text-white">Okul değerlendirmeleri</p>
-              </div>
-            </Link>
             <button
               type="button"
               aria-label="App Store bağlantısı yakında"

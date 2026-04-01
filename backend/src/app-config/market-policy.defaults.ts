@@ -28,10 +28,18 @@ export type MarketModuleScopeUsage = {
   yearly: MarketCurrencyPair;
 };
 
-/** Modül girişinde gösterilecek kısa bilgilendirme (web / mobil). */
+/** Modül girişinde gösterilecek kısa bilgilendirme + web yönlendirme / satın alma CTA (web / mobil). */
 export type MarketModuleEntryNotice = {
   notice_tr: string | null;
   notice_en: string | null;
+  /** Web içi yol; örn /market — null ise istemci /market kullanır */
+  market_href: string | null;
+  cta_market_tr: string | null;
+  cta_market_en: string | null;
+  /** Harici mağaza / satın alma sayfası (https) */
+  purchase_href: string | null;
+  cta_purchase_tr: string | null;
+  cta_purchase_en: string | null;
 };
 
 export type MarketModulePriceRow = {
@@ -127,43 +135,117 @@ function emptyScope(): MarketModuleScopeUsage {
   return { monthly: zeroPair(), yearly: zeroPair() };
 }
 
-const DEFAULT_ENTRY_NOTICE: MarketModuleEntryNotice = {
+/** Tüm modüller için ortak CTA; metinler modül bazında MODULE_ENTRY_NOTICES ile doldurulur. */
+const ENTRY_CTA_DEFAULTS: MarketModuleEntryNotice = {
   notice_tr: null,
   notice_en: null,
+  market_href: '/market',
+  cta_market_tr: 'Cüzdan ve Market',
+  cta_market_en: 'Wallet & Market',
+  purchase_href: null,
+  cta_purchase_tr: 'Google Play’de uygulamayı aç',
+  cta_purchase_en: 'Open on Google Play',
+};
+
+/** Modül giriş paneli: TR/EN kısa açıklama (web-admin süperadmin varsayılanı). */
+const MODULE_ENTRY_NOTICES: Record<MarketModuleKey, { tr: string; en: string }> = {
+  duty: {
+    tr: 'Nöbet planı ve nöbet süreçlerinde bazı işlemler jeton veya ek ders kullanımı gerektirebilir. Bakiyenizi Market üzerinden kontrol edebilirsiniz.',
+    en: 'Some duty planning actions may use jeton or extra lesson credits. Check your balance on the Market page.',
+  },
+  tv: {
+    tr: 'Duyuru TV içerikleri ve cihaz kullanımında tarifeye göre düşüm yapılabilir. Güncel tutarlar Market sayfasındadır.',
+    en: 'Announcement TV content and devices may be billed per policy. See the Market page for current rates.',
+  },
+  extra_lesson: {
+    tr: 'Ek ders hesaplama ve ilgili parametrelerde kullanım başına jeton veya ek ders düşebilir.',
+    en: 'Extra lesson calculations and related parameters may debit jeton or extra lesson credits per use.',
+  },
+  document: {
+    tr: 'Evrak şablonları ve belge üretiminde kullanım başına jeton veya ek ders düşebilir. Market’ten bakiyenizi yönetin.',
+    en: 'Document templates and generation may charge jeton or extra lesson credits per use. Manage balance in Market.',
+  },
+  outcome: {
+    tr: 'Kazanım takip ve plan içeriklerinde kullanım ücretleri politika tarifesine göre alınabilir.',
+    en: 'Outcome tracking and plan content may incur usage fees per the published tariff.',
+  },
+  optical: {
+    tr: 'Optik formlar ve optik okuma işlemlerinde jeton veya ek ders kullanımı uygulanabilir.',
+    en: 'Optical forms and scanning may use jeton or extra lesson credits.',
+  },
+  smart_board: {
+    tr: 'Akıllı tahta oturumları ve ilgili işlemlerde kullanım başına ücret düşebilir.',
+    en: 'Smart board sessions and related actions may incur per-use charges.',
+  },
+  teacher_agenda: {
+    tr: 'Öğretmen ajandası ve değerlendirme özelliklerinde kullanım ücretleri tarifeye göre alınabilir.',
+    en: 'Teacher agenda and evaluation features may charge fees per the tariff.',
+  },
+  bilsem: {
+    tr: 'BİLSEM takvim ve yıllık plan özelliklerinde jeton veya ek ders düşümü olabilir.',
+    en: 'BİLSEM calendar and yearly plan features may debit jeton or extra lesson credits.',
+  },
+  school_profile: {
+    tr: 'Okul tanıtım ve vitrin içeriğinde bazı işlemler ücretli olabilir; bakiyenizi Market’ten takip edin.',
+    en: 'Some school profile and showcase actions may be paid; track balance in Market.',
+  },
+  school_reviews: {
+    tr: 'Okul değerlendirme ve raporlarda kullanım başına jeton veya ek ders düşebilir.',
+    en: 'School reviews and reports may charge jeton or extra lesson credits per use.',
+  },
 };
 
 function zeroRow(): MarketModulePriceRow {
   return {
     school: emptyScope(),
     teacher: emptyScope(),
-    entry_notice: { ...DEFAULT_ENTRY_NOTICE },
+    entry_notice: { ...ENTRY_CTA_DEFAULTS },
+  };
+}
+
+function defaultModuleRowForKey(k: MarketModuleKey): MarketModulePriceRow {
+  const t = MODULE_ENTRY_NOTICES[k];
+  return {
+    school: emptyScope(),
+    teacher: emptyScope(),
+    entry_notice: {
+      ...ENTRY_CTA_DEFAULTS,
+      notice_tr: t.tr,
+      notice_en: t.en,
+    },
   };
 }
 
 export function buildDefaultModulePrices(): Record<string, MarketModulePriceRow> {
   const o: Record<string, MarketModulePriceRow> = {};
   for (const k of MARKET_MODULE_KEYS) {
-    o[k] = zeroRow();
+    o[k] = defaultModuleRowForKey(k);
   }
   return o;
 }
 
 const DEFAULT_STORE_COMPLIANCE: MarketStoreCompliance = {
-  purchase_disclosure_tr: null,
-  purchase_disclosure_en: null,
-  refunds_and_support_note: null,
+  purchase_disclosure_tr:
+    'Uygulama içi jeton ve ek ders paketleri sanal ürünlerdir; fiyatlar ve vergi Google Play / App Store’da gösterilir. Satın alma işlemi seçtiğiniz mağaza hesabınıza yansır.',
+  purchase_disclosure_en:
+    'In-app jeton and extra lesson packs are digital goods; prices and tax are shown in Google Play / App Store. Purchases are charged to your store account.',
+  refunds_and_support_note:
+    'İade, iptal ve abonelik yönetimi Google Play ve App Store kurallarına tabidir. Abonelikleri mağaza hesabınızdan yönetebilirsiniz. Destek için uygulama içi iletişim veya kurumunuzun belirlediği kanalı kullanın.',
 };
 
 const DEFAULT_SUBSCRIPTION_URLS: MarketSubscriptionUrls = {
-  android_play_subscriptions_help_url: null,
-  android_manage_play_subscriptions_url: null,
-  apple_manage_subscriptions_url: null,
-  apple_subscription_terms_note: null,
+  android_play_subscriptions_help_url: 'https://support.google.com/googleplay/answer/2476087',
+  android_manage_play_subscriptions_url: 'https://play.google.com/store/account/subscriptions',
+  apple_manage_subscriptions_url: 'https://apps.apple.com/account/subscriptions',
+  apple_subscription_terms_note:
+    'Abonelikleri App Store hesabınızdan (Ayarlar → Apple Kimliği → Abonelikler) veya yukarıdaki bağlantıdan yönetebilirsiniz.',
 };
 
 const DEFAULT_MINOR_PRIVACY: MarketMinorPrivacy = {
-  not_targeting_children_note: null,
-  parental_consent_note: null,
+  not_targeting_children_note:
+    'Bu uygulama okul ve öğretmen iş akışlarına yöneliktir; 13 yaş altı çocuklara özel bir hedef kitle olarak sunulmamaktadır. Kurumunuz farklı bir politika uyguluyorsa metni güncelleyin.',
+  parental_consent_note:
+    'Reşit olmayan kullanıcılar için veli/vasi onayı kurum politikalarınıza göre yürütülmelidir; gerekirse bu alanı kurum metninizle değiştirin.',
 };
 
 const DEFAULT_REWARDED_AD_JETON: MarketRewardedAdJetonConfig = {
@@ -297,6 +379,28 @@ function sanitizeIapSide(raw: unknown, fallback: MarketIapSide): MarketIapSide {
 
 const COMPLIANCE_TEXT_MAX = 8000;
 const ENTRY_NOTICE_MAX = 2000;
+const ENTRY_CTA_LABEL_MAX = 96;
+
+function sanitizeInternalMarketPath(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  const t = String(raw)
+    .replace(/\0/g, '')
+    .trim()
+    .slice(0, 256);
+  if (!t) return null;
+  if (!t.startsWith('/')) return null;
+  if (t.includes('..') || t.includes('//')) return null;
+  return t;
+}
+
+function sanitizeCtaLabel(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  const t = String(raw)
+    .replace(/\0/g, '')
+    .trim()
+    .slice(0, ENTRY_CTA_LABEL_MAX);
+  return t.length ? t : null;
+}
 
 function sanitizeEntryNoticeText(raw: unknown): string | null {
   if (raw === undefined || raw === null) return null;
@@ -307,12 +411,28 @@ function sanitizeEntryNoticeText(raw: unknown): string | null {
   return t.length ? t : null;
 }
 
+function sanitizeHttpUrl(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  const t = String(raw)
+    .trim()
+    .replace(/\s/g, '')
+    .slice(0, 2048);
+  if (!/^https:\/\//i.test(t)) return null;
+  return t;
+}
+
 function sanitizeEntryNotice(raw: unknown, fallback: MarketModuleEntryNotice): MarketModuleEntryNotice {
   if (!raw || typeof raw !== 'object') return { ...fallback };
   const o = raw as Record<string, unknown>;
   return {
     notice_tr: o.notice_tr !== undefined ? sanitizeEntryNoticeText(o.notice_tr) : fallback.notice_tr,
     notice_en: o.notice_en !== undefined ? sanitizeEntryNoticeText(o.notice_en) : fallback.notice_en,
+    market_href: o.market_href !== undefined ? sanitizeInternalMarketPath(o.market_href) : fallback.market_href,
+    cta_market_tr: o.cta_market_tr !== undefined ? sanitizeCtaLabel(o.cta_market_tr) : fallback.cta_market_tr,
+    cta_market_en: o.cta_market_en !== undefined ? sanitizeCtaLabel(o.cta_market_en) : fallback.cta_market_en,
+    purchase_href: o.purchase_href !== undefined ? sanitizeHttpUrl(o.purchase_href) : fallback.purchase_href,
+    cta_purchase_tr: o.cta_purchase_tr !== undefined ? sanitizeCtaLabel(o.cta_purchase_tr) : fallback.cta_purchase_tr,
+    cta_purchase_en: o.cta_purchase_en !== undefined ? sanitizeCtaLabel(o.cta_purchase_en) : fallback.cta_purchase_en,
   };
 }
 
@@ -342,16 +462,6 @@ function sanitizeCompliance(raw: unknown, fallback: MarketStoreCompliance): Mark
         ? sanitizeComplianceText(o.refunds_and_support_note)
         : fallback.refunds_and_support_note,
   };
-}
-
-function sanitizeHttpUrl(raw: unknown): string | null {
-  if (raw === undefined || raw === null) return null;
-  const t = String(raw)
-    .trim()
-    .replace(/\s/g, '')
-    .slice(0, 2048);
-  if (!/^https:\/\//i.test(t)) return null;
-  return t;
 }
 
 function sanitizeSubscriptionUrls(raw: unknown, fallback: MarketSubscriptionUrls): MarketSubscriptionUrls {

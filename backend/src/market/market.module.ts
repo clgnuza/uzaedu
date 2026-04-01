@@ -21,6 +21,9 @@ import { MarketUsageController } from './market-usage.controller';
 import { MarketAdminController } from './market-admin.controller';
 import { MarketRewardedAdController } from './market-rewarded-ad.controller';
 import { MarketRewardedAdSsvService } from './market-rewarded-ad-ssv.service';
+import { ModulePeriodActivation } from './entities/module-period-activation.entity';
+import { MarketModuleActivationService } from './market-module-activation.service';
+import { RequireModuleActivationGuard } from './guards/require-module-activation.guard';
 
 @Module({
   imports: [
@@ -32,6 +35,7 @@ import { MarketRewardedAdSsvService } from './market-rewarded-ad-ssv.service';
       MarketSchoolCreditLedger,
       MarketUserCreditLedger,
       MarketRewardedAdLedger,
+      ModulePeriodActivation,
       User,
       School,
     ]),
@@ -51,6 +55,8 @@ import { MarketRewardedAdSsvService } from './market-rewarded-ad-ssv.service';
     MarketSchoolCreditService,
     MarketUserCreditService,
     MarketRewardedAdSsvService,
+    MarketModuleActivationService,
+    RequireModuleActivationGuard,
   ],
   exports: [
     MarketPurchaseService,
@@ -59,6 +65,8 @@ import { MarketRewardedAdSsvService } from './market-rewarded-ad-ssv.service';
     MarketUsageService,
     MarketSchoolCreditService,
     MarketUserCreditService,
+    MarketModuleActivationService,
+    RequireModuleActivationGuard,
   ],
 })
 export class MarketModule {}

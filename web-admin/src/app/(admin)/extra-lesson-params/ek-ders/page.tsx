@@ -24,6 +24,7 @@ import {
   Info,
   Sparkles,
 } from 'lucide-react';
+import { AYLIK_KATSAYI_2026_OCAK_HAZIRAN } from '@/lib/resmi-katsayilar';
 
 type LineItem = {
   key: string;
@@ -92,7 +93,7 @@ const DEFAULT_TAX_BRACKETS: TaxBracket[] = [
   { max_matrah: 999999999, rate_percent: 40 },
 ];
 
-const COEFF_DEFAULT = 1.387871;
+const COEFF_DEFAULT = Number(AYLIK_KATSAYI_2026_OCAK_HAZIRAN);
 const IND_DAY = 140;
 const IND_NIGHT = 150;
 const r = (v: number) => Math.round(v * 100) / 100;

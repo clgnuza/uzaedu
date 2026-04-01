@@ -1,14 +1,15 @@
 import { test, expect } from '@playwright/test';
+import { DEMO_CREDENTIALS } from '../src/lib/demo-credentials';
 
 /**
  * Akademik Takvim sayfası E2E testi.
- * Giriş: teacher@demo.local veya school_admin@demo.local (Demo123!) – demo butonları.
+ * Giriş: teacher@demo.local (demo-credentials şifresi).
  */
 test.describe('Akademik Takvim sayfası', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/login', { waitUntil: 'networkidle', timeout: 15000 });
-    await page.locator('#email').fill('teacher@demo.local');
-    await page.locator('#password').fill('Demo123!');
+    await page.locator('#email').fill(DEMO_CREDENTIALS.teacher.email);
+    await page.locator('#password').fill(DEMO_CREDENTIALS.teacher.password);
     // React state güncellemesi için kısa bekle; sonra form submit
     await page.waitForTimeout(300);
     await page.locator('form').evaluate((form) => (form as HTMLFormElement).requestSubmit());

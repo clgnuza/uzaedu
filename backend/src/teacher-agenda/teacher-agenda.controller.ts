@@ -16,6 +16,7 @@ import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
 import { RequireSchoolModule } from '../common/decorators/require-school-module.decorator';
+import { RequireModuleActivationGuard } from '../market/guards/require-module-activation.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
@@ -42,7 +43,7 @@ import { CreateEvaluationScoreDto } from './dto/create-evaluation-score.dto';
 import { AgendaTask } from './entities/agenda-task.entity';
 
 @Controller('teacher-agenda')
-@UseGuards(JwtAuthGuard, RolesGuard, RequireSchoolModuleGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
 @RequireSchoolModule('teacher_agenda')
 export class TeacherAgendaController {
   constructor(private readonly service: TeacherAgendaService) {}

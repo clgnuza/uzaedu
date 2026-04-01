@@ -3,6 +3,7 @@ import { RawBody } from '../common/decorators/raw-body.decorator';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
 import { RequireSchoolModule } from '../common/decorators/require-school-module.decorator';
+import { RequireModuleActivationGuard } from '../market/guards/require-module-activation.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
@@ -15,7 +16,7 @@ import { ReassignSlotDto } from './dto/reassign-slot.dto';
 import { CreateSwapRequestDto } from './dto/create-swap-request.dto';
 import { RespondSwapDto } from './dto/respond-swap.dto';
 @Controller('duty')
-@UseGuards(JwtAuthGuard, RequireSchoolModuleGuard)
+@UseGuards(JwtAuthGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
 @RequireSchoolModule('duty')
 export class DutyController {
   constructor(private readonly service: DutyService) {}
@@ -27,13 +28,20 @@ export class DutyController {
     return `${y}-${m}-${day}`;
   }
 
-  /** Plan listesi – school_admin: tüm planlar, teacher: kendi nöbetleri */
+  /** Plan listesi – ?scope=active|archived|all (admin; öğretmen: yalnız aktif) */
   @Get('plans')
   @UseGuards(RolesGuard)
   @Roles(UserRole.school_admin, UserRole.teacher)
-  async listPlans(@CurrentUser() payload: CurrentUserPayload) {
+  async listPlans(
+    @Query('scope') scope: string,
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
     const schoolId = payload.role === UserRole.teacher ? payload.schoolId : payload.schoolId;
-    return this.service.listPlans(schoolId, payload.role as UserRole);
+    const s =
+      payload.role === UserRole.school_admin && (scope === 'archived' || scope === 'all')
+        ? (scope as 'archived' | 'all')
+        : 'active';
+    return this.service.listPlans(schoolId, payload.role as UserRole, s);
   }
 
   /** Tarih aralığı nöbet slotları – ?from=YYYY-MM-DD&to=YYYY-MM-DD (takvim görünümleri) */
@@ -173,6 +181,22 @@ export class DutyController {
     @CurrentUser() payload: CurrentUserPayload,
   ) {
     return this.service.publishPlan(id, payload.schoolId ?? null, payload.userId);
+  }
+
+  /** Planı arşivle – günlük nöbet görünümünden düşer (school_admin) */
+  @Post('plans/:id/archive')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.school_admin)
+  async archivePlan(@Param('id') id: string, @CurrentUser() payload: CurrentUserPayload) {
+    return this.service.archivePlan(id, payload.schoolId ?? null);
+  }
+
+  /** Arşivden çıkar */
+  @Post('plans/:id/unarchive')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.school_admin)
+  async unarchivePlan(@Param('id') id: string, @CurrentUser() payload: CurrentUserPayload) {
+    return this.service.unarchivePlan(id, payload.schoolId ?? null);
   }
 
   /** Plan soft delete – school_admin (istatistikler korunur) */
@@ -362,14 +386,17 @@ export class DutyController {
   async getSummary(
     @Query('from') from: string,
     @Query('to') to: string,
+    @Query('include_archived') includeArchived: string,
     @CurrentUser() payload: CurrentUserPayload,
   ) {
+    const inc = includeArchived === '1' || includeArchived === 'true';
     return this.service.getSummary(
       payload.schoolId,
       from || undefined,
       to || undefined,
       payload.role as UserRole,
       payload.userId,
+      inc,
     );
   }
 
@@ -380,10 +407,12 @@ export class DutyController {
   async getCoverageAssignments(
     @Query('from') from: string,
     @Query('to') to: string,
+    @Query('include_archived') includeArchived: string,
     @CurrentUser() payload: CurrentUserPayload,
   ) {
     if (!from || !to) throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'from ve to parametreleri zorunludur.' });
-    return this.service.getCoverageAssignments(payload.schoolId ?? null, from, to);
+    const inc = includeArchived === '1' || includeArchived === 'true';
+    return this.service.getCoverageAssignments(payload.schoolId ?? null, from, to, inc);
   }
 
   /** Yerine görevlendirilmiş nöbetler – ?from=YYYY-MM-DD&to=YYYY-MM-DD – school_admin */
@@ -393,12 +422,15 @@ export class DutyController {
   async getReassigned(
     @Query('from') from: string,
     @Query('to') to: string,
+    @Query('include_archived') includeArchived: string,
     @CurrentUser() payload: CurrentUserPayload,
   ) {
+    const inc = includeArchived === '1' || includeArchived === 'true';
     return this.service.getReassignedSlots(
       payload.schoolId ?? null,
       from || undefined,
       to || undefined,
+      inc,
     );
   }
 
@@ -948,8 +980,8 @@ export class DutyController {
   }
 
   /**
-   * Aylık nöbet çizelgesi – ay/yıl bazlı tablo (Sabah/Öğlen vardiyalı).
-   * GET /duty/aylik-cizelge?month=9&year=2025
+   * Aylık nöbet çizelgesi – tam ay veya tarih aralığı (Sabah/Öğlen vardiyalı).
+   * GET /duty/aylik-cizelge?month=9&year=2025 | ?from=2025-03-01&to=2025-03-20
    */
   @Get('aylik-cizelge')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -957,13 +989,23 @@ export class DutyController {
   async getAylikCizelge(
     @Query('month') monthStr: string,
     @Query('year') yearStr: string,
+    @Query('from') fromStr: string,
+    @Query('to') toStr: string,
     @CurrentUser() payload: CurrentUserPayload,
   ) {
+    const from = fromStr?.trim();
+    const to = toStr?.trim();
+    if (from && to) {
+      return this.service.getAylikCizelge(payload.schoolId ?? null, { from, to });
+    }
     const month = parseInt(monthStr, 10);
     const year = parseInt(yearStr, 10);
     if (!monthStr || !yearStr || isNaN(month) || isNaN(year)) {
-      throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'month ve year gereklidir.' });
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'from ve to veya month ve year gereklidir.',
+      });
     }
-    return this.service.getAylikCizelge(payload.schoolId ?? null, month, year);
+    return this.service.getAylikCizelge(payload.schoolId ?? null, { month, year });
   }
 }

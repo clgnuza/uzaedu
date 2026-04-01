@@ -9,7 +9,7 @@ import { Breadcrumb } from './components/breadcrumb';
 import { Footer } from './components/footer';
 import { Header } from './components/header';
 import { Sidebar } from './components/sidebar';
-import { ModuleEntryFeeBanner } from '@/components/market/module-entry-fee-banner';
+import { ModuleContentGate } from '@/components/market/module-content-gate';
 import { isPublicAdminPath } from '@/lib/public-admin-paths';
 import { OGRETMEN_PRO_GUEST_SHELL_NAV } from '@/lib/guest-web-shell-preset';
 import type { GuestPublicWebShellNav, WebExtrasPublic } from '@/lib/web-extras-public';
@@ -123,8 +123,7 @@ export function Demo1Layout({ children }: { children: ReactNode }) {
               </div>
             )}
             <div className={cn(guestPublicChrome ? 'mt-0 space-y-4 sm:space-y-5' : 'mt-3 space-y-4 sm:mt-5 sm:space-y-5')}>
-              {!guestPublicChrome && <ModuleEntryFeeBanner />}
-              {children}
+              {!guestPublicChrome ? <ModuleContentGate>{children}</ModuleContentGate> : children}
             </div>
           </div>
         </main>

@@ -15,7 +15,7 @@ import { WorkCalendar } from '../work-calendar/entities/work-calendar.entity';
 import { CreateDutyPlanDto } from './dto/create-duty-plan.dto';
 import { UpdateDutySlotDto } from './dto/update-duty-slot.dto';
 import { DutySlotInputDto } from './dto/create-duty-plan.dto';
-import { UserRole } from '../types/enums';
+import { UserRole, UserStatus } from '../types/enums';
 import { maskTeacherDisplayName } from '../common/utils/teacher-display-name';
 import { NotificationsService } from '../notifications/notifications.service';
 import { TeacherTimetableService } from '../teacher-timetable/teacher-timetable.service';
@@ -49,18 +49,87 @@ export class DutyService {
     private readonly timetableService: TeacherTimetableService,
   ) {}
 
-  async listPlans(schoolId: string | null, role: UserRole) {
+  async listPlans(
+    schoolId: string | null,
+    role: UserRole,
+    scope: 'active' | 'archived' | 'all' = 'active',
+  ) {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     const qb = this.planRepo
       .createQueryBuilder('p')
       .where('p.school_id = :schoolId', { schoolId })
       .andWhere('p.deleted_at IS NULL')
       .orderBy('p.created_at', 'DESC');
-    // Teacher rolü taslak planları göremez
+    // Teacher rolü taslak planları göremez; arşiv listesi yalnız admin
     if (role === UserRole.teacher) {
       qb.andWhere("p.status != 'draft'");
+      qb.andWhere('p.archived_at IS NULL');
+    } else if (scope === 'active') {
+      qb.andWhere('p.archived_at IS NULL');
+    } else if (scope === 'archived') {
+      qb.andWhere('p.archived_at IS NOT NULL');
     }
     return qb.getMany();
+  }
+
+  /** Planı arşivle – günlük nöbet görünümünden düşer (school_admin) */
+  async archivePlan(planId: string, schoolId: string | null) {
+    if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    const plan = await this.planRepo.findOne({ where: { id: planId, deleted_at: IsNull() } });
+    if (!plan) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Plan bulunamadı.' });
+    if (plan.school_id !== schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu plana erişim yetkiniz yok.' });
+    if (plan.archived_at) return { success: true, message: 'Plan zaten arşivde.' };
+    plan.archived_at = new Date();
+    await this.planRepo.save(plan);
+    return { success: true, message: 'Plan arşivlendi.' };
+  }
+
+  async unarchivePlan(planId: string, schoolId: string | null) {
+    if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    const plan = await this.planRepo.findOne({ where: { id: planId, deleted_at: IsNull() } });
+    if (!plan) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Plan bulunamadı.' });
+    if (plan.school_id !== schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu plana erişim yetkiniz yok.' });
+    if (!plan.archived_at) return { success: true, message: 'Plan arşivde değil.' };
+    if (plan.period_start && plan.period_end) {
+      await this.assertDutyPlanPeriodNoConflict(schoolId, plan.period_start, plan.period_end, planId);
+    }
+    plan.archived_at = null;
+    await this.planRepo.save(plan);
+    return { success: true, message: 'Plan arşivden çıkarıldı.' };
+  }
+
+  /**
+   * Dönem çakışması: yayındaki planlar + arşivdeki planlar (taslaklar hariç).
+   * Taslak (draft, arşivde değil) yayınlanana kadar çakışmaya izin verilir.
+   */
+  private async assertDutyPlanPeriodNoConflict(
+    schoolId: string,
+    periodStart: string,
+    periodEnd: string,
+    excludePlanId?: string | null,
+  ): Promise<void> {
+    if (!periodStart || !periodEnd || periodStart > periodEnd) return;
+    const qb = this.planRepo
+      .createQueryBuilder('p')
+      .where('p.school_id = :schoolId', { schoolId })
+      .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.period_start IS NOT NULL')
+      .andWhere('p.period_end IS NOT NULL')
+      .andWhere('p.period_start <= :end', { end: periodEnd })
+      .andWhere('p.period_end >= :start', { start: periodStart })
+      .andWhere(
+        '( (p.status = :published AND p.archived_at IS NULL) OR (p.archived_at IS NOT NULL) )',
+        { published: 'published' },
+      );
+    if (excludePlanId) qb.andWhere('p.id != :excludeId', { excludeId: excludePlanId });
+    const conflict = await qb.getOne();
+    if (conflict) {
+      const arsiv = conflict.archived_at ? 'Arşivdeki' : 'Yayındaki';
+      throw new BadRequestException({
+        code: 'PLAN_DATE_CONFLICT',
+        message: `${arsiv} bir planın dönemi (${conflict.period_start} – ${conflict.period_end}, "${conflict.version || conflict.id}") ile çakışıyorsunuz. Yeni dönem başka tarihlerde olmalı veya çakışan planı silin.`,
+      });
+    }
   }
 
   async getPlanById(id: string, schoolId: string | null, role: UserRole, userId?: string) {
@@ -101,6 +170,7 @@ export class DutyService {
       .where('p.school_id = :schoolId', { schoolId })
       .andWhere('p.status = :status', { status: 'published' })
       .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL')
       .andWhere('s.deleted_at IS NULL')
       .andWhere('s.date = :date', { date });
     if (shift === 'morning' || shift === 'afternoon') {
@@ -174,6 +244,7 @@ export class DutyService {
       .where('p.school_id = :schoolId', { schoolId })
       .andWhere('p.status = :status', { status: 'published' })
       .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL')
       .andWhere('s.deleted_at IS NULL')
       .andWhere('s.date >= :from', { from })
       .andWhere('s.date <= :to', { to });
@@ -213,6 +284,9 @@ export class DutyService {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     const slotUserIds = (dto.slots ?? []).map((s) => s.user_id).filter((id): id is string => !!id);
     await this.validateTeachersInSchool(schoolId, slotUserIds);
+    if (dto.period_start && dto.period_end) {
+      await this.assertDutyPlanPeriodNoConflict(schoolId, dto.period_start, dto.period_end, null);
+    }
     const plan = this.planRepo.create({
       school_id: schoolId,
       version: dto.version ?? null,
@@ -245,6 +319,9 @@ export class DutyService {
     const slot = await this.slotRepo.findOne({ where: { id: slotId }, relations: ['duty_plan'] });
     if (!slot) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Nöbet kaydı bulunamadı.' });
     if (slot.duty_plan.school_id !== schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    if (slot.duty_plan.archived_at) {
+      throw new BadRequestException({ code: 'PLAN_ARCHIVED', message: 'Arşivlenmiş planda düzenleme yapılamaz.' });
+    }
     if (dto.user_id) await this.validateTeachersInSchool(schoolId, [dto.user_id]);
     if (dto.date !== undefined) slot.date = dto.date;
     if (dto.shift !== undefined) slot.shift = dto.shift;
@@ -274,6 +351,9 @@ export class DutyService {
     const plan = await this.planRepo.findOne({ where: { id: planId, deleted_at: IsNull() } });
     if (!plan) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Plan bulunamadı.' });
     if (plan.school_id !== schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu plana erişim yetkiniz yok.' });
+    if (plan.archived_at) {
+      throw new BadRequestException({ code: 'PLAN_ARCHIVED', message: 'Arşivlenmiş plana slot eklenemez.' });
+    }
     await this.validateTeachersInSchool(schoolId, [dto.user_id]);
     const slot = this.slotRepo.create({
       duty_plan_id: planId,
@@ -331,6 +411,9 @@ export class DutyService {
     const slot = await this.slotRepo.findOne({ where: { id: slotId }, relations: ['duty_plan'] });
     if (!slot) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Nöbet kaydı bulunamadı.' });
     if (slot.duty_plan.school_id !== schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    if (slot.duty_plan.archived_at) {
+      throw new BadRequestException({ code: 'PLAN_ARCHIVED', message: 'Arşivlenmiş planda işlem yapılamaz.' });
+    }
     const planId = slot.duty_plan_id;
     const userId = slot.user_id;
     await this.logRepo.save(
@@ -355,29 +438,18 @@ export class DutyService {
     });
     if (!plan) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Plan bulunamadı.' });
     if (plan.school_id !== schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu plana erişim yetkiniz yok.' });
+    if (plan.archived_at) {
+      throw new BadRequestException({
+        code: 'PLAN_ARCHIVED',
+        message: 'Arşivdeki plan yayınlanamaz. Önce arşivden çıkarın.',
+      });
+    }
     if (plan.status === 'published') {
       return { success: true, message: 'Plan zaten yayınlanmış.' };
     }
 
-    // E: Plan tarih çakışma kontrolü – aynı okulda örtüşen başka yayınlanmış plan var mı?
     if (plan.period_start && plan.period_end) {
-      const conflict = await this.planRepo
-        .createQueryBuilder('p')
-        .where('p.school_id = :schoolId', { schoolId })
-        .andWhere('p.status = :status', { status: 'published' })
-        .andWhere('p.deleted_at IS NULL')
-        .andWhere('p.id != :id', { id })
-        .andWhere('p.period_start IS NOT NULL')
-        .andWhere('p.period_end IS NOT NULL')
-        .andWhere('p.period_start <= :end', { end: plan.period_end })
-        .andWhere('p.period_end >= :start', { start: plan.period_start })
-        .getOne();
-      if (conflict) {
-        throw new BadRequestException({
-          code: 'PLAN_DATE_CONFLICT',
-          message: `Bu dönem için zaten yayınlanmış bir plan var: "${conflict.version || conflict.id}" (${conflict.period_start} – ${conflict.period_end}). Önce o planı silin veya dönem aralığını düzenleyin.`,
-        });
-      }
+      await this.assertDutyPlanPeriodNoConflict(schoolId, plan.period_start, plan.period_end, id);
     }
 
     plan.status = 'published';
@@ -435,6 +507,9 @@ export class DutyService {
     if (slot.deleted_at || slot.duty_plan.deleted_at) {
       throw new NotFoundException({ code: 'NOT_FOUND', message: 'Nöbet kaydı bulunamadı.' });
     }
+    if (slot.duty_plan.archived_at) {
+      throw new BadRequestException({ code: 'PLAN_ARCHIVED', message: 'Arşivlenmiş planda işlem yapılamaz.' });
+    }
     const oldUserId = slot.user_id;
     slot.user_id = new_user_id;
     slot.reassigned_from_user_id = oldUserId;
@@ -485,6 +560,9 @@ export class DutyService {
     if (slot.duty_plan.school_id !== schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     if (slot.deleted_at || slot.duty_plan.deleted_at) {
       throw new NotFoundException({ code: 'NOT_FOUND', message: 'Nöbet kaydı bulunamadı.' });
+    }
+    if (slot.duty_plan.archived_at) {
+      throw new BadRequestException({ code: 'PLAN_ARCHIVED', message: 'Arşivlenmiş planda işlem yapılamaz.' });
     }
     slot.absent_marked_at = new Date();
     slot.absent_type = absent_type ?? 'gelmeyen';
@@ -756,7 +834,7 @@ export class DutyService {
   }
 
   /** Yerine görevlendirilmiş slotlar – reassigned_from_user_id dolu olanlar (school_admin) */
-  async getReassignedSlots(schoolId: string | null, from?: string, to?: string) {
+  async getReassignedSlots(schoolId: string | null, from?: string, to?: string, includeArchived = false) {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     const qb = this.slotRepo
       .createQueryBuilder('s')
@@ -768,14 +846,31 @@ export class DutyService {
       .andWhere('p.deleted_at IS NULL')
       .andWhere('s.deleted_at IS NULL')
       .andWhere('s.reassigned_from_user_id IS NOT NULL');
+    if (!includeArchived) qb.andWhere('p.archived_at IS NULL');
     if (from) qb.andWhere('s.date >= :from', { from });
     if (to) qb.andWhere('s.date <= :to', { to });
     return qb.orderBy('s.date', 'DESC').addOrderBy('s.area_name').getMany();
   }
 
   /** Öğretmen başına nöbet sayısı – ?from=YYYY-MM-DD&to=YYYY-MM-DD (varsayılan: tüm yayınlanmış) */
-  async getSummary(schoolId: string | null, from?: string, to?: string, role?: UserRole, userId?: string) {
+  async getSummary(
+    schoolId: string | null,
+    from?: string,
+    to?: string,
+    role?: UserRole,
+    userId?: string,
+    includeArchived = false,
+  ) {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+
+    /** listSchoolTeachers ile aynı: nöbet/görev için uygun (muaf olmayan) öğretmen + okul admin */
+    const eligibleTeacherCount = await this.userRepo
+      .createQueryBuilder('u')
+      .where('u.school_id = :schoolId', { schoolId })
+      .andWhere('u.status = :status', { status: UserStatus.active })
+      .andWhere('u.role IN (:...roles)', { roles: [UserRole.teacher, UserRole.school_admin] })
+      .andWhere('(u.dutyExempt IS NULL OR u.dutyExempt = false)')
+      .getCount();
 
     // 1. Normal slot sayımları
     const qb = this.slotRepo
@@ -791,8 +886,10 @@ export class DutyService {
       .leftJoin('s.user', 'u')
       .where('p.school_id = :schoolId', { schoolId })
       .andWhere('p.status = :status', { status: 'published' })
+      .andWhere('p.deleted_at IS NULL')
       .groupBy('s.user_id')
       .orderBy('weighted_count', 'DESC');
+    if (!includeArchived) qb.andWhere('p.archived_at IS NULL');
     if (from) qb.andWhere('s.date >= :from', { from });
     if (to) qb.andWhere('s.date <= :to', { to });
     if (role === UserRole.teacher && userId) qb.andWhere('s.user_id = :userId', { userId });
@@ -808,8 +905,10 @@ export class DutyService {
       .innerJoin('s.duty_plan', 'p')
       .where('p.school_id = :schoolId', { schoolId })
       .andWhere('p.status = :status', { status: 'published' })
+      .andWhere('p.deleted_at IS NULL')
       .andWhere('c.covered_by_user_id IS NOT NULL')
       .groupBy('c.covered_by_user_id');
+    if (!includeArchived) covQb.andWhere('p.archived_at IS NULL');
     if (from) covQb.andWhere('s.date >= :from', { from });
     if (to) covQb.andWhere('s.date <= :to', { to });
     if (role === UserRole.teacher && userId) covQb.andWhere('c.covered_by_user_id = :userId', { userId });
@@ -854,7 +953,7 @@ export class DutyService {
     }));
 
     const items = [...slotItems, ...extraItems].sort((a, b) => b.weighted_count - a.weighted_count);
-    return { items };
+    return { items, eligible_teacher_count: eligibleTeacherCount };
   }
 
   /**
@@ -874,6 +973,7 @@ export class DutyService {
       .where('p.school_id = :schoolId', { schoolId })
       .andWhere('p.status = :status', { status: 'published' })
       .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL')
       .andWhere('s.deleted_at IS NULL')
       .andWhere('s.absent_marked_at IS NULL')
       .andWhere('s.date = :date', { date });
@@ -941,6 +1041,9 @@ export class DutyService {
     if (slot.deleted_at || slot.duty_plan.deleted_at) {
       throw new NotFoundException({ code: 'NOT_FOUND', message: 'Nöbet kaydı bulunamadı.' });
     }
+    if (slot.duty_plan.archived_at) {
+      throw new BadRequestException({ code: 'PLAN_ARCHIVED', message: 'Arşivlenmiş planda takas yapılamaz.' });
+    }
     if (request_type !== 'coverage_swap' && slot.user_id !== userId) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Sadece kendi nöbetiniz için takas talebi oluşturabilirsiniz.' });
     }
@@ -960,6 +1063,7 @@ export class DutyService {
         .where('p.school_id = :schoolId', { schoolId })
         .andWhere('p.status = :status', { status: 'published' })
         .andWhere('p.deleted_at IS NULL')
+        .andWhere('p.archived_at IS NULL')
         .andWhere('s.deleted_at IS NULL')
         .andWhere('s.date = :date', { date: slot.date })
         .andWhere('s.user_id = :uid', { uid: proposed_user_id })
@@ -1094,7 +1198,8 @@ export class DutyService {
       .leftJoinAndSelect('cov.covered_by_user', 'cbu')
       .where('r.school_id = :schoolId', { schoolId })
       .andWhere('s.deleted_at IS NULL')
-      .andWhere('p.deleted_at IS NULL');
+      .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL');
     if (role === UserRole.teacher && userId) {
       // Kendi oluşturduğu veya kendine gelen talepler
       qb.andWhere('(r.requested_by_user_id = :userId OR r.proposed_user_id = :userId)', { userId });
@@ -1682,6 +1787,7 @@ export class DutyService {
       .innerJoin('s.duty_plan', 'p')
       .where('p.school_id = :schoolId', { schoolId })
       .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL')
       .andWhere('p.status = :status', { status: 'published' })
       .andWhere('s.deleted_at IS NULL')
       .andWhere('s.user_id = :userId', { userId: dto.user_id })
@@ -1728,6 +1834,7 @@ export class DutyService {
       .innerJoin('s.duty_plan', 'p')
       .where('p.school_id = :schoolId', { schoolId })
       .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL')
       .andWhere('s.deleted_at IS NULL')
       .andWhere('s.absent_marked_at IS NOT NULL')
       .andWhere('s.date >= :from', { from: fromDate })
@@ -1768,6 +1875,7 @@ export class DutyService {
       .leftJoinAndSelect('s.user', 'u')
       .where('p.school_id = :schoolId', { schoolId })
       .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL')
       .andWhere('s.deleted_at IS NULL')
       .andWhere('s.absent_marked_at IS NOT NULL')
       .andWhere('s.date >= :from', { from })
@@ -1892,6 +2000,7 @@ export class DutyService {
       .innerJoin('s.duty_plan', 'p')
       .where('p.school_id = :schoolId', { schoolId })
       .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL')
       .andWhere('s.deleted_at IS NULL')
       .andWhere('s.absent_marked_at IS NOT NULL')
       .andWhere('s.date >= :from', { from })
@@ -2073,6 +2182,8 @@ export class DutyService {
     if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
       throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Tarih formatı geçersiz. YYYY-MM-DD olmalı.' });
     }
+    await this.assertDutyPlanPeriodNoConflict(schoolId, from, to, null);
+
     const maxCalendarDays = 370;
     const calendarDays = Math.floor((endDate.getTime() - startDate.getTime()) / 86400000) + 1;
     if (calendarDays > maxCalendarDays) {
@@ -2208,6 +2319,8 @@ export class DutyService {
       .innerJoin('s.duty_plan', 'p')
       .where('p.school_id = :schoolId', { schoolId })
       .andWhere('p.status = :status', { status: 'published' })
+      .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL')
       .andWhere('s.user_id IN (:...ids)', { ids: teacherIds })
       .groupBy('s.user_id')
       .getRawMany();
@@ -2756,6 +2869,9 @@ export class DutyService {
     const slot = await this.slotRepo.findOne({ where: { id: duty_slot_id }, relations: ['duty_plan'] });
     if (!slot) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Nöbet kaydı bulunamadı.' });
     if (slot.duty_plan.school_id !== schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    if (slot.duty_plan.archived_at) {
+      throw new BadRequestException({ code: 'PLAN_ARCHIVED', message: 'Arşivlenmiş planda otomatik atama yapılamaz.' });
+    }
 
     const pending = await this.coverageRepo.find({
       where: { duty_slot_id, covered_by_user_id: IsNull() },
@@ -2774,6 +2890,8 @@ export class DutyService {
       .innerJoin('c.duty_slot', 's')
       .innerJoin('s.duty_plan', 'p')
       .where('p.school_id = :schoolId', { schoolId })
+      .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL')
       .andWhere('c.covered_by_user_id IN (:...dutyUserIds)', { dutyUserIds: dutyUserIds.length ? dutyUserIds : ['__none__'] })
       .groupBy('c.covered_by_user_id')
       .getRawMany();
@@ -2789,6 +2907,8 @@ export class DutyService {
       .innerJoin('c.duty_slot', 's')
       .innerJoin('s.duty_plan', 'p')
       .where('p.school_id = :schoolId', { schoolId })
+      .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL')
       .andWhere('s.date = :date', { date: slot.date })
       .andWhere('c.covered_by_user_id IS NOT NULL')
       .andWhere('c.duty_slot_id != :slotId', { slotId: slot.id })
@@ -2880,6 +3000,9 @@ export class DutyService {
     });
     if (!cov) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Coverage kaydı bulunamadı.' });
     if (cov.duty_slot.duty_plan.school_id !== schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    if (cov.duty_slot.duty_plan.archived_at) {
+      throw new BadRequestException({ code: 'PLAN_ARCHIVED', message: 'Arşivlenmiş planda işlem yapılamaz.' });
+    }
     cov.covered_by_user_id = null;
     await this.coverageRepo.save(cov);
     return { success: true };
@@ -2898,6 +3021,8 @@ export class DutyService {
       .innerJoin('c.duty_slot', 's')
       .innerJoin('s.duty_plan', 'p')
       .where('p.school_id = :schoolId', { schoolId })
+      .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL')
       .andWhere('s.date = :date', { date })
       .andWhere('c.covered_by_user_id IS NOT NULL')
       .getMany();
@@ -3075,9 +3200,9 @@ export class DutyService {
   }
 
   /** Tarih aralığında atanmış ders saati bazlı görevlendirmeler – Görevlendirmeler sayfası için */
-  async getCoverageAssignments(schoolId: string | null, from: string, to: string) {
+  async getCoverageAssignments(schoolId: string | null, from: string, to: string, includeArchived = false) {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
-    const items = await this.coverageRepo
+    const qb = this.coverageRepo
       .createQueryBuilder('c')
       .innerJoinAndSelect('c.duty_slot', 's')
       .innerJoin('s.duty_plan', 'p')
@@ -3086,14 +3211,16 @@ export class DutyService {
       .leftJoinAndSelect('c.covered_by_user', 'cu')
       .where('p.school_id = :schoolId', { schoolId })
       .andWhere('p.status = :status', { status: 'published' })
+      .andWhere('p.deleted_at IS NULL')
       .andWhere('s.deleted_at IS NULL')
       .andWhere('s.absent_marked_at IS NOT NULL')
       .andWhere('c.covered_by_user_id IS NOT NULL')
       .andWhere('s.date >= :from', { from })
       .andWhere('s.date <= :to', { to })
       .orderBy('s.date', 'ASC')
-      .addOrderBy('c.lesson_num', 'ASC')
-      .getMany();
+      .addOrderBy('c.lesson_num', 'ASC');
+    if (!includeArchived) qb.andWhere('p.archived_at IS NULL');
+    const items = await qb.getMany();
 
     return items.map((c) => ({
       id: c.id,
@@ -3125,6 +3252,8 @@ export class DutyService {
       .where('p.school_id = :schoolId', { schoolId })
       .andWhere('s.date = :date', { date })
       .andWhere('p.status = :status', { status: 'published' })
+      .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL')
       .andWhere('s.deleted_at IS NULL')
       .orderBy('c.lesson_num', 'ASC')
       .getMany();
@@ -3144,6 +3273,8 @@ export class DutyService {
       .andWhere('s.date >= :from', { from })
       .andWhere('s.date <= :to', { to })
       .andWhere('p.status = :status', { status: 'published' })
+      .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL')
       .andWhere('s.deleted_at IS NULL')
       .orderBy('s.date', 'ASC')
       .addOrderBy('c.lesson_num', 'ASC')
@@ -3212,6 +3343,8 @@ export class DutyService {
       .leftJoinAndSelect('c.covered_by_user', 'cu')
       .where('p.school_id = :schoolId', { schoolId })
       .andWhere('p.status = :status', { status: 'published' })
+      .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL')
       .andWhere('s.deleted_at IS NULL')
       .andWhere('s.date = :date', { date })
       .andWhere('s.absent_marked_at IS NOT NULL')
@@ -3226,6 +3359,8 @@ export class DutyService {
       .innerJoin('s.duty_plan', 'p')
       .where('p.school_id = :schoolId', { schoolId })
       .andWhere('p.status = :status', { status: 'published' })
+      .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL')
       .andWhere('s.deleted_at IS NULL')
       .andWhere('s.date = :date', { date })
       .andWhere('s.reassigned_from_user_id IS NOT NULL')
@@ -3303,12 +3438,14 @@ export class DutyService {
       const absentName = name(absent);
       const covId = covering.id;
       const covName = name(covering);
+      const absentTypeStr =
+        absentTypeLabel[slot.absent_type ?? ''] || slot.absent_type || 'Gelmeyen';
 
       if (!gelmeyenMap.has(absentId)) {
         gelmeyenMap.set(absentId, {
           teacher_id: absentId,
           teacher_name: absentName,
-          absent_type: 'Yerine görevlendirildi',
+          absent_type: absentTypeStr,
           lessons: initLessons(),
         });
       }
@@ -3327,8 +3464,12 @@ export class DutyService {
         });
       }
       const covr = gorevlendirilenMap.get(covId)!;
+      /** Sadece gelmeyen öğretmenin o saatte dersi (sınıf) varsa yerine görevlendirilen sütununda göster */
       for (let i = 1; i <= maxLessons; i++) {
-        covr.lessons[i] = absentName;
+        const cell = absentTimetable[i];
+        if (cell?.class_section?.trim()) {
+          covr.lessons[i] = absentName;
+        }
       }
     }
 
@@ -3343,13 +3484,27 @@ export class DutyService {
       }
     }
 
+    const gelmeyenler = Array.from(gelmeyenMap.values());
+    const gorevlendirilenler = Array.from(gorevlendirilenMap.values());
+
+    const cellEmpty = (v: string | undefined) => !v || v === '—';
+    const lesson_columns: number[] = [];
+    for (let i = 1; i <= maxLessons; i++) {
+      const anyG = gelmeyenler.some((r) => !cellEmpty(r.lessons[i]));
+      const anyO = gorevlendirilenler.some((r) => !cellEmpty(r.lessons[i]));
+      if (anyG || anyO) lesson_columns.push(i);
+    }
+    const lesson_columns_final =
+      lesson_columns.length > 0 ? lesson_columns : Array.from({ length: maxLessons }, (_, j) => j + 1);
+
     return {
       date,
       date_label: dateLabel,
       day_name: dayNames[d.getDay()].toUpperCase(),
       max_lessons: maxLessons,
-      gelmeyenler: Array.from(gelmeyenMap.values()),
-      gorevlendirilenler: Array.from(gorevlendirilenMap.values()),
+      lesson_columns: lesson_columns_final,
+      gelmeyenler,
+      gorevlendirilenler,
     };
   }
 
@@ -3468,15 +3623,53 @@ export class DutyService {
   }
 
   /**
-   * Aylık nöbet çizelgesi – ay/yıl bazlı tablo (Sabah/Öğlen vardiyalı).
-   * GET /duty/aylik-cizelge?month=9&year=2025
+   * Aylık nöbet çizelgesi – tam ay veya from–to aralığı (Sabah/Öğlen vardiyalı).
+   * GET /duty/aylik-cizelge?month=9&year=2025 | ?from=2025-03-01&to=2025-03-20
    */
-  async getAylikCizelge(schoolId: string | null, month: number, year: number) {
+  async getAylikCizelge(
+    schoolId: string | null,
+    opts: { month: number; year: number } | { from: string; to: string },
+  ) {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
-    if (month < 1 || month > 12) throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Geçersiz ay.' });
-    const from = `${year}-${String(month).padStart(2, '0')}-01`;
-    const lastDay = new Date(year, month, 0);
-    const to = lastDay.toISOString().slice(0, 10);
+    let from: string;
+    let to: string;
+    let month: number;
+    let year: number;
+
+    if ('from' in opts && 'to' in opts) {
+      from = opts.from.trim();
+      to = opts.to.trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: 'from ve to YYYY-MM-DD formatında olmalıdır.',
+        });
+      }
+      if (from > to) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: 'Başlangıç tarihi bitişten sonra olamaz.',
+        });
+      }
+      const start = new Date(from + 'T12:00:00');
+      const end = new Date(to + 'T12:00:00');
+      const diffDays = Math.floor((end.getTime() - start.getTime()) / (86400 * 1000)) + 1;
+      if (diffDays > 93) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: 'Tarih aralığı en fazla 93 gün olabilir.',
+        });
+      }
+      month = start.getMonth() + 1;
+      year = start.getFullYear();
+    } else {
+      month = opts.month;
+      year = opts.year;
+      if (month < 1 || month > 12) throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Geçersiz ay.' });
+      from = `${year}-${String(month).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, month, 0);
+      to = lastDay.toISOString().slice(0, 10);
+    }
 
     const school = await this.schoolRepo.findOne({
       where: { id: schoolId },
@@ -3544,6 +3737,8 @@ export class DutyService {
       principal_name: school?.principalName ?? null,
       month,
       year,
+      period_start: from,
+      period_end: to,
       education_mode: educationMode,
       areas,
       dates,

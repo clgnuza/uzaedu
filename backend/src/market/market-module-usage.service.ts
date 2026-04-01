@@ -1,6 +1,11 @@
 import { BadRequestException, HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { AppConfigService } from '../app-config/app-config.service';
-import type { MarketModuleKey, MarketModuleScopeUsage } from '../app-config/market-policy.defaults';
+import {
+  buildDefaultModulePrices,
+  type MarketModuleKey,
+  type MarketModuleScopeUsage,
+  type MarketPolicyConfig,
+} from '../app-config/market-policy.defaults';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../types/enums';
 import { MarketWalletService } from './market-wallet.service';
@@ -27,60 +32,51 @@ export class MarketModuleUsageService {
     private readonly usage: MarketUsageService,
   ) {}
 
+  private getModuleRow(policy: MarketPolicyConfig, moduleKey: MarketModuleKey) {
+    return policy.module_prices?.[moduleKey] ?? buildDefaultModulePrices()[moduleKey];
+  }
+
   /**
-   * true: ücret marketten alındı VEYA fiyat yapılandırması yok/boş değil ve düşüm yapıldı; exempt ise true (entitlement kullanılmaz).
-   * false: market fiyatı 0 — evrak entitlement devreye girer.
+   * Modül etkinleştirme: superadmin tarifesindeki aylık veya yıllık jeton/ek ders (tek sefer).
+   * İlgili tarife kalemi 0 ise düşüm yapılmaz.
    */
-  async tryConsumeForDocument(
+  async debitTariffForActivationOrThrow(
     user: User,
+    moduleKey: MarketModuleKey,
     billingAccount: 'user' | 'school',
-    opts?: { usagePeriod?: 'month' | 'year' },
-  ): Promise<boolean> {
+    usagePeriod: 'month' | 'year',
+    payWithInput?: 'jeton' | 'ekders',
+  ): Promise<{ debitJeton: number; debitEkders: number }> {
     if (isMarketBillingExempt(user.role as UserRole)) {
-      return true;
+      return { debitJeton: 0, debitEkders: 0 };
     }
-    const usagePeriod = opts?.usagePeriod === 'year' ? 'year' : 'month';
     const policy = await this.appConfig.getMarketPolicyConfig();
-    const row = policy.module_prices?.document;
-    if (!row) {
-      return false;
-    }
+    const row = this.getModuleRow(policy, moduleKey);
     const scope = billingAccount === 'school' ? row.school : row.teacher;
     const side = pickUsagePair(scope, usagePeriod);
     const needJeton = roundCost(side.jeton);
     const needEkders = roundCost(side.ekders);
     if (needJeton <= 0 && needEkders <= 0) {
-      return false;
+      return { debitJeton: 0, debitEkders: 0 };
     }
-    await this.debitOrThrow(user, billingAccount, needJeton, needEkders, 'document');
-    return true;
-  }
-
-  /** Fiyat > 0 ise düş; 0 ise no-op. Yetersiz bakiye → 402. */
-  async chargePaidModuleIfPriced(
-    user: User,
-    moduleKey: MarketModuleKey,
-    opts?: { billingAccount?: 'user' | 'school'; multiplier?: number; usagePeriod?: 'month' | 'year' },
-  ): Promise<void> {
-    if (isMarketBillingExempt(user.role as UserRole)) {
-      return;
+    let debitJeton = 0;
+    let debitEkders = 0;
+    if (needJeton > 0 && needEkders <= 0) {
+      debitJeton = needJeton;
+    } else if (needEkders > 0 && needJeton <= 0) {
+      debitEkders = needEkders;
+    } else {
+      if (payWithInput !== 'jeton' && payWithInput !== 'ekders') {
+        throw new BadRequestException({
+          code: 'PAY_WITH_REQUIRED',
+          message: 'Bu tarifede hem jeton hem ek ders tutarı var; pay_with: jeton veya ekders gönderin.',
+        });
+      }
+      if (payWithInput === 'jeton') debitJeton = needJeton;
+      else debitEkders = needEkders;
     }
-    const usagePeriod = opts?.usagePeriod === 'year' ? 'year' : 'month';
-    const mult = Math.max(1, Math.min(10_000, Math.floor(opts?.multiplier ?? 1)));
-    const policy = await this.appConfig.getMarketPolicyConfig();
-    const row = policy.module_prices?.[moduleKey];
-    if (!row) {
-      return;
-    }
-    const billingAccount = opts?.billingAccount ?? 'user';
-    const scope = billingAccount === 'school' ? row.school : row.teacher;
-    const side = pickUsagePair(scope, usagePeriod);
-    const needJeton = roundCost(side.jeton * mult);
-    const needEkders = roundCost(side.ekders * mult);
-    if (needJeton <= 0 && needEkders <= 0) {
-      return;
-    }
-    await this.debitOrThrow(user, billingAccount, needJeton, needEkders, moduleKey);
+    await this.debitOrThrow(user, billingAccount, debitJeton, debitEkders, moduleKey);
+    return { debitJeton, debitEkders };
   }
 
   private async debitOrThrow(

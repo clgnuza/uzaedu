@@ -19,6 +19,7 @@ import { env } from '../config/env';
 import { EmailService } from './services/email.service';
 import { TeacherInviteService } from '../teacher-invite/teacher-invite.service';
 import { MailService } from '../mail/mail.service';
+import { DEMO_CREDENTIALS } from '../seed/demo-credentials';
 
 @Injectable()
 export class AuthService {
@@ -47,9 +48,14 @@ export class AuthService {
     if (!user?.passwordHash) {
       throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'E-posta veya şifre hatalı.' });
     }
-    const ok = await bcrypt.compare(password, user.passwordHash);
-    if (!ok) {
+    const bcryptOk = await bcrypt.compare(password, user.passwordHash);
+    const localDemoOk = !bcryptOk && this.matchesLocalDemoCredential(email, password);
+    if (!bcryptOk && !localDemoOk) {
       throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'E-posta veya şifre hatalı.' });
+    }
+    if (localDemoOk) {
+      user.passwordHash = await bcrypt.hash(password, 10);
+      await this.userRepo.save(user);
     }
     if (
       user.role === UserRole.teacher &&
@@ -63,6 +69,17 @@ export class AuthService {
       });
     }
     return { token: user.id, user };
+  }
+
+  /** Yerelde DB hash eski kalsa bile `demo-credentials` ile giriş; hash güncellenir. */
+  private matchesLocalDemoCredential(email: string, password: string): boolean {
+    if (!['local', 'development'].includes(env.nodeEnv)) return false;
+    const e = email.trim().toLowerCase();
+    for (const k of ['teacher', 'school_admin', 'superadmin'] as const) {
+      const c = DEMO_CREDENTIALS[k];
+      if (c.email === e && c.password === password) return true;
+    }
+    return false;
   }
 
   /** Denenen e-postaya ait kullanıcının school_id'si (audit için; başarısız girişte kullanılır) */

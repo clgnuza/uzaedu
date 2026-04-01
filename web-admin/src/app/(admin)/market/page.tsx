@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, type ReactNode } from 'react';
+import { useEffect, useState, useCallback, useMemo, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Alert } from '@/components/ui/alert';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Toolbar, ToolbarHeading, ToolbarPageTitle } from '@/components/layout/toolbar';
 import { ToolbarIconHints } from '@/components/layout/toolbar-icon-hints';
 import {
@@ -31,15 +33,30 @@ import {
   UserPlus,
   Copy,
   ExternalLink,
+  Unlock,
+  CheckCircle2,
+  XCircle,
+  BadgeCheck,
+  BookOpen,
 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { SCHOOL_MODULE_KEYS, SCHOOL_MODULE_LABELS, type SchoolModuleKey } from '@/config/school-modules';
+import { MODULE_ACTIVATION_REFRESH_EVENT } from '@/lib/module-activation-events';
 
 type CurrencyPair = { jeton: number; ekders: number };
 type ModuleScopeUsage = { monthly: CurrencyPair; yearly: CurrencyPair };
-type ModuleEntryNotice = { notice_tr: string | null; notice_en: string | null };
+type ModuleEntryNotice = {
+  notice_tr: string | null;
+  notice_en: string | null;
+  market_href?: string | null;
+  cta_market_tr?: string | null;
+  cta_market_en?: string | null;
+  purchase_href?: string | null;
+  cta_purchase_tr?: string | null;
+  cta_purchase_en?: string | null;
+};
 type ModulePriceRow = {
   school: ModuleScopeUsage;
   teacher: ModuleScopeUsage;
@@ -102,8 +119,8 @@ type UsageModuleSlice = UsageSlice & {
 
 type UsageBreakdownRes = {
   periods: {
-    month: { label: string; ends_at: string };
-    year: { label: string; ends_at: string };
+    month: { label: string; starts_at: string; ends_at: string };
+    year: { label: string; starts_at: string; ends_at: string };
   };
   user: { month: UsageModuleSlice; year: UsageModuleSlice };
   school: { month: UsageModuleSlice; year: UsageModuleSlice } | null;
@@ -129,6 +146,22 @@ type UsageLedgerItem = {
   ekders_debit: string;
   debit_target: string;
   created_at: string | null;
+};
+
+type ActivationStatusRes = {
+  billing_account: 'user' | 'school';
+  modules: Record<string, { free: boolean; active: boolean }>;
+};
+
+type ActivationLedgerRow = {
+  id: string;
+  module_key: string;
+  billing_period: 'month' | 'year';
+  period_label: string;
+  debit_target: 'user' | 'school';
+  debit_jeton?: number | null;
+  debit_ekders?: number | null;
+  created_at: string;
 };
 
 type SchoolCreditAdminRow = {
@@ -188,6 +221,89 @@ function parseDebit(s: string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function tariffNonZero(p: CurrencyPair | undefined): boolean {
+  if (!p) return false;
+  const j = Number(p.jeton) || 0;
+  const e = Number(p.ekders) || 0;
+  return j > 0 || e > 0;
+}
+
+function pairNums(p: CurrencyPair | undefined): { jeton: number; ekders: number } {
+  return { jeton: Number(p?.jeton) || 0, ekders: Number(p?.ekders) || 0 };
+}
+
+/** Tarifede tek kalem varsa o bakiye; iki kalem varsa payWith ile seçilen bakiye yeterli mi. */
+function canAffordNeed(
+  bal: { jeton: number; ekders: number },
+  need: { jeton: number; ekders: number },
+  payWith: 'jeton' | 'ekders',
+): boolean {
+  if (need.jeton <= 0 && need.ekders <= 0) return true;
+  if (need.jeton > 0 && need.ekders <= 0) return bal.jeton >= need.jeton;
+  if (need.ekders > 0 && need.jeton <= 0) return bal.ekders >= need.ekders;
+  return payWith === 'jeton' ? bal.jeton >= need.jeton : bal.ekders >= need.ekders;
+}
+
+function payWithForTariff(
+  need: { jeton: number; ekders: number },
+  payWith: 'jeton' | 'ekders',
+): 'jeton' | 'ekders' | undefined {
+  if (need.jeton > 0 && need.ekders > 0) return payWith;
+  return undefined;
+}
+
+type ActivationConfirmPayload = {
+  moduleKey: string;
+  billingPeriod: 'month' | 'year';
+  targetMonth?: string;
+  payWith?: 'jeton' | 'ekders';
+  moduleLabel: string;
+  periodTitleTr: string;
+  paySummaryTr: string;
+  walletLabel: string;
+  isExempt: boolean;
+  walletJeton: number;
+  walletEkders: number;
+  dualTariffJetonLine: string | null;
+  dualTariffEkdersLine: string | null;
+  selectedPayKind: 'jeton' | 'ekders';
+  hasInsufficientBalance: boolean;
+  idempotencyKey: string;
+};
+
+function fmtLedgerTs(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' });
+  } catch {
+    return iso;
+  }
+}
+
+function utcMonthLabelNow(): string {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function utcYearLabelNow(): string {
+  return String(new Date().getUTCFullYear());
+}
+
+function utcMonthAdd(ym: string, delta: number): string {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function fmtYmTr(ym: string): string {
+  const [y, mo] = ym.split('-').map(Number);
+  if (!y || !mo) return ym;
+  try {
+    return new Date(Date.UTC(y, mo - 1, 1)).toLocaleDateString('tr-TR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  } catch {
+    return ym;
+  }
+}
+
 const ENTITLEMENT_LABELS: Record<string, string> = {
   evrak_uretim: 'Evrak üretim hakkı',
   optik_okuma: 'Optik okuma',
@@ -197,6 +313,102 @@ const ENTITLEMENT_LABELS: Record<string, string> = {
 function fmtNum(n: number): string {
   if (!Number.isFinite(n)) return '0';
   return new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 6 }).format(n);
+}
+
+function fmtActivationDebitRow(j: number | null | undefined, e: number | null | undefined): string {
+  const jOk = j != null && Number.isFinite(j) && j > 0;
+  const eOk = e != null && Number.isFinite(e) && e > 0;
+  if (!jOk && !eOk) return '—';
+  if (jOk && !eOk) return `${fmtNum(j!)} jeton`;
+  if (eOk && !jOk) return `${fmtNum(e!)} ek ders`;
+  return `${fmtNum(j!)} J / ${fmtNum(e!)} E`;
+}
+
+function TariffAmountHeader({
+  periodShort,
+  kind,
+  paddedEnd,
+  className,
+}: {
+  periodShort: 'Ay' | 'Yıl';
+  kind: 'jeton' | 'ekders';
+  paddedEnd?: boolean;
+  className?: string;
+}) {
+  const isJ = kind === 'jeton';
+  const periodTr = periodShort === 'Ay' ? 'Aylık' : 'Yıllık';
+  return (
+    <th
+      scope="col"
+      className={cn(
+        paddedEnd ? 'px-4' : 'px-2',
+        'align-middle py-2.5 text-right font-normal normal-case',
+        className,
+      )}
+      title={isJ ? `${periodTr} tarife — jeton` : `${periodTr} tarife — ek ders`}
+    >
+      <div className="flex flex-col items-end justify-center gap-1">
+        <span className="block text-[10px] font-medium uppercase leading-none tracking-wide text-muted-foreground">
+          {periodTr}
+        </span>
+        <span className="inline-flex items-center justify-end gap-1.5 text-xs font-semibold leading-none text-foreground">
+          {isJ ? (
+            <>
+              <Coins className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+              <span>Jeton</span>
+            </>
+          ) : (
+            <>
+              <BookOpen className="size-3.5 shrink-0 text-sky-600 dark:text-sky-400" aria-hidden />
+              <span>Ek ders</span>
+            </>
+          )}
+        </span>
+      </div>
+    </th>
+  );
+}
+
+function TariffDualPairHeader({
+  label,
+  align = 'right',
+}: {
+  label: 'Aylık' | 'Yıllık';
+  align?: 'right' | 'center';
+}) {
+  const end = align === 'center';
+  return (
+    <th
+      scope="col"
+      className={cn(
+        'align-middle px-2 py-2.5 font-normal normal-case',
+        end ? 'text-center' : 'text-right',
+      )}
+      title={`${label} tarife: jeton ve ek ders tutarı (tek satırda gösterim)`}
+    >
+      <div className={cn('flex flex-col gap-1', end ? 'items-center' : 'items-end')}>
+        <span className="block text-[10px] font-semibold uppercase leading-none tracking-wide text-muted-foreground">
+          {label}
+        </span>
+        <div
+          className={cn(
+            'flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] font-medium leading-none text-foreground',
+            end ? 'justify-center' : 'justify-end',
+          )}
+        >
+          <span className="inline-flex items-center gap-1">
+            <Coins className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+            <span>Jeton</span>
+          </span>
+          <span className="select-none text-muted-foreground">/</span>
+          <span className="inline-flex items-center gap-1">
+            <BookOpen className="size-3.5 shrink-0 text-sky-600 dark:text-sky-400" aria-hidden />
+            <span>Ek ders</span>
+          </span>
+        </div>
+      </div>
+    </th>
+  );
 }
 
 function formatRemainingTr(endsAtIso: string, nowMs: number): string {
@@ -210,14 +422,24 @@ function formatRemainingTr(endsAtIso: string, nowMs: number): string {
   return `${min} dk`;
 }
 
-function periodProgress(nowMs: number, endsAtIso: string, unit: 'month' | 'year'): number {
+function periodProgress(
+  nowMs: number,
+  endsAtIso: string,
+  unit: 'month' | 'year',
+  startsAtIso?: string,
+): number {
   const end = new Date(endsAtIso).getTime();
-  const start = new Date(end);
-  if (unit === 'month') start.setUTCMonth(start.getUTCMonth() - 1);
-  else start.setUTCFullYear(start.getUTCFullYear() - 1);
-  const w = end - start.getTime();
+  const startMs = startsAtIso
+    ? new Date(startsAtIso).getTime()
+    : (() => {
+        const start = new Date(end);
+        if (unit === 'month') start.setUTCMonth(start.getUTCMonth() - 1);
+        else start.setUTCFullYear(start.getUTCFullYear() - 1);
+        return start.getTime();
+      })();
+  const w = end - startMs;
   if (w <= 0) return 0;
-  return Math.min(100, Math.max(0, ((nowMs - start.getTime()) / w) * 100));
+  return Math.min(100, Math.max(0, ((nowMs - startMs) / w) * 100));
 }
 
 function fmtEndDate(iso: string): string {
@@ -413,6 +635,7 @@ const TEACHER_MANUAL_PAGE = 12;
 
 export default function MarketPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { token, me } = useAuth();
   const [entitlements, setEntitlements] = useState<EntitlementItem[]>([]);
   const [wallet, setWallet] = useState<WalletRes | null>(null);
@@ -466,6 +689,9 @@ export default function MarketPage() {
     items: TeacherInviteRedemptionRow[];
   } | null>(null);
   const [teacherInviteLoading, setTeacherInviteLoading] = useState(false);
+  const [activationBusy, setActivationBusy] = useState<string | null>(null);
+  const [activationStatus, setActivationStatus] = useState<ActivationStatusRes | null>(null);
+  const [activationLedger, setActivationLedger] = useState<ActivationLedgerRow[]>([]);
   const [siteOrigin, setSiteOrigin] = useState('');
   useEffect(() => {
     setSiteOrigin(typeof window !== 'undefined' ? window.location.origin : '');
@@ -476,6 +702,23 @@ export default function MarketPage() {
   const isSuperadmin = me?.role === 'superadmin';
   const isSuperOrMod = me?.role === 'superadmin' || me?.role === 'moderator';
   const showSchoolTariffs = isSchoolAdmin || isSuperOrMod;
+
+  const activationByModule = useMemo(() => {
+    const map = new Map<string, { months: Set<string>; hasYear: boolean }>();
+    const yNow = utcYearLabelNow();
+    for (const r of activationLedger) {
+      const key = r.module_key;
+      if (!map.has(key)) map.set(key, { months: new Set<string>(), hasYear: false });
+      const e = map.get(key)!;
+      if (r.billing_period === 'month') e.months.add(r.period_label);
+      if (r.billing_period === 'year' && r.period_label === yNow) e.hasYear = true;
+    }
+    return map;
+  }, [activationLedger]);
+
+  const [extraMonthPick, setExtraMonthPick] = useState<Record<string, string>>({});
+  const [payWithByModule, setPayWithByModule] = useState<Record<string, 'jeton' | 'ekders'>>({});
+  const [activationConfirm, setActivationConfirm] = useState<ActivationConfirmPayload | null>(null);
 
   const canAccess =
     me?.role === 'teacher' ||
@@ -489,7 +732,7 @@ export default function MarketPage() {
     setLoading(true);
     setUsageLoading(true);
     try {
-      const [ent, w, m, s, pol] = await Promise.all([
+      const [ent, w, m, s, pol, actSt, actLed] = await Promise.all([
         apiFetch<EntitlementItem[]>('/entitlements', { token }),
         apiFetch<WalletRes>('/market/wallet', { token }),
         apiFetch<{ items: LedgerRow[]; total: number }>(
@@ -503,12 +746,18 @@ export default function MarketPage() {
             )
           : Promise.resolve(null),
         apiFetch<MarketPolicyLite>('content/market-policy').catch(() => null),
+        apiFetch<ActivationStatusRes>('/market/modules/activation-status', { token }).catch(() => null),
+        apiFetch<{ items: ActivationLedgerRow[] }>('/market/modules/activation-ledger?limit=40', { token }).catch(
+          () => null,
+        ),
       ]);
       setEntitlements(Array.isArray(ent) ? ent : []);
       setWallet(w);
       setMine(m);
       setSchool(s);
       setPolicy(pol && pol.module_prices ? pol : null);
+      setActivationStatus(actSt && actSt.modules ? actSt : null);
+      setActivationLedger(Array.isArray(actLed?.items) ? actLed.items : []);
       if (isTeacher) {
         const rad = await apiFetch<{ total: number; items: RewardedAdCreditRow[] }>(
           '/market/wallet/rewarded-ad-credits?limit=30',
@@ -539,6 +788,8 @@ export default function MarketPage() {
     } catch {
       setError('Veriler yüklenemedi');
       setPolicy(null);
+      setActivationStatus(null);
+      setActivationLedger([]);
       setRewardedAdCredits(null);
     } finally {
       setLoading(false);
@@ -562,6 +813,124 @@ export default function MarketPage() {
       setUsageLoading(false);
     }
   }, [token, pageMine, pageSchool, isSchoolAdmin, isTeacher]);
+
+  const activateModulePeriod = useCallback(
+    async (
+      moduleKey: string,
+      billingPeriod: 'month' | 'year',
+      targetMonth?: string,
+      payWith?: 'jeton' | 'ekders',
+      idempotencyKey?: string,
+    ) => {
+      if (!token) return;
+      const busyKey = `${moduleKey}:${billingPeriod}${targetMonth ? `:${targetMonth}` : ''}`;
+      setActivationBusy(busyKey);
+      try {
+        const res = await apiFetch<{
+          ok: boolean;
+          already_active: boolean;
+          billing_period: string;
+          period_label?: string;
+        }>('/market/modules/activate', {
+          method: 'POST',
+          token,
+          body: JSON.stringify({
+            module_key: moduleKey,
+            billing_period: billingPeriod,
+            ...(billingPeriod === 'month' && targetMonth ? { target_month: targetMonth } : {}),
+            ...(payWith ? { pay_with: payWith } : {}),
+            ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
+          }),
+        });
+        const pl = res.period_label ? ` (${res.period_label})` : '';
+        toast.success(
+          res.already_active ? `Bu dönem için zaten etkin${pl}` : `Modül etkinleştirildi${pl}`,
+        );
+        await loadAll();
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent(MODULE_ACTIVATION_REFRESH_EVENT));
+          window.setTimeout(() => {
+            document.getElementById('market-activation-ledger')?.scrollIntoView({
+              behavior: 'smooth',
+              block: 'nearest',
+            });
+          }, 120);
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Etkinleştirilemedi');
+      } finally {
+        setActivationBusy(null);
+      }
+    },
+    [token, loadAll],
+  );
+
+  const openActivationConfirm = useCallback(
+    (args: {
+      moduleKey: string;
+      billingPeriod: 'month' | 'year';
+      targetMonth?: string;
+      monthlyNeed: { jeton: number; ekders: number };
+      yearlyNeed: { jeton: number; ekders: number };
+      pw: 'jeton' | 'ekders';
+      walletJeton: number;
+      walletEkders: number;
+    }) => {
+      const need = args.billingPeriod === 'month' ? args.monthlyNeed : args.yearlyNeed;
+      const resolvedPay = payWithForTariff(need, args.pw);
+      let paySummaryTr = '';
+      if (need.jeton > 0 && need.ekders <= 0) paySummaryTr = `${fmtNum(need.jeton)} jeton`;
+      else if (need.ekders > 0 && need.jeton <= 0) paySummaryTr = `${fmtNum(need.ekders)} ek ders`;
+      else paySummaryTr = args.pw === 'jeton' ? `${fmtNum(need.jeton)} jeton` : `${fmtNum(need.ekders)} ek ders`;
+
+      let periodTitleTr: string;
+      if (args.billingPeriod === 'year') periodTitleTr = 'Yıllık — geçerli UTC yılı';
+      else if (args.targetMonth) periodTitleTr = `Aylık — ${fmtYmTr(args.targetMonth)}`;
+      else periodTitleTr = 'Aylık — bu UTC ayı';
+
+      const bal = { jeton: args.walletJeton, ekders: args.walletEkders };
+      const hasInsufficientBalance =
+        !isSuperOrMod && (need.jeton > 0 || need.ekders > 0) && !canAffordNeed(bal, need, args.pw);
+      const dual = need.jeton > 0 && need.ekders > 0;
+
+      setActivationConfirm({
+        moduleKey: args.moduleKey,
+        billingPeriod: args.billingPeriod,
+        targetMonth: args.targetMonth,
+        payWith: resolvedPay,
+        moduleLabel: SCHOOL_MODULE_LABELS[args.moduleKey as SchoolModuleKey],
+        periodTitleTr,
+        paySummaryTr,
+        walletLabel: isSchoolAdmin ? 'Okul cüzdanı' : 'Bireysel cüzdan',
+        isExempt: isSuperOrMod,
+        walletJeton: args.walletJeton,
+        walletEkders: args.walletEkders,
+        dualTariffJetonLine: dual ? `${fmtNum(need.jeton)} jeton` : null,
+        dualTariffEkdersLine: dual ? `${fmtNum(need.ekders)} ek ders` : null,
+        selectedPayKind: args.pw,
+        hasInsufficientBalance,
+        idempotencyKey:
+          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      });
+    },
+    [isSchoolAdmin, isSuperOrMod],
+  );
+
+  const handleConfirmActivation = useCallback(() => {
+    setActivationConfirm((prev) => {
+      if (!prev) return null;
+      void activateModulePeriod(
+        prev.moduleKey,
+        prev.billingPeriod,
+        prev.targetMonth,
+        prev.payWith,
+        prev.idempotencyKey,
+      );
+      return null;
+    });
+  }, [activateModulePeriod]);
 
   const fetchSchoolCreditAdmin = useCallback(async () => {
     if (!token || !isSuperadmin) return;
@@ -598,6 +967,24 @@ export default function MarketPage() {
     const id = setInterval(() => setNowTick(Date.now()), 15000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    const mod = searchParams.get('module')?.trim();
+    if (!mod) return;
+    const el = document.getElementById(`mod-activate-${mod}`);
+    if (!el) return;
+    const raf = requestAnimationFrame(() => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('ring-2', 'ring-teal-500/70', 'rounded-md', 'transition-shadow');
+    });
+    const t = window.setTimeout(() => {
+      el.classList.remove('ring-2', 'ring-teal-500/70', 'rounded-md', 'transition-shadow');
+    }, 4500);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(t);
+    };
+  }, [searchParams]);
 
   useEffect(() => {
     if (token && isSuperadmin) void fetchSchoolCreditAdmin();
@@ -1034,72 +1421,29 @@ export default function MarketPage() {
       )}
 
       {policy && (
-        <div className={cn('grid gap-6', showSchoolTariffs ? 'lg:grid-cols-2' : '')}>
-          <Card className="overflow-hidden border-border/80 shadow-sm">
-            <CardHeader className="border-b border-border/60 bg-emerald-50/30 pb-3 dark:bg-emerald-950/20">
-              <div className="flex items-start gap-3">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-emerald-600/15 text-emerald-800 dark:text-emerald-300">
-                  <UserRound className="size-5" />
-                </div>
-                <div>
-                  <CardTitle className="text-base">Öğretmen (bireysel) — kullanım tarifeleri</CardTitle>
-                  <CardDescription className="text-xs">
-                    Her kullanımda düşecek jeton / ek ders (aylık ve yıllık ayrı). Varsayılan uygulama aylık tarifedir.
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="table-x-scroll">
-                <table className="w-full min-w-[520px] text-sm">
-                  <thead>
-                    <tr className="border-b border-border/80 bg-muted/30 text-left text-xs font-medium text-muted-foreground">
-                      <th className="px-4 py-2">Modül</th>
-                      <th className="px-2 py-2 text-right">Aylık J</th>
-                      <th className="px-2 py-2 text-right">Aylık E</th>
-                      <th className="px-2 py-2 text-right">Yıllık J</th>
-                      <th className="px-4 py-2 text-right">Yıllık E</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/60">
-                    {SCHOOL_MODULE_KEYS.map((k) => {
-                      const row = policy.module_prices[k];
-                      const t = row?.teacher;
-                      return (
-                        <tr key={k} className="hover:bg-muted/30">
-                          <td className="px-4 py-2 font-medium">{SCHOOL_MODULE_LABELS[k]}</td>
-                          <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
-                            {fmtNum(t?.monthly?.jeton ?? 0)}
-                          </td>
-                          <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
-                            {fmtNum(t?.monthly?.ekders ?? 0)}
-                          </td>
-                          <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
-                            {fmtNum(t?.yearly?.jeton ?? 0)}
-                          </td>
-                          <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
-                            {fmtNum(t?.yearly?.ekders ?? 0)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-
-          {showSchoolTariffs && (
-            <Card className="overflow-hidden border-blue-200/50 shadow-sm dark:border-blue-900/40">
-              <CardHeader className="border-b border-border/60 bg-blue-50/40 pb-3 dark:bg-blue-950/20">
+        <section aria-labelledby="policy-tariff-teacher-heading" className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground px-0.5">
+            Politika — kullanım başına düşecek tutarlar (fiyat listesi; hareket veya özet değil)
+          </p>
+          <div className={cn('grid gap-6', showSchoolTariffs ? 'lg:grid-cols-2' : '')}>
+            <Card className="overflow-hidden border-2 border-emerald-500/35 bg-emerald-50/20 shadow-md ring-1 ring-emerald-500/15 dark:border-emerald-800/50 dark:bg-emerald-950/25">
+              <CardHeader className="border-b border-emerald-500/25 bg-emerald-100/40 pb-3 dark:border-emerald-800/40 dark:bg-emerald-950/50">
                 <div className="flex items-start gap-3">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-blue-600/15 text-blue-800 dark:text-blue-300">
-                    <Building2 className="size-5" />
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-emerald-600/20 text-emerald-900 dark:bg-emerald-500/20 dark:text-emerald-200">
+                    <UserRound className="size-5" />
                   </div>
-                  <div>
-                    <CardTitle className="text-base text-blue-950 dark:text-blue-50">Okul cüzdanı — kullanım tarifeleri</CardTitle>
-                    <CardDescription className="text-xs text-blue-900/80 dark:text-blue-200/90">
-                      Okul yöneticisi işlemlerinde okul bakiyesinden düşecek tutarlar (aylık / yıllık).
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2 gap-y-1">
+                      <CardTitle id="policy-tariff-teacher-heading" className="text-base">
+                        Öğretmen (bireysel) — kullanım tarifeleri
+                      </CardTitle>
+                      <span className="inline-flex shrink-0 rounded-full border border-emerald-600/30 bg-emerald-600/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-900 dark:text-emerald-200">
+                        Tarife
+                      </span>
+                    </div>
+                    <CardDescription className="mt-1 text-xs">
+                      Her kullanımda uygulanacak jeton / ek ders birim fiyatı (aylık ve yıllık satırlar ayrı). Varsayılan
+                      uygulama aylık tarifedir.
                     </CardDescription>
                   </div>
                 </div>
@@ -1107,21 +1451,93 @@ export default function MarketPage() {
               <CardContent className="p-0">
                 <div className="table-x-scroll">
                   <table className="w-full min-w-[520px] text-sm">
+                    <caption className="sr-only">
+                      Bireysel öğretmen için modül bazında tarife: aylık ve yıllık jeton ve ek ders birim düşümleri
+                    </caption>
                     <thead>
-                      <tr className="border-b border-border/80 bg-muted/30 text-left text-xs font-medium text-muted-foreground">
-                        <th className="px-4 py-2">Modül</th>
-                        <th className="px-2 py-2 text-right">Aylık J</th>
-                        <th className="px-2 py-2 text-right">Aylık E</th>
-                        <th className="px-2 py-2 text-right">Yıllık J</th>
-                        <th className="px-4 py-2 text-right">Yıllık E</th>
+                      <tr className="border-b border-emerald-500/20 bg-emerald-100/60 text-left text-[11px] font-semibold uppercase tracking-wide text-emerald-950 dark:border-emerald-800/50 dark:bg-emerald-950/60 dark:text-emerald-100">
+                        <th scope="col" className="align-middle px-4 py-2.5">
+                          Modül
+                        </th>
+                        <TariffAmountHeader periodShort="Ay" kind="jeton" />
+                        <TariffAmountHeader periodShort="Ay" kind="ekders" />
+                        <TariffAmountHeader periodShort="Yıl" kind="jeton" />
+                        <TariffAmountHeader periodShort="Yıl" kind="ekders" paddedEnd />
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-border/60">
+                    <tbody className="divide-y divide-emerald-500/15 bg-background/80 dark:divide-emerald-900/40">
+                      {SCHOOL_MODULE_KEYS.map((k) => {
+                        const row = policy.module_prices[k];
+                        const t = row?.teacher;
+                        return (
+                          <tr key={k} className="hover:bg-emerald-50/50 dark:hover:bg-emerald-950/30">
+                            <td className="px-4 py-2 font-medium">{SCHOOL_MODULE_LABELS[k]}</td>
+                            <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                              {fmtNum(t?.monthly?.jeton ?? 0)}
+                            </td>
+                            <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                              {fmtNum(t?.monthly?.ekders ?? 0)}
+                            </td>
+                            <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                              {fmtNum(t?.yearly?.jeton ?? 0)}
+                            </td>
+                            <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
+                              {fmtNum(t?.yearly?.ekders ?? 0)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+
+          {showSchoolTariffs && (
+            <Card className="overflow-hidden border-2 border-blue-400/35 bg-blue-50/15 shadow-md ring-1 ring-blue-500/15 dark:border-blue-800/50 dark:bg-blue-950/20">
+              <CardHeader className="border-b border-blue-500/25 bg-blue-100/40 pb-3 dark:border-blue-800/40 dark:bg-blue-950/40">
+                <div className="flex items-start gap-3">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-blue-600/20 text-blue-900 dark:bg-blue-500/20 dark:text-blue-100">
+                    <Building2 className="size-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2 gap-y-1">
+                      <CardTitle className="text-base text-blue-950 dark:text-blue-50">
+                        Okul cüzdanı — kullanım tarifeleri
+                      </CardTitle>
+                      <span className="inline-flex shrink-0 rounded-full border border-blue-600/30 bg-blue-600/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-900 dark:text-blue-100">
+                        Tarife
+                      </span>
+                    </div>
+                    <CardDescription className="text-xs text-blue-900/85 dark:text-blue-200/90">
+                      Okul yöneticisi işlemlerinde okul bakiyesinden düşecek birim tutarlar (aylık / yıllık tarife).
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="table-x-scroll">
+                  <table className="w-full min-w-[520px] text-sm">
+                    <caption className="sr-only">
+                      Okul cüzdanı için modül bazında tarife tablosu
+                    </caption>
+                    <thead>
+                      <tr className="border-b border-blue-500/25 bg-blue-100/60 text-left text-[11px] font-semibold uppercase tracking-wide text-blue-950 dark:border-blue-800/50 dark:bg-blue-950/50 dark:text-blue-50">
+                        <th scope="col" className="align-middle px-4 py-2.5">
+                          Modül
+                        </th>
+                        <TariffAmountHeader periodShort="Ay" kind="jeton" />
+                        <TariffAmountHeader periodShort="Ay" kind="ekders" />
+                        <TariffAmountHeader periodShort="Yıl" kind="jeton" />
+                        <TariffAmountHeader periodShort="Yıl" kind="ekders" paddedEnd />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-blue-500/10 bg-background/80 dark:divide-blue-900/40">
                       {SCHOOL_MODULE_KEYS.map((k) => {
                         const row = policy.module_prices[k];
                         const s = row?.school;
                         return (
-                          <tr key={k} className="hover:bg-muted/30">
+                          <tr key={k} className="hover:bg-blue-50/50 dark:hover:bg-blue-950/30">
                             <td className="px-4 py-2 font-medium">{SCHOOL_MODULE_LABELS[k]}</td>
                             <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
                               {fmtNum(s?.monthly?.jeton ?? 0)}
@@ -1144,7 +1560,584 @@ export default function MarketPage() {
               </CardContent>
             </Card>
           )}
-        </div>
+          </div>
+        </section>
+      )}
+
+      {policy && canAccess && (
+        <>
+        <Card
+          id="market-module-activation"
+          className="overflow-hidden border-teal-500/35 bg-teal-50/15 shadow-md ring-1 ring-teal-500/15 dark:border-teal-900/40 dark:bg-teal-950/25">
+          <CardHeader className="border-b border-teal-500/25 bg-teal-100/50 pb-3 dark:border-teal-900/40 dark:bg-teal-950/50">
+            <div className="flex items-start gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-600/20 text-teal-900 dark:bg-teal-500/20 dark:text-teal-100">
+                <Unlock className="size-5" />
+              </div>
+              <div className="min-w-0 flex-1 space-y-2">
+                <CardTitle className="text-base">Modül etkinleştirme</CardTitle>
+                <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
+                  <p>
+                    {isSchoolAdmin ? 'Ödeme okul cüzdanından' : 'Ödeme bireysel cüzdanınızdan'} yapılır. Tarifede hem
+                    jeton hem ek ders tutarı varsa satın almadan önce{' '}
+                    <span className="font-medium text-foreground/90">ödeme türünü</span> seçersiniz; tek tutarlı
+                    tarifede düşüm otomatik.
+                  </p>
+                  <ul className="list-disc space-y-1 pl-4 marker:text-teal-600/80 dark:marker:text-teal-400/80">
+                    <li>
+                      <span className="font-medium text-foreground/90">UTC ayı:</span> &quot;Bu ay&quot; ve kayıtlar
+                      evrensel saat dilimindeki takvim ayına göredir.
+                    </li>
+                    <li>
+                      Aylık kullanımda bu ayı aldıktan sonra aynı tarifeden{' '}
+                      <span className="font-medium text-foreground/90">ileri aylar</span> (liste + Ekle) eklenebilir.
+                    </li>
+                    <li>
+                      <span className="font-medium text-foreground/90">Yıllık</span> satın alındıysa o yıl için aylık
+                      satın alma gerekmez.
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-0 p-0">
+            {wallet ? (
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-teal-500/15 bg-teal-500/6 px-4 py-3 text-sm dark:border-teal-900/30">
+                <span className="font-medium text-foreground">
+                  {isSchoolAdmin && wallet.school ? 'Okul cüzdanı' : 'Bireysel cüzdan'}
+                </span>
+                <span className="tabular-nums text-muted-foreground">
+                  Jeton:{' '}
+                  <span className="font-semibold text-foreground">
+                    {fmtNum(isSchoolAdmin && wallet.school ? wallet.school.jeton : wallet.user.jeton)}
+                  </span>
+                </span>
+                <span className="tabular-nums text-muted-foreground">
+                  Ek ders:{' '}
+                  <span className="font-semibold text-foreground">
+                    {fmtNum(isSchoolAdmin && wallet.school ? wallet.school.ekders : wallet.user.ekders)}
+                  </span>
+                </span>
+                {isSuperOrMod ? (
+                  <span className="text-xs text-muted-foreground">(Yönetici: tarife düşümü uygulanmaz)</span>
+                ) : null}
+              </div>
+            ) : (
+              <p className="border-b border-border/50 px-4 py-2 text-xs text-amber-700 dark:text-amber-300">
+                Cüzdan bakiyesi yüklenemedi; etkinleştirme öncesi kontrol için sayfayı yenileyin.
+              </p>
+            )}
+            <p
+              className="border-b border-teal-500/15 bg-teal-500/4 px-4 py-2 text-xs text-muted-foreground dark:border-teal-900/25"
+              id="market-activation-utc-hint"
+            >
+              <span className="font-medium text-foreground">Şu anki UTC ayı:</span>{' '}
+              <span className="tabular-nums text-foreground">{fmtYmTr(utcMonthLabelNow())}</span>
+              <span className="mx-1.5 text-border">·</span>
+              &quot;Bu ay&quot; bu UTC ayına; liste + Ekle sonraki ayları ekler. İki tutarlı tarifede ödeme türü
+              satıra göre seçilir.
+            </p>
+            <div className="table-x-scroll">
+              <table
+                className="w-full min-w-[920px] text-sm"
+                aria-describedby="market-activation-utc-hint"
+              >
+                <thead>
+                  <tr className="border-b border-teal-500/20 bg-teal-100/40 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground dark:border-teal-900/40 dark:bg-teal-950/40">
+                    <th className="align-middle px-3 py-2.5">Modül</th>
+                    <th className="align-middle px-2 py-2.5" title="Ücretsiz / etkin / satın alma gerekli">
+                      Durum
+                    </th>
+                    <TariffDualPairHeader label="Aylık" />
+                    <th
+                      className="align-middle px-2 py-2.5 text-center font-normal normal-case"
+                      title="Aylık tarife için seçilen (veya tek) ödeme türünde bakiye yeterli mi"
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-[10px] font-semibold uppercase leading-none tracking-wide text-muted-foreground">
+                          Aylık
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 text-[9px] font-normal leading-none text-muted-foreground/90">
+                          <Coins
+                            className="size-3 shrink-0 text-amber-600/90 dark:text-amber-400/90"
+                            aria-hidden
+                          />
+                          <BookOpen
+                            className="size-3 shrink-0 text-sky-600/90 dark:text-sky-400/90"
+                            aria-hidden
+                          />
+                          <span>bakiye</span>
+                        </span>
+                      </div>
+                    </th>
+                    <TariffDualPairHeader label="Yıllık" />
+                    <th
+                      className="align-middle px-2 py-2.5 text-center font-normal normal-case"
+                      title="Yıllık tarife için seçilen (veya tek) ödeme türünde bakiye yeterli mi"
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-[10px] font-semibold uppercase leading-none tracking-wide text-muted-foreground">
+                          Yıllık
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 text-[9px] font-normal leading-none text-muted-foreground/90">
+                          <Coins
+                            className="size-3 shrink-0 text-amber-600/90 dark:text-amber-400/90"
+                            aria-hidden
+                          />
+                          <BookOpen
+                            className="size-3 shrink-0 text-sky-600/90 dark:text-sky-400/90"
+                            aria-hidden
+                          />
+                          <span>bakiye</span>
+                        </span>
+                      </div>
+                    </th>
+                    <th className="min-w-[280px] px-3 py-2.5 text-left align-top">İşlemler</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/50">
+                  {SCHOOL_MODULE_KEYS.map((k) => {
+                    const row = policy.module_prices[k];
+                    const scope = isSchoolAdmin ? row?.school : row?.teacher;
+                    const mc = tariffNonZero(scope?.monthly);
+                    const yc = tariffNonZero(scope?.yearly);
+                    const free = !mc && !yc;
+                    const actBal =
+                      wallet &&
+                      (isSchoolAdmin && wallet.school
+                        ? { jeton: wallet.school.jeton, ekders: wallet.school.ekders }
+                        : { jeton: wallet.user.jeton, ekders: wallet.user.ekders });
+                    const monthlyNeed = pairNums(scope?.monthly);
+                    const yearlyNeed = pairNums(scope?.yearly);
+                    const pw = payWithByModule[k] ?? 'jeton';
+                    const mixedMonth = monthlyNeed.jeton > 0 && monthlyNeed.ekders > 0;
+                    const mixedYear = yearlyNeed.jeton > 0 && yearlyNeed.ekders > 0;
+                    const showPayToggle = !free && !isSuperOrMod && (mixedMonth || mixedYear);
+                    const okMonth =
+                      isSuperOrMod || free || !mc || (actBal ? canAffordNeed(actBal, monthlyNeed, pw) : false);
+                    const okYear =
+                      isSuperOrMod || free || !yc || (actBal ? canAffordNeed(actBal, yearlyNeed, pw) : false);
+                    const st = activationStatus?.modules[k];
+                    const durum =
+                      free ? (
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                          Ücretsiz
+                        </span>
+                      ) : st?.active ? (
+                        <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:text-emerald-200">
+                          Etkin
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-900 dark:text-amber-200">
+                          Gerekli
+                        </span>
+                      );
+                    const curYm = utcMonthLabelNow();
+                    const actM = activationByModule.get(k);
+                    const hasYearAct = actM?.hasYear ?? false;
+                    const monthSet = actM?.months ?? new Set<string>();
+                    const purchasedThisUtcMonth = monthSet.has(curYm);
+                    const extraMonthOpts: string[] = [];
+                    if (mc && !free && !hasYearAct) {
+                      for (let i = 1; i <= 24; i++) {
+                        const m = utcMonthAdd(curYm, i);
+                        if (!monthSet.has(m)) extraMonthOpts.push(m);
+                      }
+                    }
+                    const rawExtra = extraMonthPick[k];
+                    const extraPick =
+                      rawExtra && extraMonthOpts.includes(rawExtra) ? rawExtra : (extraMonthOpts[0] ?? '');
+                    const disBuAy =
+                      activationBusy !== null ||
+                      !mc ||
+                      free ||
+                      hasYearAct ||
+                      (!isSuperOrMod && !okMonth) ||
+                      (purchasedThisUtcMonth && !isSuperOrMod);
+                    const disExtraAy =
+                      activationBusy !== null ||
+                      !mc ||
+                      free ||
+                      hasYearAct ||
+                      extraMonthOpts.length === 0 ||
+                      !extraPick ||
+                      (!isSuperOrMod && !okMonth);
+                    const disYear =
+                      activationBusy !== null ||
+                      !yc ||
+                      free ||
+                      (!isSuperOrMod && !okYear) ||
+                      (hasYearAct && !isSuperOrMod);
+                    return (
+                      <tr key={k} id={`mod-activate-${k}`} className="hover:bg-teal-500/5">
+                        <td className="px-3 py-2.5 font-medium">{SCHOOL_MODULE_LABELS[k]}</td>
+                        <td className="px-2 py-2.5">{durum}</td>
+                        <td className="px-2 py-2.5 text-right tabular-nums text-muted-foreground">
+                          {mc ? (
+                            <>
+                              {fmtNum(monthlyNeed.jeton)} / {fmtNum(monthlyNeed.ekders)}
+                            </>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td className="px-2 py-2.5 text-center">
+                          {!mc ? (
+                            '—'
+                          ) : okMonth ? (
+                            <CheckCircle2 className="mx-auto size-4 text-emerald-600 dark:text-emerald-400" aria-label="Yeterli" />
+                          ) : (
+                            <XCircle className="mx-auto size-4 text-red-600 dark:text-red-400" aria-label="Yetersiz" />
+                          )}
+                        </td>
+                        <td className="px-2 py-2.5 text-right tabular-nums text-muted-foreground">
+                          {yc ? (
+                            <>
+                              {fmtNum(yearlyNeed.jeton)} / {fmtNum(yearlyNeed.ekders)}
+                            </>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td className="px-2 py-2.5 text-center">
+                          {!yc ? (
+                            '—'
+                          ) : okYear ? (
+                            <CheckCircle2 className="mx-auto size-4 text-emerald-600 dark:text-emerald-400" aria-label="Yeterli" />
+                          ) : (
+                            <XCircle className="mx-auto size-4 text-red-600 dark:text-red-400" aria-label="Yetersiz" />
+                          )}
+                        </td>
+                        <td className="min-w-[280px] max-w-none px-2 py-2.5 text-left align-top sm:px-3">
+                          {free ? (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          ) : (
+                            <div className="flex w-full min-w-0 flex-col gap-3">
+                              {showPayToggle ? (
+                                <div className="w-full min-w-0 shrink-0 rounded-lg border border-border/60 bg-muted/30 p-2">
+                                  <p className="mb-1.5 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    Ödeme türü
+                                  </p>
+                                  <div className="grid w-full min-w-0 grid-cols-2 gap-1.5">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant={pw === 'jeton' ? 'default' : 'outline'}
+                                      className="h-8 min-h-0 min-w-0 truncate px-2 text-xs"
+                                      onClick={() => setPayWithByModule((prev) => ({ ...prev, [k]: 'jeton' }))}
+                                    >
+                                      Jeton
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant={pw === 'ekders' ? 'default' : 'outline'}
+                                      className="h-8 min-h-0 min-w-0 truncate px-2 text-xs"
+                                      onClick={() => setPayWithByModule((prev) => ({ ...prev, [k]: 'ekders' }))}
+                                    >
+                                      Ek ders
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : null}
+                              {mc ? (
+                                <div className="flex w-full min-w-0 shrink-0 flex-col gap-1.5 rounded-lg border border-teal-500/15 bg-teal-500/4 px-2 py-2 dark:border-teal-900/30">
+                                  <span className="text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    Aylık (UTC)
+                                  </span>
+                                  <div className="flex w-full min-w-0 flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:justify-end">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 w-full min-w-0 shrink-0 border-teal-500/35 sm:w-auto"
+                                      disabled={disBuAy}
+                                      title={
+                                        disBuAy && !activationBusy && mc
+                                          ? !okMonth
+                                            ? 'Aylık tarife için (seçilen türde) bakiye yetersiz'
+                                            : hasYearAct
+                                              ? 'Yıllık etkin; bu yıl için aylık satın almaya gerek yok'
+                                              : purchasedThisUtcMonth
+                                                ? 'Bu UTC ayı için zaten kayıt var'
+                                                : undefined
+                                          : 'Geçerli UTC ayı için aylık etkinleştir'
+                                      }
+                                      onClick={() =>
+                                        openActivationConfirm({
+                                          moduleKey: k,
+                                          billingPeriod: 'month',
+                                          monthlyNeed,
+                                          yearlyNeed,
+                                          pw,
+                                          walletJeton: actBal?.jeton ?? 0,
+                                          walletEkders: actBal?.ekders ?? 0,
+                                        })
+                                      }
+                                    >
+                                      {activationBusy === `${k}:month` ? '…' : 'Bu ay'}
+                                    </Button>
+                                    {extraMonthOpts.length > 0 ? (
+                                      <div className="flex w-full min-w-0 flex-col gap-1.5 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
+                                        <Select
+                                          value={extraPick}
+                                          onValueChange={(v) =>
+                                            setExtraMonthPick((prev) => ({ ...prev, [k]: v }))
+                                          }
+                                          disabled={disExtraAy}
+                                        >
+                                          <SelectTrigger
+                                            className="h-8 w-full min-w-0 py-1 text-xs sm:min-w-38 sm:max-w-56"
+                                            id={`extra-month-${k}`}
+                                          />
+                                          <SelectValue placeholder="Ay seçin" />
+                                          {extraMonthOpts.map((ym) => (
+                                            <SelectItem key={ym} value={ym}>
+                                              + {fmtYmTr(ym)}
+                                            </SelectItem>
+                                          ))}
+                                        </Select>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="secondary"
+                                          className="h-8 w-full min-w-0 shrink-0 sm:w-auto"
+                                          disabled={disExtraAy}
+                                          title={
+                                            disExtraAy && !activationBusy && mc && extraPick
+                                              ? !okMonth
+                                                ? 'Aylık tarife için (seçilen türde) bakiye yetersiz'
+                                                : undefined
+                                              : extraPick
+                                                ? `${fmtYmTr(extraPick)} için aylık etkinleştir`
+                                                : undefined
+                                          }
+                                          onClick={() =>
+                                            openActivationConfirm({
+                                              moduleKey: k,
+                                              billingPeriod: 'month',
+                                              targetMonth: extraPick,
+                                              monthlyNeed,
+                                              yearlyNeed,
+                                              pw,
+                                              walletJeton: actBal?.jeton ?? 0,
+                                              walletEkders: actBal?.ekders ?? 0,
+                                            })
+                                          }
+                                        >
+                                          {activationBusy === `${k}:month:${extraPick}` ? '…' : 'Ekle'}
+                                        </Button>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              ) : null}
+                              {yc ? (
+                                <div className="flex w-full min-w-0 shrink-0 flex-col gap-1.5 rounded-lg border border-teal-500/15 bg-background/80 px-2 py-2 dark:border-teal-900/30">
+                                  <span className="text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    Yıllık
+                                  </span>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 w-full min-w-0 sm:w-auto"
+                                    disabled={disYear}
+                                    title={
+                                      disYear && !activationBusy && yc
+                                        ? !okYear
+                                          ? 'Yıllık tarife için (seçilen türde) bakiye yetersiz'
+                                          : hasYearAct
+                                            ? 'Bu yıl için yıllık kayıt zaten var'
+                                            : undefined
+                                        : 'Geçerli UTC yılı için yıllık etkinleştir'
+                                    }
+                                    onClick={() =>
+                                      openActivationConfirm({
+                                        moduleKey: k,
+                                        billingPeriod: 'year',
+                                        monthlyNeed,
+                                        yearlyNeed,
+                                        pw,
+                                        walletJeton: actBal?.jeton ?? 0,
+                                        walletEkders: actBal?.ekders ?? 0,
+                                      })
+                                    }
+                                  >
+                                    {activationBusy === `${k}:year` ? '…' : 'Bu yıl'}
+                                  </Button>
+                                </div>
+                              ) : null}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {activationLedger.length > 0 ? (
+              <div
+                id="market-activation-ledger"
+                className="scroll-mt-4 border-t border-border/60 bg-muted/20 px-4 py-4"
+              >
+                <p className="mb-3 text-sm font-semibold text-foreground">Etkinleştirme kayıtları (son işlemler)</p>
+                <div className="table-x-scroll">
+                  <table className="w-full min-w-[640px] text-sm">
+                    <thead>
+                      <tr className="border-b border-border/60 text-left text-[11px] font-medium uppercase text-muted-foreground">
+                        <th className="py-2 pr-3">Zaman (UTC)</th>
+                        <th className="py-2 pr-3">Modül</th>
+                        <th className="py-2 pr-3">Tür</th>
+                        <th className="py-2 pr-3">Dönem</th>
+                        <th className="py-2 pr-3 text-right">Düşüm</th>
+                        <th className="py-2">Cüzdan</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {activationLedger.map((r) => (
+                        <tr key={r.id} className="text-muted-foreground">
+                          <td className="py-2 pr-3 tabular-nums text-foreground">{fmtLedgerTs(r.created_at)}</td>
+                          <td className="py-2 pr-3 font-medium text-foreground">
+                            {r.module_key in SCHOOL_MODULE_LABELS
+                              ? SCHOOL_MODULE_LABELS[r.module_key as SchoolModuleKey]
+                              : r.module_key}
+                          </td>
+                          <td className="py-2 pr-3">{r.billing_period === 'month' ? 'Aylık' : 'Yıllık'}</td>
+                          <td className="py-2 pr-3 tabular-nums">{r.period_label}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums text-foreground">
+                            {fmtActivationDebitRow(r.debit_jeton, r.debit_ekders)}
+                          </td>
+                          <td className="py-2">{r.debit_target === 'school' ? 'Okul' : 'Bireysel'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Dialog
+          open={activationConfirm !== null}
+          onOpenChange={(o) => {
+            if (!o) setActivationConfirm(null);
+          }}
+        >
+          <DialogContent
+            title="Satın almayı onayla"
+            descriptionId="activation-confirm-desc"
+            className="max-w-md overflow-hidden border-teal-500/30 bg-card p-0 shadow-2xl ring-2 ring-teal-500/15"
+          >
+            {activationConfirm ? (
+              <div className="relative space-y-4">
+                <div
+                  className={cn(
+                    'pointer-events-none absolute inset-x-0 -top-px h-28 bg-linear-to-b from-teal-500/18 via-emerald-500/10 to-transparent',
+                  )}
+                />
+                <div className="relative flex gap-3">
+                  <div
+                    className={cn(
+                      'flex size-12 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br from-teal-500/30 to-emerald-500/20 text-teal-900 shadow-inner ring-1 ring-teal-500/35',
+                      'dark:from-teal-400/20 dark:to-emerald-500/15 dark:text-teal-100',
+                    )}
+                  >
+                    <BadgeCheck className="size-6" aria-hidden />
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-teal-800 dark:text-teal-200">
+                      <Sparkles className="size-3.5" aria-hidden />
+                      Modül etkinleştirme
+                    </p>
+                    <p
+                      id="activation-confirm-desc"
+                      className="text-sm leading-relaxed text-muted-foreground"
+                    >
+                      Seçilen cüzdandan aşağıdaki tutar düşülecek. Aynı onay için tekrar gönderimde çift düşüm
+                      engellenir.
+                    </p>
+                  </div>
+                </div>
+                <dl className="relative space-y-0 overflow-hidden rounded-xl border border-border/60 bg-muted/25 text-sm">
+                  <div className="flex items-start justify-between gap-3 border-b border-border/50 px-3 py-2.5">
+                    <dt className="shrink-0 text-muted-foreground">Modül</dt>
+                    <dd className="min-w-0 text-right font-medium text-foreground">
+                      {activationConfirm.moduleLabel}
+                    </dd>
+                  </div>
+                  <div className="flex items-start justify-between gap-3 border-b border-border/50 px-3 py-2.5">
+                    <dt className="shrink-0 text-muted-foreground">Dönem</dt>
+                    <dd className="min-w-0 text-right font-medium text-foreground">
+                      {activationConfirm.periodTitleTr}
+                    </dd>
+                  </div>
+                  {activationConfirm.dualTariffJetonLine && activationConfirm.dualTariffEkdersLine ? (
+                    <div className="border-b border-border/50 px-3 py-2.5">
+                      <p className="mb-1 text-muted-foreground">Tarife seçenekleri</p>
+                      <div className="space-y-1 text-right font-medium tabular-nums text-foreground">
+                        <div>{activationConfirm.dualTariffJetonLine}</div>
+                        <div>{activationConfirm.dualTariffEkdersLine}</div>
+                        <div className="text-xs font-normal text-muted-foreground">
+                          Seçiminiz:{' '}
+                          {activationConfirm.selectedPayKind === 'jeton' ? 'Jeton' : 'Ek ders'}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="flex items-start justify-between gap-3 border-b border-border/50 px-3 py-2.5">
+                    <dt className="shrink-0 text-muted-foreground">Düşülecek</dt>
+                    <dd className="min-w-0 text-right font-medium tabular-nums text-foreground">
+                      {activationConfirm.paySummaryTr}
+                    </dd>
+                  </div>
+                  <div className="flex items-start justify-between gap-3 border-b border-border/50 px-3 py-2.5">
+                    <dt className="shrink-0 text-muted-foreground">Mevcut bakiye</dt>
+                    <dd className="min-w-0 text-right font-medium tabular-nums text-foreground">
+                      {fmtNum(activationConfirm.walletJeton)} J · {fmtNum(activationConfirm.walletEkders)} E
+                    </dd>
+                  </div>
+                  <div className="flex items-start justify-between gap-3 px-3 py-2.5">
+                    <dt className="shrink-0 text-muted-foreground">Cüzdan</dt>
+                    <dd className="min-w-0 text-right font-medium text-foreground">
+                      {activationConfirm.walletLabel}
+                    </dd>
+                  </div>
+                </dl>
+                {activationConfirm.hasInsufficientBalance && !activationConfirm.isExempt ? (
+                  <p className="relative rounded-lg border border-red-500/35 bg-red-500/10 px-3 py-2 text-xs text-red-900 dark:text-red-100">
+                    Seçilen ödeme türü için bakiye yetersiz. Önce cüzdanı yükleyin veya ödeme türünü değiştirin.
+                  </p>
+                ) : null}
+                {activationConfirm.isExempt ? (
+                  <p className="relative rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
+                    Yönetici hesabı: tarife düşümü uygulanmaz; kayıt yine oluşturulur.
+                  </p>
+                ) : null}
+                <DialogFooter className="border-t-0 p-0 pt-2">
+                  <Button type="button" variant="ghost" onClick={() => setActivationConfirm(null)}>
+                    Vazgeç
+                  </Button>
+                  <Button
+                    type="button"
+                    className="gap-2 bg-linear-to-r from-teal-600 to-emerald-600 text-white shadow-md hover:from-teal-600/95 hover:to-emerald-600/95"
+                    onClick={handleConfirmActivation}
+                    disabled={
+                      activationBusy !== null ||
+                      (activationConfirm.hasInsufficientBalance && !activationConfirm.isExempt)
+                    }
+                  >
+                    {activationBusy !== null ? '…' : 'Onayla ve etkinleştir'}
+                  </Button>
+                </DialogFooter>
+              </div>
+            ) : null}
+          </DialogContent>
+        </Dialog>
+        </>
       )}
 
       {usageLoading ? (
@@ -1169,12 +2162,15 @@ export default function MarketPage() {
                 {formatRemainingTr(breakdown.periods.month.ends_at, nowTick)}
               </p>
               <p className="relative mt-1 text-xs text-muted-foreground">
-                Dönem sonu: {fmtEndDate(breakdown.periods.month.ends_at)} · {breakdown.periods.month.label}
+                Başlangıç: {fmtEndDate(breakdown.periods.month.starts_at)} · Dönem sonu:{' '}
+                {fmtEndDate(breakdown.periods.month.ends_at)} · {breakdown.periods.month.label}
               </p>
               <div className="relative mt-4 h-2 overflow-hidden rounded-full bg-muted">
                 <div
                   className="h-full rounded-full bg-linear-to-r from-violet-500 to-fuchsia-500 transition-[width] duration-500"
-                  style={{ width: `${periodProgress(nowTick, breakdown.periods.month.ends_at, 'month')}%` }}
+                  style={{
+                    width: `${periodProgress(nowTick, breakdown.periods.month.ends_at, 'month', breakdown.periods.month.starts_at)}%`,
+                  }}
                 />
               </div>
               <div className="relative mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm">
@@ -1207,12 +2203,15 @@ export default function MarketPage() {
                 {formatRemainingTr(breakdown.periods.year.ends_at, nowTick)}
               </p>
               <p className="relative mt-1 text-xs text-muted-foreground">
-                Dönem sonu: {fmtEndDate(breakdown.periods.year.ends_at)} · {breakdown.periods.year.label}
+                Başlangıç: {fmtEndDate(breakdown.periods.year.starts_at)} · Dönem sonu:{' '}
+                {fmtEndDate(breakdown.periods.year.ends_at)} · {breakdown.periods.year.label}
               </p>
               <div className="relative mt-4 h-2 overflow-hidden rounded-full bg-muted">
                 <div
                   className="h-full rounded-full bg-linear-to-r from-amber-500 to-orange-500 transition-[width] duration-500"
-                  style={{ width: `${periodProgress(nowTick, breakdown.periods.year.ends_at, 'year')}%` }}
+                  style={{
+                    width: `${periodProgress(nowTick, breakdown.periods.year.ends_at, 'year', breakdown.periods.year.starts_at)}%`,
+                  }}
                 />
               </div>
               <div className="relative mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm">
@@ -1233,27 +2232,46 @@ export default function MarketPage() {
             </div>
           </div>
 
-          <div className={cn('grid gap-6', breakdown.school ? 'lg:grid-cols-2' : '')}>
-            <Card className="overflow-hidden border-emerald-500/20 shadow-lg ring-1 ring-emerald-500/10 dark:bg-card">
-              <CardHeader className="border-b border-border/60 bg-linear-to-r from-emerald-500/10 to-transparent pb-4">
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <UserRound className="size-5 text-emerald-600 dark:text-emerald-400" />
-                  Öğretmen — modül harcamaları
-                </CardTitle>
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground px-0.5">
+              Gerçekleşen kullanım — tarife tablosundan ayrı; bu ay ve bu yıl için toplanan düşümler
+            </p>
+            <div className={cn('grid gap-6', breakdown.school ? 'lg:grid-cols-2' : '')}>
+            <Card className="overflow-hidden border-violet-500/30 shadow-lg ring-1 ring-violet-500/15 dark:border-violet-900/40 dark:bg-card">
+              <CardHeader className="border-b border-violet-500/20 bg-linear-to-r from-violet-500/12 to-transparent pb-4 dark:from-violet-950/40">
+                <div className="flex flex-wrap items-center gap-2 gap-y-1">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <UserRound className="size-5 text-violet-600 dark:text-violet-400" />
+                    Bireysel harcama özeti (modül)
+                  </CardTitle>
+                  <span className="inline-flex items-center rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-900 dark:text-violet-200">
+                    Özet
+                  </span>
+                </div>
                 <CardDescription className="text-xs">
-                  Bu ay ve bu yıl içinde bireysel cüzdanınızdan modüllere göre düşen jeton / ek ders.
+                  Bu ay ve bu yıl içinde bireysel cüzdanınızdan modüllere göre düşen jeton / ek ders (gerçekleşen tutarlar).
+                  <span className="mt-1.5 block text-[11px] leading-relaxed text-muted-foreground">
+                    Aylık jeton / ek ders → bu UTC ay dönemi (kalan:{' '}
+                    {formatRemainingTr(breakdown.periods.month.ends_at, nowTick)}). Yıllık jeton / ek ders → bu UTC yıl
+                    dönemi (kalan: {formatRemainingTr(breakdown.periods.year.ends_at, nowTick)}).
+                  </span>
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="table-x-scroll">
                   <table className="w-full min-w-[420px] text-sm">
+                    <caption className="sr-only">
+                      Bireysel cüzdan modül bazında bu ay ve bu yıl harcama toplamları
+                    </caption>
                     <thead>
-                      <tr className="border-b border-border/80 bg-muted/40 text-left text-xs font-medium text-muted-foreground">
-                        <th className="px-4 py-3">Modül</th>
-                        <th className="px-2 py-3 text-right">Ay J</th>
-                        <th className="px-2 py-3 text-right">Ay E</th>
-                        <th className="px-2 py-3 text-right">Yıl J</th>
-                        <th className="px-4 py-3 text-right">Yıl E</th>
+                      <tr className="border-b border-violet-500/20 bg-violet-100/50 text-left text-[11px] font-semibold uppercase tracking-wide text-violet-950 dark:border-violet-800/50 dark:bg-violet-950/40 dark:text-violet-100">
+                        <th scope="col" className="align-middle px-4 py-3">
+                          Modül
+                        </th>
+                        <TariffAmountHeader periodShort="Ay" kind="jeton" className="py-3" />
+                        <TariffAmountHeader periodShort="Ay" kind="ekders" className="py-3" />
+                        <TariffAmountHeader periodShort="Yıl" kind="jeton" className="py-3" />
+                        <TariffAmountHeader periodShort="Yıl" kind="ekders" paddedEnd className="py-3" />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/50">
@@ -1268,7 +2286,7 @@ export default function MarketPage() {
                           <tr
                             key={k}
                             className={cn(
-                              'transition-colors hover:bg-muted/40',
+                              'transition-colors hover:bg-violet-50/40 dark:hover:bg-violet-950/25',
                               empty && 'text-muted-foreground/70',
                             )}
                           >
@@ -1295,6 +2313,11 @@ export default function MarketPage() {
                   </CardTitle>
                   <CardDescription className="text-xs text-blue-900/80 dark:text-blue-200/90">
                     Okul bakiyesinden düşen kullanım; ay ve yıl toplamları aşağıdaki tabloda modül bazlıdır.
+                    <span className="mt-1.5 block text-[11px] leading-relaxed text-blue-900/70 dark:text-blue-200/80">
+                      Aylık jeton / ek ders → bu UTC ay (kalan:{' '}
+                      {formatRemainingTr(breakdown.periods.month.ends_at, nowTick)}). Yıllık jeton / ek ders → bu UTC yıl
+                      (kalan: {formatRemainingTr(breakdown.periods.year.ends_at, nowTick)}).
+                    </span>
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -1302,11 +2325,11 @@ export default function MarketPage() {
                     <table className="w-full min-w-[420px] text-sm">
                       <thead>
                         <tr className="border-b border-border/80 bg-muted/40 text-left text-xs font-medium text-muted-foreground">
-                          <th className="px-4 py-3">Modül</th>
-                          <th className="px-2 py-3 text-right">Ay J</th>
-                          <th className="px-2 py-3 text-right">Ay E</th>
-                          <th className="px-2 py-3 text-right">Yıl J</th>
-                          <th className="px-4 py-3 text-right">Yıl E</th>
+                          <th className="align-middle px-4 py-3">Modül</th>
+                          <TariffAmountHeader periodShort="Ay" kind="jeton" className="py-3" />
+                          <TariffAmountHeader periodShort="Ay" kind="ekders" className="py-3" />
+                          <TariffAmountHeader periodShort="Yıl" kind="jeton" className="py-3" />
+                          <TariffAmountHeader periodShort="Yıl" kind="ekders" paddedEnd className="py-3" />
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/50">
@@ -1339,6 +2362,7 @@ export default function MarketPage() {
                 </CardContent>
               </Card>
             )}
+            </div>
           </div>
         </div>
       ) : null}
@@ -1346,27 +2370,40 @@ export default function MarketPage() {
       {!usageLoading && (ledgerUser.length > 0 || ledgerSchool.length > 0) && (
         <div className={cn('grid gap-6', ledgerSchool.length > 0 && isSchoolAdmin ? 'lg:grid-cols-2' : '')}>
           {ledgerUser.length > 0 && (
-            <Card className="overflow-hidden border-border/80 shadow-sm">
-              <CardHeader className="border-b border-border/60 bg-muted/15 pb-3">
+            <Card className="overflow-hidden border border-border/80 shadow-sm ring-1 ring-amber-500/10">
+              <CardHeader className="border-b border-border/60 bg-amber-50/30 pb-3 dark:bg-amber-950/15">
                 <div className="flex items-start gap-3">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-800 dark:text-violet-300">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-900 dark:text-amber-200">
                     <ListTree className="size-5" />
                   </div>
                   <div>
-                    <CardTitle className="text-base">Modül tüketimi (bireysel)</CardTitle>
-                    <CardDescription className="text-xs">Son kayıtlar — jeton / ek ders düşümleri</CardDescription>
+                    <CardTitle className="text-base">Son düşümler (hareket)</CardTitle>
+                    <CardDescription className="text-xs">
+                      Bireysel cüzdan — tarih sıralı jeton / ek ders kesintileri (tarife tablosu değil)
+                    </CardDescription>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="table-x-scroll">
                   <table className="w-full min-w-[420px] text-sm">
+                    <caption className="sr-only">Bireysel cüzdan hareket kayıtları</caption>
                     <thead>
                       <tr className="border-b border-border/80 bg-muted/30 text-left text-xs font-medium text-muted-foreground">
-                        <th className="px-4 py-2">Tarih</th>
-                        <th className="px-4 py-2">Modül</th>
-                        <th className="px-4 py-2 text-right">Jeton</th>
-                        <th className="px-4 py-2 text-right">Ek ders</th>
+                        <th className="align-middle px-4 py-2">Tarih</th>
+                        <th className="align-middle px-4 py-2">Modül</th>
+                        <th className="align-middle px-4 py-2 text-right">
+                          <span className="inline-flex items-center justify-end gap-1.5 leading-none">
+                            <Coins className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+                            <span>Jeton</span>
+                          </span>
+                        </th>
+                        <th className="align-middle px-4 py-2 text-right">
+                          <span className="inline-flex items-center justify-end gap-1.5 leading-none">
+                            <BookOpen className="size-3.5 shrink-0 text-sky-600 dark:text-sky-400" aria-hidden />
+                            <span>Ek ders</span>
+                          </span>
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/60">
@@ -1406,10 +2443,20 @@ export default function MarketPage() {
                   <table className="w-full min-w-[420px] text-sm">
                     <thead>
                       <tr className="border-b border-border/80 bg-muted/30 text-left text-xs font-medium text-muted-foreground">
-                        <th className="px-4 py-2">Tarih</th>
-                        <th className="px-4 py-2">Modül</th>
-                        <th className="px-4 py-2 text-right">Jeton</th>
-                        <th className="px-4 py-2 text-right">Ek ders</th>
+                        <th className="align-middle px-4 py-2">Tarih</th>
+                        <th className="align-middle px-4 py-2">Modül</th>
+                        <th className="align-middle px-4 py-2 text-right">
+                          <span className="inline-flex items-center justify-end gap-1.5 leading-none">
+                            <Coins className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+                            <span>Jeton</span>
+                          </span>
+                        </th>
+                        <th className="align-middle px-4 py-2 text-right">
+                          <span className="inline-flex items-center justify-end gap-1.5 leading-none">
+                            <BookOpen className="size-3.5 shrink-0 text-sky-600 dark:text-sky-400" aria-hidden />
+                            <span>Ek ders</span>
+                          </span>
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/60">

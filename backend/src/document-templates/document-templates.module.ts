@@ -23,11 +23,11 @@ import { MarketModule } from '../market/market.module';
   imports: [
     TypeOrmModule.forFeature([DocumentTemplate, DocumentCatalog, DocumentGeneration, School]),
     EntitlementModule,
-    MarketModule,
     UploadModule,
     YillikPlanIcerikModule,
     WorkCalendarModule,
     BilsemModule,
+    MarketModule,
   ],
   controllers: [DocumentTemplatesController, DocumentConfigController, DocumentsController],
   providers: [

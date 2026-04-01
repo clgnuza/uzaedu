@@ -18,11 +18,13 @@ import { SchoolReviewsService } from './school-reviews.service';
 import { SchoolReviewsController } from './school-reviews.controller';
 import { SchoolReviewsPublicController } from './school-reviews-public.controller';
 import { AppConfigModule } from '../app-config/app-config.module';
+import { MarketModule } from '../market/market.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([School, SchoolReview, SchoolReviewCriteria, SchoolQuestion, SchoolQuestionAnswer, SchoolReviewLike, SchoolReviewDislike, SchoolQuestionLike, SchoolQuestionDislike, SchoolAnswerLike, SchoolAnswerDislike, SchoolContentReport, SchoolFavorite]),
     AppConfigModule,
+    MarketModule,
   ],
   controllers: [SchoolReviewsController, SchoolReviewsPublicController],
   providers: [SchoolReviewsService, RequireSchoolModuleGuard],

@@ -12,6 +12,7 @@ import { YillikPlanIcerikController } from './yillik-plan-icerik.controller';
 import { WorkCalendarModule } from '../work-calendar/work-calendar.module';
 import { MebModule } from '../meb/meb.module';
 import { AppConfigModule } from '../app-config/app-config.module';
+import { MarketModule } from '../market/market.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { AppConfigModule } from '../app-config/app-config.module';
     WorkCalendarModule,
     MebModule,
     AppConfigModule,
+    MarketModule,
   ],
   controllers: [YillikPlanIcerikController],
   providers: [YillikPlanIcerikService, YillikPlanGptService, RequireSchoolModuleGuard],

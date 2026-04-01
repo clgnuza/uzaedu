@@ -1,11 +1,11 @@
 /**
- * Demo öğretmenlerin şifrelerini Demo123! olarak günceller.
+ * Demo öğretmenlerin şifrelerini demo-credentials teacher şifresiyle günceller.
  */
 const bcrypt = require('bcrypt');
 const { Client } = require('pg');
 
 async function main() {
-  const hash = await bcrypt.hash('Demo123!', 10);
+  const hash = await bcrypt.hash('Tr9m!kL2$vNx8Qw@bR4hJ', 10);
   console.log('Hash:', hash);
   
   const client = new Client({

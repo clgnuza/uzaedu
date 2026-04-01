@@ -1,5 +1,10 @@
 import { getMatchedRoute, ROUTE_SCHOOL_MODULES } from '@/config/menu';
-import type { SchoolModuleKey } from '@/config/school-modules';
+import { SCHOOL_MODULE_KEYS, type SchoolModuleKey } from '@/config/school-modules';
+
+/** menu.ts ROUTE_SCHOOL_MODULES bazen moderator anahtarı döner; market ile hizala */
+const ROUTE_SCHOOL_MODULE_ALIAS: Record<string, SchoolModuleKey> = {
+  document_templates: 'document',
+};
 
 /** Pathname → market module_prices anahtarı (giriş uyarısı için). Uzun önek önce eşleşir. */
 const ROUTE_PREFIX_TO_MARKET_MODULE: [string, SchoolModuleKey][] = [
@@ -40,7 +45,9 @@ export function getMarketModuleKeyForPath(pathname: string): SchoolModuleKey | n
   }
   const route = getMatchedRoute(n);
   if (route && ROUTE_SCHOOL_MODULES[route]) {
-    return ROUTE_SCHOOL_MODULES[route] as SchoolModuleKey;
+    const raw = ROUTE_SCHOOL_MODULES[route] as string;
+    const key = (ROUTE_SCHOOL_MODULE_ALIAS[raw] ?? raw) as SchoolModuleKey;
+    if (SCHOOL_MODULE_KEYS.includes(key)) return key;
   }
   return null;
 }

@@ -13,6 +13,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
 import { RequireAnySchoolModule } from '../common/decorators/require-school-module.decorator';
+import { RequireModuleActivationGuard } from '../market/guards/require-module-activation.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RequireModule } from '../common/decorators/require-module.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -23,7 +24,7 @@ import { CreateDocumentTemplateDto } from './dto/create-document-template.dto';
 import { UpdateDocumentTemplateDto } from './dto/update-document-template.dto';
 
 @Controller('document-templates')
-@UseGuards(JwtAuthGuard, RequireSchoolModuleGuard)
+@UseGuards(JwtAuthGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
 @RequireAnySchoolModule('document', 'bilsem')
 export class DocumentTemplatesController {
   constructor(private readonly service: DocumentTemplatesService) {}

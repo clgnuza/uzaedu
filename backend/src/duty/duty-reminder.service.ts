@@ -30,6 +30,7 @@ export class DutyReminderService {
       .innerJoin('s.duty_plan', 'p')
       .where('p.status = :status', { status: 'published' })
       .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL')
       .andWhere('s.deleted_at IS NULL')
       .andWhere('s.date = :date', { date: today })
       .andWhere('s.user_id IS NOT NULL')

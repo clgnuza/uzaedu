@@ -14,6 +14,7 @@ import { Type } from 'class-transformer';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
 import { RequireSchoolModule } from '../common/decorators/require-school-module.decorator';
+import { RequireModuleActivationGuard } from '../market/guards/require-module-activation.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
@@ -30,7 +31,7 @@ class GradeBatchDto {
 }
 
 @Controller('optik')
-@UseGuards(JwtAuthGuard, RequireSchoolModuleGuard)
+@UseGuards(JwtAuthGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
 @RequireSchoolModule('optical')
 export class OptikController {
   constructor(private readonly optik: OptikService) {}

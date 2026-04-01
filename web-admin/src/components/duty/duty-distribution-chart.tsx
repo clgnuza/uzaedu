@@ -44,8 +44,10 @@ function computeFairnessLabel(
   if (total === 0) return { label: valueKey === 'coverage_lesson_count' ? 'Görevlendirme yok' : 'Nöbet yok', variant: 'neutral' };
 
   if (valueKey === 'coverage_lesson_count') {
-    const n = items.length;
-    const shares = items.map((i) => getVal(i) / total);
+    const positive = items.filter((i) => getVal(i) > 0);
+    if (positive.length < 2) return { label: 'Dağılım dengeli (oranlı)', variant: 'success' };
+    const subtotal = positive.reduce((a, i) => a + getVal(i), 0);
+    const shares = positive.map((i) => getVal(i) / subtotal);
     const maxShare = Math.max(...shares);
     const minShare = Math.min(...shares);
     const shareRange = maxShare - minShare;
@@ -68,21 +70,27 @@ interface DutyDistributionChartProps {
   className?: string;
   maxBars?: number;
   showFairness?: boolean;
+  /** Tek renk, ortalama çizgisi yok — istatistik özeti için */
+  minimal?: boolean;
   height?: number;
   /** 'coverage_lesson_count' = Ders Görevi (görevlendirme), 'slot_count' = Nöbet sayısı */
   valueKey?: 'coverage_lesson_count' | 'slot_count';
 }
+
+const MINIMAL_BAR = 'hsl(var(--primary))';
 
 export function DutyDistributionChart({
   items,
   className,
   maxBars = 20,
   showFairness = true,
+  minimal = false,
   height = 320,
   valueKey = 'coverage_lesson_count',
 }: DutyDistributionChartProps) {
   const getVal = (i: DistributionItem) =>
     valueKey === 'coverage_lesson_count' ? (i.coverage_lesson_count ?? 0) : (i.slot_count ?? 0);
+
   const sorted = [...items]
     .filter((i) => getVal(i) > 0)
     .sort((a, b) => getVal(b) - getVal(a))
@@ -98,6 +106,9 @@ export function DutyDistributionChart({
   const max = counts.length ? Math.max(...counts) : 0;
   const avg = counts.length ? Math.round((counts.reduce((a, b) => a + b, 0) / counts.length) * 10) / 10 : 0;
   const fairness = computeFairnessLabel(items, valueKey);
+  const showFairnessRow = showFairness && !minimal;
+  const chartH = minimal ? Math.max(120, height) : Math.max(100, height - 32);
+  const innerPad = minimal ? 'p-3' : 'p-4';
 
   if (chartData.length === 0) {
     return (
@@ -111,8 +122,8 @@ export function DutyDistributionChart({
   }
 
   return (
-    <div className={cn('space-y-3', className)}>
-      {showFairness && (
+    <div className={cn(minimal ? 'space-y-0' : 'space-y-3', className)}>
+      {showFairnessRow && (
         <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border bg-card px-4 py-3">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-foreground">Adil Dağılım:</span>
@@ -131,44 +142,65 @@ export function DutyDistributionChart({
             <span>En az: {min}</span>
             <span>Ortalama: {avg}</span>
             <span>En çok: {max}</span>
-            {valueKey === 'coverage_lesson_count' && <span>ders saati</span>}
+            {valueKey === 'coverage_lesson_count' && <span>ders saati (yerine görev)</span>}
           </div>
         </div>
       )}
-      <div className="rounded-xl border border-border bg-card p-4" style={{ minHeight: Math.max(100, height - 32) }}>
-        <ResponsiveContainer width="100%" height={Math.max(100, height - 32)}>
-          <BarChart data={chartData} layout="vertical" margin={{ top: 0, right: 24, left: 0, bottom: 0 }}>
-            <XAxis type="number" allowDecimals={false} fontSize={11} />
+      <div className={cn(minimal ? 'rounded-lg border border-border/60 bg-muted/20' : 'rounded-xl border border-border bg-card', innerPad)}>
+        <ResponsiveContainer width="100%" height={chartH}>
+          <BarChart
+            data={chartData}
+            layout="vertical"
+            margin={minimal ? { top: 4, right: 8, left: 4, bottom: 4 } : { top: 0, right: 24, left: 0, bottom: 0 }}
+          >
+            <XAxis
+              type="number"
+              allowDecimals={false}
+              fontSize={11}
+              tickLine={false}
+              axisLine={!minimal}
+              {...(minimal ? { tick: { fill: 'hsl(var(--muted-foreground))', fontSize: 11 } } : {})}
+            />
             <YAxis
               type="category"
               dataKey="name"
-              width={120}
-              tick={{ fontSize: 11 }}
-              tickFormatter={(v) => (v && String(v).length > 18 ? String(v).slice(0, 17) + '…' : v)}
+              width={minimal ? 96 : 120}
+              tick={{
+                fontSize: 11,
+                ...(minimal ? { fill: 'hsl(var(--foreground))' } : {}),
+              }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(v) => (v && String(v).length > (minimal ? 14 : 18) ? String(v).slice(0, minimal ? 13 : 17) + '…' : v)}
             />
             <Tooltip
+              cursor={{ fill: minimal ? 'hsl(var(--muted) / 0.35)' : undefined }}
               content={({ active, payload }) =>
                 active && payload?.[0] ? (
-                  <div className="rounded-lg border border-border bg-background px-3 py-2 shadow-lg">
-                    <p className="font-medium">{payload[0].payload.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {payload[0].value} {valueKey === 'coverage_lesson_count' ? 'ders saati' : 'nöbet'}
+                  <div className={cn('rounded-md border border-border bg-popover px-2.5 py-1.5 text-sm shadow-md', minimal && 'text-xs')}>
+                    <p className="font-medium leading-tight">{payload[0].payload.name}</p>
+                    <p className="text-muted-foreground tabular-nums">
+                      {payload[0].value} {valueKey === 'coverage_lesson_count' ? 'saat' : 'nöbet'}
                     </p>
                   </div>
                 ) : null
               }
             />
-            {avg > 0 && (
+            {!minimal && avg > 0 && (
               <ReferenceLine x={avg} stroke="oklch(0.6 0.15 250)" strokeDasharray="4 4" strokeWidth={1} />
             )}
-            <Bar dataKey="count" name={valueKey === 'coverage_lesson_count' ? 'Ders saati' : 'Nöbet'} radius={[0, 4, 4, 0]} maxBarSize={28}>
-              {chartData.map((entry, idx) => (
-                <Cell
-                  key={entry.name}
-                  fill={getBarColor(entry.count, min, max)}
-                  fillOpacity={0.85}
-                />
-              ))}
+            <Bar
+              dataKey="count"
+              name={valueKey === 'coverage_lesson_count' ? 'Ders saati' : 'Nöbet'}
+              radius={[0, 3, 3, 0]}
+              maxBarSize={minimal ? 18 : 28}
+              fill={minimal ? MINIMAL_BAR : undefined}
+              fillOpacity={minimal ? 0.88 : 1}
+            >
+              {!minimal &&
+                chartData.map((entry, idx) => (
+                  <Cell key={`${entry.name}-${idx}`} fill={getBarColor(entry.count, min, max)} fillOpacity={0.85} />
+                ))}
             </Bar>
           </BarChart>
         </ResponsiveContainer>

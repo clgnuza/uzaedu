@@ -31,9 +31,12 @@ export interface ImportMebTaslakResult {
   warnings: string[];
 }
 
-/** Sütun adı eşlemesi – farklı Excel formatlarına uyum (TYMM, Temel Eğitim varyantları) */
+/** Sütun adı eşlemesi – farklı Excel formatlarına uyum (TYMM, Temel Eğitim varyantları).
+ * Öncelik: 'öğrenme' tek başına kazanım ile eşleşmesin diye sosyal-duygusal / okuryazarlık,
+ * ölçme sütunları kazanımdan önce gelir (Object.entries sırası = ilk eşleşen kazanır). */
 const COL_ALIASES: Record<string, string[]> = {
-  week_order: ['hafta', 'hafteno', 'hafta no', 'hafta no.', 'no', 'sıra', 'sira', 'sıra no', 'week', 'weeks'],
+  // 'no' tek başına kullanılmasın: "Ünite No" gibi başlıklar yanlışlıkla hafta sütunu sayılıyordu
+  week_order: ['hafta', 'hafteno', 'hafta no', 'hafta no.', 'sıra', 'sira', 'sıra no', 'week', 'weeks'],
   unite: [
     'ünite', 'unite', 'ünite/tema', 'ünite / tema', 'ünite tema', 'tema', 'tema/ünite', 'unit',
     'ünite ve tema', 'unite ve tema', 'theme', 'unit/theme', 'theme/unit',
@@ -43,41 +46,56 @@ const COL_ALIASES: Record<string, string[]> = {
     'içerik', 'icerik', 'konu içeriği', 'işlenecek konu',
     'functions', 'language functions', 'communicative functions', 'topics', 'content',
   ],
-  kazanimlar: [
-    'kazanımlar', 'kazanimlar', 'öğrenme çıktıları', 'ogrenme ciktilari', 'kazanim', 'öğrenme çıktısı',
-    'öğrenme çıktısı', 'ogrenme ciktisi', 'kazanım', 'öğrenme',
-    'learning outcomes', 'learning outcome', 'outcomes', 'students will be able',
-  ],
-  ders_saati: ['ders saati', 'derssaati', 'saat', 'toplam saat', 'hour', 'hours'],
   belirli_gun_haftalar: [
     'belirli gün ve haftalar', 'belirli gun', 'belirli gun ve haftalar',
     'belirli gün', 'özel gün', 'belirli gün ve h.', 'b.g. ve h.', 'bel. gün',
     'special days', 'special days and weeks',
-  ],
-  surec_bilesenleri: [
-    'süreç bileşenleri', 'surec bilesenleri', 'süreç bileşen', 'süreç', 'programlar arası',
-    'tymm süreç', 'surec',
-    'language skills', 'skills',
-  ],
-  olcme_degerlendirme: [
-    'ölçme ve değerlendirme', 'olcme degerlendirme', 'ölçme değerlendirme',
-    'ölçme', 'olcme', 'değerlendirme', 'degerlendirme',
-    'materials', 'tools and materials', 'assessment',
   ],
   sosyal_duygusal: [
     'sosyal duygusal', 'sosyal-duygusal', 'sosyal duygusal öğrenme',
     'sosyal ve duygusal', 'sosyal-duygusal öğrenme',
     'sos.-duyg.', 'sos. duyg.', 'sos duyg', 'sosyal-duyg',
   ],
-  degerler: ['değerler', 'degerler', 'değer'],
+  olcme_degerlendirme: [
+    'ölçme ve değerlendirme', 'olcme degerlendirme', 'ölçme değerlendirme',
+    'ölçme', 'olcme', 'değerlendirme', 'degerlendirme',
+    'materials', 'tools and materials', 'assessment',
+  ],
   okuryazarlik_becerileri: [
     'okuryazarlık', 'okuryazarlik', 'okur yazarlık', 'okuryazarlık becerileri',
     'okur yazarlik',
+    'okuryaz',
   ],
-  zenginlestirme: ['zenginleştirme', 'zenginlestirme', 'zenginleştirme etkinlikleri', 'farklılaştırma', 'farklilastirma', 'farklılaştırma etkinlikleri'],
+  kazanimlar: [
+    'kazanımlar', 'kazanimlar', 'öğrenme çıktıları', 'ogrenme ciktilari',
+    'öğrenme çıkt', 'ogrenme cikt',
+    'kazanim', 'öğrenme çıktısı',
+    'öğrenme çıktısı', 'ogrenme ciktisi', 'kazanım',
+    'learning outcomes', 'learning outcome', 'outcomes', 'students will be able',
+  ],
+  ders_saati: ['ders saati', 'derssaati', 'saat', 'toplam saat', 'hour', 'hours'],
+  surec_bilesenleri: [
+    'süreç bileşenleri', 'surec bilesenleri', 'süreç bileşen', 'süreç bileş', 'surec biles',
+    'süreç', 'programlar arası',
+    'tymm süreç', 'surec',
+    'language skills', 'skills',
+  ],
+  degerler: ['değerler', 'degerler', 'değer'],
+  zenginlestirme: [
+    'zenginleştirme',
+    'zenginlestirme',
+    'zenginleştirme etkinlikleri',
+    'farklılaştırma',
+    'farklilastirma',
+    'farklılaştırma etkinlikleri',
+    'farklıl',
+    'farklil',
+    'farklılas',
+    'farklilas',
+  ],
   okul_temelli_planlama: [
     'okul temelli', 'okul temelli planlama', 'okul temelli planlama ve uygulama',
-    'okul temelli planlama ve uygulamalar', 'in-class adaptations', 'adaptations',
+    'okul temelli planlama ve uygulamalar', 'okul plan', 'in-class adaptations', 'adaptations',
   ],
 };
 
@@ -123,6 +141,182 @@ export class MebFetchService {
       .toLocaleLowerCase('tr-TR')
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '');
+  }
+
+  /** TYMM ölçme şablonu metni yanlışlıkla ünite/konu/kazanım hücresine yapışmışsa ayırt etmek için */
+  private looksLikeOlcmeTemplateBlock(s: string): boolean {
+    const t = String(s).trim().toLowerCase();
+    if (!t) return false;
+    if (t.includes('bu ünitenin ölçme') || t.includes('bu ünitenin olcme')) return true;
+    if (/öğrenme çıktıları\s*[;:]\s*kontrol|ogrenme ciktilari\s*[;:]\s*kontrol/i.test(t)) return true;
+    if (t.includes('kontrol listesi') && /dereceleme|dereceli|bütüncül|butuncul|bütün|butun/i.test(t))
+      return true;
+    if (t.startsWith('*') && /kontrol|dereceleme|bütüncül|butuncul|ölçek|olcek/i.test(t)) return true;
+    return false;
+  }
+
+  private extractOlcmeFromField(text: string | null): { rest: string | null; olcme: string | null } {
+    if (!text?.trim()) return { rest: null, olcme: null };
+    const full = text.trim();
+    if (this.looksLikeOlcmeTemplateBlock(full)) return { rest: null, olcme: full };
+    const lines = text.split(/\r?\n/);
+    const kept: string[] = [];
+    const olcme: string[] = [];
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (this.looksLikeOlcmeTemplateBlock(line)) {
+        olcme.push(line);
+        continue;
+      }
+      if (line.startsWith('*') && /kontrol|dereceleme|bütüncül|butuncul|ölçek|olcek/i.test(line)) {
+        olcme.push(line);
+        continue;
+      }
+      kept.push(line);
+    }
+    return {
+      rest: kept.length ? kept.join('\n') : null,
+      olcme: olcme.length ? olcme.join('\n') : null,
+    };
+  }
+
+  private extractSdbLinesFromKazanim(text: string | null): { rest: string | null; sdb: string | null } {
+    if (!text?.trim()) return { rest: null, sdb: null };
+    const lines = text.split(/\r?\n/);
+    const kept: string[] = [];
+    const sdb: string[] = [];
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (/^SDB\d/i.test(line) || /^DB\d/i.test(line)) sdb.push(line);
+      else kept.push(line);
+    }
+    return {
+      rest: kept.length ? kept.join('\n') : null,
+      sdb: sdb.length ? sdb.join('\n') : null,
+    };
+  }
+
+  /** Okuryazarlık kodları (OB1., OB2.) yanlışlıkla kazanım/konu içinde kalmışsa ayırmak için */
+  private extractObLinesFromText(text: string | null): { rest: string | null; ob: string | null } {
+    if (!text?.trim()) return { rest: null, ob: null };
+    const lines = text.split(/\r?\n/);
+    const kept: string[] = [];
+    const ob: string[] = [];
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
+      const obHits = line.match(/\bOB\d+\./gi) ?? [];
+      if (obHits.length > 1 && line.includes(',')) {
+        for (const ch of line.split(',')) {
+          const t = ch.trim();
+          if (!t) continue;
+          if (/^OB\d+\./i.test(t)) ob.push(t);
+          else kept.push(t);
+        }
+        continue;
+      }
+      if (/^OB\d+\./i.test(line) || /^OB\d+\s/i.test(line) || /^OB\d+$/i.test(line)) ob.push(line);
+      else kept.push(line);
+    }
+    return {
+      rest: kept.length ? kept.join('\n') : null,
+      ob: ob.length ? ob.join('\n') : null,
+    };
+  }
+
+  /** Parse sonrası: ölçme şablonunu çekirdek alanlardan olcme_degerlendirme'e; SDB satırlarını sürece taşı */
+  private redistributeMisplacedPlanFields(row: ParsedPlanRow): ParsedPlanRow {
+    const out: ParsedPlanRow = { ...row };
+    const olcmeChunks: string[] = [];
+    const surecChunks: string[] = [];
+    const obChunks: string[] = [];
+
+    for (const f of ['unite', 'konu', 'kazanimlar'] as const) {
+      const v = out[f];
+      if (!v) continue;
+      const { rest, olcme } = this.extractOlcmeFromField(v);
+      if (olcme) {
+        olcmeChunks.push(olcme);
+        const next = rest?.trim() || null;
+        if (f === 'unite') out.unite = next;
+        else if (f === 'konu') out.konu = next;
+        else out.kazanimlar = next;
+      }
+    }
+
+    for (const f of ['kazanimlar', 'konu', 'unite'] as const) {
+      const v = out[f];
+      if (!v) continue;
+      const { rest, ob } = this.extractObLinesFromText(v);
+      if (ob) {
+        obChunks.push(ob);
+        const next = rest?.trim() || null;
+        if (f === 'unite') out.unite = next;
+        else if (f === 'konu') out.konu = next;
+        else out.kazanimlar = next;
+      }
+    }
+
+    if (out.kazanimlar) {
+      const { rest, sdb } = this.extractSdbLinesFromKazanim(out.kazanimlar);
+      if (sdb) {
+        out.kazanimlar = rest?.trim() || null;
+        surecChunks.push(sdb);
+      }
+    }
+
+    if (olcmeChunks.length) {
+      out.olcme_degerlendirme = [out.olcme_degerlendirme, ...olcmeChunks].filter(Boolean).join('\n') || null;
+    }
+    if (surecChunks.length) {
+      out.surec_bilesenleri = [out.surec_bilesenleri, ...surecChunks].filter(Boolean).join('\n') || null;
+    }
+    if (obChunks.length) {
+      out.okuryazarlik_becerileri = [out.okuryazarlik_becerileri, ...obChunks].filter(Boolean).join('\n') || null;
+    }
+    return out;
+  }
+
+  /**
+   * Maarif/TYMM: Ana öğrenme çıktısı bir sütunda (BES.9.x.x …), a) b) alt maddeleri yanlışlıkla
+   * "süreç bileşenleri" sütununa yazılmışsa kazanıma birleştir (SDB/DB kodu yoksa).
+   */
+  private mergeKazanimSubitemsMisplacedInSurec(row: ParsedPlanRow): ParsedPlanRow {
+    const out = { ...row };
+    const k = String(out.kazanimlar ?? '').trim();
+    const s = String(out.surec_bilesenleri ?? '').trim();
+    if (!s) return out;
+    if (/\b(SDB|DB)\d/i.test(s)) return out;
+    const firstLine = s.split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? '';
+    if (!/^[a-zçğıöşü]\)\s/i.test(firstLine)) return out;
+    out.kazanimlar = k ? `${k}\n${s}` : s;
+    out.surec_bilesenleri = null;
+    return out;
+  }
+
+  /**
+   * Aynı kalıp ölçme sütununa kaymışsa (yine a) ile başlıyorsa, klasik ölçme anahtar kelimesi yoksa).
+   */
+  private mergeKazanimSubitemsMisplacedInOlcme(row: ParsedPlanRow): ParsedPlanRow {
+    const out = { ...row };
+    const k = String(out.kazanimlar ?? '').trim();
+    const o = String(out.olcme_degerlendirme ?? '').trim();
+    if (!o || !k) return out;
+    if (/\b(SDB|DB)\d/i.test(o)) return out;
+    if (
+      /\b(ölçüt|puan|rubric|performans görevi|çalışma yaprağı|ölçme ve değerlendirme|kontrol listesi|dereceleme|gözlem formu)\b/i.test(
+        o,
+      )
+    ) {
+      return out;
+    }
+    const firstLine = o.split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? '';
+    if (!/^[a-zçğıöşü]\)\s/i.test(firstLine)) return out;
+    out.kazanimlar = `${k}\n${o}`;
+    out.olcme_degerlendirme = null;
+    return out;
   }
 
   private getProgramHint(subjectCode?: string): 'fen_lisesi' | null {
@@ -271,8 +465,19 @@ export class MebFetchService {
     filePath: string,
     grade?: number,
     subjectCode?: string,
+    targetSheetName?: string,
   ): { items: ParsedPlanRow[]; planNotu: string | null } {
-    return this.parseExcelPlanInternal(filePath, grade, subjectCode);
+    return this.parseExcelPlanInternal(filePath, grade, subjectCode, targetSheetName);
+  }
+
+  /** Excel dosyasındaki sayfa isimlerini döndürür (manuel seçim için) */
+  getExcelSheetNames(filePath: string): string[] {
+    try {
+      const wb = XLSX.readFile(filePath, { cellDates: false });
+      return wb.SheetNames || [];
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -351,28 +556,67 @@ export class MebFetchService {
     return found;
   }
 
-  /** TYMM/SBL Excel'de başlık satırları olabilir; ilk 5 satırda header satırını bul. HAFTA sütunu olan satır önceliklidir. */
+  /** TYMM/SBL Excel'de üstte başlık/ay satırları olabilir; ilk 10 satırda en çok sütun anahtar kelimesi taşıyan satır. */
   private findHeaderRowIndex(json: unknown[][]): number {
-    const headerKeywords = ['hafta', 'ünite', 'unite', 'konu', 'kazanım', 'kazanim', 'öğrenme', 'ogrenme'];
+    const headerKeywords = [
+      'hafta',
+      'ünite',
+      'unite',
+      'konu',
+      'kazanım',
+      'kazanim',
+      'öğrenme',
+      'ogrenme',
+      'saat',
+      'ölçme',
+      'olcme',
+      'süreç',
+      'surec',
+      'sosyal',
+      'okuryaz',
+      'belirli gün',
+      'belirli gun',
+      'week',
+      'theme',
+      'outcomes',
+    ];
     const normalize = (s: string) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
     let bestIdx = 0;
     let bestScore = 0;
-    for (let rowIdx = 0; rowIdx < Math.min(5, json.length); rowIdx++) {
+    for (let rowIdx = 0; rowIdx < Math.min(10, json.length); rowIdx++) {
       const row = json[rowIdx];
       if (!row) continue;
       const cells = Array.isArray(row) ? row : Object.values(row);
       const concat = cells.map((c) => normalize(String(c ?? ''))).join(' ');
       const matchCount = headerKeywords.filter((kw) => concat.includes(kw)).length;
       if (matchCount >= 2) {
-        const hasHafta = concat.includes('hafta');
-        const score = matchCount * 2 + (hasHafta ? 10 : 0);
-        if (score > bestScore) {
+        const hasHafta = concat.includes('hafta') || /\bweek\b/.test(concat);
+        const hasUniteOrKonu = concat.includes('ünite') || concat.includes('unite') || concat.includes('konu');
+        const score = matchCount * 2 + (hasHafta ? 10 : 0) + (hasUniteOrKonu ? 4 : 0);
+        // Aynı skorda alttaki satır: üstte talimat/özet, 2–3. satır gerçek tablo başlığı (veri genelde 4. satırdan).
+        if (score > bestScore || (score === bestScore && rowIdx > bestIdx)) {
           bestScore = score;
           bestIdx = rowIdx;
         }
       }
     }
     return bestIdx;
+  }
+
+  /** Birleştirilmiş başlık hücreleri: ana satır + üstteki 1–2 satır (boşta üstteki metin kullanılır). */
+  private mergeHeaderRowsFromSheet(json: unknown[][], headerRowIndex: number): string[] {
+    const rowLens = [headerRowIndex, headerRowIndex - 1, headerRowIndex - 2]
+      .filter((i) => i >= 0)
+      .map((i) => (Array.isArray(json[i]) ? json[i].length : 0));
+    const maxLen = Math.min(40, Math.max(16, ...rowLens, 24));
+    const merged: string[] = [];
+    for (let idx = 0; idx < maxLen; idx++) {
+      const main = String((json[headerRowIndex] as unknown[])?.[idx] ?? '').trim();
+      const a1 = headerRowIndex > 0 ? String((json[headerRowIndex - 1] as unknown[])?.[idx] ?? '').trim() : '';
+      const a2 = headerRowIndex > 1 ? String((json[headerRowIndex - 2] as unknown[])?.[idx] ?? '').trim() : '';
+      merged[idx] = main || a1 || a2;
+    }
+    return merged;
   }
 
   /**
@@ -417,13 +661,21 @@ export class MebFetchService {
     filePath: string,
     grade?: number,
     subjectCode?: string,
+    targetSheetName?: string,
   ): { items: ParsedPlanRow[]; planNotu: string | null } {
     const wb = XLSX.readFile(filePath, { cellDates: false });
-    const sheetNamesByGrade =
-      grade != null
-        ? this.getSheetNamesForGrade(wb, grade)
-        : [wb.SheetNames?.[0]].filter(Boolean) as string[];
-    const sheetNames = this.filterNamesByProgram(sheetNamesByGrade, subjectCode);
+    let sheetNames: string[] = [];
+
+    if (targetSheetName && wb.SheetNames.includes(targetSheetName)) {
+      sheetNames = [targetSheetName];
+    } else {
+      const sheetNamesByGrade =
+        grade != null
+          ? this.getSheetNamesForGrade(wb, grade)
+          : [wb.SheetNames?.[0]].filter(Boolean) as string[];
+      sheetNames = this.filterNamesByProgram(sheetNamesByGrade, subjectCode);
+    }
+
     let bestRows: ParsedPlanRow[] = [];
     let bestPlanNotu: string | null = null;
     let bestScore = -100000;
@@ -448,7 +700,7 @@ export class MebFetchService {
       }
     }
 
-    return { items: bestRows.sort((a, b) => a.week_order - b.week_order), planNotu: bestPlanNotu };
+    return { items: bestRows, planNotu: bestPlanNotu };
   }
 
   private parseSheetToPlanRows(
@@ -461,19 +713,11 @@ export class MebFetchService {
         ? getDersSaatiStatic(subjectCode.trim(), grade)
         : 2;
     const headerRowIndex = this.findHeaderRowIndex(json);
-    // Gruplandırılmış başlık: alt satır boş hücrelerde üst satırdaki sütun adını kullan (örn. FARKLILAŞTIRMA)
-    const mainRow = json[headerRowIndex] as Record<number, string>;
-    const rowAbove = headerRowIndex > 0 ? (json[headerRowIndex - 1] as Record<number, string>) : null;
-    const mergedArr: string[] = [];
-    for (let idx = 0; idx < 24; idx++) {
-      const main = String(mainRow?.[idx] ?? '').trim();
-      const above = rowAbove ? String(rowAbove[idx] ?? '').trim() : '';
-      mergedArr[idx] = main || above;
-    }
+    const mergedArr = this.mergeHeaderRowsFromSheet(json, headerRowIndex);
     let colMap = this.buildColumnMap(mergedArr);
     const dataStartIndex = headerRowIndex + 1;
-    const rows: ParsedPlanRow[] = [];
-    const footnoteParts: string[] = [];
+    const rows: (ParsedPlanRow & { _parseOrder: number })[] = [];
+    let rowParseSeq = 0;
     let lastWeekOrder = 0;
     /** Sütunda birleştirilmiş satırlar: boş hücrede önceki satırdaki değeri kullan (merge taşıma) */
     let lastUnite = '';
@@ -487,28 +731,89 @@ export class MebFetchService {
     let lastBelirliGun = '';
     let lastZengin = '';
     let lastOkulTemelli = '';
+    /** Hafta değişince sıfırlanır: farklılaştırma / okul temelli bir önceki haftadan taşınmasın */
+    let lastProcessedWeekForCarry = -1;
 
     for (let i = dataStartIndex; i < json.length; i++) {
       const row = json[i] as unknown as Record<number, string | number>;
 
       if (this.looksLikeHeaderRow(row)) {
-        const newColMap = this.buildColumnMap(row as unknown as Record<number, string>);
+        const mergedInline = this.mergeHeaderRowsFromSheet(json, i);
+        const newColMap = this.buildColumnMap(mergedInline);
         if (Object.keys(newColMap).length >= 2) colMap = newColMap;
         continue;
       }
 
-      let weekOrder = this.extractWeekOrder(row, colMap);
-      const rawKonu = this.getStr(row, colMap, 'konu') || '';
-      const rawUnite = this.getStr(row, colMap, 'unite') || '';
-      const rawKazanim = this.getStr(row, colMap, 'kazanimlar') || '';
-      const rawSurec = this.getStr(row, colMap, 'surec_bilesenleri') || '';
-      const rawOlcme = this.getStr(row, colMap, 'olcme_degerlendirme') || '';
-      const rawSosyal = this.getStr(row, colMap, 'sosyal_duygusal') || '';
-      const rawDegerler = this.getStr(row, colMap, 'degerler') || '';
-      const rawOkuryazarlik = this.getStr(row, colMap, 'okuryazarlik_becerileri') || '';
-      const rawBelirliGun = this.getStr(row, colMap, 'belirli_gun_haftalar') || '';
-      const rawZengin = this.getStr(row, colMap, 'zenginlestirme') || '';
-      const rawOkulTemelli = this.getStr(row, colMap, 'okul_temelli_planlama') || '';
+      let weekOrder = this.extractWeekOrder(row, colMap, mergedArr);
+      let rawKonu = this.getStr(row, colMap, 'konu') || '';
+      let rawUnite = this.getStr(row, colMap, 'unite') || '';
+      let rawKazanim = this.getStr(row, colMap, 'kazanimlar') || '';
+      let rawSurec = this.getStr(row, colMap, 'surec_bilesenleri') || '';
+      let rawOlcme = this.getStr(row, colMap, 'olcme_degerlendirme') || '';
+      let rawSosyal = this.getStr(row, colMap, 'sosyal_duygusal') || '';
+      let rawDegerler = this.getStr(row, colMap, 'degerler') || '';
+      let rawOkuryazarlik = this.getStr(row, colMap, 'okuryazarlik_becerileri') || '';
+      let rawBelirliGun = this.getStr(row, colMap, 'belirli_gun_haftalar') || '';
+      let rawZengin = this.getStr(row, colMap, 'zenginlestirme') || '';
+      let rawOkulTemelli = this.getStr(row, colMap, 'okul_temelli_planlama') || '';
+      // Hafta sütunu varken 1. hafta hücresi boş/birleşik olabiliyor; extract null kalınca sadece "hafta yok" dalı çalışmıyordu.
+      if (weekOrder == null || weekOrder < 1 || weekOrder > 38) {
+        const hasAnyRaw =
+          !!(
+            rawUnite.trim() ||
+            rawKonu.trim() ||
+            rawKazanim.trim() ||
+            rawSurec.trim() ||
+            rawOlcme.trim() ||
+            rawSosyal.trim() ||
+            rawDegerler.trim() ||
+            rawOkuryazarlik.trim() ||
+            rawBelirliGun.trim() ||
+            rawZengin.trim() ||
+            rawOkulTemelli.trim()
+          );
+        const mergeCont = this.isMergeContinuationRowNoHaftaColumn(
+          rows,
+          lastWeekOrder,
+          rawUnite,
+          rawKonu,
+          rawKazanim,
+          rawSurec,
+          rawOlcme,
+        );
+        if (hasAnyRaw && !mergeCont) {
+          if (rows.length === 0) {
+            weekOrder = 1;
+          } else if (!this.headersHaveAnyWeekColumn(mergedArr) && lastWeekOrder >= 1 && lastWeekOrder < 38) {
+            weekOrder = lastWeekOrder + 1;
+          }
+        }
+      }
+      // İlk plan veri satırı = takvim 1. hafta (Excel satır sırası). Hafta sütunu ilk satırda 2,3… veya yanlış hücre sık okunuyor.
+      if (rows.length === 0 && weekOrder != null && weekOrder >= 1 && weekOrder <= 38) {
+        weekOrder = 1;
+      }
+      let validWeek = weekOrder != null && weekOrder >= 1 && weekOrder <= 38;
+      if (validWeek && weekOrder != null && weekOrder !== lastProcessedWeekForCarry) {
+        lastProcessedWeekForCarry = weekOrder;
+        lastZengin = '';
+        lastOkulTemelli = '';
+      }
+      // Hafta 1 numarası aşağıdaki satırdan okunabiliyor; içerik ilk veri satırından (≈ Excel 4. satır / F4) alınmalı.
+      if (weekOrder === 1 && rows.length === 0 && i > dataStartIndex) {
+        const base = json[dataStartIndex] as unknown as Record<number, string | number>;
+        rawUnite = this.getStr(base, colMap, 'unite') || '';
+        rawKonu = this.getStr(base, colMap, 'konu') || '';
+        rawKazanim = this.getStr(base, colMap, 'kazanimlar') || '';
+        rawSurec = this.getStr(base, colMap, 'surec_bilesenleri') || '';
+        rawOlcme = this.getStr(base, colMap, 'olcme_degerlendirme') || '';
+        rawSosyal = this.getStr(base, colMap, 'sosyal_duygusal') || '';
+        rawDegerler = this.getStr(base, colMap, 'degerler') || '';
+        rawOkuryazarlik = this.getStr(base, colMap, 'okuryazarlik_becerileri') || '';
+        rawBelirliGun = this.getStr(base, colMap, 'belirli_gun_haftalar') || '';
+        rawZengin = this.getStr(base, colMap, 'zenginlestirme') || '';
+        rawOkulTemelli = this.getStr(base, colMap, 'okul_temelli_planlama') || '';
+      }
       const uniteRawClean = this.stripWeekAndDateArtifacts(rawUnite);
       const konuRawClean = this.stripWeekAndDateArtifacts(rawKonu);
       const kazanimRawClean = this.stripWeekAndDateArtifacts(rawKazanim);
@@ -521,17 +826,15 @@ export class MebFetchService {
       const degerlerCell = rawDegerler || lastDegerler;
       const okuryazarlikCell = rawOkuryazarlik || lastOkuryazarlik;
       const belirliGunCell = rawBelirliGun || lastBelirliGun;
-      const zenginCell = rawZengin || lastZengin;
-      const okulTemelliCell = rawOkulTemelli || lastOkulTemelli;
+      const zenginCell = validWeek ? rawZengin || '' : rawZengin || lastZengin;
+      const okulTemelliCell = validWeek ? rawOkulTemelli || '' : rawOkulTemelli || lastOkulTemelli;
       const fullText = `${uniteCell} ${konuCell} ${kazanimCell}`.toLowerCase();
 
-      // Tablo altı dipnot: yıldızlı açıklama, okul temelli vb. – konu'ya koyma
+      // Tablo altı dipnot / yorum satırları: veri satırı değil — atla (plan_notu'ya da yazma)
       if (
         (weekOrder == null || weekOrder < 1 || weekOrder > 38) &&
         this.looksLikeFootnote(fullText)
       ) {
-        const part = [uniteCell, konuCell, kazanimCell].filter(Boolean).join(' ').trim();
-        if (part) footnoteParts.push(part);
         continue;
       }
 
@@ -574,7 +877,7 @@ export class MebFetchService {
             parsedDersSaati != null
               ? parsedDersSaati
               : this.resolveMissingDersSaati(uniteCell, konuCell, kazanimCell, defaultDersSaati);
-          const newRow = {
+          const newRow: ParsedPlanRow & { _parseOrder: number } = {
             week_order: nextWeek,
             unite: uniteCell || null,
             konu: konuCell || null,
@@ -588,6 +891,7 @@ export class MebFetchService {
             okuryazarlik_becerileri: okuryazarlikCell || null,
             zenginlestirme: zenginCell || null,
             okul_temelli_planlama: okulTemelliCell || null,
+            _parseOrder: rowParseSeq++,
           };
           rows.push(newRow);
           if (newRow.unite) lastUnite = newRow.unite;
@@ -606,7 +910,18 @@ export class MebFetchService {
 
         // TYMM Excel'de hafta/tema hücreleri merge olabildiği için aynı haftanın
         // devam satırlarını son geçerli haftaya birleştir.
-        if (rows.length > 0 && lastWeekOrder >= 1 && lastWeekOrder <= 38) {
+        const canMergeIntoPrevWeek =
+          this.headersHaveAnyWeekColumn(mergedArr) ||
+          this.isMergeContinuationRowNoHaftaColumn(
+            rows,
+            lastWeekOrder,
+            rawUnite,
+            rawKonu,
+            rawKazanim,
+            rawSurec,
+            rawOlcme,
+          );
+        if (rows.length > 0 && lastWeekOrder >= 1 && lastWeekOrder <= 38 && canMergeIntoPrevWeek) {
           const lastIdx = rows.length - 1;
           const prev = rows[lastIdx];
           rows[lastIdx] = {
@@ -641,13 +956,17 @@ export class MebFetchService {
       }
       lastWeekOrder = Math.max(lastWeekOrder, weekOrder);
 
-      const parsedDersSaati = this.getNum(row, colMap, 'ders_saati');
+      const rowForDersSaati =
+        weekOrder === 1 && rows.length === 0 && i > dataStartIndex
+          ? (json[dataStartIndex] as unknown as Record<number, string | number>)
+          : row;
+      const parsedDersSaati = this.getNum(rowForDersSaati, colMap, 'ders_saati');
       const normalizedDersSaati =
         parsedDersSaati != null
           ? parsedDersSaati
           : this.resolveMissingDersSaati(uniteCell, konuCell, kazanimCell, defaultDersSaati);
 
-      const newRow = {
+      const newRow: ParsedPlanRow & { _parseOrder: number } = {
         week_order: Math.round(Number(weekOrder)),
         unite: uniteCell || null,
         konu: konuCell || null,
@@ -661,6 +980,7 @@ export class MebFetchService {
         okuryazarlik_becerileri: okuryazarlikCell || null,
         zenginlestirme: zenginCell || null,
         okul_temelli_planlama: okulTemelliCell || null,
+        _parseOrder: rowParseSeq++,
       };
       rows.push(newRow);
       if (newRow.unite) lastUnite = newRow.unite;
@@ -675,8 +995,24 @@ export class MebFetchService {
       if (newRow.zenginlestirme) lastZengin = newRow.zenginlestirme;
       if (newRow.okul_temelli_planlama) lastOkulTemelli = newRow.okul_temelli_planlama;
     }
-    const planNotu = footnoteParts.length > 0 ? footnoteParts.join(' ') : null;
-    return { items: rows, planNotu };
+    const sortedRows = [...rows].sort((a, b) => {
+      const w = a.week_order - b.week_order;
+      if (w !== 0) return w;
+      return a._parseOrder - b._parseOrder;
+    });
+    const rowsPlain = sortedRows.map(({ _parseOrder, ...r }) => r);
+    return {
+      items: rowsPlain.map((r) =>
+        this.sanitizeParsedPlanRowTextFields(
+          this.redistributeMisplacedPlanFields(
+            this.mergeKazanimSubitemsMisplacedInOlcme(
+              this.mergeKazanimSubitemsMisplacedInSurec(this.redistributeMisplacedPlanFields(r)),
+            ),
+          ),
+        ),
+      ),
+      planNotu: null,
+    };
   }
 
   private appendCell(base?: string | null, extra?: string | null): string | null {
@@ -713,9 +1049,66 @@ export class MebFetchService {
     return defaultDersSaati;
   }
 
-  private looksLikeFootnote(text: string): boolean {
+  /** Hücre içi yorum / dipnot satırlarını ayır (Excel’de metin olarak yazılmış açıklamalar). */
+  private stripYorumSatirlari(text: string | null): string | null {
+    if (text == null || !String(text).trim()) return null;
+    const lines = String(text).split(/\r?\n/);
+    const kept: string[] = [];
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (this.looksLikeInstructionLine(line)) continue;
+      kept.push(line);
+    }
+    const out = kept.join('\n').trim();
+    return out || null;
+  }
+
+  private looksLikeInstructionLine(line: string): boolean {
+    const t = line.replace(/\s+/g, ' ').trim();
+    if (!t) return false;
+    if (t.length >= 15 && this.looksLikeFootnote(t, 15)) return true;
+    if (/^\s*[\*•]\s/.test(t) && t.length > 30) {
+      const low = t.toLowerCase();
+      if (
+        /zümre|zumre|kurul|müdür|mudur|kapsamaktadır|dipnot|açıklama\s*:|aciklama\s*:|öğretmenler kurulu|ogretmenler kurulu|kararı|karari/i.test(
+          low,
+        )
+      )
+        return true;
+    }
+    if (/^\s*(not|açıklama|aciklama|örnek|ornek|dikkat|uyarı|uyari)\s*:?\s*/i.test(t)) return true;
+    return false;
+  }
+
+  private sanitizeParsedPlanRowTextFields(row: ParsedPlanRow): ParsedPlanRow {
+    const fields: (keyof ParsedPlanRow)[] = [
+      'unite',
+      'konu',
+      'kazanimlar',
+      'belirli_gun_haftalar',
+      'surec_bilesenleri',
+      'olcme_degerlendirme',
+      'sosyal_duygusal',
+      'degerler',
+      'okuryazarlik_becerileri',
+      'zenginlestirme',
+      'okul_temelli_planlama',
+    ];
+    const out: ParsedPlanRow = { ...row };
+    for (const f of fields) {
+      const v = out[f];
+      if (typeof v === 'string') {
+        const s = this.stripYorumSatirlari(v);
+        (out as unknown as Record<string, string | number | null | undefined>)[f] = s ?? null;
+      }
+    }
+    return out;
+  }
+
+  private looksLikeFootnote(text: string, minLen = 20): boolean {
     const t = text.replace(/\s+/g, ' ').trim();
-    if (!t || t.length < 20) return false;
+    if (!t || t.length < minLen) return false;
     const keywords = [
       'okul temelli planlama',
       'zümre öğretmenler kurulu',
@@ -734,39 +1127,117 @@ export class MebFetchService {
 
   private looksLikeHeaderRow(row: Record<number, string | number>): boolean {
     const cells = Array.isArray(row) ? row : Object.values(row);
-    const firstCells = cells.slice(0, 6).map((c) => String(c ?? '').trim().toLowerCase());
-    if (firstCells.some((c) => /^\d+$/.test(c) && parseInt(c, 10) >= 1 && parseInt(c, 10) <= 38))
+    const sample = cells.slice(0, 18).map((c) => String(c ?? '').trim().toLowerCase());
+    if (sample.some((c) => /^\d+$/.test(c) && parseInt(c, 10) >= 1 && parseInt(c, 10) <= 38))
       return false;
-    const concat = firstCells.join(' ');
-    const headerKeywords = ['hafta', 'ünite', 'unite', 'konu', 'kazanım', 'öğrenme', 'week', 'theme', 'functions', 'learning', 'outcomes', 'date'];
+    const concat = sample.join(' ');
+    const headerKeywords = [
+      'hafta',
+      'ünite',
+      'unite',
+      'konu',
+      'kazanım',
+      'öğrenme',
+      'saat',
+      'ölçme',
+      'süreç',
+      'sosyal',
+      'okuryaz',
+      'week',
+      'theme',
+      'functions',
+      'learning',
+      'outcomes',
+      'date',
+    ];
     return headerKeywords.filter((kw) => concat.includes(kw)).length >= 2;
+  }
+
+  private normalizeHeaderCellForWeek(raw: string): string {
+    return String(raw ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+  }
+
+  /** Başlık satırında gerçekten "hafta" / week numarası sütunu var mı (örtük sıra modu için). */
+  private headersHaveAnyWeekColumn(mergedHeaderArr: string[]): boolean {
+    for (let i = 0; i < Math.min(mergedHeaderArr.length, 40); i++) {
+      const h = this.normalizeHeaderCellForWeek(String(mergedHeaderArr[i] ?? ''));
+      if (h && this.headerCellLooksLikeWeekHeader(h)) return true;
+    }
+    return false;
+  }
+
+  private headerCellLooksLikeWeekHeader(normalized: string): boolean {
+    const a = normalized
+      .replace(/ı/g, 'i')
+      .replace(/ğ/g, 'g')
+      .replace(/ü/g, 'u')
+      .replace(/ş/g, 's')
+      .replace(/ö/g, 'o')
+      .replace(/ç/g, 'c');
+    if (/\bhafta\b/.test(a)) return true;
+    if (/^weeks?$/.test(a.trim())) return true;
+    if (/hafta\s*no|sira\s*no|sıra\s*no|week\s*no/.test(a)) return true;
+    return false;
+  }
+
+  /** Bu sütundan hafta numarası olarak ilk rakam çekilmez (ünite no, ders saati, konu sırası vb.). */
+  private headerCellLooksLikeContentField(normalized: string): boolean {
+    if (!normalized.trim()) return false;
+    const a = normalized
+      .replace(/ı/g, 'i')
+      .replace(/ğ/g, 'g')
+      .replace(/ü/g, 'u')
+      .replace(/ş/g, 's')
+      .replace(/ö/g, 'o')
+      .replace(/ç/g, 'c');
+    return /unite|tema|konu|kazanim|ogrenme|surec|olcme|sosyal|deger|okuryaz|belirli|zengin|okul\s*temel|ders\s*saat|icerik|cerceve|outcome|learning|assessment|material|theme|function/i.test(
+      a,
+    );
+  }
+
+  /** Hafta sütunu yok; ünite/konu hücresi boş devam satırı — önceki haftaya birleştir. */
+  private isMergeContinuationRowNoHaftaColumn(
+    rows: ParsedPlanRow[],
+    lastWeekOrder: number,
+    rawUnite: string,
+    rawKonu: string,
+    rawKazanim: string,
+    rawSurec: string,
+    rawOlcme: string,
+  ): boolean {
+    if (rows.length === 0 || lastWeekOrder < 1) return false;
+    if (rawUnite.trim() || rawKonu.trim()) return false;
+    return !!(
+      rawKazanim.trim() ||
+      rawSurec.trim() ||
+      rawOlcme.trim()
+    );
   }
 
   private extractWeekOrder(
     row: Record<number, string | number>,
     colMap: Record<string, number>,
+    mergedHeaderArr: string[],
   ): number | null {
-    let v = this.getNum(row, colMap, 'week_order');
-    if (v != null && v >= 1 && v <= 38) return v;
-
-    const idx = colMap.week_order;
-    if (idx != null) {
-      const cell = row[idx];
-      if (cell != null) {
-        const s = String(cell).trim();
-        const m = s.match(/^(\d+)/);
-        if (m) {
-          const n = parseInt(m[1], 10);
-          if (n >= 1 && n <= 38) return n;
-        }
-        const inline = this.extractInlineWeekOrder(s);
-        if (inline != null) return inline;
-      }
+    const forbiddenCols = new Set<number>();
+    for (const [field, idx] of Object.entries(colMap)) {
+      if (field === 'week_order') continue;
+      if (typeof idx === 'number' && idx >= 0) forbiddenCols.add(idx);
     }
 
-    for (let col = 0; col < 10; col++) {
-      const cell = row[col];
-      if (cell == null) continue;
+    const parseWeekFromCell = (colIdx: number): number | null => {
+      if (colIdx < 0 || colIdx > 40) return null;
+      const hRaw = String(mergedHeaderArr[colIdx] ?? '').trim();
+      const hn = hRaw ? this.normalizeHeaderCellForWeek(hRaw) : '';
+      if (hn && this.headerCellLooksLikeContentField(hn) && !this.headerCellLooksLikeWeekHeader(hn)) return null;
+
+      const cell = row[colIdx];
+      if (cell == null || cell === '') return null;
       const s = String(cell).trim();
       const m = s.match(/^(\d+)/);
       if (m) {
@@ -777,6 +1248,35 @@ export class MebFetchService {
       if (inline != null) return inline;
       const num = Number(cell);
       if (Number.isFinite(num) && num >= 1 && num <= 38) return Math.round(num);
+      return null;
+    };
+
+    const wi = colMap.week_order;
+    if (wi != null && wi >= 0) {
+      const hRaw = String(mergedHeaderArr[wi] ?? '').trim();
+      const hn = hRaw ? this.normalizeHeaderCellForWeek(hRaw) : '';
+      const weekHeaderTrusted = !hn || this.headerCellLooksLikeWeekHeader(hn);
+      if (weekHeaderTrusted) {
+        let v = this.getNum(row, colMap, 'week_order');
+        if (v != null && v >= 1 && v <= 38) return v;
+        const cell = row[wi];
+        if (cell != null) {
+          const s = String(cell).trim();
+          const m = s.match(/^(\d+)/);
+          if (m) {
+            const n = parseInt(m[1], 10);
+            if (n >= 1 && n <= 38) return n;
+          }
+          const inline = this.extractInlineWeekOrder(s);
+          if (inline != null) return inline;
+        }
+      }
+    }
+
+    for (let col = 0; col < 10; col++) {
+      if (forbiddenCols.has(col)) continue;
+      const parsed = parseWeekFromCell(col);
+      if (parsed != null) return parsed;
     }
     return null;
   }
@@ -793,26 +1293,54 @@ export class MebFetchService {
         .replace(/[\u0300-\u036f]/g, '');
     const toAscii = (s: string) =>
       s.replace(/ı/g, 'i').replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ş/g, 's').replace(/ö/g, 'o').replace(/ç/g, 'c');
-    for (let idx = 0; idx < Math.max(arr.length, 16); idx++) {
+    const maxIdx = Math.min(40, Math.max(arr.length, 16));
+    let emptyStreak = 0;
+    for (let idx = 0; idx < maxIdx; idx++) {
       const raw = String((arr as unknown[])[idx] ?? '');
       const val = normalize(raw);
-      if (!val && idx >= 14) break;
+      if (!val) {
+        emptyStreak++;
+        if (emptyStreak >= 10) break;
+        continue;
+      }
+      emptyStreak = 0;
       for (const [field, aliases] of Object.entries(COL_ALIASES)) {
-        const normAliases = aliases.map((a) => toAscii(a.toLowerCase()));
+        if (map[field] != null) continue;
+        const normAliases = aliases
+          .map((a) => toAscii(a.toLowerCase()))
+          .sort((a, b) => b.length - a.length);
         const normVal = toAscii(val);
-        if (normAliases.some((a) => normVal.includes(a) || a.includes(normVal))) {
+        if (
+          normAliases.some((a) => {
+            if (!a || !normVal) return false;
+            if (normVal.includes(a)) return true;
+            // 'ay' gibi kısa başlıkların 'hafta' içinde yanlış eşleşmesini engelle
+            if (normVal.length >= 4 && a.includes(normVal)) return true;
+            return false;
+          })
+        ) {
           map[field] = idx;
           break;
         }
       }
     }
-    if (map.week_order == null) {
-      map.week_order = 0;
-    }
     const requiredFields = ['unite', 'konu', 'kazanimlar'];
     if (requiredFields.some((f) => map[f] == null) && arr.length >= 5) {
       const first = normalize(String(arr[0] ?? ''));
       const second = normalize(String(arr[1] ?? ''));
+      const third = normalize(String(arr[2] ?? ''));
+      const fourth = normalize(String(arr[3] ?? ''));
+      const fifth = normalize(String(arr[4] ?? ''));
+      const fourthAsc = toAscii(fourth);
+      const isModulSablonu =
+        arr.length >= 10 &&
+        first.includes('ders') &&
+        first.includes('saat') &&
+        (toAscii(second).includes('unite') || second.includes('tema') || second.includes('ünite')) &&
+        (toAscii(third).includes('konu') || third.includes('içerik') || third.includes('icerik')) &&
+        fourthAsc.includes('ogrenme') &&
+        (fourthAsc.includes('cikt') || fourth.includes('çıkt')) &&
+        (fifth.includes('belirli') || (fifth.includes('gun') && fifth.includes('hafta')));
       const joined = arr
         .slice(0, 8)
         .map((v) => normalize(String(v ?? '')))
@@ -831,6 +1359,7 @@ export class MebFetchService {
         /\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/.test(second);
       const hasAyColumn =
         first === 'ay' ||
+        first === 'sure' ||
         first.includes('eylul') ||
         first.includes('ekim') ||
         first.includes('kasim') ||
@@ -843,6 +1372,11 @@ export class MebFetchService {
         first.includes('haziran') ||
         second.includes('hafta') ||
         hasDateColumn;
+      // TYMM/Maarif: AY + HAFTA + DERS SAATİ + … (ikinci sütun "Hafta No" vb. olabilir; hasAyColumn ile eski yanlış haritaya düşmesin)
+      const isTarihTemplate =
+        first === 'sure' ||
+        (first === 'ay' && second.includes('hafta') && (third.includes('saat') || third.includes('ders'))) ||
+        (first === 'ay' && second.includes('hafta') && toAscii(fourth).includes('unite') && toAscii(fifth).includes('konu'));
       const fallback: Record<string, number> = isEnglishTemplate
         ? {
             week_order: 0,
@@ -858,24 +1392,94 @@ export class MebFetchService {
             zenginlestirme: 11,
             okul_temelli_planlama: 12,
           }
-        : {
-            week_order: hasAyColumn ? 1 : 0,
-            unite: hasAyColumn ? 2 : 1,
-            ders_saati: hasAyColumn ? 3 : 2,
-            konu: hasAyColumn ? 4 : 3,
-            kazanimlar: hasAyColumn ? 5 : 4,
-            surec_bilesenleri: hasAyColumn ? 6 : 5,
-            olcme_degerlendirme: hasAyColumn ? 7 : 6,
-            sosyal_duygusal: hasAyColumn ? 8 : 7,
-            degerler: hasAyColumn ? 9 : 8,
-            okuryazarlik_becerileri: hasAyColumn ? 10 : 9,
-            belirli_gun_haftalar: hasAyColumn ? 11 : 10,
-            zenginlestirme: hasAyColumn ? 12 : 11,
-            okul_temelli_planlama: hasAyColumn ? 13 : 12,
-          };
+        : isTarihTemplate
+          ? {
+              // Yeni Tarih/Maarif şablonu (SÜRE/AY, HAFTA, DERS SAATİ, ÜNİTE/TEMA, KONU, ÖĞRENME ÇIKTILARI, SÜREÇ BİLEŞENLERİ, ÖLÇME, SOSYAL, DEĞERLER, OKURYAZARLIK, BELİRLİ GÜN, FARKLILAŞTIRMA, OKUL TEMELLİ)
+              week_order: 1,
+              ders_saati: 2,
+              unite: 3,
+              konu: 4,
+              kazanimlar: 5,
+              surec_bilesenleri: 6,
+              olcme_degerlendirme: 7,
+              sosyal_duygusal: 8,
+              degerler: 9,
+              okuryazarlik_becerileri: 10,
+              belirli_gun_haftalar: 11,
+              zenginlestirme: 12,
+              okul_temelli_planlama: 13,
+            }
+          : isModulSablonu
+            ? {
+                // Modül şablonu: Ders saati, Ünite/TEMA, Konu, Öğrenme çıktıları, Belirli gün, Farklılaştırma, Okul temelli, Ölçme, Değerler, Okuryazarlık
+                week_order: -1,
+                ders_saati: 0,
+                unite: 1,
+                konu: 2,
+                kazanimlar: 3,
+                belirli_gun_haftalar: 4,
+                zenginlestirme: 5,
+                okul_temelli_planlama: 6,
+                olcme_degerlendirme: 7,
+                degerler: 8,
+                okuryazarlik_becerileri: 9,
+              }
+            : hasAyColumn
+          ? {
+              // Klasik AY(0), HAFTA(1), DERS SAAT(2), ÜNİTE(3), SOSYAL(4), DEĞERLER(5), OKURYAZARLIK(6),
+              // BELİRLİ GÜN(7), KONU(8), OKUL TEMELLİ(9), ÖĞRENME ÇIKTILARI(10), SÜREÇ(11), ÖLÇME(12)
+              week_order: 1,
+              ders_saati: 2,
+              unite: 3,
+              sosyal_duygusal: 4,
+              degerler: 5,
+              okuryazarlik_becerileri: 6,
+              belirli_gun_haftalar: 7,
+              konu: 8,
+              okul_temelli_planlama: 9,
+              kazanimlar: 10,
+              surec_bilesenleri: 11,
+              olcme_degerlendirme: 12,
+            }
+          : {
+              // A Hafta, B Ders saati, C Ünite/TEMA, D Konu, E ara/boş, F Öğrenme çıktıları (F4’ten veri)
+              week_order: 0,
+              ders_saati: 1,
+              unite: 2,
+              konu: 3,
+              kazanimlar: 5,
+              surec_bilesenleri: 6,
+              olcme_degerlendirme: 7,
+              sosyal_duygusal: 8,
+              degerler: 9,
+              okuryazarlik_becerileri: 10,
+              belirli_gun_haftalar: 11,
+              zenginlestirme: 12,
+              okul_temelli_planlama: 13,
+            };
       for (const [f, i] of Object.entries(fallback)) {
         if (map[f] == null && i < arr.length) map[f] = i;
       }
+    }
+    // F sütununda Öğrenme çıktıları varsa kazanım F (5); D’de öğrenme varsa (modül şablonu) ezme.
+    const h3 = normalize(String(arr[3] ?? ''));
+    const h3Asc = toAscii(h3);
+    const h3IsOgrenmeCikti =
+      h3.length >= 4 &&
+      h3Asc.includes('ogrenme') &&
+      (h3Asc.includes('cikt') || h3.includes('çıkt') || h3Asc.includes('cikti'));
+    const hF = normalize(String(arr[5] ?? ''));
+    const hFAsc = toAscii(hF);
+    if (
+      !h3IsOgrenmeCikti &&
+      hF.length >= 4 &&
+      hFAsc.includes('ogrenme') &&
+      (hFAsc.includes('cikt') || hF.includes('çıkt') || hFAsc.includes('cikti'))
+    ) {
+      map.kazanimlar = 5;
+    }
+    if (map.week_order == null) {
+      map.week_order = -1;
     }
     return map;
   }
@@ -886,7 +1490,7 @@ export class MebFetchService {
     field: string,
   ): string | null {
     const idx = colMap[field];
-    if (idx == null) return null;
+    if (idx == null || idx < 0) return null;
     const v = row[idx];
     if (v == null) return null;
     const s = String(v).trim();
@@ -899,7 +1503,7 @@ export class MebFetchService {
     field: string,
   ): number | null {
     const idx = colMap[field];
-    if (idx == null) return null;
+    if (idx == null || idx < 0) return null;
     const v = row[idx];
     if (v == null || v === '') return null;
     const n = Number(v);

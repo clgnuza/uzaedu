@@ -439,8 +439,8 @@ export class YillikPlanIcerikService {
   }): Promise<YillikPlanIcerik[]> {
     const qb = this.repo
       .createQueryBuilder('yp')
-      .orderBy('COALESCE(yp.sort_order, yp.week_order)', 'ASC')
-      .addOrderBy('yp.week_order', 'ASC');
+      .orderBy('yp.week_order', 'ASC')
+      .addOrderBy('yp.id', 'ASC');
     this.applyCurriculumFilter(qb, filters.curriculum_model);
     if (filters.subject_code?.trim()) {
       qb.andWhere('yp.subject_code = :subjectCode', { subjectCode: filters.subject_code.trim() });
@@ -650,6 +650,13 @@ export class YillikPlanIcerikService {
     if (!Array.isArray(params.items) || params.items.length === 0) {
       throw new BadRequestException({ code: 'EMPTY_ITEMS', message: 'En az bir hafta verisi gerekir.' });
     }
+    const sortedItems = [...params.items].sort((a, b) => {
+      const wa = Number(a.week_order);
+      const wb = Number(b.week_order);
+      const na = Number.isFinite(wa) ? wa : 0;
+      const nb = Number.isFinite(wb) ? wb : 0;
+      return na - nb;
+    });
     const cm = params.curriculum_model?.trim() === 'bilsem' ? 'bilsem' : null;
     try {
       const delQb = this.repo
@@ -671,7 +678,7 @@ export class YillikPlanIcerikService {
     }
     const trunc = (v: string | null | undefined, max: number) =>
       v != null && String(v).trim() ? String(v).trim().slice(0, max) || null : null;
-    const entities = params.items.map((item, idx) => {
+    const entities = sortedItems.map((item, idx) => {
       const wo = Number(item.week_order);
       const ds = Number(item.ders_saati);
       return this.repo.create({
@@ -693,7 +700,7 @@ export class YillikPlanIcerikService {
         okuryazarlikBecerileri: item.okuryazarlik_becerileri?.trim() || null,
         zenginlestirme: item.zenginlestirme?.trim() || null,
         okulTemelliPlanlama: item.okul_temelli_planlama?.trim() || null,
-        sortOrder: idx + 1,
+        sortOrder: null,
         curriculumModel: cm,
       });
     });

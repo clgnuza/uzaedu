@@ -77,6 +77,14 @@ function getBaseSubjectCode(code: string): string {
     .trim();
 }
 
+function getSchoolProfileForSubjectCode(code: string): string | null {
+  if (/_maarif_sbl$/i.test(code)) return 'sosyal';
+  if (/_maarif_fl$/i.test(code)) return 'fen';
+  if (/_maarif_al$/i.test(code)) return 'anadolu';
+  if (/^(kuran_kerim_maarif|temel_dini_bilgiler_maarif)$/i.test(code)) return 'aihl';
+  return null;
+}
+
 function filterSubjectsForSchoolProfile(
   items: Array<{ code: string; label: string }>,
   grade: string,
@@ -312,7 +320,6 @@ function DersAyGroupedTable({
                       <table className="evrak-admin-table w-full text-sm">
                         <thead>
                           <tr>
-                            <th className="w-14 text-xs">Ay</th>
                             <th className="min-w-[110px] text-xs">Hafta</th>
                             <th className="min-w-[100px] text-xs">Ünite/Tema</th>
                             <th className="w-12 text-xs">Saat</th>
@@ -337,12 +344,8 @@ function DersAyGroupedTable({
                             const konu = (i.konu as string) || '—';
                             const kazanimlar = (i.kazanimlar as string) || '—';
                             const haftaLabel = (i.hafta_label ?? (i.haftaLabel as string)) as string | null;
-                            const ayLabel = typeof i.ay === 'string' ? i.ay : '';
                             return (
                               <tr key={item.id}>
-                                <td className="px-2 py-1.5 align-top whitespace-nowrap text-muted-foreground text-xs">
-                                  {ayLabel || '—'}
-                                </td>
                                 <td className="px-2 py-1.5 align-top whitespace-nowrap text-muted-foreground text-xs">
                                   {String(haftaLabel || `${i.week_order ?? i.weekOrder}. Hafta`)}
                                 </td>
@@ -491,7 +494,7 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
       okul_temelli_planlama?: string;
     }>;
     warnings: string[];
-    source?: 'gpt' | 'tymm' | 'meb_fallback';
+    source?: 'gpt' | 'tymm' | 'meb_fallback' | 'excel_parse';
     quality?: {
       total_weeks: number;
       filled_weeks: number;
@@ -527,6 +530,12 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
   const [schoolProfile, setSchoolProfile] = useState<string>('anadolu');
   const excelFileInputRef = useRef<HTMLInputElement>(null);
   const formCardRef = useRef<HTMLDivElement | null>(null);
+  const listRequestKeyRef = useRef<string>('');
+  const summaryRequestKeyRef = useRef<string>('');
+
+  const [excelSheets, setExcelSheets] = useState<string[]>([]);
+  const [selectedExcelSheet, setSelectedExcelSheet] = useState<string>('');
+  const [excelFileToUpload, setExcelFileToUpload] = useState<File | null>(null);
 
   const mods = (me as { moderator_modules?: string[] } | undefined)?.moderator_modules;
   const canManage =
@@ -543,18 +552,21 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
 
   const fetchList = useCallback(async () => {
     if (!token || !canManage) return;
+    const params = new URLSearchParams();
+    if (filters.subject_code) params.set('subject_code', filters.subject_code);
+    if (isBilsem) {
+      if (filters.ana_grup) params.set('ana_grup', filters.ana_grup);
+      if (filters.alt_grup !== undefined && filters.alt_grup !== '') params.set('alt_grup', filters.alt_grup);
+    } else if (filters.grade) {
+      params.set('grade', filters.grade);
+    }
+    if (filters.academic_year) params.set('academic_year', filters.academic_year);
+    withCurriculumParams(params);
+    const requestKey = `${token}:${params.toString()}`;
+    if (listRequestKeyRef.current === requestKey) return;
+    listRequestKeyRef.current = requestKey;
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (filters.subject_code) params.set('subject_code', filters.subject_code);
-      if (isBilsem) {
-        if (filters.ana_grup) params.set('ana_grup', filters.ana_grup);
-        if (filters.alt_grup !== undefined && filters.alt_grup !== '') params.set('alt_grup', filters.alt_grup);
-      } else if (filters.grade) {
-        params.set('grade', filters.grade);
-      }
-      if (filters.academic_year) params.set('academic_year', filters.academic_year);
-      withCurriculumParams(params);
       const res = await apiFetch<{ items: YillikPlanIcerikItem[] }>(
         `/yillik-plan-icerik?${params}`,
         { token }
@@ -563,6 +575,7 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
     } catch {
       setItems([]);
     } finally {
+      if (listRequestKeyRef.current === requestKey) listRequestKeyRef.current = '';
       setLoading(false);
     }
   }, [token, canManage, filters, withCurriculumParams, isBilsem]);
@@ -622,16 +635,21 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
 
   const fetchPlanSummary = useCallback(async () => {
     if (!token || !canManage) return;
+    const sp = new URLSearchParams();
+    withCurriculumParams(sp);
+    const q = sp.toString();
+    const requestKey = `${token}:${q}`;
+    if (summaryRequestKeyRef.current === requestKey) return;
+    summaryRequestKeyRef.current = requestKey;
     try {
-      const sp = new URLSearchParams();
-      withCurriculumParams(sp);
-      const q = sp.toString();
       const res = await apiFetch<{
         items: Array<{ subject_code: string; subject_label: string; grade: number; academic_year: string; week_count: number }>;
       }>(`/yillik-plan-icerik/summary${q ? `?${q}` : ''}`, { token });
       setPlanSummary(res.items ?? []);
     } catch {
       setPlanSummary([]);
+    } finally {
+      if (summaryRequestKeyRef.current === requestKey) summaryRequestKeyRef.current = '';
     }
   }, [token, canManage, withCurriculumParams]);
 
@@ -909,7 +927,18 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
     : filters.grade
       ? `${filters.grade}. Sınıf`
       : '';
-  const selectedSummary = [selectedGroupLabel, selectedSubjectLabel, filters.academic_year].filter(Boolean).join(' · ');
+  const selectedSchoolProfileLabel =
+    !isBilsem && isLiseGrade
+      ? LISE_SCHOOL_PROFILES.find((p) => p.value === schoolProfile)?.label ?? ''
+      : '';
+  const selectedSummary = [
+    selectedGroupLabel,
+    selectedSchoolProfileLabel,
+    selectedSubjectLabel,
+    filters.academic_year,
+  ]
+    .filter(Boolean)
+    .join(' · ');
   const hasRequiredSelection = Boolean(filters.subject_code && hasGroupFilter && filters.academic_year);
   const activePlanCount = planSummary.length;
   const totalWeekCount = items.length;
@@ -1070,7 +1099,7 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
           okul_temelli_planlama?: string;
         }>;
         warnings?: string[];
-        source?: 'gpt' | 'tymm' | 'meb_fallback';
+        source?: 'gpt' | 'tymm' | 'meb_fallback' | 'excel_parse';
         quality?: {
           total_weeks: number;
           filled_weeks: number;
@@ -1112,6 +1141,10 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
       } else {
         toast.success('GPT taslağı oluşturuldu. Önizleyip kaydedebilirsiniz.');
       }
+      setExcelFileToUpload(null);
+      setExcelSheets([]);
+      setSelectedExcelSheet('');
+      if (excelFileInputRef.current) excelFileInputRef.current.value = '';
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'GPT taslağı oluşturulamadı.';
       setGptError(msg);
@@ -1125,10 +1158,40 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
     await generateGptDraft();
   };
 
-  const handleGptFromExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleExcelFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !token || !canGpt) return;
-    e.target.value = '';
+    if (!file) {
+      setExcelFileToUpload(null);
+      setExcelSheets([]);
+      setSelectedExcelSheet('');
+      return;
+    }
+    setExcelFileToUpload(file);
+    setGptGenerating(true);
+    try {
+      const formData = new FormData();
+      formData.append('excel_file', file);
+      const res = await apiFetch<{ sheets: string[] }>('/yillik-plan-icerik/parse-excel-sheets', {
+        method: 'POST',
+        token,
+        body: formData,
+      });
+      const sheets = res.sheets ?? [];
+      setExcelSheets(sheets);
+      if (sheets.length > 0) {
+        setSelectedExcelSheet(sheets[0]);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Excel sayfaları okunamadı');
+      setExcelSheets([]);
+      setSelectedExcelSheet('');
+    } finally {
+      setGptGenerating(false);
+    }
+  };
+
+  const handleGptFromExcel = async () => {
+    if (!excelFileToUpload || !token || !canGpt) return;
     const subject = subjects.find((s) => s.code === filters.subject_code);
     if (!subject) {
       toast.error('Ders seçin.');
@@ -1139,7 +1202,7 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
     setGptError(null);
     try {
       const formData = new FormData();
-      formData.append('excel_file', file);
+      formData.append('excel_file', excelFileToUpload);
       formData.append('subject_code', filters.subject_code);
       formData.append('subject_label', subject.label);
       formData.append('grade', filters.grade);
@@ -1147,6 +1210,7 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
       formData.append('section', 'ders');
       if (isLiseGrade) formData.append('school_profile', schoolProfile);
       if (gptModelId) formData.append('model', gptModelId);
+      if (selectedExcelSheet) formData.append('target_sheet_name', selectedExcelSheet);
       const res = await apiFetch<{
         items: Array<{
           week_order: number;
@@ -1164,7 +1228,7 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
           okul_temelli_planlama?: string;
         }>;
         warnings?: string[];
-        source?: 'gpt' | 'tymm' | 'meb_fallback';
+        source?: 'gpt' | 'tymm' | 'meb_fallback' | 'excel_parse';
         quality?: {
           total_weeks: number;
           filled_weeks: number;
@@ -1407,7 +1471,7 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
                   type="file"
                   accept=".xlsx,.xls"
                   className="hidden"
-                  onChange={handleGptFromExcel}
+                  onChange={handleExcelFileChange}
                 />
                 <button
                   type="button"
@@ -1416,7 +1480,7 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
                   className="inline-flex items-center gap-2 rounded-lg border border-primary/60 bg-background px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
                 >
                   <Upload className="size-4" />
-                  Excel Taslak
+                  Excel Seç
                 </button>
               </div>
               <p className="mt-2 text-xs leading-5 text-muted-foreground">
@@ -1671,15 +1735,19 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
                               <tr
                                 key={`${s.subject_code}-${isBilsem ? s.ana_grup + (s.alt_grup ?? '') : s.grade}-${s.academic_year}-${idx}`}
                                 className={isActive ? 'bg-primary/10' : 'hover:bg-muted/50 cursor-pointer'}
-                                onClick={() =>
+                                onClick={() => {
+                                  if (!isBilsem) {
+                                    const nextProfile = getSchoolProfileForSubjectCode(s.subject_code);
+                                    if (nextProfile) setSchoolProfile(nextProfile);
+                                  }
                                   setFilters({
                                     subject_code: s.subject_code,
                                     grade: isBilsem ? '' : String(s.grade ?? ''),
                                     ana_grup: isBilsem ? (s.ana_grup ?? '') : '',
                                     alt_grup: isBilsem ? (s.alt_grup ?? '') : '',
                                     academic_year: s.academic_year,
-                                  })
-                                }
+                                  });
+                                }}
                               >
                                 <td className="px-3 py-2">
                                   <Check className="size-4 text-green-600 dark:text-green-400" />
@@ -1727,11 +1795,44 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
                 );
                 const notDone = visibleFilterSubjects.filter((s) => !doneSet.has((s.code ?? '').toLowerCase().trim()));
                 const groupLabel = isBilsem ? `${filters.ana_grup}${filters.alt_grup ? ` / ${filters.alt_grup}` : ''}` : `${filters.grade}. Sınıf`;
+                const scopeSchoolProfileLabel =
+                  !isBilsem && isLiseGrade
+                    ? LISE_SCHOOL_PROFILES.find((p) => p.value === schoolProfile)?.label ?? null
+                    : null;
                 return notDone.length > 0 ? (
                   <div className="rounded-lg border border-amber-200 dark:border-amber-900/50 overflow-hidden">
-                    <p className="bg-amber-50 dark:bg-amber-950/30 px-4 py-2 text-xs font-medium text-amber-800 dark:text-amber-200 border-b border-amber-200 dark:border-amber-900/50">
-                      Plan oluşturulmayan dersler ({groupLabel} • {filters.academic_year})
-                    </p>
+                    <div className="bg-amber-50 dark:bg-amber-950/30 px-4 py-3 border-b border-amber-200 dark:border-amber-900/50">
+                      <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                        Plan oluşturulmayan dersler
+                      </p>
+                      <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-amber-800/90 dark:text-amber-200/90">
+                        <span className="text-muted-foreground dark:text-amber-200/70">Seçili kapsam:</span>
+                        <span className="inline-flex items-center rounded-md border border-amber-300/80 bg-white/60 px-2 py-0.5 font-medium text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-50">
+                          {groupLabel}
+                        </span>
+                        {scopeSchoolProfileLabel && (
+                          <>
+                            <span className="text-muted-foreground" aria-hidden>
+                              ·
+                            </span>
+                            <span className="inline-flex items-center rounded-md border border-amber-300/80 bg-white/60 px-2 py-0.5 font-medium text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-50">
+                              {scopeSchoolProfileLabel}
+                            </span>
+                          </>
+                        )}
+                        <span className="text-muted-foreground" aria-hidden>
+                          ·
+                        </span>
+                        <span className="inline-flex items-center rounded-md border border-amber-300/80 bg-white/60 px-2 py-0.5 font-medium text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-50">
+                          {filters.academic_year}
+                        </span>
+                        <span className="text-muted-foreground dark:text-amber-200/70">öğretim yılı</span>
+                      </p>
+                      <p className="mt-1.5 text-[11px] text-amber-800/75 dark:text-amber-200/70">
+                        Henüz plan kaydı yok — <span className="font-medium">Seç</span> veya{' '}
+                        <span className="font-medium">AI Oluştur</span>.
+                      </p>
+                    </div>
                     <div className="max-h-[160px] overflow-y-auto">
                       <ul className="divide-y divide-border">
                         {notDone.map((s, i) => (
@@ -1794,7 +1895,9 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
                           ? 'Kaynak: TYMM'
                           : gptDraft.source === 'meb_fallback'
                             ? 'Kaynak: MEB Fallback'
-                            : 'Kaynak: AI'}
+                            : gptDraft.source === 'excel_parse'
+                              ? 'Kaynak: Excel (sıra korundu)'
+                              : 'Kaynak: AI'}
                       </span>
                     )}
                   </CardTitle>

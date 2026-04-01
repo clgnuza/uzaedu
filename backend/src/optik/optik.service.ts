@@ -2,7 +2,6 @@ import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/com
 import OpenAI from 'openai';
 import { AppConfigService } from '../app-config/app-config.service';
 import { User } from '../users/entities/user.entity';
-import { MarketModuleUsageService } from '../market/market-module-usage.service';
 import { OptikAdminService } from './optik-admin.service';
 import { OptikFormPdfService } from './optik-form-pdf.service';
 import { OptikFormTemplate } from './entities/optik-form-template.entity';
@@ -26,7 +25,6 @@ export class OptikService {
 
   constructor(
     private readonly appConfig: AppConfigService,
-    private readonly marketModuleUsage: MarketModuleUsageService,
     private readonly optikAdmin: OptikAdminService,
     private readonly formPdf: OptikFormPdfService,
   ) {}
@@ -117,9 +115,6 @@ export class OptikService {
     schoolId?: string | null,
   ): Promise<OcrResponseDto> {
     await this.ensureModuleReady();
-    if (user) {
-      await this.marketModuleUsage.chargePaidModuleIfPriced(user, 'optical');
-    }
     const client = await this.getOpenAiClient();
     const config = await this.appConfig.getOptikConfig();
 
@@ -202,10 +197,6 @@ export class OptikService {
         needs_rescan: true,
         reasons: [{ criterion: 'OCR güveni düşük', points: 0, evidence: [] }],
       };
-    }
-
-    if (user) {
-      await this.marketModuleUsage.chargePaidModuleIfPriced(user, 'optical');
     }
 
     const client = await this.getOpenAiClient();

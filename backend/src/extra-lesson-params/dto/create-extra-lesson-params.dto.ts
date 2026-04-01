@@ -32,6 +32,14 @@ class LineItemDto {
 
   @IsOptional()
   @IsNumber()
+  gosterge_day?: number;
+
+  @IsOptional()
+  @IsNumber()
+  gosterge_night?: number;
+
+  @IsOptional()
+  @IsNumber()
   unit_price_day?: number;
 
   @IsOptional()

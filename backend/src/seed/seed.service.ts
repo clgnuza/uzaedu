@@ -18,9 +18,7 @@ import {
 import { ACADEMIC_CALENDAR_TYPE_EXTRAS_2025_2026 } from '../academic-calendar/academic-calendar.seed-by-type';
 import { UserRole, UserStatus } from '../types/enums';
 import { SchoolStatus, SchoolType, SchoolSegment } from '../types/enums';
-
-/** Demo şifre: her iki hesap için aynı (sadece yerel test). */
-const DEMO_PASSWORD = 'Demo123!';
+import { DEMO_CREDENTIALS } from './demo-credentials';
 
 /** Defterdoldur tarzı akademik takvim yapısı (site_map_item seed). */
 const AKADEMIK_TAKVIM_SEED: Array<{ title: string; path: string | null; description: string | null; sortOrder: number; children?: Array<{ title: string; path: string | null; description: string | null; sortOrder: number }> }> = [
@@ -142,7 +140,11 @@ export class SeedService {
   ) {}
 
   async run(): Promise<{ schoolId: string; userId: string; message: string }> {
-    const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
+    const [hashTeacher, hashSchoolAdmin, hashSuperadmin] = await Promise.all([
+      bcrypt.hash(DEMO_CREDENTIALS.teacher.password, 10),
+      bcrypt.hash(DEMO_CREDENTIALS.school_admin.password, 10),
+      bcrypt.hash(DEMO_CREDENTIALS.superadmin.password, 10),
+    ]);
     const existing = await this.userRepo.count();
 
     await this.seedSiteMap();
@@ -155,7 +157,7 @@ export class SeedService {
         where: { email: 'superadmin@demo.local' },
       });
       if (superadmin) {
-        superadmin.passwordHash = passwordHash;
+        superadmin.passwordHash = hashSuperadmin;
         await this.userRepo.save(superadmin);
       }
       let school = await this.schoolRepo.findOne({ where: {} });
@@ -197,11 +199,11 @@ export class SeedService {
             school_id: school.id,
             status: UserStatus.active,
             firebaseUid: null,
-            passwordHash,
+            passwordHash: hashSchoolAdmin,
           }),
         );
       } else {
-        schoolAdminExists.passwordHash = passwordHash;
+        schoolAdminExists.passwordHash = hashSchoolAdmin;
         await this.userRepo.save(schoolAdminExists);
       }
       const teacherExists = await this.userRepo.findOne({
@@ -216,18 +218,19 @@ export class SeedService {
             school_id: school.id,
             status: UserStatus.active,
             firebaseUid: null,
-            passwordHash,
+            passwordHash: hashTeacher,
           }),
         );
       } else {
-        teacherExists.passwordHash = passwordHash;
+        teacherExists.passwordHash = hashTeacher;
         await this.userRepo.save(teacherExists);
       }
       const first = await this.userRepo.findOne({ where: {}, order: { created_at: 'ASC' } });
       return {
         schoolId: first?.school_id || school.id,
         userId: first?.id || '',
-        message: 'Demo hesaplar güncellendi. Giriş: superadmin@demo.local, school_admin@demo.local veya teacher@demo.local / ' + DEMO_PASSWORD,
+        message:
+          'Demo hesaplar güncellendi. Şifreler web-admin giriş sayfasındaki yerel demo listesi ile aynıdır.',
       };
     }
 
@@ -249,7 +252,7 @@ export class SeedService {
       school_id: null,
       status: UserStatus.active,
       firebaseUid: null,
-      passwordHash,
+      passwordHash: hashSuperadmin,
     });
     await this.userRepo.save(superadmin);
 
@@ -260,7 +263,7 @@ export class SeedService {
       school_id: savedSchool.id,
       status: UserStatus.active,
       firebaseUid: null,
-      passwordHash,
+      passwordHash: hashSchoolAdmin,
     });
     await this.userRepo.save(schoolAdmin);
 
@@ -271,14 +274,15 @@ export class SeedService {
       school_id: savedSchool.id,
       status: UserStatus.active,
       firebaseUid: null,
-      passwordHash,
+      passwordHash: hashTeacher,
     });
     await this.userRepo.save(teacher);
 
     return {
       schoolId: savedSchool.id,
       userId: superadmin.id,
-      message: `Demo hesaplar oluşturuldu. Giriş: superadmin@demo.local, school_admin@demo.local veya teacher@demo.local / ${DEMO_PASSWORD}`,
+      message:
+        'Demo hesaplar oluşturuldu. Şifreler web-admin giriş sayfasındaki yerel demo listesi ile aynıdır.',
     };
   }
 

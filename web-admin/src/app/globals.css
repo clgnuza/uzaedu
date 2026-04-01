@@ -646,6 +646,21 @@ body {
     box-shadow: none !important;
   }
 
+  /* Günlük nöbet listesi – kompakt tablo (gunluk-tablo sayfası) */
+  .duty-gunluk-print-document thead svg {
+    display: none !important;
+  }
+  .duty-gunluk-print-document .duty-print-table th,
+  .duty-gunluk-print-document .duty-print-table td {
+    font-size: 9px !important;
+    line-height: 1.25 !important;
+    padding: 3px 4px !important;
+  }
+  .duty-gunluk-print-document .duty-print-table thead th {
+    font-size: 8px !important;
+    padding: 4px 3px !important;
+  }
+
   /* Ders programı yazdırma – sadece tablo, chrome yok */
   .ders-programi-print-card {
     box-shadow: none !important;

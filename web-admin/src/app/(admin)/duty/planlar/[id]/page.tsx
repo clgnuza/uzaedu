@@ -19,6 +19,7 @@ import {
   List,
   GripVertical,
   Search,
+  ArchiveRestore,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
@@ -30,6 +31,7 @@ import { Label } from '@/components/ui/label';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Alert } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
+import { getDutyLogActionLabel, getDutyLogDetailLine } from '@/lib/duty-log-labels';
 import * as XLSX from 'xlsx';
 
 type UserItem = { id: string; display_name: string | null; email: string };
@@ -62,6 +64,7 @@ type DutyPlan = {
   status: 'draft' | 'published';
   period_start: string | null;
   period_end: string | null;
+  archived_at?: string | null;
   slots?: DutySlot[];
 };
 
@@ -97,10 +100,6 @@ function formatDate(s: string | null) {
   if (!s) return '—';
   const d = new Date(s + 'T12:00:00');
   return d.toLocaleDateString('tr-TR');
-}
-
-function formatLogUser(u?: { display_name: string | null; email: string } | null) {
-  return u?.display_name?.trim() || u?.email || '';
 }
 
 function defaultDateInPlan(periodStart: string | null, periodEnd: string | null): string {
@@ -180,22 +179,6 @@ function areaSlotBoxClass(areaName: string | null | undefined): string {
   return AREA_SLOT_PALETTE[k];
 }
 
-function logDetailLine(log: RecentLog): string | null {
-  if (log.action === 'reassign' && (log.oldUser || log.newUser)) {
-    return `${formatLogUser(log.oldUser) || '—'} → ${formatLogUser(log.newUser) || '—'}`;
-  }
-  if (log.action === 'absent_marked' && formatLogUser(log.oldUser)) {
-    return formatLogUser(log.oldUser);
-  }
-  if (log.action === 'coverage_assigned' && (formatLogUser(log.oldUser) || formatLogUser(log.newUser))) {
-    const a = formatLogUser(log.oldUser);
-    const b = formatLogUser(log.newUser);
-    if (a && b) return `${a} → ${b}`;
-    return a || b;
-  }
-  return null;
-}
-
 export default function DutyPlanDetayPage() {
   const params = useParams();
   const router = useRouter();
@@ -229,6 +212,7 @@ export default function DutyPlanDetayPage() {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingPlan, setDeletingPlan] = useState(false);
+  const [unarchiving, setUnarchiving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [recentLogs, setRecentLogs] = useState<RecentLog[]>([]);
@@ -483,6 +467,20 @@ export default function DutyPlanDetayPage() {
     }
   };
 
+  const handleUnarchivePlan = async () => {
+    if (!token || !planId) return;
+    setUnarchiving(true);
+    try {
+      await apiFetch(`/duty/plans/${planId}/unarchive`, { token, method: 'POST' });
+      toast.success('Plan arşivden çıkarıldı.');
+      await fetchPlan();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'İşlem başarısız.');
+    } finally {
+      setUnarchiving(false);
+    }
+  };
+
   const handleWhatsAppShare = () => {
     if (!plan || !plan.slots?.length) return;
     const header = `${plan.version || 'Nöbet Planı'} – ${formatDate(plan.period_start)} / ${formatDate(plan.period_end)}\n\n`;
@@ -559,9 +557,10 @@ export default function DutyPlanDetayPage() {
   }
 
   const slots = plan.slots ?? [];
+  const isArchived = !!plan.archived_at;
   /** Yayınlı/taslak: okul yöneticisi slot ekler, siler, düzenler */
-  const canMutateSlots = isAdmin;
-  const canPublishDraft = isAdmin && plan.status === 'draft';
+  const canMutateSlots = isAdmin && !isArchived;
+  const canPublishDraft = isAdmin && plan.status === 'draft' && !isArchived;
 
   // Gün bazlı gruplama – aynı gün aynı arka plan rengi
   const DAY_GROUP_COLORS = [
@@ -625,6 +624,12 @@ export default function DutyPlanDetayPage() {
               Yayınla
             </Button>
           )}
+          {isAdmin && isArchived && (
+            <Button size="sm" variant="outline" onClick={handleUnarchivePlan} disabled={unarchiving}>
+              {unarchiving ? <LoadingSpinner className="size-4" /> : <ArchiveRestore className="size-4" />}
+              Arşivden çıkar
+            </Button>
+          )}
           {isAdmin && (
             <Button
               variant="ghost"
@@ -655,6 +660,12 @@ export default function DutyPlanDetayPage() {
         </span>
       </div>
 
+      {isArchived && (
+        <Alert
+          variant="info"
+          message="Bu plan arşivde. Günlük nöbet ve görev ekranlarında kullanılmaz; arşivden çıkararak tekrar etkinleştirebilirsiniz."
+        />
+      )}
       {canMutateSlots && plan.status === 'published' && (
         <Alert
           variant="info"
@@ -1190,18 +1201,7 @@ export default function DutyPlanDetayPage() {
             </div>
             <div className="space-y-1.5">
               {recentLogs.map((log) => {
-                const ACTION_LABELS: Record<string, string> = {
-                  reassign: 'Yerine görevlendirme',
-                  absent_marked: 'Gelmeyen işaretlendi',
-                  coverage_assigned: 'Ders ataması',
-                  duty_exempt_set: 'Muafiyet eklendi',
-                  duty_exempt_cleared: 'Muafiyet kaldırıldı',
-                  publish: 'Plan yayınlandı',
-                  slot_edit: 'Nöbet kaydı güncellendi',
-                  slot_add: 'Nöbet kaydı eklendi',
-                  slot_delete: 'Nöbet kaydı silindi',
-                };
-                const detailLine = logDetailLine(log);
+                const detailLine = getDutyLogDetailLine(log);
                 const ageMs = Date.now() - parseServerDateTime(log.created_at).getTime();
                 const canUndo = !log.undone_at && ageMs < 24 * 60 * 60 * 1000 &&
                   ['reassign', 'absent_marked', 'coverage_assigned', 'duty_exempt_set', 'duty_exempt_cleared'].includes(log.action);
@@ -1216,7 +1216,7 @@ export default function DutyPlanDetayPage() {
                     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <div className="flex min-w-0 items-center gap-2">
                         <span className={cn('rounded px-1.5 py-0.5 font-medium', log.undone_at ? 'bg-muted text-muted-foreground line-through' : 'bg-background')}>
-                          {ACTION_LABELS[log.action] ?? log.action}
+                          {getDutyLogActionLabel(log.action)}
                         </span>
                         <span className="truncate text-muted-foreground">
                           {log.performedByUser?.display_name || log.performedByUser?.email || ''}

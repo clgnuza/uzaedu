@@ -12,6 +12,12 @@ import { User } from '../../users/entities/user.entity';
 export const EXAM_DUTY_CATEGORIES = ['meb', 'osym', 'aof', 'ataaof', 'auzef'] as const;
 export type ExamDutyCategorySlug = (typeof EXAM_DUTY_CATEGORIES)[number];
 
+export function normalizeExamDutyCategorySlug(v: string | null | undefined): ExamDutyCategorySlug | null {
+  if (v == null || String(v).trim() === '') return null;
+  const s = String(v).trim().toLowerCase();
+  return (EXAM_DUTY_CATEGORIES as readonly string[]).includes(s) ? (s as ExamDutyCategorySlug) : null;
+}
+
 export const EXAM_DUTY_CATEGORY_LABELS: Record<ExamDutyCategorySlug, string> = {
   meb: 'MEB',
   osym: 'ÖSYM',

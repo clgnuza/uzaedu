@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
@@ -17,7 +17,6 @@ import {
   RefreshCw,
   Plus,
   Link2,
-  Settings,
   Pencil,
   FileText,
   Tag,
@@ -27,6 +26,9 @@ import {
   Clock,
   CheckCircle2,
   AlertTriangle,
+  Layers,
+  Info,
+  ExternalLink,
 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
@@ -39,6 +41,8 @@ type Channel = {
   label: string;
   sortOrder: number;
   isActive: boolean;
+  /** Kamu Haberler listesiyle aynı filtredeki aktif içerik sayısı */
+  itemCount?: number;
   sources?: { id: string; key: string; label: string }[];
 };
 type Source = {
@@ -51,6 +55,7 @@ type Source = {
   syncIntervalMinutes?: number;
   isActive?: boolean;
   lastSyncedAt?: string | null;
+  itemCount?: number;
 };
 type SyncSourceResult = {
   source_key: string;
@@ -101,14 +106,27 @@ type ContentItem = {
   is_active: boolean;
 };
 const CONTENT_TYPES = [
-  { value: 'announcement', label: 'Duyuru' },
-  { value: 'news', label: 'Haber' },
-  { value: 'competition', label: 'Yarışma' },
-  { value: 'exam', label: 'Sınav' },
-  { value: 'project', label: 'Proje' },
-  { value: 'event', label: 'Etkinlik' },
-  { value: 'document', label: 'Belge' },
-];
+  { value: 'announcement', label: 'Duyuru', hint: 'Resmi duyurular, genel bilgilendirme' },
+  { value: 'news', label: 'Haber', hint: 'Haber metinleri ve akış' },
+  { value: 'competition', label: 'Yarışma', hint: 'Yarışma ve olimpiyat duyuruları' },
+  { value: 'exam', label: 'Sınav', hint: 'Sınav takvimi, başvuru, kılavuz, ÖSYM / okul sınavları' },
+  { value: 'project', label: 'Proje', hint: 'TÜBİTAK, eTwinning, proje çağrıları' },
+  { value: 'event', label: 'Etkinlik', hint: 'Seminer, şenlik, çevrimiçi etkinlik' },
+  { value: 'document', label: 'Belge', hint: 'Yönetmelik, kılavuz, şablon, PDF bağlantıları' },
+] as const;
+
+function contentTypeBadgeClass(value: string): string {
+  const map: Record<string, string> = {
+    announcement: 'border-slate-500/25 bg-slate-500/10 text-slate-800 dark:text-slate-200',
+    news: 'border-blue-500/25 bg-blue-500/10 text-blue-800 dark:text-blue-200',
+    competition: 'border-rose-500/25 bg-rose-500/10 text-rose-900 dark:text-rose-200',
+    exam: 'border-violet-500/25 bg-violet-500/10 text-violet-900 dark:text-violet-200',
+    project: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200',
+    event: 'border-amber-500/30 bg-amber-500/10 text-amber-950 dark:text-amber-200',
+    document: 'border-orange-500/30 bg-orange-500/10 text-orange-950 dark:text-orange-200',
+  };
+  return map[value] ?? 'border-primary/25 bg-primary/10 text-primary';
+}
 
 const TABS = [
   { id: 'kanallar', label: 'Kanallar', icon: Newspaper },
@@ -116,6 +134,30 @@ const TABS = [
   { id: 'icerikler', label: 'İçerikler', icon: FileText },
   { id: 'sync', label: 'Senkronizasyon', icon: RefreshCw },
 ] as const;
+
+const KANAL_OZET_ETIKETLER = ['MEB duyuruları', 'Haberler', 'İl duyuruları', 'Yarışmalar', 'Eğitim duyuruları'] as const;
+
+/** Kanal satırında kısa açıklama (hover) */
+const KANAL_IPUCU: Partial<Record<string, string>> = {
+  meb_duyurulari: 'Merkez MEB birimleri (Personel GM, OGM, TEGM vb.)',
+  haberler: 'MEB merkez + iller — geniş haber akışı',
+  il_duyurulari: 'İl millî eğitim müdürlükleri',
+  yarismalar: 'Tüm ilgili kaynaklardan yarışma / olimpiyat içeriği (başlık + tür)',
+  egitim_duyurulari: 'Eğitim duyuruları için bağlı kaynaklar',
+};
+
+function haberlerChannelHref(channelKey: string): string {
+  return `/haberler?channel_key=${encodeURIComponent(channelKey)}`;
+}
+
+function haberlerSourceHref(sourceKey: string, sourceLabel: string): string {
+  const q = new URLSearchParams({ source_key: sourceKey, source_label: sourceLabel });
+  return `/haberler?${q.toString()}`;
+}
+
+function haberlerContentTypeHref(contentType: string): string {
+  return `/haberler?content_type=${encodeURIComponent(contentType)}`;
+}
 
 export default function HaberlerAyarlarPage() {
   const router = useRouter();
@@ -164,6 +206,16 @@ export default function HaberlerAyarlarPage() {
   });
 
   const isAdmin = me?.role === 'superadmin';
+
+  const sortedChannels = useMemo(
+    () => [...channels].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
+    [channels],
+  );
+
+  const sortedSources = useMemo(
+    () => [...sources].sort((a, b) => a.label.localeCompare(b.label, 'tr')),
+    [sources],
+  );
 
   useEffect(() => {
     if (!isAdmin) {
@@ -471,16 +523,36 @@ export default function HaberlerAyarlarPage() {
   return (
     <div className="space-y-5">
       {/* Başlık */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
         <button
+          type="button"
           onClick={() => router.push('/haberler')}
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted/50 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/50 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          aria-label="Haberler sayfasına dön"
         >
           <ArrowLeft className="h-4 w-4" />
         </button>
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Haberler Ayarları</h1>
-          <p className="text-sm text-muted-foreground">Kanallar, kaynaklar ve senkronizasyon yönetimi</p>
+        <div className="flex min-w-0 flex-1 gap-3">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-primary/20 bg-primary/5 text-primary">
+            <Newspaper className="h-5 w-5" aria-hidden />
+          </div>
+          <div className="min-w-0 space-y-2">
+            <h1 className="text-balance text-xl font-semibold tracking-tight text-foreground">Haberler Ayarları</h1>
+            <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+              Kanalları ve RSS / scrape kaynaklarını buradan yönetin; senkronizasyon ile içerikleri güncelleyin. Öğretmen
+              arayüzünde kanallar bu sıraya göre listelenir.
+            </p>
+            <div className="flex flex-wrap gap-1.5 pt-0.5">
+              {KANAL_OZET_ETIKETLER.map((label) => (
+                <span
+                  key={label}
+                  className="inline-flex items-center rounded-md border border-border/70 bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -495,10 +567,11 @@ export default function HaberlerAyarlarPage() {
                 <Link
                   key={t.id}
                   href={`/haberler/ayarlar?tab=${t.id}`}
+                  aria-current={isActive ? 'page' : undefined}
                   className={cn(
                     'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-all',
                     isActive
-                      ? 'bg-background text-foreground shadow-sm'
+                      ? 'bg-background text-foreground shadow-sm ring-1 ring-border/60'
                       : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
@@ -528,15 +601,27 @@ export default function HaberlerAyarlarPage() {
           {tab === 'kanallar' && (
             <Card>
               <CardHeader className="flex flex-row items-start justify-between gap-4 pb-3">
-                <div>
+                <div className="space-y-1">
                   <CardTitle className="text-base">Kanallar</CardTitle>
-                  <p className="mt-0.5 text-sm text-muted-foreground">MEB Duyuruları, Yarışmalar, Eğitim Duyuruları vb.</p>
+                  <p className="text-sm text-muted-foreground">
+                    Sıra alanı; Haberler ve Yayın ekranlarında görünüm sırasını belirler. Kaynak sayısı bağlı tekil kaynak;
+                    <strong className="font-medium text-foreground"> içerik</strong> sayısı öğretmen Haberler sayfasındaki
+                    aktif kayıtlarla aynı filtreyi kullanır.
+                  </p>
                 </div>
                 <Button onClick={() => openChannelModal()} size="sm" className="shrink-0">
                   <Plus className="mr-1.5 h-4 w-4" /> Kanal Ekle
                 </Button>
               </CardHeader>
-              <CardContent className="pt-0">
+              <CardContent className="space-y-3 pt-0">
+                <div className="flex gap-2 rounded-lg border border-sky-500/25 bg-sky-500/5 px-3 py-2.5 text-xs leading-relaxed text-sky-950 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-100/95">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-600 dark:text-sky-300" aria-hidden />
+                  <p>
+                    <span className="font-semibold">Yarışmalar</span> kanalı, uygulama tarafında yalnızca bu kanala bağlı
+                    kaynaklarla sınırlı değildir: tüm ilgili haber kaynaklarından yarışma / olimpiyat içeriği (başlık ve
+                    tür) ile listelenir. Senkron sonrası güncel içerikler için &quot;Senkronizasyon&quot; sekmesini kullanın.
+                  </p>
+                </div>
                 {channels.length === 0 ? (
                   <EmptyState
                     icon={<Newspaper className="size-10" />}
@@ -544,29 +629,64 @@ export default function HaberlerAyarlarPage() {
                     description="İlk kurulum için backend dizininde npm run seed-content çalıştırın veya Kanal Ekle ile manuel ekleyin."
                   />
                 ) : (
-                  <div className="divide-y divide-border">
-                    {channels.map((ch) => (
-                      <div key={ch.id} className="flex items-center justify-between gap-3 py-3">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <div className={cn('h-2 w-2 shrink-0 rounded-full', ch.isActive ? 'bg-emerald-500' : 'bg-muted-foreground/40')} />
-                          <div className="min-w-0">
-                            <p className="truncate font-medium text-sm">{ch.label}</p>
-                            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                              <span className="font-mono">{ch.key}</span>
-                              <span>Sıra: {ch.sortOrder}</span>
-                              <span>{ch.sources?.length ?? 0} kaynak</span>
+                  <ul className="divide-y divide-border rounded-xl border border-border/80 bg-muted/20">
+                    {sortedChannels.map((ch) => {
+                      const hint = KANAL_IPUCU[ch.key];
+                      return (
+                        <li key={ch.id}>
+                          <div className="flex flex-col gap-3 py-3 pl-3 pr-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:py-2.5">
+                            <div className="flex min-w-0 items-start gap-3 sm:items-center">
+                              <span
+                                className={cn(
+                                  'mt-1.5 h-2 w-2 shrink-0 rounded-full sm:mt-0',
+                                  ch.isActive ? 'bg-emerald-500' : 'bg-muted-foreground/40',
+                                )}
+                                title={ch.isActive ? 'Aktif' : 'Pasif'}
+                              />
+                              <div className="min-w-0">
+                                <p className="font-medium text-sm text-foreground">{ch.label}</p>
+                                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">{ch.key}</code>
+                                  <span className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background/80 px-1.5 py-0.5 tabular-nums">
+                                    Sıra {ch.sortOrder}
+                                  </span>
+                                  <span className="inline-flex items-center gap-1 text-muted-foreground">
+                                    <Layers className="h-3.5 w-3.5 opacity-70" aria-hidden />
+                                    {ch.sources?.length ?? 0} kaynak
+                                  </span>
+                                  <span className="inline-flex items-center gap-1 tabular-nums text-muted-foreground">
+                                    <Newspaper className="h-3.5 w-3.5 opacity-70" aria-hidden />
+                                    {ch.itemCount ?? 0} içerik
+                                  </span>
+                                </div>
+                                {hint ? (
+                                  <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground/90" title={hint}>
+                                    {hint}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 flex-col gap-2 self-center sm:flex-row sm:items-center sm:self-auto">
+                              <Link
+                                href={haberlerChannelHref(ch.key)}
+                                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-primary/35 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                                Haberlerde gör
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() => openChannelModal(ch)}
+                                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
+                              >
+                                <Pencil className="h-3.5 w-3.5" /> Düzenle
+                              </button>
                             </div>
                           </div>
-                        </div>
-                        <button
-                          onClick={() => openChannelModal(ch)}
-                          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                        >
-                          <Pencil className="h-3 w-3" /> Düzenle
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 )}
               </CardContent>
             </Card>
@@ -576,57 +696,101 @@ export default function HaberlerAyarlarPage() {
           {tab === 'kaynaklar' && (
             <Card>
               <CardHeader className="flex flex-row items-start justify-between gap-4 pb-3">
-                <div>
+                <div className="space-y-1">
                   <CardTitle className="text-base">Kaynaklar</CardTitle>
-                  <p className="mt-0.5 text-sm text-muted-foreground">Personel GM, TEGM, OGM, YEĞİTEK vb. RSS / Scrape kaynakları</p>
+                  <p className="text-sm text-muted-foreground">
+                    Her kaynak bir RSS adresi veya (isteğe bağlı) scrape yapılandırması ile tanımlanır. Kanallara bağlamak
+                    için Kanallar sekmesinden ilgili kanalı düzenleyin; senkronizasyon tüm uygun kaynakları sırayla çeker.
+                  </p>
                 </div>
                 <Button onClick={() => openSourceModal()} size="sm" className="shrink-0">
                   <Plus className="mr-1.5 h-4 w-4" /> Kaynak Ekle
                 </Button>
               </CardHeader>
-              <CardContent className="pt-0">
+              <CardContent className="space-y-3 pt-0">
+                <div className="flex gap-2 rounded-lg border border-violet-500/25 bg-violet-500/5 px-3 py-2.5 text-xs leading-relaxed text-violet-950 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-100/95">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-violet-600 dark:text-violet-300" aria-hidden />
+                  <p>
+                    <span className="font-semibold">RSS</span> önceliklidir; yoksa{' '}
+                    <span className="font-semibold">Scrape</span> ile liste sayfasından madde çekilir. Son senkron zamanı
+                    satırda gösterilir — aralık kaynak ayarındaki &quot;Sync aralığı&quot; ile ilişkilidir.
+                  </p>
+                </div>
                 {sources.length === 0 ? (
                   <EmptyState icon={<Link2 className="size-10" />} title="Kaynak yok" description="Kaynak eklemek için Kaynak Ekle butonunu kullanın." />
                 ) : (
-                  <div className="divide-y divide-border">
-                    {sources.map((s) => {
+                  <ul className="divide-y divide-border rounded-xl border border-border/80 bg-muted/20">
+                    {sortedSources.map((s) => {
                       const hasRss = !!s.rssUrl?.trim();
                       const hasScrape = !!(s.baseUrl && s.scrapeConfig);
                       const tip = hasRss ? 'RSS' : hasScrape ? 'Scrape' : null;
                       const lastSync = s.lastSyncedAt ? new Date(s.lastSyncedAt).toLocaleString('tr-TR') : 'Hiç';
                       return (
-                        <div key={s.id} className="flex items-center justify-between gap-3 py-3">
-                          <div className="flex min-w-0 items-center gap-3">
-                            <div className={cn('h-2 w-2 shrink-0 rounded-full', s.isActive ? 'bg-emerald-500' : 'bg-muted-foreground/40')} />
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <p className="font-medium text-sm">{s.label}</p>
-                                {tip && (
-                                  <span className={cn(
-                                    'rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
-                                    tip === 'RSS' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-                                  )}>
-                                    {tip}
-                                  </span>
+                        <li key={s.id}>
+                          <div className="flex flex-col gap-3 py-3 pl-3 pr-2 sm:flex-row sm:items-center sm:justify-between sm:py-2.5">
+                            <div className="flex min-w-0 items-start gap-3 sm:items-center">
+                              <span
+                                className={cn(
+                                  'mt-1.5 h-2 w-2 shrink-0 rounded-full sm:mt-0',
+                                  s.isActive ? 'bg-emerald-500' : 'bg-muted-foreground/40',
                                 )}
-                              </div>
-                              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                                <span className="font-mono">{s.key}</span>
-                                {s.baseUrl && <span className="max-w-40 truncate">{s.baseUrl}</span>}
-                                <span className="flex items-center gap-0.5"><Clock className="h-3 w-3" />{lastSync}</span>
+                                title={s.isActive ? 'Aktif' : 'Pasif'}
+                              />
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <p className="font-medium text-sm text-foreground">{s.label}</p>
+                                  {tip && (
+                                    <span
+                                      className={cn(
+                                        'rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+                                        tip === 'RSS'
+                                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                                          : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+                                      )}
+                                    >
+                                      {tip}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">{s.key}</code>
+                                  {s.baseUrl && (
+                                    <span className="max-w-[min(100%,14rem)] truncate" title={s.baseUrl}>
+                                      {s.baseUrl}
+                                    </span>
+                                  )}
+                                  <span className="inline-flex items-center gap-0.5 tabular-nums">
+                                    <Clock className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
+                                    {lastSync}
+                                  </span>
+                                  <span className="inline-flex items-center gap-1 tabular-nums">
+                                    <Newspaper className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
+                                    {s.itemCount ?? 0} içerik
+                                  </span>
+                                </div>
                               </div>
                             </div>
+                            <div className="flex shrink-0 flex-col gap-2 self-center sm:flex-row sm:items-center sm:self-auto">
+                              <Link
+                                href={haberlerSourceHref(s.key, s.label)}
+                                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-primary/35 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                                Haberlerde gör
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() => openSourceModal(s)}
+                                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
+                              >
+                                <Pencil className="h-3.5 w-3.5" /> Düzenle
+                              </button>
+                            </div>
                           </div>
-                          <button
-                            onClick={() => openSourceModal(s)}
-                            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                          >
-                            <Pencil className="h-3 w-3" /> Düzenle
-                          </button>
-                        </div>
+                        </li>
                       );
                     })}
-                  </div>
+                  </ul>
                 )}
               </CardContent>
             </Card>
@@ -636,15 +800,61 @@ export default function HaberlerAyarlarPage() {
           {tab === 'icerikler' && (
             <Card>
               <CardHeader className="flex flex-row items-start justify-between gap-4 pb-3">
-                <div>
+                <div className="space-y-1">
                   <CardTitle className="text-base">İçerikler</CardTitle>
-                  <p className="mt-0.5 text-sm text-muted-foreground">Manuel eklenen veya sync ile gelen içerikler.</p>
+                  <p className="text-sm text-muted-foreground">
+                    Senkron veya manuel kayıtlar. Tür alanı; Haberler / Yayın filtrelerinde ve istatistiklerde kullanılır.
+                    Özellikle <strong className="font-medium text-foreground">Sınav</strong>,{' '}
+                    <strong className="font-medium text-foreground">Proje</strong>,{' '}
+                    <strong className="font-medium text-foreground">Etkinlik</strong>,{' '}
+                    <strong className="font-medium text-foreground">Belge</strong> seçimleri doğru etiketleme için
+                    önemlidir.
+                  </p>
                 </div>
                 <Button onClick={openItemModal} size="sm" disabled={sources.length === 0} className="shrink-0">
                   <Plus className="mr-1.5 h-4 w-4" /> İçerik Ekle
                 </Button>
               </CardHeader>
-              <CardContent className="pt-0">
+              <CardContent className="space-y-3 pt-0">
+                <div className="flex flex-col gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3 py-2.5 text-xs leading-relaxed text-emerald-950 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100/95">
+                  <div className="flex gap-2">
+                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-300" aria-hidden />
+                    <p>
+                      İçerik türü özetleri: <strong>Sınav</strong> — sınav/kılavuz; <strong>Proje</strong> — proje çağrıları;{' '}
+                      <strong>Etkinlik</strong> — etkinlik duyurusu; <strong>Belge</strong> — yönetmelik / kılavuz
+                      bağlantısı. RSS çoğu kaydı &quot;Haber&quot; olarak getirir; gerekirse burada türü düzeltin veya
+                      manuel eklerken seçin.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 pl-6 pt-0.5">
+                    {CONTENT_TYPES.map((ct) => (
+                      <Link
+                        key={ct.value}
+                        href={haberlerContentTypeHref(ct.value)}
+                        className={cn(
+                          'inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors hover:opacity-90',
+                          contentTypeBadgeClass(ct.value),
+                        )}
+                        title={`${ct.hint} — Haberlerde bu türde filtrele`}
+                      >
+                        {ct.label}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs">
+                  <span className="text-muted-foreground">
+                    Yukarıdaki tür etiketleri Haberler’de aynı tür filtresini açar. Öğretmen akışı için kanal / kaynak
+                    süzgeçleri Haberler sayfasındadır.
+                  </span>
+                  <Link
+                    href="/haberler"
+                    className="inline-flex shrink-0 items-center gap-1.5 font-medium text-primary hover:underline"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                    Tüm haberler
+                  </Link>
+                </div>
                 {sources.length === 0 ? (
                   <EmptyState icon={<FileText className="size-10" />} title="Önce kaynak ekleyin" description="İçerik eklemek için önce bir kaynak oluşturmalısınız." />
                 ) : loading ? (
@@ -653,29 +863,55 @@ export default function HaberlerAyarlarPage() {
                   <EmptyState icon={<FileText className="size-10" />} title="İçerik yok" description="Manuel içerik eklemek için İçerik Ekle butonunu kullanın." />
                 ) : (
                   <>
-                    <div className="divide-y divide-border">
-                      {items.map((it) => (
-                        <div key={it.id} className="flex items-start justify-between gap-3 py-3">
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium">{it.title}</p>
-                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                              {it.source_label && (
-                                <span className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                                  <Tag className="h-2.5 w-2.5" />{it.source_label}
-                                </span>
-                              )}
-                              <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
-                                {CONTENT_TYPES.find((c) => c.value === it.content_type)?.label ?? it.content_type}
-                              </span>
+                    <ul className="divide-y divide-border rounded-xl border border-border/80 bg-muted/20">
+                      {items.map((it) => {
+                        const typeLabel = CONTENT_TYPES.find((c) => c.value === it.content_type)?.label ?? it.content_type;
+                        const typeHint = CONTENT_TYPES.find((c) => c.value === it.content_type)?.hint;
+                        return (
+                          <li key={it.id}>
+                            <div className="flex flex-col gap-3 py-3 pl-3 pr-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium leading-snug text-foreground">{it.title}</p>
+                                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                                  {it.source_label && (
+                                    <span className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background/80 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                                      <Tag className="h-2.5 w-2.5 opacity-70" aria-hidden />
+                                      {it.source_label}
+                                    </span>
+                                  )}
+                                  <span
+                                    className={cn(
+                                      'inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-semibold',
+                                      contentTypeBadgeClass(it.content_type),
+                                    )}
+                                    title={typeHint}
+                                  >
+                                    {typeLabel}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex shrink-0 flex-col gap-2 self-start sm:flex-row sm:items-center sm:self-auto">
+                                <Link
+                                  href={haberlerContentTypeHref(it.content_type)}
+                                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-primary/35 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                                  Haberlerde gör
+                                </Link>
+                                <a
+                                  href={it.source_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center justify-center rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
+                                >
+                                  Aç ↗
+                                </a>
+                              </div>
                             </div>
-                          </div>
-                          <a href={it.source_url} target="_blank" rel="noopener noreferrer"
-                            className="shrink-0 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
-                            Aç ↗
-                          </a>
-                        </div>
-                      ))}
-                    </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
                     {itemsTotal > 20 && (
                       <div className="flex items-center justify-center gap-2 border-t border-border pt-4">
                         <Button variant="outline" size="sm" disabled={itemsPage <= 1} onClick={() => setItemsPage((p) => p - 1)}>Önceki</Button>
@@ -698,9 +934,26 @@ export default function HaberlerAyarlarPage() {
                   <CardTitle className="flex items-center gap-2 text-base">
                     <RefreshCw className="h-4 w-4" /> Senkronizasyon Kontrol
                   </CardTitle>
-                  <p className="text-sm text-muted-foreground">RSS veya Scrape yapılandırmalı kaynaklardan içerik çekilir.</p>
+                  <p className="text-sm text-muted-foreground">
+                    RSS veya Scrape yapılandırmalı kaynaklardan içerik çekilir. Yeni kayıtlar çoğunlukla &quot;Haber&quot;
+                    türünde oluşur; <strong className="font-medium text-foreground">Sınav</strong>,{' '}
+                    <strong className="font-medium text-foreground">Proje</strong> vb. için İçerikler sekmesinden
+                    düzenleyebilir veya senkron sonrası kurallar (başlık eşlemesi) devreye girer.
+                  </p>
                 </CardHeader>
                 <CardContent className="space-y-4 pt-0">
+                  <div className="flex gap-2 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5 text-xs leading-relaxed text-amber-950 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100/95">
+                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden />
+                    <p>
+                      Manuel &quot;Şimdi Senkronize Et&quot; tüm uygun kaynakları sırayla işler. Otomatik zamanlama aşağıda;
+                      backend her 5 dakikada bir kontrol eder. Hata satırlarında kaynak etiketi ve hata metni görünür.
+                      Senkron sonrası güncel akışı{' '}
+                      <Link href="/haberler" className="font-medium text-amber-900 underline-offset-2 hover:underline dark:text-amber-50">
+                        Haberler sayfasında
+                      </Link>{' '}
+                      kontrol edin.
+                    </p>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     <Button onClick={handleSync} disabled={syncing}>
                       <RefreshCw className={cn('mr-1.5 h-4 w-4', syncing && 'animate-spin')} />
@@ -722,7 +975,7 @@ export default function HaberlerAyarlarPage() {
                   <div>
                     <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Kaynak durumları</p>
                     <div className="divide-y divide-border rounded-xl border border-border">
-                      {sources.map((s) => {
+                      {sortedSources.map((s) => {
                         const hasRss = !!s.rssUrl?.trim();
                         const hasScrape = !!(s.baseUrl && s.scrapeConfig);
                         const syncable = hasRss || hasScrape;
@@ -1025,7 +1278,7 @@ export default function HaberlerAyarlarPage() {
                 onChange={(e) => setItemForm((f) => ({ ...f, source_id: e.target.value }))}
                 className="mt-1 w-full rounded-lg border border-input bg-background px-4 py-2"
               >
-                {sources.map((s) => (
+                {sortedSources.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.label}
                   </option>
@@ -1057,6 +1310,9 @@ export default function HaberlerAyarlarPage() {
                   </option>
                 ))}
               </select>
+              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                {CONTENT_TYPES.find((c) => c.value === itemForm.content_type)?.hint ?? ''}
+              </p>
             </div>
             <label className="flex items-center gap-2">
               <input type="checkbox" checked={itemForm.is_active} onChange={(e) => setItemForm((f) => ({ ...f, is_active: e.target.checked }))} />

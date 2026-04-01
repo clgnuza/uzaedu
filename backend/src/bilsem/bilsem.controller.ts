@@ -17,6 +17,7 @@ import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-us
 import { RolesGuard } from '../common/guards/roles.guard';
 import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
 import { RequireSchoolModule } from '../common/decorators/require-school-module.decorator';
+import { RequireModuleActivationGuard } from '../market/guards/require-module-activation.guard';
 import { UserRole } from '../types/enums';
 import { BilsemService } from './bilsem.service';
 import { BilsemYillikPlanService } from './bilsem-yillik-plan.service';
@@ -26,7 +27,7 @@ import { PatchBilsemCalendarOverridesDto } from './dto/school-overrides.dto';
 import { CreateBilsemCalendarAssignmentDto } from './dto/create-assignment.dto';
 import { ReorderBilsemCalendarItemsDto } from './dto/reorder-items.dto';
 @Controller('bilsem')
-@UseGuards(JwtAuthGuard, RolesGuard, RequireSchoolModuleGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
 @RequireSchoolModule('bilsem')
 export class BilsemController {
   constructor(

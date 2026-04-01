@@ -91,6 +91,10 @@ export type ExtraLessonLineItem = {
   type: 'hourly' | 'fixed';
   /** Gösterge (140 gündüz, 150 gece). Formül: katsayı×gösterge×multiplier. */
   indicator?: number;
+  /** Şablondan: katsayı ile çarpılmadan önceki gündüz gösterge (EDUHEP: brüt = ROUND(saat×katsayı×gösterge×ölçek,2)). */
+  gosterge_day?: number;
+  /** Şablondan gece gösterge (ikili satırlarda). */
+  gosterge_night?: number;
   /** Kalem çarpanı: 1 (normal), 1.25 (özel eğitim), 2 (DYK). */
   multiplier?: number;
   /** unit_price yoksa indicator×multiplier ile hesaplanır. Override için. */

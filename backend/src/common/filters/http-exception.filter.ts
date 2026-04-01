@@ -29,6 +29,8 @@ const CODE_MESSAGES: Record<string, string> = {
   GPT_NOT_CONFIGURED: 'OpenAI API anahtarı tanımlı değil. backend/.env dosyasına OPENAI_API_KEY ekleyip backend\'i yeniden başlatın.',
   CALENDAR_EMPTY: 'Seçilen öğretim yılı için çalışma takvimi bulunamadı. Önce Çalışma Takvimi sekmesinden haftaları ekleyin.',
   DUTY_TEACHER_NOT_IN_SCHOOL: 'Bazı öğretmenler okulunuzda kayıtlı değil veya nöbetçi olarak atanamaz.',
+  MODULE_ACTIVATION_REQUIRED:
+    'Bu özelliği kullanmak için modülü Market sayfasından aylık veya yıllık tarifeye göre etkinleştirmeniz gerekir.',
 };
 
 export interface ErrorResponseBody {

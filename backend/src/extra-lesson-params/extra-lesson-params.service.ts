@@ -10,6 +10,7 @@ import { ExtraLessonLineItemTemplate } from './entities/extra-lesson-line-item-t
 import { CreateExtraLessonParamsDto } from './dto/create-extra-lesson-params.dto';
 import { UpdateExtraLessonParamsDto } from './dto/update-extra-lesson-params.dto';
 import { ListExtraLessonParamsDto } from './dto/list-extra-lesson-params.dto';
+import { AYLIK_KATSAYI_2026_OCAK_HAZIRAN } from './resmi-katsayilar';
 
 /** MEB 2026 resmi değerleri – GV Seri 332, DV istisna, SGK/ücretli parametreleri */
 const RESMI_2026 = {
@@ -58,7 +59,7 @@ export class ExtraLessonParamsService {
   ) {}
 
   async create(dto: CreateExtraLessonParamsDto): Promise<ExtraLessonParams> {
-    const coeff = dto.monthly_coefficient ?? 1.387871;
+    const coeff = dto.monthly_coefficient ?? parseFloat(AYLIK_KATSAYI_2026_OCAK_HAZIRAN);
     const indDay = dto.indicator_day ?? 140;
     const indNight = dto.indicator_night ?? 150;
     const templateRows = await this.getLineItemTemplates();
@@ -170,7 +171,7 @@ export class ExtraLessonParamsService {
       dto.indicator_day !== undefined ||
       dto.indicator_night !== undefined;
 
-    const coeff = parseFloat(entity.monthly_coefficient || '1.387871');
+    const coeff = parseFloat(entity.monthly_coefficient || AYLIK_KATSAYI_2026_OCAK_HAZIRAN);
     const indDay = entity.indicator_day ?? 140;
     const indNight = entity.indicator_night ?? 150;
 
@@ -310,7 +311,7 @@ export class ExtraLessonParamsService {
     const defaultCentralExam = this.getDefaultCentralExamRoles();
 
     for (const entity of all) {
-      const coeff = parseFloat(entity.monthly_coefficient || '1.387871');
+      const coeff = parseFloat(entity.monthly_coefficient || AYLIK_KATSAYI_2026_OCAK_HAZIRAN);
       entity.line_items = this.resolveLineItemsFromTemplates(baseItems, templateRows, coeff);
       entity.central_exam_roles = defaultCentralExam;
       if (!entity.education_levels?.length) {
@@ -323,8 +324,8 @@ export class ExtraLessonParamsService {
   }
 
   /**
-   * Gösterge tablosundan (DB) gelen değerlerle unit_price hesaplar.
-   * Formül: Tutar = ROUND(katsayı × gösterge, 2)
+   * Gösterge tablosundan (DB) gelen değerlerle unit_price hesaplar (önizleme/yönetim).
+   * Brüt hesap: EDUHEP uyumu için gosterge_day/night ile saat×katsayı×gösterge tek yuvarlamada (extra-lesson-calc).
    */
   private resolveLineItemsFromTemplates(
     baseItems: { key: string; label: string; type: string; sort_order?: number }[],
@@ -333,6 +334,7 @@ export class ExtraLessonParamsService {
   ): ExtraLessonLineItem[] {
     const r = (v: number) => Math.round(v * 100) / 100;
     const byKey = new Map(templates.map((t) => [t.key, t]));
+    const isDykKey = (k: string) => k === 'takviye_gunduz' || k === 'takviye_gece';
     return baseItems.map((item) => {
       const tpl = byKey.get(item.key);
       if (!tpl || item.type === 'fixed') {
@@ -342,13 +344,29 @@ export class ExtraLessonParamsService {
       const indNight = tpl.indicator_night != null ? Number(tpl.indicator_night) : null;
       const dayVal = r(coeff * indDay);
       const nightVal = indNight != null ? r(coeff * indNight) : dayVal;
+      const gosterge: Partial<ExtraLessonLineItem> = !isDykKey(item.key)
+        ? { gosterge_day: indDay, ...(indNight != null ? { gosterge_night: indNight } : {}) }
+        : {};
       if (item.key === 'gece' || item.key.endsWith('_gece')) {
-        return { ...item, type: 'hourly', unit_price: nightVal, sort_order: item.sort_order ?? 0 } as ExtraLessonLineItem;
+        return {
+          ...item,
+          type: 'hourly',
+          unit_price: nightVal,
+          ...gosterge,
+          sort_order: item.sort_order ?? 0,
+        } as ExtraLessonLineItem;
       }
       if (indNight != null && ['gunduz', 'ozel_egitim_25_gunduz', 'cezaevi_gunduz', 'takviye_gunduz'].includes(item.key)) {
-        return { ...item, type: 'hourly', unit_price_day: dayVal, unit_price_night: nightVal, sort_order: item.sort_order ?? 0 } as ExtraLessonLineItem;
+        return {
+          ...item,
+          type: 'hourly',
+          unit_price_day: dayVal,
+          unit_price_night: nightVal,
+          ...gosterge,
+          sort_order: item.sort_order ?? 0,
+        } as ExtraLessonLineItem;
       }
-      return { ...item, type: 'hourly', unit_price: dayVal, sort_order: item.sort_order ?? 0 } as ExtraLessonLineItem;
+      return { ...item, type: 'hourly', unit_price: dayVal, ...gosterge, sort_order: item.sort_order ?? 0 } as ExtraLessonLineItem;
     });
   }
 

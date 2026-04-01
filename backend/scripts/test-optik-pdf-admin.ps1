@@ -2,7 +2,7 @@
 $base = "http://localhost:4000/api"
 
 Write-Host "1. POST $base/auth/login (superadmin@demo.local) ..."
-$body = @{ email = "superadmin@demo.local"; password = "Demo123!" } | ConvertTo-Json
+$body = @{ email = "superadmin@demo.local"; password = "Su1n^qV4%pX9dK8*hL0j" } | ConvertTo-Json
 try {
     $login = Invoke-RestMethod -Uri "$base/auth/login" -Method Post -Body $body -ContentType "application/json"
 } catch {

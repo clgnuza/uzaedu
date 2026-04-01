@@ -16,10 +16,12 @@ import {
   UseInterceptors,
   InternalServerErrorException,
 } from '@nestjs/common';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
 import { RequireSchoolModule } from '../common/decorators/require-school-module.decorator';
+import { RequireModuleActivationGuard } from '../market/guards/require-module-activation.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RequireModule } from '../common/decorators/require-module.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -36,8 +38,10 @@ import { MebFetchService, ParsedPlanRow } from '../meb/meb-fetch.service';
 import { generateMebWorkCalendar, hasMebCalendar } from '../config/meb-calendar';
 import { getDersSaatiStatic } from '../config/ders-saati';
 
+/** Admin sayfası çoklu GET (liste, özet, meta, MEB listesi…) + React Strict Mode çift çağrı; global throttle 429 üretmesin. */
 @Controller('yillik-plan-icerik')
-@UseGuards(JwtAuthGuard, RequireSchoolModuleGuard)
+@SkipThrottle({ default: true, auth: true, public: true })
+@UseGuards(JwtAuthGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
 @RequireSchoolModule('outcome')
 export class YillikPlanIcerikController {
   constructor(
@@ -706,6 +710,7 @@ export class YillikPlanIcerikController {
 
   /** Superadmin, moderator: GPT ile taslak oluştur */
   @Post('generate-draft')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.superadmin, UserRole.moderator)
   @RequireModule('document_templates')
@@ -723,6 +728,7 @@ export class YillikPlanIcerikController {
 
   /** Superadmin, moderator: Excel yükleyerek GPT taslak oluştur (kaynak olarak yüklenen dosya kullanılır) */
   @Post('generate-draft-from-excel')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.superadmin, UserRole.moderator)
   @RequireModule('document_templates')
@@ -741,7 +747,7 @@ export class YillikPlanIcerikController {
   )
   async generateDraftFromExcel(
     @UploadedFile() file: Express.Multer.File | undefined,
-    @Body() dto: GenerateDraftFromExcelDto,
+    @Body() dto: GenerateDraftFromExcelDto & { target_sheet_name?: string },
   ) {
     if (!file || !file.buffer) {
       throw new BadRequestException({
@@ -763,11 +769,16 @@ export class YillikPlanIcerikController {
     try {
       tempPath = path.join(os.tmpdir(), `excel-${Date.now()}.xlsx`);
       fs.writeFileSync(tempPath, file.buffer);
-      const { items } = this.mebFetchService.parseExcelPlan(tempPath, grade, subjectCode);
+      
+      const targetSheetName = dto.target_sheet_name?.trim() || undefined;
+      const { items } = this.mebFetchService.parseExcelPlan(tempPath, grade, subjectCode, targetSheetName);
+      
       if (items.length === 0) {
+        const availableSheets = this.mebFetchService.getExcelSheetNames(tempPath);
         throw new BadRequestException({
           code: 'EXCEL_PARSE_EMPTY',
           message: 'Excel dosyasından plan satırı çıkarılamadı. Hafta, ünite, konu sütunlarını kontrol edin.',
+          details: { availableSheets }
         });
       }
       return this.gptService.generateDraft({
@@ -791,8 +802,51 @@ export class YillikPlanIcerikController {
     }
   }
 
+  @Post('parse-excel-sheets')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('document_templates')
+  @UseInterceptors(
+    FileInterceptor('excel_file', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (_, file, cb) => {
+        const ok =
+          file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+          file.mimetype === 'application/vnd.ms-excel' ||
+          file.originalname?.toLowerCase().endsWith('.xlsx') ||
+          file.originalname?.toLowerCase().endsWith('.xls');
+        cb(null, !!ok);
+      },
+    }),
+  )
+  async parseExcelSheets(@UploadedFile() file: Express.Multer.File | undefined) {
+    if (!file || !file.buffer) {
+      throw new BadRequestException({
+        code: 'EXCEL_REQUIRED',
+        message: 'Excel dosyası (.xlsx veya .xls) yükleyin.',
+      });
+    }
+    let tempPath: string | null = null;
+    try {
+      tempPath = path.join(os.tmpdir(), `excel-sheets-${Date.now()}.xlsx`);
+      fs.writeFileSync(tempPath, file.buffer);
+      const sheets = this.mebFetchService.getExcelSheetNames(tempPath);
+      return { sheets };
+    } finally {
+      if (tempPath && fs.existsSync(tempPath)) {
+        try {
+          fs.unlinkSync(tempPath);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+
   /** Superadmin, moderator: MEB TYMM taslak planından otomatik içe aktar */
   @Post('import-meb-taslak')
+  @Throttle({ default: { limit: 15, ttl: 60000 } })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.superadmin, UserRole.moderator)
   @RequireModule('document_templates')

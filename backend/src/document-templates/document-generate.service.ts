@@ -39,8 +39,6 @@ import { User } from '../users/entities/user.entity';
 import { UserRole } from '../types/enums';
 import { UploadService } from '../upload/upload.service';
 import { DocumentGenerationService } from './document-generation.service';
-import { EntitlementService } from '../entitlements/entitlement.service';
-import { MarketModuleUsageService } from '../market/market-module-usage.service';
 import { getAcademicYearOptions } from '../config/document-template-options';
 import { getAyForWeek, hasMebCalendar, mebTeachingWeeksAsWorkCalendar } from '../config/meb-calendar';
 import { GenerateDocumentDto } from './dto/generate-document.dto';
@@ -65,8 +63,6 @@ export class DocumentGenerateService {
     private readonly yillikPlanIcerikService: YillikPlanIcerikService,
     private readonly workCalendarService: WorkCalendarService,
     private readonly generationService: DocumentGenerationService,
-    private readonly entitlementService: EntitlementService,
-    private readonly marketModuleUsage: MarketModuleUsageService,
     private readonly bilsemYillikPlanService: BilsemYillikPlanService,
   ) {}
 
@@ -107,14 +103,7 @@ export class DocumentGenerateService {
     this.validateFormData(template, dto.form_data ?? {});
     const formData = dto.form_data ?? {};
 
-    // Market jeton/ek ders (document modülü fiyatı > 0) veya evrak entitlement kotası
-    if (!EntitlementService.isEvrakExempt(user.role as UserRole)) {
-      const billing: 'user' | 'school' = dto.billing_account === 'school' ? 'school' : 'user';
-      const usedMarket = await this.marketModuleUsage.tryConsumeForDocument(user, billing);
-      if (!usedMarket) {
-        await this.entitlementService.checkAndConsumeEvrak(user.id);
-      }
-    }
+    // Modül etkinleştirmesi: RequireModuleActivationGuard (document|bilsem) + POST /market/modules/activate
 
     // Yıllık plan DOCX: runtime üret (şablon merge değil) — landscape, dar margin,
     // altta zümre sayısı kadar sütun + müdür adı.

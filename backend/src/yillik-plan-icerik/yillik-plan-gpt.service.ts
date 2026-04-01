@@ -61,7 +61,7 @@ export interface DraftPlanItem {
 export interface GenerateDraftResult {
   items: DraftPlanItem[];
   warnings: string[];
-  source?: 'gpt' | 'tymm' | 'meb_fallback';
+  source?: 'gpt' | 'tymm' | 'meb_fallback' | 'excel_parse';
   quality?: {
     total_weeks: number;
     filled_weeks: number;
@@ -481,7 +481,7 @@ export class YillikPlanGptService {
     const missing = gains.filter((gain) => !covered.has(gain.code));
     if (!missing.length) return { items: out, warnings };
     warnings.push(`${missing.length} resmi MEB kazanımı eksikti; plana otomatik dağıtıldı.`);
-    let cursor = Math.max(0, eligible.length - missing.length);
+    let cursor = 0;
     for (const gain of missing) {
       const target = eligible[cursor % eligible.length]!;
       const current = String(target.kazanimlar ?? '').trim();
@@ -688,6 +688,7 @@ SÜTUN SEMANTİĞİ (ZORUNLU – her alan yalnızca kendi türünde içerik taş
 - zenginlestirme/farklılaştırma: Zenginleştirme/farklılaştırma etkinlikleri. Diğer sütunlardan taşan metin YASAK.
 
 EXCEL BİRLEŞTİRME KURALI: Aynı sütunda birden fazla satır Excel'de merge edilmiş olabilir. Tüm parçalar O SÜTUNA aittir – başka sütuna taşıma. Kaynakta "unite" etiketli veri unite'e, "konu" etiketli veri konuya, "kazanım" etiketli veri kazanimlar'a gitmeli.
+Bir hücrede çok satırlı öğrenme çıktısı varsa satır sırasını (yukarıdan aşağı) kaynakla AYNI tut; maddeleri yeniden sıralama.
 
 HAFTA KURALI: Her haftanın verisi o haftaya ait. Hafta N'nin kazanimlar'ı hafta N+1'e veya N-1'e kopyalanmaz. Karıştırma yasağı.
 
@@ -1064,10 +1065,18 @@ ZORUNLU KURALLAR:
 
     const tymmUrls = getTymmSourceUrls(params.subject_code, params.grade);
     let tymmExcelBlock = '';
+    const hasCustomUpload = (params.customSourceRows?.length ?? 0) > 0;
     let tymmExcelRows: ParsedPlanRow[] = params.customSourceRows ?? [];
     if (tymmExcelRows.length > 0 && !this.isSourceRowsCompatibleWithSubject(params.subject_code, tymmExcelRows)) {
-      draftWarnings.push('Yüklenen/kaynak plan seçilen dersle uyuşmadığı için dikkate alınmadı.');
-      tymmExcelRows = [];
+      draftWarnings.push(
+        hasCustomUpload
+          ? 'Yüklenen Excel ile ders uyumu şüpheli (ör. İngilizce plan izleri); dosya yine de kullanılıyor.'
+          : 'Yüklenen/kaynak plan seçilen dersle uyuşmadığı için dikkate alınmadı.',
+      );
+      // Dosya yükleme varsa satırları SİLME: aksi halde excel_parse yolu atlanır, TYMM indirme veya GPT devreye girer.
+      if (!hasCustomUpload) {
+        tymmExcelRows = [];
+      }
     }
     if (tymmExcelRows.length === 0 && getTymmFetchUrl(params.subject_code, params.grade)) {
       try {
@@ -1160,56 +1169,21 @@ KURALLAR: Kendi metin üretme, uydurma kesinlikle yasak. Verilen TYMM Excel veri
     }
     const hasTymmExcel = tymmExcelBlock.length > 0;
 
-    // Excel yükleme ile gelen customSourceRows: GPT devreye sok – parser hatalarını düzeltir, eksikleri tamamlar.
-    // tymmExcelRows'dan temizlenmediyse (uyumsuz reddedildiyse) customSourceRows da atlanır.
-    const customSourceValid = params.customSourceRows && params.customSourceRows.length > 0 && tymmExcelRows.length > 0;
+    // Excel yükleme: GPT ile yeniden sıralama YAPILMAZ — parse satırları hafta numarasına göre birebir kullanılır.
+    // Koşul doğrudan yükleme: uyumsuzluk uyarısı tymmExcelRows'u sildiğinde eski kod burayı atlıyordu.
+    const customSourceValid = hasCustomUpload;
     if (customSourceValid) {
-      const gptResult = await this.planFromParsedRows({
-        subject_code: params.subject_code,
-        subject_label: params.subject_label,
-        grade: params.grade,
-        academic_year: params.academic_year,
-        targetWeeks: totalWeeks,
-        tatilWeeks,
+      const sourceDraft = this.buildDraftFromSourceRows({
         sourceRows: params.customSourceRows!,
-        model: params.model,
+        calendarWeekOrders,
+        tatilWeeks,
+        totalWeeks,
+        expectedSaati: haftalikDersSaati,
+        teachingWeeks,
       });
-      if (gptResult.items.length >= Math.max(1, totalWeeks - 5)) {
-        const draftItems: DraftPlanItem[] = [];
-        const byWeek = new Map(gptResult.items.map((r) => [r.week_order, r]));
-        let lastU = '';
-        let lastK = '';
-        let lastKaz = '';
-        for (const w of [...calendarWeekOrders].sort((a, b) => a - b)) {
-          const r = byWeek.get(w);
-          const isTatil = tatilWeeks.includes(w);
-          const u = (r?.unite ?? '').trim();
-          const k = (r?.konu ?? '').trim();
-          const kaz = (r?.kazanimlar ?? '').trim().slice(0, 4000);
-          const unite = u || (isTatil ? '—' : lastU || '—');
-          const konu = k || (isTatil ? '—' : lastK || '—');
-          const kazanimlar = kaz || (isTatil ? '—' : lastKaz || '—');
-          if (u) lastU = u;
-          if (k) lastK = k;
-          if (kaz) lastKaz = kaz;
-          draftItems.push({
-            week_order: w,
-            unite,
-            konu,
-            kazanimlar,
-            ders_saati: isTatil ? 0 : w >= 37 ? 2 : haftalikDersSaati,
-            belirli_gun_haftalar: (r?.belirli_gun_haftalar ?? '').trim() || '',
-            surec_bilesenleri: (r?.surec_bilesenleri ?? '').trim() || '',
-            olcme_degerlendirme: (r?.olcme_degerlendirme ?? '').trim() || '',
-            sosyal_duygusal: (r?.sosyal_duygusal ?? '').trim() || '',
-            degerler: (r?.degerler ?? '').trim() || '',
-            okuryazarlik_becerileri: (r?.okuryazarlik_becerileri ?? '').trim() || '',
-            zenginlestirme: (r?.zenginlestirme ?? '').trim() || '',
-            okul_temelli_planlama: (r?.okul_temelli_planlama ?? '').trim() || '',
-          });
-        }
+      if (sourceDraft.items.length > 0) {
         const hardened = this.hardenDraftResult({
-          items: draftItems,
+          items: sourceDraft.items,
           sourceRows: params.customSourceRows!,
           tatilWeeks,
           totalWeeks,
@@ -1230,13 +1204,17 @@ KURALLAR: Kendi metin üretme, uydurma kesinlikle yasak. Verilen TYMM Excel veri
         });
         return {
           items: coverage.items,
-          warnings: [...draftWarnings, ...gptResult.warnings, ...coverage.warnings],
-          source: 'gpt',
+          warnings: [
+            ...draftWarnings,
+            'Excel hafta sırası korundu (GPT yeniden sıralama atlandı).',
+            ...sourceDraft.warnings,
+            ...coverage.warnings,
+          ],
+          source: 'excel_parse',
           quality,
           ...this.buildSaveDecision(quality),
         };
       }
-      // GPT yetersiz döndüyse deterministik fallback
     }
 
     // TYMM kaynağı (fetch) varsa: deterministik build (GPT yok, kaynakla birebir tutarlı).
@@ -1897,11 +1875,36 @@ ${tatilLines ? `\n## TATİL HAFTALARI (ders_saati=0, unite/konu/kazanimlar="—"
     teachingWeeks?: Array<{ weekOrder: number; weekStart: string }>;
   }): { items: DraftPlanItem[]; warnings: string[] } {
     const warnings: string[] = [];
-    const byWeek = new Map<number, ParsedPlanRow>(
-      params.sourceRows
-        .filter((r) => r.week_order >= 1 && r.week_order <= MAX_WEEKS)
-        .map((r) => [r.week_order, r]),
-    );
+    const mergeSrcField = (fa: string | null | undefined, fb: string | null | undefined): string | null => {
+      const sa = String(fa ?? '').trim();
+      const sb = String(fb ?? '').trim();
+      if (!sb) return sa || null;
+      if (!sa) return sb || null;
+      if (sa === sb || sa.includes(sb) || sb.includes(sa)) return sa.length >= sb.length ? sa : sb;
+      return `${sa}\n${sb}`;
+    };
+    const mergeParsedRows = (a: ParsedPlanRow, b: ParsedPlanRow): ParsedPlanRow => ({
+      ...a,
+      week_order: a.week_order,
+      unite: mergeSrcField(a.unite, b.unite),
+      konu: mergeSrcField(a.konu, b.konu),
+      kazanimlar: mergeSrcField(a.kazanimlar, b.kazanimlar),
+      ders_saati: Math.max(a.ders_saati ?? 0, b.ders_saati ?? 0) || a.ders_saati || b.ders_saati || 0,
+      belirli_gun_haftalar: mergeSrcField(a.belirli_gun_haftalar, b.belirli_gun_haftalar),
+      surec_bilesenleri: mergeSrcField(a.surec_bilesenleri, b.surec_bilesenleri),
+      olcme_degerlendirme: mergeSrcField(a.olcme_degerlendirme, b.olcme_degerlendirme),
+      sosyal_duygusal: mergeSrcField(a.sosyal_duygusal, b.sosyal_duygusal),
+      degerler: mergeSrcField(a.degerler, b.degerler),
+      okuryazarlik_becerileri: mergeSrcField(a.okuryazarlik_becerileri, b.okuryazarlik_becerileri),
+      zenginlestirme: mergeSrcField(a.zenginlestirme, b.zenginlestirme),
+      okul_temelli_planlama: mergeSrcField(a.okul_temelli_planlama, b.okul_temelli_planlama),
+    });
+    const byWeek = new Map<number, ParsedPlanRow>();
+    for (const r of params.sourceRows.filter((x) => x.week_order >= 1 && x.week_order <= MAX_WEEKS)) {
+      const ex = byWeek.get(r.week_order);
+      if (!ex) byWeek.set(r.week_order, { ...r });
+      else byWeek.set(r.week_order, mergeParsedRows(ex, r));
+    }
     const isPlaceholder = (v: string | null | undefined) => {
       const s = String(v ?? '').trim();
       return !s || s === '—';

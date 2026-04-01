@@ -14,6 +14,7 @@ import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
 import { RequireSchoolModule } from '../common/decorators/require-school-module.decorator';
+import { RequireModuleActivationGuard } from '../market/guards/require-module-activation.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RequireModule } from '../common/decorators/require-module.decorator';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
@@ -31,7 +32,7 @@ import { UpdateCriteriaDto } from './dto/update-criteria.dto';
 import { ReportContentDto } from './dto/report-content.dto';
 
 @Controller('school-reviews')
-@UseGuards(JwtAuthGuard, RequireSchoolModuleGuard)
+@UseGuards(JwtAuthGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
 @RequireSchoolModule('school_reviews')
 export class SchoolReviewsController {
   constructor(private readonly service: SchoolReviewsService) {}

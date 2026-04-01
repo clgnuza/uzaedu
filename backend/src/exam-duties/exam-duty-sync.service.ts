@@ -8,7 +8,13 @@ import { XMLParser } from 'fast-xml-parser';
 import * as cheerio from 'cheerio';
 import { ExamDutySyncSource } from './entities/exam-duty-sync-source.entity';
 import { ExamDuty } from './entities/exam-duty.entity';
-import { EXAM_DUTY_CATEGORIES, formatExamDutySyncTitle, getApplicationUrlForCategory, type DateValidationStatus } from './entities/exam-duty.entity';
+import {
+  EXAM_DUTY_CATEGORIES,
+  formatExamDutySyncTitle,
+  getApplicationUrlForCategory,
+  normalizeExamDutyCategorySlug,
+  type DateValidationStatus,
+} from './entities/exam-duty.entity';
 import { ExamDutyGptService, type ExamDutyExtractResult } from './exam-duty-gpt.service';
 import { AppConfigService } from '../app-config/app-config.service';
 import { User } from '../users/entities/user.entity';
@@ -356,7 +362,7 @@ export class ExamDutySyncService {
     let sourcesReset = 0;
     for (const key of keys) {
       const duties = await this.dutyRepo.find({
-        where: { sourceKey: key, status: 'draft' },
+        where: { sourceKey: key, status: 'draft', deletedAt: IsNull() },
         select: ['id'],
       });
       for (const d of duties) {
@@ -368,7 +374,7 @@ export class ExamDutySyncService {
         }
       }
       const src = await this.sourceRepo.findOne({ where: { key } });
-      if (src && src.lastProcessedUrl) {
+      if (src) {
         src.lastProcessedUrl = null;
         await this.sourceRepo.save(src);
         sourcesReset++;
@@ -637,7 +643,14 @@ export class ExamDutySyncService {
             addSkipped(title, link, 'Sadece ücret haberi; başvuru/sınav tarihi yok');
             continue;
           }
-          if (gptResult.category_slug) categorySlug = gptResult.category_slug;
+          categorySlug = this.resolveExamDutyCategorySlug({
+            body: rawDesc,
+            sourceHref: link,
+            gptCategory: gptResult.category_slug,
+            title,
+            fallbackSlug: source.categorySlug,
+            mode: 'rss',
+          });
           if (gptResult.son_basvuru) parsed.application_end = new Date(gptResult.son_basvuru);
           if (gptResult.sinav_1_gunu) parsed.exam_date = new Date(gptResult.sinav_1_gunu);
           if (gptResult.sinav_2_gunu) parsed.exam_date_end = new Date(gptResult.sinav_2_gunu);
@@ -956,7 +969,6 @@ export class ExamDutySyncService {
       processedCount++;
 
       let categorySlug = defaultCategory;
-      let gptCategory: string | null = null;
 
       let bodyText: string | null = c.preloadedBody ?? null;
       const fetchArticle = config?.fetch_article_for_dates === true;
@@ -1002,8 +1014,10 @@ export class ExamDutySyncService {
         );
 
         if (gptResult) {
+          /** GPT false dediyse metin "sınav tarihi" geçse bile başvuru duyurusu sayma (olay haberi yanlış pozitif). */
           const treatAsApplication =
-            gptResult.is_application_announcement || (bodySuggestsApp && hasBody);
+            gptResult.is_application_announcement ||
+            (gptResult.is_application_announcement !== false && bodySuggestsApp && hasBody);
           const hasAnyDate =
             !!(gptResult.son_basvuru || gptResult.sinav_1_gunu || gptResult.sinav_2_gunu);
           if (
@@ -1032,7 +1046,6 @@ export class ExamDutySyncService {
           if (treatAsApplication && !hasAnyDate && options.addDraftWithoutDates) {
             this.logger.log(`[${source.key}] Tarihsiz başvuru duyurusu taslak olarak eklenecek: ${c.title.slice(0, 50)}…`);
           }
-          gptCategory = gptResult.category_slug;
         } else if (
           !isExamAnnouncement &&
           (bodyFeeOnly || (!bodySuggestsApp && this.isLikelyNonApplication(c.title)))
@@ -1048,19 +1061,8 @@ export class ExamDutySyncService {
         }
       }
 
-      if (detectCategoryPerItem) {
-        categorySlug =
-          this.inferCategoryFromBody(bodyText ?? null) ??
-          gptCategory ??
-          this.inferCategoryFromTitle(c.title);
-      }
-
       const externalId = normHref;
       existingIds.add(externalId);
-
-      const minReasonableYear = 2024;
-      const useGptDate = (d: Date | null) =>
-        d && d.getFullYear() >= minReasonableYear && d.getFullYear() <= 2030;
 
       const fallbackDates = bodyText ? this.parseDatesFromBodyFallback(bodyText) : null;
       const useGptForDates = gptEnabled && gptAvailable && gptResult;
@@ -1080,13 +1082,27 @@ export class ExamDutySyncService {
       const gptSonBasvuru = parseGptDate(gptResult?.son_basvuru);
       const gptSinav1 = parseGptDate(gptResult?.sinav_1_gunu);
       const gptSinav2 = parseGptDate(gptResult?.sinav_2_gunu);
+      /** GPT çıktısında sınav alanları boş string ise regex fallback ile sınav üretme (yayın/yanlış eşleşme riski). */
+      const gptHasExamStrings = !!(gptResult?.sinav_1_gunu?.trim() || gptResult?.sinav_2_gunu?.trim());
 
       let applicationStart: Date | null = new Date();
       let applicationEnd: Date | null = useGptForDates && gptSonBasvuru.date ? gptSonBasvuru.date : (fallbackDates?.application_end ?? null);
       let applicationApprovalEnd: Date | null = null;
       let resultDate: Date | null = null;
-      let examDate: Date | null = useGptForDates && gptSinav1.date ? gptSinav1.date : (fallbackDates?.exam_date ?? null);
-      let examDateEnd: Date | null = useGptForDates && (gptSinav2.date ?? gptSinav1.date) ? (gptSinav2.date ?? gptSinav1.date) : (fallbackDates?.exam_date_end ?? null);
+      let examDate: Date | null;
+      let examDateEnd: Date | null;
+      if (useGptForDates && gptResult) {
+        if (gptHasExamStrings) {
+          examDate = gptSinav1.date;
+          examDateEnd = gptSinav2.date ?? gptSinav1.date;
+        } else {
+          examDate = null;
+          examDateEnd = null;
+        }
+      } else {
+        examDate = fallbackDates?.exam_date ?? null;
+        examDateEnd = fallbackDates?.exam_date_end ?? null;
+      }
 
       const appStartHasTime = true;
       let appEndHasTime = useGptForDates ? gptSonBasvuru.hasTime : false;
@@ -1100,7 +1116,15 @@ export class ExamDutySyncService {
       if (examDate && examDateEnd && examDate.getTime() > examDateEnd.getTime())
         [examDate, examDateEnd] = [examDateEnd, examDate];
 
-      if (gptResult?.category_slug) categorySlug = gptResult.category_slug;
+      categorySlug = this.resolveExamDutyCategorySlug({
+        body: bodyText,
+        sourceHref: c.href,
+        gptCategory: gptResult?.category_slug ?? null,
+        title: c.title,
+        fallbackSlug: defaultCategory,
+        detectPerItem: detectCategoryPerItem,
+        mode: 'scrape',
+      });
       const applicationUrl = getApplicationUrlForCategory(categorySlug);
 
       if (!applicationApprovalEnd && applicationEnd) {
@@ -1597,15 +1621,68 @@ export class ExamDutySyncService {
     return 'meb'; // varsayılan
   }
 
-  /** Metinden kategori çıkar – başlıkta yoksa body'de AUZEF/AÖF/ÖSYM aranır. AÖF/MEB önce (ilgili haberler ÖSYM geçebilir) */
+  /** Metinde geçen resmi başvuru adresleri (GPT'den önce) */
+  private inferCategoryFromUrlsInText(t: string): string | null {
+    if (/auzefgis\.istanbul\.edu\.tr/i.test(t)) return 'auzef';
+    if (/augis\.ata\.edu\.tr/i.test(t)) return 'ataaof';
+    if (/augis\.anadolu\.edu\.tr/i.test(t)) return 'aof';
+    if (/gis\.osym\.gov\.tr|ösym\.gov\.tr|osym\.gov\.tr/i.test(t)) return 'osym';
+    if (/mebbis\.meb\.gov\.tr/i.test(t)) return 'meb';
+    return null;
+  }
+
+  /** Haber/detay sayfası URL'sinden kurum (kaynak linki) */
+  private inferCategoryFromSourceUrl(href: string): string | null {
+    if (!href?.trim()) return null;
+    try {
+      const u = new URL(href.trim());
+      const host = u.hostname.toLowerCase();
+      if (host.includes('auzefgis')) return 'auzef';
+      if (host.includes('augis.ata')) return 'ataaof';
+      if (host.includes('augis.anadolu')) return 'aof';
+      if (host.includes('gis.osym') || host === 'osym.gov.tr' || host.endsWith('.osym.gov.tr')) return 'osym';
+      if (host.includes('mebbis')) return 'meb';
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  private resolveExamDutyCategorySlug(params: {
+    body: string | null;
+    sourceHref: string;
+    gptCategory: string | null;
+    title: string;
+    fallbackSlug: string;
+    mode: 'rss' | 'scrape';
+    detectPerItem?: boolean;
+  }): string {
+    const { body, sourceHref, gptCategory, title, fallbackSlug, mode, detectPerItem } = params;
+    const gpt = normalizeExamDutyCategorySlug(gptCategory);
+    const strong =
+      this.inferCategoryFromBody(body) ?? this.inferCategoryFromSourceUrl(sourceHref);
+    if (strong) return strong;
+    if (mode === 'rss') {
+      return gpt ?? normalizeExamDutyCategorySlug(fallbackSlug) ?? 'meb';
+    }
+    if (detectPerItem) {
+      return gpt ?? this.inferCategoryFromTitle(title);
+    }
+    return normalizeExamDutyCategorySlug(fallbackSlug) ?? 'meb';
+  }
+
+  /** Metinden kategori: önce URL kalıpları, sonra ösym/mebbis (meb genel en sonda) */
   private inferCategoryFromBody(text: string | null): string | null {
     if (!text || text.length < 30) return null;
     const t = text.toLowerCase();
+    const fromUrl = this.inferCategoryFromUrlsInText(t);
+    if (fromUrl) return fromUrl;
     if (/auzef|auzefgis\.istanbul|iüauzef|istanbul üniversitesi açık/i.test(t)) return 'auzef';
     if (/ataaof|ata-aöf|atı üniversitesi/i.test(t)) return 'ataaof';
     if (/(?:aöf|açık öğretim|augis\.anadolu|anadolu üniversitesi)/i.test(t)) return 'aof';
-    if (/meb|milli eğitim|mebbis/i.test(t)) return 'meb';
-    if (/ösym|osym|gis\.osym\.gov\.tr/i.test(t)) return 'osym';
+    if (/ösym|osym/i.test(t)) return 'osym';
+    if (/mebbis/i.test(t)) return 'meb';
+    if (/meb|milli eğitim/i.test(t)) return 'meb';
     return null;
   }
 
@@ -1613,6 +1690,17 @@ export class ExamDutySyncService {
   private bodySuggestsApplication(text: string): boolean {
     if (!text || text.length < 50) return false;
     const lower = text.toLowerCase();
+    /** Olay/haber: görev iptali, geç kalma, kare kod disiplini — resmi başvuru çağrısı değil */
+    if (
+      /görev(?:ler)?i\s*iptal|iptal\s*edildi|geç\s*gelen.*öğretmen|kare\s*kod.*(?:okut|giriş|sistem)/i.test(
+        lower,
+      ) &&
+      !/başvuru\s*(?:açıldı|dönemi|yapıl|ekranı)|son\s*başvuru\s*tarihi|gis\.osym|mebbis\.meb|augis\.|auzefgis/i.test(
+        lower,
+      )
+    ) {
+      return false;
+    }
     return (
       /son\s*başvuru|son\s*başvuru\s*tarihi|son\s*istek\s*(zamanı|tarihi|gün)/i.test(lower) ||
       /başvuru\s*(yapılır|yapılabilecek|açıldı|dönemi|:|\s+\d)/i.test(lower) ||

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, Brackets, SelectQueryBuilder } from 'typeorm';
 import { ContentChannel } from './entities/content-channel.entity';
 import { ContentSource } from './entities/content-source.entity';
 import { ContentItem } from './entities/content-item.entity';
@@ -34,6 +34,162 @@ function normalizeImageUrl(url: string | null | undefined): string | null {
 
 const HABERLER_FALLBACK_CHANNEL_KEYS = ['haberler', 'meb_duyurulari', 'il_duyurulari'] as const;
 
+/** Yarışmalar sekmesi: bu kanallara bağlı tüm kaynaklardan yarışma/olimpiyat içeriği (tekilleştirilmiş kaynak listesi) */
+const YARISMALAR_SOURCE_POOL_KEYS = ['haberler', 'meb_duyurulari', 'il_duyurulari', 'egitim_duyurulari'] as const;
+
+const YARISMALAR_TITLE_ILIKE = [
+  '%yarışma%',
+  '%yarışması%',
+  '%Yarışma%',
+  '%YARIŞMA%',
+  '%yarismasi%',
+  '%olimpiyat%',
+  '%Olimpiyat%',
+  '%Ölimpiyat%',
+  '%ödüllü%',
+  '%Ödüllü%',
+] as const;
+
+/** RSS’te çoğunlukla news; başlık ipuçlarıyla sınav/ölçme içeriği */
+const EXAM_TITLE_ILIKE = [
+  '%sınav%',
+  '%Sınav%',
+  '%SINAV%',
+  '%kılavuz%',
+  '%Kılavuz%',
+  '%ÖSYM%',
+  '%ösym%',
+  '%YKS%',
+  '%yks%',
+  '%LGS%',
+  '%lgs%',
+  '%MSÜ%',
+  '%msü%',
+  '%sınava%',
+  '%Sınava%',
+  '%yerleştirme%',
+  '%Yerleştirme%',
+] as const;
+
+const PROJECT_TITLE_ILIKE = [
+  '%TÜBİTAK%',
+  '%Tubitak%',
+  '%tübitak%',
+  '%eTwinning%',
+  '%etwinning%',
+  '%proje%',
+  '%Proje%',
+  '%proje çağrı%',
+  '%araştırma projesi%',
+  '%ARAŞTIRMA%PROJ%',
+] as const;
+
+const EVENT_TITLE_ILIKE = [
+  '%etkinlik%',
+  '%Etkinlik%',
+  '%ETKİNLİK%',
+  '%seminer%',
+  '%Seminer%',
+  '%konferans%',
+  '%Konferans%',
+  '%şenlik%',
+  '%Şenlik%',
+  '%çevrimiçi%',
+  '%çevrimiçi etkinlik%',
+  '%webinar%',
+  '%Webinar%',
+] as const;
+
+const DOCUMENT_TITLE_ILIKE = [
+  '%yönetmelik%',
+  '%Yönetmelik%',
+  '%genelge%',
+  '%Genelge%',
+  '%tebliğ%',
+  '%Tebliğ%',
+  '%şablon%',
+  '%Şablon%',
+  '%yönerge%',
+  '%Yönerge%',
+  '%talimatname%',
+  '%Talimatname%',
+] as const;
+
+const ANNOUNCEMENT_TITLE_ILIKE = [
+  '%duyuru%',
+  '%Duyuru%',
+  '%DUYURU%',
+  '%ilan%',
+  '%İlan%',
+  '%ilanı%',
+  '%İlanı%',
+] as const;
+
+/** DB türü eşleşmesi veya başlık ipuçları (paramPrefix ile çakışma yok). */
+function applyDbTypeOrTitlePatterns(
+  qb: SelectQueryBuilder<ContentItem>,
+  dbType: string,
+  patterns: readonly string[],
+  paramPrefix: string,
+  itemAlias = 'item',
+): void {
+  qb.andWhere(
+    new Brackets((wqb) => {
+      wqb.where(`${itemAlias}.contentType = :_${paramPrefix}ct`, {
+        [`_${paramPrefix}ct`]: dbType,
+      });
+      patterns.forEach((pat, i) => {
+        wqb.orWhere(`${itemAlias}.title ILIKE :_${paramPrefix}p${i}`, {
+          [`_${paramPrefix}p${i}`]: pat,
+        });
+      });
+    }),
+  );
+}
+
+/** DB türü competition veya başlıkta yarışma/olimpiyat ipucu (RSS çoğu kaydı news bırakır). */
+function applyCompetitionBroadFilter(
+  qb: SelectQueryBuilder<ContentItem>,
+  itemAlias = 'item',
+): void {
+  applyDbTypeOrTitlePatterns(qb, 'competition', YARISMALAR_TITLE_ILIKE, 'yc', itemAlias);
+}
+
+function applyYarismalarContentPredicate(
+  qb: SelectQueryBuilder<ContentItem>,
+  itemAlias = 'item',
+): void {
+  applyCompetitionBroadFilter(qb, itemAlias);
+}
+
+function applyContentTypeFilterForList(
+  qb: SelectQueryBuilder<ContentItem>,
+  contentType: string,
+): void {
+  switch (contentType) {
+    case 'competition':
+      applyCompetitionBroadFilter(qb);
+      break;
+    case 'exam':
+      applyDbTypeOrTitlePatterns(qb, 'exam', EXAM_TITLE_ILIKE, 'ex');
+      break;
+    case 'project':
+      applyDbTypeOrTitlePatterns(qb, 'project', PROJECT_TITLE_ILIKE, 'pr');
+      break;
+    case 'event':
+      applyDbTypeOrTitlePatterns(qb, 'event', EVENT_TITLE_ILIKE, 'ev');
+      break;
+    case 'document':
+      applyDbTypeOrTitlePatterns(qb, 'document', DOCUMENT_TITLE_ILIKE, 'doc');
+      break;
+    case 'announcement':
+      applyDbTypeOrTitlePatterns(qb, 'announcement', ANNOUNCEMENT_TITLE_ILIKE, 'an');
+      break;
+    default:
+      qb.andWhere('item.contentType = :contentType', { contentType });
+  }
+}
+
 @Injectable()
 export class ContentService {
   constructor(
@@ -58,6 +214,31 @@ export class ContentService {
       .distinct(true)
       .getMany();
     return sources.map((source) => source.id);
+  }
+
+  /** Kamuya açık Haberler listesi ile aynı filtre (yalnızca aktif içerikler) */
+  private async countItemsForChannelPublic(channelKey: string): Promise<number> {
+    const qb = this.itemRepo
+      .createQueryBuilder('item')
+      .where('item.isActive = :active', { active: true });
+
+    if (channelKey === 'haberler') {
+      const ids = await this.getSourceIdsForChannelKeys(HABERLER_FALLBACK_CHANNEL_KEYS);
+      if (!ids.length) return 0;
+      qb.andWhere('item.sourceId IN (:...ids)', { ids });
+    } else if (channelKey === 'yarismalar') {
+      const yids = await this.getSourceIdsForChannelKeys(YARISMALAR_SOURCE_POOL_KEYS);
+      if (!yids.length) return 0;
+      qb.andWhere('item.sourceId IN (:...yids)', { yids });
+      applyYarismalarContentPredicate(qb);
+    } else {
+      qb
+        .innerJoin('channel_sources', 'cs', 'cs.source_id = item.sourceId')
+        .innerJoin('content_channels', 'ch', 'ch.id = cs.channel_id AND ch.key = :channelKey', {
+          channelKey,
+        });
+    }
+    return qb.getCount();
   }
 
   async getSyncSchedule(): Promise<{
@@ -102,6 +283,25 @@ export class ContentService {
     });
     const result = await Promise.all(
       channels.map(async (ch) => {
+        if (ch.key === 'yarismalar') {
+          const yids = await this.getSourceIdsForChannelKeys(YARISMALAR_SOURCE_POOL_KEYS);
+          let count = 0;
+          if (yids.length > 0) {
+            const yqb = this.itemRepo
+              .createQueryBuilder('item')
+              .where('item.isActive = :active', { active: true })
+              .andWhere('item.sourceId IN (:...yids)', { yids });
+            applyYarismalarContentPredicate(yqb);
+            count = await yqb.getCount();
+          }
+          return {
+            id: ch.id,
+            key: ch.key,
+            label: ch.label,
+            sortOrder: ch.sortOrder,
+            itemCount: count,
+          };
+        }
         const sourceIds =
           ch.key === 'haberler'
             ? await this.getSourceIdsForChannelKeys(HABERLER_FALLBACK_CHANNEL_KEYS)
@@ -149,6 +349,17 @@ export class ContentService {
         } else {
           qb.andWhere('1 = 0');
         }
+      } else if (dto.channel_key === 'yarismalar') {
+        const yids = await this.getSourceIdsForChannelKeys(YARISMALAR_SOURCE_POOL_KEYS);
+        if (yids.length) {
+          qb.andWhere('item.sourceId IN (:...yids)', { yids });
+          // İçerik türü seçiliyken yalnızca DB türü + kaynak havuzu kullanılır; başlık/yarışma OR'u tür filtresini boğmasın.
+          if (!dto.content_type?.trim()) {
+            applyYarismalarContentPredicate(qb);
+          }
+        } else {
+          qb.andWhere('1 = 0');
+        }
       } else {
         qb.innerJoin('channel_sources', 'cs', 'cs.source_id = item.sourceId')
           .innerJoin('content_channels', 'ch', 'ch.id = cs.channel_id AND ch.key = :channelKey', {
@@ -157,8 +368,8 @@ export class ContentService {
       }
     }
 
-    if (dto.content_type) {
-      qb.andWhere('item.contentType = :contentType', { contentType: dto.content_type });
+    if (dto.content_type?.trim()) {
+      applyContentTypeFilterForList(qb, dto.content_type.trim());
     }
 
     if (dto.source_key) {
@@ -214,10 +425,27 @@ export class ContentService {
   // --- Admin ---
 
   async adminListChannels() {
-    return this.channelRepo.find({
+    const channels = await this.channelRepo.find({
       order: { sortOrder: 'ASC', label: 'ASC' },
       relations: ['sources'],
     });
+    return Promise.all(
+      channels.map(async (ch) => ({
+        id: ch.id,
+        key: ch.key,
+        label: ch.label,
+        sortOrder: ch.sortOrder,
+        isActive: ch.isActive,
+        createdAt: ch.createdAt,
+        updatedAt: ch.updatedAt,
+        sources: (ch.sources ?? []).map((s) => ({
+          id: s.id,
+          key: s.key,
+          label: s.label,
+        })),
+        itemCount: await this.countItemsForChannelPublic(ch.key),
+      })),
+    );
   }
 
   async adminCreateChannel(dto: CreateContentChannelDto) {
@@ -254,7 +482,30 @@ export class ContentService {
   }
 
   async adminListSources() {
-    return this.sourceRepo.find({ order: { label: 'ASC' } });
+    const sources = await this.sourceRepo.find({ order: { label: 'ASC' } });
+    const raw = await this.itemRepo
+      .createQueryBuilder('item')
+      .select('item.sourceId', 'sourceId')
+      .addSelect('COUNT(*)', 'cnt')
+      .where('item.isActive = :a', { a: true })
+      .groupBy('item.sourceId')
+      .getRawMany<{ sourceId: string; cnt: string }>();
+    const countMap = new Map(raw.map((r) => [r.sourceId, parseInt(r.cnt, 10)]));
+    return sources.map((s) => ({
+      id: s.id,
+      key: s.key,
+      label: s.label,
+      baseUrl: s.baseUrl,
+      rssUrl: s.rssUrl,
+      rssItemLimit: s.rssItemLimit,
+      scrapeConfig: s.scrapeConfig,
+      syncIntervalMinutes: s.syncIntervalMinutes,
+      lastSyncedAt: s.lastSyncedAt?.toISOString?.() ?? null,
+      isActive: s.isActive,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+      itemCount: countMap.get(s.id) ?? 0,
+    }));
   }
 
   async adminCreateSource(dto: CreateContentSourceDto) {
@@ -294,12 +545,26 @@ export class ContentService {
       .addOrderBy('item.createdAt', 'DESC');
 
     if (dto.channel_key) {
-      qb.innerJoin('channel_sources', 'cs', 'cs.source_id = item.sourceId')
-        .innerJoin('content_channels', 'ch', 'ch.id = cs.channel_id AND ch.key = :channelKey', {
-          channelKey: dto.channel_key,
-        });
+      if (dto.channel_key === 'yarismalar') {
+        const yids = await this.getSourceIdsForChannelKeys(YARISMALAR_SOURCE_POOL_KEYS);
+        if (yids.length) {
+          qb.andWhere('item.sourceId IN (:...yids)', { yids });
+          if (!dto.content_type?.trim()) {
+            applyYarismalarContentPredicate(qb);
+          }
+        } else {
+          qb.andWhere('1 = 0');
+        }
+      } else {
+        qb.innerJoin('channel_sources', 'cs', 'cs.source_id = item.sourceId')
+          .innerJoin('content_channels', 'ch', 'ch.id = cs.channel_id AND ch.key = :channelKey', {
+            channelKey: dto.channel_key,
+          });
+      }
     }
-    if (dto.content_type) qb.andWhere('item.contentType = :ct', { ct: dto.content_type });
+    if (dto.content_type?.trim()) {
+      applyContentTypeFilterForList(qb, dto.content_type.trim());
+    }
     if (dto.source_key) qb.andWhere('source.key = :sk', { sk: dto.source_key });
     if (dto.city) qb.andWhere('(item.cityFilter IS NULL OR item.cityFilter = :city)', { city: dto.city });
 

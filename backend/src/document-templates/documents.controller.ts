@@ -12,6 +12,7 @@ import {
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
 import { RequireAnySchoolModule } from '../common/decorators/require-school-module.decorator';
+import { RequireModuleActivationGuard } from '../market/guards/require-module-activation.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RequireModule } from '../common/decorators/require-module.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -23,7 +24,7 @@ import { DocumentGenerationService } from './document-generation.service';
 import { GenerateDocumentDto } from './dto/generate-document.dto';
 
 @Controller('documents')
-@UseGuards(JwtAuthGuard, RequireSchoolModuleGuard)
+@UseGuards(JwtAuthGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
 @RequireAnySchoolModule('document', 'bilsem')
 export class DocumentsController {
   constructor(
