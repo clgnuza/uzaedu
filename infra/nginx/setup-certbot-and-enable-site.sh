@@ -20,6 +20,8 @@ apt-get install -y -qq nginx certbot python3-certbot-nginx
 cp -a "$HTTP_CONF" "$NGINX_SITE"
 ln -sf "$NGINX_SITE" /etc/nginx/sites-enabled/uzaedu
 rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+# Eski tekil site (uzaedu.conf) çakışma uyarısı verir
+rm -f /etc/nginx/sites-enabled/uzaedu.conf 2>/dev/null || true
 nginx -t
 systemctl reload nginx
 
