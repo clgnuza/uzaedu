@@ -53,4 +53,6 @@ jobs:
             set -eux
             test -d /opt/uzaedu
             cd /opt/uzaedu
+            git fetch origin main
+            git pull --ff-only origin main
             bash scripts/deploy/server-deploy.sh
