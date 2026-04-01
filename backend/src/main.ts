@@ -1,22 +1,4 @@
-if (process.env.APP_ENV === 'local' || !process.env.APP_ENV) {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-}
-import { config } from 'dotenv';
-import { resolve } from 'path';
-// Backend root'taki .env (cwd veya dist/src'den bir üst)
-const envPaths = [
-  resolve(process.cwd(), '.env'),
-  resolve(__dirname, '..', '.env'), // dist/main.js veya src/main.ts'den
-];
-let loadedFrom: string | null = null;
-for (const p of envPaths) {
-  const result = config({ path: p });
-  if (!result.error) {
-    loadedFrom = p;
-    break;
-  }
-}
-
+import { loadedEnvPath } from './bootstrap-env';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
@@ -67,10 +49,10 @@ async function bootstrap() {
   app.enableCors({ origin: env.corsOrigins, credentials: true });
   await app.listen(env.port);
   console.log(`Backend çalışıyor: http://localhost:${env.port}/api`);
-  if (loadedFrom) {
-    console.log(`.env yüklendi: ${loadedFrom}`);
+  if (loadedEnvPath) {
+    console.log(`.env yüklendi: ${loadedEnvPath}`);
   } else {
-    console.warn('UYARI: .env dosyası bulunamadı. Denenen yollar:', envPaths);
+    console.warn('UYARI: .env dosyası bulunamadı.');
   }
   const hasOpenAiKey = !!process.env.OPENAI_API_KEY?.trim();
   if (!hasOpenAiKey) {
