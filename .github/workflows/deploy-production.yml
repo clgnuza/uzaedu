@@ -1,0 +1,42 @@
+# Production: SSH to server, run scripts/deploy/server-deploy.sh (git pull, build, pm2).
+# Repo secrets: DEPLOY_SSH_HOST, DEPLOY_SSH_USER, DEPLOY_SSH_KEY
+
+name: Deploy production
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - 'web-admin/**'
+      - 'scripts/deploy/**'
+      - '.github/workflows/deploy-production.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-uzaedu-prod
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Run server deploy script over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: 22
+          command_timeout: 20m
+          script_stop: true
+          script: |
+            set -e
+            test -d /opt/uzaedu
+            cd /opt/uzaedu
+            bash scripts/deploy/server-deploy.sh
