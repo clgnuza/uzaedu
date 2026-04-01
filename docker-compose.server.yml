@@ -11,13 +11,22 @@
 # Çalıştır:
 #   cd /opt/uzaedu && docker compose -f docker-compose.server.yml --env-file backend/.env up -d
 #
-# DB_PASSWORD: guclu deger kullan; sunucuda degistirme: infra/scripts/rotate-postgres-password.sh
-# Sadece localhost’tan DB erişimi (güvenlik):
+# DB_PASSWORD: guclu deger; rotasyon: infra/scripts/rotate-postgres-password.sh
+# Sertlestirme: infra/scripts/harden-server.sh (UFW + .env izinleri)
+
 services:
   postgres:
     image: postgres:16-alpine
     container_name: ogretmenpro-db
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 8192
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
     environment:
       POSTGRES_DB: ${DB_DATABASE:-ogretmenpro}
       POSTGRES_USER: ${DB_USERNAME:-ogretmenpro}
@@ -26,6 +35,12 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - ogretmenpro_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
 volumes:
   ogretmenpro_pgdata:
