@@ -11,6 +11,11 @@ function normalizeFirebasePrivateKey(raw: string | undefined): string | undefine
 export const env = {
   port: parseInt(process.env.APP_PORT || '4000', 10),
   nodeEnv: process.env.APP_ENV || 'local',
+  /**
+   * true: `seed/demo-credentials.ts` ile giriş (canlıda risk — yalnız bilinçli kullanın).
+   * Yerelde APP_ENV=local/development iken zaten geçerli; bu bayrak production’da aynı davranışı açar.
+   */
+  allowDemoLogin: process.env.ALLOW_DEMO_LOGIN === 'true' || process.env.ALLOW_DEMO_LOGIN === '1',
   /** local + true: TypeORM synchronize. false: şema elle (migration SQL) */
   typeormSync: process.env.TYPEORM_SYNC !== 'false',
   debug: process.env.APP_DEBUG === 'true',

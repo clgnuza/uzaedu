@@ -16,6 +16,7 @@ const DEFAULT_DEPLOY_NOTES = [
   'Sunucu betiği: scripts/deploy/server-deploy.sh (git pull, npm ci, build, pm2). Eski /opt/uzaedu/deploy.sh → bu betiğe yönlendirin veya aynı içeriği kullanın.',
   'Yerel tetik: scripts/deploy/push-and-release.ps1 (git push + gh workflow run) veya Actions’tan Run workflow.',
   'Panel webhook: DEPLOY_ENABLED + DEPLOY_SECRET; DEPLOY_SCRIPT_PATH=/opt/uzaedu/scripts/deploy/server-deploy.sh (isteğe bağlı).',
+  'Demo parola girişi (seed/demo-credentials): sunucu backend .env içinde ALLOW_DEMO_LOGIN=true; DB’de ilgili kullanıcı kaydı olmalı. Üretimde güvenlik riski — geçiş sonrası false yapın veya şifreleri tools/set-user-password.cjs ile değiştirin.',
   'Manuel SSH: ssh -i ~/.ssh/id_rsa_uzaedu root@SUNUCU_IP',
   'Yerel geliştirme: backend npm run start:dev, web-admin npm run dev, DB docker compose up (docker-compose.yml).',
 ].join('\n');

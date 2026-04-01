@@ -45,17 +45,26 @@ export class AuthService {
       where: { email: email.trim().toLowerCase(), status: UserStatus.active },
       relations: ['school'],
     });
-    if (!user?.passwordHash) {
+    if (!user) {
       throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'E-posta veya şifre hatalı.' });
     }
-    const bcryptOk = await bcrypt.compare(password, user.passwordHash);
-    const localDemoOk = !bcryptOk && this.matchesLocalDemoCredential(email, password);
-    if (!bcryptOk && !localDemoOk) {
-      throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'E-posta veya şifre hatalı.' });
-    }
-    if (localDemoOk) {
+    const demoMatch = this.matchesDemoCredential(email, password);
+    if (!user.passwordHash) {
+      if (!demoMatch) {
+        throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'E-posta veya şifre hatalı.' });
+      }
       user.passwordHash = await bcrypt.hash(password, 10);
       await this.userRepo.save(user);
+    } else {
+      const bcryptOk = await bcrypt.compare(password, user.passwordHash);
+      const localDemoOk = !bcryptOk && demoMatch;
+      if (!bcryptOk && !localDemoOk) {
+        throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'E-posta veya şifre hatalı.' });
+      }
+      if (localDemoOk) {
+        user.passwordHash = await bcrypt.hash(password, 10);
+        await this.userRepo.save(user);
+      }
     }
     if (
       user.role === UserRole.teacher &&
@@ -71,9 +80,10 @@ export class AuthService {
     return { token: user.id, user };
   }
 
-  /** Yerelde DB hash eski kalsa bile `demo-credentials` ile giriş; hash güncellenir. */
-  private matchesLocalDemoCredential(email: string, password: string): boolean {
-    if (!['local', 'development'].includes(env.nodeEnv)) return false;
+  /** DB hash yok / eski olsa bile `demo-credentials` ile giriş; hash güncellenir (ALLOW_DEMO_LOGIN veya local). */
+  private matchesDemoCredential(email: string, password: string): boolean {
+    const envOk = ['local', 'development'].includes(env.nodeEnv) || env.allowDemoLogin;
+    if (!envOk) return false;
     const e = email.trim().toLowerCase();
     for (const k of ['teacher', 'school_admin', 'superadmin'] as const) {
       const c = DEMO_CREDENTIALS[k];
