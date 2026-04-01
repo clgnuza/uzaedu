@@ -1,11 +1,25 @@
 import { Controller, Get } from '@nestjs/common';
 import OpenAI from 'openai';
+import { env } from '../config/env';
 
 @Controller('health')
 export class HealthController {
   @Get()
   check() {
     return { status: 'ok', service: 'ogretmenpro-backend' };
+  }
+
+  /** Canlı doğrulama: git kısa hash (DEPLOY_GIT_SHA), ortam, /me oturumsuz davranışı */
+  @Get('deployment')
+  deployment() {
+    return {
+      status: 'ok',
+      git: process.env.DEPLOY_GIT_SHA?.trim() || null,
+      appEnv: env.nodeEnv,
+      trustProxy: env.trustProxy,
+      sessionCookieDomain: env.sessionCookieDomain ?? null,
+      meGetWithoutSession: '200-json-null',
+    };
   }
 
   /** GPT taslak özelliği için API anahtarı yüklü mü? (anahtar değeri dönülmez) */
