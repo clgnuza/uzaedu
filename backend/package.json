@@ -30,7 +30,9 @@
     "backfill-content-images": "ts-node -r tsconfig-paths/register scripts/backfill-content-images.ts",
     "clear-placeholder-images": "ts-node -r tsconfig-paths/register scripts/clear-placeholder-images.ts",
     "set-user-password": "node tools/set-user-password.cjs",
-    "ensure-demo-superadmin": "node tools/ensure-demo-superadmin.cjs"
+    "ensure-demo-superadmin": "node tools/ensure-demo-superadmin.cjs",
+    "peek-app-config": "node tools/peek-app-config.cjs",
+    "export-app-config-sql": "node tools/export-app-config-sql.cjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.989.0",
