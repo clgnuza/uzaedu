@@ -18,7 +18,7 @@ if ($SetLocalEnv) {
   $root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
   $envFile = Join-Path $root "backend\.env"
   if (-not (Test-Path -LiteralPath $envFile)) {
-    Write-Warning "Yok: $envFile — SetLocalEnv atlandi."
+    Write-Warning "Yok: $envFile - SetLocalEnv atlandi."
     exit 0
   }
   $lines = Get-Content -LiteralPath $envFile
