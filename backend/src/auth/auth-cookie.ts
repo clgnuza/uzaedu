@@ -10,22 +10,31 @@ function cookieSecure(): boolean {
   );
 }
 
-export function setSessionCookie(res: Response, token: string): void {
+function sessionCookieOpts(): {
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite: 'none' | 'lax';
+  path: string;
+  domain?: string;
+} {
   const secure = cookieSecure();
-  res.cookie(AUTH_COOKIE_NAME, token, {
+  const base = {
     httpOnly: true,
     secure,
-    sameSite: secure ? 'none' : 'lax',
+    sameSite: (secure ? 'none' : 'lax') as 'none' | 'lax',
     path: '/',
+  };
+  const d = env.sessionCookieDomain?.trim();
+  return d ? { ...base, domain: d } : base;
+}
+
+export function setSessionCookie(res: Response, token: string): void {
+  res.cookie(AUTH_COOKIE_NAME, token, {
+    ...sessionCookieOpts(),
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 }
 
 export function clearSessionCookie(res: Response): void {
-  const secure = cookieSecure();
-  res.clearCookie(AUTH_COOKIE_NAME, {
-    path: '/',
-    sameSite: secure ? 'none' : 'lax',
-    secure,
-  });
+  res.clearCookie(AUTH_COOKIE_NAME, sessionCookieOpts());
 }

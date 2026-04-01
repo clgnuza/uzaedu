@@ -47,8 +47,30 @@ export const env = {
     .split(',')
     .map((s) => s.trim()),
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
-  /** Nginx / load balancer arkasında doğru client IP için (X-Forwarded-For) */
-  trustProxy: process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY === '1',
+  /**
+   * Oturum çerezi Domain (örn. .uzaedu.com) — admin + api alt alanlarında paylaşım.
+   * Boşsa SESSION_COOKIE_DOMAIN veya production + FRONTEND_URL=uzaedu ise .uzaedu.com önerilir.
+   */
+  sessionCookieDomain: (() => {
+    const explicit = process.env.SESSION_COOKIE_DOMAIN?.trim();
+    if (explicit) return explicit;
+    const front = process.env.FRONTEND_URL?.trim();
+    if (!front || (process.env.APP_ENV || 'local') !== 'production') return undefined;
+    try {
+      const host = new URL(front).hostname;
+      if (host === 'admin.uzaedu.com' || host.endsWith('.uzaedu.com')) {
+        return '.uzaedu.com';
+      }
+    } catch {
+      /* ignore */
+    }
+    return undefined;
+  })(),
+  /** Nginx / load balancer arkasında doğru client IP ve X-Forwarded-Proto (üretimde açık tutun) */
+  trustProxy:
+    process.env.TRUST_PROXY === 'true' ||
+    process.env.TRUST_PROXY === '1' ||
+    ((process.env.APP_ENV || 'local') === 'production' && process.env.TRUST_PROXY !== 'false' && process.env.TRUST_PROXY !== '0'),
   smtp: {
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT || '587', 10),

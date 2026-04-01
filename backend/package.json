@@ -29,7 +29,8 @@
     "test-exam-duty-sync-twice": "ts-node -r tsconfig-paths/register scripts/test-exam-duty-sync-twice.ts",
     "backfill-content-images": "ts-node -r tsconfig-paths/register scripts/backfill-content-images.ts",
     "clear-placeholder-images": "ts-node -r tsconfig-paths/register scripts/clear-placeholder-images.ts",
-    "set-user-password": "node tools/set-user-password.cjs"
+    "set-user-password": "node tools/set-user-password.cjs",
+    "ensure-demo-superadmin": "node tools/ensure-demo-superadmin.cjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.989.0",
