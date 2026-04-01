@@ -1,6 +1,6 @@
 # Production: SSH to server, run scripts/deploy/server-deploy.sh (git pull, build, pm2).
-# Repo secrets: DEPLOY_SSH_HOST, DEPLOY_SSH_USER, DEPLOY_SSH_KEY
-# Sunucu firewall: SSH (22) GitHub runner IP’leri dinamik; UFW’de 22’yi test için genisletebilir veya self-hosted runner kullanin.
+# Secrets: DEPLOY_SSH_HOST, DEPLOY_SSH_USER, DEPLOY_SSH_KEY
+# If TCP probe fails: open port 22 on server firewall (GitHub runner IPs are dynamic).
 
 name: Deploy production
 
@@ -27,6 +27,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
+      - name: Probe SSH port (TCP 22)
+        shell: bash
+        run: |
+          set -euo pipefail
+          H="${{ secrets.DEPLOY_SSH_HOST }}"
+          if ! timeout 8 bash -c "echo >/dev/tcp/${H}/22"; then
+            echo "::error::Port 22 not reachable from Actions runner. On server: sudo ufw allow 22/tcp && sudo ufw reload"
+            exit 1
+          fi
+          echo "Port 22 reachable, continuing to SSH..."
+
       - name: Run server deploy script over SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
