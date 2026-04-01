@@ -9,7 +9,7 @@ export type DevOpsConfig = {
 };
 
 const DEFAULT_DEPLOY_NOTES = [
-  'Sunucu: Hetzner VPS (ör. /opt/uzaedu), Nginx → API :4000, web :3000, PM2 (uzaedu-api, uzaedu-web).',
+  'Sunucu: Hetzner VPS (ör. /opt/uzaedu), Nginx → API :4000, web :3000, PM2 (uzaedu-api, uzaedu-web). HTTPS/http/www: infra/nginx/uzaedu.conf + setup-certbot-and-enable-site.sh (sunucuda çalıştır).',
   'Veritabanı: Docker postgres:16-alpine (docker-compose.server.yml), yalnız 127.0.0.1:5432.',
   'DNS (Güzel Hosting): @, www, api, admin → sunucu IPv4; sonra certbot SSL.',
   'CI/CD: GitHub Actions "Deploy production" (SSH). Secrets: DEPLOY_SSH_HOST, DEPLOY_SSH_USER, DEPLOY_SSH_KEY (Settings → Secrets → Actions). Yerel: scripts/deploy/set-github-secrets.ps1 (gh CLI).',
