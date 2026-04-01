@@ -6,7 +6,7 @@ cd "$ROOT"
 BRANCH="${DEPLOY_BRANCH:-main}"
 export NODE_ENV=production
 git fetch origin "$BRANCH"
-git pull --ff-only "origin/$BRANCH"
+git pull --ff-only origin "$BRANCH"
 (cd backend && npm ci && npm run build)
 (cd web-admin && npm ci && npm run build)
 pm2 restart all
