@@ -36,6 +36,7 @@ import { emptySchoolReviewForm, schoolReviewFormFromReview } from '@/lib/school-
 import { RatingBadge } from '@/components/rating-badge';
 import { CriteriaRatingsDisplay } from '@/components/school-reviews/criteria-ratings-display';
 import { SchoolReviewScorePicker } from '@/components/school-reviews/school-review-score-picker';
+import { formatTrDateTimeMedium } from '@/lib/format-tr-datetime';
 
 type School = {
   id: string;
@@ -279,6 +280,7 @@ function OkulDegerlendirmeleriContent() {
   const router = useRouter();
   const { token, me } = useAuth();
   const detailSectionRef = useRef<HTMLDivElement>(null);
+  const ownReviewCardRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const [schools, setSchools] = useState<SchoolWithStats[]>([]);
   const [total, setTotal] = useState(0);
@@ -486,14 +488,13 @@ function OkulDegerlendirmeleriContent() {
       setEditingAnswerId(null);
       setEditAnswerForm(null);
       setDetailLoading(true);
-      setDetailListsLoading(false);
+      setDetailListsLoading(true);
       setReviews({ items: [], total: 0 });
       setQuestions({ items: [], total: 0 });
       try {
         const data = await fetchApi<SchoolDetail>(`/schools/${id}`, schoolReviewsReadOpts(token, me));
         setSelectedSchool(data);
         setDetailLoading(false);
-        setDetailListsLoading(true);
         const anonId = !token ? getAnonymousId() : '';
         const revParams = new URLSearchParams({ sort: reviewSort });
         if (anonId) revParams.set('anonymous_id', anonId);
@@ -750,6 +751,11 @@ function OkulDegerlendirmeleriContent() {
     const criteria = selectedSchool?.criteria || [];
     setEditReviewForm(schoolReviewFormFromReview(r, criteria));
     setEditingReviewId(r.id);
+    if (r.is_own) {
+      requestAnimationFrame(() => {
+        ownReviewCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
   };
 
   const cancelEditingReview = () => {
@@ -1062,6 +1068,9 @@ function OkulDegerlendirmeleriContent() {
 
   const isLoggedIn = !!me && !!token;
   const ownReview = isLoggedIn ? reviews.items.find((r) => r.is_own) : undefined;
+  /** Yorumlar API gelmeden ownReview bilinmez; aksi halde yanlışlıkla «yeni değerlendirme» formu açılıyordu. */
+  const reviewListReady = !detailListsLoading;
+  const isEditingOwnReview = !!(ownReview && editingReviewId === ownReview.id && editReviewForm);
   const citiesList = cities.length > 0 ? cities : TURKEY_CITIES;
   const districtsList = districts.length > 0 ? districts : getDistrictsForCity(city, []);
 
@@ -1756,7 +1765,10 @@ function OkulDegerlendirmeleriContent() {
 
               {activeTab === 'reviews' ? (
                 <div id="reviews-panel" role="tabpanel" aria-labelledby="tab-reviews">
-                  <Card className="overflow-hidden border-slate-200/80 shadow-sm dark:border-slate-700/80">
+                  <Card
+                    ref={ownReviewCardRef}
+                    className="overflow-hidden border-slate-200/80 shadow-sm dark:border-slate-700/80"
+                  >
                     <CardHeader className="border-b border-slate-100 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-5">
                       <div className="flex gap-2.5">
                         <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-amber-200/80 bg-amber-50 text-amber-600 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-400">
@@ -1764,7 +1776,15 @@ function OkulDegerlendirmeleriContent() {
                         </div>
                         <div className="min-w-0 flex-1">
                           <CardTitle className="text-sm font-semibold tracking-tight text-slate-900 dark:text-white sm:text-base">
-                            {ownReview ? 'Değerlendirmeniz mevcut' : 'Bu Okula Değerlendirme Gönder'}
+                            {!isLoggedIn
+                              ? 'Bu Okula Değerlendirme Gönder'
+                              : !reviewListReady
+                                ? 'Değerlendirme'
+                                : !ownReview
+                                  ? 'Bu Okula Değerlendirme Gönder'
+                                  : isEditingOwnReview
+                                    ? 'Değerlendirmenizi düzenleyin'
+                                    : 'Değerlendirmeniz'}
                           </CardTitle>
                           {!isLoggedIn ? (
                             <div className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50/90 p-3 dark:bg-amber-950/40">
@@ -1777,17 +1797,32 @@ function OkulDegerlendirmeleriContent() {
                                 .
                               </p>
                             </div>
+                          ) : !reviewListReady ? (
+                            <p className="mt-1 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                              Mevcut değerlendirmeniz kontrol ediliyor…
+                            </p>
                           ) : (
                             <p className="mt-1 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
                               {ownReview
-                                ? 'Aşağıdaki değerlendirmenizde yer alan Güncelle butonu ile düzenleyebilirsiniz.'
+                                ? isEditingOwnReview
+                                  ? 'Puanları ve yorumu güncelleyin; kaydettiğinizde liste yenilenir.'
+                                  : 'Yalnızca genel ortalama görünür; tüm maddeler «Değerlendirmeyi düzenle» veya listedeki «Düzenle» ile açılır.'
                                 : 'Her kritere dokunarak puanlayın; yorum isteğe bağlıdır. İsterseniz anonim paylaşabilirsiniz.'}
                             </p>
                           )}
                         </div>
                       </div>
                     </CardHeader>
-                    {isLoggedIn && !ownReview && (
+                    {isLoggedIn && !reviewListReady && (
+                      <CardContent className="px-4 py-5 sm:px-5" aria-busy="true" aria-label="Değerlendirme yükleniyor">
+                        <div className="space-y-3">
+                          <Skeleton className="h-10 w-full rounded-xl" />
+                          <Skeleton className="h-28 w-full rounded-xl" />
+                          <Skeleton className="h-9 w-40 rounded-lg" />
+                        </div>
+                      </CardContent>
+                    )}
+                    {isLoggedIn && reviewListReady && !ownReview && (
                       <CardContent className="space-y-4 px-4 py-4 sm:px-5">
                         <SchoolReviewScorePicker
                           criteria={selectedSchool.criteria}
@@ -1829,11 +1864,75 @@ function OkulDegerlendirmeleriContent() {
                         </button>
                       </CardContent>
                     )}
-                    {isLoggedIn && ownReview && (
-                      <CardContent className="px-4 py-4 sm:px-5">
-                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
-                          Düzenleme alanı kapalı. Aşağıdaki kendi değerlendirmenizden `Güncelle` seçeneğini kullanın.
+                    {isLoggedIn && reviewListReady && ownReview && isEditingOwnReview && editReviewForm && (
+                      <CardContent className="space-y-4 px-4 py-4 sm:px-5">
+                        <SchoolReviewScorePicker
+                          criteria={selectedSchool.criteria}
+                          criteriaRatings={editReviewForm.criteria_ratings}
+                          onCriteriaRating={(slug, n) =>
+                            setEditReviewForm((f) =>
+                              f ? { ...f, criteria_ratings: { ...f.criteria_ratings, [slug]: n } } : null
+                            )
+                          }
+                          singleRating={editReviewForm.rating}
+                          onSingleRating={(n) => setEditReviewForm((f) => (f ? { ...f, rating: n } : null))}
+                        />
+                        <div>
+                          <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                            Yorum (isteğe bağlı)
+                          </label>
+                          <textarea
+                            value={editReviewForm.comment}
+                            onChange={(e) => setEditReviewForm((f) => (f ? { ...f, comment: e.target.value } : null))}
+                            rows={4}
+                            placeholder="Değerlendirmenize yorum ekleyebilirsiniz."
+                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                          />
                         </div>
+                        <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50/50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/50">
+                          <input
+                            type="checkbox"
+                            checked={editReviewForm.is_anonymous}
+                            onChange={(e) => setEditReviewForm((f) => (f ? { ...f, is_anonymous: e.target.checked } : null))}
+                            className="size-5 shrink-0 rounded border-slate-300 text-primary focus:ring-primary"
+                          />
+                          <span className="text-sm text-slate-700 dark:text-slate-300">İsmim gizli kalsın</span>
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => ownReview && handleUpdateReview(ownReview.id)}
+                            disabled={submitting}
+                            className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                          >
+                            {submitting ? 'Kaydediliyor…' : 'Kaydet'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelEditingReview}
+                            className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium dark:border-slate-700"
+                          >
+                            İptal
+                          </button>
+                        </div>
+                      </CardContent>
+                    )}
+                    {isLoggedIn && reviewListReady && ownReview && !isEditingOwnReview && (
+                      <CardContent className="space-y-4 px-4 py-4 sm:px-5">
+                        <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/50">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Genel ortalama</span>
+                            <RatingBadge rating={ownReview.rating} max={10} size="sm" />
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => startEditingReview(ownReview)}
+                          className="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-sm font-semibold text-primary hover:bg-primary/10 dark:border-primary/40 dark:hover:bg-primary/15 sm:w-auto"
+                        >
+                          <PencilIcon className="size-4" aria-hidden />
+                          Değerlendirmeyi düzenle
+                        </button>
                       </CardContent>
                     )}
                   </Card>
@@ -1877,83 +1976,48 @@ function OkulDegerlendirmeleriContent() {
                         <ul className="space-y-5 divide-y divide-slate-100 dark:divide-slate-800">
                           {reviews.items.map((r) => (
                             <li key={r.id} className="pt-5 first:pt-0">
-                              {editingReviewId === r.id && editReviewForm ? (
-                                <div className="space-y-4 rounded-xl border border-sky-200/60 bg-sky-50/30 p-3 sm:p-4 dark:border-sky-800/50 dark:bg-sky-950/20">
-                                  <p className="text-xs font-semibold text-sky-700 dark:text-sky-300">Değerlendirmenizi güncelleyin</p>
-                                  <SchoolReviewScorePicker
-                                    size="compact"
-                                    criteria={selectedSchool?.criteria}
-                                    criteriaRatings={editReviewForm.criteria_ratings}
-                                    onCriteriaRating={(slug, n) =>
-                                      setEditReviewForm((f) =>
-                                        f ? { ...f, criteria_ratings: { ...f.criteria_ratings, [slug]: n } } : null
-                                      )
-                                    }
-                                    singleRating={editReviewForm.rating}
-                                    onSingleRating={(n) => setEditReviewForm((f) => (f ? { ...f, rating: n } : null))}
-                                  />
-                                  <div>
-                                    <label className="mb-1 block text-xs font-medium">Yorum (isteğe bağlı)</label>
-                                    <textarea
-                                      value={editReviewForm.comment}
-                                      onChange={(e) => setEditReviewForm((f) => (f ? { ...f, comment: e.target.value } : null))}
-                                      rows={4}
-                                      placeholder="Değerlendirmenize yorum ekleyebilirsiniz."
-                                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-                                    />
-                                  </div>
-                                  <label className="flex cursor-pointer items-center gap-2 text-xs">
-                                    <input
-                                      type="checkbox"
-                                      checked={editReviewForm.is_anonymous}
-                                      onChange={(e) => setEditReviewForm((f) => (f ? { ...f, is_anonymous: e.target.checked } : null))}
-                                    />
-                                    İsmim gizli kalsın
-                                  </label>
-                                  <div className="flex gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleUpdateReview(r.id)}
-                                      disabled={submitting}
-                                      className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                                    >
-                                      {submitting ? 'Kaydediliyor…' : 'Güncelle'}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={cancelEditingReview}
-                                      className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium dark:border-slate-700"
-                                    >
-                                      İptal
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <>
+                              <>
                                   <div className="flex items-center justify-between text-xs text-slate-500">
                                     <span>{r.is_anonymous ? 'Anonim kullanıcı' : r.author_display_name}</span>
                                     <div className="flex items-center gap-2">
                                       {r.is_own && isLoggedIn && (
                                         <>
-                                          <button
-                                            type="button"
-                                            onClick={() => startEditingReview(r)}
-                                            className="inline-flex items-center gap-1 rounded px-2 py-0.5 font-medium text-sky-600 hover:bg-sky-100 dark:text-sky-400 dark:hover:bg-sky-900/50"
-                                            aria-label="Değerlendirmeyi düzenle"
-                                          >
-                                            <PencilIcon className="size-3.5" />
-                                            Düzenle
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleDeleteReview(r.id)}
-                                            disabled={deletingId === r.id}
-                                            className="inline-flex items-center gap-1 rounded px-2 py-0.5 font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50 disabled:opacity-50"
-                                            aria-label="Değerlendirmeyi sil"
-                                          >
-                                            <TrashIcon className="size-3.5" />
-                                            Sil
-                                          </button>
+                                          {isEditingOwnReview && ownReview?.id === r.id ? (
+                                            <span className="inline-flex flex-wrap items-center gap-2">
+                                              <span className="rounded bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-800 dark:bg-sky-950/50 dark:text-sky-200">
+                                                Üstte düzenleniyor
+                                              </span>
+                                              <button
+                                                type="button"
+                                                onClick={cancelEditingReview}
+                                                className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium text-slate-600 underline hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+                                              >
+                                                İptal
+                                              </button>
+                                            </span>
+                                          ) : (
+                                            <>
+                                              <button
+                                                type="button"
+                                                onClick={() => startEditingReview(r)}
+                                                className="inline-flex items-center gap-1 rounded px-2 py-0.5 font-medium text-sky-600 hover:bg-sky-100 dark:text-sky-400 dark:hover:bg-sky-900/50"
+                                                aria-label="Değerlendirmeyi düzenle"
+                                              >
+                                                <PencilIcon className="size-3.5" />
+                                                Düzenle
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleDeleteReview(r.id)}
+                                                disabled={deletingId === r.id}
+                                                className="inline-flex items-center gap-1 rounded px-2 py-0.5 font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50 disabled:opacity-50"
+                                                aria-label="Değerlendirmeyi sil"
+                                              >
+                                                <TrashIcon className="size-3.5" />
+                                                Sil
+                                              </button>
+                                            </>
+                                          )}
                                         </>
                                       )}
                                       <span>{new Date(r.created_at).toLocaleDateString('tr-TR')}</span>
@@ -2055,7 +2119,6 @@ function OkulDegerlendirmeleriContent() {
                                     )}
                                   </div>
                                 </>
-                              )}
                             </li>
                           ))}
                         </ul>
@@ -2190,10 +2253,7 @@ function OkulDegerlendirmeleriContent() {
                                       <span>{q.is_anonymous ? 'Anonim kullanıcı' : q.author_display_name}</span>
                                       <span>·</span>
                                       <time dateTime={q.created_at}>
-                                        {new Date(q.created_at).toLocaleString('tr-TR', {
-                                          dateStyle: 'medium',
-                                          timeStyle: 'short',
-                                        })}
+                                        {formatTrDateTimeMedium(q.created_at)}
                                       </time>
                                       {q.is_own && isLoggedIn && (
                                         <>
@@ -2336,10 +2396,7 @@ function OkulDegerlendirmeleriContent() {
                                             </span>
                                             <span>·</span>
                                             <time dateTime={a.created_at}>
-                                              {new Date(a.created_at).toLocaleString('tr-TR', {
-                                                dateStyle: 'medium',
-                                                timeStyle: 'short',
-                                              })}
+                                              {formatTrDateTimeMedium(a.created_at)}
                                             </time>
                                             {a.is_own && isLoggedIn && (
                                               <>

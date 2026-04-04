@@ -58,7 +58,12 @@ export const env = {
     if (!front || (process.env.APP_ENV || 'local') !== 'production') return undefined;
     try {
       const host = new URL(front).hostname;
-      if (host === 'admin.uzaedu.com' || host.endsWith('.uzaedu.com')) {
+      if (
+        host === 'admin.uzaedu.com' ||
+        host === 'uzaedu.com' ||
+        host === 'www.uzaedu.com' ||
+        host.endsWith('.uzaedu.com')
+      ) {
         return '.uzaedu.com';
       }
     } catch {

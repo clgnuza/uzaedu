@@ -34,4 +34,4 @@ cp -a "$HTTPS_CONF" "$NGINX_SITE"
 nginx -t
 systemctl reload nginx
 
-echo "Bitti: https://admin.uzaedu.com | https://api.uzaedu.com | http(s)://uzaedu.com -> admin"
+echo "Bitti: https://uzaedu.com (panel) | https://api.uzaedu.com | admin.uzaedu.com → uzaedu.com"

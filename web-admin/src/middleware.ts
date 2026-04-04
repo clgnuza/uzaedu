@@ -35,6 +35,12 @@ function isAllowedPath(pathname: string, extras: WebExtrasPublic): boolean {
 }
 
 export async function middleware(request: NextRequest) {
+  const host = request.headers.get('host')?.split(':')[0];
+  if (host === 'admin.uzaedu.com') {
+    const u = request.nextUrl.clone();
+    u.hostname = 'uzaedu.com';
+    return NextResponse.redirect(u, 308);
+  }
   const extras = await getWebExtras();
   if (!extras?.maintenance_enabled) return NextResponse.next();
   const pathname = request.nextUrl.pathname;

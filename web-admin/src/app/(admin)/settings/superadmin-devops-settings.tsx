@@ -29,7 +29,7 @@ export function SuperadminDevopsSettings() {
     git_default_branch: 'main',
     cicd_url: 'https://github.com/clgnuza/uzaedu/actions',
     production_api_url: 'https://api.uzaedu.com',
-    production_web_url: 'https://admin.uzaedu.com',
+    production_web_url: 'https://uzaedu.com',
     deploy_notes: null,
   });
 
@@ -151,7 +151,7 @@ export function SuperadminDevopsSettings() {
                 <Input
                   id="devops-web"
                   type="url"
-                  placeholder="https://admin.uzaedu.com"
+                  placeholder="https://uzaedu.com"
                   value={form.production_web_url ?? ''}
                   onChange={(e) => setForm((f) => ({ ...f, production_web_url: e.target.value || null }))}
                   autoComplete="off"

@@ -10,6 +10,7 @@ import { scoreRatio01 } from '@/lib/school-review-score';
 import { emptySchoolReviewForm, schoolReviewFormFromReview } from '@/lib/school-review-prefill';
 import { CriteriaRatingsDisplay } from '@/components/school-reviews/criteria-ratings-display';
 import { SchoolReviewScorePicker } from '@/components/school-reviews/school-review-score-picker';
+import { formatTrDateTimeMedium } from '@/lib/format-tr-datetime';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Alert } from '@/components/ui/alert';
@@ -31,6 +32,7 @@ import {
   Sparkles,
   X,
   Trash2,
+  Pencil,
 } from 'lucide-react';
 type School = {
   id: string;
@@ -115,6 +117,8 @@ export default function SchoolReviewsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submittingAnswer, setSubmittingAnswer] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'reviews' | 'questions'>('reviews');
+  /** Kendi değerlendirmesi varken form varsayılan kapalı; yalnızca «Düzenle» ile açılır. */
+  const [ownReviewEditOpen, setOwnReviewEditOpen] = useState(false);
   const ownReview = reviews.items.find((r) => r.is_own);
 
   const fetchSchools = useCallback(async (opts?: { silent?: boolean }) => {
@@ -163,6 +167,7 @@ export default function SchoolReviewsPage() {
     async (id: string) => {
       if (!token) return;
       setDetailLoading(true);
+      setOwnReviewEditOpen(false);
       try {
         const data = await apiFetch<SchoolDetail>(`/school-reviews/schools/${id}`, { token });
         let reviewsData: { items: Review[]; total: number };
@@ -199,6 +204,13 @@ export default function SchoolReviewsPage() {
     },
     [token]
   );
+
+  const cancelOwnReviewEdit = useCallback(() => {
+    if (ownReview && selectedSchool) {
+      setReviewForm(schoolReviewFormFromReview(ownReview, selectedSchool.criteria || []));
+    }
+    setOwnReviewEditOpen(false);
+  }, [ownReview, selectedSchool]);
 
   const refreshAfterMutation = useCallback(
     async (schoolId: string) => {
@@ -666,60 +678,103 @@ export default function SchoolReviewsPage() {
 
               {activeTab === 'reviews' ? (
                 <>
-                  {/* Değerlendirme formu */}
+                  {/* Değerlendirme formu / özeti */}
                   <Card className="overflow-hidden border-border/80 shadow-sm">
                     <CardHeader className="border-b border-border/60 bg-gradient-to-br from-amber-500/10 via-background to-primary/5">
                       <CardTitle className="flex items-center gap-2 text-sm font-semibold sm:text-base">
                         <Sparkles className="size-4 shrink-0 text-amber-600" />
-                        {ownReview ? 'Değerlendirmenizi güncelleyin' : 'Değerlendirme Yap'}
+                        {ownReview && !ownReviewEditOpen
+                          ? 'Değerlendirmeniz'
+                          : ownReview && ownReviewEditOpen
+                            ? 'Değerlendirmenizi güncelleyin'
+                            : 'Değerlendirme Yap'}
                       </CardTitle>
                       <p className="text-xs text-muted-foreground sm:text-sm">
-                        {ownReview
-                          ? 'Puan ve yorumunuzu değiştirebilirsiniz; kaydettiğinizde güncellenir.'
-                          : 'Deneyiminizi paylaşın; kriterlere puan verin.'}
+                        {ownReview && !ownReviewEditOpen
+                          ? 'Yalnızca genel ortalama puanınız görünür; maddeleri düzenlemek için «Değerlendirmeyi düzenle»ye tıklayın.'
+                          : ownReview && ownReviewEditOpen
+                            ? 'Puan ve yorumunuzu değiştirebilirsiniz; kaydettiğinizde güncellenir.'
+                            : 'Deneyiminizi paylaşın; kriterlere puan verin.'}
                       </p>
                     </CardHeader>
-                    <CardContent className="space-y-4 px-4 py-4 sm:px-5">
-                      <SchoolReviewScorePicker
-                        criteria={selectedSchool.criteria}
-                        criteriaRatings={reviewForm.criteria_ratings}
-                        onCriteriaRating={(slug, n) =>
-                          setReviewForm((f) => ({ ...f, criteria_ratings: { ...f.criteria_ratings, [slug]: n } }))
-                        }
-                        singleRating={reviewForm.rating}
-                        onSingleRating={(n) => setReviewForm((f) => ({ ...f, rating: n }))}
-                      />
-                      <div>
-                        <label className="mb-1 block text-sm font-medium">Yorum (opsiyonel)</label>
-                        <textarea
-                          value={reviewForm.comment}
-                          onChange={(e) => setReviewForm((f) => ({ ...f, comment: e.target.value }))}
-                          rows={3}
-                          placeholder="Deneyiminizi paylaşın..."
-                          className="w-full min-h-[120px] rounded-xl border border-input bg-background px-4 py-3 text-base transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 sm:text-sm"
-                        />
-                      </div>
-                      <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl border border-border/80 bg-muted/30 px-3 py-2.5">
-                        <input
-                          type="checkbox"
-                          checked={reviewForm.is_anonymous}
-                          onChange={(e) =>
-                            setReviewForm((f) => ({ ...f, is_anonymous: e.target.checked }))
+                    {ownReview && !ownReviewEditOpen ? (
+                      <CardContent className="space-y-4 px-4 py-4 sm:px-5">
+                        <div className="rounded-xl border border-border/80 bg-muted/20 px-4 py-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-medium text-muted-foreground">Genel ortalama</span>
+                            <RatingBadge rating={ownReview.rating} max={10} size="sm" />
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setOwnReviewEditOpen(true)}
+                          className="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/10 sm:w-auto"
+                        >
+                          <Pencil className="size-4" aria-hidden />
+                          Değerlendirmeyi düzenle
+                        </button>
+                      </CardContent>
+                    ) : (
+                      <CardContent className="space-y-4 px-4 py-4 sm:px-5">
+                        <SchoolReviewScorePicker
+                          criteria={selectedSchool.criteria}
+                          criteriaRatings={reviewForm.criteria_ratings}
+                          onCriteriaRating={(slug, n) =>
+                            setReviewForm((f) => ({ ...f, criteria_ratings: { ...f.criteria_ratings, [slug]: n } }))
                           }
-                          className="size-5 shrink-0 rounded border-border text-primary focus:ring-primary"
+                          singleRating={reviewForm.rating}
+                          onSingleRating={(n) => setReviewForm((f) => ({ ...f, rating: n }))}
                         />
-                        <span className="text-sm">İsmim gizli kalsın</span>
-                      </label>
-                      <button
-                        type="button"
-                        onClick={handleSubmitReview}
-                        disabled={submitting}
-                        className="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 sm:w-auto"
-                      >
-                        <Send className="size-4" />
-                        {submitting ? (ownReview ? 'Kaydediliyor…' : 'Gönderiliyor…') : ownReview ? 'Güncelle' : 'Gönder'}
-                      </button>
-                    </CardContent>
+                        <div>
+                          <label className="mb-1 block text-sm font-medium">Yorum (opsiyonel)</label>
+                          <textarea
+                            value={reviewForm.comment}
+                            onChange={(e) => setReviewForm((f) => ({ ...f, comment: e.target.value }))}
+                            rows={3}
+                            placeholder="Deneyiminizi paylaşın..."
+                            className="w-full min-h-[120px] rounded-xl border border-input bg-background px-4 py-3 text-base transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 sm:text-sm"
+                          />
+                        </div>
+                        <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl border border-border/80 bg-muted/30 px-3 py-2.5">
+                          <input
+                            type="checkbox"
+                            checked={reviewForm.is_anonymous}
+                            onChange={(e) =>
+                              setReviewForm((f) => ({ ...f, is_anonymous: e.target.checked }))
+                            }
+                            className="size-5 shrink-0 rounded border-border text-primary focus:ring-primary"
+                          />
+                          <span className="text-sm">İsmim gizli kalsın</span>
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={handleSubmitReview}
+                            disabled={submitting}
+                            className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 sm:flex-none"
+                          >
+                            <Send className="size-4" />
+                            {submitting
+                              ? ownReview
+                                ? 'Kaydediliyor…'
+                                : 'Gönderiliyor…'
+                              : ownReview
+                                ? 'Güncelle'
+                                : 'Gönder'}
+                          </button>
+                          {ownReview && ownReviewEditOpen && (
+                            <button
+                              type="button"
+                              onClick={cancelOwnReviewEdit}
+                              disabled={submitting}
+                              className="min-h-10 rounded-lg border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
+                            >
+                              İptal
+                            </button>
+                          )}
+                        </div>
+                      </CardContent>
+                    )}
                   </Card>
 
                   {/* Değerlendirme listesi */}
@@ -867,10 +922,7 @@ export default function SchoolReviewsPage() {
                                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                                       <span className="text-xs text-muted-foreground">
                                         {q.is_anonymous ? 'Anonim kullanıcı' : q.author_display_name} ·{' '}
-                                        {new Date(q.created_at).toLocaleDateString('tr-TR', {
-                                          dateStyle: 'medium',
-                                          timeStyle: 'short',
-                                        })}
+                                        {formatTrDateTimeMedium(q.created_at)}
                                       </span>
                                       {q.is_own && token && (
                                         <button
@@ -908,10 +960,7 @@ export default function SchoolReviewsPage() {
                                             </span>
                                             <span>·</span>
                                             <time dateTime={a.created_at}>
-                                              {new Date(a.created_at).toLocaleString('tr-TR', {
-                                                dateStyle: 'medium',
-                                                timeStyle: 'short',
-                                              })}
+                                              {formatTrDateTimeMedium(a.created_at)}
                                             </time>
                                             {a.is_own && token && (
                                               <button

@@ -6,6 +6,7 @@ set -euo pipefail
 INSTALL_DIR="${INSTALL_DIR:-/opt/uzaedu}"
 DOMAIN_API="${DOMAIN_API:-api.uzaedu.com}"
 DOMAIN_ADMIN="${DOMAIN_ADMIN:-admin.uzaedu.com}"
+DOMAIN_SITE="${DOMAIN_SITE:-uzaedu.com}"
 cd "${INSTALL_DIR}"
 GIT_SHA_SHORT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 if [ -f backend/.env ]; then
@@ -13,7 +14,7 @@ if [ -f backend/.env ]; then
   echo "DEPLOY_GIT_SHA=${GIT_SHA_SHORT}" >> backend/.env
 fi
 (cd backend && npm ci && npm run build)
-(cd web-admin && printf "%s\n" "NEXT_PUBLIC_API_BASE_URL=https://${DOMAIN_API}/api" "NEXT_PUBLIC_SITE_URL=https://${DOMAIN_ADMIN}" > .env.production && npm ci && npm run build)
+(cd web-admin && printf "%s\n" "NEXT_PUBLIC_API_BASE_URL=https://${DOMAIN_API}/api" "NEXT_PUBLIC_SITE_URL=https://${DOMAIN_SITE}" > .env.production && npm ci && npm run build)
 export NODE_ENV=production
 pm2 delete uzaedu-api 2>/dev/null || true
 pm2 delete uzaedu-web 2>/dev/null || true

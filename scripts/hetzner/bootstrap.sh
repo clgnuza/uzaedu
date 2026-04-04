@@ -2,6 +2,7 @@
 set -euo pipefail
 DOMAIN_API="${DOMAIN_API:-api.uzaedu.com}"
 DOMAIN_ADMIN="${DOMAIN_ADMIN:-admin.uzaedu.com}"
+DOMAIN_SITE="${DOMAIN_SITE:-uzaedu.com}"
 REPO_URL="${REPO_URL:-https://github.com/clgnuza/uzaedu.git}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/uzaedu}"
 DB_NAME="${DB_NAME:-ogretmenpro}"
@@ -33,8 +34,8 @@ DB_DATABASE=${DB_NAME}
 DB_USERNAME=${DB_USER}
 DB_PASSWORD=${DB_PASS}
 JWT_SECRET=${JWT_SECRET}
-CORS_ORIGINS=https://${DOMAIN_ADMIN}
-FRONTEND_URL=https://${DOMAIN_ADMIN}
+CORS_ORIGINS=https://${DOMAIN_SITE},https://www.${DOMAIN_SITE},https://${DOMAIN_ADMIN}
+FRONTEND_URL=https://${DOMAIN_SITE}
 # OPENAI_API_KEY= (opsiyonel; Optik/GPT — sınav görevi için panel app_config veya bu satır)
 EOF
 chmod 600 "${INSTALL_DIR}/backend/.env"

@@ -23,7 +23,7 @@ type DeployStatusPayload = {
   dataMirrorExportAvailable?: boolean;
 };
 
-const LIVE_ADMIN_ORIGIN = 'https://admin.uzaedu.com';
+const LIVE_SITE_ORIGIN = 'https://uzaedu.com';
 
 function statusMessage(reason: DeployStatusPayload['reason']): string {
   switch (reason) {
@@ -357,7 +357,7 @@ export function SuperadminDeployPanel() {
                         </code>
                       </li>
                       <li>
-                        <code className="rounded bg-muted px-1 py-0.5 text-[11px]">NEXT_PUBLIC_SITE_URL={LIVE_ADMIN_ORIGIN}</code>{' '}
+                        <code className="rounded bg-muted px-1 py-0.5 text-[11px]">NEXT_PUBLIC_SITE_URL={LIVE_SITE_ORIGIN}</code>{' '}
                         (aynı dosyada)
                       </li>
                       <li>
@@ -368,7 +368,7 @@ export function SuperadminDeployPanel() {
                     <p>
                       Veya doğrudan{' '}
                       <a
-                        href={`${LIVE_ADMIN_ORIGIN}/profile?tab=kaynak`}
+                        href={`${LIVE_SITE_ORIGIN}/profile?tab=kaynak`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="font-medium text-primary underline underline-offset-2"
