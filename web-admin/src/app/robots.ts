@@ -1,7 +1,8 @@
 import type { MetadataRoute } from 'next';
 import { fetchWebExtrasPublic } from '@/lib/web-extras-public';
+import { normalizePublicSiteUrl } from '@/lib/site-url';
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+const SITE_URL = normalizePublicSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
 
 export default async function robots(): Promise<MetadataRoute.Robots> {
   const base = SITE_URL.replace(/\/$/, '');

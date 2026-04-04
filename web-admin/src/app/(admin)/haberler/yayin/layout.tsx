@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import { fetchWebExtrasPublic } from '@/lib/web-extras-public';
+import { normalizePublicSiteUrl, stripUzaBadPortsFromUrl } from '@/lib/site-url';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000/api';
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+const SITE_URL = normalizePublicSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
 const YAYIN_PATH = '/haberler/yayin';
 
 async function getSeoConfig() {
@@ -33,7 +34,9 @@ export async function generateMetadata(): Promise<Metadata> {
     const description = seo?.description || '';
     const ogImage = seo?.og_image || null;
     const siteName = seo?.site_name || 'Öğretmen Pro';
-    const siteUrl = seo?.site_url?.replace(/\/$/, '') || SITE_URL.replace(/\/$/, '');
+    const siteUrl = (
+      seo?.site_url?.trim() ? stripUzaBadPortsFromUrl(seo.site_url) : SITE_URL
+    ).replace(/\/$/, '');
     const canonicalUrl = `${siteUrl}${YAYIN_PATH}`;
 
     return {
@@ -68,7 +71,10 @@ export default async function YayinLayout({ children }: { children: React.ReactN
   const seo = await getSeoConfig();
   const title = seo?.title || 'Haber Yayını – Öğretmen Pro';
   const description = seo?.description || '';
-  const siteUrl = seo?.site_url?.replace(/\/$/, '') || SITE_URL.replace(/\/$/, '');
+  const siteUrl = (seo?.site_url?.trim() ? stripUzaBadPortsFromUrl(seo.site_url) : SITE_URL).replace(
+    /\/$/,
+    '',
+  );
   const canonicalUrl = `${siteUrl}${YAYIN_PATH}`;
 
   const jsonLd = {

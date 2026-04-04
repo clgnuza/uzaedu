@@ -9,11 +9,12 @@ import { CookieBanner } from '@/components/cookie-banner';
 import { AuthProvider } from '@/providers/auth-provider';
 import { QueryProvider } from '@/providers/query-provider';
 import { fetchWebExtrasPublic } from '@/lib/web-extras-public';
+import { normalizePublicSiteUrl } from '@/lib/site-url';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin', 'latin-ext'], preload: false });
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+const SITE_URL = normalizePublicSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
 
 function safeGtmId(id: string): boolean {
   return /^GTM-[A-Z0-9]+$/.test(id.trim());

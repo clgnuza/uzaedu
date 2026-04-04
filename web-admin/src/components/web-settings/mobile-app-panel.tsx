@@ -10,6 +10,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Smartphone, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { normalizePublicSiteUrl } from '@/lib/site-url';
 import type { MobileAppPublic } from '@/lib/mobile-config-public';
 import type { WebPublicConfig } from './web-public-panel';
 import { WebSettingsField, WebSettingsPanel, WEB_SETTINGS_INPUT, WEB_SETTINGS_TEXTAREA } from './web-settings-shell';
@@ -51,7 +52,7 @@ const empty: MobileAppPublic = {
 };
 
 function siteBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_SITE_URL || '').replace(/\/$/, '');
+  return normalizePublicSiteUrl(process.env.NEXT_PUBLIC_SITE_URL).replace(/\/$/, '');
 }
 
 export function MobileAppPanel() {
