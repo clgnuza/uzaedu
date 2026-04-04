@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
@@ -14,10 +14,10 @@ import { Toolbar, ToolbarHeading, ToolbarPageTitle, ToolbarActions } from '@/com
 import { ToolbarIconHints } from '@/components/layout/toolbar-icon-hints';
 import {
   ClipboardList,
-  ClipboardCheck,
   ExternalLink,
   Bell,
   Megaphone,
+  CalendarCheck,
   SlidersHorizontal,
   Search,
   ChevronDown,
@@ -164,9 +164,16 @@ type ExamDutyItem = {
   examDate?: string | null;
   exam_date_end?: string | null;
   examDateEnd?: string | null;
+  published_at?: string | null;
+  publishedAt?: string | null;
 };
 
 type ListResponse = { items: ExamDutyItem[]; total: number };
+
+/** Bildirim tercihlerinden ortak sabah saati (kart metninde) */
+type ExamDutyPrefsForList = {
+  morningTime: string | null;
+};
 
 /* ─── helpers ─── */
 
@@ -177,6 +184,118 @@ function fmtDate(s: string | null | undefined): string {
   } catch {
     return '—';
   }
+}
+
+function fmtDateTime(s: string | null | undefined): string {
+  if (!s) return '—';
+  try {
+    return new Date(s).toLocaleString('tr-TR', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '—';
+  }
+}
+
+function addDaysISO(iso: string | null | undefined, deltaDays: number): string | null {
+  if (!iso) return null;
+  try {
+    const d = new Date(iso);
+    d.setHours(12, 0, 0, 0);
+    d.setDate(d.getDate() + deltaDays);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toISOString();
+  } catch {
+    return null;
+  }
+}
+
+/** «Hatırlatma al» sonrası sabah kartı: tek gün veya çok günlükte tercih (iki gün / ilk / son). */
+function getSabahMorningReminderChip(args: {
+  isAssigned: boolean;
+  examDateRaw: string | null | undefined;
+  examEndRaw: string | null | undefined;
+  examFirstYMD: string | null;
+  examLastYMD: string | null;
+  preferredDate: string | null | undefined;
+  examStartFmt: string;
+  examEndFmt: string;
+  morningClock: string;
+}): { show: boolean; value: string; past: boolean; soon: boolean } {
+  const {
+    isAssigned,
+    examDateRaw,
+    examEndRaw,
+    examFirstYMD,
+    examLastYMD,
+    preferredDate,
+    examStartFmt,
+    examEndFmt,
+    morningClock,
+  } = args;
+
+  if (!isAssigned) return { show: false, value: '', past: false, soon: false };
+
+  const clock = morningClock.trim() || '07:00';
+
+  if (!examDateRaw) {
+    return { show: true, value: `— · ${clock}`, past: false, soon: false };
+  }
+
+  const multiDay = !!(examFirstYMD && examLastYMD && examFirstYMD !== examLastYMD);
+  const prefRaw = preferredDate != null && String(preferredDate).trim() !== '' ? String(preferredDate).trim() : null;
+
+  if (!multiDay) {
+    return {
+      show: true,
+      value: `${examStartFmt} · sabah · ${clock}`,
+      past: isDatePast(examDateRaw),
+      soon: isWithinDays(examDateRaw, 7),
+    };
+  }
+
+  if (!prefRaw) {
+    const lastRaw = examEndRaw ?? examDateRaw;
+    return {
+      show: true,
+      value: `${examStartFmt} – ${examEndFmt} · her iki sınav günü sabah · ${clock}`,
+      past: isDatePast(lastRaw),
+      soon:
+        isWithinDays(examDateRaw, 7) ||
+        (!!examEndRaw && isWithinDays(examEndRaw, 7)),
+    };
+  }
+
+  if (examFirstYMD && prefRaw === examFirstYMD) {
+    return {
+      show: true,
+      value: `${examStartFmt} · yalnız ilk gün sabah · ${clock}`,
+      past: isDatePast(examDateRaw),
+      soon: isWithinDays(examDateRaw, 7),
+    };
+  }
+
+  if (examLastYMD && prefRaw === examLastYMD) {
+    const lastRaw = examEndRaw ?? examDateRaw;
+    return {
+      show: true,
+      value: `${examEndFmt} · yalnız son gün sabah · ${clock}`,
+      past: isDatePast(lastRaw),
+      soon: isWithinDays(lastRaw, 7),
+    };
+  }
+
+  const lastRaw = examEndRaw ?? examDateRaw;
+  return {
+    show: true,
+    value: `${examStartFmt} – ${examEndFmt} · sabah · ${clock}`,
+    past: isDatePast(lastRaw),
+    soon: isWithinDays(examDateRaw, 7) || (!!examEndRaw && isWithinDays(examEndRaw, 7)),
+  };
 }
 
 function isDatePast(s: string | null | undefined): boolean {
@@ -415,6 +534,7 @@ export default function SinavGorevlerimPage() {
   const [unassigningId, setUnassigningId] = useState<string | null>(null);
   const [assignDayChoiceForId, setAssignDayChoiceForId] = useState<string | null>(null);
   const [showPrefs, setShowPrefs] = useState(false);
+  const [examDutyPrefs, setExamDutyPrefs] = useState<ExamDutyPrefsForList | null>(null);
 
   const isTeacher = me?.role === 'teacher';
   const q = searchQuery.trim().toLowerCase();
@@ -468,6 +588,27 @@ export default function SinavGorevlerimPage() {
     } catch { setItems([]); } finally { setLoading(false); }
   }, [token, isTeacher, categoryFilter]);
 
+  const fetchExamDutyPrefs = useCallback(async () => {
+    if (!token || !isTeacher) return;
+    try {
+      const data = await apiFetch<Array<{ pref_exam_day_morning_time?: string | null }>>('/exam-duty-preferences', {
+        token,
+      });
+      const list = Array.isArray(data) ? data : [];
+      let morningTime: string | null = null;
+      for (const p of list) {
+        const t = p.pref_exam_day_morning_time;
+        if (t != null && String(t).trim() !== '') {
+          morningTime = String(t).trim();
+          break;
+        }
+      }
+      setExamDutyPrefs({ morningTime });
+    } catch {
+      setExamDutyPrefs({ morningTime: null });
+    }
+  }, [token, isTeacher]);
+
   const handleAssignMe = useCallback(async (examDutyId: string, preferredExamDate?: string | null) => {
     if (!token || assigningId) return;
     setAssigningId(examDutyId);
@@ -501,7 +642,23 @@ export default function SinavGorevlerimPage() {
     } catch { toast.error('İşlem geri alınamadı.'); } finally { setUnassigningId(null); }
   }, [token, unassigningId]);
 
-  useEffect(() => { if (!isTeacher) { router.replace('/403'); return; } fetchList(); }, [isTeacher, router, fetchList]);
+  useEffect(() => {
+    if (!isTeacher) {
+      router.replace('/403');
+      return;
+    }
+    fetchList();
+  }, [isTeacher, router, fetchList]);
+
+  useEffect(() => {
+    void fetchExamDutyPrefs();
+  }, [fetchExamDutyPrefs]);
+
+  const prevShowPrefs = useRef(false);
+  useEffect(() => {
+    if (prevShowPrefs.current && !showPrefs) void fetchExamDutyPrefs();
+    prevShowPrefs.current = showPrefs;
+  }, [showPrefs, fetchExamDutyPrefs]);
 
   if (!isTeacher) return null;
 
@@ -530,7 +687,16 @@ export default function SinavGorevlerimPage() {
           </div>
         </ToolbarHeading>
         <ToolbarActions>
-          <Button variant="ghost" size="sm" onClick={() => fetchList()} disabled={loading} className="gap-1.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              void fetchList();
+              void fetchExamDutyPrefs();
+            }}
+            disabled={loading}
+            className="gap-1.5"
+          >
             <RefreshCw className={cn('size-4', loading && 'animate-spin')} /> Yenile
           </Button>
           <Button variant="outline" size="sm" onClick={() => setShowPrefs((p) => !p)} className="gap-1.5">
@@ -731,6 +897,7 @@ export default function SinavGorevlerimPage() {
                 <DutyRow
                   key={i.id}
                   item={i}
+                  examPrefs={examDutyPrefs}
                   isAssigned={assignedIds.has(i.id)}
                   preferredDate={preferredDateMap[i.id]}
                   isExpanded={expandedId === i.id}
@@ -757,6 +924,7 @@ export default function SinavGorevlerimPage() {
 
 function DutyRow({
   item: i,
+  examPrefs,
   isAssigned,
   preferredDate,
   isExpanded,
@@ -770,6 +938,7 @@ function DutyRow({
   onUpdateDate,
 }: {
   item: ExamDutyItem;
+  examPrefs: ExamDutyPrefsForList | null;
   isAssigned: boolean;
   preferredDate: string | null | undefined;
   isExpanded: boolean;
@@ -800,6 +969,23 @@ function DutyRow({
   const examFirstYMD = toDateYMD(examDateRaw);
   const examLastYMD = toDateYMD(examEndRaw);
   const resultDt = fmtDate(resultRaw);
+
+  const publishedRaw = i.published_at ?? i.publishedAt;
+  const lastExamDayRaw = examEndRaw ?? examDateRaw;
+  const examMinusIso = addDaysISO(examDateRaw, -1);
+  const examPlusIso = addDaysISO(lastExamDayRaw, 1);
+  const morningClock = examPrefs?.morningTime?.trim() || '07:00';
+  const sabahChip = getSabahMorningReminderChip({
+    isAssigned,
+    examDateRaw,
+    examEndRaw,
+    examFirstYMD,
+    examLastYMD,
+    preferredDate,
+    examStartFmt: examStart,
+    examEndFmt: examEnd,
+    morningClock,
+  });
 
   const hasBody = !!(i.body ?? i.summary);
   const appEndPast = isDatePast(appEndRaw);
@@ -936,15 +1122,93 @@ function DutyRow({
           </div>
         </div>
 
-        {/* Tarihler — rozet kartları */}
+        {/* Zaman çizelgesi (kronoloji): … → sınav−1g → sınav günü → sınav+1g → sabah hatırlatma */}
         <div className="mt-3 flex flex-wrap gap-2 border-t border-border/35 pt-3 sm:gap-2.5">
-          <DateChip icon={CalendarClock} label="Başvuru" value={`${appStart} – ${appEnd}`} past={appEndPast} soon={appEndSoon} tone="blue" />
-          {appApprovalEnd !== '—' && (
-            <DateChip icon={FileCheck} label="Onay" value={appApprovalEnd} past={isDatePast(appApprovalEndRaw)} soon={appApprovalSoon} tone="violet" />
-          )}
-          <DateChip icon={Calendar} label="Sınav" value={examEnd !== '—' ? `${examStart} – ${examEnd}` : examStart} past={examPast} tone="amber" />
-          {resultDt !== '—' && <DateChip icon={ClipboardCheck} label="Sonuç" value={resultDt} tone="teal" />}
+          <DateChip
+            icon={Megaphone}
+            label="Başvuru açıldı"
+            value={fmtDateTime(publishedRaw)}
+            past={!!publishedRaw && isDatePast(publishedRaw)}
+            soon={false}
+            tone="blue"
+          />
+          <DateChip
+            icon={CalendarClock}
+            label="Son başvuru günü"
+            value={fmtDate(appEndRaw)}
+            past={appEndPast}
+            soon={appEndSoon}
+            tone="blue"
+          />
+          <DateChip
+            icon={FileCheck}
+            label="Onay günü"
+            value={fmtDate(appApprovalEndRaw)}
+            past={!!appApprovalEndRaw && isDatePast(appApprovalEndRaw)}
+            soon={appApprovalSoon}
+            tone="violet"
+          />
+          <DateChip
+            icon={CalendarCheck}
+            label="Sınavdan 1 gün önce"
+            value={examMinusIso ? fmtDate(examMinusIso) : '—'}
+            past={!!examMinusIso && isDatePast(examMinusIso)}
+            soon={!!examMinusIso && isWithinDays(examMinusIso, 7)}
+            tone="amber"
+          />
+          {examDateRaw ? (
+            <DateChip
+              icon={Calendar}
+              label="Sınav günü"
+              value={examEnd !== '—' && examStart !== examEnd ? `${examStart} – ${examEnd}` : examStart}
+              past={!!lastExamDayRaw && isDatePast(lastExamDayRaw)}
+              soon={
+                !!examDateRaw &&
+                !isDatePast(lastExamDayRaw) &&
+                (isWithinDays(examDateRaw, 7) || (!!examEndRaw && isWithinDays(examEndRaw, 7)))
+              }
+              tone="emerald"
+            />
+          ) : null}
+          <DateChip
+            icon={CalendarCheck}
+            label="Sınavdan 1 gün sonra"
+            value={examPlusIso ? fmtDate(examPlusIso) : '—'}
+            past={!!examPlusIso && isDatePast(examPlusIso)}
+            soon={!!examPlusIso && isWithinDays(examPlusIso, 7)}
+            tone="amber"
+          />
+          {sabahChip.show ? (
+            <DateChip
+              icon={Bell}
+              label="Sabah hatırlatma"
+              value={sabahChip.value}
+              past={sabahChip.past}
+              soon={sabahChip.soon}
+              tone="teal"
+            />
+          ) : null}
         </div>
+        {(appStart !== '—' || examStart !== '—' || resultDt !== '—') && (
+          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+            {appStart !== '—' && (
+              <span>
+                <span className="font-medium text-foreground/80">Başvuru aralığı:</span> {appStart} – {appEnd}
+              </span>
+            )}
+            {examStart !== '—' && (
+              <span>
+                <span className="font-medium text-foreground/80">Sınav:</span>{' '}
+                {examEnd !== '—' && examStart !== examEnd ? `${examStart} – ${examEnd}` : examStart}
+              </span>
+            )}
+            {resultDt !== '—' && (
+              <span>
+                <span className="font-medium text-foreground/80">Sonuç:</span> {resultDt}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* expandable body */}
         {isExpanded && hasBody && (
@@ -989,6 +1253,11 @@ const DATE_TONE: Record<string, { card: string; iconBg: string; iconFg: string }
     iconBg: 'bg-teal-500/18 dark:bg-teal-500/25',
     iconFg: 'text-teal-800 dark:text-teal-300',
   },
+  emerald: {
+    card: 'rounded-2xl border-emerald-200/55 bg-linear-to-br from-emerald-50/98 via-emerald-50/80 to-teal-50/45 shadow-[0_1px_2px_rgba(16,185,129,0.06)] ring-emerald-300/30 dark:border-emerald-800/45 dark:from-emerald-950/50 dark:via-emerald-950/38 dark:to-teal-950/28 dark:ring-emerald-500/18',
+    iconBg: 'bg-emerald-400/22 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] dark:bg-emerald-500/22 dark:shadow-none',
+    iconFg: 'text-emerald-800 dark:text-emerald-200',
+  },
 };
 
 function DateChip({
@@ -1013,23 +1282,39 @@ function DateChip({
         'inline-flex max-w-full items-center gap-2 rounded-xl border px-2.5 py-1.5 text-[11px] shadow-sm ring-1 sm:text-xs',
         t.card,
         past && 'opacity-50 saturate-[0.65]',
-        soon && !past && 'border-amber-300/80 bg-amber-50 ring-amber-400/35 dark:border-amber-700/60 dark:bg-amber-950/45'
+        soon &&
+          !past &&
+          (tone === 'emerald'
+            ? 'border-emerald-400/65 bg-linear-to-br from-emerald-100/90 to-teal-50/70 ring-emerald-400/45 dark:border-emerald-600/55 dark:from-emerald-900/55 dark:to-teal-950/40'
+            : 'border-amber-300/80 bg-amber-50 ring-amber-400/35 dark:border-amber-700/60 dark:bg-amber-950/45')
       )}
     >
       <span className={cn('flex size-7 shrink-0 items-center justify-center rounded-lg', t.iconBg, t.iconFg)}>
         <Icon className="size-3.5" aria-hidden />
       </span>
       <span className="min-w-0 leading-tight">
-        <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+        <span
+          className={cn(
+            'block text-[10px] font-semibold uppercase tracking-wide',
+            tone === 'emerald' ? 'text-emerald-800/75 dark:text-emerald-300/85' : 'text-muted-foreground'
+          )}
+        >
+          {label}
+        </span>
         <span
           className={cn(
             'font-medium text-foreground',
             past && 'line-through decoration-muted-foreground/50',
-            soon && !past && 'text-amber-800 dark:text-amber-200'
+            soon &&
+              !past &&
+              (tone === 'emerald' ? 'text-emerald-900 dark:text-emerald-100' : 'text-amber-800 dark:text-amber-200')
           )}
         >
           {value}
         </span>
+        {past ? (
+          <span className="mt-0.5 block text-[9px] font-medium text-muted-foreground">Geçti</span>
+        ) : null}
       </span>
     </span>
   );

@@ -6,6 +6,8 @@ export function isPublicAdminPath(pathname: string): boolean {
     p === '/haberler/yayin' ||
     p === '/extra-lesson-calc' ||
     p === '/hesaplamalar' ||
-    p === '/sinav-gorev-ucretleri'
+    p === '/sinav-gorev-ucretleri' ||
+    p === '/okul-degerlendirmeleri' ||
+    p.startsWith('/okul-degerlendirmeleri/')
   );
 }

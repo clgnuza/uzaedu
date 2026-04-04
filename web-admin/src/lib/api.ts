@@ -5,7 +5,10 @@
 
 import { COOKIE_SESSION_TOKEN } from './auth-session';
 import { markSupportModuleDisabledByApi } from './support-module-cache';
-import { dispatchModuleActivationRequired } from './module-activation-events';
+import {
+  dispatchModuleActivationRequired,
+  shouldDispatchModuleActivationForCurrentPath,
+} from './module-activation-events';
 
 const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000/api';
 
@@ -148,7 +151,11 @@ export async function apiFetch<T>(
         err.code = body?.code;
         err.details = body?.details;
         err.status = res.status;
-        if (body?.code === 'MODULE_ACTIVATION_REQUIRED' && typeof window !== 'undefined') {
+        if (
+          body?.code === 'MODULE_ACTIVATION_REQUIRED' &&
+          typeof window !== 'undefined' &&
+          shouldDispatchModuleActivationForCurrentPath(window.location.pathname, body.details)
+        ) {
           dispatchModuleActivationRequired({
             code: body.code,
             message: text,

@@ -2,6 +2,10 @@
 
 import Link from 'next/link';
 import type { Me } from '@/providers/auth-provider';
+import { useAuth } from '@/hooks/use-auth';
+import { useMarketModuleActivationMap, isMarketModuleLocked } from '@/hooks/use-market-module-activation-map';
+import { getMarketModuleKeyForPath } from '@/config/module-market-route';
+import { SCHOOL_MODULE_KEYS, type SchoolModuleKey } from '@/config/school-modules';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -34,6 +38,7 @@ import {
   XCircle,
   Undo2,
   Calculator,
+  Lock,
 } from 'lucide-react';
 import { WelcomeMotivationBanner } from '@/components/dashboard/welcome-motivation-banner';
 import { TeacherSchoolJoinBanner } from '@/components/dashboard/teacher-school-join-banner';
@@ -77,6 +82,13 @@ type QuickItem = {
 };
 
 type QuickSection = { label: string; items: QuickItem[] };
+
+function marketKeyForQuickItem(item: QuickItem): SchoolModuleKey | null {
+  if (item.schoolModule && SCHOOL_MODULE_KEYS.includes(item.schoolModule as SchoolModuleKey)) {
+    return item.schoolModule as SchoolModuleKey;
+  }
+  return getMarketModuleKeyForPath(item.href);
+}
 
 function buildTeacherQuickSections(enabledModules: string[] | null | undefined): QuickSection[] {
   const sections: QuickSection[] = [
@@ -338,9 +350,12 @@ export function TeacherHome({
   teacherPrefs,
   teacherSwaps,
 }: TeacherHomeProps) {
+  const { token } = useAuth();
+  const activationModules = useMarketModuleActivationMap(token, me.role);
   const enabledModules = me.school?.enabled_modules ?? null;
   const quickSections = buildTeacherQuickSections(enabledModules);
   const dutyEnabled = isSchoolModuleEnabled(enabledModules, 'duty');
+  const dutyMarketLocked = dutyEnabled && isMarketModuleLocked(activationModules, 'duty');
   const mySlots = (todayDuty?.slots ?? []).filter((s) => s.user_id === me.id);
 
   return (
@@ -471,6 +486,12 @@ export function TeacherHome({
                   )}
                 </div>
               )}
+              {dutyMarketLocked && (
+                <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-800 dark:text-amber-200">
+                  <Lock className="size-3.5 shrink-0" aria-hidden />
+                  Market’te etkinleştirme gerekir
+                </p>
+              )}
             </div>
           </Link>
         )}
@@ -550,28 +571,38 @@ export function TeacherHome({
               {section.label}
             </h3>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {section.items.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    'group relative overflow-hidden rounded-2xl border border-border/60 bg-background/60 p-4 transition-all',
-                    'hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  )}
-                >
-                  <div
+              {section.items.map((item) => {
+                const mk = marketKeyForQuickItem(item);
+                const itemLocked = isMarketModuleLocked(activationModules, mk);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
                     className={cn(
-                      'mb-3 flex size-10 items-center justify-center rounded-xl bg-gradient-to-br shadow-inner',
-                      item.accent,
+                      'group relative overflow-hidden rounded-2xl border border-border/60 bg-background/60 p-4 transition-all',
+                      'hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     )}
                   >
-                    <item.icon className="size-5" />
-                  </div>
-                  <p className="font-semibold leading-tight text-foreground">{item.title}</p>
-                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.desc}</p>
-                  <ArrowRight className="absolute right-3 top-3 size-4 text-muted-foreground/40 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
-                </Link>
-              ))}
+                    <div
+                      className={cn(
+                        'mb-3 flex size-10 items-center justify-center rounded-xl bg-gradient-to-br shadow-inner',
+                        item.accent,
+                      )}
+                    >
+                      <item.icon className="size-5" />
+                    </div>
+                    <p className="font-semibold leading-tight text-foreground">{item.title}</p>
+                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.desc}</p>
+                    {itemLocked ? (
+                      <p className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-amber-800 dark:text-amber-200">
+                        <Lock className="size-3.5 shrink-0" aria-hidden />
+                        Market’te etkinleştir
+                      </p>
+                    ) : null}
+                    <ArrowRight className="absolute right-3 top-3 size-4 text-muted-foreground/40 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                  </Link>
+                );
+              })}
             </div>
           </div>
         ))}

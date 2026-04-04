@@ -19,6 +19,15 @@ firebase-admin-key.json
 .DS_Store
 Thumbs.db
 
+# app_config export (gizli anahtarlar içerir)
+/app-config-import.sql
+/extra-lesson-import.sql
+/superadmin-full-import.sql
+/data-mirror.sql
+/full-mirror-import.sql
+/full-mirror.sql
+/_test-full.sql
+
 # Log ve geçici
 *.log
 tmp/

@@ -25,11 +25,11 @@ export function SuperadminDevopsSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<DevOpsConfig>({
-    git_repo_url: null,
+    git_repo_url: 'https://github.com/clgnuza/uzaedu.git',
     git_default_branch: 'main',
-    cicd_url: null,
-    production_api_url: null,
-    production_web_url: null,
+    cicd_url: 'https://github.com/clgnuza/uzaedu/actions',
+    production_api_url: 'https://api.uzaedu.com',
+    production_web_url: 'https://admin.uzaedu.com',
     deploy_notes: null,
   });
 
@@ -90,7 +90,8 @@ export function SuperadminDevopsSettings() {
         </div>
         <CardDescription className="text-xs sm:text-sm">
           Depo adresi, CI/CD bağlantısı, canlı API ve web adresleri ile dağıtım notları. Gizli anahtar, SSH veya token
-          eklemeyin; yalnızca ekip içi referans.
+          eklemeyin; yalnızca ekip içi referans. Varsayılanlar uzaedu.com / GitHub ile uyumludur; kaydedince veritabanına
+          yazılır.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
@@ -107,7 +108,7 @@ export function SuperadminDevopsSettings() {
                 <Input
                   id="devops-git-repo"
                   type="url"
-                  placeholder="https://github.com/kurum/proje"
+                  placeholder="https://github.com/clgnuza/uzaedu.git"
                   value={form.git_repo_url ?? ''}
                   onChange={(e) => setForm((f) => ({ ...f, git_repo_url: e.target.value || null }))}
                   autoComplete="off"
@@ -128,7 +129,7 @@ export function SuperadminDevopsSettings() {
                 <Input
                   id="devops-cicd"
                   type="url"
-                  placeholder="https://github.com/.../actions"
+                  placeholder="https://github.com/clgnuza/uzaedu/actions"
                   value={form.cicd_url ?? ''}
                   onChange={(e) => setForm((f) => ({ ...f, cicd_url: e.target.value || null }))}
                   autoComplete="off"
@@ -139,7 +140,7 @@ export function SuperadminDevopsSettings() {
                 <Input
                   id="devops-api"
                   type="url"
-                  placeholder="https://api.ornek.com"
+                  placeholder="https://api.uzaedu.com"
                   value={form.production_api_url ?? ''}
                   onChange={(e) => setForm((f) => ({ ...f, production_api_url: e.target.value || null }))}
                   autoComplete="off"
@@ -150,7 +151,7 @@ export function SuperadminDevopsSettings() {
                 <Input
                   id="devops-web"
                   type="url"
-                  placeholder="https://app.ornek.com"
+                  placeholder="https://admin.uzaedu.com"
                   value={form.production_web_url ?? ''}
                   onChange={(e) => setForm((f) => ({ ...f, production_web_url: e.target.value || null }))}
                   autoComplete="off"
@@ -163,7 +164,7 @@ export function SuperadminDevopsSettings() {
                 id="devops-notes"
                 rows={8}
                 className="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[120px] w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                placeholder={`Örn.:\n- Sunucuda: git pull origin main\n- backend: npm ci && npm run build && pm2 restart ...\n- web-admin: npm run build && ...`}
+                placeholder="Sunucu yolu, Docker DB, DNS, certbot, manuel SSH (API varsayılan notunu kullanmak için alanı boş kaydedin)."
                 value={form.deploy_notes ?? ''}
                 onChange={(e) => setForm((f) => ({ ...f, deploy_notes: e.target.value || null }))}
               />

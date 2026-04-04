@@ -87,10 +87,30 @@ const EXAM_DUTY_TIME_FIELDS = [
   { key: 'exam_date_end', label: 'Sınav sonrası hatırlatma' },
 ] as const;
 
+/** Backend’deki EXAM_DUTY_DEFAULT_TIMES_PRESET ile aynı (DB yokken form gösterimi). */
+const EXAM_DUTY_PRESET_TIMES: Record<(typeof EXAM_DUTY_TIME_FIELDS)[number]['key'], string> = {
+  application_start: '00:00',
+  application_end: '23:59',
+  application_approval_end: '11:00',
+  result_date: '10:00',
+  exam_date: '06:00',
+  exam_date_end: '05:00',
+};
+
+const EXAM_DUTY_NOTIFICATION_TIME_FIELDS = [
+  { key: 'deadline', label: 'Son başvuru günü bildirimi' },
+  { key: 'approval_day', label: 'Onay günü bildirimi' },
+  { key: 'exam_minus_1d', label: 'Sınavdan 1 gün önce' },
+  { key: 'exam_plus_1d', label: 'Sınavdan 1 gün sonra' },
+] as const;
+
+const DEFAULT_SYNC_SCHEDULE_TIMES = ['09:00', '13:00', '17:00', '21:00'] as const;
+
 type ExamDutySyncConfig = {
   gpt_enabled: boolean;
   openai_api_key?: string | null;
   default_times?: Record<string, string>;
+  notification_times?: Partial<Record<(typeof EXAM_DUTY_NOTIFICATION_TIME_FIELDS)[number]['key'], string>>;
   sync_options?: {
     skip_past_exam_date?: boolean;
     recheck_max_count?: number;
@@ -98,8 +118,18 @@ type ExamDutySyncConfig = {
     log_gpt_usage?: boolean;
     add_draft_without_dates?: boolean;
     max_new_per_sync?: number;
+    /** Otomatik sync — İstanbul HH:mm */
+    sync_schedule_times?: string[];
+    notify_superadmin_on_sync_items?: boolean;
+    /** GPT ile eklenen sync duyurusunu hemen yayınla */
+    auto_publish_gpt_sync_duties?: boolean;
   };
 };
+
+function formatSyncScheduleSummary(times: string[] | undefined): string {
+  const t = times?.length ? [...times] : [...DEFAULT_SYNC_SCHEDULE_TIMES];
+  return [...new Set(t)].sort().join(', ');
+}
 
 type SyncHealth = {
   last_sync_at: string | null;
@@ -183,7 +213,23 @@ export default function SinavGoreviAyarlarPage() {
     gpt_enabled: false,
     openai_api_key: null,
     default_times: {},
-    sync_options: { skip_past_exam_date: false, recheck_max_count: 1, fetch_timeout_ms: 30000, log_gpt_usage: false, add_draft_without_dates: true, max_new_per_sync: 1 },
+    notification_times: {
+      deadline: '09:00',
+      approval_day: '09:00',
+      exam_minus_1d: '09:00',
+      exam_plus_1d: '09:00',
+    },
+    sync_options: {
+      skip_past_exam_date: false,
+      recheck_max_count: 1,
+      fetch_timeout_ms: 30000,
+      log_gpt_usage: false,
+      add_draft_without_dates: true,
+      max_new_per_sync: 1,
+      sync_schedule_times: [...DEFAULT_SYNC_SCHEDULE_TIMES],
+      notify_superadmin_on_sync_items: true,
+      auto_publish_gpt_sync_duties: false,
+    },
   });
   const [configSaving, setConfigSaving] = useState(false);
 
@@ -223,13 +269,43 @@ export default function SinavGoreviAyarlarPage() {
         gpt_enabled: data?.gpt_enabled ?? false,
         openai_api_key: data?.openai_api_key ?? null,
         default_times: data?.default_times ?? {},
-        sync_options: data?.sync_options ?? { skip_past_exam_date: false, recheck_max_count: 1, fetch_timeout_ms: 30000, log_gpt_usage: false, add_draft_without_dates: true, max_new_per_sync: 0 },
+        notification_times: {
+          deadline: data?.notification_times?.deadline ?? '09:00',
+          approval_day: data?.notification_times?.approval_day ?? '09:00',
+          exam_minus_1d: data?.notification_times?.exam_minus_1d ?? '09:00',
+          exam_plus_1d: data?.notification_times?.exam_plus_1d ?? '09:00',
+        },
+        sync_options: {
+          ...data?.sync_options,
+          sync_schedule_times:
+            data?.sync_options?.sync_schedule_times?.length ?
+              data.sync_options.sync_schedule_times
+            : [...DEFAULT_SYNC_SCHEDULE_TIMES],
+          notify_superadmin_on_sync_items: data?.sync_options?.notify_superadmin_on_sync_items !== false,
+          auto_publish_gpt_sync_duties: data?.sync_options?.auto_publish_gpt_sync_duties === true,
+        },
       });
     } catch {
       setConfig({
         gpt_enabled: false,
         default_times: {},
-        sync_options: { skip_past_exam_date: false, recheck_max_count: 1, fetch_timeout_ms: 30000, log_gpt_usage: false, add_draft_without_dates: true, max_new_per_sync: 1 },
+        notification_times: {
+          deadline: '09:00',
+          approval_day: '09:00',
+          exam_minus_1d: '09:00',
+          exam_plus_1d: '09:00',
+        },
+        sync_options: {
+          skip_past_exam_date: false,
+          recheck_max_count: 1,
+          fetch_timeout_ms: 30000,
+          log_gpt_usage: false,
+          add_draft_without_dates: true,
+          max_new_per_sync: 1,
+          sync_schedule_times: [...DEFAULT_SYNC_SCHEDULE_TIMES],
+          notify_superadmin_on_sync_items: true,
+          auto_publish_gpt_sync_duties: false,
+        },
       });
     }
   }, [token]);
@@ -409,12 +485,14 @@ export default function SinavGoreviAyarlarPage() {
         gpt_enabled?: boolean;
         openai_api_key?: string | null;
         default_times?: Record<string, string>;
+        notification_times?: ExamDutySyncConfig['notification_times'];
         sync_options?: ExamDutySyncConfig['sync_options'];
       } = { gpt_enabled: config.gpt_enabled };
       if (config.openai_api_key !== undefined && config.openai_api_key !== '' && config.openai_api_key !== '••••••••') {
         payload.openai_api_key = config.openai_api_key;
       }
       if (config.default_times !== undefined) payload.default_times = config.default_times;
+      if (config.notification_times !== undefined) payload.notification_times = config.notification_times;
       if (config.sync_options !== undefined) payload.sync_options = config.sync_options;
       await apiFetch('/app-config/exam-duty-sync', {
         method: 'PATCH',
@@ -555,10 +633,125 @@ export default function SinavGoreviAyarlarPage() {
               <CardHeader>
                 <CardTitle className="text-lg">Senkronizasyon</CardTitle>
                 <p className="text-sm text-muted-foreground">
-                  RSS veya base_url + scrape_config tanımlı kaynaklardan otomatik sınav görevi duyuruları çekilir. Cron günde 4 kez (09, 13, 17, 21 Türkiye saatinde) çalışır.
+                  RSS veya base_url + scrape_config tanımlı kaynaklardan sınav görevi duyuruları çekilir. Aşağıdaki İstanbul saatlerinde otomatik sync tetiklenir; sonuç özeti yalnızca superadmin bildirimine düşer (açıksa).
                 </p>
               </CardHeader>
               <CardContent className="space-y-6">
+                <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-4">
+                  <div>
+                    <p className="text-sm font-medium">Otomatik senkron zamanları</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Sunucu her dakika kontrol eder; İstanbul’daki saat bu saatlerden biriyle eşleşince sync çalışır. Manuel &quot;Şimdi Senkronize Et&quot; her zaman kullanılabilir.
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Aktif plan:{' '}
+                      <span className="font-mono text-foreground">
+                        {formatSyncScheduleSummary(config.sync_options?.sync_schedule_times)}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    {(config.sync_options?.sync_schedule_times?.length
+                      ? config.sync_options.sync_schedule_times
+                      : [...DEFAULT_SYNC_SCHEDULE_TIMES]
+                    ).map((t, i) => {
+                      const list =
+                        config.sync_options?.sync_schedule_times?.length ?
+                          [...config.sync_options.sync_schedule_times!]
+                        : [...DEFAULT_SYNC_SCHEDULE_TIMES];
+                      return (
+                        <div key={`${i}-${t}`} className="flex items-center gap-1">
+                          <Input
+                            type="time"
+                            className="w-[118px]"
+                            value={t}
+                            onChange={(e) => {
+                              const v = e.target.value || '09:00';
+                              setConfig((c) => {
+                                const cur = [
+                                  ...(c.sync_options?.sync_schedule_times?.length ?
+                                    c.sync_options.sync_schedule_times
+                                  : [...DEFAULT_SYNC_SCHEDULE_TIMES]),
+                                ];
+                                cur[i] = v;
+                                return {
+                                  ...c,
+                                  sync_options: { ...(c.sync_options ?? {}), sync_schedule_times: cur },
+                                };
+                              });
+                            }}
+                          />
+                          {list.length > 1 && (
+                            <button
+                              type="button"
+                              className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+                              onClick={() => {
+                                setConfig((c) => {
+                                  const cur = [
+                                    ...(c.sync_options?.sync_schedule_times?.length ?
+                                      c.sync_options.sync_schedule_times
+                                    : [...DEFAULT_SYNC_SCHEDULE_TIMES]),
+                                  ];
+                                  cur.splice(i, 1);
+                                  return {
+                                    ...c,
+                                    sync_options: { ...(c.sync_options ?? {}), sync_schedule_times: cur },
+                                  };
+                                });
+                              }}
+                            >
+                              Kaldır
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={(config.sync_options?.sync_schedule_times ?? [...DEFAULT_SYNC_SCHEDULE_TIMES]).length >= 12}
+                      onClick={() =>
+                        setConfig((c) => {
+                          const cur = [
+                            ...(c.sync_options?.sync_schedule_times?.length ?
+                              c.sync_options.sync_schedule_times
+                            : [...DEFAULT_SYNC_SCHEDULE_TIMES]),
+                            '09:00',
+                          ];
+                          return {
+                            ...c,
+                            sync_options: { ...(c.sync_options ?? {}), sync_schedule_times: cur },
+                          };
+                        })
+                      }
+                    >
+                      + Saat ekle
+                    </Button>
+                  </div>
+                  <label className="flex items-start gap-2 cursor-pointer max-w-xl">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={config.sync_options?.notify_superadmin_on_sync_items !== false}
+                      onChange={(e) =>
+                        setConfig((c) => ({
+                          ...c,
+                          sync_options: {
+                            ...(c.sync_options ?? {}),
+                            notify_superadmin_on_sync_items: e.target.checked,
+                          },
+                        }))
+                      }
+                    />
+                    <span className="text-sm">
+                      Sync ile listeye eklenen veya geri yüklenen duyurular için yalnızca superadmin’e uygulama içi bildirim gönder (öğretmenlere gönderilmez)
+                    </span>
+                  </label>
+                  <Button type="button" variant="secondary" size="sm" onClick={saveConfig} disabled={configSaving}>
+                    {configSaving ? 'Kaydediliyor...' : 'Zaman ve bildirim ayarlarını kaydet'}
+                  </Button>
+                </div>
                 <div className="flex flex-wrap items-center gap-4">
                   <Button onClick={() => handleSync(false)} disabled={syncing}>
                     <RefreshCw className={cn('h-4 w-4 mr-2', syncing && 'animate-spin')} />
@@ -641,17 +834,48 @@ export default function SinavGoreviAyarlarPage() {
                 </div>
                 <div className="space-y-4">
                   <p className="text-sm font-medium">Tarih alanları için varsayılan saat (sadece gün seçildiğinde uygulanır)</p>
+                  <p className="text-xs text-muted-foreground">Tüm saatler Europe/Istanbul (UTC+3).</p>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {EXAM_DUTY_TIME_FIELDS.map(({ key, label }) => (
                       <div key={key} className="space-y-1">
                         <label className="text-xs text-muted-foreground">{label}</label>
                         <Input
                           type="time"
-                          value={config.default_times?.[key] ?? '00:00'}
+                          value={config.default_times?.[key] ?? EXAM_DUTY_PRESET_TIMES[key]}
                           onChange={(e) =>
                             setConfig((c) => ({
                               ...c,
-                              default_times: { ...(c.default_times ?? {}), [key]: e.target.value || '00:00' },
+                              default_times: {
+                                ...(c.default_times ?? {}),
+                                [key]: e.target.value || EXAM_DUTY_PRESET_TIMES[key],
+                              },
+                            }))
+                          }
+                          className="max-w-[120px]"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-4 border-t border-border pt-4">
+                  <p className="text-sm font-medium">Öğretmen kutusu bildirim saati (İstanbul)</p>
+                  <p className="text-xs text-muted-foreground">
+                    İlgili takvim gününde bir kez gönderilir. Yayınlanınca bildirimi duyuru yayınlandığında anında gider; sınav günü sabah hatırlatması öğretmen tercih saatine göre ayrı çalışır.
+                  </p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-2">
+                    {EXAM_DUTY_NOTIFICATION_TIME_FIELDS.map(({ key, label }) => (
+                      <div key={key} className="space-y-1">
+                        <label className="text-xs text-muted-foreground">{label}</label>
+                        <Input
+                          type="time"
+                          value={config.notification_times?.[key] ?? '09:00'}
+                          onChange={(e) =>
+                            setConfig((c) => ({
+                              ...c,
+                              notification_times: {
+                                ...(c.notification_times ?? {}),
+                                [key]: e.target.value || '09:00',
+                              },
                             }))
                           }
                           className="max-w-[120px]"
@@ -711,6 +935,25 @@ export default function SinavGoreviAyarlarPage() {
                         }
                       />
                       <span className="text-sm">Tarihsiz başvuru duyurularını taslak ekle</span>
+                    </label>
+                    <label className="flex items-start gap-2 cursor-pointer sm:col-span-2">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={config.sync_options?.auto_publish_gpt_sync_duties === true}
+                        onChange={(e) =>
+                          setConfig((c) => ({
+                            ...c,
+                            sync_options: { ...(c.sync_options ?? {}), auto_publish_gpt_sync_duties: e.target.checked },
+                          }))
+                        }
+                      />
+                      <span className="text-sm">
+                        GPT ile sync’e eklenen yeni duyuruyu otomatik yayınla
+                        <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                          Yalnızca o kayıtta GPT çıktısı kullanıldıysa geçerli; yayınlanınca öğretmenlere anında bildirim gider. GPT kapalı veya yanıtsız eklemeler taslak kalır.
+                        </span>
+                      </span>
                     </label>
                   </div>
                   <div className="flex flex-wrap gap-4 items-center">

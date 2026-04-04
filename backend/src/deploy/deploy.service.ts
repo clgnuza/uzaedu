@@ -15,6 +15,7 @@ import { getClientIp, isClientIpAllowed } from './deploy-request.util';
 
 const MAX_OUTPUT_CHARS = 24_000;
 const RUN_TIMEOUT_MS = 15 * 60 * 1000;
+const DATA_MIRROR_EXPORT_TIMEOUT_MS = 15 * 60 * 1000;
 
 function hashDeploySecret(s: string): Buffer {
   return createHash('sha256').update(s, 'utf8').digest();
@@ -46,15 +47,26 @@ function extractHeaderToken(req: Request, bodyToken?: string): string | undefine
 export class DeployService {
   private readonly logger = new Logger(DeployService.name);
 
+  /** Üretimde kapalı; yerel DB’den panel ile SQL indirmek için */
+  dataMirrorExportAllowed(): boolean {
+    const n = env.nodeEnv;
+    if (n === 'production') return false;
+    return n === 'local' || n === 'development' || n === 'test';
+  }
+
   getStatus(): DeployStatusDto {
     const allowed = env.deploy.allowedIps;
     const headerTok = env.deploy.headerToken?.trim();
-    if (process.platform === 'win32') {
+    const plat = process.platform;
+    const dataMirrorExportAvailable = this.dataMirrorExportAllowed();
+    if (plat === 'win32') {
       return {
         canDeploy: false,
         reason: 'windows',
         requiresHeaderToken: !!headerTok,
         requiresIpAllowlist: allowed.length > 0,
+        runtimePlatform: plat,
+        dataMirrorExportAvailable,
       };
     }
     if (!env.deploy.enabled) {
@@ -63,6 +75,8 @@ export class DeployService {
         reason: 'disabled',
         requiresHeaderToken: !!headerTok,
         requiresIpAllowlist: allowed.length > 0,
+        runtimePlatform: plat,
+        dataMirrorExportAvailable,
       };
     }
     const secret = env.deploy.secret?.trim();
@@ -73,6 +87,8 @@ export class DeployService {
         reason: 'misconfigured',
         requiresHeaderToken: !!headerTok,
         requiresIpAllowlist: allowed.length > 0,
+        runtimePlatform: plat,
+        dataMirrorExportAvailable,
       };
     }
     return {
@@ -80,7 +96,62 @@ export class DeployService {
       reason: 'ready',
       requiresHeaderToken: !!headerTok,
       requiresIpAllowlist: allowed.length > 0,
+      runtimePlatform: plat,
+      dataMirrorExportAvailable,
     };
+  }
+
+  /**
+   * tools/export-superadmin-full-sql.cjs ile yerel PostgreSQL → SQL dosyası (--skip-app-config).
+   * Çalışma dizini backend kökü olmalı (npm run start:dev).
+   */
+  async writeDataMirrorExportFile(outputPath: string): Promise<void> {
+    const script = path.join(process.cwd(), 'tools', 'export-superadmin-full-sql.cjs');
+    if (!fs.existsSync(script)) {
+      throw new BadRequestException('export aracı bulunamadı (tools/export-superadmin-full-sql.cjs).');
+    }
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(process.execPath, [script, outputPath, '--skip-app-config'], {
+        cwd: process.cwd(),
+        env: { ...process.env },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let out = '';
+      const append = (chunk: Buffer) => {
+        out += chunk.toString('utf8');
+        if (out.length > MAX_OUTPUT_CHARS) {
+          out = `…(kesildi)\n${out.slice(-MAX_OUTPUT_CHARS)}`;
+        }
+      };
+      child.stdout?.on('data', append);
+      child.stderr?.on('data', append);
+      const timer = setTimeout(() => {
+        child.kill('SIGTERM');
+        reject(
+          new BadRequestException(
+            `SQL dışa aktarma zaman aşımı (${DATA_MIRROR_EXPORT_TIMEOUT_MS / 60000} dk).\n${out.trim()}`,
+          ),
+        );
+      }, DATA_MIRROR_EXPORT_TIMEOUT_MS);
+      child.on('error', (err: NodeJS.ErrnoException) => {
+        clearTimeout(timer);
+        reject(
+          new BadRequestException(err.code === 'ENOENT' ? 'node çalıştırılamadı.' : err.message),
+        );
+      });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(
+            new BadRequestException(
+              `export çıkış kodu: ${code}\n${out.trim() || '(stderr/stdout boş)'}`,
+            ),
+          );
+        }
+      });
+    });
   }
 
   async run(

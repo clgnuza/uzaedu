@@ -7,4 +7,8 @@ export type DeployStatusDto = {
   requiresHeaderToken: boolean;
   /** DEPLOY_ALLOWED_IPS dolu — yalnızca izinli IP’lerden çalışır */
   requiresIpAllowlist: boolean;
+  /** Node süreç ortamı (panel: win32 ise yerel geliştirme veya canlı Linux API kullanın) */
+  runtimePlatform: NodeJS.Platform;
+  /** APP_ENV local/development/test: GET /deploy/data-mirror-export açık */
+  dataMirrorExportAvailable: boolean;
 };

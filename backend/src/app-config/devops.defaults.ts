@@ -13,7 +13,7 @@ const DEFAULT_DEPLOY_NOTES = [
   'Veritabanı: Docker postgres:16-alpine (docker-compose.server.yml), yalnız 127.0.0.1:5432. DB şifre: scripts/security/generate-db-password.ps1; rotasyon: infra/scripts/rotate-postgres-password.sh. Sunucu sertleştirme: infra/scripts/harden-server.sh (UFW, .env chmod).',
   'DNS (Güzel Hosting): @, www, api, admin → sunucu IPv4; sonra certbot SSL.',
   'CI/CD: GitHub Actions "Deploy production" (SSH). Secrets: DEPLOY_SSH_HOST, DEPLOY_SSH_USER, DEPLOY_SSH_KEY (Settings → Secrets → Actions). Yerel: scripts/deploy/set-github-secrets.ps1 (gh CLI).',
-  'Sunucu betiği: scripts/deploy/server-deploy.sh (git pull, npm ci, build, pm2). Eski /opt/uzaedu/deploy.sh → bu betiğe yönlendirin veya aynı içeriği kullanın.',
+  'Sunucu betiği: scripts/deploy/server-deploy.sh (git pull, npm ci, build, web-admin .env.production, pm2). DOMAIN_API / DOMAIN_ADMIN ile admin+api URL’leri; varsayılan api.uzaedu.com / admin.uzaedu.com. Eski /opt/uzaedu/deploy.sh → bu betiğe yönlendirin.',
   'Yerel tetik: scripts/deploy/push-and-release.ps1 (git push + gh workflow run) veya Actions’tan Run workflow.',
   'Panel webhook: DEPLOY_ENABLED + DEPLOY_SECRET; DEPLOY_SCRIPT_PATH=/opt/uzaedu/scripts/deploy/server-deploy.sh (isteğe bağlı).',
   'Demo parola girişi (seed/demo-credentials): sunucu backend .env içinde ALLOW_DEMO_LOGIN=true; DB’de ilgili kullanıcı kaydı olmalı. Üretimde güvenlik riski — geçiş sonrası false yapın veya şifreleri tools/set-user-password.cjs ile değiştirin.',

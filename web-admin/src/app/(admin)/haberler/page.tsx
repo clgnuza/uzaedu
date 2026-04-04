@@ -702,7 +702,7 @@ export default function HaberlerPage() {
         </div>
       </header>
 
-      <div className="sticky top-0 z-1 w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/70 bg-background/90 shadow-md ring-1 ring-border/40 backdrop-blur-md">
+      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/70 bg-background/90 shadow-md ring-1 ring-border/40 backdrop-blur-md">
         {channels.length > 0 && (
           <div className="border-b border-border/50 px-4 pb-3 pt-4">
             <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">

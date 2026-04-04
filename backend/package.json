@@ -32,7 +32,10 @@
     "set-user-password": "node tools/set-user-password.cjs",
     "ensure-demo-superadmin": "node tools/ensure-demo-superadmin.cjs",
     "peek-app-config": "node tools/peek-app-config.cjs",
-    "export-app-config-sql": "node tools/export-app-config-sql.cjs"
+    "export-app-config-sql": "node tools/export-app-config-sql.cjs",
+    "export-extra-lesson-sql": "node tools/export-extra-lesson-sql.cjs",
+    "export-superadmin-full-sql": "node tools/export-superadmin-full-sql.cjs",
+    "export:data-mirror": "node tools/export-superadmin-full-sql.cjs ../data-mirror.sql --skip-app-config"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.989.0",

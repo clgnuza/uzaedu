@@ -22,6 +22,8 @@ export interface ExamDutyExtractResult {
   son_basvuru: string | null;
   sinav_1_gunu: string | null;
   sinav_2_gunu: string | null;
+  /** Sonuç / sınav öncesi hatırlatma (exam_duties.result_date) */
+  sinav_oncesi_hatirlatma: string | null;
   application_url: string | null;
   category_slug: string | null;
   is_application_announcement: boolean;
@@ -71,11 +73,25 @@ export class ExamDutyGptService {
         son_basvuru: { type: 'string', description: 'Son başvuru veya son istek tarihi. Sınav günü DEĞİL.' },
         sinav_1_gunu: { type: 'string', description: 'İlk sınav günü (1. oturum veya tek gün).' },
         sinav_2_gunu: { type: 'string', description: 'İkinci/son sınav günü. Tek günlüyse sinav_1_gunu ile aynı veya null.' },
+        sinav_oncesi_hatirlatma: {
+          type: 'string',
+          description:
+            'Sonuç ilanı, görev/katılım duyurusu, sınav öncesi son işlem veya hatırlatma tarihi-saati. Son başvuru veya sınav günü değil. Yoksa null.',
+        },
         application_url: { type: 'string', description: 'Başvuru URL (gis.osym, mebbis, auzefgis vb.) veya null' },
         category_slug: { type: 'string', description: 'meb, osym, aof, ataaof, auzef veya null' },
         is_application_announcement: { type: 'boolean', description: 'Metinde son başvuru veya sınav tarihi varsa true' },
       },
-      required: ['baslangic', 'son_basvuru', 'sinav_1_gunu', 'sinav_2_gunu', 'application_url', 'category_slug', 'is_application_announcement'],
+      required: [
+        'baslangic',
+        'son_basvuru',
+        'sinav_1_gunu',
+        'sinav_2_gunu',
+        'sinav_oncesi_hatirlatma',
+        'application_url',
+        'category_slug',
+        'is_application_announcement',
+      ],
       additionalProperties: false,
     };
 
@@ -89,6 +105,7 @@ GÖREV: Aşağıdaki tabloyu doldur. Bulamadığın alan null.
 | son_basvuru | Son başvuru tarihi. "Son gün: 12 Mart", "Son İstek: 3 Mart 23:59", "Başvuru: 24.02-02.03" (bitiş) | 2026-03-12 veya 2026-03-12 23:59 |
 | sinav_1_gunu | İlk sınav günü. "Sınav: 4-5 Nisan" → 4 Nisan. "1. Oturum: 27 Aralık" → 27 Aralık. | 2026-04-04 |
 | sinav_2_gunu | Son sınav günü. "4-5 Nisan" → 5 Nisan. Tek günlüyse sinav_1_gunu ile aynı veya null. | 2026-04-05 |
+| sinav_oncesi_hatirlatma | Sonuç açıklanma, görev yerinin ilanı, katılım durumu, sınav öncesi evrak/son işlem tarihi. Son başvuru veya sınav oturum günü değil. | 2026-04-20 veya 2026-04-20 10:00 |
 
 KURALLAR:
 - Tüm tarihler YYYY-MM-DD veya YYYY-MM-DD HH:mm ( saat varsa ).
@@ -104,7 +121,7 @@ KURALLAR:
       ? `\n(REFERANS — kullanma: Aşağıdaki tarih yalnızca RSS/liste yayın veya görünürlük tarihi olabilir; son_basvuru veya sinav_* alanlarına kopyalama. Metinde aynı gün sınav/başvuru olarak yazılmıyorsa yoksay.)\nYAYIN_REF: ${input.fallbackStartDate.trim()}\n`
       : '';
 
-    const userPrompt = `İçeriğin tamamını oku. Son başvuru, 1. sınav günü, 2. sınav günü (varsa), ilk yayınlanma (varsa) bul. Tablo olarak döndür.
+    const userPrompt = `İçeriğin tamamını oku. Son başvuru, 1. ve 2. sınav günü (varsa), sonuç veya sınav öncesi hatırlatma tarihi (varsa), ilk yayınlanma (varsa) bul. Tablo olarak döndür.
 ${pubHint}
 BAŞLIK: ${input.title}
 
@@ -147,6 +164,7 @@ ${fullContent.slice(0, 14000)}`;
           son_basvuru: toDateStr(parsed.son_basvuru),
           sinav_1_gunu: toDateStr(parsed.sinav_1_gunu),
           sinav_2_gunu: toDateStr(parsed.sinav_2_gunu),
+          sinav_oncesi_hatirlatma: toDateStr(parsed.sinav_oncesi_hatirlatma),
           application_url: toUrlStr(parsed.application_url),
           category_slug: toCategorySlug(parsed.category_slug),
           is_application_announcement: parsed.is_application_announcement === true,

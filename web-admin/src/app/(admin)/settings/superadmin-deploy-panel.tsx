@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Copy, Check, Loader2, Rocket } from 'lucide-react';
+import { Check, Copy, Download, Loader2, Rocket } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, buildApiUrl } from '@/lib/api';
+import { COOKIE_SESSION_TOKEN } from '@/lib/auth-session';
 import { LIVE_DEPLOY_API_BASE, resolveDeployApiBase } from '@/lib/deploy-api';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -19,6 +20,7 @@ type DeployStatusPayload = {
   requiresHeaderToken: boolean;
   requiresIpAllowlist: boolean;
   runtimePlatform?: string;
+  dataMirrorExportAvailable?: boolean;
 };
 
 const LIVE_ADMIN_ORIGIN = 'https://admin.uzaedu.com';
@@ -36,6 +38,12 @@ function statusMessage(reason: DeployStatusPayload['reason']): string {
   }
 }
 
+const MAIN_API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000/api';
+
+function normApiBase(s: string) {
+  return s.trim().replace(/\/$/, '');
+}
+
 export function SuperadminDeployPanel() {
   const { token, me } = useAuth();
   const deployApiBase = resolveDeployApiBase();
@@ -47,23 +55,54 @@ export function SuperadminDeployPanel() {
   const [durationMs, setDurationMs] = useState<number | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [exportDownloading, setExportDownloading] = useState(false);
 
   const loadStatus = useCallback(() => {
     if (!token || me?.role !== 'superadmin') return;
+    const deployTarget = deployApiBase && deployApiBase.trim() !== '' ? deployApiBase.trim() : null;
+    const dualDeploy =
+      deployTarget != null && normApiBase(deployTarget) !== normApiBase(MAIN_API_BASE);
+
+    const fallback = (): DeployStatusPayload => ({
+      canDeploy: false,
+      reason: 'misconfigured',
+      requiresHeaderToken: false,
+      requiresIpAllowlist: false,
+      runtimePlatform: undefined,
+      dataMirrorExportAvailable: false,
+    });
+
+    if (dualDeploy) {
+      void (async () => {
+        try {
+          const dep = await apiFetch<DeployStatusPayload>('/deploy/status', {
+            token,
+            apiBase: deployTarget,
+          });
+          let dataMirrorExportAvailable = false;
+          try {
+            const main = await apiFetch<DeployStatusPayload>('/deploy/status', {
+              token,
+              apiBase: MAIN_API_BASE,
+            });
+            dataMirrorExportAvailable = main.dataMirrorExportAvailable ?? false;
+          } catch {
+            /* yerel API kapalı — dağıtım durumu yine canlıdan */
+          }
+          setStatus({ ...dep, dataMirrorExportAvailable });
+        } catch {
+          setStatus(fallback());
+        }
+      })();
+      return;
+    }
+
     apiFetch<DeployStatusPayload>('/deploy/status', {
       token,
-      ...(deployApiBase ? { apiBase: deployApiBase } : {}),
+      ...(deployTarget ? { apiBase: deployTarget } : {}),
     })
       .then(setStatus)
-      .catch(() =>
-        setStatus({
-          canDeploy: false,
-          reason: 'misconfigured',
-          requiresHeaderToken: false,
-          requiresIpAllowlist: false,
-          runtimePlatform: undefined,
-        }),
-      );
+      .catch(() => setStatus(fallback()));
   }, [token, me?.role, deployApiBase]);
 
   useEffect(() => {
@@ -118,6 +157,38 @@ export function SuperadminDeployPanel() {
       });
   };
 
+  const downloadDataMirrorSql = async () => {
+    if (!token) return;
+    const mainApi = MAIN_API_BASE;
+    setExportDownloading(true);
+    try {
+      const url = buildApiUrl('/deploy/data-mirror-export', mainApi);
+      const headers: Record<string, string> = {};
+      if (token && token !== COOKIE_SESSION_TOKEN) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(url, { method: 'GET', headers, credentials: 'include', cache: 'no-store' });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { message?: string | string[] };
+        const msg = Array.isArray(body.message) ? body.message[0] : body.message;
+        throw new Error(msg || res.statusText || 'İndirilemedi');
+      }
+      const blob = await res.blob();
+      const cd = res.headers.get('Content-Disposition');
+      let name = 'data-mirror.sql';
+      const m = cd?.match(/filename="?([^";\n]+)"?/i);
+      if (m?.[1]) name = m[1].trim();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast.success('data-mirror.sql indirildi');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'İndirilemedi');
+    } finally {
+      setExportDownloading(false);
+    }
+  };
+
   const copyOutput = async () => {
     if (deployOutput == null) return;
     try {
@@ -148,36 +219,90 @@ export function SuperadminDeployPanel() {
             <Rocket className="size-4 text-muted-foreground" aria-hidden />
             <CardTitle className="text-base">Sunucuyu güncelle</CardTitle>
           </div>
-          <CardDescription className="text-xs sm:text-sm">
-            <span className="block">
-              Uygulama API:{' '}
-              <code className="rounded bg-muted px-1 py-0.5 text-[11px] break-all">{apiBaseDisplay}</code>
-            </span>
-            <span className="mt-2 block">
-              Sunucu güncelleme (dağıtım) istekleri:{' '}
-              <code className="rounded bg-muted px-1 py-0.5 text-[11px] break-all">{deployTargetDisplay}</code>
-              {deployOverridesMain ? (
-                <span className="ml-1 text-emerald-800/90 dark:text-emerald-200/85">
-                  (localhost backend kullanırken otomatik canlı API; veya{' '}
-                  <code className="rounded bg-muted px-0.5 text-[10px]">NEXT_PUBLIC_DEPLOY_API_BASE_URL</code>)
-                </span>
-              ) : null}
-            </span>
-            <span className="mt-2 block">
-              Canlı sunucuda <code className="rounded bg-muted px-1 py-0.5 text-[11px]">DEPLOY_ENABLED=true</code>,{' '}
-              <code className="rounded bg-muted px-1 py-0.5 text-[11px]">DEPLOY_SECRET</code> ve{' '}
-              <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
-                DEPLOY_SCRIPT_PATH=/opt/uzaedu/scripts/deploy/server-deploy.sh
-              </code>{' '}
-              tanımlı olmalı. Şifre alanına aynı <code className="rounded bg-muted px-1 py-0.5 text-[11px]">DEPLOY_SECRET</code>{' '}
-              yazılır; onay ile betik çalışır. Otomatik sürekli dağıtım yoktur.
-            </span>
-            {status?.requiresIpAllowlist ? (
-              <span className="mt-2 block text-amber-800/90 dark:text-amber-200/90">
-                Sunucu yalnızca izin verilen IP adreslerinden dağıtım kabul eder.
+          <div className="space-y-3 text-xs text-muted-foreground sm:text-sm">
+            <div className="space-y-1.5 rounded-lg border border-border/80 bg-muted/30 px-3 py-2.5">
+              <p className="font-medium text-foreground">Kod dağıtımı (bu sekme)</p>
+              <p className="text-muted-foreground">
+                <strong className="font-medium text-foreground">Yapar:</strong> Sunucudaki betik (
+                <code className="rounded bg-muted px-1 py-0.5 text-[11px]">git pull</code>, backend ve web-admin{' '}
+                <code className="rounded bg-muted px-1 py-0.5 text-[11px]">npm ci</code> /{' '}
+                <code className="rounded bg-muted px-1 py-0.5 text-[11px]">build</code>,{' '}
+                <code className="rounded bg-muted px-1 py-0.5 text-[11px]">pm2</code> yenileme). İsteğe bağlı şema: sunucuda{' '}
+                <code className="rounded bg-muted px-1 py-0.5 text-[11px]">MIGRATE_ON_DEPLOY=1</code> ortam değişkeni
+                (veya <code className="rounded bg-muted px-1 py-0.5 text-[11px]">backend/.env</code> içinde) açıksa aynı
+                betikte <code className="rounded bg-muted px-1 py-0.5 text-[11px]">npm run migration:run</code> çalışır.
+              </p>
+              <p className="text-muted-foreground">
+                <strong className="font-medium text-foreground">Yapmaz:</strong> PostgreSQL veri eşitlemesi,{' '}
+                <code className="rounded bg-muted px-1 py-0.5 text-[11px]">app_config</code> içeriği, R2 dosyaları. Bunlar
+                repodaki araçlarla ayrı adımda yapılır (aşağıda).
+              </p>
+            </div>
+            <div className="space-y-1">
+              <span className="block">
+                Uygulama API:{' '}
+                <code className="rounded bg-muted px-1 py-0.5 text-[11px] break-all">{apiBaseDisplay}</code>
               </span>
+              <span className="block">
+                Dağıtım istekleri:{' '}
+                <code className="rounded bg-muted px-1 py-0.5 text-[11px] break-all">{deployTargetDisplay}</code>
+                {deployOverridesMain ? (
+                  <span className="ml-1 text-emerald-800/90 dark:text-emerald-200/85">
+                    (localhost’ta genelde canlı API;{' '}
+                    <code className="rounded bg-muted px-0.5 text-[10px]">NEXT_PUBLIC_DEPLOY_API_BASE_URL</code>)
+                  </span>
+                ) : null}
+              </span>
+            </div>
+            <div className="space-y-1.5 rounded-lg border border-dashed border-border px-3 py-2.5">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Canlı backend .env (dağıtım)
+              </p>
+              <ul className="list-inside list-disc space-y-0.5 text-[11px] text-muted-foreground">
+                <li>
+                  <code className="rounded bg-muted px-1 py-0.5">DEPLOY_ENABLED=true</code>
+                </li>
+                <li>
+                  <code className="rounded bg-muted px-1 py-0.5">DEPLOY_SECRET</code> — şifre alanına aynısı
+                </li>
+                <li>
+                  <code className="rounded bg-muted px-1 py-0.5 break-all">
+                    DEPLOY_SCRIPT_PATH=/opt/uzaedu/scripts/deploy/server-deploy.sh
+                  </code>
+                </li>
+                <li className="text-muted-foreground/95">
+                  İsteğe bağlı: <code className="rounded bg-muted px-1 py-0.5">DEPLOY_ALLOWED_IPS</code>,{' '}
+                  <code className="rounded bg-muted px-1 py-0.5">DEPLOY_HEADER_TOKEN</code>,{' '}
+                  <code className="rounded bg-muted px-1 py-0.5">TRUST_PROXY=true</code> (Nginx arkasında doğru IP)
+                </li>
+                <li>
+                  İsteğe bağlı şema: <code className="rounded bg-muted px-1 py-0.5">MIGRATE_ON_DEPLOY=1</code>
+                </li>
+              </ul>
+              <p className="text-[11px] text-muted-foreground">
+                Otomatik sürekli dağıtım yok; her seferinde onay ve şifre gerekir.
+              </p>
+            </div>
+            <div className="space-y-1.5 rounded-lg border border-border/60 bg-background/50 px-3 py-2.5">
+              <p className="text-[11px] font-medium text-foreground">Veritabanı ve referans veri (ayrı işlem)</p>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Yerelden canlıya tablo eşitleme bu panelden yapılmaz. Repoda:{' '}
+                <code className="rounded bg-muted px-1 py-0.5">backend/tools/export-superadmin-full-sql.cjs</code>, özet{' '}
+                <code className="rounded bg-muted px-1 py-0.5">backend/tools/DEPLOY-LOCAL-TO-PROD.txt</code>, Windows için{' '}
+                <code className="rounded bg-muted px-1 py-0.5">backend/tools/deploy-local-to-prod.ps1</code>. Önerilen:{' '}
+                <code className="rounded bg-muted px-1 py-0.5">npm run export:data-mirror</code> veya bu sekmede yerel
+                API’ye bağlıyken <strong className="font-medium text-foreground">Yerel DB yedeği indir</strong> (canlı{' '}
+                <code className="rounded bg-muted px-1 py-0.5">app_config</code> sırlarını korumak için{' '}
+                <code className="rounded bg-muted px-1 py-0.5">--skip-app-config</code>). Import öncesi canlı yedek (
+                <code className="rounded bg-muted px-1 py-0.5">pg_dump</code>) alın.
+              </p>
+            </div>
+            {status?.requiresIpAllowlist ? (
+              <p className="text-amber-800/90 dark:text-amber-200/90">
+                Sunucu yalnızca izin verilen IP adreslerinden dağıtım kabul eder.
+              </p>
             ) : null}
-          </CardDescription>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
           {status === null ? (
@@ -185,7 +310,34 @@ export function SuperadminDeployPanel() {
               <Loader2 className="size-4 animate-spin" aria-hidden />
               Dağıtım durumu…
             </div>
-          ) : !status.canDeploy ? (
+          ) : null}
+          {status?.dataMirrorExportAvailable ? (
+            <div className="space-y-2 rounded-lg border border-emerald-500/30 bg-emerald-500/6 px-3 py-3 text-xs leading-relaxed dark:border-emerald-500/25 dark:bg-emerald-950/25">
+              <p className="font-medium text-foreground">Yerel DB yedeği indir</p>
+              <p className="text-muted-foreground">
+                Bu bilgisayardaki backend’in bağlı olduğu PostgreSQL → <code className="rounded bg-muted px-1 py-0.5">data-mirror.sql</code>{' '}
+                (--skip-app-config). Canlıya yükleme tarayıcıdan yapılmaz; güvenlik için{' '}
+                <code className="rounded bg-muted px-1 py-0.5">backend/tools/deploy-local-to-prod.ps1</code> veya SSH +{' '}
+                <code className="rounded bg-muted px-1 py-0.5">psql</code> kullanın.
+              </p>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="gap-2"
+                disabled={exportDownloading}
+                onClick={() => void downloadDataMirrorSql()}
+              >
+                {exportDownloading ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <Download className="size-4" aria-hidden />
+                )}
+                İndir
+              </Button>
+            </div>
+          ) : null}
+          {status !== null && !status.canDeploy ? (
             status.reason === 'windows' ? (
               <div className="space-y-3 rounded-lg border border-sky-500/35 bg-sky-500/5 px-3 py-3 text-xs leading-relaxed text-sky-950 dark:border-sky-500/30 dark:bg-sky-950/20 dark:text-sky-50/95">
                 <p>
@@ -238,7 +390,7 @@ export function SuperadminDeployPanel() {
                 {statusMessage(status.reason)}
               </p>
             )
-          ) : (
+          ) : status !== null ? (
             <>
               <div className="space-y-2">
                 <Label htmlFor="deploy-pw">Dağıtım şifresi</Label>
@@ -329,15 +481,17 @@ export function SuperadminDeployPanel() {
                 </div>
               )}
             </>
-          )}
+          ) : null}
         </CardContent>
       </Card>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent title="Dağıtımı onayla">
           <p className="text-sm leading-relaxed text-muted-foreground">
-            Sunucuda tanımlı dağıtım betiği çalıştırılacak (ör. git pull, build, servis yenileme). Kısa süreli kesinti
-            olabilir. Devam edilsin mi?
+            Sunucuda tanımlı betik çalıştırılacak: önce kod (git pull, npm ci / build), sunucuda{' '}
+            <code className="rounded bg-muted px-1 py-0.5 text-[11px]">MIGRATE_ON_DEPLOY</code> açıksa şema migration,
+            ardından PM2 yenileme. Veritabanı içerik aktarımı bu adıma dahil değildir. Kısa kesinti olabilir. Devam
+            edilsin mi?
           </p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>

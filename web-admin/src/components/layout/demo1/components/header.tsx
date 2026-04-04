@@ -60,6 +60,7 @@ function guestPublicBrandSubtitle(pathname: string): string {
   if (p === '/sinav-gorev-ucretleri') return 'Sınav görev ücretleri';
   if (p === '/haberler/yayin') return 'Yayın';
   if (p === '/haberler') return 'Haberler';
+  if (p === '/okul-degerlendirmeleri' || p.startsWith('/okul-degerlendirmeleri/')) return 'Okul değerlendirmeleri';
   return 'Herkese açık';
 }
 

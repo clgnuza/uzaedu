@@ -77,6 +77,8 @@ const EVENT_LABELS: Record<string, string> = {
   'exam_duty.examday': 'Sınav görevi sınav günü',
   'exam_duty.reminder': 'Sınav görevi hatırlatma',
   'exam_duty.exam_day_morning': 'Sınav günü sabah hatırlatması',
+  'exam_duty.sync_source_error': 'Sınav görevi sync (kaynak hatası)',
+  'exam_duty.sync_items_processed': 'Sınav görevi sync (işlenen duyurular)',
   'support.ticket.created': 'Yeni destek talebi',
   'support.ticket.replied': 'Talebinize yanıt verildi',
   'support.ticket.assigned': 'Size destek talebi atandı',

@@ -1022,7 +1022,24 @@ export class AppConfigController {
       gpt_enabled?: boolean;
       openai_api_key?: string | null;
       default_times?: Record<string, string>;
-      sync_options?: { skip_past_exam_date?: boolean; recheck_max_count?: number; fetch_timeout_ms?: number; log_gpt_usage?: boolean };
+      /** Kutu bildirimleri: Son başvuru, Onay, Sınav±1 gün — İstanbul HH:mm (yayın ayrı, anında) */
+      notification_times?: Partial<{
+        deadline: string;
+        approval_day: string;
+        exam_minus_1d: string;
+        exam_plus_1d: string;
+      }>;
+      sync_options?: {
+        skip_past_exam_date?: boolean;
+        recheck_max_count?: number;
+        fetch_timeout_ms?: number;
+        log_gpt_usage?: boolean;
+        add_draft_without_dates?: boolean;
+        max_new_per_sync?: number;
+        sync_schedule_times?: string[];
+        notify_superadmin_on_sync_items?: boolean;
+        auto_publish_gpt_sync_duties?: boolean;
+      };
     },
   ): Promise<{ success: boolean }> {
     await this.service.updateExamDutySyncConfig(dto);

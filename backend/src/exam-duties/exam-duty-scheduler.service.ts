@@ -6,6 +6,8 @@ import { ExamDuty } from './entities/exam-duty.entity';
 import { ExamDutiesService } from './exam-duties.service';
 import { ExamDutySyncService } from './exam-duty-sync.service';
 import type { ExamDutyNotificationReason } from './entities/exam-duty-notification-log.entity';
+import { AppConfigService } from '../app-config/app-config.service';
+import { getNowHHmmTurkey } from './exam-duty-turkey-time';
 
 const TURKEY_TZ = 'Europe/Istanbul';
 
@@ -14,7 +16,7 @@ function getTodayTurkey(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: TURKEY_TZ });
 }
 
-/** Tarihe N gün ekle (Turkey) */
+/** Tarihe N gün ekle; sonuç YYYY-MM-DD (Europe/Istanbul takvim günü) */
 function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr + 'T12:00:00Z');
   d.setUTCDate(d.getUTCDate() + days);
@@ -26,12 +28,6 @@ function toDateStrTurkey(d: Date): string {
   return d.toLocaleDateString('en-CA', { timeZone: TURKEY_TZ });
 }
 
-/** Turkey saat diliminde şu anki HH:mm (24 saat) */
-function getCurrentTimeTurkey(): string {
-  const s = new Date().toLocaleTimeString('en-GB', { timeZone: TURKEY_TZ, hour: '2-digit', minute: '2-digit', hour12: false });
-  return s;
-}
-
 @Injectable()
 export class ExamDutySchedulerService {
   private readonly logger = new Logger(ExamDutySchedulerService.name);
@@ -41,12 +37,19 @@ export class ExamDutySchedulerService {
     private readonly examDutyRepo: Repository<ExamDuty>,
     private readonly examDutiesService: ExamDutiesService,
     private readonly examDutySyncService: ExamDutySyncService,
+    private readonly appConfig: AppConfigService,
   ) {}
 
-  /** Günde 4 kez (06, 10, 14, 18 UTC ≈ 09, 13, 17, 21 Turkey) – RSS/scrape sınav görevi sync */
-  @Cron('0 6,10,14,18 * * *')
+  /**
+   * Her dakika: app_config’teki İstanbul saatleriyle eşleşince RSS/scrape sınav görevi sync.
+   * Saatler: Sınav görevi ayarları → Senkronizasyon → otomatik senkron zamanları.
+   */
+  @Cron('* * * * *')
   async runSyncJob() {
     try {
+      const slots = await this.appConfig.getExamDutySyncScheduleTimes();
+      const now = getNowHHmmTurkey();
+      if (!slots.includes(now)) return;
       const result = await this.examDutySyncService.runSync();
       if (result.total_created > 0) {
         console.log(`[ExamDutySync] ${result.total_created} yeni duyuru eklendi.`);
@@ -60,7 +63,7 @@ export class ExamDutySchedulerService {
   @Cron('*/1 3-10 * * *')
   async runExamDayMorningNotifications() {
     const today = getTodayTurkey();
-    const nowTime = getCurrentTimeTurkey();
+    const nowTime = getNowHHmmTurkey();
     const published = await this.examDutyRepo.find({
       where: { status: 'published', deletedAt: IsNull() },
     });
@@ -80,41 +83,50 @@ export class ExamDutySchedulerService {
     }
   }
 
-  /** Her gün 06:00 ve 12:00 UTC ≈ 09:00 ve 15:00 Turkey – planlanmış bildirimleri gönder (alreadySent ile tekrar gönderilmez) */
-  @Cron('0 6,12 * * *')
+  /**
+   * Her saat başı (UTC): İstanbul’daki şu anki HH:mm, app_config’taki bildirim saatiyle eşleşince
+   * son başvuru / onay / sınav±1 gün kutusu bildirimleri (Europe/Istanbul takvim günü).
+   * Yayın bildirimi: publish() içinde anında (publish_now).
+   */
+  @Cron('0 * * * *')
   async runScheduledNotifications() {
     const today = getTodayTurkey();
     const tomorrow = addDays(today, 1);
     const yesterday = addDays(today, -1);
+    const times = await this.appConfig.getExamDutyNotificationTimes();
+    const nowTime = getNowHHmmTurkey();
 
     const published = await this.examDutyRepo.find({
       where: { status: 'published', deletedAt: IsNull() },
     });
 
     for (const duty of published) {
-      await this.trySendForReason(duty, 'apply_start', () => {
-        if (!duty.applicationStart) return false;
-        return toDateStrTurkey(duty.applicationStart) === today;
-      });
-      await this.trySendForReason(duty, 'deadline', () => {
-        if (!duty.applicationEnd) return false;
-        return toDateStrTurkey(duty.applicationEnd) === today;
-      });
-      await this.trySendForReason(duty, 'approval_day', () => {
-        if (!duty.applicationApprovalEnd) return false;
-        return toDateStrTurkey(duty.applicationApprovalEnd) === today;
-      });
-      // Sınav öncesi: ilk oturumdan -1 gün. Sınav sonrası: son oturumdan +1 gün.
+      if (nowTime === times.deadline) {
+        await this.trySendForReason(duty, 'deadline', () => {
+          if (!duty.applicationEnd) return false;
+          return toDateStrTurkey(duty.applicationEnd) === today;
+        });
+      }
+      if (nowTime === times.approval_day) {
+        await this.trySendForReason(duty, 'approval_day', () => {
+          if (!duty.applicationApprovalEnd) return false;
+          return toDateStrTurkey(duty.applicationApprovalEnd) === today;
+        });
+      }
       const firstExam = duty.examDate ?? duty.examDateEnd;
       const lastExam = duty.examDateEnd ?? duty.examDate;
-      await this.trySendForReason(duty, 'exam_minus_1d', () => {
-        if (!firstExam) return false;
-        return toDateStrTurkey(firstExam) === tomorrow;
-      });
-      await this.trySendForReason(duty, 'exam_plus_1d', () => {
-        if (!lastExam) return false;
-        return toDateStrTurkey(lastExam) === yesterday;
-      });
+      if (nowTime === times.exam_minus_1d) {
+        await this.trySendForReason(duty, 'exam_minus_1d', () => {
+          if (!firstExam) return false;
+          return toDateStrTurkey(firstExam) === tomorrow;
+        });
+      }
+      if (nowTime === times.exam_plus_1d) {
+        await this.trySendForReason(duty, 'exam_plus_1d', () => {
+          if (!lastExam) return false;
+          return toDateStrTurkey(lastExam) === yesterday;
+        });
+      }
     }
   }
 

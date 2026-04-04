@@ -650,6 +650,23 @@ export type ExamDutyDefaultTimes = {
   exam_date_end?: string;
 };
 
+/** Öğretmen anlık kutusu: ilgili günde İstanbul’da bu HH:mm’de bir kez (cron saat başı). Yayın = publish anında. */
+export type ExamDutyNotificationTimes = {
+  deadline: string;
+  approval_day: string;
+  exam_minus_1d: string;
+  exam_plus_1d: string;
+};
+
+const DEFAULT_EXAM_DUTY_NOTIFICATION_TIMES: ExamDutyNotificationTimes = {
+  deadline: '09:00',
+  approval_day: '09:00',
+  exam_minus_1d: '09:00',
+  exam_plus_1d: '09:00',
+};
+
+const EXAM_DUTY_NOTIFICATION_KEYS = ['deadline', 'approval_day', 'exam_minus_1d', 'exam_plus_1d'] as const;
+
 /** Sınav görevi sync ek seçenekleri – backend/sync davranışı */
 export type ExamDutySyncOptions = {
   skip_past_exam_date: boolean;
@@ -660,7 +677,28 @@ export type ExamDutySyncOptions = {
   add_draft_without_dates: boolean;
   /** Her sync çalıştırmasında en fazla kaç yeni duyuru ekleneceği (0 = sınırsız). 1 = her sync'te en fazla 1 duyuru. */
   max_new_per_sync: number;
+  /** Planlı otomatik sync (Europe/Istanbul HH:mm), en fazla 12 */
+  sync_schedule_times: string[];
+  /** Yeni/geri yüklenen duyuru: yalnızca superadmin inbox */
+  notify_superadmin_on_sync_items: boolean;
+  /** Sync + GPT ile yeni eklenen duyuruyu hemen yayınla (publish_now bildirimi gider) */
+  auto_publish_gpt_sync_duties: boolean;
 };
+
+const DEFAULT_EXAM_DUTY_SYNC_SCHEDULE_TIMES = ['09:00', '13:00', '17:00', '21:00'];
+
+function normalizeExamDutySyncScheduleTimes(raw: unknown): string[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [...DEFAULT_EXAM_DUTY_SYNC_SCHEDULE_TIMES];
+  const out = new Set<string>();
+  for (const x of raw) {
+    const s = String(x).trim();
+    if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(s)) continue;
+    const m = s.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+    if (m) out.add(`${m[1]!.padStart(2, '0')}:${m[2]}`);
+  }
+  const arr = [...out].sort();
+  return arr.length > 0 ? arr.slice(0, 12) : [...DEFAULT_EXAM_DUTY_SYNC_SCHEDULE_TIMES];
+}
 
 const DEFAULT_EXAM_DUTY_SYNC_OPTIONS: ExamDutySyncOptions = {
   skip_past_exam_date: false,
@@ -669,9 +707,22 @@ const DEFAULT_EXAM_DUTY_SYNC_OPTIONS: ExamDutySyncOptions = {
   log_gpt_usage: false,
   add_draft_without_dates: true,
   max_new_per_sync: 1,
+  sync_schedule_times: [...DEFAULT_EXAM_DUTY_SYNC_SCHEDULE_TIMES],
+  notify_superadmin_on_sync_items: true,
+  auto_publish_gpt_sync_duties: false,
 };
 
 const EXAM_DUTY_TIME_KEYS = ['application_start', 'application_end', 'application_approval_end', 'result_date', 'exam_date', 'exam_date_end'] as const;
+
+/** DB’de exam_duty_default_times yokken veya alan eksikken kullanılan İstanbul duvar saati (sadece gün seçildiğinde uygulanır). */
+const EXAM_DUTY_DEFAULT_TIMES_PRESET: Record<(typeof EXAM_DUTY_TIME_KEYS)[number], string> = {
+  application_start: '00:00',
+  application_end: '23:59',
+  application_approval_end: '11:00',
+  result_date: '10:00',
+  exam_date: '06:00',
+  exam_date_end: '05:00',
+};
 
 export type R2Config = {
   r2_account_id: string;
@@ -1534,6 +1585,7 @@ export class AppConfigService {
     gpt_enabled: boolean;
     openai_api_key: string | null;
     default_times: ExamDutyDefaultTimes;
+    notification_times: ExamDutyNotificationTimes;
     sync_options: ExamDutySyncOptions;
   }> {
     const enabled = (await this.getValue('exam_duty_gpt_enabled'))?.toLowerCase() === 'true';
@@ -1541,7 +1593,7 @@ export class AppConfigService {
     const raw = await this.getValue('exam_duty_default_times');
     const defaultTimes: ExamDutyDefaultTimes = {};
     for (const k of EXAM_DUTY_TIME_KEYS) {
-      defaultTimes[k] = k === 'application_end' ? '23:59' : '00:00';
+      defaultTimes[k] = EXAM_DUTY_DEFAULT_TIMES_PRESET[k];
     }
     if (raw?.trim()) {
       try {
@@ -1555,12 +1607,35 @@ export class AppConfigService {
       }
     }
     const syncOptions = await this.getExamDutySyncOptions();
+    const notification_times = await this.getExamDutyNotificationTimes();
     return {
       gpt_enabled: enabled ?? false,
       openai_api_key: apiKey?.trim() ? '••••••••' : null,
       default_times: defaultTimes,
+      notification_times,
       sync_options: syncOptions,
     };
+  }
+
+  /** Planlı sınav görevi bildirim saatleri (Europe/Istanbul). */
+  async getExamDutyNotificationTimes(): Promise<ExamDutyNotificationTimes> {
+    const raw = await this.getValue('exam_duty_notification_times');
+    const out: ExamDutyNotificationTimes = { ...DEFAULT_EXAM_DUTY_NOTIFICATION_TIMES };
+    if (raw?.trim()) {
+      try {
+        const p = JSON.parse(raw) as Partial<Record<keyof ExamDutyNotificationTimes, string>>;
+        for (const k of EXAM_DUTY_NOTIFICATION_KEYS) {
+          const v = p[k]?.trim();
+          if (v && /^([01]?\d|2[0-3]):[0-5]\d$/.test(v)) {
+            const m = v.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+            if (m) out[k] = `${m[1]!.padStart(2, '0')}:${m[2]}`;
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    return out;
   }
 
   /** Sınav görevi sync ek seçenekleri – skip_past_exam_date, recheck_max_count, fetch_timeout_ms, log_gpt_usage */
@@ -1577,16 +1652,26 @@ export class AppConfigService {
         log_gpt_usage: parsed.log_gpt_usage === true,
         add_draft_without_dates: parsed.add_draft_without_dates === true,
         max_new_per_sync: maxNew < 0 ? 0 : Math.min(500, maxNew || 0),
+        sync_schedule_times: normalizeExamDutySyncScheduleTimes(parsed.sync_schedule_times),
+        notify_superadmin_on_sync_items: parsed.notify_superadmin_on_sync_items !== false,
+        auto_publish_gpt_sync_duties: parsed.auto_publish_gpt_sync_duties === true,
       };
     } catch {
       return { ...DEFAULT_EXAM_DUTY_SYNC_OPTIONS };
     }
   }
 
+  /** Planlı sınav görevi RSS/scrape sync tetik saatleri (İstanbul HH:mm). */
+  async getExamDutySyncScheduleTimes(): Promise<string[]> {
+    const o = await this.getExamDutySyncOptions();
+    return o.sync_schedule_times?.length ? o.sync_schedule_times : [...DEFAULT_EXAM_DUTY_SYNC_SCHEDULE_TIMES];
+  }
+
   async updateExamDutySyncConfig(dto: {
     gpt_enabled?: boolean;
     openai_api_key?: string | null;
     default_times?: ExamDutyDefaultTimes;
+    notification_times?: Partial<ExamDutyNotificationTimes>;
     sync_options?: Partial<ExamDutySyncOptions>;
   }): Promise<void> {
     if (dto.gpt_enabled !== undefined) {
@@ -1599,10 +1684,23 @@ export class AppConfigService {
     if (dto.default_times !== undefined) {
       const valid: Record<string, string> = {};
       for (const k of EXAM_DUTY_TIME_KEYS) {
-        const v = dto.default_times[k]?.trim() || '00:00';
-        valid[k] = /^([01]?\d|2[0-3]):([0-5]\d)$/.test(v) ? v : '00:00';
+        const fallback = EXAM_DUTY_DEFAULT_TIMES_PRESET[k];
+        const v = dto.default_times[k]?.trim() || fallback;
+        valid[k] = /^([01]?\d|2[0-3]):([0-5]\d)$/.test(v) ? v : fallback;
       }
       await this.setValue('exam_duty_default_times', JSON.stringify(valid));
+    }
+    if (dto.notification_times !== undefined) {
+      const cur = await this.getExamDutyNotificationTimes();
+      const next: ExamDutyNotificationTimes = { ...cur };
+      for (const k of EXAM_DUTY_NOTIFICATION_KEYS) {
+        const v = dto.notification_times[k]?.trim();
+        if (v && /^([01]?\d|2[0-3]):[0-5]\d$/.test(v)) {
+          const m = v.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+          if (m) next[k] = `${m[1]!.padStart(2, '0')}:${m[2]}`;
+        }
+      }
+      await this.setValue('exam_duty_notification_times', JSON.stringify(next));
     }
     if (dto.sync_options !== undefined) {
       const current = await this.getExamDutySyncOptions();
@@ -1614,17 +1712,29 @@ export class AppConfigService {
         log_gpt_usage: dto.sync_options.log_gpt_usage ?? current.log_gpt_usage,
         add_draft_without_dates: dto.sync_options.add_draft_without_dates ?? current.add_draft_without_dates,
         max_new_per_sync: maxNew < 0 ? 0 : Math.min(500, maxNew),
+        sync_schedule_times:
+          dto.sync_options.sync_schedule_times !== undefined
+            ? normalizeExamDutySyncScheduleTimes(dto.sync_options.sync_schedule_times)
+            : current.sync_schedule_times,
+        notify_superadmin_on_sync_items:
+          dto.sync_options.notify_superadmin_on_sync_items !== undefined
+            ? Boolean(dto.sync_options.notify_superadmin_on_sync_items)
+            : current.notify_superadmin_on_sync_items,
+        auto_publish_gpt_sync_duties:
+          dto.sync_options.auto_publish_gpt_sync_duties !== undefined
+            ? dto.sync_options.auto_publish_gpt_sync_duties === true
+            : current.auto_publish_gpt_sync_duties,
       };
       await this.setValue('exam_duty_sync_options', JSON.stringify(next));
     }
   }
 
-  /** Sınav görevi alan bazlı varsayılan saat (HH:mm). Sync'te kullanılır. application_end varsayılan 23:59 (son gün). */
+  /** Sınav görevi alan bazlı varsayılan saat (HH:mm). Sync'te kullanılır. */
   async getExamDutyDefaultTimes(): Promise<ExamDutyDefaultTimes> {
     const cfg = await this.getExamDutySyncConfig();
     const out: ExamDutyDefaultTimes = {};
     for (const k of EXAM_DUTY_TIME_KEYS) {
-      out[k] = cfg.default_times[k] ?? (k === 'application_end' ? '23:59' : '00:00');
+      out[k] = cfg.default_times[k] ?? EXAM_DUTY_DEFAULT_TIMES_PRESET[k];
     }
     return out;
   }

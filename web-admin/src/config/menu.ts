@@ -675,7 +675,7 @@ export const ROUTE_ROLES: Record<string, ('school_admin' | 'superadmin' | 'teach
   '/modules': ['superadmin', 'moderator'],
   '/market-policy': ['superadmin', 'moderator'],
   '/school-reviews-settings': ['superadmin', 'moderator'],
-  '/okul-degerlendirmeleri': ['superadmin', 'moderator'],
+  '/okul-degerlendirmeleri': ['school_admin', 'superadmin', 'teacher', 'moderator'],
   '/document-templates': ['superadmin', 'moderator'],
   '/work-calendar': ['superadmin', 'moderator'],
   '/yillik-plan-icerik': ['superadmin', 'moderator'],

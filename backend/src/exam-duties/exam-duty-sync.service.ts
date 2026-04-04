@@ -15,7 +15,9 @@ import {
   normalizeExamDutyCategorySlug,
   type DateValidationStatus,
 } from './entities/exam-duty.entity';
+import { applyExamDutyWallClockInTurkey } from './exam-duty-turkey-time';
 import { ExamDutyGptService, type ExamDutyExtractResult } from './exam-duty-gpt.service';
+import { ExamDutiesService } from './exam-duties.service';
 import { AppConfigService } from '../app-config/app-config.service';
 import { User } from '../users/entities/user.entity';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -150,6 +152,7 @@ export class ExamDutySyncService {
     private readonly gptService: ExamDutyGptService,
     private readonly appConfig: AppConfigService,
     private readonly notificationsService: NotificationsService,
+    private readonly examDutiesService: ExamDutiesService,
   ) {}
 
   async getSources(): Promise<ExamDutySyncSource[]> {
@@ -333,6 +336,9 @@ export class ExamDutySyncService {
       results,
       quota_skipped: quotaSkippedCount,
     };
+    if (!dryRun && (totalCreated > 0 || totalRestored > 0) && syncOptions.notify_superadmin_on_sync_items) {
+      await this.notifySuperadminsSyncItemsProcessed(results, totalCreated, totalRestored);
+    }
     return {
       ok: !hasError,
       message,
@@ -461,6 +467,68 @@ export class ExamDutySyncService {
     }
   }
 
+  /** Yalnızca superadmin: sync ile listeye eklenen / geri yüklenen duyuru özeti (öğretmenlere gönderilmez). */
+  private async notifySuperadminsSyncItemsProcessed(
+    results: SyncSourceResult[],
+    totalCreated: number,
+    totalRestored: number,
+  ): Promise<void> {
+    try {
+      const superadmins = await this.userRepo.find({
+        where: { role: UserRole.superadmin },
+        select: ['id'],
+      });
+      const lines = results
+        .filter((r) => (r.created ?? 0) > 0 || (r.restored ?? 0) > 0)
+        .map((r) => {
+          const c = r.created ?? 0;
+          const rest = r.restored ?? 0;
+          return `• ${r.source_label}: ${c} yeni${rest > 0 ? `, ${rest} geri yükleme` : ''}`;
+        });
+      const body =
+        lines.length > 0
+          ? lines.join('\n')
+          : `Toplam ${totalCreated} yeni duyuru, ${totalRestored} geri yükleme.`;
+      const title = 'Sınav görevi sync: yeni duyurular işlendi';
+      for (const sa of superadmins) {
+        await this.notificationsService.createInboxEntry({
+          user_id: sa.id,
+          event_type: 'exam_duty.sync_items_processed',
+          entity_id: null,
+          target_screen: '/sinav-gorevleri',
+          title,
+          body,
+          metadata: {
+            total_created: totalCreated,
+            total_restored: totalRestored,
+            sources: results.map((r) => ({
+              key: r.source_key,
+              created: r.created,
+              restored: r.restored ?? 0,
+            })),
+          },
+        });
+      }
+    } catch (e) {
+      this.logger.error(`[ExamDutySync] Sync özet bildirimi: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /** GPT çıktısı kullanılarak oluşturulan kayıt: ayar açıksa taslak → yayın (publish_now). */
+  private async maybeAutoPublishGptSyncDuty(dutyId: string, gptUsedForRow: boolean, dryRun: boolean): Promise<void> {
+    if (dryRun || !gptUsedForRow) return;
+    const opts = await this.appConfig.getExamDutySyncOptions();
+    if (!opts.auto_publish_gpt_sync_duties) return;
+    try {
+      await this.examDutiesService.publish(dutyId);
+      this.logger.log(`[ExamDutySync] GPT sync duyuru otomatik yayınlandı: ${dutyId.slice(0, 8)}…`);
+    } catch (e) {
+      this.logger.warn(
+        `[ExamDutySync] Otomatik yayınlanamadı (${dutyId}): ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
   private async syncSource(
     source: ExamDutySyncSource,
     recheckDuties: ExamDuty[],
@@ -571,10 +639,7 @@ export class ExamDutySyncService {
     const rssTimes = await this.appConfig.getExamDutyDefaultTimes();
     const applyTime = (d: Date | null, key: keyof typeof rssTimes): Date | null => {
       if (!d) return null;
-      const [h, m] = (rssTimes[key] ?? '00:00').split(':').map((x) => parseInt(x, 10) || 0);
-      const out = new Date(d);
-      out.setHours(h, m, 0, 0);
-      return out;
+      return applyExamDutyWallClockInTurkey(d, rssTimes[key] ?? '00:00');
     };
 
     let created = 0;
@@ -610,9 +675,10 @@ export class ExamDutySyncService {
 
       const rawDesc = extractText(e.description ?? e.summary ?? e.content ?? e['content:encoded']);
       const pubDate = parseRssDate(e.pubDate ?? e.published ?? e.updated ?? e['dc:date']);
-      let parsed: { application_end?: Date; exam_date?: Date; exam_date_end?: Date } = {};
+      let parsed: { application_end?: Date; exam_date?: Date; exam_date_end?: Date; result_date?: Date } = {};
       let categorySlug = source.categorySlug;
 
+      let rssHadGptResult = false;
       const gptEnabled = await this.appConfig.isExamDutyGptEnabled();
       if (gptEnabled && (await this.gptService.isAvailable()) && rawDesc) {
         const cleanedDesc = this.preprocessBodyForGpt(rawDesc);
@@ -622,6 +688,7 @@ export class ExamDutySyncService {
         );
         if (gptResponse.gptError) gptErrorsRss++;
         const gptResult = gptResponse.result ?? null;
+        if (gptResult) rssHadGptResult = true;
         if (gptResult) {
           if (!gptResult.is_application_announcement) {
             skipped++;
@@ -633,8 +700,12 @@ export class ExamDutySyncService {
             addSkipped(title, link, 'Sadece ek gelir/ücret haberi; başvuru duyurusu değil');
             continue;
           }
-          const hasGptDates =
-            !!(gptResult.son_basvuru || gptResult.sinav_1_gunu || gptResult.sinav_2_gunu);
+          const hasGptDates = !!(
+            gptResult.son_basvuru ||
+            gptResult.sinav_1_gunu ||
+            gptResult.sinav_2_gunu ||
+            gptResult.sinav_oncesi_hatirlatma
+          );
           if (
             hasGptDates === false &&
             this.isLikelyNonApplication(title)
@@ -654,6 +725,10 @@ export class ExamDutySyncService {
           if (gptResult.son_basvuru) parsed.application_end = new Date(gptResult.son_basvuru);
           if (gptResult.sinav_1_gunu) parsed.exam_date = new Date(gptResult.sinav_1_gunu);
           if (gptResult.sinav_2_gunu) parsed.exam_date_end = new Date(gptResult.sinav_2_gunu);
+          if (gptResult.sinav_oncesi_hatirlatma) {
+            const rd = new Date(gptResult.sinav_oncesi_hatirlatma);
+            if (!isNaN(rd.getTime())) parsed.result_date = rd;
+          }
         }
       }
       const applicationUrl = getApplicationUrlForCategory(categorySlug);
@@ -699,12 +774,16 @@ export class ExamDutySyncService {
         externalId,
         applicationStart: new Date(),
         applicationEnd: applyTime(parsed.application_end ?? null, 'application_end'),
+        resultDate: applyTime(parsed.result_date ?? null, 'result_date'),
         examDate: rssExamDate,
         examDateEnd: rssExamDateEnd,
         status: 'draft',
       });
 
-      if (!dryRun) await this.dutyRepo.save(duty);
+      if (!dryRun) {
+        await this.dutyRepo.save(duty);
+        await this.maybeAutoPublishGptSyncDuty(duty.id, rssHadGptResult, dryRun);
+      }
       created++;
     }
 
@@ -1018,8 +1097,12 @@ export class ExamDutySyncService {
           const treatAsApplication =
             gptResult.is_application_announcement ||
             (gptResult.is_application_announcement !== false && bodySuggestsApp && hasBody);
-          const hasAnyDate =
-            !!(gptResult.son_basvuru || gptResult.sinav_1_gunu || gptResult.sinav_2_gunu);
+          const hasAnyDate = !!(
+            gptResult.son_basvuru ||
+            gptResult.sinav_1_gunu ||
+            gptResult.sinav_2_gunu ||
+            gptResult.sinav_oncesi_hatirlatma
+          );
           if (
             !isExamAnnouncement &&
             !treatAsApplication
@@ -1082,6 +1165,7 @@ export class ExamDutySyncService {
       const gptSonBasvuru = parseGptDate(gptResult?.son_basvuru);
       const gptSinav1 = parseGptDate(gptResult?.sinav_1_gunu);
       const gptSinav2 = parseGptDate(gptResult?.sinav_2_gunu);
+      const gptSinavOncesi = parseGptDate(gptResult?.sinav_oncesi_hatirlatma);
       /** GPT çıktısında sınav alanları boş string ise regex fallback ile sınav üretme (yayın/yanlış eşleşme riski). */
       const gptHasExamStrings = !!(gptResult?.sinav_1_gunu?.trim() || gptResult?.sinav_2_gunu?.trim());
 
@@ -1099,6 +1183,7 @@ export class ExamDutySyncService {
           examDate = null;
           examDateEnd = null;
         }
+        resultDate = gptSinavOncesi.date;
       } else {
         examDate = fallbackDates?.exam_date ?? null;
         examDateEnd = fallbackDates?.exam_date_end ?? null;
@@ -1107,7 +1192,7 @@ export class ExamDutySyncService {
       const appStartHasTime = true;
       let appEndHasTime = useGptForDates ? gptSonBasvuru.hasTime : false;
       let appApprovalHasTime = false;
-      let resultHasTime = false;
+      let resultHasTime = useGptForDates ? gptSinavOncesi.hasTime : false;
       let examHasTime = useGptForDates ? gptSinav1.hasTime : false;
       let examEndHasTime = useGptForDates ? (gptSinav2.hasTime ?? gptSinav1.hasTime) : false;
 
@@ -1136,14 +1221,12 @@ export class ExamDutySyncService {
       const applyScrapeTime = (d: Date | null, key: keyof typeof scrapeTimes, hasTime: boolean): Date | null => {
         if (!d) return null;
         if (hasTime) return d;
-        const [h, m] = (scrapeTimes[key] ?? '00:00').split(':').map((x) => parseInt(x, 10) || 0);
-        const out = new Date(d);
-        out.setHours(h, m, 0, 0);
-        return out;
+        return applyExamDutyWallClockInTurkey(d, scrapeTimes[key] ?? '00:00');
       };
       applicationStart = applyScrapeTime(applicationStart, 'application_start', appStartHasTime);
       applicationEnd = applyScrapeTime(applicationEnd, 'application_end', appEndHasTime);
       applicationApprovalEnd = applyScrapeTime(applicationApprovalEnd, 'application_approval_end', appApprovalHasTime);
+      resultDate = applyScrapeTime(resultDate, 'result_date', resultHasTime);
       examDate = applyScrapeTime(examDate, 'exam_date', examHasTime);
       examDateEnd = applyScrapeTime(examDateEnd, 'exam_date_end', examEndHasTime);
 
@@ -1244,7 +1327,10 @@ export class ExamDutySyncService {
         dateValidationStatus,
         dateValidationIssues,
       });
-      if (!options.dryRun) await this.dutyRepo.save(duty);
+      if (!options.dryRun) {
+        await this.dutyRepo.save(duty);
+        await this.maybeAutoPublishGptSyncDuty(duty.id, !!gptResult, !!options.dryRun);
+      }
       created++;
       processedUrl = c.href;
     }

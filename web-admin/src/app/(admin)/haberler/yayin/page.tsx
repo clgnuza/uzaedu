@@ -463,7 +463,7 @@ export default function HaberYayinPage() {
         </div>
       </header>
 
-      <div className="sticky top-0 z-10 w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/60 bg-background/95 shadow-sm ring-1 ring-border/30 backdrop-blur-md">
+      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/60 bg-background/95 shadow-sm ring-1 ring-border/30 backdrop-blur-md">
         {(sources.length > 0 || loadingSources) && (
           <>
             <div className="border-b border-border/50 px-4 pb-3 pt-4 md:hidden">
