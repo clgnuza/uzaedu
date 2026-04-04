@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Run from repo root (e.g. /opt/uzaedu): backend + web-admin npm ci/build, pm2 restart.
 # Do not set NODE_ENV=production before npm ci - it skips devDependencies (nest CLI, Next types, etc.).
 #
