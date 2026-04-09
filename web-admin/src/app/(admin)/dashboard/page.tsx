@@ -124,7 +124,7 @@ export default function DashboardPage() {
 
   if (me.role === 'teacher') {
     return (
-      <div className="space-y-6">
+      <div className="max-sm:-mt-2">
         <TeacherHome
           me={me}
           displayName={displayName}
@@ -134,31 +134,6 @@ export default function DashboardPage() {
           teacherPrefs={teacherPrefs}
           teacherSwaps={teacherSwaps}
         />
-        <Card variant="teal" soft>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">Hesap bilgileri</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <dt className="text-xs font-medium text-muted-foreground">Profil</dt>
-                <dd className="mt-1 font-medium text-foreground">{me.display_name || me.email}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium text-muted-foreground">Rol</dt>
-                <dd className="mt-1 text-foreground">{ROLE_LABELS[me.role] ?? me.role}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium text-muted-foreground">E-posta</dt>
-                <dd className="mt-1 text-foreground">{me.email}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium text-muted-foreground">Okul</dt>
-                <dd className="mt-1 text-foreground">{me.school?.name ?? '—'}</dd>
-              </div>
-            </dl>
-          </CardContent>
-        </Card>
       </div>
     );
   }

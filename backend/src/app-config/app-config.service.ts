@@ -18,8 +18,12 @@ import { getWelcomeZodiacKey, type WelcomeZodiacKey } from './welcome-zodiac.uti
 import { type MarketPolicyConfig, mergeMarketPolicyFromStored } from './market-policy.defaults';
 import { sanitizeLegalHtml } from './legal-pages.sanitize';
 import { mergeDevOpsFromStored, type DevOpsConfig } from './devops.defaults';
+import { DEFAULT_SCHOOL_REVIEWS_BLOCKED_TERMS } from './school-reviews-blocked-terms.defaults';
+import { DEFAULT_MAIL_TEMPLATES, MAIL_TEMPLATE_IDS } from '../mail/mail-templates.defaults';
+import type { MailTemplateBlock, MailTemplateId, MailTemplatesStored } from '../mail/mail-templates.types';
 
 export type { MobileAppConfig } from './mobile.defaults';
+export type { MailTemplateBlock, MailTemplateId, MailTemplatesStored } from '../mail/mail-templates.types';
 export type { DevOpsConfig } from './devops.defaults';
 export type { WelcomeModuleConfig } from './welcome-module.defaults';
 export type {
@@ -246,6 +250,9 @@ export type WebExtrasConfig = {
 
 export type GdprConfig = {
   cookie_banner_enabled: boolean;
+  cookie_banner_title: string | null;
+  accept_button_label: string | null;
+  reject_button_label: string | null;
   cookie_banner_body_html: string | null;
   consent_version: string;
   data_controller_name: string | null;
@@ -444,6 +451,9 @@ function mergeWebExtrasFromStored(stored: Partial<WebExtrasConfig> | null): WebE
 function cloneGdprDefaults(): GdprConfig {
   return {
     cookie_banner_enabled: DEFAULT_GDPR.cookie_banner_enabled,
+    cookie_banner_title: DEFAULT_GDPR.cookie_banner_title,
+    accept_button_label: DEFAULT_GDPR.accept_button_label,
+    reject_button_label: DEFAULT_GDPR.reject_button_label,
     cookie_banner_body_html: DEFAULT_GDPR.cookie_banner_body_html,
     consent_version: DEFAULT_GDPR.consent_version,
     data_controller_name: DEFAULT_GDPR.data_controller_name,
@@ -460,6 +470,24 @@ function mergeGdprFromStored(stored: Partial<GdprConfig> | null): GdprConfig {
   return {
     cookie_banner_enabled:
       typeof stored.cookie_banner_enabled === 'boolean' ? stored.cookie_banner_enabled : d.cookie_banner_enabled,
+    cookie_banner_title:
+      stored.cookie_banner_title !== undefined
+        ? stored.cookie_banner_title
+          ? String(stored.cookie_banner_title).trim().slice(0, 120) || null
+          : null
+        : d.cookie_banner_title,
+    accept_button_label:
+      stored.accept_button_label !== undefined
+        ? stored.accept_button_label
+          ? String(stored.accept_button_label).trim().slice(0, 64) || null
+          : null
+        : d.accept_button_label,
+    reject_button_label:
+      stored.reject_button_label !== undefined
+        ? stored.reject_button_label
+          ? String(stored.reject_button_label).trim().slice(0, 64) || null
+          : null
+        : d.reject_button_label,
     cookie_banner_body_html:
       stored.cookie_banner_body_html !== undefined
         ? stored.cookie_banner_body_html
@@ -872,14 +900,123 @@ export class AppConfigService {
     const ratingMax = parseInt((await this.getValue('school_reviews_rating_max')) || '10', 10);
     const moderationMode = (await this.getValue('school_reviews_moderation_mode')) || 'auto';
     const allowQuestions = (await this.getValue('school_reviews_allow_questions'))?.toLowerCase() !== 'false';
-    const questionsRequireModeration = (await this.getValue('school_reviews_questions_moderation'))?.toLowerCase() === 'true';
+    const questionsModerationRaw = await this.getValue('school_reviews_questions_moderation');
+    const questionsRequireModeration =
+      questionsModerationRaw == null || questionsModerationRaw.trim() === ''
+        ? moderationMode === 'moderation'
+        : questionsModerationRaw.toLowerCase() === 'true';
+    let contentRulesParsed: unknown;
+    const rawCr = await this.getValue('school_reviews_content_rules');
+    if (rawCr?.trim()) {
+      try {
+        contentRulesParsed = JSON.parse(rawCr) as unknown;
+      } catch {
+        contentRulesParsed = undefined;
+      }
+    }
+    const content_rules = this.mergeSchoolReviewsContentRules(contentRulesParsed);
     return {
       enabled: enabled ?? false,
       rating_min: Number.isNaN(ratingMin) || ratingMin < 1 ? 1 : Math.min(ratingMin, 10),
       rating_max: Number.isNaN(ratingMax) || ratingMax > 10 ? 10 : Math.max(ratingMax, 1),
       moderation_mode: moderationMode === 'moderation' ? 'moderation' : 'auto',
       allow_questions: allowQuestions ?? true,
-      questions_require_moderation: questionsRequireModeration ?? false,
+      questions_require_moderation: questionsRequireModeration,
+      content_rules,
+    };
+  }
+
+  private cloneDefaultContentRules(): SchoolReviewsContentRules {
+    return {
+      daily_report_limit_per_actor: DEFAULT_SCHOOL_REVIEWS_CONTENT_RULES.daily_report_limit_per_actor,
+      reasons: {
+        spam: { ...DEFAULT_SCHOOL_REVIEWS_CONTENT_RULES.reasons.spam },
+        uygunsuz: { ...DEFAULT_SCHOOL_REVIEWS_CONTENT_RULES.reasons.uygunsuz },
+        yanlis_bilgi: { ...DEFAULT_SCHOOL_REVIEWS_CONTENT_RULES.reasons.yanlis_bilgi },
+        diger: { ...DEFAULT_SCHOOL_REVIEWS_CONTENT_RULES.reasons.diger },
+      },
+      profanity_block_enabled: DEFAULT_SCHOOL_REVIEWS_CONTENT_RULES.profanity_block_enabled,
+      blocked_terms: [...DEFAULT_SCHOOL_REVIEWS_CONTENT_RULES.blocked_terms],
+    };
+  }
+
+  /** DB JSON veya PATCH gövdesi: seed (mevcut ayarlar veya varsayılan) + doğrulama. */
+  private mergeSchoolReviewsContentRules(raw: unknown, seed?: SchoolReviewsContentRules): SchoolReviewsContentRules {
+    const base: SchoolReviewsContentRules = seed
+      ? {
+          daily_report_limit_per_actor: seed.daily_report_limit_per_actor,
+          reasons: {
+            spam: { ...seed.reasons.spam },
+            uygunsuz: { ...seed.reasons.uygunsuz },
+            yanlis_bilgi: { ...seed.reasons.yanlis_bilgi },
+            diger: { ...seed.reasons.diger },
+          },
+          profanity_block_enabled: seed.profanity_block_enabled,
+          blocked_terms: [...seed.blocked_terms],
+        }
+      : this.cloneDefaultContentRules();
+    if (!raw || typeof raw !== 'object') {
+      if (!Object.values(base.reasons).some((r) => r.enabled)) base.reasons.diger.enabled = true;
+      return base;
+    }
+    const o = raw as Partial<SchoolReviewsContentRules>;
+    if (typeof o.daily_report_limit_per_actor === 'number' && !Number.isNaN(o.daily_report_limit_per_actor)) {
+      base.daily_report_limit_per_actor = Math.max(1, Math.min(50, Math.round(o.daily_report_limit_per_actor)));
+    }
+    if (o.reasons && typeof o.reasons === 'object') {
+      const keys: SchoolReviewReportReasonKey[] = ['spam', 'uygunsuz', 'yanlis_bilgi', 'diger'];
+      for (const k of keys) {
+        const it = (o.reasons as Record<string, Partial<SchoolReviewsReasonItem>>)[k];
+        if (!it || typeof it !== 'object') continue;
+        if (typeof it.label === 'string' && it.label.trim()) {
+          base.reasons[k].label = it.label.trim().slice(0, 200);
+        }
+        if (typeof it.hint === 'string') {
+          base.reasons[k].hint = it.hint.trim().slice(0, 400);
+        }
+        if (typeof it.enabled === 'boolean') {
+          base.reasons[k].enabled = it.enabled;
+        }
+      }
+    }
+    if (!Object.values(base.reasons).some((r) => r.enabled)) {
+      base.reasons.diger.enabled = true;
+    }
+    if (typeof o.profanity_block_enabled === 'boolean') {
+      base.profanity_block_enabled = o.profanity_block_enabled;
+    }
+    if (Array.isArray(o.blocked_terms)) {
+      const cleaned: string[] = [];
+      for (const x of o.blocked_terms) {
+        if (typeof x !== 'string') continue;
+        const t = x.trim().slice(0, 80);
+        if (t.length >= 2 && cleaned.length < 300) cleaned.push(t);
+      }
+      base.blocked_terms = cleaned;
+    }
+    return base;
+  }
+
+  /** Herkese açık: bildirim formu seçenekleri (yalnızca açık sebepler). */
+  async getSchoolReviewsReportRulesPublic(): Promise<{
+    reasons: { value: SchoolReviewReportReasonKey; label: string; hint: string }[];
+    daily_report_limit_per_actor: number;
+    profanity_block_active: boolean;
+  }> {
+    const cfg = await this.getSchoolReviewsConfig();
+    const r = cfg.content_rules;
+    const order: SchoolReviewReportReasonKey[] = ['spam', 'uygunsuz', 'yanlis_bilgi', 'diger'];
+    const reasons = order
+      .filter((k) => r.reasons[k]?.enabled)
+      .map((k) => ({
+        value: k,
+        label: r.reasons[k].label,
+        hint: r.reasons[k].hint,
+      }));
+    return {
+      reasons,
+      daily_report_limit_per_actor: r.daily_report_limit_per_actor,
+      profanity_block_active: r.profanity_block_enabled && r.blocked_terms.length > 0,
     };
   }
 
@@ -905,6 +1042,10 @@ export class AppConfigService {
     if (dto.allow_questions !== undefined) await this.setValue('school_reviews_allow_questions', dto.allow_questions ? 'true' : 'false');
     if (dto.questions_require_moderation !== undefined) {
       await this.setValue('school_reviews_questions_moderation', dto.questions_require_moderation ? 'true' : 'false');
+    }
+    if (dto.content_rules !== undefined) {
+      const merged = this.mergeSchoolReviewsContentRules(dto.content_rules, current.content_rules);
+      await this.setValue('school_reviews_content_rules', JSON.stringify(merged));
     }
   }
 
@@ -1174,6 +1315,15 @@ export class AppConfigService {
     const current = await this.getGdprConfig();
     const next: GdprConfig = { ...current };
     if (dto.cookie_banner_enabled !== undefined) next.cookie_banner_enabled = !!dto.cookie_banner_enabled;
+    if (dto.cookie_banner_title !== undefined) {
+      next.cookie_banner_title = dto.cookie_banner_title ? String(dto.cookie_banner_title).trim().slice(0, 120) : null;
+    }
+    if (dto.accept_button_label !== undefined) {
+      next.accept_button_label = dto.accept_button_label ? String(dto.accept_button_label).trim().slice(0, 64) : null;
+    }
+    if (dto.reject_button_label !== undefined) {
+      next.reject_button_label = dto.reject_button_label ? String(dto.reject_button_label).trim().slice(0, 64) : null;
+    }
     if (dto.cookie_banner_body_html !== undefined) {
       next.cookie_banner_body_html = dto.cookie_banner_body_html
         ? sanitizeLegalHtml(dto.cookie_banner_body_html)
@@ -1851,6 +2001,51 @@ export class AppConfigService {
     };
   }
 
+  private readonly mailTemplatesJsonKey = 'mail_templates_json';
+
+  /** Birleşik şablonlar (varsayılan + DB üzerine yazılan). MailService ve admin UI. */
+  async getMailTemplatesMerged(): Promise<Record<MailTemplateId, MailTemplateBlock>> {
+    const raw = await this.getValue(this.mailTemplatesJsonKey);
+    let stored: MailTemplatesStored = {};
+    if (raw?.trim()) {
+      try {
+        stored = JSON.parse(raw) as MailTemplatesStored;
+      } catch {
+        stored = {};
+      }
+    }
+    const out = {} as Record<MailTemplateId, MailTemplateBlock>;
+    for (const id of MAIL_TEMPLATE_IDS) {
+      const d = DEFAULT_MAIL_TEMPLATES[id];
+      const s = stored[id];
+      out[id] = {
+        subject: s?.subject?.trim() ? s.subject : d.subject,
+        html: s?.html?.trim() ? s.html : d.html,
+        text: s?.text?.trim() ? s.text : d.text,
+      };
+    }
+    return out;
+  }
+
+  async updateMailTemplates(dto: MailTemplatesStored): Promise<void> {
+    const raw = await this.getValue(this.mailTemplatesJsonKey);
+    let current: MailTemplatesStored = {};
+    if (raw?.trim()) {
+      try {
+        current = JSON.parse(raw) as MailTemplatesStored;
+      } catch {
+        current = {};
+      }
+    }
+    for (const id of Object.keys(dto) as MailTemplateId[]) {
+      if (!MAIL_TEMPLATE_IDS.includes(id)) continue;
+      const patch = dto[id];
+      if (!patch) continue;
+      current[id] = { ...current[id], ...patch };
+    }
+    await this.setValue(this.mailTemplatesJsonKey, JSON.stringify(current));
+  }
+
   /** Optik OpenAI bağlantısını test et */
   async testOptikConnection(): Promise<{ ok: boolean; message: string }> {
     const apiKey = await this.getOptikOpenAiKey();
@@ -2370,6 +2565,36 @@ function sanitizeExamDutyFeeCatalog(input: ExamDutyFeeCatalog): ExamDutyFeeCatal
   };
 }
 
+export type SchoolReviewReportReasonKey = 'spam' | 'uygunsuz' | 'yanlis_bilgi' | 'diger';
+
+export type SchoolReviewsReasonItem = {
+  label: string;
+  hint: string;
+  enabled: boolean;
+};
+
+export type SchoolReviewsContentRules = {
+  /** Aynı cihaz/kullanıcı başına 24 saat içinde en fazla bildirim (1–50). */
+  daily_report_limit_per_actor: number;
+  reasons: Record<SchoolReviewReportReasonKey, SchoolReviewsReasonItem>;
+  /** Açıksa `blocked_terms` alt dizgisi geçen yorum/soru/cevap (ve bildirim notu) reddedilir. */
+  profanity_block_enabled: boolean;
+  /** Her biri 2–80 karakter; en fazla 300 satır. Türkçe büyük/küçük harf duyarsız eşleşme. */
+  blocked_terms: string[];
+};
+
+export const DEFAULT_SCHOOL_REVIEWS_CONTENT_RULES: SchoolReviewsContentRules = {
+  daily_report_limit_per_actor: 10,
+  reasons: {
+    spam: { label: 'Spam veya tekrar', hint: 'Çoklanan veya istenmeyen içerik', enabled: true },
+    uygunsuz: { label: 'Uygunsuz dil', hint: 'Hakaret, nefret söylemi veya taciz', enabled: true },
+    yanlis_bilgi: { label: 'Yanıltıcı bilgi', hint: 'Kasıtlı veya zararlı yanlışlık', enabled: true },
+    diger: { label: 'Diğer', hint: 'Kısaca açıklayın', enabled: true },
+  },
+  profanity_block_enabled: false,
+  blocked_terms: [...DEFAULT_SCHOOL_REVIEWS_BLOCKED_TERMS],
+};
+
 export type SchoolReviewsConfig = {
   enabled: boolean;
   rating_min: number;
@@ -2377,6 +2602,8 @@ export type SchoolReviewsConfig = {
   moderation_mode: 'auto' | 'moderation';
   allow_questions: boolean;
   questions_require_moderation: boolean;
+  /** Bildirim diyaloğu metinleri, görünürlük ve günlük bildirim limiti */
+  content_rules: SchoolReviewsContentRules;
 };
 
 /** Ders saati config: { subject_code: { grade: saat } } – örn. { turkce: { 1: 10, 2: 10 }, matematik: { 1: 5 } } */

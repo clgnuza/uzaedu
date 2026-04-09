@@ -59,11 +59,12 @@ const SUB_TAB_PALETTE = [
 ] as const;
 
 const tabBase =
-  'group/tab inline-flex min-h-[44px] shrink-0 snap-start items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium whitespace-nowrap select-none transition-all duration-200 sm:min-h-9 active:scale-[0.98]';
+  'group/tab inline-flex min-h-[40px] shrink-0 snap-start items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium whitespace-nowrap select-none transition-all duration-200 sm:min-h-9 sm:gap-2 sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm active:scale-[0.98]';
 const tabInactive = 'text-muted-foreground';
 const tabActive =
   'bg-background text-foreground shadow-[0_2px_12px_-4px_rgba(0,0,0,0.12)] ring-1 ring-border/70 dark:bg-card dark:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.45)] dark:ring-border/60';
-const iconWrap = 'flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-200';
+const iconWrap =
+  'flex size-7 shrink-0 items-center justify-center rounded-md transition-colors duration-200 sm:size-8 sm:rounded-lg';
 
 type DutySubTabsProps = {
   items: DutySubTabItem[];
@@ -78,7 +79,7 @@ export function DutySubTabs({ items, value, onValueChange, className, 'aria-labe
     <div className={cn('-mx-1 touch-pan-x snap-x snap-mandatory overflow-x-auto overscroll-x-contain px-1 [scrollbar-width:none] sm:snap-none sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden', className)}>
       <div
         className={cn(
-          'inline-flex w-max min-w-full flex-nowrap items-center gap-1 rounded-2xl border border-border/50 bg-muted/35 p-1.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)] backdrop-blur-sm dark:border-border/40 dark:bg-muted/25 dark:shadow-[inset_0_1px_2px_rgba(0,0,0,0.2)]',
+          'inline-flex w-max min-w-full flex-nowrap items-center gap-0.5 rounded-xl border border-border/50 bg-muted/35 p-1 shadow-sm backdrop-blur-sm dark:border-border/40 dark:bg-muted/25 sm:gap-1 sm:rounded-2xl sm:p-1.5 sm:shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)] dark:sm:shadow-[inset_0_1px_2px_rgba(0,0,0,0.2)]',
           'sm:inline-flex sm:w-auto sm:min-w-0 sm:flex-wrap',
         )}
         role="tablist"
@@ -100,7 +101,7 @@ export function DutySubTabs({ items, value, onValueChange, className, 'aria-labe
             >
               {Icon ? (
                 <span className={cn(iconWrap, active ? p.iconActive : p.icon)}>
-                  <Icon className="size-4" aria-hidden />
+                  <Icon className="size-3.5 sm:size-4" aria-hidden />
                 </span>
               ) : null}
               <span className="max-w-[min(100vw-8rem,280px)] truncate text-left sm:max-w-none">{item.label}</span>

@@ -25,6 +25,7 @@ import { CreateCriteriaDto } from './dto/create-criteria.dto';
 import { UpdateCriteriaDto } from './dto/update-criteria.dto';
 import { UserRole } from '../types/enums';
 import { AppConfigService } from '../app-config/app-config.service';
+import type { SchoolReviewsContentRules } from '../app-config/app-config.service';
 import { ListSchoolsForReviewsDto } from './dto/list-schools-for-reviews.dto';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
@@ -32,6 +33,8 @@ import { CreateQuestionDto } from './dto/create-question.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
 import { CreateAnswerDto } from './dto/create-answer.dto';
 import { UpdateAnswerDto } from './dto/update-answer.dto';
+import { ListContentReportsAdminDto } from './dto/list-content-reports-admin.dto';
+import { ListModerationQueueDto } from './dto/list-moderation-queue.dto';
 import { paginate } from '../common/dtos/pagination.dto';
 
 /** Varsayılan kriterler — puanlama 1–10 (1: çok zayıf, 10: çok iyi). */
@@ -128,6 +131,34 @@ export class SchoolReviewsService implements OnModuleInit {
     if (!cfg.enabled) {
       throw new ForbiddenException({ code: 'MODULE_DISABLED', message: 'Okul değerlendirme modülü şu an kapalı.' });
     }
+  }
+
+  private normalizeForBlockedTermMatch(s: string): string {
+    return s.replace(/\s+/g, ' ').trim().toLocaleLowerCase('tr-TR');
+  }
+
+  /** Yönetici listesi: alt dizi eşleşirse (TR büyük/küçük harf duyarsız) kayıt reddedilir. */
+  private assertNoBlockedTerms(text: string | null | undefined, rules: SchoolReviewsContentRules): void {
+    if (!rules.profanity_block_enabled || rules.blocked_terms.length === 0) return;
+    const t = text?.trim();
+    if (!t) return;
+    const hay = this.normalizeForBlockedTermMatch(t);
+    for (const term of rules.blocked_terms) {
+      const n = this.normalizeForBlockedTermMatch(term);
+      if (n.length < 2) continue;
+      if (hay.includes(n)) {
+        throw new BadRequestException({
+          code: 'CONTENT_POLICY',
+          message:
+            'Metniniz yönetici tarafından engellenen ifadeler içeriyor. Lütfen düzenleyip tekrar deneyin.',
+        });
+      }
+    }
+  }
+
+  /** Herkese açık: bildirim formu seçenekleri ve günlük limit. */
+  getReportRulesPublic() {
+    return this.appConfig.getSchoolReviewsReportRulesPublic();
   }
 
   /** Aktif kriterler listesi (öğretmen için). */
@@ -581,6 +612,8 @@ export class SchoolReviewsService implements OnModuleInit {
       });
     }
 
+    this.assertNoBlockedTerms(dto.comment ?? '', cfg.content_rules);
+
     const status = cfg.moderation_mode === 'moderation' ? 'pending' : 'approved';
     const review = this.reviewRepo.create({
       school_id: schoolId,
@@ -638,7 +671,10 @@ export class SchoolReviewsService implements OnModuleInit {
       review.rating = r;
     }
     if (dto.is_anonymous !== undefined) review.is_anonymous = dto.is_anonymous;
-    if (dto.comment !== undefined) review.comment = dto.comment?.trim() || null;
+    if (dto.comment !== undefined) {
+      this.assertNoBlockedTerms(dto.comment ?? '', cfg.content_rules);
+      review.comment = dto.comment?.trim() || null;
+    }
     return this.reviewRepo.save(review);
   }
 
@@ -818,6 +854,8 @@ export class SchoolReviewsService implements OnModuleInit {
     const school = await this.schoolRepo.findOne({ where: { id: schoolId } });
     if (!school) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Okul bulunamadı.' });
 
+    this.assertNoBlockedTerms(dto.question, cfg.content_rules);
+
     const status = cfg.questions_require_moderation ? 'pending' : 'approved';
     const question = this.questionRepo.create({
       school_id: schoolId,
@@ -842,6 +880,8 @@ export class SchoolReviewsService implements OnModuleInit {
     if (question.status !== 'approved') {
       throw new ForbiddenException({ code: 'NOT_FOUND', message: 'Bu soruya cevap verilemez.' });
     }
+
+    this.assertNoBlockedTerms(dto.answer, cfg.content_rules);
 
     const status = cfg.questions_require_moderation ? 'pending' : 'approved';
     const answer = this.answerRepo.create({
@@ -904,6 +944,18 @@ export class SchoolReviewsService implements OnModuleInit {
         take: limit,
       });
     }
+    if (userId && page === 1) {
+      const ownPending = await this.questionRepo.find({
+        where: { school_id: schoolId, user_id: userId, status: 'pending' },
+        relations: ['user', 'answers', 'answers.user'],
+        order: { created_at: 'DESC' },
+      });
+      const toPrepend = ownPending.filter((q) => !items.some((it) => it.id === q.id));
+      if (toPrepend.length > 0) {
+        items = [...toPrepend, ...items].slice(0, limit);
+        total += toPrepend.length;
+      }
+    }
     const questionIds = items.map((q) => q.id);
     const answerIds = items.flatMap((q) =>
       (q.answers || []).filter((a: SchoolQuestionAnswer) => a.status === 'approved').map((a: SchoolQuestionAnswer) => a.id),
@@ -955,6 +1007,7 @@ export class SchoolReviewsService implements OnModuleInit {
     const sanitized = items.map((q) => ({
       id: q.id,
       question: q.question,
+      status: q.status,
       created_at: q.created_at,
       is_anonymous: q.is_anonymous ?? false,
       author_display_name: q.is_anonymous ? 'Öğretmen' : (q.user?.display_name || 'Öğretmen'),
@@ -964,10 +1017,14 @@ export class SchoolReviewsService implements OnModuleInit {
       user_has_liked: questionLikedIds.has(q.id),
       user_has_disliked: questionDislikedIds.has(q.id),
       answers: (q.answers || [])
-        .filter((a: SchoolQuestionAnswer) => a.status === 'approved')
+        .filter(
+          (a: SchoolQuestionAnswer) =>
+            a.status === 'approved' || (!!userId && a.user_id === userId && a.status === 'pending'),
+        )
         .map((a: SchoolQuestionAnswer) => ({
           id: a.id,
           answer: a.answer,
+          status: a.status,
           created_at: a.created_at,
           is_anonymous: a.is_anonymous ?? false,
           author_display_name: a.is_anonymous ? 'Öğretmen' : (a.user?.display_name || 'Öğretmen'),
@@ -1074,8 +1131,13 @@ export class SchoolReviewsService implements OnModuleInit {
     }
     await this.ensureModuleEnabled();
 
-    const validReasons = ['spam', 'uygunsuz', 'yanlis_bilgi', 'diger'];
-    const r = validReasons.includes(reason) ? reason : 'diger';
+    const cr = (await this.appConfig.getSchoolReviewsConfig()).content_rules;
+    type RK = 'spam' | 'uygunsuz' | 'yanlis_bilgi' | 'diger';
+    const allKeys: RK[] = ['spam', 'uygunsuz', 'yanlis_bilgi', 'diger'];
+    let r: RK = typeof reason === 'string' && allKeys.includes(reason as RK) ? (reason as RK) : 'diger';
+    if (!cr.reasons[r].enabled) r = 'diger';
+
+    this.assertNoBlockedTerms(comment, cr);
 
     if (entityType === 'review') {
       const exists = await this.reviewRepo.findOne({ where: { id: entityId, status: 'approved' } });
@@ -1101,8 +1163,12 @@ export class SchoolReviewsService implements OnModuleInit {
       .where('r.reporter_actor_key = :actorKey', { actorKey })
       .andWhere('r.created_at >= :since', { since: oneDayAgo })
       .getCount();
-    if (totalToday >= 10) {
-      throw new ForbiddenException({ code: 'RATE_LIMIT', message: 'Bugün en fazla 10 bildirim yapabilirsiniz.' });
+    const limit = cr.daily_report_limit_per_actor;
+    if (totalToday >= limit) {
+      throw new ForbiddenException({
+        code: 'RATE_LIMIT',
+        message: `Bugün en fazla ${limit} bildirim yapabilirsiniz.`,
+      });
     }
 
     await this.reportRepo.save(
@@ -1121,11 +1187,13 @@ export class SchoolReviewsService implements OnModuleInit {
   /** Soru güncelle – sadece kendi sorusu. */
   async updateQuestion(questionId: string, userId: string, dto: UpdateQuestionDto) {
     await this.ensureModuleEnabled();
+    const cfg = await this.appConfig.getSchoolReviewsConfig();
     const question = await this.questionRepo.findOne({ where: { id: questionId } });
     if (!question) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Soru bulunamadı.' });
     if (question.user_id !== userId) {
       throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu soruyu düzenleyemezsiniz.' });
     }
+    this.assertNoBlockedTerms(dto.question, cfg.content_rules);
     question.question = dto.question.trim();
     return this.questionRepo.save(question);
   }
@@ -1145,11 +1213,13 @@ export class SchoolReviewsService implements OnModuleInit {
   /** Cevap güncelle – sadece kendi cevabı. */
   async updateAnswer(answerId: string, userId: string, dto: UpdateAnswerDto) {
     await this.ensureModuleEnabled();
+    const cfg = await this.appConfig.getSchoolReviewsConfig();
     const answer = await this.answerRepo.findOne({ where: { id: answerId } });
     if (!answer) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Cevap bulunamadı.' });
     if (answer.user_id !== userId) {
       throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu cevabı düzenleyemezsiniz.' });
     }
+    this.assertNoBlockedTerms(dto.answer, cfg.content_rules);
     answer.answer = dto.answer.trim();
     return this.answerRepo.save(answer);
   }
@@ -1248,6 +1318,194 @@ export class SchoolReviewsService implements OnModuleInit {
         };
       }),
     };
+  }
+
+  /** Süper yönetici / moderatör: onay bekleyen yorum, soru, cevap kuyruğu */
+  async listModerationQueue(dto: ListModerationQueueDto) {
+    const page = dto.page ?? 1;
+    const limit = Math.min(dto.limit ?? 20, 100);
+    const offset = (page - 1) * limit;
+    const t = dto.entity_type ?? null;
+
+    const total =
+      t === 'review'
+        ? await this.reviewRepo.count({ where: { status: 'pending' } })
+        : t === 'question'
+          ? await this.questionRepo.count({ where: { status: 'pending' } })
+          : t === 'answer'
+            ? await this.answerRepo.count({ where: { status: 'pending' } })
+            : (
+                await Promise.all([
+                  this.reviewRepo.count({ where: { status: 'pending' } }),
+                  this.questionRepo.count({ where: { status: 'pending' } }),
+                  this.answerRepo.count({ where: { status: 'pending' } }),
+                ])
+              ).reduce((a, b) => a + b, 0);
+
+    const rows = await this.reviewRepo.query(
+      `
+      SELECT u.entity_type, u.id, u.school_id, u.school_name, u.content_preview, u.created_at
+      FROM (
+        SELECT 'review'::text AS entity_type, r.id::text AS id, r.school_id::text AS school_id, sch.name AS school_name,
+          LEFT(COALESCE(NULLIF(trim(r.comment), ''), r.rating::text || ' puan'), 400) AS content_preview, r.created_at
+        FROM school_reviews r
+        INNER JOIN schools sch ON sch.id = r.school_id
+        WHERE r.status = 'pending'
+        UNION ALL
+        SELECT 'question'::text, q.id::text, q.school_id::text, sch.name, LEFT(q.question, 400), q.created_at
+        FROM school_questions q
+        INNER JOIN schools sch ON sch.id = q.school_id
+        WHERE q.status = 'pending'
+        UNION ALL
+        SELECT 'answer'::text, a.id::text, sq.school_id::text, sch.name, LEFT(a.answer, 400), a.created_at
+        FROM school_question_answers a
+        INNER JOIN school_questions sq ON sq.id = a.question_id
+        INNER JOIN schools sch ON sch.id = sq.school_id
+        WHERE a.status = 'pending'
+      ) u
+      WHERE ($1::varchar IS NULL OR u.entity_type = $1)
+      ORDER BY u.created_at DESC
+      LIMIT $2 OFFSET $3
+      `,
+      [t ?? null, limit, offset],
+    );
+
+    const items = (rows as Record<string, unknown>[]).map((row) => ({
+      entity_type: row.entity_type as 'review' | 'question' | 'answer',
+      id: String(row.id),
+      school_id: String(row.school_id),
+      school_name: row.school_name != null ? String(row.school_name) : null,
+      content_preview: row.content_preview != null ? String(row.content_preview) : '',
+      created_at:
+        row.created_at instanceof Date ? (row.created_at as Date).toISOString() : String(row.created_at),
+    }));
+
+    return paginate(items, total, page, limit);
+  }
+
+  async moderateReview(reviewId: string, dto: { status: 'approved' | 'hidden' }) {
+    await this.ensureModuleEnabled();
+    const review = await this.reviewRepo.findOne({ where: { id: reviewId } });
+    if (!review) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Değerlendirme bulunamadı.' });
+    if (dto.status === 'approved') {
+      if (review.status !== 'pending') {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: 'Yalnızca beklemedeki değerlendirme onaylanabilir.',
+        });
+      }
+      review.status = 'approved';
+    } else {
+      if (review.status === 'hidden') {
+        throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Bu içerik zaten gizlenmiş.' });
+      }
+      review.status = 'hidden';
+    }
+    return this.reviewRepo.save(review);
+  }
+
+  async moderateQuestion(questionId: string, dto: { status: 'approved' | 'hidden' }) {
+    await this.ensureModuleEnabled();
+    const question = await this.questionRepo.findOne({ where: { id: questionId } });
+    if (!question) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Soru bulunamadı.' });
+    if (dto.status === 'approved') {
+      if (question.status !== 'pending') {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: 'Yalnızca beklemedeki soru onaylanabilir.',
+        });
+      }
+      question.status = 'approved';
+    } else {
+      if (question.status === 'hidden') {
+        throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Bu içerik zaten gizlenmiş.' });
+      }
+      question.status = 'hidden';
+    }
+    return this.questionRepo.save(question);
+  }
+
+  async moderateAnswer(answerId: string, dto: { status: 'approved' | 'hidden' }) {
+    await this.ensureModuleEnabled();
+    const answer = await this.answerRepo.findOne({ where: { id: answerId } });
+    if (!answer) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Cevap bulunamadı.' });
+    if (dto.status === 'approved') {
+      if (answer.status !== 'pending') {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: 'Yalnızca beklemedeki cevap onaylanabilir.',
+        });
+      }
+      answer.status = 'approved';
+    } else {
+      if (answer.status === 'hidden') {
+        throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Bu içerik zaten gizlenmiş.' });
+      }
+      answer.status = 'hidden';
+    }
+    return this.answerRepo.save(answer);
+  }
+
+  /** Süper yönetici / moderatör: uygunsuz içerik bildirimleri (okul adı + metin özeti). */
+  async listContentReportsAdmin(dto: ListContentReportsAdminDto) {
+    const page = dto.page ?? 1;
+    const limit = dto.limit ?? 20;
+    const offset = (page - 1) * limit;
+    const entityType = dto.entity_type ?? null;
+    const reason = dto.reason?.trim() || null;
+
+    const rows = await this.reportRepo.query(
+      `
+      SELECT r.id, r.entity_type, r.entity_id::text AS entity_id, r.reason, r.comment, r.created_at, r.reporter_actor_key,
+        r.reporter_user_id::text AS reporter_user_id,
+        COALESCE(rev.school_id, sq.school_id, sq2.school_id)::text AS school_id,
+        sch.name AS school_name,
+        CASE
+          WHEN r.entity_type = 'review' THEN LEFT(COALESCE(rev.comment, ''), 320)
+          WHEN r.entity_type = 'question' THEN LEFT(COALESCE(sq.question, ''), 320)
+          WHEN r.entity_type = 'answer' THEN LEFT(COALESCE(ans.answer, ''), 320)
+          ELSE NULL
+        END AS content_preview
+      FROM school_content_reports r
+      LEFT JOIN school_reviews rev ON r.entity_type = 'review' AND r.entity_id = rev.id
+      LEFT JOIN school_questions sq ON r.entity_type = 'question' AND r.entity_id = sq.id
+      LEFT JOIN school_question_answers ans ON r.entity_type = 'answer' AND r.entity_id = ans.id
+      LEFT JOIN school_questions sq2 ON ans.question_id = sq2.id
+      LEFT JOIN schools sch ON sch.id = COALESCE(rev.school_id, sq.school_id, sq2.school_id)
+      WHERE ($1::varchar IS NULL OR r.entity_type = $1)
+        AND ($2::varchar IS NULL OR r.reason = $2)
+      ORDER BY r.created_at DESC
+      LIMIT $3 OFFSET $4
+      `,
+      [entityType, reason, limit, offset],
+    );
+
+    const countRow = await this.reportRepo.query(
+      `
+      SELECT COUNT(*)::int AS c
+      FROM school_content_reports r
+      WHERE ($1::varchar IS NULL OR r.entity_type = $1)
+        AND ($2::varchar IS NULL OR r.reason = $2)
+      `,
+      [entityType, reason],
+    );
+    const total = countRow[0]?.c ?? 0;
+
+    const items = (rows as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      entity_type: row.entity_type as string,
+      entity_id: String(row.entity_id),
+      reason: String(row.reason),
+      comment: row.comment ? String(row.comment) : null,
+      created_at:
+        row.created_at instanceof Date ? (row.created_at as Date).toISOString() : String(row.created_at),
+      reporter_kind: row.reporter_user_id ? ('registered' as const) : ('guest' as const),
+      school_id: row.school_id ? String(row.school_id) : null,
+      school_name: row.school_name ? String(row.school_name) : null,
+      content_preview: row.content_preview != null ? String(row.content_preview) : null,
+    }));
+
+    return paginate(items, total, page, limit);
   }
 
   async onModuleInit(): Promise<void> {

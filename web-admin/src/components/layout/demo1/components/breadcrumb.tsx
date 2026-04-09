@@ -10,7 +10,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { isPublicAdminPath } from '@/lib/public-admin-paths';
 
 const GUEST_PUBLIC_LABELS: Record<string, string> = {
-  '/extra-lesson-calc': 'Ek ders hesaplama',
+  '/ek-ders-hesaplama': 'Ek ders hesaplama',
   '/hesaplamalar': 'Hesaplamalar',
   '/sinav-gorev-ucretleri': 'Sınav görev ücretleri',
   '/haberler': 'Haberler',
@@ -33,11 +33,27 @@ export function Breadcrumb({ guestPublicChrome }: BreadcrumbProps = {}) {
     : getBreadcrumbs(pathname ?? '', me?.role as WebAdminRole | undefined);
 
   if (items.length === 0) return null;
+  /** Ana sayfa: breadcrumb tekrarını kaldır (mobilde özellikle kalabalık) */
+  if (p === '/dashboard' || p === '/') return null;
+  /** Sayfa içinde başlık/geri var; üstteki «Ana sayfa › …» kartını gösterme */
+  if (p === '/sinav-gorev-ucretleri' || p === '/ek-ders-hesaplama') return null;
+
+  /** Bildirimler / okul değerlendirmeleri / haberler: mobilde üst breadcrumb kartı kalabalık etmesin */
+  const hideOnMobile =
+    p === '/sinav-gorevlerim' ||
+    p === '/bildirimler' ||
+    p === '/haberler' ||
+    p === '/haberler/yayin' ||
+    p === '/okul-degerlendirmeleri' ||
+    p.startsWith('/okul-degerlendirmeleri/');
 
   return (
     <nav
       aria-label="Breadcrumb"
-      className="mb-2 inline-flex max-w-full flex-wrap items-center gap-1 rounded-2xl border border-border/50 bg-muted/25 px-2 py-1 text-[12px] font-medium shadow-sm backdrop-blur-sm sm:mb-3 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm lg:mb-0 print:hidden"
+      className={cn(
+        'mb-2 max-w-full flex-wrap items-center gap-1 rounded-2xl border border-border/50 bg-muted/25 px-2 py-1 text-[12px] font-medium shadow-sm backdrop-blur-sm sm:mb-3 sm:inline-flex sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm lg:mb-0 print:hidden',
+        hideOnMobile ? 'hidden sm:inline-flex' : 'inline-flex',
+      )}
     >
       {items.map((item, index) => {
         const last = index === items.length - 1;

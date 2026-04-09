@@ -38,12 +38,12 @@ import { SuperadminDevopsSettings } from './superadmin-devops-settings';
 type TabId = 'hesap' | 'platform' | 'kaynak';
 
 const TABS: { id: TabId; label: string; hint: string; icon: React.ElementType }[] = [
-  { id: 'hesap', label: 'Hesap', hint: 'Profil, şifre ve veri hakları', icon: User },
-  { id: 'platform', label: 'Platform', hint: 'Yönetim linkleri ve sistem', icon: LayoutDashboard },
+  { id: 'hesap', label: 'Hesap', hint: 'Profil ve veri', icon: User },
+  { id: 'platform', label: 'Platform', hint: 'Yönetim linkleri', icon: LayoutDashboard },
   {
     id: 'kaynak',
     label: 'Kaynak & dağıtım',
-    hint: 'Depo adresi, canlı URL’ler ve dağıtım notları',
+    hint: 'Repo ve URL’ler',
     icon: GitBranch,
   },
 ];
@@ -134,28 +134,28 @@ export function SuperadminAccountTabs() {
   if (!me || me.role !== 'superadmin') return null;
 
   return (
-    <div className="space-y-5">
-      <div className="overflow-hidden rounded-2xl border border-border/50 bg-linear-to-br from-violet-500/10 via-card to-sky-500/10 p-1 shadow-sm ring-1 ring-border/30 dark:from-violet-950/40 dark:via-zinc-950 dark:to-sky-950/30 dark:ring-zinc-800/80">
-        <div className="flex flex-col gap-3 p-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-3">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="overflow-hidden rounded-xl border-2 border-border/70 bg-linear-to-br from-violet-500/10 via-card to-sky-500/10 p-1 shadow-md ring-1 ring-black/4 dark:from-violet-950/40 dark:via-zinc-950 dark:to-sky-950/30 dark:ring-white/6 sm:rounded-2xl">
+        <div className="flex flex-col gap-2 p-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-3">
           <div className="flex min-w-0 items-start gap-3">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary ring-1 ring-primary/25">
               <Sparkles className="size-5" aria-hidden />
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground">Süper yönetici ayarları — hesap merkezi</p>
-              <p className="text-pretty text-xs text-muted-foreground sm:text-sm">
+              <p className="text-sm font-semibold text-foreground">Süper yönetici</p>
+              <p className="text-pretty text-[11px] leading-snug text-muted-foreground sm:text-sm sm:leading-normal">
                 {tab === 'hesap'
-                  ? 'Görünen ad, şifre ve KVKK işlemleri; profil sayfasıyla aynı hesap.'
+                  ? 'Profil, şifre, KVKK.'
                   : tab === 'platform'
-                    ? 'Yönetim sayfalarına kısayol ve canlı sistem durumu.'
-                    : 'Git deposu (ör. GitHub) adresi, canlı API ve web URL’leri; dağıtım notları — yalnızca referans, gizli bilgi tutmayın.'}
+                    ? 'Kısayollar ve sistem durumu.'
+                    : 'Repo, API ve web URL’leri (referans).'}
               </p>
             </div>
           </div>
         </div>
 
         <div className="mobile-tab-scroll pb-1">
-          <div className="flex min-w-max gap-1 rounded-xl border border-border/40 bg-muted/25 p-1 shadow-sm dark:bg-zinc-900/50">
+          <div className="flex min-w-max gap-1 rounded-lg border border-border/50 bg-muted/25 p-1 shadow-inner dark:bg-zinc-900/50 sm:rounded-xl">
           {TABS.map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
@@ -165,9 +165,9 @@ export function SuperadminAccountTabs() {
                 type="button"
                 onClick={() => goTab(t.id)}
                 className={cn(
-                  'flex min-w-[150px] shrink-0 flex-col items-stretch gap-0.5 rounded-lg px-3 py-2.5 text-left transition-all duration-200',
+                  'flex min-w-[140px] shrink-0 flex-col items-stretch gap-0.5 rounded-md px-2.5 py-2 text-left transition-all duration-200 sm:min-w-[150px] sm:rounded-lg sm:px-3 sm:py-2.5',
                   active
-                    ? 'bg-background text-foreground shadow-md ring-1 ring-primary/25 dark:bg-zinc-800'
+                    ? 'bg-background text-foreground shadow-md ring-1 ring-primary/30 dark:bg-zinc-800'
                     : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
                 )}
               >
@@ -185,7 +185,7 @@ export function SuperadminAccountTabs() {
 
       {tab === 'hesap' && (
         <div className="space-y-4">
-          <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/95 shadow-sm ring-1 ring-border/30 dark:border-zinc-800 dark:bg-zinc-950/90">
+          <Card className="overflow-hidden rounded-xl border-2 border-border/70 bg-card shadow-md ring-1 ring-black/4 dark:border-border/80 dark:bg-card dark:ring-white/6 sm:rounded-2xl">
             <CardHeader className="border-b border-border/40 bg-muted/15 pb-3">
               <div className="flex items-center gap-2">
                 <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
@@ -193,9 +193,7 @@ export function SuperadminAccountTabs() {
                 </span>
                 <div>
                   <CardTitle className="text-base">Profil</CardTitle>
-                  <CardDescription className="text-xs sm:text-sm">
-                    Görünen adınız panoda ve bildirimlerde kullanılır.
-                  </CardDescription>
+                  <CardDescription className="text-xs sm:text-sm">Pano ve bildirimlerde görünen ad.</CardDescription>
                 </div>
               </div>
             </CardHeader>
@@ -209,7 +207,7 @@ export function SuperadminAccountTabs() {
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/95 shadow-sm ring-1 ring-border/30 dark:border-zinc-800 dark:bg-zinc-950/90">
+          <Card className="overflow-hidden rounded-xl border-2 border-border/70 bg-card shadow-md ring-1 ring-black/4 dark:border-border/80 dark:bg-card dark:ring-white/6 sm:rounded-2xl">
             <CardHeader className="border-b border-border/40 bg-muted/15 pb-3">
               <div className="flex items-center gap-2">
                 <span className="flex size-8 items-center justify-center rounded-lg bg-amber-500/15 text-xs font-bold text-amber-700 dark:text-amber-400">
@@ -220,9 +218,7 @@ export function SuperadminAccountTabs() {
                     <KeyRound className="size-4 text-muted-foreground" aria-hidden />
                     Güvenlik — şifre
                   </CardTitle>
-                  <CardDescription className="text-xs sm:text-sm">
-                    Güçlü bir şifre kullanın; paylaşmayın.
-                  </CardDescription>
+                  <CardDescription className="text-xs sm:text-sm">Güçlü şifre, kimseyle paylaşmayın.</CardDescription>
                 </div>
               </div>
             </CardHeader>
@@ -231,7 +227,7 @@ export function SuperadminAccountTabs() {
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/95 shadow-sm ring-1 ring-border/30 dark:border-zinc-800 dark:bg-zinc-950/90">
+          <Card className="overflow-hidden rounded-xl border-2 border-border/70 bg-card shadow-md ring-1 ring-black/4 dark:border-border/80 dark:bg-card dark:ring-white/6 sm:rounded-2xl">
             <CardHeader className="border-b border-border/40 bg-muted/15 pb-3">
               <div className="flex items-center gap-2">
                 <span className="flex size-8 items-center justify-center rounded-lg bg-emerald-500/15 text-xs font-bold text-emerald-700 dark:text-emerald-400">
@@ -240,18 +236,16 @@ export function SuperadminAccountTabs() {
                 <div>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <Shield className="size-4 text-muted-foreground" aria-hidden />
-                    Veri ve hesap hakları
+                    Veri ve hesap
                   </CardTitle>
-                  <CardDescription className="text-xs sm:text-sm">
-                    KVKK kapsamında veri indirme ve hesabı kapatma.
-                  </CardDescription>
+                  <CardDescription className="text-xs sm:text-sm">Dışa aktarma ve silme (KVKK).</CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="flex flex-col gap-4 p-4 md:p-6">
               <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
                 <FileDown className="size-3.5 shrink-0 text-primary" aria-hidden />
-                İndirme tamamlanınca ve hesap kapanınca bildirim alırsınız.
+                İşlem bitince bildirim gelir.
               </div>
               <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-stretch [&_button]:min-h-11 [&_button]:rounded-xl [&_button]:border-border/60 [&_button]:shadow-sm">
                 <DataExportButton token={token} />
@@ -264,8 +258,8 @@ export function SuperadminAccountTabs() {
 
       {tab === 'platform' && (
         <div className="space-y-6">
-          <Card className="border-border/60">
-            <CardHeader className="pb-2">
+          <Card className="overflow-hidden rounded-xl border-2 border-border/70 bg-card shadow-md ring-1 ring-black/4 dark:border-border/80 dark:ring-white/6 sm:rounded-2xl">
+            <CardHeader className="border-b border-border/40 bg-muted/15 pb-3 sm:rounded-t-xl">
               <div className="flex items-center gap-2">
                 <Server className="size-4 text-muted-foreground" />
                 <CardTitle className="text-base">Sistem durumu</CardTitle>
@@ -332,8 +326,8 @@ export function SuperadminAccountTabs() {
                         })
                       }
                       className={cn(
-                        'group relative flex items-center gap-3 rounded-2xl border border-border/60 bg-card/90 p-4 shadow-sm',
-                        'transition-all hover:border-primary/40 hover:bg-primary/5 hover:shadow-md',
+                        'group relative flex items-center gap-2.5 rounded-xl border-2 border-border/70 bg-card p-3.5 shadow-md ring-1 ring-black/4',
+                        'transition-all hover:z-1 hover:border-primary/35 hover:bg-primary/3 hover:shadow-lg dark:border-border/80 dark:ring-white/6 sm:gap-3 sm:p-4',
                       )}
                     >
                       <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted/80 ring-1 ring-border/50 transition-colors group-hover:bg-primary/10 group-hover:text-primary">

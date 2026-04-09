@@ -28,6 +28,7 @@ export type EvrakDefaults = {
   zumreler?: string;
   zumre_ogretmenleri?: string;
   onay_tarihi?: string;
+  ogretmen_unvani?: string;
 } | null;
 
 export type Me = {

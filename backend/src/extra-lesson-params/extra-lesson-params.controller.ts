@@ -7,15 +7,17 @@ import {
   Body,
   Param,
   Query,
+  Req,
   UseGuards,
   Header,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { JwtAuthGuard } from '../auth/guards/auth.guard';
+import { JwtAuthGuard, OptionalJwtAuthGuard } from '../auth/guards/auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RequireModule } from '../common/decorators/require-module.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UserRole } from '../types/enums';
+import type { User } from '../users/entities/user.entity';
 import { ExtraLessonParamsService } from './extra-lesson-params.service';
 import { ExtraLessonStatsService } from './extra-lesson-stats.service';
 import { CreateExtraLessonParamsDto } from './dto/create-extra-lesson-params.dto';
@@ -38,19 +40,23 @@ export class ExtraLessonParamsController {
     return this.statsService.getStats();
   }
 
-  /** Public: Sayfa açıkken heartbeat – canlı kullanıcı sayacı için. */
+  /** Public: Sayfa açıkken heartbeat – canlı kullanıcı (oturum başına bir sayım). Girişliyse kullanıcı id, değilse session_id. */
   @Post('stats/heartbeat')
+  @UseGuards(OptionalJwtAuthGuard)
   @Throttle({ default: { limit: 120, ttl: 60000 } })
-  async heartbeat(@Body('session_id') sessionId: string) {
-    this.statsService.heartbeat(sessionId ?? '');
+  async heartbeat(@Req() req: { user?: User }, @Body('session_id') sessionId: string) {
+    const key = req.user?.id ?? sessionId ?? '';
+    this.statsService.heartbeat(key);
     return { ok: true };
   }
 
-  /** Public: Hesaplama yapıldığında toplam sayacı artır. */
+  /** Public: Hesaplama — benzersiz kullanıcı/oturum sayısına ekler (işlem başına değil). */
   @Post('stats/calc')
+  @UseGuards(OptionalJwtAuthGuard)
   @Throttle({ default: { limit: 300, ttl: 60000 } })
-  async recordCalc() {
-    this.statsService.recordCalculation();
+  async recordCalc(@Req() req: { user?: User }, @Body('session_id') sessionId: string) {
+    const key = req.user?.id ?? sessionId ?? '';
+    this.statsService.recordCalculation(key);
     return { ok: true };
   }
 

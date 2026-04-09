@@ -54,20 +54,14 @@ const NODE_POSITIONS: { left: string; top: string }[] = (() => {
   });
 })();
 
-const Node3D = memo(function Node3D({ item, sm }: { item: HubItem; sm?: boolean }) {
+const Node3D = memo(function Node3D({ item }: { item: HubItem }) {
   const Icon = item.icon;
   return (
     <AuthTransitionLink
       href={item.href}
       className="group flex flex-col items-center gap-[5px] outline-none focus-visible:ring-2 focus-visible:ring-red-500/70"
     >
-      <span
-        className={
-          sm
-            ? 'relative flex size-11 items-center justify-center overflow-hidden rounded-full transition-transform duration-200 group-hover:scale-110'
-            : 'relative flex h-[clamp(36px,6.5vmin,52px)] w-[clamp(36px,6.5vmin,52px)] items-center justify-center overflow-hidden rounded-full transition-transform duration-200 group-hover:scale-110'
-        }
-      >
+      <span className="relative flex h-[clamp(36px,6.5vmin,52px)] w-[clamp(36px,6.5vmin,52px)] items-center justify-center overflow-hidden rounded-full transition-transform duration-200 group-hover:scale-110">
         {/* Metallic base */}
         <span
           className="absolute inset-0 rounded-full"
@@ -89,21 +83,11 @@ const Node3D = memo(function Node3D({ item, sm }: { item: HubItem; sm?: boolean 
         />
         {/* Icon */}
         <Icon
-          className={
-            sm
-              ? 'relative z-10 size-[18px] text-red-400 drop-shadow-[0_0_5px_rgba(220,38,38,0.8)] transition-colors duration-200 group-hover:text-red-200'
-              : 'relative z-10 h-[clamp(15px,2.8vmin,22px)] w-[clamp(15px,2.8vmin,22px)] text-red-400 drop-shadow-[0_0_5px_rgba(220,38,38,0.8)] transition-colors duration-200 group-hover:text-red-200'
-          }
+          className="relative z-10 h-[clamp(15px,2.8vmin,22px)] w-[clamp(15px,2.8vmin,22px)] text-red-400 drop-shadow-[0_0_5px_rgba(220,38,38,0.8)] transition-colors duration-200 group-hover:text-red-200"
           strokeWidth={1.6}
         />
       </span>
-      <span
-        className={
-          sm
-            ? 'block w-[60px] max-w-[72px] text-center text-[10px] font-semibold leading-tight text-zinc-200 [text-shadow:0_1px_6px_rgba(0,0,0,0.95)] transition-colors duration-200 group-hover:text-white'
-            : 'block max-w-[72px] text-center text-[clamp(9px,1.4vmin,11px)] font-semibold leading-tight text-zinc-200 [text-shadow:0_1px_6px_rgba(0,0,0,0.95)] transition-colors duration-200 group-hover:text-white'
-        }
-      >
+      <span className="block max-w-[min(72px,18vw)] text-center text-[clamp(9px,1.4vmin,11px)] font-semibold leading-tight text-zinc-200 [text-shadow:0_1px_6px_rgba(0,0,0,0.95)] transition-colors duration-200 group-hover:text-white">
         {item.label}
       </span>
     </AuthTransitionLink>
@@ -148,47 +132,8 @@ export function SealHub() {
 
   return (
     <div className="w-full min-w-0 max-w-[100vw]">
-
-      {/* ── Mobile ── */}
-      <div className="flex flex-col items-center gap-5 pb-1 sm:gap-7 md:hidden">
-        <div
-          className="relative aspect-square w-[min(13.5rem,72vw)] max-w-[280px] sm:w-44 sm:max-w-none"
-          style={{ animation: 'logo-breathe 3.5s ease-in-out infinite' }}
-        >
-          <div
-            className="absolute inset-0 rounded-full"
-            style={{
-              background: 'radial-gradient(circle at 40% 35%, #3f3f46, #09090b)',
-              boxShadow: '0 0 0 1.5px rgba(220,38,38,0.55), 0 0 40px -8px rgba(220,38,38,0.5)',
-            }}
-          />
-          <div
-            className="absolute inset-0 rounded-full"
-            style={{ background: 'linear-gradient(165deg, rgba(255,255,255,0.09) 0%, transparent 40%)' }}
-          />
-          <div className="relative size-full overflow-hidden rounded-full p-[12%] sm:p-4">
-            <Image
-              src="/landing/pza-logo.png"
-              alt="Öğretmen Pro"
-              fill
-              sizes="(max-width:640px) 72vw, 176px"
-              className="object-contain"
-              priority
-              decoding="async"
-            />
-          </div>
-        </div>
-        <div className="grid w-full max-w-[min(100%,22rem)] grid-cols-3 gap-x-2 gap-y-4 px-0.5 min-[400px]:max-w-[340px] min-[400px]:grid-cols-4 min-[400px]:gap-x-3 min-[400px]:gap-y-5 sm:px-1">
-          {ITEMS.map((item) => (
-            <div key={item.href} className="flex justify-center">
-              <Node3D item={item} sm />
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Desktop seal ── */}
-      <div className="relative isolate mx-auto hidden aspect-square w-full min-h-0 max-w-[min(94vw,520px)] md:block lg:max-w-[min(90vw,600px)] xl:max-w-[min(85vw,680px)]">
+      {/* Yuvarlak logo + çevrede simgeler — tüm ekranlar (mobilde masaüstü ile aynı düzen) */}
+      <div className="relative isolate mx-auto aspect-square w-full min-h-0 max-w-[min(96vw,400px)] sm:max-w-[min(94vw,480px)] md:max-w-[min(94vw,520px)] lg:max-w-[min(90vw,600px)] xl:max-w-[min(85vw,680px)]">
         {/* Ambient bloom */}
         <div
           className="pointer-events-none absolute inset-0 rounded-full"
@@ -280,7 +225,7 @@ export function SealHub() {
                 src="/landing/pza-logo.png"
                 alt="Öğretmen Pro"
                 fill
-                sizes="(max-width:768px) 0px, (max-width:1280px) 28vw, 240px"
+                sizes="(max-width:640px) 42vw, (max-width:1280px) 28vw, 240px"
                 className="object-contain object-center"
                 loading="lazy"
                 decoding="async"

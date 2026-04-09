@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   Users,
   MapPin,
+  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
@@ -554,31 +555,31 @@ export default function DutyPage() {
   }, [isTeacher, token, today]);
 
   return (
-    <div className="space-y-6 print:space-y-4">
+    <div className="duty-main space-y-2 print:space-y-2 sm:space-y-3">
       {/* Devamsız öğretmen banner'ı – sadece bugünün atamaları için */}
       {isAdmin && todayAbsentSlots.length > 0 && (
         <div
           className={cn(
-            'sticky top-0 z-40 mb-4 rounded-xl border-2 p-4 shadow-lg flex flex-wrap items-center justify-between gap-4',
+            'sticky top-0 z-20 mb-1.5 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-2 sm:mb-2 sm:gap-3 sm:p-2.5',
             dayAllDone
-              ? 'border-emerald-500 bg-emerald-100 dark:border-emerald-500 dark:bg-emerald-900/40 ring-2 ring-emerald-400/50'
-              : 'border-amber-500 bg-amber-100 dark:border-amber-500 dark:bg-amber-900/50 shadow-amber-500/20 ring-2 ring-amber-400/50',
+              ? 'border-emerald-500/60 bg-emerald-50 dark:border-emerald-600 dark:bg-emerald-950/35'
+              : 'border-amber-500/60 bg-amber-50 dark:border-amber-600 dark:bg-amber-950/40',
           )}
         >
-          <div className="flex items-center gap-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-4">
             <div
               className={cn(
-                'flex size-14 items-center justify-center rounded-xl shrink-0 shadow-md text-white',
-                dayAllDone ? 'bg-emerald-500' : 'bg-amber-500',
+                'flex size-9 shrink-0 items-center justify-center rounded-md text-white sm:size-10',
+                dayAllDone ? 'bg-emerald-600' : 'bg-amber-600',
               )}
             >
-              {dayAllDone ? <CheckCircle2 className="size-7" /> : <span className="text-3xl">⚠</span>}
+              {dayAllDone ? <CheckCircle2 className="size-4 sm:size-5" /> : <span className="text-lg sm:text-xl">⚠</span>}
             </div>
-            <div>
-              <h3 className={cn('font-bold text-lg', dayAllDone ? 'text-emerald-900 dark:text-emerald-100' : 'text-amber-900 dark:text-amber-100')}>
+            <div className="min-w-0">
+              <h3 className={cn('text-xs font-semibold sm:text-sm', dayAllDone ? 'text-emerald-900 dark:text-emerald-100' : 'text-amber-900 dark:text-amber-100')}>
                 {dayAllDone ? 'İşlem tamamlandı' : `${todayAbsentSlots.length} devamsız öğretmen · Ayarlama gerekli`}
               </h3>
-              <p className={cn('text-sm mt-0.5 font-medium', dayAllDone ? 'text-emerald-800 dark:text-emerald-200' : 'text-amber-800 dark:text-amber-200')}>
+              <p className={cn('mt-0.5 text-[10px] sm:text-xs', dayAllDone ? 'text-emerald-800 dark:text-emerald-200' : 'text-amber-800 dark:text-amber-200')}>
                 {dayAllDone ? 'Tüm ders atamaları yapıldı.' : 'Boşa çıkacak dersler için görevlendirme yapın.'}
               </p>
             </div>
@@ -586,125 +587,134 @@ export default function DutyPage() {
           {!dayAllDone && (
             <Button
               onClick={() => firstTodayAbsentSlot && setCoverageSlotId(firstTodayAbsentSlot.id)}
-              size="lg"
-              className="shrink-0 bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-lg text-base px-6"
+              size="sm"
+              className="h-8 shrink-0 bg-amber-600 px-2.5 text-xs font-medium text-white hover:bg-amber-700 sm:h-9 sm:px-4 sm:text-sm"
             >
-              <CalendarCheck className="size-5" />
+              <CalendarCheck className="size-4" />
               Ayarlamaya Git
             </Button>
           )}
         </div>
       )}
 
-      {/* Öğretmen: Bugün Nöbet Arkadaşlarım */}
+      {/* Öğretmen: Bugün nöbet arkadaşları — mobil 2 sütun, renkli kart */}
       {isTeacher && todayPartners.length > 0 && (
-        <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="flex items-center justify-center size-8 rounded-lg bg-primary/15">
-              <Users className="size-4 text-primary" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">Bugün Nöbet Arkadaşlarım</h3>
-              <p className="text-xs text-muted-foreground">{new Date(today + 'T12:00:00').toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
-            </div>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {todayPartners.map((partner) => (
-              <div key={partner.user_id} className="flex items-center gap-2.5 rounded-lg bg-background border border-border px-3 py-2.5">
-                <div className="flex items-center justify-center size-7 rounded-full bg-primary/10 shrink-0">
-                  <Users className="size-3.5 text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{partner.display_name || partner.email || '—'}</p>
-                  {partner.area_name && (
-                    <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                      <MapPin className="size-3" />
-                      {partner.area_name}
-                    </p>
-                  )}
-                </div>
+        <div className="relative overflow-hidden rounded-2xl border border-cyan-400/35 bg-linear-to-br from-sky-500/20 via-cyan-500/12 to-violet-500/18 p-3 shadow-lg shadow-sky-500/10 ring-1 ring-sky-400/25 dark:border-cyan-500/25 dark:from-sky-950/50 dark:via-cyan-950/30 dark:to-violet-950/40 dark:shadow-violet-950/20 dark:ring-sky-500/20">
+          <div className="pointer-events-none absolute -left-6 bottom-0 size-28 rounded-full bg-fuchsia-400/15 blur-2xl dark:bg-fuchsia-600/10" aria-hidden />
+          <div className="pointer-events-none absolute -right-4 -top-4 size-24 rounded-full bg-cyan-300/25 blur-2xl dark:bg-cyan-500/15" aria-hidden />
+          <div className="relative">
+            <div className="mb-3 flex items-start gap-2.5">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br from-sky-600 to-cyan-600 text-white shadow-md ring-2 ring-white/30 dark:ring-white/10">
+                <Users className="size-5" aria-hidden />
               </div>
-            ))}
+              <div className="min-w-0 flex-1 pt-0.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-bold tracking-tight text-sky-950 dark:text-sky-50">Bugün nöbet arkadaşlarım</span>
+                  <Sparkles className="size-3.5 shrink-0 text-amber-500 dark:text-amber-400" aria-hidden />
+                </div>
+                <p className="mt-0.5 text-[11px] font-medium text-sky-800/90 dark:text-sky-200/90">
+                  {new Date(today + 'T12:00:00').toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                </p>
+              </div>
+            </div>
+            <ul className="grid grid-cols-2 gap-2 sm:gap-2.5" aria-label="Bugün nöbet arkadaşları listesi">
+              {todayPartners.map((partner, i) => (
+                <li
+                  key={partner.user_id}
+                  className={cn(
+                    'min-h-0 rounded-xl border px-2 py-2 shadow-sm backdrop-blur-[2px]',
+                    i % 2 === 0
+                      ? 'border-sky-300/50 bg-linear-to-br from-white/90 to-sky-50/90 dark:border-sky-600/40 dark:from-sky-950/70 dark:to-slate-900/80'
+                      : 'border-violet-300/45 bg-linear-to-br from-white/90 to-violet-50/85 dark:border-violet-600/40 dark:from-violet-950/60 dark:to-slate-900/80',
+                  )}
+                >
+                  <p className="line-clamp-2 text-[11px] font-semibold leading-snug text-foreground sm:text-xs">
+                    {partner.display_name || partner.email || '—'}
+                  </p>
+                  {partner.area_name ? (
+                    <p className="mt-1 flex items-start gap-1 text-[10px] leading-tight text-violet-800/90 dark:text-violet-200/90">
+                      <MapPin className="mt-0.5 size-3 shrink-0 text-cyan-600 dark:text-cyan-400" aria-hidden />
+                      <span className="line-clamp-2">{partner.area_name}</span>
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       )}
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between print:flex-row">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">Nöbet Planlaması</h1>
-          {!isAdmin && (
-            <p className="mt-1 text-sm text-muted-foreground">Sadece size atanan nöbetler gösteriliyor.</p>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-2 print:hidden">
-          <Button variant="outline" size="sm" onClick={handlePrint}>
-            <Printer className="size-4" />
-            Yazdır
-          </Button>
-        </div>
-      </div>
-
-      {/* Mosaic tarzı takvim araç çubuğu */}
-      <Card className="overflow-hidden rounded-xl border-primary/20 print:hidden">
-        <CardContent className="p-4">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            {/* Görünüm seçici */}
-            <div className="flex rounded-lg border border-border bg-muted/30 p-1">
+      <Card className="border-border/80 print:hidden shadow-sm">
+        <CardContent className="space-y-2 p-2 sm:p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0">
+              <h1 className="text-sm font-semibold text-foreground sm:text-base">Nöbet planlaması</h1>
+              {!isAdmin && <p className="text-[10px] text-muted-foreground sm:text-[11px]">Yalnızca size atanan nöbetler.</p>}
+            </div>
+            <Button variant="outline" size="sm" className="h-7 px-2 text-[11px] sm:h-8 sm:text-xs" onClick={handlePrint}>
+              <Printer className="size-3.5" />
+              Yazdır
+            </Button>
+          </div>
+          <div className="flex flex-col gap-2 border-t border-border/60 pt-2 sm:flex-row sm:items-center sm:justify-between">
+            <div
+              className="grid w-full max-w-[220px] shrink-0 grid-cols-3 gap-px rounded-lg border border-border/50 bg-border/40 p-px sm:max-w-none sm:gap-0.5 sm:rounded-xl sm:p-0.5"
+              role="tablist"
+              aria-label="Takvim görünümü"
+            >
               {[
                 { id: 'month' as ViewMode, label: 'Ay', icon: Calendar },
                 { id: 'week' as ViewMode, label: 'Hafta', icon: CalendarRange },
                 { id: 'day' as ViewMode, label: 'Gün', icon: CalendarDays },
-              ].map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setViewMode(id)}
-                  className={cn(
-                    'inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors',
-                    viewMode === id
-                      ? 'bg-primary text-primary-foreground shadow-sm'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                  )}
-                >
-                  <Icon className="size-4" />
-                  {label}
-                </button>
-              ))}
+              ].map(({ id, label, icon: Icon }) => {
+                const active = viewMode === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setViewMode(id)}
+                    className={cn(
+                      'flex min-h-8 flex-col items-center justify-center gap-0 rounded-[5px] px-1 py-1 text-[9px] font-medium transition-colors sm:min-h-8 sm:flex-row sm:gap-1 sm:rounded-lg sm:px-2 sm:py-1.5 sm:text-[11px]',
+                      active
+                        ? 'bg-background text-foreground shadow-sm dark:bg-card'
+                        : 'bg-muted/30 text-muted-foreground hover:bg-muted/50',
+                    )}
+                  >
+                    <Icon className="size-3 shrink-0 opacity-80 sm:size-3.5" aria-hidden />
+                    <span className="leading-none">{label}</span>
+                  </button>
+                );
+              })}
             </div>
-
-            {/* Başlık + navigasyon */}
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="icon" onClick={navPrev} disabled={loading} className="h-9 w-9 shrink-0">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-1 sm:justify-end">
+              <Button variant="outline" size="icon" onClick={navPrev} disabled={loading} className="size-8 shrink-0">
                 <ChevronLeft className="size-4" />
               </Button>
-              <h2 className="min-w-[200px] text-center text-base font-semibold text-foreground">
+              <h2 className="min-w-0 flex-1 truncate text-center text-[11px] font-medium text-foreground sm:max-w-[min(100%,280px)] sm:text-sm">
                 {headerTitle}
               </h2>
-              <Button variant="outline" size="icon" onClick={navNext} disabled={loading} className="h-9 w-9 shrink-0">
+              <Button variant="outline" size="icon" onClick={navNext} disabled={loading} className="size-8 shrink-0">
                 <ChevronRight className="size-4" />
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={goToday}
-                className="shrink-0 border-primary/40 text-primary hover:bg-primary/10"
-              >
-                <CalendarCheck className="size-4" />
+              <Button variant="outline" size="sm" className="h-8 px-2 text-[11px] sm:text-xs" onClick={goToday}>
+                <CalendarCheck className="size-3.5" />
                 Bugün
               </Button>
               {latestPlan?.period_start && (
                 <Button
                   variant="outline"
                   size="sm"
+                  className="h-8 px-2 text-[11px] sm:text-xs"
                   onClick={() => {
                     setFocusDate(latestPlan.period_start!.slice(0, 10));
                     setSelectedDate(latestPlan.period_start!.slice(0, 10));
                   }}
-                  className="shrink-0 border-emerald-500/40 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
                   title={`Son plan: ${latestPlan.version ?? latestPlan.period_start}`}
                 >
-                  <CalendarRange className="size-4" />
-                  <span className="hidden sm:inline">Son Plan</span>
+                  <CalendarRange className="size-3.5" />
+                  <span className="hidden sm:inline">Plan</span>
                 </Button>
               )}
             </div>
@@ -720,10 +730,10 @@ export default function DutyPage() {
 
       {/* Akış rehberi – boş durumda veya admin için */}
       {isAdmin && (viewMode === 'month' || viewMode === 'week') && rangeSlots.length === 0 && (
-        <Card className="border-primary/30 bg-primary/5 print:hidden">
-          <CardContent className="p-4">
-            <h3 className="font-medium text-foreground mb-2">Nöbet yönetimine nasıl başlarım?</h3>
-            <ol className="list-decimal list-inside space-y-1.5 text-sm text-muted-foreground">
+        <Card className="border-dashed border-border bg-muted/20 print:hidden">
+          <CardContent className="p-2.5 sm:p-3">
+            <h3 className="mb-1 text-xs font-medium text-foreground sm:text-sm">Nöbet yönetimine nasıl başlarım?</h3>
+            <ol className="list-inside list-decimal space-y-1 text-[11px] text-muted-foreground sm:text-xs">
               <li>
                 <Link href="/duty/gelmeyen" className="text-primary hover:underline font-medium">Gelmeyen Ekle</Link>
                 {' '}– Raporlu, izinli veya gelmeyen öğretmenleri kaydedin.
@@ -740,15 +750,17 @@ export default function DutyPage() {
         </Card>
       )}
 
-      {/* Ay görünümü */}
+      {/* Ay görünümü — mobil sıkı pastel */}
       {viewMode === 'month' && (
-        <Card className="overflow-hidden rounded-xl">
-          <CardContent className="p-4">
-            <div className="grid grid-cols-7 gap-px rounded-xl border border-border bg-muted/30 overflow-hidden">
+        <Card className="overflow-hidden border-violet-200/50 bg-linear-to-b from-violet-50/70 to-stone-50/40 shadow-sm dark:border-violet-900/40 dark:from-violet-950/25 dark:to-background">
+          <CardContent className="p-1 sm:p-2">
+            <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch] sm:overflow-visible" aria-label="Aylık nöbet takvimi">
+              <div className="min-w-0 w-full sm:min-w-0">
+                <div className="grid grid-cols-7 gap-px overflow-hidden rounded-xl border border-violet-200/40 bg-violet-100/30 dark:border-violet-800/35 dark:bg-violet-950/20">
               {DAY_NAMES.map((name) => (
                 <div
                   key={name}
-                  className="bg-muted/60 px-2 py-2.5 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                  className="bg-violet-100/80 px-0 py-1 text-center text-[8px] font-semibold uppercase tracking-tight text-violet-800/90 dark:bg-violet-900/50 dark:text-violet-200/90 sm:py-1.5 sm:text-[10px]"
                 >
                   {name}
                 </div>
@@ -774,47 +786,47 @@ export default function DutyPage() {
                     key={idx}
                     onClick={() => ymd && goToDay(ymd)}
                     className={cn(
-                      'min-h-[76px] overflow-hidden rounded-md bg-background p-2 transition-colors',
-                      ymd
-                        ? 'cursor-pointer hover:bg-primary/5 active:bg-primary/10'
-                        : 'cursor-default bg-muted/20',
-                      ymd && ymd === todayYMD && 'ring-2 ring-primary/40 ring-inset',
+                      'min-h-[42px] overflow-hidden bg-white/90 p-0.5 transition-colors dark:bg-card/80 sm:min-h-[68px] sm:p-1',
+                      ymd ? 'cursor-pointer hover:bg-stone-50/95 active:bg-stone-100/80 dark:hover:bg-muted/40' : 'cursor-default bg-stone-100/40 dark:bg-muted/15',
+                      ymd && ymd === todayYMD && 'bg-emerald-50/90 ring-1 ring-emerald-300/50 ring-inset dark:bg-emerald-950/35 dark:ring-emerald-700/40',
                     )}
                   >
                     {day != null && (
                       <>
                         <span
                           className={cn(
-                            'inline-flex size-7 items-center justify-center rounded-full text-sm font-medium',
-                            ymd === todayYMD ? 'bg-primary text-primary-foreground' : 'text-foreground',
+                            'inline-flex size-[18px] items-center justify-center rounded-full text-[9px] font-semibold sm:size-6 sm:text-xs',
+                            ymd === todayYMD
+                              ? 'bg-emerald-400/90 text-emerald-950 dark:bg-emerald-600/80 dark:text-white'
+                              : 'text-foreground',
                           )}
                         >
                           {day}
                         </span>
                         {ymd && slotsByDate[ymd] && (
-                          <div className="mt-1 space-y-0.5">
-                            {slotsByDate[ymd].slice(0, 3).map((s) => {
+                          <div className="mt-px space-y-px sm:mt-1 sm:space-y-0.5">
+                            {slotsByDate[ymd].slice(0, 2).map((s) => {
                               const col = getTeacherColor(s.user_id, colorMap);
                               return (
                                 <div
                                   key={s.id}
                                   onClick={(e) => { e.stopPropagation(); setPanelTeacherId(s.user_id); }}
                                   className={cn(
-                                    'flex items-center gap-1 truncate rounded px-1.5 py-0.5 text-xs cursor-pointer transition-opacity hover:opacity-80',
+                                    'flex items-center gap-px truncate rounded-sm px-0.5 py-px text-[7px] cursor-pointer transition-opacity hover:opacity-90 sm:gap-1 sm:rounded sm:px-1.5 sm:py-0.5 sm:text-[10px]',
                                     col.bg, col.text,
                                     col.darkBg, col.darkText,
                                     s.absent_marked_at && 'opacity-50 line-through',
                                   )}
                                 >
-                                  <span className={cn('size-1.5 shrink-0 rounded-full', col.dot)} />
+                                  <span className={cn('size-1 shrink-0 rounded-full sm:size-1.5', col.dot)} />
                                   <span className="truncate">
                                     {s.user?.display_name || s.user?.email || '—'}
                                   </span>
                                 </div>
                               );
                             })}
-                            {slotsByDate[ymd].length > 3 && (
-                              <span className="text-xs text-muted-foreground pl-1">+{slotsByDate[ymd].length - 3} daha</span>
+                            {slotsByDate[ymd].length > 2 && (
+                              <span className="pl-px text-[7px] text-muted-foreground sm:pl-0.5 sm:text-[10px]">+{slotsByDate[ymd].length - 2}</span>
                             )}
                           </div>
                         )}
@@ -823,16 +835,18 @@ export default function DutyPage() {
                   </div>
                 ));
               })()}
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Hafta görünümü */}
+      {/* Hafta görünümü — mobil sıkı pastel */}
       {viewMode === 'week' && (
-        <Card className="overflow-hidden rounded-xl">
-          <CardContent className="p-0">
-            <div className="grid grid-cols-7 divide-x divide-border">
+        <Card className="overflow-hidden border-sky-200/50 bg-linear-to-b from-sky-50/60 to-stone-50/35 shadow-sm dark:border-sky-900/40 dark:from-sky-950/20 dark:to-background">
+          <CardContent className="p-1 sm:p-0">
+            <div className="flex flex-col gap-1 md:grid md:grid-cols-7 md:gap-0 md:divide-x md:divide-border/60">
               {(() => {
                 const { from } = getWeekBounds(focusDate);
                 const days: string[] = [];
@@ -849,25 +863,29 @@ export default function DutyPage() {
                     <div
                       key={ymd}
                       className={cn(
-                        'min-h-[200px] flex flex-col',
-                        isToday && 'bg-primary/5',
+                        'flex min-h-0 flex-col overflow-hidden rounded-lg border border-sky-200/45 bg-white/85 md:min-h-[200px] md:rounded-none md:border-0 md:border-r md:bg-transparent md:shadow-none md:last:border-r-0 dark:border-sky-800/30 dark:bg-card/50',
+                        isToday && 'bg-emerald-50/70 ring-1 ring-emerald-200/60 dark:bg-emerald-950/25 dark:ring-emerald-800/40 md:bg-emerald-50/40 md:ring-0',
                       )}
                     >
                       <div
                         className={cn(
-                          'border-b px-3 py-3 text-center text-sm font-medium',
-                          isToday ? 'border-primary/30 bg-primary/10 text-primary font-semibold' : 'border-border bg-muted/50',
+                          'border-b px-1.5 py-1 text-center md:px-2 md:py-2',
+                          isToday
+                            ? 'border-emerald-200/60 bg-emerald-100/50 font-medium text-emerald-900 dark:border-emerald-800/50 dark:bg-emerald-950/40 dark:text-emerald-100'
+                            : 'border-sky-100/80 bg-sky-50/50 dark:border-border dark:bg-muted/30',
                         )}
                       >
-                        <div className="text-xs uppercase tracking-wide text-muted-foreground">{DAY_NAMES[getDayOfWeek(date)]}</div>
-                        <div className={cn('text-xl font-bold mt-0.5', isToday && 'text-primary')}>{date.getDate()}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          {MONTH_NAMES[date.getMonth()]}
+                        <div className="text-[9px] font-semibold uppercase tracking-wide text-sky-800/80 dark:text-sky-200/80 sm:text-[11px]">
+                          {DAY_NAMES[getDayOfWeek(date)]}
                         </div>
+                        <div className={cn('text-sm font-bold sm:text-lg', isToday && 'text-emerald-800 dark:text-emerald-200')}>
+                          {date.getDate()}
+                        </div>
+                        <div className="text-[9px] text-muted-foreground sm:text-xs">{MONTH_NAMES[date.getMonth()]}</div>
                       </div>
-                      <div className="flex-1 space-y-1 p-2">
+                      <div className="flex flex-1 flex-col space-y-0.5 p-1 sm:space-y-1 sm:p-2">
                         {slots.length === 0 ? (
-                          <div className="rounded-lg border-2 border-dashed border-muted-foreground/25 py-6 text-center text-xs text-muted-foreground">
+                          <div className="rounded-md border border-dashed border-stone-200/80 py-2.5 text-center text-[9px] text-muted-foreground dark:border-stone-700 sm:py-6 sm:text-xs">
                             Nöbet yok
                           </div>
                         ) : (
@@ -878,38 +896,36 @@ export default function DutyPage() {
                                 key={s.id}
                                 onClick={() => setPanelTeacherId(s.user_id)}
                                 className={cn(
-                                  'cursor-pointer rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors select-none',
+                                  'cursor-pointer rounded-md border px-1 py-0.5 text-[9px] font-medium transition-colors select-none sm:rounded-lg sm:px-2 sm:py-1.5 sm:text-xs',
                                   col.bg, col.text, col.border, col.hoverBg,
                                   col.darkBg, col.darkText,
                                   s.absent_marked_at && 'opacity-50',
                                 )}
                               >
                                 <div className="flex items-center gap-1">
-                                  <span
-                                    className={cn('size-1.5 shrink-0 rounded-full', col.dot)}
-                                  />
+                                  <span className={cn('size-1.5 shrink-0 rounded-full', col.dot)} />
                                   <span className="truncate font-semibold">
                                     {s.user?.display_name || s.user?.email || '—'}
                                   </span>
                                 </div>
-                                <div className="mt-0.5 truncate text-[10px] opacity-75">
+                                <div className="mt-0.5 truncate text-[9px] opacity-80 sm:text-[10px]">
                                   {s.lesson_num ? `${s.lesson_num}. ders` : (s.area_name || '—')}
                                   {s.lesson_num && s.area_name ? ` · ${s.area_name}` : ''}
                                 </div>
-                                <div className="mt-0.5 flex flex-wrap gap-1">
+                                <div className="mt-0.5 flex flex-wrap gap-0.5 sm:gap-1">
                                   {s.absent_marked_at && (
                                     <button
                                       type="button"
                                       onClick={(e) => { e.stopPropagation(); setCoverageSlotId(s.id); }}
-                                      className="rounded bg-rose-200 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose-800 hover:bg-rose-300 dark:bg-rose-900/60 dark:text-rose-200"
+                                      className="rounded bg-rose-200/90 px-1 py-px text-[8px] font-bold uppercase text-rose-900 hover:bg-rose-300 dark:bg-rose-900/60 dark:text-rose-100 sm:text-[9px]"
                                       title="Ders saati bazlı görevlendirme"
                                     >
-                                      Gelmeyen ⚡
+                                      Gelmeyen
                                     </button>
                                   )}
                                   {s.reassigned_from_user_id && (
-                                    <span className="rounded bg-blue-100 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                                      Yerine Görev
+                                    <span className="rounded bg-blue-100 px-1 py-px text-[8px] font-semibold text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 sm:text-[9px]">
+                                      Yerine
                                     </span>
                                   )}
                                   {isAdmin && (
@@ -919,10 +935,10 @@ export default function DutyPage() {
                                         e.stopPropagation();
                                         goToDay(ymd);
                                       }}
-                                      className="rounded px-1 py-0.5 text-[9px] opacity-60 hover:opacity-100 hover:underline"
-                                      title="Gün görünümüne git"
+                                      className="rounded px-1 py-px text-[8px] text-indigo-600 opacity-80 hover:underline dark:text-indigo-400 sm:text-[9px]"
+                                      title="Gün görünümü"
                                     >
-                                      detay
+                                      Gün
                                     </button>
                                   )}
                                 </div>
@@ -943,37 +959,32 @@ export default function DutyPage() {
       {/* Gün görünümü */}
       {viewMode === 'day' && (
         <>
-          <Card className="overflow-hidden rounded-xl border-emerald-600/30 bg-emerald-50/50 dark:bg-emerald-950/20">
-            <CardContent className="p-5">
-              <h2 className="text-lg font-semibold text-emerald-800 dark:text-emerald-200">
-                {formatDateLabel(selectedDate)}
-              </h2>
-            </CardContent>
-          </Card>
-
           {loading ? (
-            <div className="flex justify-center py-12">
+            <div className="flex justify-center py-8">
               <LoadingSpinner />
             </div>
           ) : (
-            <Card className="overflow-hidden rounded-xl">
+            <Card className="overflow-hidden border-amber-200/45 bg-linear-to-b from-amber-50/50 to-stone-50/30 shadow-sm dark:border-amber-900/35 dark:from-amber-950/20 dark:to-background">
+              <div className="border-b border-amber-200/40 bg-amber-50/70 px-2 py-1 sm:px-3 sm:py-2 dark:border-amber-900/40 dark:bg-amber-950/30">
+                <h2 className="text-[10px] font-semibold leading-snug text-amber-950/90 dark:text-amber-100/95 sm:text-sm">{formatDateLabel(selectedDate)}</h2>
+              </div>
               <CardContent className="p-0">
                 <div className="table-x-scroll">
-                  <table className="w-full border-collapse duty-print-table">
-                    <thead>
-                      <tr className="border-b bg-muted/60">
-                        <th className="border-b border-r px-4 py-3.5 text-left text-sm font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                  <table className="duty-print-table w-full min-w-[360px] border-collapse sm:min-w-[520px]">
+                    <thead className="sticky top-0 z-10">
+                      <tr className="border-b border-amber-200/50 bg-amber-100/60 dark:border-amber-900/50 dark:bg-amber-950/50">
+                        <th className="border-r border-amber-200/40 px-1.5 py-1 text-left text-[9px] font-semibold uppercase tracking-wide text-amber-900/80 dark:border-amber-800/40 dark:text-amber-200/90 sm:px-2.5 sm:py-1.5 sm:text-[11px]">
                           Nöbetçi
                         </th>
-                        <th className="border-b border-r px-4 py-3.5 text-left text-sm font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                        <th className="border-r border-amber-200/40 px-1.5 py-1 text-left text-[9px] font-semibold uppercase tracking-wide text-amber-900/80 dark:border-amber-800/40 dark:text-amber-200/90 sm:px-2.5 sm:py-1.5 sm:text-[11px]">
                           Konum
                         </th>
-                        <th className="border-b border-r px-4 py-3.5 text-left text-sm font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                        <th className="border-r border-amber-200/40 px-1.5 py-1 text-left text-[9px] font-semibold uppercase tracking-wide text-amber-900/80 dark:border-amber-800/40 dark:text-amber-200/90 sm:px-2.5 sm:py-1.5 sm:text-[11px]">
                           Slot
                         </th>
                         {isAdmin && (
-                          <th className="border-b px-4 py-3.5 text-left text-sm font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300 print:hidden">
-                            İşlemler
+                          <th className="px-1.5 py-1 text-left text-[9px] font-semibold uppercase tracking-wide text-amber-900/80 print:hidden dark:text-amber-200/90 sm:px-2.5 sm:py-1.5 sm:text-[11px]">
+                            İşlem
                           </th>
                         )}
                       </tr>
@@ -983,8 +994,8 @@ export default function DutyPage() {
                         data.slots.map((slot) => {
                           const col = getTeacherColor(slot.user_id, colorMap);
                           return (
-                          <tr key={slot.id} className="border-b last:border-b-0 hover:bg-muted/40 transition-colors">
-                            <td className="border-r px-4 py-2 text-sm">
+                          <tr key={slot.id} className="border-b border-stone-200/60 last:border-b-0 hover:bg-amber-50/40 dark:border-border/50 dark:hover:bg-muted/25">
+                            <td className="max-w-[120px] border-r border-stone-200/50 px-1.5 py-1 align-top text-[10px] sm:max-w-none sm:px-3 sm:py-2 sm:text-sm">
                               <button
                                 type="button"
                                 onClick={() => setPanelTeacherId(slot.user_id)}
@@ -1003,61 +1014,61 @@ export default function DutyPage() {
                                 </span>
                               )}
                               {slot.reassigned_from_user_id && (
-                                <span className="ml-2 inline-flex items-center rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                                  Değiştirildi
+                                <span className="ml-1 inline-flex items-center rounded bg-blue-100 px-1 py-px text-[9px] text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 sm:ml-2 sm:px-1.5 sm:py-0.5 sm:text-xs">
+                                  Değişti
                                 </span>
                               )}
                             </td>
-                            <td className="border-r px-4 py-2 text-sm text-muted-foreground">
-                              {slot.area_name || '—'}
+                            <td className="border-r border-stone-200/50 px-1.5 py-1 align-top text-[10px] text-muted-foreground sm:px-3 sm:py-2 sm:text-sm">
+                              <span className="line-clamp-3 wrap-break-word">{slot.area_name || '—'}</span>
                             </td>
-                            <td className="border-r px-4 py-2 text-sm text-muted-foreground">
-                              <div className="flex flex-wrap items-center gap-1.5">
+                            <td className="border-r border-stone-200/50 px-1.5 py-1 align-top text-[10px] text-muted-foreground sm:px-3 sm:py-2 sm:text-sm">
+                              <div className="flex flex-wrap items-center gap-1">
                                 {slot.lesson_num && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 shrink-0">
+                                  <span className="inline-flex shrink-0 items-center rounded px-1 py-px text-[9px] font-semibold bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-200 sm:px-1.5 sm:text-xs">
                                     {slot.lesson_num}. ders
                                   </span>
                                 )}
-                                <span>{slot.slot_name || slot.note || (slot.lesson_num ? '' : '—')}</span>
+                                <span className="min-w-0 wrap-break-word">{slot.slot_name || slot.note || (slot.lesson_num ? '' : '—')}</span>
                               </div>
                             </td>
                             {isAdmin && (
-                              <td className="px-4 py-2 print:hidden">
-                                <div className="flex gap-1">
+                              <td className="px-1 py-1.5 print:hidden sm:px-2">
+                                <div className="flex flex-nowrap gap-0.5 sm:gap-1">
                                   {!slot.absent_marked_at && (
                                     <Button
                                       variant="ghost"
-                                      size="sm"
-                                      className="h-8 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                                      size="icon"
+                                      className="size-8 shrink-0 text-rose-600 hover:bg-rose-50 hover:text-rose-700 sm:size-9"
                                       onClick={() => handleMarkAbsentClick(slot)}
                                       disabled={!!markingAbsent}
                                       title="Gelmeyen işaretle"
                                     >
-                                      <UserX className="size-4" />
+                                      <UserX className="size-3.5 sm:size-4" />
                                     </Button>
                                   )}
                                   {slot.absent_marked_at && (
                                     <Button
                                       variant="ghost"
-                                      size="sm"
-                                      className="h-8 text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                                      size="icon"
+                                      className="size-8 shrink-0 text-orange-600 hover:bg-orange-50 sm:size-9"
                                       onClick={() => setCoverageSlotId(slot.id)}
                                       title="Ders saati bazlı görevlendirme"
                                     >
-                                      <CalendarCheck className="size-4" />
+                                      <CalendarCheck className="size-3.5 sm:size-4" />
                                     </Button>
                                   )}
                                   <Button
                                     variant="ghost"
-                                    size="sm"
-                                    className="h-8"
+                                    size="icon"
+                                    className="size-8 shrink-0 sm:size-9"
                                     onClick={() => {
                                       setReassignSlot(slot);
                                       setReassignUserId('');
                                     }}
                                     title="Yerine görevlendir (tekli)"
                                   >
-                                    <UserCog className="size-4" />
+                                    <UserCog className="size-3.5 sm:size-4" />
                                   </Button>
                                 </div>
                               </td>
@@ -1067,7 +1078,7 @@ export default function DutyPage() {
                         })
                       ) : (
                         <tr>
-                          <td colSpan={isAdmin ? 4 : 3} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                          <td colSpan={isAdmin ? 4 : 3} className="px-3 py-8 text-center text-xs text-muted-foreground sm:text-sm">
                             Bu tarihte nöbetçi kaydı yok. Plan oluşturup yayınlayabilirsiniz.
                           </td>
                         </tr>
@@ -1089,9 +1100,9 @@ export default function DutyPage() {
       )}
 
       {isAdmin && (
-        <Card className="print:hidden">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-base">Plan İşlemleri</CardTitle>
+        <Card className="border-border/80 print:hidden shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5 pt-3">
+            <CardTitle className="text-sm font-medium">Plan işlemleri</CardTitle>
             <Button variant="outline" size="sm" onClick={() => setCreateOpen(!createOpen)}>
               <Plus className="size-4" />
               {createOpen ? 'Kapat' : 'Plan Oluştur'}

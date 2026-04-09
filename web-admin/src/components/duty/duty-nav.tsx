@@ -302,28 +302,29 @@ export function DutyNav() {
   const activeGroup = activeItem?.group;
 
   const tabBase =
-    'group/tab inline-flex min-h-[44px] shrink-0 snap-start items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium whitespace-nowrap select-none transition-all duration-200 sm:min-h-9 active:scale-[0.98]';
+    'group/tab inline-flex min-h-[34px] shrink-0 snap-start items-center justify-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium whitespace-nowrap select-none transition-colors sm:min-h-8 sm:gap-1.5 sm:rounded-lg sm:px-2.5 sm:py-1.5 sm:text-xs active:scale-[0.99]';
   const tabInactive = 'text-muted-foreground';
   const tabActive =
     'bg-background text-foreground shadow-[0_2px_12px_-4px_rgba(0,0,0,0.12)] ring-1 ring-border/70 dark:bg-card dark:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.45)] dark:ring-border/60';
-  const iconWrap = 'flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-200';
+  const iconWrap =
+    'flex size-6 shrink-0 items-center justify-center rounded transition-colors sm:size-7 sm:rounded-md';
   const managementPastel = TAB_PASTEL['/duty/gorevlendirilen']!;
 
   return (
-    <div className="mb-6 print:hidden">
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3.5">
-          <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br from-primary/12 to-primary/5 text-primary shadow-inner ring-1 ring-primary/15 dark:from-primary/20 dark:to-primary/5 dark:ring-primary/25">
-            <CalendarRange className="size-5" aria-hidden />
+    <div className="mb-2 print:hidden sm:mb-3">
+      <div className="mb-2 flex items-center justify-between gap-2 sm:mb-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/40 text-muted-foreground sm:size-9">
+            <CalendarRange className="size-4" aria-hidden />
           </div>
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold leading-tight tracking-tight text-foreground">Nöbet Yönetimi</h2>
-            <p className="hidden text-xs leading-tight text-muted-foreground sm:block">MEB Madde 91 uyumlu</p>
+            <h2 className="text-sm font-semibold leading-tight text-foreground sm:text-base">Nöbet yönetimi</h2>
+            <p className="hidden text-[10px] text-muted-foreground sm:block sm:text-[11px]">MEB Madde 91 uyumlu</p>
           </div>
         </div>
         <span
           className={cn(
-            'shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold tracking-wide sm:text-xs',
+            'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide sm:px-3 sm:py-1 sm:text-xs',
             isAdmin
               ? 'bg-primary/10 text-primary ring-1 ring-primary/20 dark:bg-primary/15 dark:ring-primary/30'
               : 'bg-emerald-500/10 text-emerald-800 ring-1 ring-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/25',
@@ -337,7 +338,7 @@ export function DutyNav() {
         <div className="-mx-1 touch-pan-x snap-x snap-mandatory overflow-x-auto overscroll-x-contain px-1 [scrollbar-width:none] sm:snap-none sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
           <div
             className={cn(
-              'inline-flex w-max min-w-full flex-nowrap items-center gap-1 rounded-2xl border border-border/50 bg-muted/35 p-1.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)] backdrop-blur-sm dark:border-border/40 dark:bg-muted/25 dark:shadow-[inset_0_1px_2px_rgba(0,0,0,0.2)]',
+              'inline-flex w-max min-w-full flex-nowrap items-center gap-0.5 rounded-lg border border-border/60 bg-muted/30 p-0.5 sm:gap-1 sm:p-1',
               'sm:inline-flex sm:w-auto sm:min-w-0 sm:flex-wrap',
             )}
           >
@@ -364,7 +365,7 @@ export function DutyNav() {
                   >
                     <span className="relative inline-flex">
                       <span className={cn(iconWrap, active ? p.iconActive : p.icon)}>
-                        <Icon className="size-4" aria-hidden />
+                        <Icon className="size-3.5 sm:size-4" aria-hidden />
                       </span>
                       {showWarning && (
                         <span
@@ -402,7 +403,7 @@ export function DutyNav() {
                         )}
                       >
                         <span className={cn(iconWrap, active ? p.iconActive : p.icon)}>
-                          <Icon className="size-4" aria-hidden />
+                          <Icon className="size-3.5 sm:size-4" aria-hidden />
                         </span>
                         <span className="max-w-40 truncate">{item.shortLabel ?? item.label}</span>
                       </Link>
@@ -460,7 +461,7 @@ export function DutyNav() {
                               )}
                             >
                               <span className={cn(iconWrap, active ? p.iconActive : p.icon)}>
-                                <Icon className="size-4" aria-hidden />
+                                <Icon className="size-3.5 sm:size-4" aria-hidden />
                               </span>
                               {item.label}
                             </Link>
@@ -477,13 +478,9 @@ export function DutyNav() {
       </div>
 
       {activeItem && (
-        <p className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground/90">
-          <span
-            className={cn('inline-flex h-1.5 w-1.5 rounded-full', tabPastelFor(activeItem.path).dot)}
-            aria-hidden
-          />
-          <span className="uppercase tracking-[0.2em] text-muted-foreground/70">Modül</span>
-          <span className="font-semibold tracking-tight text-foreground">{activeItem.label}</span>
+        <p className="mt-1.5 hidden items-center gap-1.5 text-[10px] text-muted-foreground sm:flex sm:text-[11px]">
+          <span className={cn('inline-flex h-1 w-1 rounded-full', tabPastelFor(activeItem.path).dot)} aria-hidden />
+          <span className="text-muted-foreground/80">{activeItem.label}</span>
         </p>
       )}
     </div>

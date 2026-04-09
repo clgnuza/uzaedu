@@ -14,6 +14,8 @@ interface SidebarMenuProps {
   role: WebAdminRole | null;
   moderatorModules?: string[] | null;
   schoolEnabledModules?: string[] | null;
+  /** Mobil açılır menü: dar panel, küçük tip */
+  compact?: boolean;
 }
 
 type MenuGroupKey = NonNullable<MenuItem['menuGroup']>;
@@ -206,6 +208,7 @@ function MenuLinkRow({
   isActive,
   getBadgeCount,
   groupVariant,
+  compact,
 }: {
   item: MenuItem;
   role: WebAdminRole | null;
@@ -213,6 +216,7 @@ function MenuLinkRow({
   isActive: (path?: string) => boolean;
   getBadgeCount: (item: MenuItem) => number;
   groupVariant?: MenuGroupKey;
+  compact?: boolean;
 }) {
   if (!item.path) return null;
   const active = isActive(item.path);
@@ -225,7 +229,10 @@ function MenuLinkRow({
       href={item.path}
       data-selected={active}
       className={cn(
-        'flex min-h-[42px] items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-medium transition-all duration-200',
+        'flex items-center font-medium transition-all duration-200',
+        compact
+          ? 'min-h-7 gap-1.5 rounded-md px-1.5 py-0.5 text-[10px] leading-tight'
+          : 'min-h-[42px] gap-3 rounded-xl px-3 py-2 text-[13px]',
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         g
           ? active
@@ -243,7 +250,11 @@ function MenuLinkRow({
       {item.icon && (
         <item.icon
           data-slot="accordion-menu-icon"
-          className={cn('size-[18px] shrink-0 opacity-90', active && !g && 'opacity-100')}
+          className={cn(
+            'shrink-0 opacity-90',
+            compact ? 'size-3.5' : 'size-[18px]',
+            active && !g && 'opacity-100',
+          )}
           aria-hidden
         />
       )}
@@ -253,7 +264,10 @@ function MenuLinkRow({
       {badgeCount > 0 && (
         <span
           data-slot="badge"
-          className="flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white shadow-sm"
+          className={cn(
+            'flex shrink-0 items-center justify-center rounded-full bg-amber-500 font-bold text-white shadow-sm',
+            compact ? 'h-3.5 min-w-3.5 px-0.5 text-[8px]' : 'h-5 min-w-[20px] px-1.5 text-[11px]',
+          )}
           aria-label={`${badgeCount} okunmamış mesaj`}
         >
           {badgeCount > 99 ? '99+' : badgeCount}
@@ -270,6 +284,7 @@ function MenuBranch({
   isActive,
   getBadgeCount,
   variant,
+  compact,
 }: {
   item: MenuItem;
   role: WebAdminRole | null;
@@ -277,6 +292,7 @@ function MenuBranch({
   isActive: (path?: string) => boolean;
   getBadgeCount: (item: MenuItem) => number;
   variant: MenuGroupKey;
+  compact?: boolean;
 }) {
   const shell = GROUP_SHELL[variant];
   const displayParent = resolveTitle(item, role, schoolEnabledModules);
@@ -286,34 +302,58 @@ function MenuBranch({
     (variant === 'sky' && (role === 'school_admin' || role === 'teacher'));
 
   return (
-    <div className={cn('space-y-1.5', shell.wrap)}>
+    <div
+      className={cn(
+        shell.wrap,
+        compact ? 'space-y-0.5 rounded-lg border p-1 shadow-none' : 'space-y-1.5',
+      )}
+    >
       <div
         className={cn(
-          'flex items-center gap-2.5 px-1.5 pb-0.5 pt-0.5',
+          'flex items-center',
+          compact ? 'gap-1.5 px-0.5 py-0' : 'gap-2.5 px-1.5 pb-0.5 pt-0.5',
           childActive ? 'text-foreground' : 'text-muted-foreground',
         )}
       >
         {item.icon && (
-          <span className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg', shell.iconWrap)}>
-            <item.icon className="size-4" aria-hidden />
+          <span
+            className={cn(
+              'flex shrink-0 items-center justify-center rounded-md',
+              compact ? 'size-5' : 'size-8 rounded-lg',
+              shell.iconWrap,
+            )}
+          >
+            <item.icon className={compact ? 'size-3' : 'size-4'} aria-hidden />
           </span>
         )}
         <div className="min-w-0 flex-1">
           <span
             data-slot="accordion-menu-title"
-            className="block text-sm font-bold leading-tight tracking-tight text-foreground"
+            className={cn(
+              'block font-bold leading-tight tracking-tight text-foreground',
+              compact ? 'text-[10px]' : 'text-sm',
+            )}
           >
             {displayParent}
           </span>
           {showSubLabel && (
-            <span className="mt-0.5 block text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/85">
+            <span
+              className={cn(
+                'mt-0.5 block font-medium uppercase text-muted-foreground/85',
+                compact ? 'text-[7px] tracking-wide' : 'text-[10px] tracking-[0.12em]',
+              )}
+            >
               Alt menü
             </span>
           )}
         </div>
       </div>
       <div
-        className={cn('menu-branch-rail ml-2 space-y-0.5 border-l-2 pl-2.5', shell.rail)}
+        className={cn(
+          'menu-branch-rail space-y-0 border-l',
+          compact ? 'ml-1 border-l pl-1.5' : 'ml-2 border-l-2 space-y-0.5 pl-2.5',
+          shell.rail,
+        )}
         aria-label={`${displayParent} alt menü`}
       >
         {item.children?.map((child) => (
@@ -325,6 +365,7 @@ function MenuBranch({
             isActive={isActive}
             getBadgeCount={getBadgeCount}
             groupVariant={variant}
+            compact={compact}
           />
         ))}
       </div>
@@ -332,7 +373,7 @@ function MenuBranch({
   );
 }
 
-export function SidebarMenu({ role, moderatorModules, schoolEnabledModules }: SidebarMenuProps) {
+export function SidebarMenu({ role, moderatorModules, schoolEnabledModules, compact }: SidebarMenuProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { token, me } = useAuth();
@@ -368,15 +409,25 @@ export function SidebarMenu({ role, moderatorModules, schoolEnabledModules }: Si
   };
 
   return (
-    <div className="kt-scrollable-y-hover flex grow shrink-0 overflow-y-auto px-2.5 py-4 lg:max-h-[calc(100vh-5.5rem)]">
-      <nav className="w-full space-y-1.5" role="navigation" aria-label="Ana menü">
+    <div
+      className={cn(
+        'kt-scrollable-y-hover flex grow shrink-0 overflow-y-auto lg:max-h-[calc(100vh-5.5rem)]',
+        compact ? 'px-1 py-1.5' : 'px-2.5 py-4',
+      )}
+    >
+      <nav className={cn('w-full', compact ? 'space-y-0.5' : 'space-y-1.5')} role="navigation" aria-label="Ana menü">
         {items.map((item, idx) => {
           if (item.heading) {
             return (
               <div
                 key={`heading-${idx}`}
                 data-slot="accordion-menu-label"
-                className="px-2 pb-1 pt-4 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/75 first:pt-1"
+                className={cn(
+                  'font-bold uppercase text-muted-foreground/75',
+                  compact
+                    ? 'px-1 pb-0 pt-2 text-[7px] tracking-wide first:pt-0'
+                    : 'px-1.5 pb-1 pt-4 text-[10px] tracking-[0.14em] first:pt-1',
+                )}
               >
                 {item.heading}
               </div>
@@ -393,6 +444,7 @@ export function SidebarMenu({ role, moderatorModules, schoolEnabledModules }: Si
                 isActive={isActive}
                 getBadgeCount={getBadgeCount}
                 variant={variant}
+                compact={compact}
               />
             );
           }
@@ -405,6 +457,7 @@ export function SidebarMenu({ role, moderatorModules, schoolEnabledModules }: Si
               schoolEnabledModules={schoolEnabledModules}
               isActive={isActive}
               getBadgeCount={getBadgeCount}
+              compact={compact}
             />
           );
         })}

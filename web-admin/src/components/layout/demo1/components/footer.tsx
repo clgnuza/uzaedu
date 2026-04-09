@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ExternalLink } from 'lucide-react';
 import { Container } from '@/components/common/container';
 import { CookiePreferencesLink } from '@/components/cookie-preferences-link';
-import { getApiUrl } from '@/lib/api';
+import { fetchWebPublicPartial } from '@/lib/fetch-web-public';
 import { FOOTER_CONSENT_HREF } from '@/lib/footer-consent-href';
 import { cn } from '@/lib/utils';
 import {
@@ -24,8 +24,7 @@ export function Footer() {
   > | null>(null);
 
   useEffect(() => {
-    fetch(getApiUrl('/content/web-public'), { cache: 'no-store', credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : null))
+    fetchWebPublicPartial()
       .then((d: Partial<WebPublicConfig> | null) => {
         if (!d) return;
         setFooterCfg({

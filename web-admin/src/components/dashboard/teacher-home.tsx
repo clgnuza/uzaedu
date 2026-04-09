@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect, useMemo, useState } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import type { Me } from '@/providers/auth-provider';
 import { useAuth } from '@/hooks/use-auth';
@@ -10,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   ArrowRight,
+  ChevronRight,
   Award,
   Bell,
   Calendar,
@@ -23,7 +26,6 @@ import {
   Headphones,
   Heart,
   Layers,
-  LayoutDashboard,
   MapPin,
   Monitor,
   Newspaper,
@@ -39,8 +41,16 @@ import {
   Undo2,
   Calculator,
   Lock,
+  BadgeCheck,
+  Quote,
+  LayoutGrid,
+  Compass,
 } from 'lucide-react';
-import { WelcomeMotivationBanner } from '@/components/dashboard/welcome-motivation-banner';
+import {
+  useWelcomeMotivationQuote,
+  WelcomeMotivationQuoteEmbedded,
+} from '@/components/dashboard/welcome-motivation-banner';
+import { WelcomeZodiacModal } from '@/components/dashboard/welcome-zodiac-modal';
 import { TeacherSchoolJoinBanner } from '@/components/dashboard/teacher-school-join-banner';
 
 function greetingTr(): string {
@@ -58,6 +68,13 @@ function formatTodayTr(): string {
     month: 'long',
     year: 'numeric',
   }).format(new Date());
+}
+
+function initialsFromDisplayName(name: string): string {
+  const p = name.trim().split(/\s+/).filter(Boolean);
+  if (p.length >= 2) return `${p[0]![0] ?? ''}${p[p.length - 1]![0] ?? ''}`.toUpperCase();
+  const s = name.trim();
+  return s.length >= 2 ? s.slice(0, 2).toUpperCase() : (s.slice(0, 1).toUpperCase() || '?');
 }
 
 /** Okul `enabled_modules` boş veya tanımsızsa tüm okul modülleri erişilebilir kabul edilir (menü ile uyumlu). */
@@ -79,9 +96,57 @@ type QuickItem = {
   accent: string;
   /** Tanımlıysa yalnızca bu okul modülü açıkken gösterilir */
   schoolModule?: string;
+  /** max-sm: kartı biraz küçült (padding, min-yükseklik, ikon) — masaüstü aynı */
+  compactMobile?: boolean;
 };
 
 type QuickSection = { label: string; items: QuickItem[] };
+
+/** “Tüm araçlar” bölümleri için dönüşümlü kabuk (her bölüm farklı renk ailesi). */
+const TEACHER_HOME_SECTION_THEMES = [
+  {
+    nav: 'overflow-hidden rounded-[1.35rem] border border-cyan-200/60 bg-gradient-to-br from-cyan-50/95 via-white to-sky-50/45 shadow-[0_14px_44px_-20px_rgba(6,182,212,0.28)] ring-1 ring-cyan-400/15 dark:border-cyan-500/35 dark:from-cyan-950/50 dark:via-zinc-950 dark:to-sky-950/25 dark:ring-cyan-500/20',
+    header:
+      'border-b border-cyan-200/55 bg-gradient-to-r from-cyan-100/95 via-sky-50/65 to-transparent px-3.5 py-3.5 text-center text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-950 sm:px-4 sm:text-left dark:border-cyan-500/30 dark:from-cyan-950/85 dark:via-sky-950/45 dark:to-transparent dark:text-cyan-50',
+    itemHover:
+      'border-slate-200/75 hover:border-cyan-400/45 hover:shadow-[0_18px_36px_-14px_rgba(6,182,212,0.22)] dark:border-zinc-700/70 dark:hover:border-cyan-500/40',
+  },
+  {
+    nav: 'overflow-hidden rounded-[1.35rem] border border-violet-200/60 bg-gradient-to-br from-violet-50/95 via-white to-fuchsia-50/40 shadow-[0_14px_44px_-20px_rgba(139,92,246,0.22)] ring-1 ring-violet-400/15 dark:border-violet-500/35 dark:from-violet-950/45 dark:via-zinc-950 dark:to-fuchsia-950/25 dark:ring-violet-500/20',
+    header:
+      'border-b border-violet-200/55 bg-gradient-to-r from-violet-100/95 via-fuchsia-50/60 to-transparent px-3.5 py-3.5 text-center text-[11px] font-bold uppercase tracking-[0.14em] text-violet-950 sm:px-4 sm:text-left dark:border-violet-500/30 dark:from-violet-950/85 dark:via-fuchsia-950/40 dark:to-transparent dark:text-violet-50',
+    itemHover:
+      'border-slate-200/75 hover:border-violet-400/45 hover:shadow-[0_18px_36px_-14px_rgba(139,92,246,0.2)] dark:border-zinc-700/70 dark:hover:border-violet-500/40',
+  },
+  {
+    nav: 'overflow-hidden rounded-[1.35rem] border border-emerald-200/60 bg-gradient-to-br from-emerald-50/95 via-white to-teal-50/40 shadow-[0_14px_44px_-20px_rgba(16,185,129,0.24)] ring-1 ring-emerald-400/15 dark:border-emerald-500/35 dark:from-emerald-950/45 dark:via-zinc-950 dark:to-teal-950/25 dark:ring-emerald-500/20',
+    header:
+      'border-b border-emerald-200/55 bg-gradient-to-r from-emerald-100/95 via-teal-50/60 to-transparent px-3.5 py-3.5 text-center text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-950 sm:px-4 sm:text-left dark:border-emerald-500/30 dark:from-emerald-950/85 dark:via-teal-950/40 dark:to-transparent dark:text-emerald-50',
+    itemHover:
+      'border-slate-200/75 hover:border-emerald-400/45 hover:shadow-[0_18px_36px_-14px_rgba(16,185,129,0.2)] dark:border-zinc-700/70 dark:hover:border-emerald-500/40',
+  },
+  {
+    nav: 'overflow-hidden rounded-[1.35rem] border border-amber-200/60 bg-gradient-to-br from-amber-50/95 via-white to-orange-50/40 shadow-[0_14px_44px_-20px_rgba(245,158,11,0.22)] ring-1 ring-amber-400/15 dark:border-amber-500/35 dark:from-amber-950/40 dark:via-zinc-950 dark:to-orange-950/25 dark:ring-amber-500/20',
+    header:
+      'border-b border-amber-200/55 bg-gradient-to-r from-amber-100/95 via-orange-50/60 to-transparent px-3.5 py-3.5 text-center text-[11px] font-bold uppercase tracking-[0.14em] text-amber-950 sm:px-4 sm:text-left dark:border-amber-500/30 dark:from-amber-950/85 dark:via-orange-950/40 dark:to-transparent dark:text-amber-50',
+    itemHover:
+      'border-slate-200/75 hover:border-amber-400/45 hover:shadow-[0_18px_36px_-14px_rgba(245,158,11,0.2)] dark:border-zinc-700/70 dark:hover:border-amber-500/40',
+  },
+  {
+    nav: 'overflow-hidden rounded-[1.35rem] border border-rose-200/60 bg-gradient-to-br from-rose-50/95 via-white to-pink-50/40 shadow-[0_14px_44px_-20px_rgba(244,63,94,0.18)] ring-1 ring-rose-400/15 dark:border-rose-500/35 dark:from-rose-950/40 dark:via-zinc-950 dark:to-pink-950/25 dark:ring-rose-500/20',
+    header:
+      'border-b border-rose-200/55 bg-gradient-to-r from-rose-100/95 via-pink-50/60 to-transparent px-3.5 py-3.5 text-center text-[11px] font-bold uppercase tracking-[0.14em] text-rose-950 sm:px-4 sm:text-left dark:border-rose-500/30 dark:from-rose-950/85 dark:via-pink-950/40 dark:to-transparent dark:text-rose-50',
+    itemHover:
+      'border-slate-200/75 hover:border-rose-400/45 hover:shadow-[0_18px_36px_-14px_rgba(244,63,94,0.18)] dark:border-zinc-700/70 dark:hover:border-rose-500/40',
+  },
+  {
+    nav: 'overflow-hidden rounded-[1.35rem] border border-indigo-200/60 bg-gradient-to-br from-indigo-50/95 via-white to-blue-50/40 shadow-[0_14px_44px_-20px_rgba(99,102,241,0.22)] ring-1 ring-indigo-400/15 dark:border-indigo-500/35 dark:from-indigo-950/45 dark:via-zinc-950 dark:to-blue-950/25 dark:ring-indigo-500/20',
+    header:
+      'border-b border-indigo-200/55 bg-gradient-to-r from-indigo-100/95 via-blue-50/60 to-transparent px-3.5 py-3.5 text-center text-[11px] font-bold uppercase tracking-[0.14em] text-indigo-950 sm:px-4 sm:text-left dark:border-indigo-500/30 dark:from-indigo-950/85 dark:via-blue-950/40 dark:to-transparent dark:text-indigo-50',
+    itemHover:
+      'border-slate-200/75 hover:border-indigo-400/45 hover:shadow-[0_18px_36px_-14px_rgba(99,102,241,0.2)] dark:border-zinc-700/70 dark:hover:border-indigo-500/40',
+  },
+] as const;
 
 function marketKeyForQuickItem(item: QuickItem): SchoolModuleKey | null {
   if (item.schoolModule && SCHOOL_MODULE_KEYS.includes(item.schoolModule as SchoolModuleKey)) {
@@ -214,12 +279,13 @@ function buildTeacherQuickSections(enabledModules: string[] | null | undefined):
           schoolModule: 'outcome',
         },
         {
-          href: '/school-reviews',
+          href: '/okul-degerlendirmeleri',
           title: 'Okul değerlendirmeleri',
           desc: 'Araştır ve puanla',
           icon: Star,
           accent: 'from-orange-500/20 to-amber-500/10 text-orange-700 dark:text-orange-300',
           schoolModule: 'school_reviews',
+          compactMobile: true,
         },
         {
           href: '/favoriler',
@@ -341,6 +407,19 @@ export type TeacherHomeProps = {
   teacherSwaps: Swap[];
 };
 
+const TEACHER_HOME_NAV_SECTIONS: {
+  id: 'teacher-hero' | 'hizli-erisim' | 'bugun-ozet' | 'tum-moduller';
+  label: string;
+  Icon: LucideIcon;
+}[] = [
+  { id: 'teacher-hero', label: 'Panel', Icon: LayoutGrid },
+  { id: 'hizli-erisim', label: 'Keşfet', Icon: Compass },
+  { id: 'bugun-ozet', label: 'Bugün', Icon: Calendar },
+  { id: 'tum-moduller', label: 'Modüller', Icon: Layers },
+];
+
+const TEACHER_HOME_SCROLL_SPY_OFFSET = 80;
+
 export function TeacherHome({
   me,
   displayName,
@@ -357,123 +436,380 @@ export function TeacherHome({
   const dutyEnabled = isSchoolModuleEnabled(enabledModules, 'duty');
   const dutyMarketLocked = dutyEnabled && isMarketModuleLocked(activationModules, 'duty');
   const mySlots = (todayDuty?.slots ?? []).filter((s) => s.user_id === me.id);
+  const schoolApproved =
+    me.role === 'teacher' &&
+    !!me.school_id &&
+    (me.school_join_stage ?? 'none') === 'approved';
+
+  const welcomeQuote = useWelcomeMotivationQuote();
+
+  const [activeSectionId, setActiveSectionId] = useState<string>(TEACHER_HOME_NAV_SECTIONS[0]!.id);
+
+  useEffect(() => {
+    const hash = typeof window !== 'undefined' ? window.location.hash.slice(1) : '';
+    if (hash && TEACHER_HOME_NAV_SECTIONS.some((s) => s.id === hash)) {
+      setActiveSectionId(hash);
+    }
+  }, []);
+
+  useEffect(() => {
+    const ids = TEACHER_HOME_NAV_SECTIONS.map((s) => s.id);
+
+    const updateActive = () => {
+      const y = window.scrollY;
+      let current = ids[0]!;
+      for (const id of ids) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        const top = el.getBoundingClientRect().top + window.scrollY;
+        if (y + TEACHER_HOME_SCROLL_SPY_OFFSET >= top - 2) {
+          current = id;
+        }
+      }
+      setActiveSectionId(current);
+    };
+
+    updateActive();
+    window.addEventListener('scroll', updateActive, { passive: true });
+    window.addEventListener('resize', updateActive);
+    return () => {
+      window.removeEventListener('scroll', updateActive);
+      window.removeEventListener('resize', updateActive);
+    };
+  }, []);
+
+  const scrollToSection = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    try {
+      window.history.replaceState(null, '', `#${id}`);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const topShortcutItems = useMemo(
+    () => {
+      const items: { href: string; label: string; icon: LucideIcon; ring: string }[] = [
+        { href: '/hesaplamalar', label: 'Hesap', icon: Calculator, ring: 'bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-200' },
+        { href: '/akademik-takvim', label: 'Takvim', icon: Calendar, ring: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-100' },
+      ];
+      if (dutyEnabled && isSchoolModuleEnabled(enabledModules, 'duty')) {
+        items.push({
+          href: '/duty',
+          label: 'Nöbet',
+          icon: CalendarClock,
+          ring: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-100',
+        });
+      }
+      items.push(
+        { href: '/ders-programi/programlarim', label: 'Program', icon: Table2, ring: 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-100' },
+        { href: '/bildirimler', label: 'Bildirim', icon: Bell, ring: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-100' },
+        { href: '/haberler', label: 'Haber', icon: Newspaper, ring: 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-100' },
+        { href: '/support', label: 'Destek', icon: Headphones, ring: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-100' },
+        { href: '/market', label: 'Market', icon: ShoppingBag, ring: 'bg-teal-100 text-teal-800 dark:bg-teal-950/60 dark:text-teal-100' },
+      );
+      if (isSchoolModuleEnabled(enabledModules, 'optical')) {
+        items.splice(items.length - 1, 0, {
+          href: '/optik-formlar',
+          label: 'Optik',
+          icon: ScanLine,
+          ring: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-950/60 dark:text-fuchsia-100',
+        });
+      }
+      if (isSchoolModuleEnabled(enabledModules, 'bilsem')) {
+        items.splice(items.length - 1, 0, {
+          href: '/bilsem/takvim',
+          label: 'BİLSEM',
+          icon: Layers,
+          ring: 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-100',
+        });
+      }
+      return items;
+    },
+    [dutyEnabled, enabledModules],
+  );
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-4 px-3 pb-6 sm:space-y-6 sm:px-4 lg:px-2">
-      <WelcomeMotivationBanner />
-      <TeacherSchoolJoinBanner me={me} />
+    <div className="mx-auto w-full max-w-7xl space-y-2 px-3 pb-6 pt-0 sm:space-y-6 sm:px-4 sm:pb-8 lg:px-2">
+      <nav
+        aria-label="Sayfa bölümleri"
+        className="sticky top-0 z-20 -mx-1 border-b border-border/30 bg-background/85 py-1.5 backdrop-blur-xl supports-backdrop-filter:bg-background/70 dark:border-white/10 dark:bg-zinc-950/80 sm:mx-0 sm:mb-1 sm:rounded-b-2xl sm:border sm:border-border/40 sm:px-1 sm:py-2.5 sm:shadow-sm"
+      >
+        <div className="mx-auto flex max-w-7xl justify-center px-1 sm:px-3">
+          <div
+            className={cn(
+              'grid w-full max-w-md grid-cols-4 gap-0.5 rounded-2xl border border-border/50 bg-muted/40 p-0.5 shadow-inner',
+              'dark:border-white/10 dark:bg-zinc-900/60',
+              'sm:max-w-2xl sm:gap-1 sm:p-1.5',
+            )}
+          >
+            {TEACHER_HOME_NAV_SECTIONS.map(({ id, label, Icon }) => {
+              const isActive = activeSectionId === id;
+              return (
+                <a
+                  key={id}
+                  href={`#${id}`}
+                  aria-current={isActive ? 'true' : undefined}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    scrollToSection(id);
+                  }}
+                  className={cn(
+                    'flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-center transition-all duration-200',
+                    'sm:min-h-0 sm:flex-row sm:gap-2 sm:px-2 sm:py-2.5',
+                    isActive
+                      ? 'bg-gradient-to-br from-orange-500 to-amber-600 text-white shadow-md ring-1 ring-orange-400/40 dark:from-orange-600 dark:to-amber-700 dark:ring-orange-500/30'
+                      : 'text-muted-foreground hover:bg-background/90 hover:text-foreground active:scale-[0.98] dark:hover:bg-zinc-800/90',
+                  )}
+                >
+                  <Icon
+                    className={cn('size-4 shrink-0 sm:size-[1.125rem]', isActive ? 'text-white' : 'opacity-80')}
+                    strokeWidth={isActive ? 2.25 : 1.85}
+                    aria-hidden
+                  />
+                  <span
+                    className={cn(
+                      'max-w-full truncate text-[10px] font-semibold leading-none tracking-tight sm:text-xs',
+                      isActive && 'font-bold',
+                    )}
+                  >
+                    {label}
+                  </span>
+                </a>
+              );
+            })}
+          </div>
+        </div>
+      </nav>
+
       <section
-        className={cn(
-          'relative overflow-hidden rounded-2xl border border-border/60 sm:rounded-3xl',
-          'bg-gradient-to-br from-sky-500/[0.12] via-background to-violet-500/[0.08]',
-          'dark:from-sky-950/50 dark:via-background dark:to-violet-950/40',
-          'p-4 shadow-sm sm:p-6 md:p-8',
-        )}
+        id="teacher-hero"
+        aria-labelledby="teacher-home-greeting-heading"
+        className="scroll-mt-[4.75rem] sm:scroll-mt-24 relative w-full min-w-0 overflow-hidden rounded-3xl border border-white/50 shadow-[0_20px_50px_-18px_rgba(249,115,22,0.28),0_0_0_1px_rgba(255,255,255,0.08)_inset] dark:border-white/10 dark:shadow-[0_20px_50px_-18px_rgba(0,0,0,0.45),inset_0_1px_0_0_rgba(255,255,255,0.06)] sm:rounded-[1.75rem]"
       >
         <div
-          className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-gradient-to-br from-sky-400/20 to-violet-400/10 blur-3xl dark:from-sky-500/10 dark:to-violet-500/10"
+          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-orange-100/90 via-fuchsia-50/50 to-violet-100/80 dark:from-orange-950/40 dark:via-zinc-950 dark:to-violet-950/50"
           aria-hidden
         />
         <div
-          className="pointer-events-none absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-gradient-to-tr from-teal-400/10 to-transparent blur-2xl"
+          className="pointer-events-none absolute -right-24 -top-28 h-[18rem] w-[18rem] rounded-full bg-gradient-to-br from-orange-400/45 to-amber-300/25 blur-3xl dark:from-orange-500/20 dark:to-amber-500/10"
           aria-hidden
         />
-        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="min-w-0 space-y-2">
-            <p className="text-sm font-medium tracking-wide text-muted-foreground">{greetingTr()}</p>
-            <h1 className="text-balance break-words text-2xl font-bold tracking-tight text-foreground sm:text-3xl md:text-4xl">
-              {displayName}
-            </h1>
-            {me.school?.name && (
-              <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-background/60 px-3 py-1 text-xs font-medium backdrop-blur-sm">
-                  <Sparkles className="size-3.5 text-amber-500" aria-hidden />
-                  {me.school.name}
-                </span>
-              </p>
-            )}
-            <time className="block text-xs text-muted-foreground/90" dateTime={new Date().toISOString()}>
-              {formatTodayTr()}
-            </time>
-          </div>
-          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-end sm:justify-end">
-            <Link
-              href="/bildirimler"
-              className={cn(
-                'inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl border px-4 py-2.5 text-sm font-medium transition-all sm:w-auto',
-                'border-border/80 bg-background/80 backdrop-blur-sm hover:border-primary/40 hover:bg-background',
-                allNotificationsUnread > 0 && 'border-indigo-300/60 bg-indigo-50/90 dark:border-indigo-500/40 dark:bg-indigo-950/40',
-              )}
+        <div
+          className="pointer-events-none absolute -bottom-32 -left-20 h-[16rem] w-[16rem] rounded-full bg-gradient-to-tr from-violet-500/30 to-fuchsia-400/20 blur-3xl dark:from-violet-600/15 dark:to-fuchsia-600/10"
+          aria-hidden
+        />
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.4] dark:opacity-[0.15]"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%239333ea' fill-opacity='0.07'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+          }}
+          aria-hidden
+        />
+
+        <div className="relative z-10 px-4 pb-4 pt-4 sm:px-8 sm:pb-6 sm:pt-8">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+            <div className="flex min-w-0 flex-1 gap-3.5 sm:gap-5">
+              <div
+                className={cn(
+                  'relative flex size-[4.25rem] shrink-0 items-center justify-center overflow-hidden rounded-3xl text-white shadow-[0_20px_40px_-12px_rgba(249,115,22,0.55)] ring-2 ring-white/50 sm:size-[4.75rem] sm:rounded-[1.35rem] dark:ring-white/10',
+                  schoolApproved
+                    ? 'bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-700 shadow-[0_20px_40px_-12px_rgba(16,185,129,0.45)]'
+                    : 'bg-gradient-to-br from-orange-400 via-orange-500 to-amber-600 text-xl font-bold tracking-tight sm:text-2xl',
+                )}
+                role={schoolApproved ? 'img' : undefined}
+                aria-hidden={!schoolApproved}
+                aria-label={
+                  schoolApproved
+                    ? `Okul onaylı öğretmen${me.school?.name ? ` — ${me.school.name}` : ''}`
+                    : undefined
+                }
+              >
+                <span
+                  className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/10 to-white/20 opacity-90"
+                  aria-hidden
+                />
+                {schoolApproved ? (
+                  <BadgeCheck className="relative z-1 size-9 text-white drop-shadow-md sm:size-12" strokeWidth={2} aria-hidden />
+                ) : (
+                  <span className="relative z-1 text-lg drop-shadow-sm sm:text-2xl" aria-hidden>
+                    {initialsFromDisplayName(displayName)}
+                  </span>
+                )}
+              </div>
+              <div className="min-w-0 flex-1 pt-0.5">
+                <p
+                  id="teacher-home-greeting-heading"
+                  className="text-[10px] font-bold uppercase tracking-[0.18em] text-orange-700/90 sm:text-[11px] sm:tracking-[0.2em] dark:text-orange-300/90"
+                >
+                  {greetingTr()}
+                </p>
+                <h1 className="mt-1.5 break-words text-balance bg-gradient-to-r from-orange-700 via-amber-700 to-violet-700 bg-clip-text text-xl font-extrabold leading-tight tracking-tight text-transparent dark:from-orange-200 dark:via-amber-200 dark:to-violet-200 sm:mt-2 sm:text-3xl">
+                  {displayName}
+                </h1>
+                <div className="mt-2.5 flex flex-wrap items-center gap-1.5 sm:mt-3 sm:gap-2">
+                  <time
+                    dateTime={new Date().toISOString()}
+                    className="inline-flex max-w-full items-center rounded-full border border-white/60 bg-white/50 px-2 py-1 text-[10px] font-medium leading-tight text-foreground/80 shadow-sm backdrop-blur-sm sm:px-2.5 sm:text-[11px] dark:border-white/10 dark:bg-white/5 dark:text-zinc-200"
+                  >
+                    <span className="line-clamp-2 sm:line-clamp-none">{formatTodayTr()}</span>
+                  </time>
+                  {me.school?.name ? (
+                    <span className="inline-flex min-w-0 max-w-full items-center rounded-full border border-violet-200/60 bg-violet-500/10 px-2 py-1 text-[10px] font-semibold leading-tight text-violet-900 backdrop-blur-sm sm:px-2.5 sm:text-[11px] dark:border-violet-500/30 dark:bg-violet-500/15 dark:text-violet-100">
+                      <span className="min-w-0 truncate">{me.school.name}</span>
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+            <nav
+              aria-label="Hızlı bağlantılar"
+              className="flex w-full min-w-0 shrink-0 justify-between gap-1 self-stretch rounded-2xl border border-white/40 bg-white/35 p-2 shadow-lg shadow-orange-500/10 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/40 sm:w-auto sm:justify-end sm:gap-2 sm:self-center sm:p-1.5"
             >
-              <Bell className="size-4 shrink-0" />
-              Bildirimler
-              {allNotificationsUnread > 0 && (
-                <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[11px] font-bold text-white dark:bg-indigo-500">
-                  {allNotificationsUnread > 99 ? '99+' : allNotificationsUnread}
-                </span>
+              {welcomeQuote.showReopenTrigger && (
+                <button
+                  type="button"
+                  title="Bugünün sözünü göster"
+                  onClick={welcomeQuote.reopenBanner}
+                  className="inline-flex min-h-11 min-w-11 flex-1 items-center justify-center rounded-xl text-violet-700 transition-all active:scale-95 hover:scale-[1.02] hover:bg-violet-500/15 sm:size-12 sm:flex-none sm:hover:scale-105 dark:text-violet-300 dark:hover:bg-violet-500/20"
+                >
+                  <Quote className="size-5" strokeWidth={2} />
+                  <span className="sr-only">Bugünün sözü</span>
+                </button>
               )}
-            </Link>
-            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end sm:gap-2">
+              <Link
+                href="/bildirimler"
+                title="Bildirimler"
+                className={cn(
+                  'relative inline-flex min-h-11 min-w-11 flex-1 items-center justify-center rounded-xl text-muted-foreground transition-all active:scale-95 hover:scale-[1.02] hover:bg-white/80 sm:size-12 sm:flex-none sm:hover:scale-105 dark:hover:bg-zinc-800/80',
+                  allNotificationsUnread > 0 &&
+                    'bg-indigo-500/15 text-indigo-900 ring-1 ring-indigo-300/50 dark:bg-indigo-500/20 dark:text-indigo-100 dark:ring-indigo-500/30',
+                )}
+              >
+                <Bell className="size-5" strokeWidth={2} />
+                <span className="sr-only">Bildirimler</span>
+                {allNotificationsUnread > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex min-w-[1.125rem] justify-center rounded-full bg-indigo-600 px-1 text-[10px] font-bold leading-none text-white shadow-md dark:bg-indigo-500">
+                    {allNotificationsUnread > 99 ? '99+' : allNotificationsUnread}
+                  </span>
+                )}
+              </Link>
               <Link
                 href="/market"
-                className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-border/70 bg-background/70 px-3 py-2 text-xs font-medium text-foreground backdrop-blur-sm transition-colors hover:bg-muted/80"
+                title="Market"
+                className="inline-flex min-h-11 min-w-11 flex-1 items-center justify-center rounded-xl text-emerald-700 transition-all active:scale-95 hover:scale-[1.02] hover:bg-emerald-500/15 sm:size-12 sm:flex-none sm:hover:scale-105 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
               >
-                <ShoppingBag className="size-3.5 text-emerald-600 dark:text-emerald-400" />
-                Market
+                <ShoppingBag className="size-5" strokeWidth={2} />
+                <span className="sr-only">Market</span>
               </Link>
               <Link
                 href="/support"
-                className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-border/70 bg-background/70 px-3 py-2 text-xs font-medium text-foreground backdrop-blur-sm transition-colors hover:bg-muted/80"
+                title="Destek"
+                className="inline-flex min-h-11 min-w-11 flex-1 items-center justify-center rounded-xl text-sky-700 transition-all active:scale-95 hover:scale-[1.02] hover:bg-sky-500/15 sm:size-12 sm:flex-none sm:hover:scale-105 dark:text-sky-400 dark:hover:bg-sky-500/20"
               >
-                <Headphones className="size-3.5 text-cyan-600 dark:text-cyan-400" />
-                Destek
+                <Headphones className="size-5" strokeWidth={2} />
+                <span className="sr-only">Destek</span>
               </Link>
-            </div>
+            </nav>
           </div>
         </div>
+        {welcomeQuote.isTeacherPopup && welcomeQuote.popupOpen && welcomeQuote.data?.message && (
+          <WelcomeZodiacModal
+            open={welcomeQuote.popupOpen}
+            onOpenChange={welcomeQuote.handlePopupOpenChange}
+            dateKey={welcomeQuote.data.date_key}
+            message={welcomeQuote.data.message}
+            zodiacKey={welcomeQuote.data.zodiac_key}
+          />
+        )}
+        {welcomeQuote.showEmbeddedPanel && welcomeQuote.data?.message && (
+          <WelcomeMotivationQuoteEmbedded
+            message={welcomeQuote.data.message}
+            dateLabel={welcomeQuote.dateLabel}
+            onDismiss={welcomeQuote.dismissBanner}
+            embeddedClassName="relative z-10 border-t border-white/30 bg-white/25 backdrop-blur-md dark:border-white/10 dark:bg-zinc-950/40"
+          />
+        )}
       </section>
 
-      <div className="flex flex-col-reverse gap-6 xl:grid xl:grid-cols-12 xl:items-start xl:gap-8">
-        <div className="min-w-0 space-y-6 xl:col-span-8 xl:space-y-8">
+      <TeacherSchoolJoinBanner me={me} />
+
       <div
+        id="hizli-erisim"
+        className="scroll-mt-[4.75rem] sm:scroll-mt-24 rounded-[1.15rem] border-2 border-violet-200/60 bg-gradient-to-b from-violet-50/90 to-white p-3 shadow-inner dark:border-violet-500/25 dark:from-violet-950/30 dark:to-zinc-950 sm:p-4"
+      >
+        <div className="flex gap-3 overflow-x-auto pb-1 pt-0.5 [scrollbar-width:none] sm:gap-4 [&::-webkit-scrollbar]:hidden">
+          {topShortcutItems.map((s) => (
+            <Link
+              key={s.href}
+              href={s.href}
+              className="flex min-w-[4.5rem] shrink-0 snap-start flex-col items-center gap-1.5 text-center"
+            >
+              <span
+                className={cn(
+                  'flex size-16 items-center justify-center rounded-full shadow-md ring-2 ring-white/80 dark:ring-zinc-800',
+                  s.ring,
+                )}
+              >
+                <s.icon className="size-7" strokeWidth={1.75} />
+              </span>
+              <span className="max-w-[5.5rem] text-[11px] font-semibold leading-tight text-foreground">{s.label}</span>
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      <div className="min-w-0 space-y-4 sm:space-y-6 xl:space-y-8">
+      <div
+        id="bugun-ozet"
         className={cn(
-          '-mx-1 flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 sm:mx-0 sm:grid sm:overflow-visible sm:pb-0',
-          dutyEnabled ? 'sm:grid-cols-3' : 'sm:grid-cols-2',
+          'scroll-mt-[4.75rem] sm:scroll-mt-24 grid min-w-0 gap-2 sm:gap-3',
+          dutyEnabled ? 'grid-cols-2 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-2',
         )}
       >
         {dutyEnabled && (
           <Link
             href="/duty"
             className={cn(
-              'group relative flex min-w-[85vw] shrink-0 snap-start flex-col gap-3 overflow-hidden rounded-2xl border p-4 transition-all sm:min-w-0',
-              'hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              mySlots.length
-                ? 'border-emerald-300/80 bg-gradient-to-br from-emerald-50/90 to-teal-50/50 dark:border-emerald-500/40 dark:from-emerald-950/50 dark:to-teal-950/30'
-                : 'border-border/80 bg-card hover:border-border',
+              'group relative flex min-h-[6.5rem] flex-col gap-1.5 overflow-hidden rounded-2xl border p-3 transition-all duration-300 sm:min-h-0 sm:gap-2 sm:p-4',
+              'border-emerald-200/55 bg-gradient-to-br from-emerald-50/90 via-white to-teal-50/50 shadow-[0_12px_36px_-16px_rgba(16,185,129,0.28)] ring-1 ring-emerald-500/15',
+              'hover:-translate-y-0.5 hover:shadow-[0_20px_44px_-18px_rgba(16,185,129,0.32)] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40',
+              'dark:border-emerald-500/35 dark:from-emerald-950/50 dark:via-zinc-950 dark:to-teal-950/30 dark:ring-emerald-500/25',
+              mySlots.length > 0 &&
+                'border-emerald-300/70 from-emerald-100/80 via-emerald-50/90 to-teal-50/60 dark:from-emerald-950/60 dark:via-emerald-950/40 dark:to-teal-950/35',
+              !mySlots.length && 'dark:from-zinc-900/80 dark:via-zinc-950 dark:to-zinc-950',
             )}
           >
-            <div className="flex items-start justify-between gap-2">
+            <div
+              className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-gradient-to-br from-emerald-400/30 to-teal-400/10 blur-2xl dark:from-emerald-500/15 dark:to-teal-500/10"
+              aria-hidden
+            />
+            <div className="relative z-[1] flex items-start justify-between gap-2">
               <div
                 className={cn(
-                  'flex size-11 items-center justify-center rounded-xl',
-                  mySlots.length ? 'bg-emerald-500 text-white shadow-md' : 'bg-muted text-muted-foreground',
+                  'flex size-9 items-center justify-center rounded-xl shadow-lg sm:size-11',
+                  mySlots.length
+                    ? 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white ring-2 ring-white/50 dark:ring-emerald-400/20'
+                    : 'bg-gradient-to-br from-slate-200 to-slate-300 text-slate-600 dark:from-zinc-700 dark:to-zinc-800 dark:text-zinc-300',
                 )}
               >
-                <CalendarClock className="size-5" />
+                <CalendarClock className="size-4 sm:size-5" />
               </div>
-              <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+              <ArrowRight className="size-4 shrink-0 text-emerald-600/70 transition-transform group-hover:translate-x-1 dark:text-emerald-400/80" />
             </div>
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Bugün nöbet</p>
-              <p className="mt-1 font-semibold leading-snug text-foreground">
-                {mySlots.length ? `${mySlots.length} görev` : 'Nöbet yok'}
+            <div className="relative z-[1]">
+              <p className="text-sm font-bold leading-tight text-foreground">
+                {mySlots.length ? `${mySlots.length} görev` : 'Yok'}
+              </p>
+              <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700/90 sm:text-[11px] dark:text-emerald-300/90">
+                Nöbet
               </p>
               {mySlots.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {mySlots.slice(0, 2).map((s, i) => (
                     <span
                       key={i}
-                      className="inline-flex max-w-full items-center gap-1 truncate rounded-lg bg-background/80 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:text-emerald-100"
+                      className="inline-flex max-w-full items-center gap-1 truncate rounded-lg border border-emerald-200/60 bg-white/90 px-2 py-0.5 text-xs font-medium text-emerald-900 shadow-sm dark:border-emerald-500/30 dark:bg-emerald-950/50 dark:text-emerald-100"
                     >
                       <MapPin className="size-3 shrink-0" />
                       {s.area_name || s.slot_name || 'Nöbet'}
@@ -496,142 +832,188 @@ export function TeacherHome({
           </Link>
         )}
 
-        <Link
-          href="/bildirimler"
-          className={cn(
-            'group flex min-w-[85vw] shrink-0 snap-start flex-col gap-3 rounded-2xl border border-border/80 bg-card p-4 transition-all sm:min-w-0',
-            'hover:-translate-y-0.5 hover:border-indigo-300/60 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            allNotificationsUnread > 0 && 'border-indigo-200/80 bg-indigo-50/40 dark:border-indigo-500/30 dark:bg-indigo-950/25',
-          )}
-        >
-          <div className="flex items-start justify-between">
-            <div className="flex size-11 items-center justify-center rounded-xl bg-indigo-500 text-white shadow-sm">
-              <Bell className="size-5" />
-            </div>
-            <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-          </div>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Bildirim</p>
-            <p className="mt-1 font-semibold text-foreground">
-              {allNotificationsUnread > 0 ? `${allNotificationsUnread} okunmamış` : 'Güncel'}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">Nöbet, ders, duyuru</p>
-          </div>
-        </Link>
-
         {belirliGunAssignments.length > 0 ? (
           <Link
             href="/akademik-takvim"
-            className="group flex min-w-[85vw] shrink-0 snap-start flex-col gap-3 rounded-2xl border border-amber-300/70 bg-gradient-to-br from-amber-50/90 to-orange-50/60 p-4 transition-all hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 dark:border-amber-500/35 dark:from-amber-950/45 dark:to-orange-950/35 sm:min-w-0"
+            className="group relative flex min-h-[6.5rem] flex-col gap-1.5 overflow-hidden rounded-2xl border border-amber-200/70 bg-gradient-to-br from-amber-50/95 via-orange-50/50 to-rose-50/40 p-3 shadow-[0_12px_36px_-16px_rgba(245,158,11,0.3)] ring-1 ring-amber-400/20 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_20px_44px_-18px_rgba(245,158,11,0.35)] focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/45 dark:border-amber-500/40 dark:from-amber-950/55 dark:via-orange-950/35 dark:to-rose-950/25 dark:ring-amber-500/25 sm:min-h-0 sm:gap-2 sm:p-4"
           >
-            <div className="flex items-start justify-between">
-              <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-md">
-                <Award className="size-5" />
+            <div
+              className="pointer-events-none absolute -left-8 -bottom-12 h-36 w-36 rounded-full bg-gradient-to-tr from-amber-400/35 to-orange-400/15 blur-2xl dark:from-amber-500/15 dark:to-orange-500/10"
+              aria-hidden
+            />
+            <div className="relative z-[1] flex items-start justify-between">
+              <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 via-orange-500 to-rose-600 text-white shadow-lg ring-2 ring-white/40 dark:ring-amber-400/25 sm:size-11">
+                <Award className="size-4 sm:size-5" />
               </div>
-              <ArrowRight className="size-4 text-amber-700/80 transition-transform group-hover:translate-x-0.5 dark:text-amber-300" />
+              <ArrowRight className="size-4 text-amber-700/90 transition-transform group-hover:translate-x-1 dark:text-amber-300" />
             </div>
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-800/80 dark:text-amber-200/90">
+            <div className="relative z-[1]">
+              <p className="text-sm font-bold text-amber-950 dark:text-amber-50">
+                {belirliGunAssignments.length} görev
+              </p>
+              <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800/95 dark:text-amber-200/95">
                 Belirli gün
               </p>
-              <p className="mt-1 font-semibold text-amber-950 dark:text-amber-50">
-                {belirliGunAssignments.length} görevlendirme
-              </p>
-              <p className="mt-1 line-clamp-2 text-xs text-amber-900/80 dark:text-amber-100/80">
+              <p className="mt-1 line-clamp-1 text-[11px] text-amber-900/90 dark:text-amber-100/90 max-sm:sr-only sm:line-clamp-2 sm:text-xs">
                 {belirliGunAssignments[0]?.itemTitle}
                 {belirliGunAssignments.length > 1 ? ` · +${belirliGunAssignments.length - 1}` : ''}
               </p>
             </div>
           </Link>
         ) : (
-          <div className="flex min-w-[85vw] shrink-0 snap-start flex-col justify-center rounded-2xl border border-dashed border-border/80 bg-muted/20 p-4 text-center sm:min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Belirli gün</p>
-            <p className="mt-2 text-sm text-muted-foreground">Yakında görev yok</p>
-            <Link href="/akademik-takvim" className="mt-2 text-xs font-medium text-primary hover:underline">
-              Takvime git
+          <div className="relative flex min-h-[6.5rem] flex-col items-center justify-center overflow-hidden rounded-2xl border border-violet-200/50 bg-gradient-to-br from-violet-50/80 via-white to-fuchsia-50/50 p-3 text-center shadow-inner ring-1 ring-violet-300/15 dark:border-violet-500/30 dark:from-violet-950/40 dark:via-zinc-950 dark:to-fuchsia-950/20 dark:ring-violet-500/15 sm:min-h-0 sm:p-4">
+            <div
+              className="pointer-events-none absolute inset-0 opacity-40 dark:opacity-25"
+              style={{
+                backgroundImage: `radial-gradient(circle at 20% 30%, rgba(139,92,246,0.18), transparent 45%), radial-gradient(circle at 80% 70%, rgba(217,70,239,0.12), transparent 40%)`,
+              }}
+              aria-hidden
+            />
+            <p className="relative z-[1] text-sm font-bold text-violet-900 dark:text-violet-100">Belirli gün yok</p>
+            <Link
+              href="/akademik-takvim"
+              className="relative z-[1] mt-2.5 inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3 py-1.5 text-xs font-semibold text-white shadow-md transition hover:from-violet-500 hover:to-fuchsia-500"
+            >
+              Takvim
+              <ArrowRight className="size-3.5" />
             </Link>
           </div>
         )}
       </div>
 
-      <div className="space-y-5">
-        <div className="border-b border-border/50 pb-4">
-          <h2 className="text-xl font-semibold tracking-tight">Modüller</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Okulunuzda açık olan araçlar; kapalı modüller gizlenir.
-          </p>
+      <div id="tum-moduller" className="scroll-mt-[4.75rem] sm:scroll-mt-24 space-y-5">
+        <div className="space-y-1">
+          <h2 className="bg-gradient-to-r from-violet-700 via-fuchsia-600 to-cyan-600 bg-clip-text text-xl font-extrabold tracking-tight text-transparent dark:from-violet-300 dark:via-fuchsia-300 dark:to-cyan-300">
+            Tüm araçlar
+          </h2>
+          <p className="text-sm text-muted-foreground">Okulünüzde açık olan modüller listelenir.</p>
         </div>
-
-        {quickSections.map((section) => (
-          <div
-            key={section.label}
-            className="rounded-2xl border border-border/50 bg-card/40 p-4 shadow-sm backdrop-blur-sm sm:rounded-3xl sm:p-6 dark:bg-card/25"
-          >
-            <h3 className="mb-4 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-              {section.label}
-            </h3>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {section.items.map((item) => {
-                const mk = marketKeyForQuickItem(item);
-                const itemLocked = isMarketModuleLocked(activationModules, mk);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={cn(
-                      'group relative overflow-hidden rounded-2xl border border-border/60 bg-background/60 p-4 transition-all',
-                      'hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        'mb-3 flex size-10 items-center justify-center rounded-xl bg-gradient-to-br shadow-inner',
-                        item.accent,
-                      )}
-                    >
-                      <item.icon className="size-5" />
-                    </div>
-                    <p className="font-semibold leading-tight text-foreground">{item.title}</p>
-                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.desc}</p>
-                    {itemLocked ? (
-                      <p className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-amber-800 dark:text-amber-200">
-                        <Lock className="size-3.5 shrink-0" aria-hidden />
-                        Market’te etkinleştir
-                      </p>
-                    ) : null}
-                    <ArrowRight className="absolute right-3 top-3 size-4 text-muted-foreground/40 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+        <div className="space-y-6">
+          {quickSections.map((sec, secIdx) => {
+            const theme = TEACHER_HOME_SECTION_THEMES[secIdx % TEACHER_HOME_SECTION_THEMES.length]!;
+            return (
+            <nav
+              key={sec.label}
+              aria-label={sec.label}
+              className={theme.nav}
+            >
+              <h3 className={theme.header}>
+                {sec.label}
+              </h3>
+              <ul
+                className={cn(
+                  'grid gap-2.5 bg-white/25 p-2.5 backdrop-blur-[2px] sm:gap-3 sm:p-3.5 dark:bg-zinc-950/20',
+                  sec.items.length === 1
+                    ? 'grid-cols-1'
+                    : 'grid-cols-2 lg:grid-cols-3',
+                )}
+              >
+                {sec.items.map((item) => {
+                  const mk = marketKeyForQuickItem(item);
+                  const itemLocked = isMarketModuleLocked(activationModules, mk);
+                  const cm = item.compactMobile;
+                  return (
+                    <li key={`${sec.label}-${item.href}`} className="min-w-0">
+                      <Link
+                        href={item.href}
+                        className={cn(
+                          'group relative flex h-full min-h-[7.25rem] flex-col justify-between overflow-hidden rounded-2xl border bg-gradient-to-br from-white/98 via-white to-slate-50/90 p-2.5 shadow-md transition-all duration-200',
+                          cm && 'max-sm:min-h-[5.75rem] max-sm:rounded-xl max-sm:p-2',
+                          'active:scale-[0.99] hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                          'dark:from-zinc-900/95 dark:via-zinc-900 dark:to-zinc-950/95',
+                          theme.itemHover,
+                        )}
+                      >
+                        <div
+                          className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-gradient-to-br from-white/80 to-transparent opacity-60 blur-xl dark:from-white/5"
+                          aria-hidden
+                        />
+                        <div className="relative z-[1] flex items-start justify-between gap-1">
+                          <div
+                            className={cn(
+                              'flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br shadow-md ring-2 ring-white/60 dark:ring-zinc-800/80 sm:size-11',
+                              cm && 'max-sm:size-8 max-sm:rounded-lg max-sm:shadow',
+                              item.accent,
+                            )}
+                          >
+                            <item.icon
+                              className={cn('size-[1.1rem] sm:size-5', cm && 'max-sm:size-4')}
+                              strokeWidth={1.85}
+                            />
+                          </div>
+                          <ChevronRight
+                            className={cn(
+                              'size-3.5 shrink-0 text-muted-foreground/50 transition group-hover:translate-x-0.5 group-hover:text-foreground sm:size-4',
+                              cm && 'max-sm:size-3',
+                            )}
+                            aria-hidden
+                          />
+                        </div>
+                        <div className={cn('relative z-[1] min-w-0 pt-1', cm && 'max-sm:pt-0.5')}>
+                          <span
+                            className={cn(
+                              'line-clamp-2 text-[13px] font-bold leading-snug text-foreground sm:text-sm',
+                              cm && 'max-sm:text-[12px] max-sm:leading-tight',
+                            )}
+                          >
+                            {item.title}
+                          </span>
+                          <p
+                            className={cn(
+                              'mt-1 line-clamp-2 text-[10px] leading-snug text-muted-foreground sm:text-[11px]',
+                              cm && 'max-sm:mt-0.5 max-sm:line-clamp-1',
+                            )}
+                          >
+                            {item.desc}
+                          </p>
+                          {itemLocked ? (
+                            <span className="mt-1.5 inline-flex items-center gap-0.5 rounded-md bg-amber-100/90 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                              <Lock className="size-2.5 shrink-0" aria-hidden />
+                              Kilitli
+                            </span>
+                          ) : null}
+                        </div>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </nav>
+            );
+          })}
+        </div>
       </div>
 
       {dutyEnabled && (
-        <Card className="overflow-hidden rounded-2xl border-border/60 bg-card/50 shadow-sm backdrop-blur-sm sm:rounded-3xl">
-          <CardHeader className="border-b border-border/50 bg-muted/30 py-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                <CalendarCheck className="size-5 text-muted-foreground" />
+        <Card className="overflow-hidden rounded-[1.25rem] border border-teal-200/55 bg-gradient-to-br from-emerald-50/90 via-white to-teal-50/50 shadow-[0_16px_48px_-24px_rgba(20,184,166,0.35)] ring-1 ring-teal-400/20 dark:border-teal-500/35 dark:from-emerald-950/45 dark:via-zinc-950 dark:to-teal-950/30 dark:ring-teal-500/20 sm:rounded-3xl">
+          <CardHeader className="relative border-b border-teal-200/45 bg-gradient-to-r from-emerald-100/90 via-teal-50/70 to-cyan-50/40 py-4 dark:border-teal-500/25 dark:from-emerald-950/70 dark:via-teal-950/45 dark:to-cyan-950/25">
+            <div
+              className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_100%_0%,rgba(45,212,191,0.2),transparent_55%)] dark:bg-[radial-gradient(ellipse_at_100%_0%,rgba(45,212,191,0.12),transparent_55%)]"
+              aria-hidden
+            />
+            <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle className="flex items-center gap-2.5 text-base font-bold text-emerald-950 dark:text-emerald-50">
+                <span className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md ring-2 ring-white/40 dark:ring-emerald-400/20">
+                  <CalendarCheck className="size-5" strokeWidth={2} />
+                </span>
                 Nöbet tercihleri ve takas
               </CardTitle>
               <div className="flex flex-wrap gap-2">
                 <Link
                   href="/duty/tercihler"
-                  className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
+                  className="rounded-full border border-emerald-200/80 bg-white/90 px-3 py-1.5 text-xs font-semibold text-emerald-900 shadow-sm transition hover:border-emerald-400 hover:bg-emerald-50 dark:border-emerald-500/40 dark:bg-emerald-950/50 dark:text-emerald-100 dark:hover:bg-emerald-950/70"
                 >
                   Tercihler
                 </Link>
                 <Link
                   href="/duty/takas"
-                  className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
+                  className="rounded-full border border-teal-200/80 bg-white/90 px-3 py-1.5 text-xs font-semibold text-teal-900 shadow-sm transition hover:border-teal-400 hover:bg-teal-50 dark:border-teal-500/40 dark:bg-teal-950/50 dark:text-teal-100 dark:hover:bg-teal-950/70"
                 >
                   Takas
                 </Link>
                 <Link
                   href="/duty"
-                  className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/15"
+                  className="rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 px-3 py-1.5 text-xs font-bold text-white shadow-md transition hover:from-emerald-500 hover:to-teal-500"
                 >
                   Nöbet özeti
                 </Link>
@@ -757,39 +1139,6 @@ export function TeacherHome({
           </CardContent>
         </Card>
       )}
-        </div>
-
-        <aside className="space-y-4 xl:col-span-4 xl:sticky xl:top-20 xl:self-start">
-          <div className="rounded-2xl border border-border/60 bg-gradient-to-b from-card to-muted/25 p-4 shadow-sm backdrop-blur-sm sm:rounded-3xl sm:p-5 dark:to-muted/10">
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Hesap</p>
-            <p className="mt-1 text-sm text-muted-foreground">Profil ve uygulama ayarları</p>
-            <div className="mt-4 flex flex-col gap-2">
-              <Link
-                href="/profile"
-                className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-border/60 bg-background/90 px-3 py-2.5 text-sm font-medium transition-colors hover:bg-muted/80 active:bg-muted"
-              >
-                <User className="size-4 text-primary" />
-                Profilim
-              </Link>
-              <Link
-                href="/profile"
-                className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-border/60 bg-background/90 px-3 py-2.5 text-sm font-medium transition-colors hover:bg-muted/80 active:bg-muted"
-              >
-                <Settings className="size-4 text-muted-foreground" />
-                Ayarlar
-              </Link>
-              <p className="flex min-h-10 items-center gap-2 rounded-xl border border-dashed border-border/60 px-3 py-2 text-xs text-muted-foreground">
-                <LayoutDashboard className="size-3.5 shrink-0" />
-                Bu sayfa ana sayfanız
-              </p>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-border/60 bg-card/50 p-4 text-sm text-muted-foreground shadow-sm sm:rounded-3xl sm:p-5">
-            <p>
-              Kısayollar menü ile aynıdır; sık kullandığınız modülleri buradan da açabilirsiniz.
-            </p>
-          </div>
-        </aside>
       </div>
     </div>
   );

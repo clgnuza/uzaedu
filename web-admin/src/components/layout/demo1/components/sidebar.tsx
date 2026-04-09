@@ -19,7 +19,7 @@ export function Sidebar({ role, moderatorModules, schoolEnabledModules }: Sideba
   return (
     <div
       className={cn(
-        'sidebar bg-background lg:border-e lg:border-border lg:fixed lg:top-0 lg:bottom-0 lg:z-20 flex flex-col items-stretch shrink-0 print:hidden',
+        'sidebar bg-background lg:border-e lg:border-border lg:fixed lg:top-0 lg:bottom-0 lg:z-40 flex flex-col items-stretch shrink-0 print:hidden',
         sidebarTheme === 'dark' && 'dark',
       )}
     >

@@ -1,14 +1,14 @@
 import { Controller, Get, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { SkipThrottle, Throttle } from '@nestjs/throttler';
+import { SkipThrottle } from '@nestjs/throttler';
 import { AppConfigService } from '../app-config/app-config.service';
 import { ContentService } from './content.service';
 import { ListContentItemsDto } from './dto/list-content-items.dto';
 
 /** Public content endpoints (auth yok) – metadata, yayın SEO vb. */
 @Controller('content')
-/** Tüm /content kamu uçları tek bucket’ta; sayfa başına çoklu GET (metadata, liste…) için limit yüksek. */
-@Throttle({ default: { limit: 400, ttl: 60000 } })
+/** Çoklu throttler (default/auth/public); admin shell + Strict Mode aynı anda çok GET — hepsini atla. */
+@SkipThrottle({ default: true, auth: true, public: true })
 export class ContentPublicController {
   constructor(
     private readonly appConfig: AppConfigService,
@@ -39,10 +39,8 @@ export class ContentPublicController {
     return this.appConfig.getLegalPagesConfig();
   }
 
-  /** Public: analitik, bakım, önbellek TTL, robots, OG, mağaza linkleri (site key: CAPTCHA veya eski alan birleşimi) */
-  /** Admin shell sık GET atar; global throttle ile 429 üretmemesi için atlanır. */
+  /** Public: analitik, bakım, önbellek TTL, robots, OG, mağaza linkleri */
   @Get('web-extras')
-  @SkipThrottle()
   async getWebExtras(@Res({ passthrough: true }) res: Response) {
     const maxAge = await this.appConfig.getPublicCacheMaxAge('web_extras');
     res.setHeader('Cache-Control', `public, max-age=${maxAge}`);

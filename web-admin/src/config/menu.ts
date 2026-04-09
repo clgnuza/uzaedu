@@ -23,7 +23,6 @@ import {
   Megaphone,
   Mail,
   Star,
-  Heart,
   BarChart3,
   BookOpen,
   Newspaper,
@@ -41,6 +40,7 @@ import {
   Building2,
   ClipboardCheck,
 } from 'lucide-react';
+import { isPublicAdminPath } from '@/lib/public-admin-paths';
 
 export const MENU_SIDEBAR: MenuConfig = [
   {
@@ -80,7 +80,7 @@ export const MENU_SIDEBAR: MenuConfig = [
       },
       {
         title: 'Ek ders hesaplama',
-        path: '/extra-lesson-calc',
+        path: '/ek-ders-hesaplama',
         icon: Calculator,
         allowedRoles: ['school_admin', 'superadmin', 'teacher', 'moderator'],
       },
@@ -136,16 +136,8 @@ export const MENU_SIDEBAR: MenuConfig = [
     children: [
       {
         title: 'Okul Değerlendirmeleri',
-        path: '/school-reviews',
+        path: '/okul-degerlendirmeleri',
         icon: Star,
-        allowedRoles: ['teacher', 'moderator'],
-        requiredModule: 'school_reviews',
-        requiredSchoolModule: 'school_reviews',
-      },
-      {
-        title: 'Favorilerim',
-        path: '/favoriler',
-        icon: Heart,
         allowedRoles: ['teacher', 'moderator'],
         requiredModule: 'school_reviews',
         requiredSchoolModule: 'school_reviews',
@@ -241,7 +233,7 @@ export const MENU_SIDEBAR: MenuConfig = [
         allowedRoles: ['teacher', 'school_admin', 'moderator'],
       },
       {
-        title: 'Ödüllü reklamla jeton',
+        title: 'Ödüllü reklam',
         path: '/market/rewarded-ad',
         icon: Coins,
         allowedRoles: ['teacher'],
@@ -637,10 +629,9 @@ export const ROUTE_ROLES: Record<string, ('school_admin' | 'superadmin' | 'teach
   '/profile': ['school_admin', 'superadmin', 'teacher', 'moderator'],
   '/bildirimler': ['teacher', 'school_admin'],
   '/sinav-gorevlerim': ['teacher'],
-  '/extra-lesson-calc': ['school_admin', 'superadmin', 'teacher', 'moderator'],
+  '/ek-ders-hesaplama': ['school_admin', 'superadmin', 'teacher', 'moderator'],
   '/hesaplamalar': ['school_admin', 'superadmin', 'teacher', 'moderator'],
   '/sinav-gorev-ucretleri': ['school_admin', 'superadmin', 'teacher', 'moderator'],
-  '/school-reviews': ['teacher', 'moderator'],
   '/favoriler': ['teacher', 'moderator'],
   '/evrak': ['teacher', 'superadmin', 'moderator'],
   '/market': ['teacher', 'school_admin', 'superadmin', 'moderator'],
@@ -713,7 +704,7 @@ export const ROUTE_ROLES: Record<string, ('school_admin' | 'superadmin' | 'teach
 
 /** Teacher / school_admin için route → required school module (enabled_modules). */
 export const ROUTE_SCHOOL_MODULES: Record<string, string | undefined> = {
-  '/school-reviews': 'school_reviews',
+  '/okul-degerlendirmeleri': 'school_reviews',
   '/favoriler': 'school_reviews',
   '/evrak': 'document',
   '/kazanim-takip': 'outcome',
@@ -730,7 +721,7 @@ export const ROUTE_SCHOOL_MODULES: Record<string, string | undefined> = {
 
 /** Moderator için route → required module. */
 export const ROUTE_MODULES: Record<string, ModeratorModuleKey | undefined> = {
-  '/school-reviews': 'school_reviews',
+  '/okul-degerlendirmeleri': 'school_reviews',
   '/favoriler': 'school_reviews',
   '/evrak': 'document_templates',
   '/send-announcement': 'announcements',
@@ -745,6 +736,7 @@ export const ROUTE_MODULES: Record<string, ModeratorModuleKey | undefined> = {
   '/extra-lesson-params': 'extra_lesson_params',
   '/extra-lesson-params/ek-ders': 'extra_lesson_params',
   '/sinav-gorev-ucretleri': 'extra_lesson_params',
+  '/ek-ders-hesaplama': 'extra_lesson_params',
   '/outcome-sets': 'document_templates',
   '/moderation': 'school_profiles',
   '/system-announcements': 'system_announcements',
@@ -781,6 +773,8 @@ export function canAccessRoute(
   if (!route) return false;
   if (route === '/403') return true;
   if (!ROUTE_ROLES[route].includes(role)) return false;
+  /** Misafir kabukta açılan sayfalar: girişli kullanıcıda moderator_modules / okul modülü ile kapatma */
+  if (isPublicAdminPath(pathname)) return true;
   if (role === 'moderator') {
     const reqMod = ROUTE_MODULES[route];
     if (reqMod) {

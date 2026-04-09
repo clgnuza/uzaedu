@@ -23,11 +23,11 @@ export default function ProfilePage() {
   const isSuperadmin = me.role === 'superadmin';
 
   return (
-    <div className="mx-auto max-w-6xl px-3 pb-8 sm:px-4 lg:px-2">
-      <div className="lg:grid lg:grid-cols-[320px_1fr] lg:gap-6 lg:items-start space-y-6 lg:space-y-0 pt-4 sm:pt-6">
-        <ProfileSidebar me={me} />
+    <div className="mx-auto max-w-6xl px-2.5 pb-5 sm:px-4 sm:pb-8 lg:px-2">
+      <div className="max-sm:-mt-2 lg:grid lg:grid-cols-[minmax(0,260px)_1fr] lg:gap-5 xl:grid-cols-[280px_1fr] xl:gap-6 lg:items-start space-y-3 sm:space-y-6 lg:space-y-0 pt-2 sm:pt-6">
+        <ProfileSidebar me={me} compactMobile={isTeacher} />
 
-        <div className="min-w-0 space-y-6">
+        <div className="min-w-0 space-y-4 sm:space-y-6">
           {isTeacher && (
             <Suspense fallback={<Loading />}>
               <TeacherAccountTabs />
@@ -48,8 +48,8 @@ export default function ProfilePage() {
 
           {!isTeacher && !isSchoolAdmin && !isSuperadmin && (
             <>
-              <div className="grid gap-5 lg:grid-cols-2">
-                <Card className="overflow-hidden rounded-2xl border-border/60 shadow-sm sm:rounded-3xl">
+              <div className="grid gap-4 sm:gap-5 lg:grid-cols-2">
+                <Card className="overflow-hidden rounded-xl border-2 border-border/70 bg-card shadow-md ring-1 ring-black/4 dark:border-border/80 dark:ring-white/6 sm:rounded-2xl">
                   <CardHeader>
                     <CardTitle>Profil düzenle</CardTitle>
                   </CardHeader>
@@ -63,7 +63,7 @@ export default function ProfilePage() {
                   </CardContent>
                 </Card>
 
-                <Card className="overflow-hidden rounded-2xl border-border/60 shadow-sm sm:rounded-3xl">
+                <Card className="overflow-hidden rounded-xl border-2 border-border/70 bg-card shadow-md ring-1 ring-black/4 dark:border-border/80 dark:ring-white/6 sm:rounded-2xl">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <KeyRound className="size-4 text-muted-foreground" />
@@ -76,12 +76,10 @@ export default function ProfilePage() {
                 </Card>
               </div>
 
-              <Card className="overflow-hidden rounded-2xl border-border/60 shadow-sm sm:rounded-3xl">
+              <Card className="overflow-hidden rounded-xl border-2 border-border/70 bg-card shadow-md ring-1 ring-black/4 dark:border-border/80 dark:ring-white/6 sm:rounded-2xl">
                 <CardHeader>
-                  <CardTitle>Veri talepleri</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    KVKK Madde 11 kapsamında kişisel verilerinize erişebilir ve hesabınızı silebilirsiniz.
-                  </p>
+                  <CardTitle>Veri ve hesap</CardTitle>
+                  <p className="text-sm text-muted-foreground">Dışa aktarma ve hesap silme (KVKK).</p>
                 </CardHeader>
                 <CardContent className="flex flex-wrap gap-4">
                   <DataExportButton token={token} />

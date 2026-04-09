@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
@@ -21,12 +21,25 @@ type MailConfigForAdmin = {
   mail_app_base_url: string | null;
 };
 
+/** Gizli alan yok; kullanıcı/uygulama şifresi elle girilir. */
+function buildGmailTemplateForm(origin: string): Record<string, string | number | boolean | null> {
+  return {
+    mail_enabled: true,
+    smtp_host: 'smtp.gmail.com',
+    smtp_port: 587,
+    smtp_secure: false,
+    smtp_from_name: 'Öğretmen Pro',
+    mail_app_base_url: origin.replace(/\/$/, ''),
+  };
+}
+
 export function MailSettingsPanel() {
   const { token, me } = useAuth();
   const [config, setConfig] = useState<MailConfigForAdmin | null>(null);
   const [form, setForm] = useState<Record<string, string | number | boolean | null>>({});
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const didAutofillGmailRef = useRef(false);
 
   const handleChange = (key: string, value: string | number | boolean | null) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -45,6 +58,20 @@ export function MailSettingsPanel() {
   useEffect(() => {
     fetchConfig();
   }, [fetchConfig]);
+
+  /** İlk yüklemede DB’de SMTP boşsa Gmail şablonunu forma yazar (Kaydet ile kalıcı). */
+  useEffect(() => {
+    if (!config || didAutofillGmailRef.current) return;
+    if (config.smtp_host?.trim()) return;
+    didAutofillGmailRef.current = true;
+    if (typeof window === 'undefined') return;
+    setForm((prev) => ({ ...buildGmailTemplateForm(window.location.origin), ...prev }));
+  }, [config]);
+
+  const applyGmailTemplate = () => {
+    if (typeof window === 'undefined') return;
+    setForm((prev) => ({ ...prev, ...buildGmailTemplateForm(window.location.origin) }));
+  };
 
   const handleSave = async () => {
     if (!token || me?.role !== 'superadmin') return;
@@ -97,7 +124,7 @@ export function MailSettingsPanel() {
     <WebSettingsPanel
       icon={Mail}
       title="Mail (SMTP)"
-      description="Bildirim e-postaları. Boş şifre alanı mevcut şifreyi korur."
+      description="Bildirim ve şifre sıfırlama e-postaları. Gmail: smtp.gmail.com, 587, güvenli kapalı. Boş şifre mevcut şifreyi korur."
     >
       <label className="flex cursor-pointer items-center gap-2.5 text-sm text-foreground/90">
         <input
@@ -116,7 +143,7 @@ export function MailSettingsPanel() {
             className={WEB_SETTINGS_INPUT}
             value={String(form.smtp_host ?? config?.smtp_host ?? '')}
             onChange={(e) => handleChange('smtp_host', e.target.value)}
-            placeholder="smtp.example.com"
+            placeholder="smtp.gmail.com"
           />
         </WebSettingsField>
         <WebSettingsField label="Port" htmlFor="smtp-port">
@@ -138,7 +165,7 @@ export function MailSettingsPanel() {
             className={WEB_SETTINGS_INPUT}
             value={String(form.smtp_user ?? config?.smtp_user ?? '')}
             onChange={(e) => handleChange('smtp_user', e.target.value)}
-            placeholder="noreply@…"
+            placeholder="tam@gmail.com (Gmail adresi)"
           />
         </WebSettingsField>
         <WebSettingsField label="Şifre" hint="Değiştirmek için yeni girin." htmlFor="smtp-pass">
@@ -148,7 +175,7 @@ export function MailSettingsPanel() {
             className={WEB_SETTINGS_INPUT}
             value={String(form.smtp_pass ?? '')}
             onChange={(e) => handleChange('smtp_pass', e.target.value)}
-            placeholder={config?.smtp_pass ? '••••••••' : 'SMTP şifresi'}
+            placeholder={config?.smtp_pass ? '••••••••' : 'Google uygulama şifresi'}
           />
         </WebSettingsField>
         <WebSettingsField label="Gönderen adresi" htmlFor="smtp-from">
@@ -158,7 +185,7 @@ export function MailSettingsPanel() {
             className={WEB_SETTINGS_INPUT}
             value={String(form.smtp_from ?? config?.smtp_from ?? '')}
             onChange={(e) => handleChange('smtp_from', e.target.value)}
-            placeholder="bildirim@…"
+            placeholder="çoğu zaman kullanıcı ile aynı Gmail"
           />
         </WebSettingsField>
         <WebSettingsField label="Gönderen adı" htmlFor="smtp-from-name">
@@ -179,7 +206,7 @@ export function MailSettingsPanel() {
               className={WEB_SETTINGS_INPUT}
               value={String(form.mail_app_base_url ?? config?.mail_app_base_url ?? '')}
               onChange={(e) => handleChange('mail_app_base_url', e.target.value)}
-              placeholder="https://…"
+              placeholder="http://localhost:3000 veya https://uzaedu.com"
             />
           </WebSettingsField>
         </div>
@@ -193,13 +220,18 @@ export function MailSettingsPanel() {
         />
         SSL/TLS (genelde port 465)
       </label>
-      <div className="flex flex-wrap justify-end gap-2 border-t border-border/30 pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/30 pt-4">
+        <Button type="button" variant="secondary" className="rounded-xl" onClick={applyGmailTemplate}>
+          Gmail şablonunu doldur
+        </Button>
+        <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" className="rounded-xl" onClick={handleTest} disabled={testing}>
           {testing ? 'Test…' : 'SMTP test'}
         </Button>
         <Button type="button" className="rounded-xl" onClick={handleSave} disabled={saving}>
           {saving ? 'Kaydediliyor…' : 'Kaydet'}
         </Button>
+        </div>
       </div>
     </WebSettingsPanel>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
@@ -84,10 +84,14 @@ function sourceInitials(label: string | undefined | null): string {
   return w.slice(0, 2).toUpperCase();
 }
 
-function sourceAvatarHue(label: string): number {
+/** Kurumsal mavi–lacivert bandında tutarlı avatar rengi */
+function sourceCorporateAvatarStyle(label: string): CSSProperties {
   let h = 0;
   for (let i = 0; i < label.length; i++) h = label.charCodeAt(i) + ((h << 5) - h);
-  return Math.abs(h) % 360;
+  const hue = 205 + (Math.abs(h) % 28);
+  return {
+    background: `linear-gradient(155deg, hsl(${hue} 34% 40%) 0%, hsl(${hue} 40% 30%) 100%)`,
+  };
 }
 
 function dedupeContentItemsByUrl(items: ContentItem[]): ContentItem[] {
@@ -119,7 +123,6 @@ function HaberNewsCard({
 }) {
   const isFeatured = variant === 'featured' && !dense;
   const label = item.source_label?.trim() || 'Kaynak';
-  const hue = sourceAvatarHue(label);
   const initials = sourceInitials(item.source_label);
   const shareOrCopy = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -144,9 +147,9 @@ function HaberNewsCard({
   return (
     <Card
       className={cn(
-        'group/card overflow-hidden border-border/80 shadow-sm transition-[box-shadow,border-color] duration-300 hover:border-primary/25 hover:shadow-md',
+        'group/card overflow-hidden border-slate-200/90 bg-gradient-to-br from-white via-slate-50/40 to-sky-50/35 shadow-[0_1px_3px_rgba(15,23,42,0.07)] transition-[box-shadow,border-color] duration-300 hover:border-sky-300/70 hover:shadow-[0_10px_40px_-16px_rgba(14,116,144,0.22)] dark:border-slate-700/85 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950/95 dark:hover:border-sky-700/50',
         dense ? 'rounded-lg' : 'rounded-xl',
-        isFeatured && 'ring-1 ring-border/40 lg:col-span-2',
+        isFeatured && 'ring-1 ring-sky-200/60 dark:ring-sky-900/45 lg:col-span-2',
       )}
     >
       <div
@@ -157,17 +160,17 @@ function HaberNewsCard({
       >
         <div
           className={cn(
-            'flex items-start justify-between gap-1.5 border-b border-border/50',
+            'flex items-start justify-between gap-1.5 border-b border-slate-200/70 dark:border-slate-700/60',
             dense ? 'pb-1.5' : 'pb-2.5',
           )}
         >
           <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
             <div
               className={cn(
-                'flex shrink-0 items-center justify-center rounded-full font-bold text-white shadow-inner ring-2 ring-white/20',
+                'flex shrink-0 items-center justify-center rounded-full font-bold text-white shadow-inner ring-2 ring-white/25 dark:ring-slate-600/40',
                 dense ? 'size-6 text-[8px] ring-1' : 'size-8 text-[10px] sm:size-9 sm:text-[11px]',
               )}
-              style={{ backgroundColor: `hsl(${hue} 58% 46%)` }}
+              style={sourceCorporateAvatarStyle(label)}
               aria-hidden
             >
               {initials}
@@ -182,8 +185,8 @@ function HaberNewsCard({
                       'max-w-[min(100%,12rem)] truncate text-left font-semibold leading-tight transition-colors',
                       dense ? 'text-[11px]' : 'text-[13px] sm:text-sm',
                       selectedSourceKey === item.source_key
-                        ? 'text-primary'
-                        : 'text-foreground hover:text-primary',
+                        ? 'text-sky-700 dark:text-sky-300'
+                        : 'text-slate-800 hover:text-sky-700 dark:text-slate-100 dark:hover:text-sky-300',
                     )}
                   >
                     {item.source_label}
@@ -191,14 +194,14 @@ function HaberNewsCard({
                 ) : (
                   <span
                     className={cn(
-                      'max-w-[min(100%,12rem)] truncate font-semibold text-foreground',
+                      'max-w-[min(100%,12rem)] truncate font-semibold text-slate-800 dark:text-slate-100',
                       dense ? 'text-[11px]' : 'text-[13px] sm:text-sm',
                     )}
                   >
                     {label}
                   </span>
                 )}
-                <span className="shrink-0 text-[10px] text-muted-foreground sm:text-[11px]">
+                <span className="shrink-0 text-[10px] text-slate-500 dark:text-slate-400 sm:text-[11px]">
                   {item.published_at ? `· ${formatRelativeShort(item.published_at)}` : ''}
                 </span>
                 {dense && (
@@ -231,7 +234,7 @@ function HaberNewsCard({
               type="button"
               onClick={shareOrCopy}
               className={cn(
-                'rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+                'rounded-lg text-slate-500 transition-colors hover:bg-sky-100/80 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100',
                 dense ? 'p-1' : 'p-1.5',
               )}
               title="Paylaş"
@@ -242,7 +245,7 @@ function HaberNewsCard({
             <details className="relative group/more">
               <summary
                 className={cn(
-                  'flex cursor-pointer list-none items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [&::-webkit-details-marker]:hidden',
+                  'flex cursor-pointer list-none items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-sky-100/80 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100 [&::-webkit-details-marker]:hidden',
                   dense ? 'p-1' : 'p-1.5',
                 )}
               >
@@ -250,14 +253,14 @@ function HaberNewsCard({
                 <span className="sr-only">Diğer</span>
               </summary>
               <div
-                className="absolute right-0 top-full z-20 mt-1 min-w-48 rounded-xl border border-border/80 bg-popover/95 p-1 shadow-lg ring-1 ring-border/40 backdrop-blur-sm"
+                className="absolute right-0 top-full z-20 mt-1 min-w-48 rounded-xl border border-slate-200/90 bg-white/95 p-1 shadow-lg ring-1 ring-slate-200/50 backdrop-blur-sm dark:border-slate-700 dark:bg-slate-950/95 dark:ring-slate-700/50"
                 onClick={(e) => e.stopPropagation()}
               >
                 <a
                   href={item.source_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-muted"
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-800 hover:bg-sky-50 dark:text-slate-100 dark:hover:bg-slate-800"
                 >
                   <ExternalLink className="size-4 shrink-0 opacity-70" />
                   Yeni sekmede aç
@@ -265,7 +268,7 @@ function HaberNewsCard({
                 <button
                   type="button"
                   onClick={copyOnly}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-foreground hover:bg-muted"
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-800 hover:bg-sky-50 dark:text-slate-100 dark:hover:bg-slate-800"
                 >
                   <Link2 className="size-4 shrink-0 opacity-70" />
                   Bağlantıyı kopyala
@@ -287,7 +290,7 @@ function HaberNewsCard({
         >
           <div
             className={cn(
-              'relative w-full overflow-hidden bg-muted ring-1 ring-border/30 after:pointer-events-none after:absolute after:inset-0 after:shadow-[inset_0_-40px_60px_-20px_rgba(0,0,0,0.35)]',
+              'relative w-full overflow-hidden bg-slate-100 ring-1 ring-slate-200/70 after:pointer-events-none after:absolute after:inset-0 after:shadow-[inset_0_-40px_60px_-20px_rgba(15,23,42,0.28)] dark:bg-slate-900 dark:ring-slate-700/60',
               dense ? 'rounded-lg after:rounded-lg' : 'rounded-2xl after:rounded-2xl',
               isFeatured ? 'aspect-16/10 sm:aspect-2/1' : dense ? 'aspect-[4/3] sm:aspect-video' : 'aspect-16/10 sm:aspect-video',
             )}
@@ -320,8 +323,8 @@ function HaberNewsCard({
               className={cn(
                 'pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t to-transparent',
                 isFeatured
-                  ? 'h-[62%] from-black/88 via-black/38'
-                  : 'h-[40%] from-black/55 via-black/20',
+                  ? 'h-[62%] from-slate-950/92 via-slate-900/45'
+                  : 'h-[40%] from-slate-950/78 via-slate-900/28',
               )}
               aria-hidden
             />
@@ -338,9 +341,9 @@ function HaberListSkeleton({ dense }: { dense?: boolean }) {
     return (
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
         {Array.from({ length: 12 }).map((_, i) => (
-          <Card key={i} className="overflow-hidden rounded-lg border-border/80 shadow-sm">
+          <Card key={i} className="overflow-hidden rounded-lg border-slate-200/90 bg-gradient-to-br from-white via-slate-50/30 to-sky-50/25 shadow-sm dark:border-slate-700/85 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
             <div className="flex flex-col p-2">
-              <div className="flex items-center gap-1.5 border-b border-border/50 pb-1.5">
+              <div className="flex items-center gap-1.5 border-b border-slate-200/70 pb-1.5 dark:border-slate-700/60">
                 <Skeleton className="size-6 shrink-0 rounded-full" />
                 <Skeleton className="h-3 w-24 flex-1" />
                 <Skeleton className="h-6 w-12 shrink-0 rounded" />
@@ -354,9 +357,9 @@ function HaberListSkeleton({ dense }: { dense?: boolean }) {
   }
   return (
     <div className="grid grid-cols-1 gap-4 sm:gap-3 lg:grid-cols-2">
-      <Card className="col-span-full overflow-hidden rounded-xl border-border/80 shadow-sm lg:col-span-2">
+      <Card className="col-span-full overflow-hidden rounded-xl border-slate-200/90 bg-gradient-to-br from-white via-slate-50/40 to-sky-50/35 shadow-sm dark:border-slate-700/85 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 lg:col-span-2">
         <div className="flex flex-col p-3 sm:p-4">
-          <div className="flex items-start justify-between gap-2 border-b border-border/50 pb-2.5">
+          <div className="flex items-start justify-between gap-2 border-b border-slate-200/70 pb-2.5 dark:border-slate-700/60">
             <div className="flex items-center gap-2">
               <Skeleton className="size-8 shrink-0 rounded-full sm:size-9" />
               <div className="space-y-1.5">
@@ -370,9 +373,9 @@ function HaberListSkeleton({ dense }: { dense?: boolean }) {
         </div>
       </Card>
       {Array.from({ length: 5 }).map((_, i) => (
-        <Card key={i} className="overflow-hidden rounded-xl border-border/80 shadow-sm">
+        <Card key={i} className="overflow-hidden rounded-xl border-slate-200/90 bg-gradient-to-br from-white via-slate-50/40 to-sky-50/35 shadow-sm dark:border-slate-700/85 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
           <div className="flex flex-col p-2.5 sm:p-3">
-            <div className="flex items-start justify-between gap-2 border-b border-border/50 pb-2.5">
+            <div className="flex items-start justify-between gap-2 border-b border-slate-200/70 pb-2.5 dark:border-slate-700/60">
               <div className="flex items-center gap-2">
                 <Skeleton className="size-8 shrink-0 rounded-full sm:size-9" />
                 <div className="space-y-1.5">
@@ -399,7 +402,7 @@ export default function HaberlerPage() {
   const [items, setItems] = useState<ContentItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [selectedChannel, setSelectedChannel] = useState<string>('haberler');
+  const [selectedChannel, setSelectedChannel] = useState<string>('');
   const [selectedSourceKey, setSelectedSourceKey] = useState<string>('');
   const [selectedSourceLabel, setSelectedSourceLabel] = useState<string>('');
   const [contentTypeFilter, setContentTypeFilter] = useState<string>('');
@@ -463,7 +466,7 @@ export default function HaberlerPage() {
       if (ck === CHANNEL_QUERY_ALL) setSelectedChannel('');
       else if (ck) setSelectedChannel(ck);
     } else {
-      setSelectedChannel('haberler');
+      setSelectedChannel('');
     }
     const sk = searchParams.get('source_key');
     const sl = searchParams.get('source_label');
@@ -637,40 +640,37 @@ export default function HaberlerPage() {
           `,
         }}
       />
-      <div className="space-y-5">
-      <header className="relative overflow-hidden rounded-2xl border border-border/70 bg-card/80 p-5 shadow-sm ring-1 ring-border/30 backdrop-blur-sm sm:p-6">
-        <div className="pointer-events-none absolute -right-10 -top-10 h-36 w-36 rounded-full bg-primary/12 blur-3xl" aria-hidden />
-        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 space-y-2">
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-widest text-primary">
-              <Newspaper className="h-3.5 w-3.5" />
-              Haber akışı
-            </div>
-            <h1 className="text-balance text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Haberler</h1>
-            <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
+      <div className="space-y-3 sm:space-y-5">
+      <header className="relative overflow-hidden rounded-xl border border-border/70 bg-card/80 p-3 shadow-sm ring-1 ring-border/30 backdrop-blur-sm sm:rounded-2xl sm:p-6">
+        <div className="pointer-events-none absolute -right-10 -top-10 hidden h-36 w-36 rounded-full bg-primary/12 blur-3xl sm:block" aria-hidden />
+        <div className="relative flex items-center justify-between gap-2 sm:items-start sm:justify-between sm:gap-5">
+          <div className="min-w-0 flex-1 sm:space-y-2">
+            <h1 className="text-balance text-lg font-bold tracking-tight text-foreground sm:text-2xl md:text-3xl">Haberler</h1>
+            <p className="mt-1 hidden max-w-xl text-sm leading-relaxed text-muted-foreground md:block">
               MEB ve il millî eğitim kaynaklarından duyuru ve haberleri kanal ve türe göre süzün.
             </p>
             {isSuperAdmin && (
-              <p className="text-xs text-muted-foreground">
+              <p className="mt-1 hidden text-xs text-muted-foreground sm:block">
                 Yoğun liste: sayfa başına {pageLimit} kayıt, çok sütunlu görünüm.
               </p>
             )}
             {isAdmin && channels.length > 0 && (
-              <p className="text-xs font-medium text-muted-foreground">{channels.length} kanal tanımlı</p>
+              <p className="mt-1 hidden text-xs font-medium text-muted-foreground sm:block">{channels.length} kanal tanımlı</p>
             )}
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+          <div className="flex shrink-0 items-center gap-1 sm:flex-wrap sm:gap-2 sm:justify-end">
             <a
               href="/haberler/yayin"
-              className="inline-flex items-center gap-2 rounded-xl border border-amber-500/35 bg-amber-500/12 px-3.5 py-2 text-sm font-semibold text-amber-700 shadow-sm transition-colors hover:bg-amber-500/20 dark:text-amber-300"
+              className="inline-flex size-9 items-center justify-center rounded-xl border border-amber-500/35 bg-amber-500/12 text-amber-700 shadow-sm transition-colors hover:bg-amber-500/20 dark:text-amber-300 sm:size-auto sm:gap-2 sm:px-3.5 sm:py-2 sm:text-sm sm:font-semibold"
+              title="Yayın"
             >
-              <Sparkles className="h-4 w-4" />
-              Yayın
+              <Sparkles className="h-4 w-4 shrink-0" />
+              <span className="hidden sm:inline">Yayın</span>
             </a>
             <button
               type="button"
               onClick={() => { fetchChannels(); setRefreshKey((k) => k + 1); }}
-              className="inline-flex items-center gap-2 rounded-xl border border-border bg-background/80 px-3.5 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-muted"
+              className="inline-flex size-9 items-center justify-center rounded-xl border border-border bg-background/80 text-sm font-medium shadow-sm transition-colors hover:bg-muted sm:size-auto sm:gap-2 sm:px-3.5 sm:py-2"
               title="Yenile"
             >
               <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
@@ -682,16 +682,18 @@ export default function HaberlerPage() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="rounded-xl border-border/80"
+                  className="size-9 shrink-0 rounded-xl border-border/80 p-0 sm:size-auto sm:px-3 sm:py-2"
                   disabled={syncing}
                   onClick={() => void handleSync()}
+                  title={syncing ? 'Senkronize ediliyor…' : 'Senkronize Et'}
                 >
-                  <RefreshCw className={cn('mr-1.5 h-4 w-4', syncing && 'animate-spin')} />
-                  {syncing ? 'Senkronize ediliyor…' : 'Senkronize Et'}
+                  <RefreshCw className={cn('h-4 w-4 sm:mr-1.5', syncing && 'animate-spin')} />
+                  <span className="hidden sm:inline">{syncing ? 'Senkronize ediliyor…' : 'Senkronize Et'}</span>
                 </Button>
                 <a
                   href="/haberler/ayarlar"
-                  className="inline-flex items-center gap-2 rounded-xl border border-border bg-background/80 px-3.5 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-muted"
+                  className="inline-flex size-9 items-center justify-center rounded-xl border border-border bg-background/80 text-sm font-medium shadow-sm transition-colors hover:bg-muted sm:size-auto sm:gap-2 sm:px-3.5 sm:py-2"
+                  title="Ayarlar"
                 >
                   <Settings className="h-4 w-4" />
                   <span className="hidden sm:inline">Ayarlar</span>
@@ -702,93 +704,100 @@ export default function HaberlerPage() {
         </div>
       </header>
 
-      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/70 bg-background/90 shadow-md ring-1 ring-border/40 backdrop-blur-md">
-        {channels.length > 0 && (
-          <div className="border-b border-border/50 px-4 pb-3 pt-4">
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              <Layers className="h-3.5 w-3.5 text-primary" />
-              Kanal
-            </div>
-            <div className="w-full min-w-0 rounded-xl bg-muted/60 p-1 ring-1 ring-border/40">
-              <div className="flex flex-wrap gap-1">
-                <button
-                  type="button"
-                  onClick={() => handleChannelChange('')}
-                  className={cn(
-                    'min-h-9 shrink-0 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition-all sm:px-3 sm:text-sm',
-                    !selectedChannel
-                      ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-primary/20'
-                      : 'text-muted-foreground hover:bg-background/80 hover:text-foreground',
-                  )}
-                >
-                  Tümü
-                </button>
-                {channels.map((ch) => (
-                  <button
-                    type="button"
-                    key={ch.id}
-                    onClick={() => handleChannelChange(ch.key)}
-                    className={cn(
-                      'inline-flex min-h-9 max-w-full shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition-all sm:max-w-[18rem] sm:px-3 sm:text-sm',
-                      selectedChannel === ch.key
-                        ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-primary/20'
-                        : 'text-muted-foreground hover:bg-background/80 hover:text-foreground',
-                    )}
-                  >
-                    <span className="line-clamp-2 sm:line-clamp-1">{ch.label}</span>
-                    {typeof ch.itemCount === 'number' && ch.itemCount > 0 && (
-                      <span
-                        className={cn(
-                          'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none',
-                          selectedChannel === ch.key
-                            ? 'bg-white/20 text-primary-foreground'
-                            : 'bg-foreground/10 text-muted-foreground',
-                        )}
-                      >
-                        {ch.itemCount > 999 ? `${Math.floor(ch.itemCount / 1000)}k` : ch.itemCount}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className={cn('px-4 pb-4', channels.length > 0 ? 'pt-3' : 'pt-4')}>
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              <ListFilter className="h-3.5 w-3.5 text-primary" />
-              İçerik türü
-            </div>
-            {selectedSourceKey && selectedSourceLabel && (
+      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-border/50 bg-gradient-to-b from-muted/20 to-background/90 shadow-sm backdrop-blur-md sm:rounded-2xl sm:from-muted/15">
+        <div className="p-2 sm:p-4">
+          {selectedSourceKey && selectedSourceLabel && (
+            <div className="mb-2 flex justify-end sm:mb-3">
               <button
                 type="button"
                 onClick={clearSourceFilter}
-                className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/20"
+                className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-[10px] font-semibold text-primary hover:bg-primary/20 sm:px-2.5 sm:text-[11px]"
               >
-                <Tag className="h-3 w-3" />
-                <span className="max-w-40 truncate">{selectedSourceLabel}</span>
-                <X className="h-3 w-3 opacity-70" />
+                <Tag className="h-3 w-3 shrink-0" />
+                <span className="truncate">{selectedSourceLabel}</span>
+                <X className="h-3 w-3 shrink-0 opacity-70" />
               </button>
+            </div>
+          )}
+          {channels.length > 0 && (
+            <div className="space-y-1.5 sm:space-y-2">
+              <div className="hidden items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:flex">
+                <Layers className="h-3.5 w-3.5 text-primary" />
+                Kanal
+              </div>
+              <div className="mobile-tab-scroll flex gap-1.5 overscroll-x-contain pb-0.5 sm:flex-wrap sm:overflow-visible sm:pb-0">
+                <div className="inline-flex w-max max-w-none flex-nowrap gap-1 rounded-2xl border border-sky-200/50 bg-sky-50/40 p-1 dark:border-sky-500/20 dark:bg-sky-950/25 sm:w-auto sm:max-w-full sm:flex-wrap sm:gap-1.5 sm:p-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleChannelChange('')}
+                    className={cn(
+                      'min-h-8 shrink-0 rounded-xl px-2.5 py-1 text-left text-[11px] font-medium transition-all sm:min-h-9 sm:px-3 sm:text-sm',
+                      !selectedChannel
+                        ? 'border border-sky-300/60 bg-white text-sky-900 shadow-sm dark:border-sky-500/35 dark:bg-sky-900/50 dark:text-sky-50'
+                        : 'border border-transparent text-muted-foreground hover:border-sky-200/50 hover:bg-white/70 hover:text-foreground dark:hover:border-sky-500/25 dark:hover:bg-sky-950/40',
+                    )}
+                  >
+                    Tümü
+                  </button>
+                  {channels.map((ch) => (
+                    <button
+                      type="button"
+                      key={ch.id}
+                      onClick={() => handleChannelChange(ch.key)}
+                      className={cn(
+                        'inline-flex min-h-8 max-w-[min(85vw,18rem)] shrink-0 items-center gap-1 rounded-xl px-2.5 py-1 text-left text-[11px] font-medium transition-all sm:min-h-9 sm:max-w-[18rem] sm:gap-1.5 sm:px-3 sm:text-sm',
+                        selectedChannel === ch.key
+                          ? 'border border-sky-300/60 bg-white text-sky-900 shadow-sm dark:border-sky-500/35 dark:bg-sky-900/50 dark:text-sky-50'
+                          : 'border border-transparent text-muted-foreground hover:border-sky-200/50 hover:bg-white/70 hover:text-foreground dark:hover:border-sky-500/25 dark:hover:bg-sky-950/40',
+                      )}
+                    >
+                      <span className="line-clamp-1">{ch.label}</span>
+                      {typeof ch.itemCount === 'number' && ch.itemCount > 0 && (
+                        <span
+                          className={cn(
+                            'shrink-0 rounded-full px-1 py-0.5 text-[9px] font-semibold tabular-nums leading-none sm:px-1.5 sm:text-[10px]',
+                            selectedChannel === ch.key
+                              ? 'bg-sky-200/80 text-sky-950 dark:bg-sky-400/25 dark:text-sky-100'
+                              : 'bg-muted/80 text-muted-foreground',
+                          )}
+                        >
+                          {ch.itemCount > 999 ? `${Math.floor(ch.itemCount / 1000)}k` : ch.itemCount}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div
+            className={cn(
+              'space-y-1.5 sm:space-y-2',
+              channels.length > 0 && 'mt-3 border-t border-border/40 pt-3 sm:mt-4 sm:pt-4',
             )}
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {CONTENT_TYPE_FILTER_OPTIONS.map((o) => (
-              <button
-                key={o.value || '_all'}
-                type="button"
-                onClick={() => handleContentTypeChange(o.value)}
-                className={cn(
-                  'shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-all sm:text-sm',
-                  contentTypeFilter === o.value
-                    ? 'bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/20'
-                    : 'border border-border/60 bg-muted/50 text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground',
-                )}
-              >
-                {o.label}
-              </button>
-            ))}
+          >
+            <div className="hidden items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:flex">
+              <ListFilter className="h-3.5 w-3.5 text-primary" />
+              İçerik türü
+            </div>
+            <div className="mobile-tab-scroll flex flex-nowrap gap-1.5 overscroll-x-contain rounded-2xl border border-violet-200/45 bg-violet-50/35 p-1 dark:border-violet-500/20 dark:bg-violet-950/20 sm:flex-wrap sm:overflow-visible sm:pb-0 sm:pl-1.5 sm:pr-1.5 sm:pt-1.5">
+              {CONTENT_TYPE_FILTER_OPTIONS.map((o) => (
+                <button
+                  key={o.value || '_all'}
+                  type="button"
+                  onClick={() => handleContentTypeChange(o.value)}
+                  className={cn(
+                    'shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all sm:px-3 sm:py-1.5 sm:text-sm',
+                    contentTypeFilter === o.value
+                      ? 'border border-violet-300/55 bg-white text-violet-900 shadow-sm dark:border-violet-500/35 dark:bg-violet-900/45 dark:text-violet-50'
+                      : 'border border-transparent text-muted-foreground hover:border-violet-200/50 hover:bg-white/70 hover:text-foreground dark:hover:border-violet-500/25 dark:hover:bg-violet-950/35',
+                  )}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>

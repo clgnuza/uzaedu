@@ -8,6 +8,7 @@ import cookieParser = require('cookie-parser');
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { env } from './config/env';
+import { corsOriginCallback } from './config/dev-cors';
 import { initFirebase, isFirebaseAdminReady } from './config/firebase';
 
 async function bootstrap() {
@@ -46,9 +47,9 @@ async function bootstrap() {
     }),
   );
   app.useGlobalFilters(new AllExceptionsFilter());
-  app.enableCors({ origin: env.corsOrigins, credentials: true });
-  await app.listen(env.port);
-  console.log(`Backend çalışıyor: http://localhost:${env.port}/api`);
+  app.enableCors({ origin: corsOriginCallback, credentials: true });
+  await app.listen(env.port, '0.0.0.0');
+  console.log(`Backend çalışıyor: http://localhost:${env.port}/api (tüm arayüzler: 0.0.0.0:${env.port})`);
   if (loadedEnvPath) {
     console.log(`.env yüklendi: ${loadedEnvPath}`);
   } else {

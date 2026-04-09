@@ -10,7 +10,6 @@ const FIELD_LABELS: Record<string, string> = {
   okul_adi: 'Okul adı',
   mudur_adi: 'Müdür',
   ogretim_yili: 'Öğretim yılı',
-  sinif: 'Sınıf / şube',
   zumreler: 'Zümreler',
   zumre_ogretmenleri: 'Zümre öğretmenleri',
   onay_tarihi: 'Onay tarihi',
@@ -21,6 +20,7 @@ function summarizeDefaults(d: EvrakDefaults): { key: string; label: string; valu
   if (!d || typeof d !== 'object') return [];
   const out: { key: string; label: string; value: string }[] = [];
   for (const [key, raw] of Object.entries(d)) {
+    if (key === 'sinif') continue;
     const value = raw == null ? '' : String(raw).trim();
     if (!value) continue;
     const label = FIELD_LABELS[key] ?? key;

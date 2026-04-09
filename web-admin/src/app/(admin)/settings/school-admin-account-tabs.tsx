@@ -37,19 +37,19 @@ const TABS: {
   {
     id: 'hesap',
     label: 'Hesap',
-    hint: 'Profil, şifre ve hesap kapatma',
+    hint: 'Profil ve şifre',
     icon: User,
   },
   {
     id: 'okul',
     label: 'Okul',
-    hint: 'Tanıtım, TV, öğretmen ve program',
+    hint: 'Okul sayfaları',
     icon: School,
   },
   {
     id: 'yedek',
     label: 'Yedek',
-    hint: 'Modül seçerek veri indir',
+    hint: 'JSON yedek',
     icon: FileDown,
   },
 ];
@@ -61,7 +61,7 @@ const OKUL_GROUPS: {
 }[] = [
   {
     title: 'Kurumsal görünüm',
-    description: 'Okulunuzu tanıtın ve ekranlarda gösterin',
+    description: 'Tanıtım ve ekranlar',
     items: [
       { href: '/school-profile', label: 'Okul tanıtımı', sub: 'Logo, metin ve iletişim', icon: Building2 },
       { href: '/tv', label: 'Duyuru TV', sub: 'Koridor ve öğretmenler odası', icon: Tv },
@@ -69,7 +69,7 @@ const OKUL_GROUPS: {
   },
   {
     title: 'Takvim ve program',
-    description: 'Akademik yapı ve ders düzeni',
+    description: 'Takvim ve program',
     items: [
       { href: '/akademik-takvim-ayarlar', label: 'Akademik takvim', sub: 'Dönem ve haftalar', icon: Calendar },
       { href: '/ders-programi/ayarlar', label: 'Ders programı ayarları', sub: 'Şablon ve kurallar', icon: Settings },
@@ -77,7 +77,7 @@ const OKUL_GROUPS: {
   },
   {
     title: 'Öğretmen ve sınıflar',
-    description: 'Kadro ve ders dağılımı',
+    description: 'Öğretmen ve sınıflar',
     items: [
       { href: '/teachers', label: 'Öğretmenler', sub: 'Hesaplar ve roller', icon: Users },
       { href: '/classes-subjects', label: 'Sınıflar ve dersler', sub: 'Şube ve branş eşlemesi', icon: BookOpen },
@@ -114,28 +114,28 @@ export function SchoolAdminAccountTabs() {
   if (!me || me.role !== 'school_admin') return null;
 
   return (
-    <div className="space-y-5">
-      <div className="overflow-hidden rounded-2xl border border-border/50 bg-linear-to-br from-muted/30 via-card to-muted/20 p-1 shadow-sm ring-1 ring-border/30 dark:from-zinc-900/90 dark:via-zinc-950 dark:to-zinc-900/80 dark:ring-zinc-800/80">
-        <div className="flex flex-col gap-3 p-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-3">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="overflow-hidden rounded-xl border-2 border-border/70 bg-linear-to-br from-muted/30 via-card to-muted/20 p-1 shadow-md ring-1 ring-black/4 dark:from-zinc-900/90 dark:via-zinc-950 dark:to-zinc-900/80 dark:ring-white/6 sm:rounded-2xl">
+        <div className="flex flex-col gap-2 p-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-3">
           <div className="flex min-w-0 items-start gap-3">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20 dark:bg-primary/15">
               <Sparkles className="size-5" aria-hidden />
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground">Okul ve hesap merkezi</p>
-              <p className="text-pretty text-xs text-muted-foreground sm:text-sm">
+              <p className="text-sm font-semibold text-foreground">Okul · hesap</p>
+              <p className="text-pretty text-[11px] leading-snug text-muted-foreground sm:text-sm sm:leading-normal">
                 {tab === 'hesap'
-                  ? 'Kişisel bilgilerinizi güncelleyin; şifre ve hesap kapatma burada.'
+                  ? 'Profil, şifre, hesap kapatma.'
                   : tab === 'yedek'
-                    ? 'Modül seçerek JSON yedeği indirin.'
-                    : 'Okul içi sayfalara tek tıkla geçin; detaylı TV ve sistem kartları aşağıda da var.'}
+                    ? 'Modül seç, JSON indir.'
+                    : 'Okul sayfalarına kısayollar.'}
               </p>
             </div>
           </div>
         </div>
 
         <div className="mobile-tab-scroll pb-1">
-          <div className="flex min-w-max gap-1 rounded-xl border border-border/40 bg-linear-to-r from-muted/25 via-muted/35 to-muted/25 p-1 shadow-inner dark:from-zinc-800/70 dark:via-zinc-800/50 dark:to-zinc-800/70">
+          <div className="flex min-w-max gap-1 rounded-lg border border-border/50 bg-linear-to-r from-muted/25 via-muted/35 to-muted/25 p-1 shadow-inner dark:from-zinc-800/70 dark:via-zinc-800/50 dark:to-zinc-800/70 sm:rounded-xl">
           {TABS.map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
@@ -145,9 +145,9 @@ export function SchoolAdminAccountTabs() {
                 type="button"
                 onClick={() => goTab(t.id)}
                 className={cn(
-                  'flex min-w-[150px] shrink-0 flex-col items-stretch gap-0.5 rounded-lg px-3 py-2.5 text-left transition-all duration-200',
+                  'flex min-w-[140px] shrink-0 flex-col items-stretch gap-0.5 rounded-md px-2.5 py-2 text-left transition-all duration-200 sm:min-w-[150px] sm:rounded-lg sm:px-3 sm:py-2.5',
                   active
-                    ? 'bg-background/95 text-foreground shadow-md ring-1 ring-primary/25 backdrop-blur-sm dark:bg-zinc-800/95 dark:ring-zinc-600/50'
+                    ? 'bg-background/95 text-foreground shadow-md ring-1 ring-primary/30 backdrop-blur-sm dark:bg-zinc-800/95 dark:ring-zinc-600/50'
                     : 'text-muted-foreground hover:bg-background/50 hover:text-foreground dark:hover:bg-zinc-800/60',
                 )}
               >
@@ -168,7 +168,7 @@ export function SchoolAdminAccountTabs() {
 
       {tab === 'hesap' && (
         <div className="space-y-4">
-          <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/95 shadow-sm ring-1 ring-border/30 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950/90 dark:ring-zinc-800/60">
+          <Card className="overflow-hidden rounded-xl border-2 border-border/70 bg-card shadow-md ring-1 ring-black/4 backdrop-blur-sm dark:border-border/80 dark:bg-card dark:ring-white/6 sm:rounded-2xl">
             <CardHeader className="border-b border-border/40 bg-muted/15 pb-3 dark:border-zinc-800 dark:bg-zinc-900/50">
               <div className="flex items-center gap-2">
                 <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
@@ -176,9 +176,7 @@ export function SchoolAdminAccountTabs() {
                 </span>
                 <div>
                   <CardTitle className="text-base">Profil</CardTitle>
-                  <CardDescription className="text-xs sm:text-sm">
-                    Görünen adınız panoda ve bildirimlerde kullanılır.
-                  </CardDescription>
+                  <CardDescription className="text-xs sm:text-sm">Pano ve bildirimlerde görünen ad.</CardDescription>
                 </div>
               </div>
             </CardHeader>
@@ -192,7 +190,7 @@ export function SchoolAdminAccountTabs() {
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/95 shadow-sm ring-1 ring-border/30 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950/90 dark:ring-zinc-800/60">
+          <Card className="overflow-hidden rounded-xl border-2 border-border/70 bg-card shadow-md ring-1 ring-black/4 backdrop-blur-sm dark:border-border/80 dark:bg-card dark:ring-white/6 sm:rounded-2xl">
             <CardHeader className="border-b border-border/40 bg-muted/15 pb-3 dark:border-zinc-800 dark:bg-zinc-900/50">
               <div className="flex items-center gap-2">
                 <span className="flex size-8 items-center justify-center rounded-lg bg-amber-500/15 text-xs font-bold text-amber-700 dark:text-amber-400">
@@ -203,9 +201,7 @@ export function SchoolAdminAccountTabs() {
                     <KeyRound className="size-4 text-muted-foreground" aria-hidden />
                     Güvenlik — şifre
                   </CardTitle>
-                  <CardDescription className="text-xs sm:text-sm">
-                    Güçlü bir şifre kullanın; paylaşmayın.
-                  </CardDescription>
+                  <CardDescription className="text-xs sm:text-sm">Güçlü şifre, kimseyle paylaşmayın.</CardDescription>
                 </div>
               </div>
             </CardHeader>
@@ -214,7 +210,7 @@ export function SchoolAdminAccountTabs() {
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/95 shadow-sm ring-1 ring-border/30 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950/90 dark:ring-zinc-800/60">
+          <Card className="overflow-hidden rounded-xl border-2 border-border/70 bg-card shadow-md ring-1 ring-black/4 backdrop-blur-sm dark:border-border/80 dark:bg-card dark:ring-white/6 sm:rounded-2xl">
             <CardHeader className="border-b border-border/40 bg-muted/15 pb-3 dark:border-zinc-800 dark:bg-zinc-900/50">
               <div className="flex items-center gap-2">
                 <span className="flex size-8 items-center justify-center rounded-lg bg-emerald-500/15 text-xs font-bold text-emerald-700 dark:text-emerald-400">
@@ -226,7 +222,7 @@ export function SchoolAdminAccountTabs() {
                     Hesabı kapat
                   </CardTitle>
                   <CardDescription className="text-xs sm:text-sm">
-                    Veri indirme için <strong>Yedek</strong> sekmesini kullanın.
+                    Önce veri: <strong>Yedek</strong>.
                   </CardDescription>
                 </div>
               </div>
@@ -239,14 +235,14 @@ export function SchoolAdminAccountTabs() {
       )}
 
       {tab === 'yedek' && (
-        <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/95 shadow-sm ring-1 ring-border/30 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950/90 dark:ring-zinc-800/60">
+        <Card className="overflow-hidden rounded-xl border-2 border-border/70 bg-card shadow-md ring-1 ring-black/4 backdrop-blur-sm dark:border-border/80 dark:bg-card dark:ring-white/6 sm:rounded-2xl">
           <CardHeader className="border-b border-border/40 bg-muted/15 pb-3 dark:border-zinc-800 dark:bg-zinc-900/50">
             <CardTitle className="flex items-center gap-2 text-base">
               <FileDown className="size-4 text-primary" aria-hidden />
-              Veri indirme ve yedek
+              Yedek indir
             </CardTitle>
             <CardDescription className="text-xs sm:text-sm">
-              Modül seçerek JSON yedeği indirin. Henüz tam yedeklenmeyen modüller dosyada işaretlenir.
+              Modül seç, JSON indir. Eksik modüller işaretlenir.
             </CardDescription>
           </CardHeader>
           <CardContent className="p-4 md:p-6">
@@ -277,9 +273,9 @@ export function SchoolAdminAccountTabs() {
                         })
                       }
                       className={cn(
-                        'group relative flex items-center gap-3 rounded-2xl border border-border/60 bg-card/90 p-4 shadow-sm',
-                        'transition-all duration-200 hover:border-primary/45 hover:bg-primary/4 hover:shadow-md',
-                        'active:scale-[0.99] dark:border-zinc-800 dark:bg-zinc-950/80 dark:hover:border-primary/40',
+                        'group relative flex items-center gap-2.5 rounded-xl border-2 border-border/70 bg-card p-3.5 shadow-md ring-1 ring-black/4',
+                        'transition-all duration-200 hover:z-1 hover:border-primary/35 hover:bg-primary/3 hover:shadow-lg',
+                        'active:scale-[0.99] dark:border-border/80 dark:bg-card dark:ring-white/6 dark:hover:border-primary/40 sm:gap-3 sm:p-4',
                       )}
                     >
                       <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted/80 text-foreground ring-1 ring-border/50 transition-colors group-hover:bg-primary/10 group-hover:text-primary dark:bg-zinc-900 dark:ring-zinc-800">

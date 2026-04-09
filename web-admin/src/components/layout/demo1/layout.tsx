@@ -22,6 +22,16 @@ import { GuestPublicShellBottomBar } from './components/guest-public-shell';
  */
 export function Demo1Layout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const pathClean = pathname?.split('?')[0] ?? '';
+  const hideBreadcrumbBar =
+    pathClean === '/sinav-gorev-ucretleri' ||
+    pathClean === '/ek-ders-hesaplama' ||
+    pathClean === '/market' ||
+    pathClean.startsWith('/market/') ||
+    pathClean === '/support' ||
+    pathClean.startsWith('/support/') ||
+    pathClean === '/duty' ||
+    pathClean.startsWith('/duty/');
   const isMobile = useIsMobile();
   const { role, me } = useAuth();
   const moderatorModules = me?.moderator_modules ?? null;
@@ -111,18 +121,25 @@ export function Demo1Layout({ children }: { children: ReactNode }) {
         <main
           id="main-content"
           className={cn(
-            'grow min-h-[calc(100vh-var(--header-height)-2rem)] pt-3 sm:pt-5',
+            'grow min-h-[calc(100vh-var(--header-height)-2rem)]',
+            hideBreadcrumbBar ? 'pt-1 sm:pt-3' : 'pt-3 sm:pt-5',
             showGuestBottomNav ? 'pb-[calc(5rem+env(safe-area-inset-bottom))]' : 'pb-8',
           )}
           role="main"
         >
           <div className="container">
-            {!guestPublicChrome && (
+            {!guestPublicChrome && !hideBreadcrumbBar && (
               <div className="border-b border-border/30 pb-2.5 sm:pb-4">
                 <Breadcrumb guestPublicChrome={false} />
               </div>
             )}
-            <div className={cn(guestPublicChrome ? 'mt-0 space-y-4 sm:space-y-5' : 'mt-3 space-y-4 sm:mt-5 sm:space-y-5')}>
+            <div
+              className={cn(
+                guestPublicChrome ? 'mt-0 space-y-4 sm:space-y-5' : '',
+                !guestPublicChrome && hideBreadcrumbBar && 'mt-1 space-y-3 sm:mt-2 sm:space-y-4',
+                !guestPublicChrome && !hideBreadcrumbBar && 'mt-3 space-y-4 sm:mt-5 sm:space-y-5',
+              )}
+            >
               {!guestPublicChrome ? <ModuleContentGate>{children}</ModuleContentGate> : children}
             </div>
           </div>

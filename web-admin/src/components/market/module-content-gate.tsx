@@ -73,23 +73,42 @@ export function ModuleContentGate({ children }: { children: ReactNode }) {
   const exempt = me?.role === 'superadmin' || me?.role === 'moderator';
 
   const [phase, setPhase] = useState<'idle' | 'loading' | 'ok' | 'blocked'>('idle');
+  /** Ücretli modülde bakiye bilgi kartı: ücretsiz veya satın alınmış etkin modülde gösterilmez */
+  const [moduleActivation, setModuleActivation] = useState<{ free: boolean; active: boolean } | null>(null);
 
   const load = useCallback(async () => {
+    if (!moduleKey) {
+      setPhase('ok');
+      setModuleActivation(null);
+      return;
+    }
     if (!token) {
       setPhase('ok');
+      setModuleActivation(null);
       return;
     }
-    if (exempt || !moduleKey) {
+
+    if (exempt) {
       setPhase('ok');
+      try {
+        const data = await apiFetch<ActivationStatusRes>('/market/modules/activation-status', { token });
+        const row = data.modules[moduleKey];
+        setModuleActivation(row ? { free: row.free, active: row.active } : null);
+      } catch {
+        setModuleActivation(null);
+      }
       return;
     }
+
     setPhase('loading');
     try {
       const data = await apiFetch<ActivationStatusRes>('/market/modules/activation-status', { token });
       const row = data.modules[moduleKey];
+      setModuleActivation(row ? { free: row.free, active: row.active } : null);
       if (!row || row.free || row.active) setPhase('ok');
       else setPhase('blocked');
     } catch {
+      setModuleActivation(null);
       setPhase('ok');
     }
   }, [token, exempt, moduleKey]);
@@ -104,10 +123,13 @@ export function ModuleContentGate({ children }: { children: ReactNode }) {
     return () => window.removeEventListener(MODULE_ACTIVATION_REFRESH_EVENT, on);
   }, [load]);
 
-  if (exempt || !moduleKey) {
+  const hideUsageBalanceBanner =
+    moduleActivation !== null && (moduleActivation.free || moduleActivation.active);
+
+  if (!moduleKey || exempt) {
     return (
       <>
-        <ModuleEntryFeeBanner />
+        {!hideUsageBalanceBanner && <ModuleEntryFeeBanner />}
         {children}
       </>
     );
@@ -132,7 +154,7 @@ export function ModuleContentGate({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <ModuleEntryFeeBanner />
+      {!hideUsageBalanceBanner && <ModuleEntryFeeBanner />}
       {children}
     </>
   );

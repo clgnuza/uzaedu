@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, useRef, Suspense, startTransition } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef, Suspense, startTransition } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth, type Me } from '@/hooks/use-auth';
@@ -8,7 +8,6 @@ import { getApiUrl } from '@/lib/api';
 import { COOKIE_SESSION_TOKEN } from '@/lib/auth-session';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
-import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert } from '@/components/ui/alert';
 import { toast } from 'sonner';
@@ -29,6 +28,7 @@ import {
   ThumbsDownIcon,
   FlagIcon,
   HeartIcon,
+  InfoIcon,
 } from '@/components/icons';
 import { TURKEY_CITIES, getDistrictsForCity } from '@/lib/turkey-addresses';
 import { inclusiveScoreRange, scoreRatio01 } from '@/lib/school-review-score';
@@ -37,6 +37,15 @@ import { RatingBadge } from '@/components/rating-badge';
 import { CriteriaRatingsDisplay } from '@/components/school-reviews/criteria-ratings-display';
 import { SchoolReviewScorePicker } from '@/components/school-reviews/school-review-score-picker';
 import { formatTrDateTimeMedium } from '@/lib/format-tr-datetime';
+import { cn } from '@/lib/utils';
+import { AppShellLoadingCard } from '@/components/ui/app-shell-loading-card';
+
+const FALLBACK_REPORT_REASON_OPTIONS: { value: string; label: string; hint: string }[] = [
+  { value: 'spam', label: 'Spam veya tekrar', hint: 'Çoklanan veya istenmeyen içerik' },
+  { value: 'uygunsuz', label: 'Uygunsuz dil', hint: 'Hakaret, nefret söylemi veya taciz' },
+  { value: 'yanlis_bilgi', label: 'Yanıltıcı bilgi', hint: 'Kasıtlı veya zararlı yanlışlık' },
+  { value: 'diger', label: 'Diğer', hint: 'Kısaca açıklayın' },
+];
 
 type School = {
   id: string;
@@ -89,6 +98,7 @@ type Review = {
 type Question = {
   id: string;
   question: string;
+  status?: 'pending' | 'approved' | 'hidden';
   created_at: string;
   author_display_name: string;
   is_anonymous?: boolean;
@@ -100,6 +110,7 @@ type Question = {
   answers: {
     id: string;
     answer: string;
+    status?: 'pending' | 'approved' | 'hidden';
     created_at: string;
     author_display_name: string;
     is_anonymous?: boolean;
@@ -275,6 +286,133 @@ function formatRelativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
 }
 
+const ACTIVITY_LABELS = {
+  review: 'için değerlendirme yaptı',
+  question: 'hakkında soru sordu',
+  answer: 'hakkında cevap verdi',
+} as const;
+
+const ACTIVITY_SHORT: Record<ActivityItem['type'], string> = {
+  review: 'Değerlendirme',
+  question: 'Soru',
+  answer: 'Cevap',
+};
+
+const ACTIVITY_COLORS = {
+  review: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
+  question: 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-200',
+  answer: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+} as const;
+
+function RecentActivitiesSection({
+  activities,
+  onOpenSchool,
+}: {
+  activities: ActivityItem[];
+  onOpenSchool: (schoolId: string) => void;
+}) {
+  /** Mobilde scrollLeft güvenilir olmadığı için CSS marquee; dokununca kısa duraklat */
+  const [marqueePaused, setMarqueePaused] = useState(false);
+  const marqueePauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (marqueePauseTimerRef.current) clearTimeout(marqueePauseTimerRef.current);
+    };
+  }, []);
+
+  const handleMarqueeTouchStart = () => {
+    setMarqueePaused(true);
+    if (marqueePauseTimerRef.current) {
+      clearTimeout(marqueePauseTimerRef.current);
+      marqueePauseTimerRef.current = null;
+    }
+  };
+
+  const handleMarqueeTouchEnd = () => {
+    if (marqueePauseTimerRef.current) clearTimeout(marqueePauseTimerRef.current);
+    marqueePauseTimerRef.current = setTimeout(() => {
+      setMarqueePaused(false);
+      marqueePauseTimerRef.current = null;
+    }, 1000);
+  };
+
+  if (activities.length === 0) return null;
+
+  const renderActivityButton = (act: ActivityItem, keyPrefix: string) => (
+    <button
+      key={`${keyPrefix}${act.id}`}
+      type="button"
+      onClick={() => onOpenSchool(act.school_id)}
+      className={cn(
+        'shrink-0 shadow-sm transition-all duration-200',
+        'w-[min(17rem,calc(100vw-2.25rem))] rounded-xl px-2.5 py-1.5',
+        'hover:scale-[1.02] hover:shadow-md active:scale-[0.99]',
+        'md:inline-flex md:w-auto md:items-center md:gap-2 md:rounded-2xl md:px-4 md:py-2 md:text-sm',
+        ACTIVITY_COLORS[act.type],
+      )}
+      title={`${act.school_name} detayına git`}
+    >
+      <span className="hidden md:inline-flex md:items-center md:gap-2">
+        <span>
+          Bir kullanıcı <strong>{act.school_name}</strong> {ACTIVITY_LABELS[act.type]}
+        </span>
+        <span className="text-[10px] opacity-75">· {formatRelativeTime(act.created_at)}</span>
+      </span>
+      <span className="flex flex-col gap-0.5 md:hidden">
+        <span className="text-[9px] font-medium uppercase tracking-wide opacity-80">Bir kullanıcı</span>
+        <span className="line-clamp-1 text-[11px] font-semibold leading-tight">{act.school_name}</span>
+        <span className="text-[9px] opacity-80">
+          {ACTIVITY_SHORT[act.type]} · {formatRelativeTime(act.created_at)}
+        </span>
+      </span>
+    </button>
+  );
+
+  return (
+    <div className="border-y border-slate-100 bg-slate-50/50 py-2.5 dark:border-slate-800 dark:bg-slate-900/30 md:py-4">
+      <div className="mx-auto max-w-7xl px-3 sm:px-4 md:px-6">
+        <p className="mb-2 text-center text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 md:mb-3 md:text-xs">
+          Son aktiviteler
+        </p>
+
+        {/* Mobil: içerik iki kez + translate -50% (WebKit scrollLeft sorunu yok) */}
+        <div
+          className="md:hidden overflow-hidden"
+          role="region"
+          aria-label="Son aktiviteler listesi"
+          onTouchStart={handleMarqueeTouchStart}
+          onTouchEnd={handleMarqueeTouchEnd}
+        >
+          {activities.length >= 2 ? (
+            <div
+              className={cn(
+                'flex w-max gap-2',
+                'animate-recent-activities-marquee',
+                marqueePaused && 'pause-recent-activities-marquee',
+              )}
+            >
+              {activities.map((act) => renderActivityButton(act, 'm1-'))}
+              {activities.map((act) => renderActivityButton(act, 'm2-'))}
+            </div>
+          ) : (
+            <div className="flex flex-wrap justify-center gap-2">{activities.map((act) => renderActivityButton(act, 's-'))}</div>
+          )}
+        </div>
+
+        {/* Masaüstü: sarma, marquee yok */}
+        <div
+          className="hidden md:flex md:flex-wrap md:justify-center md:gap-2 md:overflow-visible"
+          role="region"
+          aria-label="Son aktiviteler listesi"
+        >
+          {activities.map((act) => renderActivityButton(act, 'd-'))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OkulDegerlendirmeleriContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -334,6 +472,38 @@ function OkulDegerlendirmeleriContent() {
   const [recentAnswers, setRecentAnswers] = useState<RecentAnswer[]>([]);
   const [selectedListIndex, setSelectedListIndex] = useState(-1);
   const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([]);
+  const [infoOpen, setInfoOpen] = useState<Record<string, boolean>>({});
+  const toggleInfo = useCallback((key: string) => {
+    setInfoOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
+  const recentActivitiesList = useMemo((): ActivityItem[] => {
+    return [
+      ...recentReviews.map((r) => ({
+        id: `r-${r.id}`,
+        school_id: r.school_id,
+        school_name: r.school_name,
+        type: 'review' as const,
+        created_at: r.created_at,
+      })),
+      ...recentQuestions.map((q) => ({
+        id: `q-${q.id}`,
+        school_id: q.school_id,
+        school_name: q.school_name,
+        type: 'question' as const,
+        created_at: q.created_at,
+      })),
+      ...recentAnswers.map((a) => ({
+        id: `a-${a.id}`,
+        school_id: a.school_id,
+        school_name: a.school_name,
+        type: 'answer' as const,
+        created_at: a.created_at,
+      })),
+    ]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 10);
+  }, [recentReviews, recentQuestions, recentAnswers]);
 
   const prevReviewSortRef = useRef(reviewSort);
   const prevQuestionSortRef = useRef(questionSort);
@@ -844,6 +1014,8 @@ function OkulDegerlendirmeleriContent() {
   const [reportReason, setReportReason] = useState<string>('diger');
   const [reportComment, setReportComment] = useState('');
   const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportReasonOptions, setReportReasonOptions] = useState(FALLBACK_REPORT_REASON_OPTIONS);
+  const [reportProfanityFilterActive, setReportProfanityFilterActive] = useState(false);
 
   type LikeDislikeRes = { like_count: number; dislike_count: number; user_has_liked: boolean; user_has_disliked: boolean };
 
@@ -1027,6 +1199,28 @@ function OkulDegerlendirmeleriContent() {
 
   const [favoriting, setFavoriting] = useState(false);
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchApi<{
+      reasons: { value: string; label: string; hint: string }[];
+      profanity_block_active?: boolean;
+    }>('/report-rules', {
+      usePublic: true,
+    })
+      .then((d) => {
+        if (cancelled) return;
+        if (Array.isArray(d.reasons) && d.reasons.length > 0) setReportReasonOptions(d.reasons);
+        if (typeof d.profanity_block_active === 'boolean') setReportProfanityFilterActive(d.profanity_block_active);
+      })
+      .catch(() => {
+        /* varsayılan metinler */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const shareMenuRef = useRef<HTMLDivElement>(null);
   const handleToggleFavorite = async () => {
     if (!token || !selectedSchool) {
@@ -1167,85 +1361,95 @@ function OkulDegerlendirmeleriContent() {
   );
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen w-full min-w-0 overflow-x-clip">
       {/* Hero – modern anasayfa üst alan */}
-      <div className="relative overflow-visible bg-gradient-to-br from-sky-600 via-teal-600 to-emerald-700 dark:from-sky-800 dark:via-teal-800 dark:to-emerald-900">
+      <div className="relative overflow-x-clip bg-gradient-to-br from-sky-600 via-teal-600 to-emerald-700 dark:from-sky-800 dark:via-teal-800 dark:to-emerald-900">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMiIvPjwvZz48L2c+PC9zdmc+')] opacity-50" />
-        <div className="relative mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:py-20">
+        <div className="relative mx-auto w-full min-w-0 max-w-7xl px-3 py-6 sm:px-6 sm:py-12 lg:py-20">
           <div className="text-center">
-            <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-5xl drop-shadow-sm">
-              Okul Değerlendirmeleri
-            </h1>
-            <p className="mx-auto mt-3 max-w-2xl text-lg text-sky-100/90">
-              Türkiye&apos;deki okulları keşfedin. Kullanıcı deneyimlerini okuyun, kendi değerlendirmenizi paylaşın.
-            </p>
+            <div className="flex items-start justify-center gap-1.5 sm:gap-2">
+              <h1 className="text-xl font-bold tracking-tight text-white sm:text-4xl lg:text-5xl drop-shadow-sm">
+                Okul Değerlendirmeleri
+              </h1>
+              {token && (me?.role === 'teacher' || me?.role === 'moderator') && (
+                <Link
+                  href="/favoriler"
+                  className="mt-0.5 shrink-0 rounded-full p-1.5 text-white/90 transition-colors hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/80"
+                  title="Favorilerim"
+                  aria-label="Favorilerim"
+                >
+                  <HeartIcon className="text-white" filled size={22} />
+                </Link>
+              )}
+              <button
+                type="button"
+                onClick={() => toggleInfo('hero')}
+                className="mt-0.5 shrink-0 rounded-full p-1.5 text-white/90 hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/80"
+                aria-expanded={!!infoOpen.hero}
+                aria-label="Sayfa hakkında bilgi"
+              >
+                <InfoIcon className="size-5 sm:size-6" size={22} />
+              </button>
+            </div>
+            {infoOpen.hero && (
+              <p className="mx-auto mt-2 max-w-2xl text-sm text-sky-100/90 sm:mt-3 sm:text-lg">
+                Türkiye&apos;deki okulları keşfedin. Kullanıcı deneyimlerini okuyun, kendi değerlendirmenizi paylaşın.
+              </p>
+            )}
           </div>
 
           {/* İstatistikler */}
           {homeStats && (
-            <div className="mx-auto mt-8 grid max-w-3xl grid-cols-3 gap-4">
-              <div className="rounded-xl bg-white/10 px-4 py-3 text-center backdrop-blur">
-                <SchoolIcon className="mx-auto size-6 text-sky-200" />
-                <p className="mt-1 text-2xl font-bold text-white">{homeStats.school_count.toLocaleString('tr-TR')}</p>
-                <p className="text-xs text-sky-100/80">Okul</p>
+            <div className="mx-auto mt-5 grid max-w-3xl grid-cols-3 gap-2 sm:mt-8 sm:gap-4">
+              <div className="rounded-lg bg-white/10 px-2 py-2 text-center backdrop-blur sm:rounded-xl sm:px-4 sm:py-3">
+                <SchoolIcon className="mx-auto size-5 text-sky-200 sm:size-6" />
+                <p className="mt-0.5 text-base font-bold tabular-nums text-white sm:mt-1 sm:text-2xl">{homeStats.school_count.toLocaleString('tr-TR')}</p>
+                <p className="text-[10px] text-sky-100/80 sm:text-xs">Okul</p>
               </div>
-              <div className="rounded-xl bg-white/10 px-4 py-3 text-center backdrop-blur">
-                <StarIcon className="mx-auto size-6 text-amber-300" filled />
-                <p className="mt-1 text-2xl font-bold text-white">{homeStats.review_count.toLocaleString('tr-TR')}</p>
-                <p className="text-xs text-sky-100/80">Değerlendirme</p>
+              <div className="rounded-lg bg-white/10 px-2 py-2 text-center backdrop-blur sm:rounded-xl sm:px-4 sm:py-3">
+                <StarIcon className="mx-auto size-5 text-amber-300 sm:size-6" filled />
+                <p className="mt-0.5 text-base font-bold tabular-nums text-white sm:mt-1 sm:text-2xl">{homeStats.review_count.toLocaleString('tr-TR')}</p>
+                <p className="text-[10px] text-sky-100/80 sm:text-xs">Değerlendirme</p>
               </div>
-              <div className="rounded-xl bg-white/10 px-4 py-3 text-center backdrop-blur">
-                <MessageIcon className="mx-auto size-6 text-emerald-200" />
-                <p className="mt-1 text-2xl font-bold text-white">{homeStats.question_count.toLocaleString('tr-TR')}</p>
-                <p className="text-xs text-sky-100/80">Soru</p>
+              <div className="rounded-lg bg-white/10 px-2 py-2 text-center backdrop-blur sm:rounded-xl sm:px-4 sm:py-3">
+                <MessageIcon className="mx-auto size-5 text-emerald-200 sm:size-6" />
+                <p className="mt-0.5 text-base font-bold tabular-nums text-white sm:mt-1 sm:text-2xl">{homeStats.question_count.toLocaleString('tr-TR')}</p>
+                <p className="text-[10px] text-sky-100/80 sm:text-xs">Soru</p>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Son aktivite baloncukları – KVK: "Bir kullanıcı", kişi/yorum metni yok */}
-      {(() => {
-        const activities: ActivityItem[] = [
-          ...recentReviews.map((r) => ({ id: `r-${r.id}`, school_id: r.school_id, school_name: r.school_name, type: 'review' as const, created_at: r.created_at })),
-          ...recentQuestions.map((q) => ({ id: `q-${q.id}`, school_id: q.school_id, school_name: q.school_name, type: 'question' as const, created_at: q.created_at })),
-          ...recentAnswers.map((a) => ({ id: `a-${a.id}`, school_id: a.school_id, school_name: a.school_name, type: 'answer' as const, created_at: a.created_at })),
-        ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 10);
+      {/* Son aktivite baloncukları – KVK: "Bir kullanıcı", kişi/yorum metni yok; mobilde yatay otomatik kaydırma */}
+      <RecentActivitiesSection
+        activities={recentActivitiesList}
+        onOpenSchool={(id) => {
+          void fetchSchoolDetail(id);
+        }}
+      />
 
-        const labels = { review: 'için değerlendirme yaptı', question: 'hakkında soru sordu', answer: 'hakkında cevap verdi' };
-        const colors = { review: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200', question: 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-200', answer: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200' };
-
-        if (activities.length === 0) return null;
-        return (
-          <div className="border-y border-slate-100 bg-slate-50/50 py-4 dark:border-slate-800 dark:bg-slate-900/30">
-            <div className="mx-auto max-w-7xl px-4 sm:px-6">
-              <p className="mb-3 text-center text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Son aktiviteler</p>
-              <div className="flex flex-wrap justify-center gap-2">
-                {activities.map((act) => (
-                  <button
-                    key={act.id}
-                    type="button"
-                    onClick={() => fetchSchoolDetail(act.school_id)}
-                    className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-md ${colors[act.type]}`}
-                    title={`${act.school_name} detayına git`}
-                  >
-                    <span>Bir kullanıcı <strong>{act.school_name}</strong> {labels[act.type]}</span>
-                    <span className="text-[10px] opacity-75">· {formatRelativeTime(act.created_at)}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+      <div className="mx-auto w-full min-w-0 max-w-7xl px-3 py-3 sm:px-4 sm:py-6 lg:px-6">
       {/* Arama – hero dışında, renk hiyerarşisi */}
-      <Card className="mb-4 border-slate-200/80 shadow-sm dark:border-slate-800 bg-white/80 dark:bg-slate-900/50 backdrop-blur-sm">
-          <CardContent className="p-4">
-            <p className="mb-3 text-xs font-medium text-slate-500 dark:text-slate-400" role="status">
-              Okul adı yazın veya il / ilçe seçerek filtreleyin
-            </p>
+      <Card className="mb-3 border-slate-200/80 shadow-sm dark:border-slate-800 bg-white/80 dark:bg-slate-900/50 backdrop-blur-sm sm:mb-4">
+          <CardContent className="p-3 sm:p-4">
+            <div className="mb-2 flex items-center gap-2 sm:mb-3">
+              <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 sm:text-xs">Arama ve filtre</span>
+              <button
+                type="button"
+                onClick={() => toggleInfo('search')}
+                className="rounded-full p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                aria-expanded={!!infoOpen.search}
+                aria-label="Arama hakkında bilgi"
+              >
+                <InfoIcon className="size-4" size={16} />
+              </button>
+            </div>
+            {infoOpen.search && (
+              <p className="mb-2 text-[11px] text-slate-500 dark:text-slate-400 sm:mb-3 sm:text-xs" role="status">
+                Okul adı yazın veya il / ilçe seçerek filtreleyin
+              </p>
+            )}
             {recentSearches.length > 0 && (
               <div className="mb-3 flex flex-wrap gap-2">
                 {recentSearches.filter((r) => r.search.trim() || r.city || r.district).map((r, i) => (
@@ -1335,13 +1539,13 @@ function OkulDegerlendirmeleriContent() {
       {/* Arama sonucu bilgisi – ton farkı */}
       {!moduleDisabled && !loading && (
         <div
-          className="mb-4 rounded-lg border border-slate-200/60 bg-slate-50 px-4 py-2.5 dark:border-slate-700/50 dark:bg-slate-800/30"
+          className="mb-3 rounded-lg border border-slate-200/60 bg-slate-50 px-3 py-2 dark:border-slate-700/50 dark:bg-slate-800/30 sm:mb-4 sm:px-4 sm:py-2.5"
           aria-live="polite"
         >
-          <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+          <p className="text-xs font-medium text-slate-700 dark:text-slate-300 sm:text-sm">
             Arama sonucu: <span className="text-sky-600 dark:text-sky-400">{total.toLocaleString('tr-TR')}</span> okul bulundu.
             {schools.length > 0 && (
-              <span className="ml-2 text-slate-500 dark:text-slate-400">
+              <span className="ml-2 hidden text-slate-500 dark:text-slate-400 sm:inline">
                 Aşağıdaki listeden seçerek detayları görüntüleyebilirsiniz.
               </span>
             )}
@@ -1360,13 +1564,13 @@ function OkulDegerlendirmeleriContent() {
       ) : null}
 
       {!moduleDisabled && (
-      <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
+      <div className="grid min-w-0 max-w-full gap-4 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)] lg:gap-6">
         {/* Sol: Modern keşif paneli */}
-        <aside className="flex flex-col lg:sticky lg:top-6 lg:max-h-[calc(100vh-8rem)] overflow-y-auto">
-          <div className="space-y-5 rounded-2xl border border-slate-200/80 bg-white shadow-lg shadow-slate-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:shadow-slate-950/50 backdrop-blur-sm">
-            {/* Hızlı istatistikler */}
+        <aside className="flex min-w-0 flex-col overflow-x-clip lg:sticky lg:top-6 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto">
+          <div className="space-y-3 rounded-xl border border-slate-200/80 bg-white shadow-md shadow-slate-200/40 dark:border-slate-700/60 dark:bg-slate-900/60 dark:shadow-slate-950/50 backdrop-blur-sm sm:space-y-5 lg:rounded-2xl lg:shadow-lg">
+            {/* Hızlı istatistikler (masaüstü; mobilde hero ile çakışmasın) */}
             {homeStats && (
-              <div className="grid grid-cols-3 gap-2 px-4 pt-5">
+              <div className="hidden grid-cols-3 gap-2 px-4 pt-5 lg:grid">
                 <div className="rounded-xl bg-gradient-to-br from-sky-500/10 to-teal-500/10 px-3 py-2.5 text-center dark:from-sky-500/15 dark:to-teal-500/15">
                   <SchoolIcon className="mx-auto size-5 text-sky-600 dark:text-sky-400" />
                   <p className="mt-1 text-lg font-bold text-slate-800 dark:text-white tabular-nums">{homeStats.school_count.toLocaleString('tr-TR')}</p>
@@ -1386,26 +1590,39 @@ function OkulDegerlendirmeleriContent() {
             )}
 
             {/* Arama sonucu – Okul listesi */}
-            <section className="px-4">
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className="flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-white">
-                  <SchoolIcon className="size-4 text-sky-500" />
-                  Okul listesi
-                </h3>
+            <section className="px-3 pt-3 sm:px-4 sm:pt-5 lg:pt-0">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+                  <h3 className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-white sm:gap-2 sm:text-sm">
+                    <SchoolIcon className="size-3.5 text-sky-500 sm:size-4" />
+                    Okul listesi
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => toggleInfo('schoolList')}
+                    className="shrink-0 rounded-full p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                    aria-expanded={!!infoOpen.schoolList}
+                    aria-label="Okul listesi hakkında bilgi"
+                  >
+                    <InfoIcon className="size-3.5" size={14} />
+                  </button>
+                </div>
                 {!loading && (
                   <span className="rounded-full bg-sky-500/15 px-2.5 py-0.5 text-xs font-semibold text-sky-700 dark:bg-sky-400/20 dark:text-sky-300">
                     {total.toLocaleString('tr-TR')} sonuç
                   </span>
                 )}
               </div>
-              <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">Arama veya filtre ile bulun, listeden seçin.</p>
+              {infoOpen.schoolList && (
+                <p className="mb-2 text-[11px] text-slate-500 dark:text-slate-400 sm:mb-3 sm:text-xs">Arama veya filtre ile bulun, listeden seçin.</p>
+              )}
             </section>
             <div className="border-t border-slate-100 dark:border-slate-800">
               {loading ? (
-                <div className="space-y-1 p-4" role="status" aria-label="Okul listesi yükleniyor">
+                <div className="space-y-2 p-3 sm:p-4" role="status" aria-label="Okul listesi yükleniyor">
                   {[1, 2, 3, 4, 5, 6, 7].map((i) => (
-                    <div key={i} className="flex gap-3 rounded-lg p-3">
-                      <Skeleton className="h-5 flex-1 max-w-[70%]" />
+                    <div key={i} className="flex gap-3 rounded-md border-b border-slate-100 pb-3 last:border-b-0 dark:border-slate-800">
+                      <Skeleton className="h-5 min-h-[1.25rem] flex-1 max-w-[70%]" />
                       <Skeleton className="h-3 w-16 shrink-0" />
                     </div>
                   ))}
@@ -1419,7 +1636,7 @@ function OkulDegerlendirmeleriContent() {
                   aria-label="Okul listesi"
                   tabIndex={0}
                   onKeyDown={handleListKeyDown}
-                  className="max-h-[280px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                  className="max-h-[min(240px,42vh)] overflow-y-auto overscroll-y-contain outline-none focus-visible:ring-2 focus-visible:ring-primary/30 sm:max-h-[280px]"
                 >
                   {schools.map((s, idx) => {
                     const sw = s as SchoolWithStats;
@@ -1431,17 +1648,15 @@ function OkulDegerlendirmeleriContent() {
                         role="option"
                         aria-selected={isSelected}
                         aria-label={`${s.name}${s.city ? `, ${s.city}` : ''}${sw.avg_rating != null ? `, ${sw.avg_rating.toFixed(1)} puan` : ''}`}
-                        className={`cursor-pointer px-4 py-3.5 transition-all duration-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
+                        className={`cursor-pointer border-b border-slate-100 px-3 py-3 transition-colors last:border-b-0 dark:border-slate-800 sm:px-4 ${
                           isSelected
-                            ? 'bg-gradient-to-r from-sky-50 to-teal-50/50 border-l-4 border-l-sky-500 dark:from-sky-950/40 dark:to-teal-950/20 dark:border-l-sky-400'
-                            : isFocused
-                            ? 'bg-slate-50 dark:bg-slate-800/70'
-                            : ''
-                        }`}
+                            ? 'border-l-4 border-l-sky-500 bg-gradient-to-r from-sky-50 to-teal-50/50 dark:border-l-sky-400 dark:from-sky-950/40 dark:to-teal-950/20'
+                            : 'border-l-4 border-l-transparent hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                        } ${!isSelected && isFocused ? 'bg-slate-50 dark:bg-slate-800/70' : ''}`}
                         onClick={() => fetchSchoolDetail(s.id)}
                       >
-                        <div className="font-semibold text-slate-900 dark:text-white">{s.name}</div>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+                        <div className="break-words font-semibold leading-snug text-slate-900 dark:text-white">{s.name}</div>
+                        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
                           {s.city && <span>{s.city}</span>}
                           {s.district && <span>· {s.district}</span>}
                           {sw.avg_rating != null && (
@@ -1475,7 +1690,7 @@ function OkulDegerlendirmeleriContent() {
 
             {/* En çok görüntülenen okullar */}
             {topSchools.length > 0 && (
-              <section className="border-t border-slate-100 px-4 py-4 dark:border-slate-800">
+              <section className="hidden border-t border-slate-100 px-4 py-4 dark:border-slate-800 lg:block">
                 <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-white">
                   <TrendingUpIcon className="size-4 text-amber-500" />
                   En çok görüntülenen
@@ -1518,7 +1733,7 @@ function OkulDegerlendirmeleriContent() {
 
             {/* Popüler yorumlar */}
             {recentReviews.length > 0 && (
-              <section className="border-t border-slate-100 px-4 py-4 dark:border-slate-800">
+              <section className="hidden border-t border-slate-100 px-4 py-4 dark:border-slate-800 lg:block">
                 <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-white">
                   <StarIcon className="size-4 text-amber-500" filled />
                   Popüler yorumlar
@@ -1548,7 +1763,7 @@ function OkulDegerlendirmeleriContent() {
 
             {/* Son sorulan sorular */}
             {recentQuestions.length > 0 && (
-              <section className="border-t border-slate-100 px-4 py-4 dark:border-slate-800">
+              <section className="hidden border-t border-slate-100 px-4 py-4 dark:border-slate-800 lg:block">
                 <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-white">
                   <HelpIcon className="size-4 text-teal-500" />
                   Son sorulan sorular
@@ -1571,7 +1786,7 @@ function OkulDegerlendirmeleriContent() {
             )}
 
             {/* Nasıl kullanılır */}
-            <section className="rounded-b-2xl border-t border-slate-100 bg-slate-50/50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/30">
+            <section className="hidden rounded-b-2xl border-t border-slate-100 bg-slate-50/50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/30 lg:block">
               <h3 className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
                 <HelpIcon className="size-3.5" aria-hidden />
                 Nasıl kullanılır?
@@ -1586,13 +1801,13 @@ function OkulDegerlendirmeleriContent() {
         </aside>
 
         {/* Sağ: Okul detay */}
-        <div ref={detailSectionRef} className="space-y-6">
+        <div ref={detailSectionRef} className="min-w-0 max-w-full space-y-4 overflow-x-clip lg:space-y-6">
           {selectedSchool ? (
-            <div className="space-y-6">
-              <Card className="overflow-hidden border-slate-200/80 shadow-md dark:border-slate-700/50">
-                <div className="bg-gradient-to-br from-slate-50 via-slate-50/80 to-sky-50/50 dark:from-slate-900/50 dark:via-slate-900/30 dark:to-sky-950/30 px-6 py-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">{selectedSchool.name}</h2>
+            <div className="min-w-0 space-y-4 lg:space-y-6">
+              <Card className="min-w-0 overflow-hidden border-slate-200/80 shadow-md dark:border-slate-700/50">
+                <div className="min-w-0 bg-gradient-to-br from-slate-50 via-slate-50/80 to-sky-50/50 dark:from-slate-900/50 dark:via-slate-900/30 dark:to-sky-950/30 px-4 py-4 sm:px-6 sm:py-5">
+                  <div className="flex min-w-0 items-start justify-between gap-3 sm:gap-4">
+                    <h2 className="min-w-0 flex-1 break-words text-base font-bold leading-snug text-slate-900 dark:text-white sm:text-xl">{selectedSchool.name}</h2>
                     <div className="flex shrink-0 items-center gap-1">
                       {isLoggedIn && (
                         <button
@@ -1656,9 +1871,9 @@ function OkulDegerlendirmeleriContent() {
                       </div>
                     </div>
                   </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-4 text-sm">
+                  <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600 dark:text-slate-400 sm:mt-3 sm:gap-4 sm:text-sm">
                     {selectedSchool.city && (
-                      <span className="text-slate-600 dark:text-slate-400">{selectedSchool.city}</span>
+                      <span>{selectedSchool.city}</span>
                     )}
                     {selectedSchool.district && (
                       <span className="flex items-center gap-1 text-slate-600 dark:text-slate-400">
@@ -1687,18 +1902,18 @@ function OkulDegerlendirmeleriContent() {
                   </div>
                 </div>
                 {selectedSchool.criteria_averages && Object.keys(selectedSchool.criteria_averages).length > 0 && (
-                  <CardContent className="space-y-3 pt-5">
+                  <CardContent className="min-w-0 space-y-3 pt-5">
                     <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Kriter ortalamaları</p>
-                    <div className="space-y-2">
+                    <div className="min-w-0 space-y-2">
                       {(selectedSchool.criteria || [])
                         .filter((c) => selectedSchool.criteria_averages?.[c.slug] != null)
                         .map((c) => (
-                          <div key={c.id} className="space-y-1">
-                            <div className="flex justify-between text-xs">
-                              <span className="text-slate-600 dark:text-slate-400">{c.label}</span>
-                              <span className="font-medium">{(selectedSchool.criteria_averages?.[c.slug] ?? 0).toFixed(1)}</span>
+                          <div key={c.id} className="min-w-0 space-y-1">
+                            <div className="flex min-w-0 justify-between gap-2 text-xs">
+                              <span className="min-w-0 flex-1 break-words text-slate-600 dark:text-slate-400">{c.label}</span>
+                              <span className="shrink-0 font-medium tabular-nums">{(selectedSchool.criteria_averages?.[c.slug] ?? 0).toFixed(1)}</span>
                             </div>
-                            <div className="h-2 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-700/50">
+                            <div className="h-2 min-w-0 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-700/50">
                               <div
                                 className="h-full rounded-full bg-gradient-to-r from-sky-400 to-teal-400 dark:from-sky-500/80 dark:to-teal-500/80 transition-all duration-500"
                                 style={{
@@ -1723,7 +1938,7 @@ function OkulDegerlendirmeleriContent() {
               <div
                 role="tablist"
                 aria-label="İçerik sekmeleri"
-                className="flex gap-1 rounded-xl border border-slate-200 bg-slate-100/80 p-1 dark:border-slate-700 dark:bg-slate-800/50"
+                className="flex min-w-0 gap-1 rounded-xl border border-slate-200 bg-slate-100/80 p-1 dark:border-slate-700 dark:bg-slate-800/50"
               >
                 <button
                   type="button"
@@ -1732,7 +1947,7 @@ function OkulDegerlendirmeleriContent() {
                   aria-controls="reviews-panel"
                   id="tab-reviews"
                   onClick={() => setActiveTab('reviews')}
-                  className={`flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-2 text-center text-xs font-semibold transition-all sm:flex-row sm:gap-1.5 sm:px-4 sm:py-2.5 sm:text-sm ${
+                  className={`flex min-h-[44px] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-2 text-center text-xs font-semibold transition-all sm:flex-row sm:gap-1.5 sm:px-4 sm:py-2.5 sm:text-sm ${
                     activeTab === 'reviews'
                       ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-white'
                       : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
@@ -1750,7 +1965,7 @@ function OkulDegerlendirmeleriContent() {
                   aria-controls="questions-panel"
                   id="tab-questions"
                   onClick={() => setActiveTab('questions')}
-                  className={`flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-2 text-center text-xs font-semibold transition-all sm:flex-row sm:gap-1.5 sm:px-4 sm:py-2.5 sm:text-sm ${
+                  className={`flex min-h-[44px] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-2 text-center text-xs font-semibold transition-all sm:flex-row sm:gap-1.5 sm:px-4 sm:py-2.5 sm:text-sm ${
                     activeTab === 'questions'
                       ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-white'
                       : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
@@ -1767,7 +1982,7 @@ function OkulDegerlendirmeleriContent() {
                 <div id="reviews-panel" role="tabpanel" aria-labelledby="tab-reviews">
                   <Card
                     ref={ownReviewCardRef}
-                    className="overflow-hidden border-slate-200/80 shadow-sm dark:border-slate-700/80"
+                    className="min-w-0 overflow-hidden border-slate-200/80 shadow-sm dark:border-slate-700/80"
                   >
                     <CardHeader className="border-b border-slate-100 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-5">
                       <div className="flex gap-2.5">
@@ -1775,17 +1990,30 @@ function OkulDegerlendirmeleriContent() {
                           <StarIcon className="size-4" filled aria-hidden />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <CardTitle className="text-sm font-semibold tracking-tight text-slate-900 dark:text-white sm:text-base">
-                            {!isLoggedIn
-                              ? 'Bu Okula Değerlendirme Gönder'
-                              : !reviewListReady
-                                ? 'Değerlendirme'
-                                : !ownReview
-                                  ? 'Bu Okula Değerlendirme Gönder'
-                                  : isEditingOwnReview
-                                    ? 'Değerlendirmenizi düzenleyin'
-                                    : 'Değerlendirmeniz'}
-                          </CardTitle>
+                          <div className="flex items-start gap-2">
+                            <CardTitle className="min-w-0 flex-1 text-sm font-semibold tracking-tight text-slate-900 dark:text-white sm:text-base">
+                              {!isLoggedIn
+                                ? 'Bu Okula Değerlendirme Gönder'
+                                : !reviewListReady
+                                  ? 'Değerlendirme'
+                                  : !ownReview
+                                    ? 'Bu Okula Değerlendirme Gönder'
+                                    : isEditingOwnReview
+                                      ? 'Değerlendirmenizi düzenleyin'
+                                      : 'Değerlendirmeniz'}
+                            </CardTitle>
+                            {isLoggedIn && reviewListReady && (
+                              <button
+                                type="button"
+                                onClick={() => toggleInfo('reviewHelp')}
+                                className="shrink-0 rounded-full p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                                aria-expanded={!!infoOpen.reviewHelp}
+                                aria-label="Değerlendirme hakkında bilgi"
+                              >
+                                <InfoIcon className="size-4" size={16} />
+                              </button>
+                            )}
+                          </div>
                           {!isLoggedIn ? (
                             <div className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50/90 p-3 dark:bg-amber-950/40">
                               <LogInIcon className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" />
@@ -1802,13 +2030,15 @@ function OkulDegerlendirmeleriContent() {
                               Mevcut değerlendirmeniz kontrol ediliyor…
                             </p>
                           ) : (
-                            <p className="mt-1 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
-                              {ownReview
-                                ? isEditingOwnReview
-                                  ? 'Puanları ve yorumu güncelleyin; kaydettiğinizde liste yenilenir.'
-                                  : 'Yalnızca genel ortalama görünür; tüm maddeler «Değerlendirmeyi düzenle» veya listedeki «Düzenle» ile açılır.'
-                                : 'Her kritere dokunarak puanlayın; yorum isteğe bağlıdır. İsterseniz anonim paylaşabilirsiniz.'}
-                            </p>
+                            infoOpen.reviewHelp && (
+                              <p className="mt-1 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                                {ownReview
+                                  ? isEditingOwnReview
+                                    ? 'Puanları ve yorumu güncelleyin; kaydettiğinizde liste yenilenir.'
+                                    : 'Yalnızca genel ortalama görünür; tüm maddeler «Değerlendirmeyi düzenle» veya listedeki «Düzenle» ile açılır.'
+                                  : 'Her kritere dokunarak puanlayın; yorum isteğe bağlıdır. İsterseniz anonim paylaşabilirsiniz.'}
+                              </p>
+                            )
                           )}
                         </div>
                       </div>
@@ -1937,14 +2167,29 @@ function OkulDegerlendirmeleriContent() {
                     )}
                   </Card>
 
-                  <Card className="border-slate-200/80 shadow-sm dark:border-slate-800">
-                    <CardHeader>
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <CardTitle className="text-base">Puan ve Yorumlar</CardTitle>
-                          <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">Bu okula yapılan puan ve yorumlar. İsim gizleyenler &quot;Anonim kullanıcı&quot; olarak görünür.</p>
+                  <Card className="min-w-0 overflow-x-hidden border-slate-200/80 shadow-sm dark:border-slate-800">
+                    <CardHeader className="min-w-0 space-y-0 px-3 sm:px-6">
+                      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start gap-2">
+                            <CardTitle className="min-w-0 flex-1 text-base">Puan ve Yorumlar</CardTitle>
+                            <button
+                              type="button"
+                              onClick={() => toggleInfo('reviewsList')}
+                              className="shrink-0 rounded-full p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                              aria-expanded={!!infoOpen.reviewsList}
+                              aria-label="Bu bölüm hakkında bilgi"
+                            >
+                              <InfoIcon className="size-4" size={16} />
+                            </button>
+                          </div>
+                          {infoOpen.reviewsList && (
+                            <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">
+                              Bu okula yapılan puan ve yorumlar. İsim gizleyenler &quot;Anonim kullanıcı&quot; olarak görünür.
+                            </p>
+                          )}
                         </div>
-                        <div className="shrink-0">
+                        <div className="min-w-0 w-full sm:w-auto sm:max-w-[min(100%,280px)] sm:shrink-0">
                           <label htmlFor="review-sort" className="sr-only">
                             Yorumları sırala
                           </label>
@@ -1952,7 +2197,7 @@ function OkulDegerlendirmeleriContent() {
                             id="review-sort"
                             value={reviewSort}
                             onChange={(e) => setReviewSort(e.target.value as typeof reviewSort)}
-                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                            className="w-full min-w-0 max-w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                             aria-label="Yorumları sırala"
                           >
                             <option value="newest">En yeniler</option>
@@ -1963,7 +2208,7 @@ function OkulDegerlendirmeleriContent() {
                         </div>
                       </div>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="min-w-0 overflow-x-hidden px-3 sm:px-6">
                       {detailListsLoading && reviews.items.length === 0 ? (
                         <div className="space-y-3 py-4" aria-busy="true" aria-label="Yorumlar yükleniyor">
                           <Skeleton className="h-24 w-full rounded-lg" />
@@ -1973,13 +2218,15 @@ function OkulDegerlendirmeleriContent() {
                       ) : reviews.items.length === 0 ? (
                         <p className="py-8 text-center text-sm text-slate-500">Bu okula henüz puan veya yorum yazılmamış. İlk değerlendirmeyi siz yapın!</p>
                       ) : (
-                        <ul className="space-y-5 divide-y divide-slate-100 dark:divide-slate-800">
+                        <ul className="min-w-0 space-y-5 divide-y divide-slate-100 dark:divide-slate-800">
                           {reviews.items.map((r) => (
-                            <li key={r.id} className="pt-5 first:pt-0">
+                            <li key={r.id} className="min-w-0 pt-5 first:pt-0">
                               <>
-                                  <div className="flex items-center justify-between text-xs text-slate-500">
-                                    <span>{r.is_anonymous ? 'Anonim kullanıcı' : r.author_display_name}</span>
-                                    <div className="flex items-center gap-2">
+                                  <div className="flex min-w-0 flex-col gap-2 text-xs text-slate-500 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                                    <span className="min-w-0 wrap-break-word sm:truncate">
+                                      {r.is_anonymous ? 'Anonim kullanıcı' : r.author_display_name}
+                                    </span>
+                                    <div className="flex min-w-0 w-full flex-wrap items-center gap-x-2 gap-y-1 sm:w-auto sm:max-w-[min(100%,100vw-2rem)] sm:justify-end">
                                       {r.is_own && isLoggedIn && (
                                         <>
                                           {isEditingOwnReview && ownReview?.id === r.id ? (
@@ -2028,40 +2275,33 @@ function OkulDegerlendirmeleriContent() {
                                       )}
                                     </div>
                                   </div>
-                                  <div className="mt-2 space-y-2">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      {r.criteria_ratings &&
-                                      selectedSchool.criteria &&
-                                      Object.keys(r.criteria_ratings).length > 0 ? (
-                                        <>
-                                          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                                            Genel ortalama
-                                          </span>
-                                          <RatingBadge rating={r.rating} max={10} size="sm" />
-                                        </>
-                                      ) : (
+                                  <div className="mt-2 min-w-0 max-w-full">
+                                    {r.criteria_ratings && Object.keys(r.criteria_ratings).length > 0 ? (
+                                      <CriteriaRatingsDisplay
+                                        variant="public"
+                                        headerRating={{ value: r.rating, max: 10 }}
+                                        criteriaRatings={r.criteria_ratings}
+                                        criteria={selectedSchool.criteria ?? undefined}
+                                      />
+                                    ) : (
+                                      <div className="flex flex-wrap items-center gap-2">
                                         <RatingBadge rating={r.rating} max={10} size="sm" />
-                                      )}
-                                    </div>
-                                    <CriteriaRatingsDisplay
-                                      variant="public"
-                                      criteriaRatings={r.criteria_ratings}
-                                      criteria={selectedSchool.criteria ?? undefined}
-                                    />
+                                      </div>
+                                    )}
                                   </div>
                                   {r.comment && (
-                                    <p className="mt-3 rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2 text-sm leading-relaxed text-slate-700 dark:border-slate-700/80 dark:bg-slate-800/50 dark:text-slate-200">
+                                    <p className="mt-3 min-w-0 wrap-break-word rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2 text-sm leading-relaxed text-slate-700 dark:border-slate-700/80 dark:bg-slate-800/50 dark:text-slate-200">
                                       {r.comment}
                                     </p>
                                   )}
-                                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                                  <div className="mt-2 flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-2">
                                     {!r.is_own && (
                                       <>
                                         <button
                                           type="button"
                                           onClick={() => handleToggleLike(r.id)}
                                           disabled={likingId === r.id}
-                                          className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
+                                          className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
                                             r.user_has_liked
                                               ? 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/50 dark:text-sky-300 dark:hover:bg-sky-800/50'
                                               : 'bg-slate-100 text-slate-600 hover:bg-sky-100 hover:text-sky-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-sky-900/30 dark:hover:text-sky-400'
@@ -2077,7 +2317,7 @@ function OkulDegerlendirmeleriContent() {
                                           type="button"
                                           onClick={() => handleToggleDislike(r.id)}
                                           disabled={dislikingId === r.id}
-                                          className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
+                                          className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
                                             r.user_has_disliked
                                               ? 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/50 dark:text-rose-300 dark:hover:bg-rose-800/50'
                                               : 'bg-slate-100 text-slate-600 hover:bg-rose-100 hover:text-rose-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-rose-900/30 dark:hover:text-rose-400'
@@ -2091,8 +2331,8 @@ function OkulDegerlendirmeleriContent() {
                                         </button>
                                         <button
                                           type="button"
-                                          onClick={() => { setReportTarget({ type: 'review', id: r.id }); setReportReason('diger'); setReportComment(''); }}
-                                          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                                          onClick={() => { setReportTarget({ type: 'review', id: r.id }); setReportReason(reportReasonOptions[0]?.value ?? 'diger'); setReportComment(''); }}
+                                          className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-300"
                                           aria-label="Uygunsuz içerik bildir"
                                           title="Uygunsuz içerik bildir"
                                         >
@@ -2130,7 +2370,20 @@ function OkulDegerlendirmeleriContent() {
                 <div id="questions-panel" role="tabpanel" aria-labelledby="tab-questions">
                   <Card className="border-slate-200/80 shadow-sm dark:border-slate-800">
                     <CardHeader>
-                      <CardTitle className="text-base">Bu Okul Hakkında Soru Sor</CardTitle>
+                      <div className="flex items-start gap-2">
+                        <CardTitle className="min-w-0 flex-1 text-base">Bu Okul Hakkında Soru Sor</CardTitle>
+                        {isLoggedIn && (
+                          <button
+                            type="button"
+                            onClick={() => toggleInfo('askQuestion')}
+                            className="shrink-0 rounded-full p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                            aria-expanded={!!infoOpen.askQuestion}
+                            aria-label="Soru sorma hakkında bilgi"
+                          >
+                            <InfoIcon className="size-4" size={16} />
+                          </button>
+                        )}
+                      </div>
                       {!isLoggedIn ? (
                         <div className="mt-2 flex items-center gap-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/50 p-4">
                           <LogInIcon className="size-5 text-amber-600 dark:text-amber-400" />
@@ -2144,7 +2397,9 @@ function OkulDegerlendirmeleriContent() {
                         </div>
                       ) : (
                         <>
-                          <p className="text-sm text-slate-600 dark:text-slate-400">Merak ettiğiniz konuları sorun, diğer kullanıcılar cevap verebilir.</p>
+                          {infoOpen.askQuestion && (
+                            <p className="text-sm text-slate-600 dark:text-slate-400">Merak ettiğiniz konuları sorun, diğer kullanıcılar cevap verebilir.</p>
+                          )}
                           <div className="mt-3 space-y-3">
                             <textarea
                               value={questionForm}
@@ -2176,14 +2431,29 @@ function OkulDegerlendirmeleriContent() {
                     </CardHeader>
                   </Card>
 
-                  <Card className="border-slate-200/80 shadow-sm dark:border-slate-800">
-                    <CardHeader>
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <CardTitle className="text-base">Sorulan Sorular ve Cevaplar</CardTitle>
-                          <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">Okul hakkında sorulan sorular ve kullanıcıların verdiği cevaplar. Giriş yaparak siz de cevap verebilirsiniz.</p>
+                  <Card className="min-w-0 overflow-x-hidden border-slate-200/80 shadow-sm dark:border-slate-800">
+                    <CardHeader className="min-w-0 px-3 sm:px-6">
+                      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start gap-2">
+                            <CardTitle className="min-w-0 flex-1 text-base">Sorulan Sorular ve Cevaplar</CardTitle>
+                            <button
+                              type="button"
+                              onClick={() => toggleInfo('qaList')}
+                              className="shrink-0 rounded-full p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                              aria-expanded={!!infoOpen.qaList}
+                              aria-label="Bu bölüm hakkında bilgi"
+                            >
+                              <InfoIcon className="size-4" size={16} />
+                            </button>
+                          </div>
+                          {infoOpen.qaList && (
+                            <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">
+                              Okul hakkında sorulan sorular ve kullanıcıların verdiği cevaplar. Giriş yaparak siz de cevap verebilirsiniz.
+                            </p>
+                          )}
                         </div>
-                        <div className="shrink-0">
+                        <div className="min-w-0 w-full sm:w-auto sm:max-w-[min(100%,260px)] sm:shrink-0">
                           <label htmlFor="question-sort" className="sr-only">
                             Soruları sırala
                           </label>
@@ -2191,7 +2461,7 @@ function OkulDegerlendirmeleriContent() {
                             id="question-sort"
                             value={questionSort}
                             onChange={(e) => setQuestionSort(e.target.value as typeof questionSort)}
-                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                            className="w-full min-w-0 max-w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                             aria-label="Soruları sırala"
                           >
                             <option value="newest">En yeniler</option>
@@ -2201,7 +2471,7 @@ function OkulDegerlendirmeleriContent() {
                         </div>
                       </div>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="min-w-0 overflow-x-hidden px-3 sm:px-6">
                       {detailListsLoading && questions.items.length === 0 ? (
                         <div className="space-y-3 py-4" aria-busy="true" aria-label="Sorular yükleniyor">
                           <Skeleton className="h-28 w-full rounded-xl" />
@@ -2210,12 +2480,15 @@ function OkulDegerlendirmeleriContent() {
                       ) : questions.items.length === 0 ? (
                         <p className="py-8 text-center text-sm text-slate-500">Bu okul hakkında henüz soru sorulmamış. Merak ettiğiniz konuyu ilk siz sorun!</p>
                       ) : (
-                        <ul className="space-y-5">
+                        <ul className="min-w-0 space-y-5">
                           {questions.items.map((q) => (
-                            <li key={q.id} className="rounded-xl border border-slate-200/80 bg-slate-50/30 dark:border-slate-700/50 dark:bg-slate-800/30 overflow-hidden">
-                              <div className="px-4 py-3">
+                            <li
+                              key={q.id}
+                              className="min-w-0 max-w-full overflow-hidden rounded-xl border border-sky-200/45 bg-gradient-to-b from-sky-50/70 via-sky-50/25 to-white shadow-sm dark:border-sky-800/35 dark:from-sky-950/40 dark:via-sky-950/15 dark:to-slate-900/50"
+                            >
+                              <div className="min-w-0 px-3 py-3.5 sm:px-4">
                                 {editingQuestionId === q.id && editQuestionForm !== null ? (
-                                  <div className="space-y-3 rounded-lg border border-sky-200/60 bg-sky-50/30 p-3 dark:border-sky-800/50 dark:bg-sky-950/20">
+                                  <div className="space-y-3 rounded-lg border border-sky-200/70 bg-sky-50/60 p-3 dark:border-sky-700/50 dark:bg-sky-950/35">
                                     <textarea
                                       value={editQuestionForm}
                                       onChange={(e) => setEditQuestionForm(e.target.value)}
@@ -2243,14 +2516,21 @@ function OkulDegerlendirmeleriContent() {
                                   </div>
                                 ) : (
                                   <>
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-teal-700 dark:text-teal-400">
-                                      Soru
-                                    </p>
-                                    <p className="mt-1 text-base font-semibold leading-snug text-slate-800 dark:text-slate-100">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-700/90 dark:text-sky-300/90">
+                                        Soru
+                                      </p>
+                                      {q.status === 'pending' && (
+                                        <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-500/15 dark:text-amber-100">
+                                          Onay bekliyor
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="mt-1.5 min-w-0 wrap-break-word text-base font-semibold leading-snug text-slate-800 dark:text-slate-100">
                                       {q.question}
                                     </p>
-                                    <div className="mt-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                      <span>{q.is_anonymous ? 'Anonim kullanıcı' : q.author_display_name}</span>
+                                    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                                      <span className="min-w-0 wrap-break-word">{q.is_anonymous ? 'Anonim kullanıcı' : q.author_display_name}</span>
                                       <span>·</span>
                                       <time dateTime={q.created_at}>
                                         {formatTrDateTimeMedium(q.created_at)}
@@ -2282,12 +2562,12 @@ function OkulDegerlendirmeleriContent() {
                                       )}
                                     </div>
                                     {!q.is_own && (
-                                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                                      <div className="mt-2 flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-2">
                                         <button
                                           type="button"
                                           onClick={() => handleToggleQuestionLike(q.id)}
                                           disabled={likingQuestionId === q.id}
-                                          className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
+                                          className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
                                             q.user_has_liked
                                               ? 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/50 dark:text-sky-300 dark:hover:bg-sky-800/50'
                                               : 'bg-slate-100 text-slate-600 hover:bg-sky-100 hover:text-sky-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-sky-900/30 dark:hover:text-sky-400'
@@ -2303,7 +2583,7 @@ function OkulDegerlendirmeleriContent() {
                                           type="button"
                                           onClick={() => handleToggleQuestionDislike(q.id)}
                                           disabled={dislikingQuestionId === q.id}
-                                          className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
+                                          className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
                                             q.user_has_disliked
                                               ? 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/50 dark:text-rose-300 dark:hover:bg-rose-800/50'
                                               : 'bg-slate-100 text-slate-600 hover:bg-rose-100 hover:text-rose-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-rose-900/30 dark:hover:text-rose-400'
@@ -2317,8 +2597,8 @@ function OkulDegerlendirmeleriContent() {
                                         </button>
                                         <button
                                           type="button"
-                                          onClick={() => { setReportTarget({ type: 'question', id: q.id }); setReportReason('diger'); setReportComment(''); }}
-                                          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                                          onClick={() => { setReportTarget({ type: 'question', id: q.id }); setReportReason(reportReasonOptions[0]?.value ?? 'diger'); setReportComment(''); }}
+                                          className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-300"
                                           aria-label="Uygunsuz içerik bildir"
                                           title="Uygunsuz içerik bildir"
                                         >
@@ -2347,16 +2627,16 @@ function OkulDegerlendirmeleriContent() {
                                 )}
                               </div>
                               {q.answers.length > 0 && (
-                                <div className="space-y-2 border-t border-slate-200/80 bg-emerald-50/50 dark:border-slate-700/50 dark:bg-emerald-950/20 px-4 py-3">
-                                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                                <div className="min-w-0 space-y-2.5 border-t border-emerald-200/35 bg-gradient-to-b from-emerald-50/55 to-teal-50/35 px-3 py-3.5 sm:px-4 dark:border-emerald-800/25 dark:from-emerald-950/30 dark:to-teal-950/15">
+                                  <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800/85 dark:text-emerald-300/90">
                                     Yanıtlar ({q.answers.length})
                                   </p>
                                   {q.answers.map((a, ai) => (
                                     <div
                                       key={a.id}
-                                      className="flex gap-3 rounded-lg border border-emerald-200/70 bg-white px-3 py-2.5 dark:border-emerald-800/50 dark:bg-slate-800/50"
+                                      className="flex min-w-0 max-w-full gap-2.5 rounded-lg border border-emerald-200/40 bg-white/85 px-2.5 py-2.5 shadow-[0_1px_0_0_rgba(16,185,129,0.06)] sm:gap-3 sm:px-3 dark:border-emerald-800/35 dark:bg-emerald-950/25"
                                     >
-                                      <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-600/12 text-xs font-bold text-emerald-900 dark:bg-emerald-500/20 dark:text-emerald-100">
+                                      <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-bold text-emerald-900 dark:bg-emerald-400/15 dark:text-emerald-100">
                                         {ai + 1}
                                       </div>
                                       <div className="min-w-0 flex-1">
@@ -2389,9 +2669,18 @@ function OkulDegerlendirmeleriContent() {
                                         </div>
                                       ) : (
                                         <>
-                                          <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">{a.answer}</p>
-                                          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
-                                            <span className="font-medium">
+                                          <div className="flex flex-wrap items-start gap-2">
+                                            <p className="min-w-0 flex-1 wrap-break-word text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+                                              {a.answer}
+                                            </p>
+                                            {a.status === 'pending' && (
+                                              <span className="shrink-0 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-500/15 dark:text-amber-100">
+                                                Onay bekliyor
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-emerald-800/80 dark:text-emerald-400/95">
+                                            <span className="min-w-0 font-medium wrap-break-word">
                                               {a.is_anonymous ? 'Anonim kullanıcı' : a.author_display_name}
                                             </span>
                                             <span>·</span>
@@ -2422,14 +2711,14 @@ function OkulDegerlendirmeleriContent() {
                                               </>
                                             )}
                                           </div>
-                                          <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-emerald-200/50 pt-2 dark:border-emerald-800/40">
+                                          <div className="mt-2 flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-2 border-t border-emerald-200/35 pt-2 dark:border-emerald-800/30">
                                             {!a.is_own && (
                                               <>
                                                 <button
                                                   type="button"
                                                   onClick={() => handleToggleAnswerLike(a.id, q.id)}
                                                   disabled={likingAnswerId === a.id}
-                                                  className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+                                                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-50 ${
                                                     a.user_has_liked
                                                       ? 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/50 dark:text-sky-300 dark:hover:bg-sky-800/50'
                                                       : 'bg-slate-100 text-slate-600 hover:bg-sky-100 hover:text-sky-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-sky-900/30 dark:hover:text-sky-400'
@@ -2445,7 +2734,7 @@ function OkulDegerlendirmeleriContent() {
                                                   type="button"
                                                   onClick={() => handleToggleAnswerDislike(a.id, q.id)}
                                                   disabled={dislikingAnswerId === a.id}
-                                                  className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+                                                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-50 ${
                                                     a.user_has_disliked
                                                       ? 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/50 dark:text-rose-300 dark:hover:bg-rose-800/50'
                                                       : 'bg-slate-100 text-slate-600 hover:bg-rose-100 hover:text-rose-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-rose-900/30 dark:hover:text-rose-400'
@@ -2459,8 +2748,8 @@ function OkulDegerlendirmeleriContent() {
                                                 </button>
                                                 <button
                                                   type="button"
-                                                  onClick={() => { setReportTarget({ type: 'answer', id: a.id, questionId: q.id }); setReportReason('diger'); setReportComment(''); }}
-                                                  className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                                                  onClick={() => { setReportTarget({ type: 'answer', id: a.id, questionId: q.id }); setReportReason(reportReasonOptions[0]?.value ?? 'diger'); setReportComment(''); }}
+                                                  className="inline-flex shrink-0 items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-300"
                                                   aria-label="Uygunsuz içerik bildir"
                                                   title="Uygunsuz içerik bildir"
                                                 >
@@ -2493,10 +2782,10 @@ function OkulDegerlendirmeleriContent() {
                                   ))}
                                 </div>
                               )}
-                              <div className="border-t border-slate-200/80 px-4 py-3 dark:border-slate-700/50">
+                              <div className="min-w-0 border-t border-violet-200/30 bg-violet-50/35 px-3 py-3 dark:border-violet-800/25 dark:bg-violet-950/15 sm:px-4">
                                 {isLoggedIn ? (
                                   <div className="space-y-2">
-                                    <div className="flex gap-2">
+                                    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch">
                                       <input
                                         type="text"
                                         value={answerForms[q.id] ?? ''}
@@ -2504,13 +2793,13 @@ function OkulDegerlendirmeleriContent() {
                                           setAnswerForms((f) => ({ ...f, [q.id]: e.target.value }))
                                         }
                                         placeholder="Bu soruya cevap yazın..."
-                                        className="flex-1 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm dark:border-slate-700 dark:bg-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                                        className="min-w-0 w-full flex-1 rounded-lg border border-violet-200/50 bg-white/90 px-3 py-2.5 text-sm shadow-sm dark:border-violet-800/40 dark:bg-slate-900/80 sm:px-4 focus:border-primary focus:ring-2 focus:ring-primary/20"
                                       />
                                       <button
                                         type="button"
                                         onClick={() => handleSubmitAnswer(q.id)}
                                         disabled={submittingAnswer === q.id || !(answerForms[q.id]?.trim())}
-                                        className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                                        className="shrink-0 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 sm:min-w-[7.5rem]"
                                       >
                                         {submittingAnswer === q.id ? '…' : 'Cevap Ver'}
                                       </button>
@@ -2546,7 +2835,7 @@ function OkulDegerlendirmeleriContent() {
               )}
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="min-w-0 space-y-4 lg:space-y-6">
               {detailLoading ? (
                 <Card className="border-slate-200/80 shadow-sm dark:border-slate-800">
                   <CardContent className="p-6">
@@ -2575,20 +2864,33 @@ function OkulDegerlendirmeleriContent() {
                   {/* Orta alan: Seçili filtreye göre kullanışlı içerik */}
                   {debouncedCity || debouncedDistrict ? (
                     /* Bölge seçili – il/ilçe özeti ve en iyi puanlılar */
-                    <div className="space-y-6">
-                      <div className="rounded-2xl border border-sky-200/80 bg-gradient-to-br from-sky-50/80 to-teal-50/50 px-6 py-5 dark:border-sky-800/50 dark:from-sky-950/40 dark:to-teal-950/30">
-                        <h2 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-white">
-                          <SchoolIcon className="size-5 text-sky-500" />
-                          {[debouncedCity, debouncedDistrict].filter(Boolean).join(', ')}
-                        </h2>
-                        <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-                          Bu bölgede <span className="font-semibold text-sky-600 dark:text-sky-400">{total.toLocaleString('tr-TR')}</span> okul bulundu.
-                          {schools.length > 0 && (
-                            <span className="ml-1">
-                              Soldaki listeden seçin veya aşağıdaki en iyi puanlı okullara göz atın.
-                            </span>
-                          )}
-                        </p>
+                    <div className="space-y-4 sm:space-y-6">
+                      <div className="rounded-xl border border-sky-200/80 bg-gradient-to-br from-sky-50/80 to-teal-50/50 px-4 py-4 dark:border-sky-800/50 dark:from-sky-950/40 dark:to-teal-950/30 sm:rounded-2xl sm:px-6 sm:py-5">
+                        <div className="flex items-start gap-2">
+                          <h2 className="flex min-w-0 flex-1 items-center gap-2 text-base font-bold text-slate-800 dark:text-white sm:text-lg">
+                            <SchoolIcon className="size-5 shrink-0 text-sky-500" />
+                            {[debouncedCity, debouncedDistrict].filter(Boolean).join(', ')}
+                          </h2>
+                          <button
+                            type="button"
+                            onClick={() => toggleInfo('regionExplore')}
+                            className="shrink-0 rounded-full p-1 text-slate-500 hover:bg-sky-100/80 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-sky-950/50"
+                            aria-expanded={!!infoOpen.regionExplore}
+                            aria-label="Bölge özeti hakkında bilgi"
+                          >
+                            <InfoIcon className="size-4" size={16} />
+                          </button>
+                        </div>
+                        {infoOpen.regionExplore && (
+                          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+                            Bu bölgede <span className="font-semibold text-sky-600 dark:text-sky-400">{total.toLocaleString('tr-TR')}</span> okul bulundu.
+                            {schools.length > 0 && (
+                              <span className="ml-1">
+                                Soldaki listeden seçin veya aşağıdaki en iyi puanlı okullara göz atın.
+                              </span>
+                            )}
+                          </p>
+                        )}
                       </div>
 
                       {schools.length > 0 ? (
@@ -2636,15 +2938,28 @@ function OkulDegerlendirmeleriContent() {
                     </div>
                   ) : (
                     /* Filtre yok – hızlı il seçimi ve keşif */
-                    <div className="space-y-6">
-                      <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50 to-sky-50/30 px-6 py-8 dark:border-slate-700 dark:from-slate-900/50 dark:to-sky-950/20">
-                        <h2 className="text-center text-xl font-bold text-slate-800 dark:text-white">
-                          İl veya ilçe seçerek keşfe başlayın
-                        </h2>
-                        <p className="mt-2 text-center text-sm text-slate-600 dark:text-slate-400">
-                          Aşağıdaki illere tıklayın veya yukarıdaki aramada okul adı yazın.
-                        </p>
-                        <div className="mt-6 flex flex-wrap justify-center gap-2">
+                    <div className="space-y-4 sm:space-y-6">
+                      <div className="rounded-xl border border-slate-200/80 bg-gradient-to-br from-slate-50 to-sky-50/30 px-4 py-5 dark:border-slate-700 dark:from-slate-900/50 dark:to-sky-950/20 sm:rounded-2xl sm:px-6 sm:py-8">
+                        <div className="flex items-start justify-center gap-2">
+                          <h2 className="text-center text-lg font-bold text-slate-800 dark:text-white sm:text-xl">
+                            İl veya ilçe seçerek keşfe başlayın
+                          </h2>
+                          <button
+                            type="button"
+                            onClick={() => toggleInfo('cityExplore')}
+                            className="shrink-0 rounded-full p-1 text-slate-500 hover:bg-slate-200/80 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                            aria-expanded={!!infoOpen.cityExplore}
+                            aria-label="Keşif hakkında bilgi"
+                          >
+                            <InfoIcon className="size-4" size={16} />
+                          </button>
+                        </div>
+                        {infoOpen.cityExplore && (
+                          <p className="mt-2 text-center text-xs text-slate-600 dark:text-slate-400 sm:text-sm">
+                            Aşağıdaki illere tıklayın veya yukarıdaki aramada okul adı yazın.
+                          </p>
+                        )}
+                        <div className="mt-4 flex flex-wrap justify-center gap-1.5 sm:mt-6 sm:gap-2">
                           {['İstanbul', 'Ankara', 'İzmir', 'Antalya', 'Bursa', 'Adana', 'Konya', 'Gaziantep', 'Kocaeli', 'Mersin'].map((c) => (
                             <button
                               key={c}
@@ -2661,13 +2976,13 @@ function OkulDegerlendirmeleriContent() {
                                 setRecentSearches(loadRecentSearches());
                                 router.replace(`${PAGE_PATH}?city=${encodeURIComponent(c)}`, { scroll: false });
                               }}
-                              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-all duration-200 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700 hover:shadow-md dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-sky-600 dark:hover:bg-sky-950/50"
+                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-all duration-200 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700 hover:shadow-md dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-sky-600 dark:hover:bg-sky-950/50 sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm"
                             >
                               {c}
                             </button>
                           ))}
                         </div>
-                        <p className="mt-4 text-center text-xs text-slate-500 dark:text-slate-400">
+                        <p className="mt-3 text-center text-[11px] text-slate-500 dark:text-slate-400 sm:mt-4 sm:text-xs">
                           Veya yukarıdaki il / ilçe seçicisinden istediğiniz bölgeyi seçin.
                         </p>
                       </div>
@@ -2692,46 +3007,80 @@ function OkulDegerlendirmeleriContent() {
       </div>
 
       <Dialog open={!!reportTarget} onOpenChange={(open) => !open && setReportTarget(null)}>
-        <DialogContent title="Uygunsuz İçerik Bildir">
-          <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
-            Bu içeriğin neden uygunsuz olduğunu seçin. Bildiriminiz incelenecektir.
-          </p>
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="report-reason" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                Sebep
-              </label>
-              <select
-                id="report-reason"
-                value={reportReason}
-                onChange={(e) => setReportReason(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm dark:border-slate-700 dark:bg-slate-900"
-              >
-                <option value="spam">Spam veya tekrarlayan içerik</option>
-                <option value="uygunsuz">Uygunsuz, hakaret veya nefret söylemi</option>
-                <option value="yanlis_bilgi">Yanıltıcı veya yanlış bilgi</option>
-                <option value="diger">Diğer</option>
-              </select>
+        <DialogContent
+          title="İçeriği bildir"
+          descriptionId="report-dialog-description"
+          className="max-w-[min(100vw-1.5rem,26rem)] overflow-hidden border-slate-200/80 bg-background shadow-2xl ring-1 ring-slate-900/[0.04] dark:border-slate-700/70 dark:bg-slate-950 dark:ring-white/[0.06]"
+        >
+          <div className="space-y-5">
+            <div className="flex gap-3 rounded-2xl border border-rose-200/50 bg-gradient-to-br from-rose-50/90 to-orange-50/40 p-3.5 dark:border-rose-900/40 dark:from-rose-950/50 dark:to-orange-950/25">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-rose-500/15 text-rose-700 shadow-inner dark:bg-rose-500/20 dark:text-rose-200">
+                <FlagIcon className="size-5" aria-hidden />
+              </div>
+              <p id="report-dialog-description" className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+                Ekibimiz bildirimi inceleyecektir. Yanlış veya kötü niyetli bildirimler hesabınızı riske atabilir.
+              </p>
             </div>
+
             <div>
-              <label htmlFor="report-comment" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                Açıklama (isteğe bağlı)
-              </label>
+              <p className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Sebep seçin
+              </p>
+              <div className="grid gap-2" role="radiogroup" aria-label="Bildir sebebi">
+                {reportReasonOptions.map((opt) => {
+                  const selected = reportReason === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => setReportReason(opt.value)}
+                      className={cn(
+                        'flex w-full flex-col items-start rounded-xl border px-3.5 py-3 text-left transition-all duration-200',
+                        selected
+                          ? 'border-primary/60 bg-primary/[0.07] shadow-[0_0_0_1px] shadow-primary/25 ring-2 ring-primary/20 dark:bg-primary/15'
+                          : 'border-slate-200/90 bg-white hover:border-slate-300 hover:bg-slate-50/80 dark:border-slate-700 dark:bg-slate-900/60 dark:hover:border-slate-600 dark:hover:bg-slate-800/80',
+                      )}
+                    >
+                      <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{opt.label}</span>
+                      <span className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{opt.hint}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-2 flex items-end justify-between gap-2">
+                <label htmlFor="report-comment" className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Açıklama <span className="font-normal normal-case text-slate-400">(isteğe bağlı)</span>
+                </label>
+                <span className="text-[11px] tabular-nums text-slate-400 dark:text-slate-500">
+                  {reportComment.length}/500
+                </span>
+              </div>
               <textarea
                 id="report-comment"
                 value={reportComment}
-                onChange={(e) => setReportComment(e.target.value)}
-                rows={2}
+                onChange={(e) => setReportComment(e.target.value.slice(0, 500))}
+                rows={3}
                 maxLength={500}
-                placeholder="Ek bilgi ekleyebilirsiniz..."
-                className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+                placeholder="İsterseniz kısa not ekleyin…"
+                className="w-full resize-none rounded-xl border border-slate-200/90 bg-white px-3.5 py-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
+              {reportProfanityFilterActive && (
+                <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                  Yönetici listesi açıksa, not alanı da aynı kurallara tabidir.
+                </p>
+              )}
             </div>
-            <div className="flex justify-end gap-2">
+
+            <div className="flex flex-col-reverse gap-2 border-t border-slate-200/80 pt-4 dark:border-slate-800 sm:flex-row sm:justify-end sm:gap-3">
               <button
                 type="button"
                 onClick={() => setReportTarget(null)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium dark:border-slate-700"
+                className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
               >
                 İptal
               </button>
@@ -2739,9 +3088,9 @@ function OkulDegerlendirmeleriContent() {
                 type="button"
                 onClick={handleReport}
                 disabled={reportSubmitting}
-                className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 px-5 text-sm font-semibold text-white shadow-lg shadow-rose-500/25 transition hover:from-rose-500 hover:to-rose-600 disabled:opacity-50 dark:shadow-rose-900/40"
               >
-                {reportSubmitting ? 'Gönderiliyor…' : 'Gönder'}
+                {reportSubmitting ? 'Gönderiliyor…' : 'Bildirimi gönder'}
               </button>
             </div>
           </div>
@@ -2751,16 +3100,25 @@ function OkulDegerlendirmeleriContent() {
   );
 }
 
-export default function OkulDegerlendirmeleriPage() {
+/** useSearchParams Suspense: auth yüklendikten sonra kısa süre; kart RouteGuard ile aynı bileşen */
+function OkulDegerlendirmeleriSuspenseFallback() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-4">
-          <LoadingSpinner className="size-10 text-primary" />
-          <p className="text-sm text-slate-500 dark:text-slate-400">Yükleniyor...</p>
+    <AppShellLoadingCard
+      title="Okul değerlendirmeleri"
+      subtitle="Yükleniyor…"
+      hint="Sayfa bileşenleri hazırlanıyor. Liste ve filtreler birkaç saniye içinde yüklenecek."
+      leading={
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-teal-600 text-white shadow-md ring-2 ring-white/40 dark:ring-white/10">
+          <SchoolIcon className="size-5" aria-hidden />
         </div>
       }
-    >
+    />
+  );
+}
+
+export default function OkulDegerlendirmeleriPage() {
+  return (
+    <Suspense fallback={<OkulDegerlendirmeleriSuspenseFallback />}>
       <OkulDegerlendirmeleriContent />
     </Suspense>
   );

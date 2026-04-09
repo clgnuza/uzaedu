@@ -30,23 +30,33 @@ import {
   type WebPublicConfig,
   type WebPublicHeaderShellStyle,
 } from '@/components/web-settings/web-public-panel';
-import { getApiUrl } from '@/lib/api';
+import { fetchWebPublicPartial } from '@/lib/fetch-web-public';
 import type { GuestPublicWebShellNav } from '@/lib/web-extras-public';
 import { GuestPublicShellTopBar } from './guest-public-shell';
 
+/** Üst şerit: neon atmosfer + cam — logo ile uyumlu */
 function headerShellClassName(
   style: WebPublicHeaderShellStyle,
   opts?: { loggedInScrollbarPad?: boolean },
 ): string {
+  const neonGlassBg =
+    'border-b border-border/45 bg-[radial-gradient(ellipse_110%_90%_at_8%_-48%,rgba(251,113,133,0.2),transparent_56%),radial-gradient(ellipse_100%_78%_at_96%_-40%,rgba(34,211,238,0.16),transparent_54%),radial-gradient(ellipse_75%_55%_at_52%_118%,rgba(139,92,246,0.1),transparent_52%),linear-gradient(180deg,color-mix(in_srgb,var(--color-background)_84%,transparent)_0%,color-mix(in_srgb,var(--color-background)_70%,transparent)_100%)] backdrop-blur-xl supports-backdrop-filter:backdrop-blur-2xl dark:bg-[radial-gradient(ellipse_115%_92%_at_6%_-46%,rgba(251,113,133,0.28),transparent_58%),radial-gradient(ellipse_105%_80%_at_98%_-36%,rgba(34,211,238,0.22),transparent_55%),radial-gradient(ellipse_80%_58%_at_50%_120%,rgba(167,139,250,0.16),transparent_52%),linear-gradient(180deg,color-mix(in_srgb,var(--color-background)_78%,transparent)_0%,color-mix(in_srgb,var(--color-background)_62%,transparent)_100%)]';
+  const neonGlassShadow =
+    'shadow-[0_1px_0_0_rgba(0,0,0,0.06),inset_0_1px_0_0_rgba(255,255,255,0.1)] dark:border-border/55 dark:shadow-[0_1px_0_0_rgba(255,255,255,0.07),inset_0_1px_0_0_rgba(255,255,255,0.05)]';
+
   return cn(
-    'header relative fixed top-0 z-30 start-0 end-0 flex h-(--header-height) shrink-0 items-stretch print:hidden',
+    'header relative isolate fixed top-0 z-30 start-0 end-0 flex h-(--header-height) shrink-0 items-stretch print:hidden',
     opts?.loggedInScrollbarPad && 'pe-(--removed-body-scroll-bar-size,0px)',
-    style === 'solid' && 'border-b border-border bg-background shadow-sm',
-    style === 'minimal' && 'border-b border-border/35 bg-background/70 backdrop-blur-md',
+    style === 'solid' &&
+      'border-b border-border bg-[radial-gradient(ellipse_90%_70%_at_12%_-35%,rgba(251,113,133,0.1),transparent_50%),radial-gradient(ellipse_85%_65%_at_88%_-30%,rgba(34,211,238,0.08),transparent_48%),linear-gradient(180deg,var(--color-background)_0%,color-mix(in_srgb,var(--color-background)_96%,#fafafa)_100%)] shadow-sm dark:bg-[radial-gradient(ellipse_95%_75%_at_10%_-38%,rgba(251,113,133,0.16),transparent_52%),radial-gradient(ellipse_90%_70%_at_92%_-32%,rgba(34,211,238,0.12),transparent_50%),linear-gradient(180deg,var(--color-background)_0%,color-mix(in_srgb,var(--color-background)_94%,#0a0a0c)_100%)]',
+    style === 'minimal' &&
+      cn(
+        'border-b border-border/40 bg-[radial-gradient(ellipse_100%_85%_at_10%_-42%,rgba(251,113,133,0.14),transparent_54%),radial-gradient(ellipse_95%_72%_at_94%_-36%,rgba(34,211,238,0.11),transparent_52%),linear-gradient(180deg,color-mix(in_srgb,var(--color-background)_76%,transparent)_0%,color-mix(in_srgb,var(--color-background)_64%,transparent)_100%)] backdrop-blur-md',
+        neonGlassShadow,
+      ),
     style === 'brand' &&
-      'border-b border-primary/30 bg-gradient-to-b from-primary/[0.09] to-background shadow-sm dark:from-primary/[0.14]',
-    style === 'glass' &&
-      'border-b border-border/40 bg-background/80 backdrop-blur-xl supports-backdrop-filter:bg-background/70 shadow-[0_1px_0_0_rgba(0,0,0,0.05)] dark:border-border dark:shadow-[0_1px_0_0_rgba(255,255,255,0.06)]',
+      'border-b border-primary/35 bg-[radial-gradient(ellipse_95%_80%_at_15%_-45%,rgba(251,113,133,0.18),transparent_55%),radial-gradient(ellipse_90%_70%_at_90%_-38%,rgba(34,211,238,0.14),transparent_52%),linear-gradient(to_bottom,color-mix(in_srgb,var(--primary)_12%,var(--color-background))_0%,var(--color-background)_100%)] shadow-sm dark:bg-[radial-gradient(ellipse_100%_85%_at_12%_-42%,rgba(251,113,133,0.22),transparent_56%),radial-gradient(ellipse_95%_75%_at_92%_-35%,rgba(34,211,238,0.18),transparent_54%),linear-gradient(to_bottom,color-mix(in_srgb,var(--primary)_18%,var(--color-background))_0%,var(--color-background)_100%)]',
+    style === 'glass' && cn(neonGlassBg, neonGlassShadow),
   );
 }
 
@@ -55,7 +65,7 @@ type SidebarTheme = 'light' | 'dark';
 
 function guestPublicBrandSubtitle(pathname: string): string {
   const p = (pathname || '').split('?')[0] || '';
-  if (p === '/extra-lesson-calc') return 'Ek ders ücreti hesaplama';
+  if (p === '/ek-ders-hesaplama') return 'Ek ders ücreti hesaplama';
   if (p === '/hesaplamalar') return 'Hesaplamalar';
   if (p === '/sinav-gorev-ucretleri') return 'Sınav görev ücretleri';
   if (p === '/haberler/yayin') return 'Yayın';
@@ -99,8 +109,7 @@ export function Header({
   > | null>(null);
 
   useEffect(() => {
-    fetch(getApiUrl('/content/web-public'), { cache: 'no-store', credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : null))
+    fetchWebPublicPartial()
       .then((d: Partial<WebPublicConfig> | null) => {
         if (!d) return;
         const st = d.header_shell_style;
@@ -243,28 +252,36 @@ export function Header({
       ) : null}
       <Container className="flex w-full items-center justify-between gap-2 sm:gap-4">
         {/* Sol: mobil menü + logo */}
-        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
           {isMobile && (
             <Sheet open={sidebarSheetOpen} onOpenChange={setSidebarSheetOpen}>
               <SheetTrigger asChild>
                 <button
                   type="button"
-                  className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className="rounded-xl p-2.5 text-muted-foreground transition-[color,transform,background-color] hover:bg-muted/80 hover:text-foreground active:scale-[0.97]"
                   aria-label="Menüyü aç"
                 >
-                  <Menu className="size-5" />
+                  <Menu className="size-[1.125rem] stroke-[1.75]" />
                 </button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-[275px] p-0">
-                <SheetBody className="p-0 overflow-y-auto">
-                  <SidebarMenu role={role} moderatorModules={moderatorModules} schoolEnabledModules={schoolEnabledModules} />
+              <SheetContent
+                side="left"
+                className="!w-[min(78vw,188px)] !max-w-[188px] gap-0 border-r p-0"
+              >
+                <SheetBody className="overflow-y-auto p-0">
+                  <SidebarMenu
+                    role={role}
+                    moderatorModules={moderatorModules}
+                    schoolEnabledModules={schoolEnabledModules}
+                    compact
+                  />
                 </SheetBody>
               </SheetContent>
             </Sheet>
           )}
           <Link
             href="/dashboard"
-            className="min-w-0 max-w-[min(100%,160px)] shrink-0 rounded-xl px-1 py-0.5 transition-opacity hover:opacity-90 sm:max-w-[min(100%,200px)] lg:hidden"
+            className="min-w-0 max-w-[min(100%,180px)] shrink-0 rounded-xl px-1.5 py-1 transition-opacity hover:opacity-90 sm:max-w-[min(100%,220px)] lg:hidden"
             aria-label="Dashboard"
           >
             <AdminShellLogoHeaderMobile subtitle={logoSubtitleConfigured || undefined} />

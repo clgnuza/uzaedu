@@ -10,7 +10,27 @@ import {
   shouldDispatchModuleActivationForCurrentPath,
 } from './module-activation-events';
 
-const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000/api';
+/** Aynı makinedeki backend: tarayıcı hangi hosttan açıldıysa (LAN, emülatör 10.0.2.2, localhost) API de o host + APP_PORT. */
+function isLikelyDevMachineHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  if (h === 'localhost' || h === '127.0.0.1' || h === '10.0.2.2') return true;
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  return /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(h);
+}
+
+export function resolveDefaultApiBase(): string {
+  const fromEnv = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  if (fromEnv) return fromEnv;
+  if (typeof window !== 'undefined') {
+    const h = window.location.hostname;
+    const p = process.env.NEXT_PUBLIC_API_PORT?.trim() || '4000';
+    if (isLikelyDevMachineHost(h)) {
+      return `http://${h}:${p}/api`;
+    }
+  }
+  return 'http://localhost:4000/api';
+}
 
 /** Bağlantı hatası sayılacak hata mesajı parçacıkları (HTTP yanıtı alındıysa buraya düşmez) */
 const CONNECTION_ERROR_PATTERNS = [
@@ -41,7 +61,7 @@ const CONNECTION_ERROR_MESSAGE =
   'Backend bağlantısı kurulamadı. Önce backend\'i başlatın (backend: npm run start:dev), birkaç saniye bekleyip sayfayı yenileyin.';
 
 export function getApiUrl(path: string): string {
-  return buildApiUrl(path, baseUrl);
+  return buildApiUrl(path, resolveDefaultApiBase());
 }
 
 /** İsteğe bağlı farklı API kökü (ör. yerel geliştirmede sadece /deploy için canlı API). */
@@ -52,16 +72,6 @@ export function buildApiUrl(path: string, apiRoot: string): string {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-function getRetryAfterMs(res: Response): number | null {
-  const raw = res.headers.get('retry-after');
-  if (!raw) return null;
-  const seconds = Number(raw);
-  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
-  const dateMs = Date.parse(raw);
-  if (Number.isFinite(dateMs)) return Math.max(0, dateMs - Date.now());
-  return null;
-}
 
 export interface ApiError extends Error {
   code?: string;
@@ -106,7 +116,8 @@ export async function apiFetch<T>(
   options: RequestInit & { token?: string | null; apiBase?: string | null } = {}
 ): Promise<T> {
   const { token, apiBase, ...init } = options;
-  const requestBase = (apiBase != null && String(apiBase).trim() !== '' ? String(apiBase).trim() : null) ?? baseUrl;
+  const requestBase =
+    (apiBase != null && String(apiBase).trim() !== '' ? String(apiBase).trim() : null) ?? resolveDefaultApiBase();
   const isFormData = init.body instanceof FormData;
   const headers: Record<string, string> = {
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
@@ -126,14 +137,6 @@ export async function apiFetch<T>(
         credentials: init.credentials ?? 'include',
       });
       if (!res.ok) {
-        if (
-          res.status === 429 &&
-          attempt < maxAttempts &&
-          (init.method == null || /^(GET|HEAD)$/i.test(init.method))
-        ) {
-          await sleep(getRetryAfterMs(res) ?? 400 * attempt);
-          continue;
-        }
         const body = (await res.json().catch(() => ({}))) as {
           message?: string | string[];
           code?: string;

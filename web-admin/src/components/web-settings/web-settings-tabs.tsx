@@ -14,11 +14,13 @@ import {
   ShieldCheck,
   Bot,
   LayoutPanelLeft,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { YayinSeoPanel } from './yayin-seo-panel';
 import { R2SettingsPanel } from './r2-settings-panel';
 import { MailSettingsPanel } from './mail-settings-panel';
+import { MailTemplatesPanel } from './mail-templates-panel';
 import { WebPublicPanel } from './web-public-panel';
 import { LegalPageEditPanel } from './legal-page-edit-panel';
 import { WebExtrasPanel } from './web-extras-panel';
@@ -36,6 +38,7 @@ const TABS = [
   { id: 'sartlar', label: 'Şartlar', icon: ScrollText },
   { id: 'cerez', label: 'Çerez', icon: Cookie },
   { id: 'mail', label: 'Mail', icon: Mail },
+  { id: 'mail-sablon', label: 'E-posta şablonları', icon: Sparkles },
   { id: 'r2', label: 'Depolama', icon: Cloud },
   { id: 'ekstra', label: 'Gelişmiş', icon: SlidersHorizontal },
   { id: 'gdpr', label: 'GDPR', icon: ShieldCheck },
@@ -88,6 +91,7 @@ export function WebSettingsTabs() {
       <div>{tab === 'kabuk' && <WebShellNavPanel />}</div>
       <div>{legalKey && <LegalPageEditPanel pageKey={legalKey} />}</div>
       <div>{tab === 'mail' && <MailSettingsPanel />}</div>
+      <div>{tab === 'mail-sablon' && <MailTemplatesPanel />}</div>
       <div>{tab === 'r2' && <R2SettingsPanel />}</div>
       <div>{tab === 'ekstra' && <WebExtrasPanel />}</div>
       <div>{tab === 'gdpr' && <GdprPanel />}</div>

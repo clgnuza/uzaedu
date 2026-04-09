@@ -8,14 +8,16 @@ const CLEANUP_INTERVAL_MS = 30_000;
 
 export type ExtraLessonStats = {
   live_users: number;
+  /** Benzersiz kullanıcı (oturum) sayısı — aynı kişinin tekrarlayan işlemleri sayılmaz */
   total_calculations: number;
 };
 
 @Injectable()
 export class ExtraLessonStatsService implements OnModuleInit, OnModuleDestroy {
-  /** session_id -> son heartbeat timestamp */
+  /** kullanıcı anahtarı (user.id veya session_id) -> son heartbeat timestamp */
   private presence = new Map<string, number>();
-  private totalCalculations = 0;
+  /** En az bir kez hesaplama yapmış benzersiz anahtarlar */
+  private calculationUsers = new Set<string>();
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   onModuleInit() {
@@ -40,16 +42,17 @@ export class ExtraLessonStatsService implements OnModuleInit, OnModuleDestroy {
     this.cleanup();
     return {
       live_users: this.presence.size,
-      total_calculations: this.totalCalculations,
+      total_calculations: this.calculationUsers.size,
     };
   }
 
-  heartbeat(sessionId: string): void {
-    if (!sessionId || sessionId.length > 128) return;
-    this.presence.set(sessionId, Date.now());
+  heartbeat(userKey: string): void {
+    if (!userKey || userKey.length > 128) return;
+    this.presence.set(userKey, Date.now());
   }
 
-  recordCalculation(): void {
-    this.totalCalculations += 1;
+  recordCalculation(userKey: string): void {
+    if (!userKey || userKey.length > 128) return;
+    this.calculationUsers.add(userKey);
   }
 }

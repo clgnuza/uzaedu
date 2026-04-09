@@ -7,6 +7,9 @@ import { cn } from '@/lib/utils';
 
 export function GdprBannerPreview({ form }: { form: GdprPublic }) {
   const policyPath = form.cookie_policy_path.startsWith('/') ? form.cookie_policy_path : `/${form.cookie_policy_path}`;
+  const bannerTitle = (form.cookie_banner_title?.trim() || 'Çerez tercihleri').slice(0, 120);
+  const acceptLabel = (form.accept_button_label?.trim() || 'Kabul et').slice(0, 64);
+  const rejectLabel = (form.reject_button_label?.trim() || 'Reddet').slice(0, 64);
 
   if (!form.cookie_banner_enabled) {
     return (
@@ -31,6 +34,12 @@ export function GdprBannerPreview({ form }: { form: GdprPublic }) {
             <Cookie className="size-5" strokeWidth={1.75} />
           </div>
           <div className="min-w-0 flex-1 space-y-2">
+            <div className="flex items-start gap-2 sm:hidden">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Cookie className="size-[18px]" strokeWidth={1.75} />
+              </div>
+              <p className="pt-0.5 text-[13px] font-semibold leading-tight text-foreground">{bannerTitle}</p>
+            </div>
             {form.data_controller_name ? (
               <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 Veri sorumlusu:{' '}
@@ -94,7 +103,7 @@ export function GdprBannerPreview({ form }: { form: GdprPublic }) {
               'bg-primary text-primary-foreground opacity-95 sm:min-w-34 md:w-full',
             )}
           >
-            Kabul et
+            {acceptLabel}
           </span>
           {form.reject_button_visible ? (
             <span
@@ -103,7 +112,7 @@ export function GdprBannerPreview({ form }: { form: GdprPublic }) {
                 'text-foreground dark:bg-zinc-900/80 sm:min-w-34 md:w-full',
               )}
             >
-              Reddet
+              {rejectLabel}
             </span>
           ) : null}
         </div>

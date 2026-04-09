@@ -23,7 +23,7 @@ type HubTile = {
 
 const BASE_TILES: HubTile[] = [
   {
-    href: '/extra-lesson-calc',
+    href: '/ek-ders-hesaplama',
     title: 'Ek ders hesaplama',
     description: 'Saat ve dilimlere göre brüt / net tahmini.',
     icon: Calculator,
@@ -107,27 +107,27 @@ export default function HesaplamalarHubPage() {
   }, [canAdminParams]);
 
   return (
-    <div className="relative -mx-4 -mt-3 min-h-0 overflow-hidden rounded-none border-x-0 border-t-0 border-b border-border/40 bg-linear-to-b from-slate-50/90 via-white to-violet-50/30 px-4 pb-10 pt-1 sm:-mx-6 sm:px-6 lg:mx-0 lg:max-w-none lg:rounded-2xl lg:border lg:border-border/30 lg:bg-linear-to-br lg:from-slate-50/80 lg:via-white lg:to-cyan-50/20 dark:from-zinc-950 dark:via-zinc-950 dark:to-violet-950/30 lg:dark:from-zinc-950 lg:dark:via-zinc-950 lg:dark:to-violet-950/40">
+    <div className="relative -mx-4 -mt-2 min-h-0 overflow-hidden rounded-none border-x-0 border-t-0 border-b border-border/40 bg-linear-to-b from-slate-50/90 via-white to-violet-50/30 px-3 pb-6 pt-0 sm:-mx-6 sm:pb-10 sm:pt-0 lg:mx-0 lg:max-w-none lg:rounded-2xl lg:border lg:border-border/30 lg:bg-linear-to-br lg:from-slate-50/80 lg:via-white lg:to-cyan-50/20 dark:from-zinc-950 dark:via-zinc-950 dark:to-violet-950/30 lg:dark:from-zinc-950 lg:dark:via-zinc-950 lg:dark:to-violet-950/40">
         <MeshBackdrop />
 
         <div className="relative z-10 mx-auto max-w-4xl">
           {/* Hero */}
-          <header className="mb-6 pt-2 text-center sm:mb-8 sm:pt-3">
-            <div className="mb-2.5 inline-flex items-center gap-1.5 rounded-full border border-violet-200/80 bg-white/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-violet-700 shadow-sm backdrop-blur-md dark:border-violet-500/30 dark:bg-violet-950/50 dark:text-violet-200 sm:text-[11px]">
-              <Sparkles className="size-3 text-amber-500" aria-hidden />
+          <header className="mb-3 pt-0 text-center sm:mb-7 sm:pt-2">
+            <div className="mb-1.5 inline-flex items-center gap-1 rounded-full border border-violet-200/80 bg-white/80 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-violet-700 shadow-sm backdrop-blur-md dark:border-violet-500/30 dark:bg-violet-950/50 dark:text-violet-200 sm:mb-2.5 sm:gap-1.5 sm:px-3 sm:py-1 sm:text-[11px] sm:tracking-[0.16em]">
+              <Sparkles className="size-2.5 text-amber-500 sm:size-3" aria-hidden />
               Ücretsiz araçlar
             </div>
-            <h1 className="mx-auto max-w-2xl bg-linear-to-r from-zinc-900 via-violet-700 to-cyan-600 bg-clip-text text-3xl font-black tracking-tight text-transparent sm:text-4xl md:text-[2.75rem] dark:from-white dark:via-violet-300 dark:to-cyan-300">
+            <h1 className="mx-auto max-w-2xl bg-linear-to-r from-zinc-900 via-violet-700 to-cyan-600 bg-clip-text text-xl font-extrabold tracking-tight text-transparent sm:text-4xl sm:font-black md:text-[2.75rem] dark:from-white dark:via-violet-300 dark:to-cyan-300">
               Hesaplamalar
             </h1>
-            <p className="mx-auto mt-2.5 max-w-lg text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
+            <p className="mx-auto mt-1.5 max-w-lg px-0.5 text-[11px] leading-snug text-muted-foreground sm:mt-2.5 sm:text-[15px] sm:leading-relaxed">
               Ek ders ve sınav görev ücreti hesaplarına buradan geçin. İleride eklenecek hesaplar da bu sayfada
               listelenir.
             </p>
           </header>
 
           {/* Tiles */}
-          <div className="grid gap-3.5 sm:grid-cols-2 sm:gap-4">
+          <div className="grid gap-3 sm:grid-cols-2 sm:gap-5">
             {tiles.map((item) => {
               const Icon = item.icon;
               return (
@@ -135,48 +135,54 @@ export default function HesaplamalarHubPage() {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    'group relative flex flex-col overflow-hidden rounded-2xl border border-white/60 p-px transition-all duration-300',
-                    'hover:-translate-y-0.5 hover:scale-[1.005] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 dark:border-white/10',
+                    'group relative flex flex-col overflow-hidden rounded-2xl border-2 border-white/90 p-px shadow-[0_12px_40px_-16px_rgba(15,23,42,0.25)] transition-all duration-300 dark:border-zinc-700/80 dark:shadow-[0_12px_40px_-16px_rgba(0,0,0,0.55)]',
+                    'hover:-translate-y-1 hover:shadow-[0_20px_50px_-12px_rgba(99,102,241,0.35)] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
                     item.ring,
                   )}
                 >
                   {/* üst renk şeridi */}
                   <div
                     className={cn(
-                      'h-1 w-full bg-linear-to-r opacity-90 transition-opacity group-hover:opacity-100',
+                      'h-1 w-full bg-linear-to-r opacity-95 transition-opacity group-hover:opacity-100 sm:h-1.5',
                       item.bar,
                     )}
                   />
                   <div
                     className={cn(
-                      'flex min-h-[150px] flex-1 flex-col rounded-[calc(1rem-2px)] p-4 sm:p-5',
+                      'flex min-h-[112px] flex-1 flex-col rounded-[calc(1rem-2px)] p-3.5 sm:min-h-[140px] sm:rounded-[calc(1.25rem-2px)] sm:p-5',
                       item.cardBg,
                     )}
                   >
-                    <div className="flex items-start justify-between gap-4">
+                    <div className="flex gap-2.5 sm:gap-4">
                       <div
                         className={cn(
-                          'flex size-11 shrink-0 items-center justify-center rounded-xl sm:size-12',
+                          'mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-xl shadow-lg ring-2 ring-white/50 sm:mt-1 sm:size-12 sm:rounded-2xl dark:ring-zinc-900/50',
                           item.iconShell,
                         )}
                       >
                         <Icon className="size-5 sm:size-6" strokeWidth={1.75} aria-hidden />
                       </div>
-                      <span className="flex size-8 items-center justify-center rounded-full border border-white/50 bg-white/60 text-zinc-600 shadow-inner backdrop-blur-sm transition-all group-hover:border-primary/30 group-hover:bg-primary/10 group-hover:text-primary dark:border-white/10 dark:bg-zinc-800/80 dark:text-zinc-300 dark:group-hover:text-primary">
-                        <ArrowUpRight className="size-3.5 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
-                      </span>
-                    </div>
-                    <h2 className="mt-3 text-base font-bold tracking-tight text-foreground sm:text-lg">{item.title}</h2>
-                    <p className="mt-1.5 flex-1 text-xs leading-relaxed text-muted-foreground sm:text-sm">
-                      {item.description}
-                    </p>
-                    <div className="mt-4 flex items-center gap-2">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-900/5 px-3 py-1.5 text-xs font-semibold text-primary ring-1 ring-inset ring-primary/15 transition-colors group-hover:bg-primary group-hover:text-primary-foreground group-hover:ring-primary dark:bg-white/5 dark:ring-primary/25">
-                        Sayfaya git
-                        <span className="transition-transform group-hover:translate-x-0.5" aria-hidden>
-                          →
-                        </span>
-                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <h2 className="text-left text-sm font-bold leading-tight tracking-tight text-foreground sm:text-lg sm:leading-snug">
+                            {item.title}
+                          </h2>
+                          <span className="flex size-8 shrink-0 items-center justify-center rounded-full border-2 border-primary/15 bg-white/90 text-primary shadow-sm backdrop-blur-sm transition-all group-hover:border-primary/40 group-hover:bg-primary group-hover:text-primary-foreground dark:border-zinc-600 dark:bg-zinc-800/90 dark:text-zinc-200 dark:group-hover:text-primary-foreground sm:size-9">
+                            <ArrowUpRight className="size-3 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 sm:size-3.5" />
+                          </span>
+                        </div>
+                        <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground sm:mt-2 sm:text-sm sm:leading-relaxed">
+                          {item.description}
+                        </p>
+                        <div className="mt-2.5 flex items-center sm:mt-3">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-zinc-900/5 px-2 py-1 text-[10px] font-semibold text-primary ring-1 ring-inset ring-primary/15 transition-colors group-hover:bg-primary group-hover:text-primary-foreground group-hover:ring-primary dark:bg-white/5 dark:ring-primary/25 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-xs">
+                            Sayfaya git
+                            <span className="transition-transform group-hover:translate-x-0.5" aria-hidden>
+                              →
+                            </span>
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </Link>
@@ -184,7 +190,7 @@ export default function HesaplamalarHubPage() {
             })}
           </div>
 
-          <p className="relative z-10 mt-6 text-center text-[11px] text-muted-foreground/90">
+          <p className="relative z-10 mt-4 px-1 text-center text-[10px] leading-snug text-muted-foreground/90 sm:mt-6 sm:text-[11px]">
             Tahminler bilgilendirme amaçlıdır; resmi tebliğ ve kurum uygulamasına göre değişebilir.
           </p>
         </div>

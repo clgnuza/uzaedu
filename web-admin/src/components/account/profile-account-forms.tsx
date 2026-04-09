@@ -5,6 +5,14 @@ import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { Alert } from '@/components/ui/alert';
 import { AvatarPickerField } from '@/components/account/avatar-picker';
+import { cn } from '@/lib/utils';
+
+const profileInput = cn(
+  'h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm text-foreground shadow-sm',
+  'focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15',
+  'max-sm:h-8 max-sm:px-2 max-sm:text-[13px] sm:rounded-lg sm:px-3',
+);
+const profileLabel = 'mb-0.5 block text-xs font-medium text-foreground sm:mb-1 sm:text-sm';
 
 export function EditProfileForm({
   token,
@@ -56,11 +64,11 @@ export function EditProfileForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
       {error && <Alert message={error} />}
       <AvatarPickerField value={avatarKey} onChange={setAvatarKey} disabled={submitting} idPrefix="profile-av" />
-      <div>
-        <label htmlFor="profile-display-name" className="block text-sm font-medium text-foreground">
+      <div className="space-y-0.5 sm:space-y-1">
+        <label htmlFor="profile-display-name" className={profileLabel}>
           Görünen ad
         </label>
         <input
@@ -69,15 +77,15 @@ export function EditProfileForm({
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
           maxLength={255}
-          className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-          placeholder="Adınız soyadınız"
+          className={profileInput}
+          placeholder="Ad Soyad"
         />
       </div>
       <button
         type="submit"
         disabled={submitting}
         aria-busy={submitting}
-        className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="h-8 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:rounded-lg sm:px-4"
       >
         {submitting ? 'Kaydediliyor…' : 'Kaydet'}
       </button>
@@ -132,10 +140,10 @@ export function ChangePasswordForm({ token }: { token: string | null }) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-2.5 sm:space-y-4">
       {error && <Alert message={error} />}
-      <div>
-        <label htmlFor="current-password" className="block text-sm font-medium text-foreground">
+      <div className="space-y-0.5 sm:space-y-1">
+        <label htmlFor="current-password" className={profileLabel}>
           Mevcut şifre
         </label>
         <input
@@ -145,15 +153,15 @@ export function ChangePasswordForm({ token }: { token: string | null }) {
           onChange={(e) => setCurrentPassword(e.target.value)}
           required
           autoComplete="current-password"
-          className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-          placeholder="Mevcut şifreniz"
+          className={profileInput}
+          placeholder="········"
         />
       </div>
-      <div>
-        <label htmlFor="new-password" className="block text-sm font-medium text-foreground">
+      <div className="space-y-0.5 sm:space-y-1">
+        <label htmlFor="new-password" className={profileLabel}>
           Yeni şifre
         </label>
-        <p className="mt-0.5 text-xs text-muted-foreground">8–128 karakter; en az bir harf ve bir rakam.</p>
+        <p className="text-[11px] text-muted-foreground sm:text-xs">8–128 karakter, harf + rakam.</p>
         <input
           id="new-password"
           type="password"
@@ -163,13 +171,13 @@ export function ChangePasswordForm({ token }: { token: string | null }) {
           minLength={8}
           maxLength={128}
           autoComplete="new-password"
-          className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+          className={profileInput}
           placeholder="Yeni şifre"
         />
       </div>
-      <div>
-        <label htmlFor="confirm-password" className="block text-sm font-medium text-foreground">
-          Yeni şifre (tekrar)
+      <div className="space-y-0.5 sm:space-y-1">
+        <label htmlFor="confirm-password" className={profileLabel}>
+          Tekrar
         </label>
         <input
           id="confirm-password"
@@ -180,15 +188,15 @@ export function ChangePasswordForm({ token }: { token: string | null }) {
           minLength={8}
           maxLength={128}
           autoComplete="new-password"
-          className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-          placeholder="Yeni şifreyi tekrar girin"
+          className={profileInput}
+          placeholder="Tekrar"
         />
       </div>
       <button
         type="submit"
         disabled={submitting}
         aria-busy={submitting}
-        className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="h-8 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:rounded-lg sm:px-4"
       >
         {submitting ? 'Kaydediliyor…' : 'Şifreyi güncelle'}
       </button>

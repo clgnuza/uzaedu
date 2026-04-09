@@ -30,6 +30,9 @@ import { UpdateAnswerDto } from './dto/update-answer.dto';
 import { CreateCriteriaDto } from './dto/create-criteria.dto';
 import { UpdateCriteriaDto } from './dto/update-criteria.dto';
 import { ReportContentDto } from './dto/report-content.dto';
+import { ListContentReportsAdminDto } from './dto/list-content-reports-admin.dto';
+import { ListModerationQueueDto } from './dto/list-moderation-queue.dto';
+import { ModerateContentDto } from './dto/moderate-content.dto';
 
 @Controller('school-reviews')
 @UseGuards(JwtAuthGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
@@ -52,6 +55,48 @@ export class SchoolReviewsController {
   @RequireModule('school_reviews')
   async listCriteriaAdmin() {
     return this.service.listCriteriaAdmin();
+  }
+
+  /** Süper yönetici / moderatör: kullanıcı bildirimleri (yorum, soru, cevap). */
+  @Get('content-reports/admin')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('school_reviews')
+  async listContentReportsAdmin(@Query() query: ListContentReportsAdminDto) {
+    return this.service.listContentReportsAdmin(query);
+  }
+
+  /** Onay bekleyen yorum / soru / cevap kuyruğu */
+  @Get('moderation/queue')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('school_reviews')
+  async listModerationQueue(@Query() dto: ListModerationQueueDto) {
+    return this.service.listModerationQueue(dto);
+  }
+
+  @Patch('moderation/reviews/:id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('school_reviews')
+  async moderateReview(@Param('id') id: string, @Body() dto: ModerateContentDto) {
+    return this.service.moderateReview(id, dto);
+  }
+
+  @Patch('moderation/questions/:id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('school_reviews')
+  async moderateQuestion(@Param('id') id: string, @Body() dto: ModerateContentDto) {
+    return this.service.moderateQuestion(id, dto);
+  }
+
+  @Patch('moderation/answers/:id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('school_reviews')
+  async moderateAnswer(@Param('id') id: string, @Body() dto: ModerateContentDto) {
+    return this.service.moderateAnswer(id, dto);
   }
 
   /** Varsayılan 1–10 kriter setini yeniden yükler (mevcut kriter satırlarını siler). Sadece süper yönetici. */

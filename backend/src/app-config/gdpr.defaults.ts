@@ -4,6 +4,12 @@
  */
 export const DEFAULT_GDPR = {
   cookie_banner_enabled: true,
+  /** Boşsa istemci "Çerez tercihleri" kullanır (mobil başlık + aria-label) */
+  cookie_banner_title: null as string | null,
+  /** Boşsa "Kabul et" */
+  accept_button_label: null as string | null,
+  /** Boşsa "Reddet" */
+  reject_button_label: null as string | null,
   /** Boşsa istemci varsayılan metni kullanır */
   cookie_banner_body_html: null as string | null,
   /** Değişince mevcut çerez onayı geçersiz sayılır */

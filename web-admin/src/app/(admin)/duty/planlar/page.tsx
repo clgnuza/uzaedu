@@ -3,7 +3,23 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
-import { ArrowLeft, FileText, Send, Upload, Download, FileDown, Zap, Trash2, ChevronDown, ChevronUp, Settings2, BarChart2, Archive, ArchiveRestore } from 'lucide-react';
+import {
+  ArrowLeft,
+  FileText,
+  Send,
+  Upload,
+  Download,
+  FileDown,
+  Zap,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
+  Settings2,
+  BarChart2,
+  Archive,
+  ArchiveRestore,
+  CalendarRange,
+} from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
@@ -22,6 +38,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Alert } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
+import { DutyPageHeader } from '@/components/duty/duty-page-header';
 
 type DutyPlan = {
   id: string;
@@ -843,23 +860,22 @@ export default function DutyPlanlarPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
+    <div className="space-y-4 sm:space-y-6">
+      <DutyPageHeader
+        icon={CalendarRange}
+        title="Nöbet planları"
+        description="Taslakları yayınlayınca nöbet takviminde görünür."
+        color="indigo"
+        actions={
           <Link
             href="/duty"
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background/90 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:gap-2 sm:px-3 sm:text-sm"
           >
-            <ArrowLeft className="size-4" />
+            <ArrowLeft className="size-3.5 sm:size-4" />
             Planlama
           </Link>
-        </div>
-        <h1 className="text-2xl font-semibold text-foreground">Nöbet Planları</h1>
-      </div>
-
-      <p className="text-sm text-muted-foreground">
-        Taslakları yayınlayınca nöbet takviminde görünür.
-      </p>
+        }
+      />
 
       {isAdmin && (
         <Card>

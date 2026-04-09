@@ -31,6 +31,7 @@ import { Label } from '@/components/ui/label';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Alert } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
+import { DutyPageHeader } from '@/components/duty/duty-page-header';
 import { getDutyLogActionLabel, getDutyLogDetailLine } from '@/lib/duty-log-labels';
 import * as XLSX from 'xlsx';
 
@@ -233,13 +234,13 @@ export default function DutyPlanDetayPage() {
   }, [teachers]);
 
   const filteredTeachersForNewSlot = useMemo(() => {
-    const q = newSlotTeacherQuery.trim().toLowerCase();
+    const q = newSlotTeacherQuery.trim().toLocaleLowerCase('tr');
     if (!q) return teachersSorted;
-    return teachersSorted.filter(
-      (t) =>
-        (t.display_name ?? '').toLowerCase().includes(q) ||
-        (t.email ?? '').toLowerCase().includes(q),
-    );
+    return teachersSorted.filter((t) => {
+      const name = (t.display_name ?? '').toLocaleLowerCase('tr');
+      const mail = (t.email ?? '').toLocaleLowerCase('tr');
+      return name.includes(q) || mail.includes(q);
+    });
   }, [teachersSorted, newSlotTeacherQuery]);
 
   useEffect(() => {
@@ -591,74 +592,69 @@ export default function DutyPlanDetayPage() {
   }, {});
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link href="/duty/planlar" className="inline-flex items-center justify-center gap-2 h-8 px-3 text-sm rounded-lg font-medium hover:bg-muted hover:text-foreground">
-            <ArrowLeft className="size-4" />
-            Planlar
-          </Link>
-          <h1 className="text-2xl font-semibold">{plan.version || 'Plan Detayı'}</h1>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleWhatsAppShare} disabled={slots.length === 0}>
-            <Share2 className="size-4" />
-            WhatsApp
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleExport}
-            disabled={exporting}
+    <div className="space-y-4 sm:space-y-6">
+      <DutyPageHeader
+        icon={Calendar}
+        title={plan.version || 'Plan detayı'}
+        description={`Dönem: ${formatDate(plan.period_start)} – ${formatDate(plan.period_end)}`}
+        color="indigo"
+        badge={
+          <span
+            className={cn(
+              'rounded-full px-2 py-0.5 text-[10px] font-semibold sm:text-xs',
+              plan.status === 'published'
+                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
+                : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+            )}
           >
-            <FileDown className="size-4" />
-            Excel
-          </Button>
-          {canPublishDraft && (
-            <Button
-              size="sm"
-              onClick={handlePublish}
-              disabled={publishing || slots.length === 0}
+            {plan.status === 'published' ? 'Yayınlandı' : 'Taslak'}
+          </span>
+        }
+        actions={
+          <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:justify-end">
+            <Link
+              href="/duty/planlar"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background/90 px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground sm:px-2.5 sm:text-sm"
             >
-              <Send className="size-4" />
-              Yayınla
+              <ArrowLeft className="size-3.5 sm:size-4" />
+              Planlar
+            </Link>
+            <Button variant="outline" size="sm" className="h-8 text-xs sm:h-9 sm:text-sm" onClick={handleWhatsAppShare} disabled={slots.length === 0}>
+              <Share2 className="size-3.5 sm:size-4" />
+              WhatsApp
             </Button>
-          )}
-          {isAdmin && isArchived && (
-            <Button size="sm" variant="outline" onClick={handleUnarchivePlan} disabled={unarchiving}>
-              {unarchiving ? <LoadingSpinner className="size-4" /> : <ArchiveRestore className="size-4" />}
-              Arşivden çıkar
+            <Button variant="outline" size="sm" className="h-8 text-xs sm:h-9 sm:text-sm" onClick={handleExport} disabled={exporting}>
+              <FileDown className="size-3.5 sm:size-4" />
+              Excel
             </Button>
-          )}
-          {isAdmin && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-rose-600 hover:text-rose-700"
-              onClick={handleSoftDeletePlan}
-              disabled={deletingPlan}
-              title="Planı sil (istatistikler korunur)"
-            >
-              {deletingPlan ? <LoadingSpinner className="size-4" /> : <Trash2 className="size-4" />}
-              Planı sil
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <div className="flex gap-4 text-sm text-muted-foreground">
-        <span>Dönem: {formatDate(plan.period_start)} – {formatDate(plan.period_end)}</span>
-        <span
-          className={cn(
-            'rounded-full px-2.5 py-0.5 font-medium',
-            plan.status === 'published'
-              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
-              : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
-          )}
-        >
-          {plan.status === 'published' ? 'Yayınlandı' : 'Taslak'}
-        </span>
-      </div>
+            {canPublishDraft && (
+              <Button size="sm" className="h-8 text-xs sm:h-9 sm:text-sm" onClick={handlePublish} disabled={publishing || slots.length === 0}>
+                <Send className="size-3.5 sm:size-4" />
+                Yayınla
+              </Button>
+            )}
+            {isAdmin && isArchived && (
+              <Button size="sm" variant="outline" className="h-8 text-xs sm:h-9 sm:text-sm" onClick={handleUnarchivePlan} disabled={unarchiving}>
+                {unarchiving ? <LoadingSpinner className="size-4" /> : <ArchiveRestore className="size-3.5 sm:size-4" />}
+                Arşivden çıkar
+              </Button>
+            )}
+            {isAdmin && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs text-rose-600 hover:text-rose-700 sm:h-9 sm:text-sm"
+                onClick={handleSoftDeletePlan}
+                disabled={deletingPlan}
+                title="Planı sil (istatistikler korunur)"
+              >
+                {deletingPlan ? <LoadingSpinner className="size-4" /> : <Trash2 className="size-3.5 sm:size-4" />}
+                Planı sil
+              </Button>
+            )}
+          </div>
+        }
+      />
 
       {isArchived && (
         <Alert
@@ -673,7 +669,7 @@ export default function DutyPlanDetayPage() {
         />
       )}
       {canMutateSlots && (
-        <Card className="rounded-lg border-dashed">
+        <Card className="relative z-20 rounded-lg border-dashed">
           <CardHeader className="space-y-1 pb-2">
             <CardTitle className="text-sm font-semibold">Yeni Nöbet Ekle</CardTitle>
             {plan.period_start && plan.period_end && (
@@ -768,7 +764,7 @@ export default function DutyPlanDetayPage() {
                           </div>
                           {newSlotTeacherOpen && (
                             <ul
-                              className="absolute z-40 mt-1 max-h-52 w-full overflow-auto rounded-lg border border-border bg-popover py-1 text-sm shadow-md"
+                              className="absolute z-50 mt-1 max-h-52 w-full overflow-auto rounded-lg border border-border bg-popover py-1 text-sm shadow-md"
                               role="listbox"
                             >
                               {filteredTeachersForNewSlot.length === 0 ? (

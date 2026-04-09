@@ -239,7 +239,7 @@ export default function EkDersParamsPage() {
                     )}
                   </span>
                   <Link
-                    href="/extra-lesson-calc"
+                    href="/ek-ders-hesaplama"
                     className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-primary/40 bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/10"
                   >
                     Hesaplayıcıyı aç →

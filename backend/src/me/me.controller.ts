@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Patch, Delete, Body, UseGuards, Req, Query, HttpCode } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { UsersService } from '../users/users.service';
 import { TeacherSchoolMembershipStatus } from '../types/enums';
@@ -25,6 +25,7 @@ export class MeController {
 
   /** Oturum yoksa 401 değil 200 + null (tarayıcı konsol gürültüsü ve önbellek uyumu). */
   @Get()
+  @SkipThrottle({ default: true, auth: true, public: true })
   @UseGuards(OptionalJwtAuthGuard)
   async get(@CurrentUser() payload: CurrentUserPayload | null) {
     if (!payload?.userId) {

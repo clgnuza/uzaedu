@@ -29,7 +29,6 @@ import { contentReadPath } from '@/lib/content-read-path';
 import { normalizeMebIlImageUrl } from '@/lib/meb-image-url';
 import { CONTENT_TYPE_LABELS } from '@/lib/haber-news-overlay';
 import { HaberOverlayBands } from '@/components/haber/haber-overlay-bands';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 type Source = { id: string; key: string; label: string };
 type ContentItem = {
@@ -81,8 +80,8 @@ function NewsCardImage({ src, isHero }: { src: string; isHero: boolean }) {
   const resolved = normalizeMebIlImageUrl(src) ?? src;
   if (error) {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-muted">
-        <Newspaper className={cn('text-muted-foreground', isHero ? 'h-16 w-16' : 'h-12 w-12')} />
+      <div className="flex h-full w-full items-center justify-center bg-slate-100 dark:bg-slate-900">
+        <Newspaper className={cn('text-slate-400', isHero ? 'h-16 w-16' : 'h-12 w-12')} />
       </div>
     );
   }
@@ -103,14 +102,14 @@ function YayinBroadcastCard({ item, variant }: { item: ContentItem; variant: 'he
   const typeLabel = CONTENT_TYPE_LABELS[item.content_type] ?? item.content_type;
 
   const metaHero = (
-    <div className="absolute inset-x-0 bottom-0 z-20 flex h-10 items-center justify-between gap-2 border-t border-white/15 bg-black/85 px-2.5 backdrop-blur-md sm:h-11 sm:px-3">
-      <span className="inline-flex max-w-[44%] shrink-0 truncate rounded-md border border-white/15 bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-100">
+    <div className="absolute inset-x-0 bottom-0 z-20 flex h-10 items-center justify-between gap-2 border-t border-sky-400/25 bg-slate-950/92 px-2.5 backdrop-blur-md sm:h-11 sm:px-3">
+      <span className="inline-flex max-w-[44%] shrink-0 truncate rounded-md border border-sky-400/30 bg-sky-950/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-50">
         {typeLabel}
       </span>
-      <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-[11px] text-zinc-400 sm:text-xs">
-        <span className="truncate font-medium text-zinc-100">{item.source_label ?? 'Kaynak'}</span>
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-[11px] text-slate-400 sm:text-xs">
+        <span className="truncate font-medium text-slate-100">{item.source_label ?? 'Kaynak'}</span>
         {item.published_at && (
-          <span className="flex shrink-0 items-center gap-1 tabular-nums text-zinc-500">
+          <span className="flex shrink-0 items-center gap-1 tabular-nums text-slate-500">
             <Clock className="h-3.5 w-3.5 opacity-90" />
             {formatRelativeDate(item.published_at) || formatDate(item.published_at)}
           </span>
@@ -122,8 +121,8 @@ function YayinBroadcastCard({ item, variant }: { item: ContentItem; variant: 'he
   return (
     <Card
       className={cn(
-        'group/card overflow-hidden border border-zinc-800/90 bg-zinc-950 shadow-lg ring-1 ring-white/5 transition-all duration-300 hover:border-amber-500/30 hover:shadow-xl hover:ring-amber-500/15',
-        isHero && 'mx-auto max-w-5xl border-zinc-700/80 shadow-2xl',
+        'group/card overflow-hidden border-slate-200/90 bg-gradient-to-br from-white via-slate-50/40 to-sky-50/35 shadow-[0_1px_3px_rgba(15,23,42,0.07)] transition-[box-shadow,border-color] duration-300 hover:border-sky-300/70 hover:shadow-[0_10px_40px_-16px_rgba(14,116,144,0.22)] dark:border-slate-700/85 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950/95 dark:hover:border-sky-700/50',
+        isHero && 'mx-auto max-w-5xl ring-1 ring-sky-200/60 dark:ring-sky-900/45',
       )}
     >
       <a
@@ -131,27 +130,27 @@ function YayinBroadcastCard({ item, variant }: { item: ContentItem; variant: 'he
         target="_blank"
         rel="noopener noreferrer"
         aria-label={item.title}
-        className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+        className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >
         <div
           className={cn(
-            'relative overflow-hidden bg-black after:pointer-events-none after:absolute after:inset-0',
+            'relative overflow-hidden bg-slate-950 after:pointer-events-none after:absolute after:inset-0',
             isHero
-              ? 'aspect-2/1 min-h-[200px] after:shadow-[inset_0_-40px_64px_-24px_rgba(0,0,0,0.5)] sm:aspect-21/9 sm:min-h-[260px]'
-              : 'aspect-video after:shadow-[inset_0_-24px_40px_-14px_rgba(0,0,0,0.32)]',
+              ? 'aspect-2/1 min-h-[200px] after:shadow-[inset_0_-40px_64px_-24px_rgba(15,23,42,0.55)] sm:aspect-21/9 sm:min-h-[260px]'
+              : 'aspect-video after:shadow-[inset_0_-24px_40px_-14px_rgba(15,23,42,0.38)]',
           )}
         >
           {item.image_url ? (
             <NewsCardImage src={item.image_url} isHero={isHero} />
           ) : (
-            <div className="flex h-full min-h-[120px] w-full items-center justify-center bg-zinc-900">
-              <Newspaper className={cn('text-zinc-600', isHero ? 'h-16 w-16' : 'h-12 w-12')} />
+            <div className="flex h-full min-h-[120px] w-full items-center justify-center bg-slate-900">
+              <Newspaper className={cn('text-slate-500', isHero ? 'h-16 w-16' : 'h-12 w-12')} />
             </div>
           )}
           <div
             className={cn(
               'pointer-events-none absolute inset-x-0 bg-linear-to-t to-transparent',
-              isHero ? 'bottom-0 h-[58%] from-black/85 via-black/35' : 'bottom-0 h-[50%] from-black/65 via-black/28',
+              isHero ? 'bottom-0 h-[58%] from-slate-950/92 via-slate-900/40' : 'bottom-0 h-[50%] from-slate-950/78 via-slate-900/30',
             )}
             aria-hidden
           />
@@ -374,28 +373,28 @@ export default function HaberYayinPage() {
   const currentSlideItem = allItems[slideIndex] ?? allItems[0];
 
   const fullscreenOverlay = fullscreenMode && allItems.length > 0 && (
-    <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-card/95 px-4 py-2 shadow-lg backdrop-blur-sm">
+    <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-slate-200/90 bg-white/95 px-4 py-2 shadow-lg ring-1 ring-slate-200/50 backdrop-blur-sm dark:border-slate-700 dark:bg-slate-950/95 dark:ring-slate-700/50">
       <button
         onClick={goPrev}
-        className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted transition-colors hover:bg-muted/80"
+        className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
         aria-label="Önceki"
       >
         <ChevronLeft className="h-5 w-5" />
       </button>
-      <span className="min-w-14 text-center text-sm font-medium text-muted-foreground">
+      <span className="min-w-14 text-center text-sm font-medium text-slate-600 dark:text-slate-300">
         {slideIndex + 1} / {allItems.length}
       </span>
       <button
         onClick={goNext}
-        className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted transition-colors hover:bg-muted/80"
+        className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
         aria-label="Sonraki"
       >
         <ChevronRight className="h-5 w-5" />
       </button>
-      <span className="mx-2 h-5 w-px bg-border" />
+      <span className="mx-2 h-5 w-px bg-slate-200 dark:bg-slate-600" />
       <button
         onClick={exitFullscreen}
-        className="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted"
+        className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-sky-50 dark:text-slate-200 dark:hover:bg-slate-800"
       >
         Esc ile çık
       </button>
@@ -412,203 +411,187 @@ export default function HaberYayinPage() {
         aria-hidden
         style={{
           background: `
-            radial-gradient(ellipse 70% 45% at 15% 0%, rgba(251, 191, 36, 0.08) 0%, transparent 50%),
-            radial-gradient(ellipse 50% 35% at 90% 20%, rgba(59, 130, 246, 0.06) 0%, transparent 45%),
+            radial-gradient(ellipse 70% 45% at 15% 0%, rgba(59, 130, 246, 0.1) 0%, transparent 50%),
+            radial-gradient(ellipse 50% 35% at 90% 20%, rgba(245, 158, 11, 0.06) 0%, transparent 45%),
             linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--background)) 100%)
           `,
         }}
       />
-      <div className="space-y-6">
-      <header className="flex flex-col gap-4 rounded-2xl border border-border/60 bg-card/90 p-4 shadow-sm ring-1 ring-border/25 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:p-5">
-        <div className="min-w-0 space-y-1">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Yayın</p>
-          <h1 className="text-balance text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-            Haber yayını
-          </h1>
-          <p className="max-w-xl text-sm text-muted-foreground">
-            MEB akışı, slayt ve tam ekran. Birim seçerek daraltın.
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <Link
-            href="/haberler"
-            className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-medium transition-colors hover:bg-muted"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Haberler
-          </Link>
-          {isAdmin && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-xl"
-                onClick={handleRefresh}
-                disabled={refreshing}
-              >
-                <RefreshCw className={cn('mr-1.5 h-4 w-4', refreshing && 'animate-spin')} />
-                {refreshing ? '…' : 'Yenile'}
-              </Button>
-              {me?.role === 'superadmin' && (
-                <Link
-                  href="/haberler/ayarlar"
-                  className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-medium transition-colors hover:bg-muted"
+      <div className="space-y-3 sm:space-y-5">
+      <header className="relative overflow-hidden rounded-xl border border-border/70 bg-card/80 p-3 shadow-sm ring-1 ring-border/30 backdrop-blur-sm sm:rounded-2xl sm:p-6">
+        <div className="pointer-events-none absolute -right-10 -top-10 hidden h-36 w-36 rounded-full bg-primary/12 blur-3xl sm:block" aria-hidden />
+        <div className="relative flex items-center justify-between gap-2 sm:items-start sm:justify-between sm:gap-5">
+          <div className="min-w-0 flex-1 sm:space-y-2">
+            <h1 className="text-balance text-lg font-bold tracking-tight text-foreground sm:text-2xl md:text-3xl">Haber yayını</h1>
+            <p className="mt-1 hidden max-w-xl text-sm leading-relaxed text-muted-foreground md:block">
+              MEB akışı, slayt ve tam ekran. Birim seçerek daraltın.
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1 sm:flex-wrap sm:gap-2 sm:justify-end">
+            <Link
+              href="/haberler"
+              className="inline-flex size-9 items-center justify-center rounded-xl border border-border bg-background/80 text-sm font-medium shadow-sm transition-colors hover:bg-muted sm:size-auto sm:gap-2 sm:px-3.5 sm:py-2"
+              title="Haberler"
+            >
+              <ArrowLeft className="h-4 w-4 shrink-0" />
+              <span className="hidden sm:inline">Haberler</span>
+            </Link>
+            {isAdmin && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="size-9 shrink-0 rounded-xl border-border/80 p-0 sm:size-auto sm:px-3 sm:py-2"
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                  title={refreshing ? 'Yenileniyor…' : 'Yenile'}
                 >
-                  <Settings className="h-4 w-4" />
-                  <span className="hidden sm:inline">Ayarlar</span>
-                </Link>
-              )}
-            </>
-          )}
+                  <RefreshCw className={cn('h-4 w-4 sm:mr-1.5', refreshing && 'animate-spin')} />
+                  <span className="hidden sm:inline">{refreshing ? '…' : 'Yenile'}</span>
+                </Button>
+                {me?.role === 'superadmin' && (
+                  <Link
+                    href="/haberler/ayarlar"
+                    className="inline-flex size-9 items-center justify-center rounded-xl border border-border bg-background/80 text-sm font-medium shadow-sm transition-colors hover:bg-muted sm:size-auto sm:gap-2 sm:px-3.5 sm:py-2"
+                    title="Ayarlar"
+                  >
+                    <Settings className="h-4 w-4" />
+                    <span className="hidden sm:inline">Ayarlar</span>
+                  </Link>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </header>
 
-      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/60 bg-background/95 shadow-sm ring-1 ring-border/30 backdrop-blur-md">
-        {(sources.length > 0 || loadingSources) && (
-          <>
-            <div className="border-b border-border/50 px-4 pb-3 pt-4 md:hidden">
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <Layers className="h-3.5 w-3.5 text-primary" />
+      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-border/50 bg-gradient-to-b from-muted/20 to-background/90 shadow-sm backdrop-blur-md sm:rounded-2xl sm:from-muted/15">
+        <div className="p-2 sm:p-4">
+          {(sources.length > 0 || loadingSources) && (
+            <div className="space-y-1.5 sm:space-y-2">
+              <div className="hidden items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:flex">
+                <Layers className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
                 MEB birimi
               </div>
               {loadingSources ? (
-                <div className="h-11 w-full animate-pulse rounded-xl bg-muted" aria-hidden />
+                <div className="h-10 w-full animate-pulse rounded-2xl bg-muted/80 sm:h-11" aria-hidden />
               ) : (
-                <Select
-                  value={selectedSourceKey || '__all'}
-                  onValueChange={(v) => setSelectedSourceKey(v === '__all' ? '' : v)}
-                >
-                  <SelectTrigger id="yayin-birim-select" className="h-11 w-full min-w-0 rounded-xl border-border/80 bg-muted/30">
-                    <SelectValue placeholder="Birim seçin" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[min(70vh,24rem)] w-(--radix-select-trigger-width)">
-                    <SelectItem value="__all">Tümü</SelectItem>
+                <div className="mobile-tab-scroll flex gap-1.5 overscroll-x-contain pb-0.5 sm:flex-wrap sm:overflow-visible sm:pb-0">
+                  <div className="inline-flex w-max max-w-none flex-nowrap gap-1 rounded-2xl border border-sky-200/50 bg-sky-50/40 p-1 dark:border-sky-500/20 dark:bg-sky-950/25 sm:w-auto sm:max-w-full sm:flex-wrap sm:gap-1.5 sm:p-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSourceKey('')}
+                      className={cn(
+                        'min-h-8 shrink-0 rounded-xl px-2.5 py-1 text-left text-[11px] font-medium transition-all sm:min-h-9 sm:px-3 sm:text-sm',
+                        !selectedSourceKey
+                          ? 'border border-sky-300/60 bg-white text-sky-900 shadow-sm dark:border-sky-500/35 dark:bg-sky-900/50 dark:text-sky-50'
+                          : 'border border-transparent text-muted-foreground hover:border-sky-200/50 hover:bg-white/70 hover:text-foreground dark:hover:border-sky-500/25 dark:hover:bg-sky-950/40',
+                      )}
+                    >
+                      Tümü
+                    </button>
                     {sources.map((s) => (
-                      <SelectItem key={s.id} value={s.key}>
-                        {s.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-            <div className="hidden border-b border-border/50 px-4 pb-3 pt-4 md:block">
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <Layers className="h-3.5 w-3.5 text-primary" />
-                MEB birimi
-              </div>
-              <div className="w-full min-w-0 rounded-xl bg-muted/60 p-1 ring-1 ring-border/40">
-                <div className="flex flex-wrap gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedSourceKey('')}
-                    className={cn(
-                      'min-h-9 shrink-0 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition-all sm:px-3 sm:text-sm',
-                      !selectedSourceKey
-                        ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-primary/20'
-                        : 'text-muted-foreground hover:bg-background/80 hover:text-foreground',
-                    )}
-                  >
-                    Tümü
-                  </button>
-                  {!loadingSources &&
-                    sources.map((s) => (
                       <button
                         key={s.id}
                         type="button"
                         title={s.label}
                         onClick={() => setSelectedSourceKey(s.key)}
                         className={cn(
-                          'max-w-full min-h-9 shrink-0 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition-all sm:max-w-[16rem] sm:px-3 sm:text-sm',
+                          'max-w-[min(85vw,16rem)] min-h-8 shrink-0 rounded-xl px-2.5 py-1 text-left text-[11px] font-medium transition-all sm:min-h-9 sm:max-w-[16rem] sm:px-3 sm:text-sm',
                           selectedSourceKey === s.key
-                            ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-primary/20'
-                            : 'text-muted-foreground hover:bg-background/80 hover:text-foreground',
+                            ? 'border border-sky-300/60 bg-white text-sky-900 shadow-sm dark:border-sky-500/35 dark:bg-sky-900/50 dark:text-sky-50'
+                            : 'border border-transparent text-muted-foreground hover:border-sky-200/50 hover:bg-white/70 hover:text-foreground dark:hover:border-sky-500/25 dark:hover:bg-sky-950/40',
                         )}
                       >
-                        <span className="line-clamp-2 sm:line-clamp-1">{s.label}</span>
+                        <span className="line-clamp-1">{s.label}</span>
                       </button>
                     ))}
+                  </div>
                 </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        <div
-          className={cn(
-            'flex min-h-13 min-w-0 w-full max-w-full flex-wrap items-center gap-2 px-4 py-3',
-            !(sources.length > 0 || loadingSources) && 'pt-4',
-          )}
-        >
-          <span className="mr-1 hidden text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:inline">
-            Oynatıcı
-          </span>
-          <div className="flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 px-2.5 py-1.5">
-            <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <select
-              value={slideIntervalSec}
-              onChange={(e) => setSlideIntervalSec(Number(e.target.value))}
-              className="max-w-22 cursor-pointer bg-transparent text-xs font-semibold text-foreground focus:outline-none"
-            >
-              {SLIDE_INTERVAL_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
-
-          {allItems.length > 0 && (
-            <div className="flex items-center gap-0.5 rounded-full border border-border/60 bg-muted/50 p-0.5">
-              <button
-                type="button"
-                onClick={goPrev}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
-                aria-label="Önceki"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <span className="min-w-14 px-1 text-center text-xs font-semibold tabular-nums text-foreground">
-                {slideIndex + 1} / {allItems.length}
-              </span>
-              <button
-                type="button"
-                onClick={goNext}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
-                aria-label="Sonraki"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
+              )}
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={() => setSlideMode(!slideMode)}
+          <div
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition-all',
-              slideMode
-                ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-primary/25'
-                : 'border border-border/60 bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground',
+              'mt-3 flex min-h-12 min-w-0 w-full max-w-full flex-wrap items-center gap-2 border-t border-border/40 pt-3 dark:border-slate-700/50 sm:gap-2.5',
+              !(sources.length > 0 || loadingSources) && 'mt-0 border-t-0 pt-0',
             )}
           >
-            {slideMode ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-            {slideMode ? 'Durdur' : 'Slayt'}
-          </button>
-
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            title="Tam ekran (F)"
-            className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 px-3.5 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            {fullscreenMode ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-            <span className="hidden sm:inline">{fullscreenMode ? 'Küçült' : 'Tam ekran'}</span>
-          </button>
-
-          {lastFetchAt && (
-            <span className="ml-auto text-[11px] text-muted-foreground sm:text-xs">
-              Güncellendi: {formatRelativeTime(lastFetchAt)}
+            <span className="hidden w-full text-[10px] font-semibold uppercase tracking-wider text-slate-500 sm:mb-0 sm:inline sm:w-auto dark:text-slate-400">
+              Oynatıcı
             </span>
-          )}
+            <div className="mobile-tab-scroll flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-1 sm:w-auto sm:flex-wrap sm:overflow-visible sm:pb-0">
+              <div className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-violet-200/45 bg-violet-50/35 px-2.5 py-1.5 dark:border-violet-500/25 dark:bg-violet-950/25">
+                <Clock className="h-3.5 w-3.5 shrink-0 text-slate-500 dark:text-slate-400" />
+                <select
+                  value={slideIntervalSec}
+                  onChange={(e) => setSlideIntervalSec(Number(e.target.value))}
+                  className="max-w-22 cursor-pointer bg-transparent text-xs font-semibold text-slate-800 focus:outline-none dark:text-slate-100"
+                >
+                  {SLIDE_INTERVAL_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {allItems.length > 0 && (
+                <div className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-violet-200/45 bg-violet-50/35 p-0.5 dark:border-violet-500/25 dark:bg-violet-950/25">
+                  <button
+                    type="button"
+                    onClick={goPrev}
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-white/90 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-violet-950/50 dark:hover:text-slate-50"
+                    aria-label="Önceki"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <span className="min-w-14 px-1 text-center text-xs font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                    {slideIndex + 1} / {allItems.length}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={goNext}
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-white/90 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-violet-950/50 dark:hover:text-slate-50"
+                    aria-label="Sonraki"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setSlideMode(!slideMode)}
+                className={cn(
+                  'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
+                  slideMode
+                    ? 'border-violet-300/60 bg-white text-violet-900 shadow-sm dark:border-violet-500/40 dark:bg-violet-900/45 dark:text-violet-50'
+                    : 'border-transparent bg-violet-50/50 text-muted-foreground hover:border-violet-200/50 hover:bg-white/80 hover:text-foreground dark:bg-violet-950/20 dark:hover:border-violet-500/30',
+                )}
+              >
+                {slideMode ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                <span>{slideMode ? 'Durdur' : 'Slayt'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                title="Tam ekran (F)"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-transparent bg-violet-50/40 px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-violet-200/50 hover:bg-white/80 hover:text-foreground dark:bg-violet-950/20 dark:hover:border-violet-500/30"
+              >
+                {fullscreenMode ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                <span className="hidden sm:inline">{fullscreenMode ? 'Küçült' : 'Tam ekran'}</span>
+              </button>
+
+              {lastFetchAt && (
+                <span className="ml-auto shrink-0 text-[10px] text-slate-500 sm:text-xs dark:text-slate-400">
+                  Güncellendi: {formatRelativeTime(lastFetchAt)}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -618,10 +601,10 @@ export default function HaberYayinPage() {
           <LoadingSpinner />
         </div>
       ) : mebItems.length === 0 ? (
-        <Card>
+        <Card className="border-slate-200/90 bg-gradient-to-br from-white via-slate-50/40 to-sky-50/35 shadow-sm dark:border-slate-700/85 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
           <CardContent className="py-12">
             <EmptyState
-              icon={<Newspaper className="size-10 text-muted-foreground" />}
+              icon={<Newspaper className="size-10 text-slate-400" />}
               title="Bu birimde henüz içerik yok"
               description="Senkronizasyon sonrası haberler burada görünecek. Haberler sayfasından Senkronize Et ile veri çekebilirsiniz."
             />
@@ -644,9 +627,9 @@ export default function HaberYayinPage() {
         </div>
       )}
 
-      <section className="rounded-2xl border border-emerald-500/25 bg-emerald-950/10 p-4 sm:p-5 dark:bg-emerald-950/20">
+      <section className="rounded-xl border border-slate-200/80 bg-gradient-to-br from-emerald-50/50 via-white to-sky-50/30 p-4 shadow-sm ring-1 ring-emerald-200/30 dark:border-slate-700/80 dark:from-emerald-950/30 dark:via-slate-950 dark:to-slate-950 dark:ring-emerald-900/30 sm:rounded-2xl sm:p-5">
         <div className="mb-4 flex flex-wrap items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-200/60 bg-emerald-500/10 text-emerald-700 dark:border-emerald-800/50 dark:text-emerald-400">
             <MapPin className="h-5 w-5" />
           </div>
           <div>
@@ -682,7 +665,7 @@ export default function HaberYayinPage() {
         )}
       </section>
 
-      <details className="group rounded-xl border border-dashed border-border/60 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+      <details className="group rounded-xl border border-dashed border-slate-300/60 bg-slate-50/50 px-3 py-2 text-sm text-muted-foreground dark:border-slate-600/50 dark:bg-slate-900/40">
         <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">
           <Keyboard className="h-4 w-4 shrink-0 opacity-70" />
           Klavye kısayolları

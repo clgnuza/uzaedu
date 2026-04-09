@@ -132,8 +132,13 @@ export default function ResetPasswordPage() {
     <div className="flex min-h-screen w-full">
       <div className="hidden w-1/2 flex-col justify-between bg-primary p-10 text-primary-foreground lg:flex">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Öğretmen Pro</h1>
-          <p className="mt-1 text-sm opacity-90">Web Admin</p>
+          <Link
+            href="/"
+            className="inline-block rounded-lg outline-none transition-opacity hover:opacity-95 focus-visible:ring-2 focus-visible:ring-primary-foreground/40 focus-visible:ring-offset-2 focus-visible:ring-offset-primary"
+          >
+            <h1 className="text-2xl font-bold tracking-tight">Öğretmen Pro</h1>
+            <p className="mt-1 text-sm opacity-90">Web Admin</p>
+          </Link>
         </div>
         <div className="space-y-4">
           <p className="text-lg font-medium">Yeni şifre belirleyin</p>
@@ -146,8 +151,13 @@ export default function ResetPasswordPage() {
       <div className="flex w-full flex-col items-center justify-center bg-background px-4 py-10 lg:w-1/2 lg:px-12">
         <div className="w-full max-w-md">
           <div className="mb-8 lg:hidden">
-            <h1 className="text-2xl font-bold text-foreground">Öğretmen Pro</h1>
-            <p className="text-sm text-muted-foreground">Web Admin</p>
+            <Link
+              href="/"
+              className="inline-block rounded-lg outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2"
+            >
+              <h1 className="text-2xl font-bold text-foreground">Öğretmen Pro</h1>
+              <p className="text-sm text-muted-foreground">Web Admin</p>
+            </Link>
           </div>
 
           <h2 className="text-xl font-semibold text-foreground">Şifre sıfırlama</h2>

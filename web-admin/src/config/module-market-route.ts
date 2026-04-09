@@ -18,7 +18,7 @@ const ROUTE_PREFIX_TO_MARKET_MODULE: [string, SchoolModuleKey][] = [
   ['/document-templates', 'document'],
   ['/outcome-sets', 'outcome'],
   ['/extra-lesson-params', 'extra_lesson'],
-  ['/extra-lesson-calc', 'extra_lesson'],
+  ['/ek-ders-hesaplama', 'extra_lesson'],
   ['/optik-okuma-ayarlar', 'optical'],
   ['/school-profile', 'school_profile'],
   ['/classes-subjects', 'bilsem'],
@@ -30,7 +30,6 @@ const ROUTE_PREFIX_TO_MARKET_MODULE: [string, SchoolModuleKey][] = [
   ['/kazanim-takip', 'outcome'],
   ['/evrak', 'document'],
   ['/school-reviews-report', 'school_reviews'],
-  ['/school-reviews', 'school_reviews'],
   ['/favoriler', 'school_reviews'],
 ];
 
@@ -38,6 +37,8 @@ const SORTED_PREFIXES = [...ROUTE_PREFIX_TO_MARKET_MODULE].sort((a, b) => b[0].l
 
 export function getMarketModuleKeyForPath(pathname: string): SchoolModuleKey | null {
   const n = pathname.split('?')[0] || '';
+  /** Herkese açık okul listesi/detay; Market etkinleştirme duvarı uygulanmaz (girişli/girişsiz). */
+  if (n === '/okul-degerlendirmeleri' || n.startsWith('/okul-degerlendirmeleri/')) return null;
   if (n === '/market' || n.startsWith('/market/')) return null;
   if (n === '/market-policy' || n.startsWith('/market-policy/')) return null;
   for (const [prefix, key] of SORTED_PREFIXES) {

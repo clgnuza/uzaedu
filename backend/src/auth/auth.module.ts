@@ -8,7 +8,6 @@ import { SchoolsModule } from '../schools/schools.module';
 import { FirebaseStrategy } from './strategies/firebase.strategy';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
-import { EmailService } from './services/email.service';
 import { TeacherInviteModule } from '../teacher-invite/teacher-invite.module';
 import { MailModule } from '../mail/mail.module';
 
@@ -22,7 +21,7 @@ import { MailModule } from '../mail/mail.module';
     MailModule,
   ],
   controllers: [AuthController],
-  providers: [FirebaseStrategy, AuthService, EmailService],
+  providers: [FirebaseStrategy, AuthService],
   exports: [AuthService],
 })
 export class AuthModule {}

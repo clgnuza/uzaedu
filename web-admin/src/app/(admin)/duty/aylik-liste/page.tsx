@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { cn } from '@/lib/utils';
+import { DutyPageHeader } from '@/components/duty/duty-page-header';
 
 type DutySlotRow = {
   id: string;
@@ -170,16 +171,23 @@ export default function DutyAylikListePage() {
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Link
-          href="/duty"
-          className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          Nöbet
-        </Link>
-        <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-end">
+    <div className="space-y-3 sm:space-y-5">
+      <DutyPageHeader
+        icon={CalendarDays}
+        title="Aylık nöbet listesi"
+        description="Ay seçerek nöbet günlerinizi görün."
+        color="purple"
+        actions={
+          <Link
+            href="/duty"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background/90 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:text-sm"
+          >
+            <ArrowLeft className="size-3.5 sm:size-4" />
+            Nöbet
+          </Link>
+        }
+      />
+      <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-end">
           <Button
             variant="outline"
             size="sm"
@@ -207,11 +215,10 @@ export default function DutyAylikListePage() {
           >
             <ChevronRight className="size-4" />
           </Button>
-        </div>
       </div>
 
-      <Card className="overflow-hidden rounded-2xl border-2 border-fuchsia-300/60 bg-gradient-to-b from-white via-fuchsia-50/25 to-violet-50/25 shadow-lg shadow-fuchsia-500/15 ring-1 ring-fuchsia-200/80 dark:border-fuchsia-700/50 dark:from-slate-950 dark:via-fuchsia-950/15 dark:to-violet-950/25 dark:ring-fuchsia-800/40">
-        <CardHeader className="border-b border-fuchsia-200/40 bg-gradient-to-r from-fuchsia-100/50 to-violet-100/40 py-3 sm:py-4 dark:border-fuchsia-800/30 dark:from-fuchsia-950/40 dark:to-violet-950/30">
+      <Card className="overflow-hidden rounded-xl border-2 border-fuchsia-300/60 bg-gradient-to-b from-white via-fuchsia-50/25 to-violet-50/25 shadow-lg shadow-fuchsia-500/15 ring-1 ring-fuchsia-200/80 dark:border-fuchsia-700/50 dark:from-slate-950 dark:via-fuchsia-950/15 dark:to-violet-950/25 dark:ring-fuchsia-800/40 sm:rounded-2xl">
+        <CardHeader className="border-b border-fuchsia-200/40 bg-gradient-to-r from-fuchsia-100/50 to-violet-100/40 py-2.5 sm:py-4 dark:border-fuchsia-800/30 dark:from-fuchsia-950/40 dark:to-violet-950/30">
           <CardTitle className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-base font-semibold text-fuchsia-950 dark:text-fuchsia-100">
             <span className="capitalize">{label}</span>
             <span className="text-xs font-normal text-fuchsia-700/85 dark:text-fuchsia-300/85 sm:text-sm">

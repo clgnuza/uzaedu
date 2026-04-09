@@ -46,6 +46,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { DutyPageHeader } from '@/components/duty/duty-page-header';
 import { getDutyLogActionLabel } from '@/lib/duty-log-labels';
 import LessonCoverageDialog from '@/components/duty/LessonCoverageDialog';
 
@@ -345,7 +346,7 @@ export default function GunlukTabloPage() {
   }, [data?.slots]);
 
   return (
-    <div className="space-y-6 print:space-y-3">
+    <div className="space-y-3 print:space-y-3 sm:space-y-5">
       {/* Öğretmen: modern header + özet */}
       {!isAdmin && (
         <div className="print:hidden space-y-4">
@@ -423,55 +424,78 @@ export default function GunlukTabloPage() {
 
       {/* Admin: üst toolbar */}
       {isAdmin && (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between print:hidden">
-          <div className="flex items-center gap-3">
-            <Link href="/duty" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-              <ArrowLeft className="size-4" />
-              Planlama
-            </Link>
-            <h1 className="text-xl font-semibold text-foreground">Günlük Nöbet Tablosu</h1>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => shiftDay(-1)} aria-label="Önceki gün">
+        <div className="space-y-2 print:hidden">
+          <DutyPageHeader
+            icon={Table2}
+            title="Günlük nöbet tablosu"
+            description="Tarih ve vardiya seçin; yazdırma, WhatsApp ve bildirim."
+            color="sky"
+            actions={
+              <Link
+                href="/duty"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background/90 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:text-sm"
+              >
+                <ArrowLeft className="size-3.5 sm:size-4" />
+                Planlama
+              </Link>
+            }
+          />
+          <div className="flex flex-col gap-2 rounded-xl border border-cyan-500/20 bg-linear-to-br from-cyan-500/8 via-background to-background p-2 shadow-sm ring-1 ring-cyan-500/10 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:p-2.5">
+            <Button variant="outline" size="sm" className="h-8 shrink-0 sm:h-9" onClick={() => shiftDay(-1)} aria-label="Önceki gün">
               <ChevronLeft className="size-4" />
             </Button>
             <input
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="rounded-lg border border-input bg-background px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="h-8 rounded-lg border border-input bg-background px-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/30 sm:h-9 sm:px-3 sm:text-sm"
             />
-            <Button variant="outline" size="sm" onClick={() => shiftDay(1)} aria-label="Sonraki gün">
+            <Button variant="outline" size="sm" className="h-8 shrink-0 sm:h-9" onClick={() => shiftDay(1)} aria-label="Sonraki gün">
               <ChevronRight className="size-4" />
             </Button>
             {selectedDate !== todayYMD && (
-              <Button variant="outline" size="sm" onClick={() => setSelectedDate(todayYMD)} className="border-primary/40 text-primary hover:bg-primary/10">
-                <CalendarCheck className="size-4" />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 border-primary/40 text-xs text-primary hover:bg-primary/10 sm:h-9 sm:text-sm"
+                onClick={() => setSelectedDate(todayYMD)}
+              >
+                <CalendarCheck className="size-3.5 sm:size-4" />
                 Bugün
               </Button>
             )}
             {latestPlanDate && selectedDate !== latestPlanDate && (
-              <Button variant="outline" size="sm" onClick={() => setSelectedDate(latestPlanDate)} className="border-emerald-500/40 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400">
-                <CalendarCheck className="size-4" />
-                Son Plan
+              <Button variant="outline" size="sm" className="h-8 border-emerald-500/40 text-xs text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 sm:h-9 sm:text-sm" onClick={() => setSelectedDate(latestPlanDate)}>
+                <CalendarCheck className="size-3.5 sm:size-4" />
+                Son plan
               </Button>
             )}
             {educationMode === 'double' && (
               <>
-                <Button variant={shift === 'morning' ? 'default' : 'outline'} size="sm" onClick={() => setShift('morning')}>Sabah</Button>
-                <Button variant={shift === 'afternoon' ? 'default' : 'outline'} size="sm" onClick={() => setShift('afternoon')}>Öğle</Button>
+                <Button variant={shift === 'morning' ? 'default' : 'outline'} size="sm" className="h-8 text-xs sm:h-9 sm:text-sm" onClick={() => setShift('morning')}>
+                  Sabah
+                </Button>
+                <Button variant={shift === 'afternoon' ? 'default' : 'outline'} size="sm" className="h-8 text-xs sm:h-9 sm:text-sm" onClick={() => setShift('afternoon')}>
+                  Öğle
+                </Button>
               </>
             )}
-            <Button variant="outline" size="sm" onClick={handleWhatsAppShare} disabled={!data?.slots?.length}>
-              <Share2 className="size-4" />
+            <Button variant="outline" size="sm" className="h-8 text-xs sm:h-9 sm:text-sm" onClick={handleWhatsAppShare} disabled={!data?.slots?.length}>
+              <Share2 className="size-3.5 sm:size-4" />
               WhatsApp
             </Button>
-            <Button variant="outline" size="sm" onClick={handlePrint}>
-              <Printer className="size-4" />
+            <Button variant="outline" size="sm" className="h-8 text-xs sm:h-9 sm:text-sm" onClick={handlePrint}>
+              <Printer className="size-3.5 sm:size-4" />
               Yazdır
             </Button>
-            <Button variant="outline" size="sm" onClick={handleSendNotifications} disabled={sendingNotify || !data?.slots?.length} className="border-blue-500/40 text-blue-700 hover:bg-blue-50 dark:text-blue-400">
-              {sendingNotify ? <RotateCcw className="size-4 animate-spin" /> : <Bell className="size-4" />}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 border-blue-500/40 text-xs text-blue-700 hover:bg-blue-50 dark:text-blue-400 sm:h-9 sm:text-sm"
+              onClick={handleSendNotifications}
+              disabled={sendingNotify || !data?.slots?.length}
+            >
+              {sendingNotify ? <RotateCcw className="size-3.5 animate-spin sm:size-4" /> : <Bell className="size-3.5 sm:size-4" />}
               Bildirim
             </Button>
           </div>
@@ -764,7 +788,7 @@ export default function GunlukTabloPage() {
         return (
           <div
             className={cn(
-              'sticky top-0 z-40 rounded-xl border-2 p-4 shadow-lg flex flex-wrap items-center justify-between gap-4 print:hidden',
+              'sticky top-0 z-20 rounded-xl border-2 p-4 shadow-lg flex flex-wrap items-center justify-between gap-4 print:hidden',
               allDone
                 ? 'border-emerald-500 bg-emerald-100 dark:border-emerald-500 dark:bg-emerald-900/40 ring-2 ring-emerald-400/50'
                 : 'border-amber-500 bg-amber-100 dark:border-amber-500 dark:bg-amber-900/50 shadow-amber-500/20 ring-2 ring-amber-400/50',

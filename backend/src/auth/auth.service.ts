@@ -16,7 +16,6 @@ import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { UserRole, UserStatus, TeacherSchoolMembershipStatus, SchoolStatus } from '../types/enums';
 import { SchoolsService } from '../schools/schools.service';
 import { env } from '../config/env';
-import { EmailService } from './services/email.service';
 import { TeacherInviteService } from '../teacher-invite/teacher-invite.service';
 import { MailService } from '../mail/mail.service';
 import { DEMO_CREDENTIALS } from '../seed/demo-credentials';
@@ -30,7 +29,6 @@ export class AuthService {
     private readonly userRepo: Repository<User>,
     @InjectRepository(PasswordResetToken)
     private readonly tokenRepo: Repository<PasswordResetToken>,
-    private readonly emailService: EmailService,
     private readonly schoolsService: SchoolsService,
     private readonly teacherInvites: TeacherInviteService,
     private readonly mailService: MailService,
@@ -258,8 +256,12 @@ export class AuthService {
     await this.tokenRepo.delete({ userId: user.id });
     const record = this.tokenRepo.create({ userId: user.id, token, expiresAt });
     await this.tokenRepo.save(record);
-    const resetUrl = `${env.frontendUrl}/reset-password?token=${token}`;
-    await this.emailService.sendPasswordResetEmail(user.email, resetUrl);
+    const base = await this.mailService.resolveAppBaseUrl();
+    const resetUrl = `${base}/reset-password?token=${encodeURIComponent(token)}`;
+    const sent = await this.mailService.sendPasswordResetEmail(user.email, resetUrl);
+    if (!sent) {
+      this.logger.warn('Şifre sıfırlama e-postası gönderilemedi (SMTP kapalı veya hata).');
+    }
     return { ok: true, message: 'E-posta adresinize şifre sıfırlama bağlantısı gönderildi.' };
   }
 

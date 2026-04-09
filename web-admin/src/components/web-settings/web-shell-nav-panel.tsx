@@ -126,7 +126,7 @@ export function WebShellNavPanel() {
             <p className="mt-3 font-medium text-foreground">Desteklenen iç sayfalar (Öğretmen Pro)</p>
             <ul className="mt-1.5 list-inside list-disc space-y-0.5 font-mono text-xs">
               <li>/haberler · /haberler/yayin</li>
-              <li>/hesaplamalar · /extra-lesson-calc</li>
+              <li>/hesaplamalar · /ek-ders-hesaplama</li>
               <li>/sinav-gorev-ucretleri</li>
             </ul>
             <p className="mt-3 text-xs">

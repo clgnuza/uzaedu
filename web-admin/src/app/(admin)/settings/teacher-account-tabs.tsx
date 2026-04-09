@@ -30,6 +30,16 @@ import { BackupExportPanel } from '@/components/account/backup-export-panel';
 import { AvatarPickerField } from '@/components/account/avatar-picker';
 import { formatSchoolTypeLabel } from '@/lib/school-labels';
 
+const fieldIn = cn(
+  'h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm text-foreground shadow-sm',
+  'transition-[color,box-shadow] focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15',
+  'max-sm:h-8 max-sm:px-2 max-sm:text-[13px] sm:rounded-lg sm:px-3',
+);
+const fieldInEye = cn(fieldIn, 'pr-9 sm:pr-10');
+const lblB = 'mb-0.5 block text-xs font-medium text-foreground sm:mb-1 sm:text-sm';
+const lblRow = 'mb-0 flex items-center gap-1.5 text-xs font-medium text-foreground sm:gap-2 sm:text-sm';
+const iconBox = 'flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/10 sm:size-7';
+
 /** Branş seçenekleri (MEB ders kataloğundan) */
 const BRANCH_OPTIONS = [
   'Türk Dili ve Edebiyatı',
@@ -65,6 +75,44 @@ const TABS: { id: TabId; label: string; ariaLabel: string; icon: React.ElementTy
   { id: 'zumre', label: 'Zümre', ariaLabel: 'Zümre', icon: Users },
   { id: 'yedek', label: 'Yedek', ariaLabel: 'Yedek', icon: FileDown },
 ];
+
+const TAB_STYLE: Record<
+  TabId,
+  { active: string; idle: string; iconActive: string; iconIdle: string }
+> = {
+  hesap: {
+    active:
+      'bg-sky-600 text-white shadow-md ring-2 ring-sky-400/45 dark:bg-sky-500 dark:ring-sky-300/35',
+    idle:
+      'border border-sky-200/80 bg-sky-500/12 text-sky-950 hover:bg-sky-500/22 dark:border-sky-800/60 dark:bg-sky-950/45 dark:text-sky-100 dark:hover:bg-sky-900/55',
+    iconActive: 'text-white',
+    iconIdle: 'text-sky-600 dark:text-sky-400',
+  },
+  okul: {
+    active:
+      'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400/45 dark:bg-emerald-600 dark:ring-emerald-300/35',
+    idle:
+      'border border-emerald-200/80 bg-emerald-500/12 text-emerald-950 hover:bg-emerald-500/22 dark:border-emerald-800/60 dark:bg-emerald-950/45 dark:text-emerald-100 dark:hover:bg-emerald-900/55',
+    iconActive: 'text-white',
+    iconIdle: 'text-emerald-600 dark:text-emerald-400',
+  },
+  zumre: {
+    active:
+      'bg-violet-600 text-white shadow-md ring-2 ring-violet-400/45 dark:bg-violet-500 dark:ring-violet-300/35',
+    idle:
+      'border border-violet-200/80 bg-violet-500/12 text-violet-950 hover:bg-violet-500/22 dark:border-violet-800/60 dark:bg-violet-950/45 dark:text-violet-100 dark:hover:bg-violet-900/55',
+    iconActive: 'text-white',
+    iconIdle: 'text-violet-600 dark:text-violet-400',
+  },
+  yedek: {
+    active:
+      'bg-amber-500 text-amber-950 shadow-md ring-2 ring-amber-400/55 dark:bg-amber-500 dark:text-amber-950 dark:ring-amber-300/40',
+    idle:
+      'border border-amber-200/90 bg-amber-500/15 text-amber-950 hover:bg-amber-500/28 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/50',
+    iconActive: 'text-amber-950 dark:text-amber-950',
+    iconIdle: 'text-amber-700 dark:text-amber-400',
+  },
+};
 
 const TAB_IDS: TabId[] = ['hesap', 'okul', 'zumre', 'yedek'];
 
@@ -222,16 +270,17 @@ export function TeacherAccountTabs() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2.5 sm:space-y-5">
       <div
-        className="rounded-2xl border border-border/50 bg-muted/45 p-1 dark:border-zinc-800 dark:bg-zinc-900/55"
+        className="rounded-lg border border-border/60 bg-linear-to-r from-sky-500/8 via-violet-500/6 to-amber-500/8 p-1 shadow-md ring-1 ring-black/8 dark:border-zinc-700 dark:from-zinc-900/80 dark:via-zinc-900/60 dark:to-zinc-900/80 dark:ring-white/8 sm:rounded-xl sm:p-1.5"
         role="tablist"
         aria-label="Profil bölümleri"
       >
-        <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
+        <div className="flex snap-x snap-mandatory gap-1 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] sm:grid sm:grid-cols-4 sm:gap-1.5 sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">
           {TABS.map((t) => {
             const Icon = t.icon;
             const isActive = tab === t.id;
+            const st = TAB_STYLE[t.id];
             return (
               <button
                 key={t.id}
@@ -241,14 +290,12 @@ export function TeacherAccountTabs() {
                 aria-label={t.ariaLabel}
                 onClick={() => goTab(t.id)}
                 className={cn(
-                  'flex min-h-11 items-center justify-center gap-2 rounded-xl px-2 py-2.5 text-center text-sm font-medium transition-[color,box-shadow,background-color] duration-200',
-                  isActive
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:bg-background/80 hover:text-foreground dark:hover:bg-zinc-800/50',
+                  'flex min-h-10 min-w-19 shrink-0 snap-start items-center justify-center gap-1 rounded-lg px-2 py-2 text-center text-[11px] font-bold tracking-tight transition-[color,box-shadow,background-color,border-color] duration-200 sm:min-h-12 sm:min-w-0 sm:gap-2 sm:rounded-xl sm:py-2.5 sm:text-sm',
+                  isActive ? st.active : st.idle,
                 )}
               >
                 <Icon
-                  className={cn('size-4 shrink-0', isActive ? 'text-primary-foreground' : 'opacity-80')}
+                  className={cn('size-3.5 shrink-0 sm:size-4', isActive ? st.iconActive : st.iconIdle)}
                   aria-hidden
                 />
                 <span className="truncate">{t.label}</span>
@@ -260,30 +307,31 @@ export function TeacherAccountTabs() {
 
       {/* Sekme içerikleri */}
       {tab === 'hesap' && (
-        <Card className="overflow-hidden border-border/50 shadow-sm bg-card/90 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/95">
-          <CardHeader className="border-b border-border/50 bg-muted/20 dark:border-zinc-800 dark:bg-zinc-900/80">
-            <CardTitle>Profil düzenle</CardTitle>
-            <CardDescription>Görünen ad ve şifre bu sekmede.</CardDescription>
+        <Card className="overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm ring-1 ring-black/5 backdrop-blur-sm dark:border-border/80 dark:bg-card dark:ring-white/6 sm:rounded-xl sm:border-2 sm:shadow-md sm:ring-black/4">
+          <CardHeader className="border-b border-border/50 bg-muted/25 px-2.5 py-2 dark:border-zinc-800 sm:px-6 sm:py-4">
+            <CardTitle className="text-[15px] sm:text-lg">Profil düzenle</CardTitle>
+            <CardDescription className="text-[11px] sm:text-sm">Ad, şifre ve hesap.</CardDescription>
           </CardHeader>
-          <CardContent className="p-4 md:p-5 space-y-5">
-            <section>
+          <CardContent className="space-y-2.5 p-2.5 sm:space-y-5 sm:p-5">
+            <section className="space-y-1.5 sm:space-y-2">
               <AvatarPickerField
                 value={avatarKey}
                 onChange={setAvatarKey}
                 disabled={savingProfile}
                 idPrefix="hesap-av"
+                compact
               />
             </section>
 
             {/* Görünen ad */}
-            <section>
-              <label htmlFor="hesap-ad" className="flex items-center gap-2 text-sm font-medium text-foreground mb-1.5">
-                <span className="flex size-7 items-center justify-center rounded-md bg-primary/10">
+            <section className="space-y-1 sm:space-y-1.5">
+              <label htmlFor="hesap-ad" className={lblRow}>
+                <span className={iconBox}>
                   <User className="size-3.5 text-primary" />
                 </span>
                 Görünen ad
               </label>
-              <form onSubmit={handleSaveProfile} className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+              <form onSubmit={handleSaveProfile} className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:gap-3">
                 <div className="w-full min-w-0 sm:min-w-[180px] sm:flex-1">
                   <input
                     id="hesap-ad"
@@ -291,16 +339,16 @@ export function TeacherAccountTabs() {
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                     maxLength={255}
-                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-foreground placeholder:text-muted-foreground/70 transition-all duration-200 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    placeholder="Adınız soyadınız"
+                    className={cn(fieldIn, 'placeholder:text-muted-foreground/70')}
+                    placeholder="Ad Soyad"
                   />
                 </div>
-                <Button type="submit" disabled={savingProfile} className="rounded-lg">
+                <Button type="submit" disabled={savingProfile} size="sm" className="h-8 w-full shrink-0 sm:h-9 sm:w-auto">
                   {savingProfile ? 'Kaydediliyor…' : 'Kaydet'}
                 </Button>
               </form>
               {profileError && <Alert message={profileError} />}
-              <label className="mt-3 flex cursor-pointer items-start gap-2.5">
+              <label className="mt-2 flex cursor-pointer items-start gap-2 sm:mt-2.5 sm:gap-2.5">
                 <input
                   type="checkbox"
                   checked={nameMasked}
@@ -308,50 +356,48 @@ export function TeacherAccountTabs() {
                   className="mt-0.5 size-3.5 shrink-0 rounded border-input"
                 />
                 <span className="text-xs text-muted-foreground leading-snug">
-                  Aynı okuldaki diğer öğretmenlere tam adımı gösterme; nöbet listelerinde kısaltılmış göster (ör. Ayşe K.).
+                  Okuldaki öğretmenlere tam adı gösterme; nöbette kısalt.
                 </span>
               </label>
             </section>
 
             {/* E-Posta */}
-            <section className="rounded-xl border border-border/60 bg-linear-to-br from-muted/30 via-muted/20 to-muted/30 dark:border-zinc-700/60 dark:from-zinc-800/50 dark:via-zinc-800/30 dark:to-zinc-800/50 p-4 space-y-2 transition-all duration-300">
-              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <Mail className="size-4 text-primary" />
-                E-Posta Adresi (Değiştirilemez)
+            <section className="space-y-1.5 rounded-lg border border-border/60 bg-linear-to-br from-muted/30 via-muted/20 to-muted/30 p-2.5 transition-all duration-300 dark:border-zinc-700/60 dark:from-zinc-800/50 dark:via-zinc-800/30 dark:to-zinc-800/50 sm:space-y-2 sm:rounded-xl sm:p-4">
+              <label className={cn(lblRow, 'gap-1.5')}>
+                <Mail className="size-3.5 shrink-0 text-primary sm:size-4" />
+                E-posta (sabit)
               </label>
               <input
                 type="email"
                 value={me?.email ?? ''}
                 readOnly
-                className="w-full rounded-lg border border-border/60 bg-background/80 dark:bg-zinc-800/50 dark:border-zinc-700 px-3 py-2 text-foreground"
+                className={cn(fieldIn, 'border-border/60 bg-muted/30 dark:bg-zinc-800/50 dark:border-zinc-700')}
               />
-              <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Info className="size-3.5 shrink-0" />
-                Güvenlik nedeniyle e-posta adresi değiştirilemez.
+              <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground sm:text-xs">
+                <Info className="size-3 shrink-0" />
+                Değiştirilemez.
               </p>
-              <div className="flex items-center gap-2 rounded-lg border border-emerald-200/80 bg-linear-to-r from-emerald-50/60 to-emerald-100/30 dark:border-emerald-800/50 dark:from-emerald-950/40 dark:via-emerald-900/30 dark:to-emerald-950/40 px-3 py-2 text-sm font-medium text-emerald-800 dark:text-emerald-200">
-                <CheckCircle2 className="size-4 shrink-0" />
-                E-posta adresiniz doğrulanmış
+              <div className="flex items-center gap-1.5 rounded-md border border-emerald-200/80 bg-linear-to-r from-emerald-50/60 to-emerald-100/30 px-2.5 py-1.5 text-xs font-medium text-emerald-800 dark:border-emerald-800/50 dark:from-emerald-950/40 dark:via-emerald-900/30 dark:to-emerald-950/40 dark:text-emerald-200 sm:gap-2 sm:px-3 sm:py-2 sm:text-sm">
+                <CheckCircle2 className="size-3.5 shrink-0 sm:size-4" />
+                Doğrulandı
               </div>
             </section>
 
             {/* Şifre Değiştir */}
-            <section className="rounded-xl border border-border/60 bg-linear-to-br from-muted/20 via-muted/10 to-muted/20 dark:border-zinc-700/60 dark:from-zinc-800/40 dark:via-zinc-800/20 dark:to-zinc-800/40 p-4 space-y-3 transition-all duration-300">
-              <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <span className="flex size-7 items-center justify-center rounded-md bg-primary/10">
+            <section className="space-y-1.5 rounded-lg border border-border/60 bg-linear-to-br from-muted/20 via-muted/10 to-muted/20 p-2.5 transition-all duration-300 dark:border-zinc-700/60 dark:from-zinc-800/40 dark:via-zinc-800/20 dark:to-zinc-800/40 sm:space-y-2 sm:rounded-xl sm:p-4">
+              <h3 className={cn(lblRow, 'font-medium')}>
+                <span className={iconBox}>
                   <User className="size-3.5 text-primary" />
                 </span>
-                Şifre Değiştir (Opsiyonel)
+                Şifre
               </h3>
-              <p className="text-xs text-muted-foreground">
-                Şifrenizi değiştirmek istemiyorsanız bu alanları boş bırakın.
-              </p>
-              <form onSubmit={handleChangePassword} className="space-y-4">
+              <p className="text-[11px] text-muted-foreground sm:text-xs">Boş bırakılabilir.</p>
+              <form onSubmit={handleChangePassword} className="space-y-2 sm:space-y-4">
                 {passwordError && <Alert message={passwordError} />}
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div>
-                    <label htmlFor="mevcut-sifre" className="block text-sm font-medium text-foreground mb-1.5">
-                      Mevcut şifre
+                <div className="grid gap-2 sm:grid-cols-3 sm:gap-4">
+                  <div className="space-y-0.5 sm:space-y-1">
+                    <label htmlFor="mevcut-sifre" className={lblB}>
+                      Mevcut
                     </label>
                     <input
                       id="mevcut-sifre"
@@ -359,13 +405,13 @@ export function TeacherAccountTabs() {
                       value={currentPassword}
                       onChange={(e) => setCurrentPassword(e.target.value)}
                       autoComplete="current-password"
-                      className="w-full rounded-lg border border-input bg-background px-3 py-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all duration-200"
-                      placeholder="Mevcut şifreniz"
+                      className={fieldIn}
+                      placeholder="········"
                     />
                   </div>
-                  <div>
-                    <label htmlFor="yeni-sifre" className="block text-sm font-medium text-foreground mb-1.5">
-                      Yeni Şifre
+                  <div className="space-y-0.5 sm:space-y-1">
+                    <label htmlFor="yeni-sifre" className={lblB}>
+                      Yeni
                     </label>
                     <div className="relative">
                       <input
@@ -376,21 +422,21 @@ export function TeacherAccountTabs() {
                         minLength={8}
                         maxLength={128}
                         autoComplete="new-password"
-                        className="w-full rounded-lg border border-input bg-background px-3 py-2 pr-10 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all duration-200"
-                        placeholder="Boş bırakın, değiştirmek istemezseniz"
+                        className={fieldInEye}
+                        placeholder="Opsiyonel"
                       />
                       <button
                         type="button"
                         onClick={() => setShowNewPass(!showNewPass)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground sm:right-3"
                       >
-                        {showNewPass ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                        {showNewPass ? <EyeOff className="size-3.5 sm:size-4" /> : <Eye className="size-3.5 sm:size-4" />}
                       </button>
                     </div>
                   </div>
-                  <div>
-                    <label htmlFor="sifre-tekrar" className="block text-sm font-medium text-foreground mb-1.5">
-                      Şifre Tekrar
+                  <div className="space-y-0.5 sm:space-y-1">
+                    <label htmlFor="sifre-tekrar" className={lblB}>
+                      Tekrar
                     </label>
                     <div className="relative">
                       <input
@@ -401,30 +447,30 @@ export function TeacherAccountTabs() {
                         minLength={8}
                         maxLength={128}
                         autoComplete="new-password"
-                        className="w-full rounded-lg border border-input bg-background px-3 py-2 pr-10 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all duration-200"
-                        placeholder="Yeni şifreyi tekrar girin"
+                        className={fieldInEye}
+                        placeholder="Tekrar"
                       />
                       <button
                         type="button"
                         onClick={() => setShowConfirmPass(!showConfirmPass)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground sm:right-3"
                       >
-                        {showConfirmPass ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                        {showConfirmPass ? <EyeOff className="size-3.5 sm:size-4" /> : <Eye className="size-3.5 sm:size-4" />}
                       </button>
                     </div>
                   </div>
                 </div>
-                <Button type="submit" disabled={savingPassword} className="rounded-lg">
+                <Button type="submit" disabled={savingPassword} size="sm" className="h-8 sm:h-9">
                   {savingPassword ? 'Kaydediliyor…' : 'Şifreyi güncelle'}
                 </Button>
               </form>
             </section>
 
             {/* Hesap kapatma */}
-            <section className="rounded-xl border border-border/60 bg-linear-to-br from-muted/20 via-muted/10 to-muted/20 dark:border-zinc-700/60 dark:from-zinc-800/40 dark:via-zinc-800/20 dark:to-zinc-800/40 p-4 space-y-3 transition-all duration-300">
-              <h3 className="text-sm font-semibold text-foreground">Hesap kapatma</h3>
+            <section className="space-y-1.5 rounded-lg border border-border/60 bg-linear-to-br from-muted/20 via-muted/10 to-muted/20 p-2.5 transition-all duration-300 dark:border-zinc-700/60 dark:from-zinc-800/40 dark:via-zinc-800/20 dark:to-zinc-800/40 sm:space-y-2 sm:rounded-xl sm:p-4">
+              <h3 className="text-xs font-semibold text-foreground sm:text-sm">Hesap kapatma</h3>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Veri indirme ve modül yedekleri için <strong>Yedek</strong> sekmesini kullanın.
+                Önce veri için <strong>Yedek</strong> sekmesi.
               </p>
               <DeleteAccountButton token={token} />
             </section>
@@ -433,26 +479,26 @@ export function TeacherAccountTabs() {
       )}
 
       {tab === 'okul' && (
-        <Card className="overflow-hidden border-border/50 shadow-sm bg-card/90 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/95">
-          <CardContent className="p-4 md:p-5">
+        <Card className="overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm ring-1 ring-black/5 backdrop-blur-sm dark:border-border/80 dark:bg-card dark:ring-white/6 sm:rounded-xl sm:border-2 sm:shadow-md sm:ring-black/4">
+          <CardContent className="p-2.5 sm:p-5">
             {me?.teacher_school_membership === 'pending' && (
-              <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-2.5 text-sm text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-100">
+              <div className="mb-3 flex items-start gap-1.5 rounded-lg border border-amber-200/80 bg-amber-50/80 px-2.5 py-2 text-xs text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-100 sm:mb-4 sm:gap-2 sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm">
                 <Clock className="size-4 shrink-0 mt-0.5" />
-                <span>Okul yöneticisi onayı bekleniyor. Onaylanınca &quot;doğrulanmış okul öğretmeni&quot; rozetiniz görünür.</span>
+                <span>Yönetici onayı bekleniyor.</span>
               </div>
             )}
             {me?.school_verified && (
-              <div className="mb-4 flex items-center gap-2 rounded-xl border border-emerald-200/80 bg-emerald-50/60 px-3 py-2.5 text-sm font-medium text-emerald-900 dark:border-emerald-800/50 dark:bg-emerald-950/40 dark:text-emerald-100">
+              <div className="mb-3 flex items-center gap-1.5 rounded-lg border border-emerald-200/80 bg-emerald-50/60 px-2.5 py-2 text-xs font-medium text-emerald-900 dark:border-emerald-800/50 dark:bg-emerald-950/40 dark:text-emerald-100 sm:mb-4 sm:gap-2 sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm">
                 <ShieldCheck className="size-4 shrink-0" />
-                Okul öğretmeni olarak doğrulandınız
+                Okul öğretmeni doğrulandı
               </div>
             )}
-            <form onSubmit={handleSaveOkul} className="space-y-4">
+            <form onSubmit={handleSaveOkul} className="space-y-3 sm:space-y-4">
               {okulError && <Alert message={okulError} />}
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="rounded-xl border border-border/60 bg-linear-to-br from-muted/15 via-muted/10 to-muted/15 dark:border-zinc-700/60 dark:from-zinc-800/40 dark:via-zinc-800/25 dark:to-zinc-800/40 p-4 transition-all duration-300">
-                  <label htmlFor="okul-brans" className="flex items-center gap-2 text-sm font-medium text-foreground mb-1.5">
-                    <span className="flex size-7 items-center justify-center rounded-md bg-primary/10">
+              <div className="grid gap-2 sm:grid-cols-2 sm:gap-4">
+                <div className="space-y-1 rounded-lg border border-border/60 bg-linear-to-br from-muted/15 via-muted/10 to-muted/15 p-2.5 dark:border-zinc-700/60 dark:from-zinc-800/40 dark:via-zinc-800/25 dark:to-zinc-800/40 sm:rounded-xl sm:p-4">
+                  <label htmlFor="okul-brans" className={cn(lblRow, 'mb-0')}>
+                    <span className={iconBox}>
                       <Building2 className="size-3.5 text-primary" />
                     </span>
                     Branş
@@ -461,7 +507,7 @@ export function TeacherAccountTabs() {
                     id="okul-brans"
                     value={branchSelect}
                     onChange={(e) => setBranchSelect(e.target.value)}
-                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all duration-200"
+                    className={cn(fieldIn, 'cursor-pointer')}
                   >
                     <option value="">Branş seçin</option>
                     {branchSelect && !BRANCH_OPTIONS.includes(branchSelect) && (
@@ -472,9 +518,9 @@ export function TeacherAccountTabs() {
                     ))}
                   </select>
                 </div>
-                <div className="rounded-xl border border-border/60 bg-linear-to-br from-muted/15 via-muted/10 to-muted/15 dark:border-zinc-700/60 dark:from-zinc-800/40 dark:via-zinc-800/25 dark:to-zinc-800/40 p-4 transition-all duration-300">
-                  <label className="flex items-center gap-2 text-sm font-medium text-foreground mb-1.5">
-                    <span className="flex size-7 items-center justify-center rounded-md bg-primary/10">
+                <div className="space-y-1 rounded-lg border border-border/60 bg-linear-to-br from-muted/15 via-muted/10 to-muted/15 p-2.5 dark:border-zinc-700/60 dark:from-zinc-800/40 dark:via-zinc-800/25 dark:to-zinc-800/40 sm:rounded-xl sm:p-4">
+                  <label className={cn(lblRow, 'mb-0')}>
+                    <span className={iconBox}>
                       <User className="size-3.5 text-primary" />
                     </span>
                     Görev
@@ -482,10 +528,8 @@ export function TeacherAccountTabs() {
                   <p className="text-sm font-medium text-foreground">Öğretmen</p>
                 </div>
               </div>
-              <div className="rounded-xl border border-border/60 bg-linear-to-r from-muted/10 via-muted/5 to-muted/10 dark:border-zinc-700/60 dark:from-zinc-800/30 dark:via-zinc-800/20 dark:to-zinc-800/30 p-4 transition-all duration-300">
-                <p className="mb-4 text-sm text-muted-foreground">
-                  İl ve ilçe seçerek okulunuzu bulun. Otomatik veriler mevcut okulunuzdan doldurulur.
-                </p>
+              <div className="space-y-1.5 rounded-lg border border-border/60 bg-linear-to-r from-muted/10 via-muted/5 to-muted/10 p-2.5 dark:border-zinc-700/60 dark:from-zinc-800/30 dark:via-zinc-800/20 dark:to-zinc-800/30 sm:rounded-xl sm:p-4">
+                <p className="text-[11px] text-muted-foreground sm:text-sm">İl/ilçe ile okul seçin.</p>
                 <SchoolSelectWithFilter
                   value={schoolId}
                   onChange={setSchoolId}
@@ -495,19 +539,19 @@ export function TeacherAccountTabs() {
                   initialDistrict={school?.district}
                 />
               </div>
-              <div className="rounded-xl border border-border/60 bg-linear-to-br from-muted/15 via-muted/10 to-muted/15 p-4 transition-all duration-300">
-                <label className="flex items-center gap-2 text-sm font-medium text-foreground mb-1.5">
-                  <span className="flex size-7 items-center justify-center rounded-md bg-primary/10">
+              <div className="space-y-1 rounded-lg border border-border/60 bg-linear-to-br from-muted/15 via-muted/10 to-muted/15 p-2.5 sm:rounded-xl sm:p-4">
+                <label className={cn(lblRow, 'mb-0')}>
+                  <span className={iconBox}>
                     <Building2 className="size-3.5 text-primary" />
                   </span>
-                  Kurum Türü
+                  Kurum türü
                 </label>
                 <p className={cn('text-sm font-medium', school?.type ? 'text-foreground' : 'text-muted-foreground/70 italic')}>
                   {school?.type ? formatSchoolTypeLabel(school.type) : 'Okul seçin'}
                 </p>
               </div>
-              <div className="flex justify-end">
-                <Button type="submit" disabled={savingOkul} className="gap-2 rounded-lg">
+              <div className="flex justify-end pt-0.5">
+                <Button type="submit" disabled={savingOkul} size="sm" className="h-8 gap-1.5 sm:h-9 sm:gap-2">
                   <CheckCircle2 className="size-4" />
                   {savingOkul ? 'Kaydediliyor…' : 'Güncelle'}
                 </Button>
@@ -518,26 +562,29 @@ export function TeacherAccountTabs() {
       )}
 
       {tab === 'zumre' && (
-        <Card className="overflow-hidden border-border/50 shadow-sm bg-card/90 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/95">
-          <CardHeader className="border-b border-border/50 bg-linear-to-r from-muted/20 via-muted/15 to-muted/20 dark:border-zinc-800 dark:from-zinc-800/70 dark:via-zinc-800/50 dark:to-zinc-800/70 px-4 md:px-5 py-4 transition-all duration-300">
-            <CardTitle className="flex items-center gap-3">
-              <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 shadow-inner">
-                <Users className="size-4 text-primary" />
+        <Card className="overflow-hidden rounded-lg border border-violet-200/50 bg-card shadow-sm ring-1 ring-violet-500/10 backdrop-blur-sm dark:border-violet-900/35 dark:bg-card dark:ring-violet-500/10 sm:rounded-xl sm:border-2 sm:shadow-md">
+          <CardHeader className="border-b border-violet-200/40 bg-linear-to-r from-violet-500/12 via-violet-500/8 to-fuchsia-500/10 px-2.5 py-2 dark:border-violet-900/50 dark:from-violet-950/50 dark:via-violet-950/35 dark:to-fuchsia-950/30 sm:px-5 sm:py-4">
+            <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/20 text-violet-700 shadow-inner dark:bg-violet-500/25 dark:text-violet-200 sm:size-9 sm:rounded-xl">
+                <Users className="size-3.5 sm:size-4" />
               </div>
-              <div>
-                <span className="block text-base font-semibold">Yıllık plan ve zümre varsayılanları</span>
-                <p className="mt-0.5 text-xs font-normal text-muted-foreground">
-                  Evrak ve planlar sayfasında otomatik doldurulacak değerler.
-                </p>
+              <div className="min-w-0 space-y-0.5">
+                <CardTitle className="text-sm font-semibold leading-tight sm:text-base">Zümre ve evrak varsayılanları</CardTitle>
+                <CardDescription className="text-[11px] sm:text-xs">
+                  Okul adı kayıttan; müdür adı zümre listesinde «Okul Müdürü» satırından. İmza, liste ve tarihler burada — evrak ve yıllık planda kullanılır.
+                </CardDescription>
               </div>
-            </CardTitle>
+            </div>
           </CardHeader>
-          <CardContent className="p-4 md:p-5">
+          <CardContent className="p-2.5 sm:p-5">
             <EvrakDefaultsForm
               token={token}
               evrakDefaults={evrakDefaults}
               schoolName={school?.name}
-              schoolPrincipal={me?.school?.principalName ?? undefined}
+              schoolDistrict={school?.district ?? undefined}
+              schoolCity={school?.city ?? undefined}
+              teacherBranch={me?.teacher_branch ?? undefined}
+              schoolConnected={!!me?.school_id}
               onSuccess={refetchMe}
             />
           </CardContent>
@@ -545,18 +592,17 @@ export function TeacherAccountTabs() {
       )}
 
       {tab === 'yedek' && (
-        <Card className="overflow-hidden border-border/50 shadow-sm bg-card/90 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/95">
-          <CardHeader className="border-b border-border/50 bg-muted/20 dark:border-zinc-800 dark:bg-zinc-900/80">
-            <CardTitle className="flex items-center gap-2">
-              <FileDown className="size-5 text-primary" />
-              Veri indirme ve yedek
+        <Card className="overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm ring-1 ring-black/5 backdrop-blur-sm dark:border-border/80 dark:bg-card dark:ring-white/6 sm:rounded-xl sm:border-2 sm:shadow-md sm:ring-black/4">
+          <CardHeader className="border-b border-border/50 bg-muted/25 px-2.5 py-2 dark:border-zinc-800 sm:px-6 sm:py-4">
+            <CardTitle className="flex items-center gap-2 text-[15px] sm:text-lg">
+              <FileDown className="size-4 shrink-0 text-primary sm:size-5" />
+              Yedek indir
             </CardTitle>
-            <CardDescription>
-              Modül seçerek JSON yedeği alın. Hesap verisi KVKK kapsamındaki özet içerir; Öğretmen Ajandası not/görev
-              vb. dahildir.
+            <CardDescription className="text-[11px] sm:text-sm">
+              Modül seç, JSON indir. KVKK özeti ve ajanda dahil.
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-4 md:p-5">
+          <CardContent className="p-2.5 sm:p-5">
             <BackupExportPanel token={token} enabledModules={me?.school?.enabled_modules ?? null} />
           </CardContent>
         </Card>

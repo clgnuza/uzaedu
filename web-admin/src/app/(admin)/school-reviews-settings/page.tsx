@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
@@ -8,7 +9,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { Alert } from '@/components/ui/alert';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { Plus, Pencil, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
+  Flag,
+  ExternalLink,
+  SlidersHorizontal,
+  ListChecks,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type SchoolReviewCriteria = {
@@ -22,6 +33,15 @@ type SchoolReviewCriteria = {
   is_active: boolean;
 };
 
+type ReportReasonKey = 'spam' | 'uygunsuz' | 'yanlis_bilgi' | 'diger';
+
+type SchoolReviewsContentRules = {
+  daily_report_limit_per_actor: number;
+  reasons: Record<ReportReasonKey, { label: string; hint: string; enabled: boolean }>;
+  profanity_block_enabled: boolean;
+  blocked_terms: string[];
+};
+
 type SchoolReviewsConfig = {
   enabled: boolean;
   rating_min: number;
@@ -29,6 +49,42 @@ type SchoolReviewsConfig = {
   moderation_mode: 'auto' | 'moderation';
   allow_questions: boolean;
   questions_require_moderation: boolean;
+  content_rules: SchoolReviewsContentRules;
+};
+
+type ContentReportItem = {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  reason: string;
+  comment: string | null;
+  created_at: string;
+  reporter_kind: 'registered' | 'guest';
+  school_id: string | null;
+  school_name: string | null;
+  content_preview: string | null;
+};
+
+type ModerationQueueItem = {
+  entity_type: 'review' | 'question' | 'answer';
+  id: string;
+  school_id: string;
+  school_name: string | null;
+  content_preview: string;
+  created_at: string;
+};
+
+const REASON_LABELS: Record<string, string> = {
+  spam: 'Spam / tekrar',
+  uygunsuz: 'Uygunsuz dil',
+  yanlis_bilgi: 'Yanıltıcı bilgi',
+  diger: 'Diğer',
+};
+
+const ENTITY_LABELS: Record<string, string> = {
+  review: 'Yorum',
+  question: 'Soru',
+  answer: 'Cevap',
 };
 
 function canAccessSchoolReviewsSettings(role: string | undefined): boolean {
@@ -46,6 +102,31 @@ export default function SchoolReviewsSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<Partial<SchoolReviewsConfig>>({});
   const [criteriaForm, setCriteriaForm] = useState<Partial<SchoolReviewCriteria> & { slug?: string } | null>(null);
+  const [activeTab, setActiveTab] = useState<'settings' | 'moderation' | 'reports' | 'rules'>('settings');
+  const [rulesForm, setRulesForm] = useState<SchoolReviewsContentRules | null>(null);
+  const [rulesSaving, setRulesSaving] = useState(false);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportsError, setReportsError] = useState<string | null>(null);
+  const [reportsData, setReportsData] = useState<{
+    total: number;
+    page: number;
+    limit: number;
+    items: ContentReportItem[];
+  } | null>(null);
+  const [reportEntityFilter, setReportEntityFilter] = useState<string>('');
+  const [reportReasonFilter, setReportReasonFilter] = useState<string>('');
+  const [reportPage, setReportPage] = useState(1);
+  const [modLoading, setModLoading] = useState(false);
+  const [modError, setModError] = useState<string | null>(null);
+  const [modData, setModData] = useState<{
+    total: number;
+    page: number;
+    limit: number;
+    items: ModerationQueueItem[];
+  } | null>(null);
+  const [modPage, setModPage] = useState(1);
+  const [modEntityFilter, setModEntityFilter] = useState<'review' | 'question' | 'answer' | ''>('');
+  const [modBusyKey, setModBusyKey] = useState<string | null>(null);
 
   const fetchConfig = useCallback(async () => {
     if (authLoading || !canAccessSchoolReviewsSettings(me?.role)) return;
@@ -65,6 +146,22 @@ export default function SchoolReviewsSettingsPage() {
         allow_questions: configData.allow_questions,
         questions_require_moderation: configData.questions_require_moderation,
       });
+      const cr = configData.content_rules;
+      setRulesForm(
+        cr
+          ? {
+              daily_report_limit_per_actor: cr.daily_report_limit_per_actor,
+              reasons: {
+                spam: { ...cr.reasons.spam },
+                uygunsuz: { ...cr.reasons.uygunsuz },
+                yanlis_bilgi: { ...cr.reasons.yanlis_bilgi },
+                diger: { ...cr.reasons.diger },
+              },
+              profanity_block_enabled: cr.profanity_block_enabled ?? false,
+              blocked_terms: Array.isArray(cr.blocked_terms) ? [...cr.blocked_terms] : [],
+            }
+          : null,
+      );
       setLoadError(false);
     } catch {
       setConfig(null);
@@ -76,6 +173,50 @@ export default function SchoolReviewsSettingsPage() {
     }
   }, [authLoading, me?.role, token]);
 
+  const fetchReports = useCallback(async () => {
+    if (!token || !canAccessSchoolReviewsSettings(me?.role)) return;
+    setReportsLoading(true);
+    setReportsError(null);
+    try {
+      const params = new URLSearchParams({
+        page: String(reportPage),
+        limit: '20',
+      });
+      if (reportEntityFilter) params.set('entity_type', reportEntityFilter);
+      if (reportReasonFilter) params.set('reason', reportReasonFilter);
+      const data = await apiFetch<{ total: number; page: number; limit: number; items: ContentReportItem[] }>(
+        `/school-reviews/content-reports/admin?${params}`,
+        { token },
+      );
+      setReportsData(data);
+    } catch (e) {
+      setReportsData(null);
+      setReportsError(e instanceof Error ? e.message : 'Bildirimler yüklenemedi');
+    } finally {
+      setReportsLoading(false);
+    }
+  }, [token, me?.role, reportPage, reportEntityFilter, reportReasonFilter]);
+
+  const fetchModeration = useCallback(async () => {
+    if (!token || !canAccessSchoolReviewsSettings(me?.role)) return;
+    setModLoading(true);
+    setModError(null);
+    try {
+      const params = new URLSearchParams({ page: String(modPage), limit: '20' });
+      if (modEntityFilter) params.set('entity_type', modEntityFilter);
+      const data = await apiFetch<{ total: number; page: number; limit: number; items: ModerationQueueItem[] }>(
+        `/school-reviews/moderation/queue?${params}`,
+        { token },
+      );
+      setModData(data);
+    } catch (e) {
+      setModData(null);
+      setModError(e instanceof Error ? e.message : 'Kuyruk yüklenemedi');
+    } finally {
+      setModLoading(false);
+    }
+  }, [token, me?.role, modPage, modEntityFilter]);
+
   useEffect(() => {
     if (authLoading) return;
     if (!canAccessSchoolReviewsSettings(me?.role)) {
@@ -84,6 +225,45 @@ export default function SchoolReviewsSettingsPage() {
     }
     fetchConfig();
   }, [authLoading, me?.role, router, fetchConfig]);
+
+  useEffect(() => {
+    if (activeTab !== 'reports' || authLoading) return;
+    fetchReports();
+  }, [activeTab, authLoading, fetchReports]);
+
+  useEffect(() => {
+    if (activeTab !== 'moderation' || authLoading) return;
+    void fetchModeration();
+  }, [activeTab, authLoading, fetchModeration]);
+
+  const handleModerate = async (
+    entity_type: ModerationQueueItem['entity_type'],
+    id: string,
+    status: 'approved' | 'hidden',
+  ) => {
+    if (!token) return;
+    const key = `${entity_type}:${id}`;
+    setModBusyKey(key);
+    try {
+      const path =
+        entity_type === 'review'
+          ? `/school-reviews/moderation/reviews/${id}`
+          : entity_type === 'question'
+            ? `/school-reviews/moderation/questions/${id}`
+            : `/school-reviews/moderation/answers/${id}`;
+      await apiFetch(path, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ status }),
+      });
+      toast.success(status === 'approved' ? 'Onaylandı' : 'Gizlendi');
+      void fetchModeration();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'İşlem başarısız');
+    } finally {
+      setModBusyKey(null);
+    }
+  };
 
   const handleSave = async () => {
     if (!token || !canAccessSchoolReviewsSettings(me?.role)) return;
@@ -114,6 +294,24 @@ export default function SchoolReviewsSettingsPage() {
       toast.error(e instanceof Error ? e.message : 'Kaydedilemedi');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveRules = async () => {
+    if (!token || !canAccessSchoolReviewsSettings(me?.role) || !rulesForm) return;
+    setRulesSaving(true);
+    try {
+      await apiFetch('/app-config/school-reviews', {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ content_rules: rulesForm }),
+      });
+      toast.success('Bildirim kuralları kaydedildi');
+      fetchConfig();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Kaydedilemedi');
+    } finally {
+      setRulesSaving(false);
     }
   };
 
@@ -238,6 +436,83 @@ export default function SchoolReviewsSettingsPage() {
         </p>
       </div>
 
+      <div
+        role="tablist"
+        aria-label="Okul değerlendirme yönetimi"
+        className="flex flex-wrap gap-1 rounded-xl border border-border/80 bg-muted/30 p-1 dark:bg-muted/15"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'settings'}
+          aria-controls="panel-sr-settings"
+          id="tab-sr-settings"
+          onClick={() => setActiveTab('settings')}
+          className={cn(
+            'rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
+            activeTab === 'settings'
+              ? 'bg-background text-foreground shadow-sm ring-1 ring-border'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          Modül ayarları
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'reports'}
+          aria-controls="panel-sr-reports"
+          id="tab-sr-reports"
+          onClick={() => setActiveTab('reports')}
+          className={cn(
+            'inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
+            activeTab === 'reports'
+              ? 'bg-background text-foreground shadow-sm ring-1 ring-border'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <Flag className="size-4 shrink-0 opacity-80" aria-hidden />
+          İçerik bildirimleri
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'moderation'}
+          aria-controls="panel-sr-moderation"
+          id="tab-sr-moderation"
+          onClick={() => setActiveTab('moderation')}
+          className={cn(
+            'inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
+            activeTab === 'moderation'
+              ? 'bg-background text-foreground shadow-sm ring-1 ring-border'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <ListChecks className="size-4 shrink-0 opacity-80" aria-hidden />
+          Onay kuyruğu
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'rules'}
+          aria-controls="panel-sr-rules"
+          id="tab-sr-rules"
+          onClick={() => setActiveTab('rules')}
+          className={cn(
+            'inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
+            activeTab === 'rules'
+              ? 'bg-background text-foreground shadow-sm ring-1 ring-border'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <SlidersHorizontal className="size-4 shrink-0 opacity-80" aria-hidden />
+          Bildirim kuralları
+        </button>
+      </div>
+
+      {activeTab === 'settings' && (
+      <>
+      <div id="panel-sr-settings" role="tabpanel" aria-labelledby="tab-sr-settings" className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Modül Durumu</CardTitle>
@@ -321,6 +596,11 @@ export default function SchoolReviewsSettingsPage() {
                 Moderasyon – Değerlendirmeler onay sonrası yayınlanır
               </option>
             </select>
+            {(form.moderation_mode ?? config.moderation_mode) === 'moderation' && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Bekleyen değerlendirmeleri <strong>Onay kuyruğu</strong> sekmesinden yayına alın veya gizleyin.
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -353,8 +633,30 @@ export default function SchoolReviewsSettingsPage() {
             />
             <span className="text-sm font-medium">Sorular moderasyondan geçsin</span>
           </label>
+          {(form.questions_require_moderation ?? config.questions_require_moderation) && (
+            <p className="text-xs text-muted-foreground">
+              Bekleyen soru ve cevapları <strong>Onay kuyruğu</strong> sekmesinden onaylayın; yazar kendi bekleyen içeriğini okul sayfasında «Onay bekliyor» ile görür.
+            </p>
+          )}
         </CardContent>
       </Card>
+
+      {(form.moderation_mode ?? config.moderation_mode) === 'moderation' ||
+      (form.questions_require_moderation ?? config.questions_require_moderation) ? (
+        <Alert variant="info">
+          <p className="text-sm">
+            Moderasyon açıkken içerikler önce <strong>beklemede</strong> kaydolur. Yayına almak için{' '}
+            <button
+              type="button"
+              className="font-semibold text-primary underline underline-offset-2 hover:no-underline"
+              onClick={() => setActiveTab('moderation')}
+            >
+              Onay kuyruğu
+            </button>{' '}
+            sekmesini kullanın.
+          </p>
+        </Alert>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -671,6 +973,519 @@ export default function SchoolReviewsSettingsPage() {
         variant="info"
         message="Okul yöneticisi yalnızca kendi okulunun raporunu görür. Modül anahtarı (aç/kapa) yalnızca süper yönetici içindir; moderatör diğer ayarları güncelleyebilir."
       />
+      </div>
+      </>
+      )}
+
+      {activeTab === 'moderation' && (
+        <div
+          id="panel-sr-moderation"
+          role="tabpanel"
+          aria-labelledby="tab-sr-moderation"
+          className="space-y-6"
+        >
+          <Card className="overflow-hidden border-primary/15 bg-gradient-to-br from-primary/[0.06] to-background dark:from-primary/10">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ListChecks className="size-5 text-primary" aria-hidden />
+                Onay bekleyen içerikler
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Moderasyon veya soru/cevap moderasyonu açıkken oluşan beklemedeki kayıtlar. Onayla yayına alın; gizle yayından kaldırılır.
+              </p>
+            </CardHeader>
+          </Card>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+            <div className="min-w-0 flex-1 sm:max-w-[220px]">
+              <label htmlFor="mod-entity" className="mb-1 block text-xs font-medium text-muted-foreground">
+                Tür
+              </label>
+              <select
+                id="mod-entity"
+                value={modEntityFilter}
+                onChange={(e) => {
+                  setModEntityFilter(e.target.value as '' | 'review' | 'question' | 'answer');
+                  setModPage(1);
+                }}
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="">Tümü</option>
+                <option value="review">Yorum</option>
+                <option value="question">Soru</option>
+                <option value="answer">Cevap</option>
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={() => void fetchModeration()}
+              disabled={modLoading}
+              className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-muted/50 disabled:opacity-50 sm:mb-0"
+            >
+              Yenile
+            </button>
+          </div>
+
+          {modLoading && !modData && (
+            <div className="flex min-h-[160px] items-center justify-center rounded-xl border border-dashed border-border">
+              <LoadingSpinner className="size-8" />
+            </div>
+          )}
+
+          {modError && <Alert variant="error" message={modError} />}
+
+          {!modLoading && modData && modData.items.length === 0 && (
+            <Card>
+              <CardContent className="py-12 text-center text-sm text-muted-foreground">
+                Bekleyen içerik yok veya filtreye uygun kayıt bulunamadı.
+              </CardContent>
+            </Card>
+          )}
+
+          {modData && modData.items.length > 0 && (
+            <ul className="space-y-3">
+              {modData.items.map((row) => {
+                const busy = modBusyKey === `${row.entity_type}:${row.id}`;
+                return (
+                  <li key={`${row.entity_type}-${row.id}`}>
+                    <Card className="border-border/80 shadow-sm">
+                      <CardContent className="space-y-3 p-4 sm:p-5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
+                            {ENTITY_LABELS[row.entity_type] ?? row.entity_type}
+                          </span>
+                          <time className="text-xs tabular-nums text-muted-foreground" dateTime={row.created_at}>
+                            {new Date(row.created_at).toLocaleString('tr-TR')}
+                          </time>
+                        </div>
+                        <div className="text-sm">
+                          <span className="font-medium">{row.school_name ?? '—'}</span>
+                          {row.school_id && (
+                            <Link
+                              href={`/okul-degerlendirmeleri?id=${encodeURIComponent(row.school_id)}`}
+                              className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                            >
+                              Okul sayfası
+                              <ExternalLink className="size-3" aria-hidden />
+                            </Link>
+                          )}
+                        </div>
+                        <p className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm leading-relaxed">
+                          {row.content_preview || '—'}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void handleModerate(row.entity_type, row.id, 'approved')}
+                            className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                          >
+                            {busy ? '…' : 'Onayla'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void handleModerate(row.entity_type, row.id, 'hidden')}
+                            className="rounded-lg border border-destructive/50 bg-destructive/5 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                          >
+                            Gizle
+                          </button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {modData && modData.total > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+              <p className="text-sm text-muted-foreground">
+                Toplam <span className="font-semibold text-foreground">{modData.total}</span> kayıt — sayfa{' '}
+                {modData.page} / {Math.max(1, Math.ceil(modData.total / modData.limit))}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={modPage <= 1 || modLoading}
+                  onClick={() => setModPage((p) => Math.max(1, p - 1))}
+                  className="rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-40"
+                >
+                  Önceki
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    modLoading || modPage >= Math.ceil(modData.total / modData.limit)
+                  }
+                  onClick={() => setModPage((p) => p + 1)}
+                  className="rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-40"
+                >
+                  Sonraki
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'reports' && (
+        <div
+          id="panel-sr-reports"
+          role="tabpanel"
+          aria-labelledby="tab-sr-reports"
+          className="space-y-6"
+        >
+          <Card className="overflow-hidden border-rose-500/15 bg-gradient-to-br from-rose-500/[0.06] to-background dark:from-rose-950/20">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Flag className="size-5 text-rose-600 dark:text-rose-400" aria-hidden />
+                Kullanıcı bildirimleri
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Okul değerlendirmelerinde «Bildir» ile işaretlenen yorum, soru ve cevaplar. İnceleme için okul sayfasına gidebilirsiniz; içerik silinmişse okul bilgisi boş kalabilir.
+              </p>
+            </CardHeader>
+          </Card>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+            <div className="min-w-0 flex-1 sm:max-w-[200px]">
+              <label htmlFor="rep-entity" className="mb-1 block text-xs font-medium text-muted-foreground">
+                Tür
+              </label>
+              <select
+                id="rep-entity"
+                value={reportEntityFilter}
+                onChange={(e) => {
+                  setReportEntityFilter(e.target.value);
+                  setReportPage(1);
+                }}
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="">Tümü</option>
+                <option value="review">Yorum</option>
+                <option value="question">Soru</option>
+                <option value="answer">Cevap</option>
+              </select>
+            </div>
+            <div className="min-w-0 flex-1 sm:max-w-[220px]">
+              <label htmlFor="rep-reason" className="mb-1 block text-xs font-medium text-muted-foreground">
+                Sebep
+              </label>
+              <select
+                id="rep-reason"
+                value={reportReasonFilter}
+                onChange={(e) => {
+                  setReportReasonFilter(e.target.value);
+                  setReportPage(1);
+                }}
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="">Tümü</option>
+                <option value="spam">Spam / tekrar</option>
+                <option value="uygunsuz">Uygunsuz dil</option>
+                <option value="yanlis_bilgi">Yanıltıcı bilgi</option>
+                <option value="diger">Diğer</option>
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                void fetchReports();
+              }}
+              disabled={reportsLoading}
+              className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-muted/50 disabled:opacity-50 sm:mb-0"
+            >
+              Yenile
+            </button>
+          </div>
+
+          {reportsLoading && !reportsData && (
+            <div className="flex min-h-[160px] items-center justify-center rounded-xl border border-dashed border-border">
+              <LoadingSpinner className="size-8" />
+            </div>
+          )}
+
+          {reportsError && (
+            <Alert variant="error" message={reportsError} />
+          )}
+
+          {!reportsLoading && reportsData && reportsData.items.length === 0 && (
+            <Card>
+              <CardContent className="py-12 text-center text-sm text-muted-foreground">
+                Henüz bildirim yok veya filtreye uygun kayıt bulunamadı.
+              </CardContent>
+            </Card>
+          )}
+
+          {reportsData && reportsData.items.length > 0 && (
+            <ul className="space-y-3">
+              {reportsData.items.map((row) => (
+                <li key={row.id}>
+                  <Card className="border-border/80 shadow-sm transition-shadow hover:shadow-md">
+                    <CardContent className="space-y-3 p-4 sm:p-5">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
+                            {ENTITY_LABELS[row.entity_type] ?? row.entity_type}
+                          </span>
+                          <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-900 dark:text-amber-100">
+                            {REASON_LABELS[row.reason] ?? row.reason}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {row.reporter_kind === 'registered' ? 'Giriş yapmış bildiren' : 'Misafir bildirimi'}
+                          </span>
+                        </div>
+                        <time
+                          className="shrink-0 text-xs tabular-nums text-muted-foreground"
+                          dateTime={row.created_at}
+                        >
+                          {new Date(row.created_at).toLocaleString('tr-TR')}
+                        </time>
+                      </div>
+                      <div className="text-sm">
+                        <span className="font-medium text-foreground">
+                          {row.school_name ?? '—'}
+                        </span>
+                        {row.school_id && (
+                          <Link
+                            href={`/okul-degerlendirmeleri?id=${encodeURIComponent(row.school_id)}`}
+                            className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                          >
+                            Okul sayfası
+                            <ExternalLink className="size-3" aria-hidden />
+                          </Link>
+                        )}
+                      </div>
+                      {row.content_preview && (
+                        <p className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm leading-relaxed text-foreground dark:bg-muted/20">
+                          {row.content_preview}
+                        </p>
+                      )}
+                      {row.comment && (
+                        <p className="text-sm text-muted-foreground">
+                          <span className="font-medium text-foreground">Bildiren notu: </span>
+                          {row.comment}
+                        </p>
+                      )}
+                      <p className="font-mono text-[11px] text-muted-foreground">
+                        ID: {row.entity_type}/{row.entity_id}
+                      </p>
+                    </CardContent>
+                  </Card>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {reportsData && reportsData.total > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+              <p className="text-sm text-muted-foreground">
+                Toplam <span className="font-semibold text-foreground">{reportsData.total}</span> kayıt — sayfa{' '}
+                {reportsData.page} / {Math.max(1, Math.ceil(reportsData.total / reportsData.limit))}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={reportPage <= 1 || reportsLoading}
+                  onClick={() => setReportPage((p) => Math.max(1, p - 1))}
+                  className="rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-40"
+                >
+                  Önceki
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    reportsLoading ||
+                    reportPage >= Math.ceil(reportsData.total / reportsData.limit)
+                  }
+                  onClick={() => setReportPage((p) => p + 1)}
+                  className="rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-40"
+                >
+                  Sonraki
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'rules' && rulesForm && (
+        <div
+          id="panel-sr-rules"
+          role="tabpanel"
+          aria-labelledby="tab-sr-rules"
+          className="space-y-6"
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Bildirim sebepleri ve limit</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                «Bildir» diyaloğunda görünen başlık ve kısa açıklamalar; kapalı olan sebepler listede çıkmaz. Günlük limit, aynı cihaz veya hesap için 24 saatte en fazla kaç bildirim yapılabileceğini sınırlar (spam öncesi).
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div>
+                <label htmlFor="sr-daily-report-limit" className="mb-1 block text-sm font-medium">
+                  Günlük bildirim limiti (aynı kullanıcı / cihaz)
+                </label>
+                <input
+                  id="sr-daily-report-limit"
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={rulesForm.daily_report_limit_per_actor}
+                  onChange={(e) =>
+                    setRulesForm((f) =>
+                      f
+                        ? {
+                            ...f,
+                            daily_report_limit_per_actor: Math.min(
+                              50,
+                              Math.max(1, parseInt(e.target.value, 10) || 1),
+                            ),
+                          }
+                        : f,
+                    )
+                  }
+                  className="w-full max-w-[200px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div className="space-y-3 rounded-xl border border-border/80 bg-muted/20 p-4 dark:bg-muted/10">
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={rulesForm.profanity_block_enabled}
+                    onChange={(e) =>
+                      setRulesForm((f) => (f ? { ...f, profanity_block_enabled: e.target.checked } : f))
+                    }
+                    className="size-4 rounded border-border"
+                  />
+                  <span className="text-sm font-semibold">Uygunsuz dil / küfür / nefret söylemi öncesi engel</span>
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Açık ve aşağıda en az bir ifade varken: yorum metni, soru, cevap ve bildirim notu bu ifadelerden birini
+                  içerirse gönderim sunucuda reddedilir (Türkçe büyük/küçük harf duyarsız alt dizi eşleşmesi).
+                </p>
+                <div>
+                  <label htmlFor="sr-blocked-terms" className="mb-1 block text-xs font-medium text-muted-foreground">
+                    Engellenecek ifadeler (satır veya virgülle; 2–80 karakter, en çok 300)
+                  </label>
+                  <textarea
+                    id="sr-blocked-terms"
+                    rows={8}
+                    value={rulesForm.blocked_terms.join('\n')}
+                    onChange={(e) => {
+                      const parts = e.target.value
+                        .split(/[\n,]+/)
+                        .map((s) => s.trim())
+                        .filter((s) => s.length >= 2)
+                        .map((s) => s.slice(0, 80));
+                      const uniq: string[] = [];
+                      const seen = new Set<string>();
+                      for (const p of parts) {
+                        const k = p.toLocaleLowerCase('tr-TR');
+                        if (seen.has(k)) continue;
+                        seen.add(k);
+                        uniq.push(p);
+                        if (uniq.length >= 300) break;
+                      }
+                      setRulesForm((f) => (f ? { ...f, blocked_terms: uniq } : f));
+                    }}
+                    className="min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+                    placeholder="Her satıra bir ifade (liste yöneticiye özeldir)"
+                  />
+                </div>
+              </div>
+
+              {(['spam', 'uygunsuz', 'yanlis_bilgi', 'diger'] as const).map((key) => (
+                <div
+                  key={key}
+                  className="space-y-3 rounded-xl border border-border/80 bg-muted/20 p-4 dark:bg-muted/10"
+                >
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={rulesForm.reasons[key].enabled}
+                      onChange={(e) =>
+                        setRulesForm((f) =>
+                          f
+                            ? {
+                                ...f,
+                                reasons: {
+                                  ...f.reasons,
+                                  [key]: { ...f.reasons[key], enabled: e.target.checked },
+                                },
+                              }
+                            : f,
+                        )
+                      }
+                      className="size-4 rounded border-border"
+                    />
+                    <span className="text-sm font-semibold capitalize text-foreground">{key}</span>
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Başlık</label>
+                      <input
+                        type="text"
+                        value={rulesForm.reasons[key].label}
+                        onChange={(e) =>
+                          setRulesForm((f) =>
+                            f
+                              ? {
+                                  ...f,
+                                  reasons: {
+                                    ...f.reasons,
+                                    [key]: { ...f.reasons[key], label: e.target.value },
+                                  },
+                                }
+                              : f,
+                          )
+                        }
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        maxLength={200}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Kısa açıklama</label>
+                      <input
+                        type="text"
+                        value={rulesForm.reasons[key].hint}
+                        onChange={(e) =>
+                          setRulesForm((f) =>
+                            f
+                              ? {
+                                  ...f,
+                                  reasons: {
+                                    ...f.reasons,
+                                    [key]: { ...f.reasons[key], hint: e.target.value },
+                                  },
+                                }
+                              : f,
+                          )
+                        }
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        maxLength={400}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => void handleSaveRules()}
+                disabled={rulesSaving}
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {rulesSaving ? 'Kaydediliyor…' : 'Kuralları kaydet'}
+              </button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

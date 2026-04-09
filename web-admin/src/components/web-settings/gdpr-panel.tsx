@@ -17,6 +17,9 @@ import { WebSettingsField, WebSettingsPanel, WEB_SETTINGS_INPUT, WEB_SETTINGS_TE
 
 const empty: GdprPublic = {
   cookie_banner_enabled: true,
+  cookie_banner_title: null,
+  accept_button_label: null,
+  reject_button_label: null,
   cookie_banner_body_html: null,
   consent_version: '1',
   data_controller_name: null,
@@ -76,7 +79,8 @@ export function GdprPanel() {
     try {
       const data = await apiFetch<GdprPublic>('/app-config/gdpr', { token });
       setForm({ ...empty, ...data });
-    } catch {
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'GDPR ayarları yüklenemedi.');
       setForm(empty);
     } finally {
       setLoading(false);
@@ -223,6 +227,48 @@ export function GdprPanel() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4 pt-0">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <WebSettingsField
+                  label="Banner başlığı"
+                  hint="Mobil üst satır ve iletişim kutusu adı. Boş: Çerez tercihleri"
+                  htmlFor="gdpr-banner-title"
+                >
+                  <Input
+                    id="gdpr-banner-title"
+                    className={WEB_SETTINGS_INPUT}
+                    value={form.cookie_banner_title ?? ''}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, cookie_banner_title: e.target.value.trim() || null }))
+                    }
+                    placeholder="Çerez tercihleri"
+                    maxLength={120}
+                  />
+                </WebSettingsField>
+                <WebSettingsField label="Kabul düğmesi" hint="Boş: Kabul et" htmlFor="gdpr-accept-lbl">
+                  <Input
+                    id="gdpr-accept-lbl"
+                    className={WEB_SETTINGS_INPUT}
+                    value={form.accept_button_label ?? ''}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, accept_button_label: e.target.value.trim() || null }))
+                    }
+                    placeholder="Kabul et"
+                    maxLength={64}
+                  />
+                </WebSettingsField>
+                <WebSettingsField label="Reddet düğmesi" hint="Boş: Reddet" htmlFor="gdpr-reject-lbl">
+                  <Input
+                    id="gdpr-reject-lbl"
+                    className={WEB_SETTINGS_INPUT}
+                    value={form.reject_button_label ?? ''}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, reject_button_label: e.target.value.trim() || null }))
+                    }
+                    placeholder="Reddet"
+                    maxLength={64}
+                  />
+                </WebSettingsField>
+              </div>
               <WebSettingsField label="Çerez politikası path" hint="Örn. /cerez" htmlFor="gdpr-cookie-path">
                 <Input
                   id="gdpr-cookie-path"

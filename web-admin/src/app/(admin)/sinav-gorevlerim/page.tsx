@@ -5,13 +5,10 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Toolbar, ToolbarHeading, ToolbarPageTitle, ToolbarActions } from '@/components/layout/toolbar';
-import { ToolbarIconHints } from '@/components/layout/toolbar-icon-hints';
 import {
   ClipboardList,
   ExternalLink,
@@ -19,7 +16,6 @@ import {
   Megaphone,
   CalendarCheck,
   SlidersHorizontal,
-  Search,
   ChevronDown,
   ChevronUp,
   Calendar,
@@ -37,7 +33,6 @@ import {
   SvgViewSoon,
   SvgViewAssigned,
   SvgViewPast,
-  SvgMegaphone,
 } from '@/components/exam-duty-icons';
 import { ExamDutyPreferencesForm } from '@/components/exam-duty-preferences-form';
 import { cn } from '@/lib/utils';
@@ -75,11 +70,11 @@ const STATUS_TABS: {
   shortLabel: string;
   hint: string;
   Icon: ComponentType<{ className?: string }>;
-  well: string;
-  wellActive: string;
-  /** Seçili sekme kartı */
-  tabSelected: string;
-  /** Seçili sayaç rozeti */
+  tabIdle: string;
+  tabActive: string;
+  iconIdle: string;
+  iconActive: string;
+  countMuted: string;
   countSelected: string;
 }[] = [
   {
@@ -88,9 +83,13 @@ const STATUS_TABS: {
     shortLabel: 'Tümü',
     hint: 'Tüm duyuruları göster',
     Icon: SvgViewAll,
-    well: 'bg-muted/70 text-muted-foreground ring-1 ring-border/45',
-    wellActive: 'bg-slate-500/18 text-slate-800 ring-1 ring-slate-400/45 dark:bg-slate-400/15 dark:text-slate-100 dark:ring-slate-500/40',
-    tabSelected: 'border border-slate-300/70 bg-slate-50/90 shadow-sm dark:border-slate-600/60 dark:bg-slate-900/50',
+    tabIdle:
+      'border border-slate-200/80 bg-linear-to-b from-slate-50/95 to-slate-100/50 text-slate-700 shadow-sm hover:border-slate-300 hover:shadow dark:border-slate-700/70 dark:from-slate-900/55 dark:to-slate-950/40 dark:text-slate-200',
+    tabActive:
+      'border-2 border-slate-400/75 bg-linear-to-br from-white via-slate-50 to-slate-100 text-slate-900 shadow-lg shadow-slate-500/20 ring-2 ring-slate-400/35 dark:border-slate-500 dark:from-slate-800 dark:via-slate-900 dark:to-slate-950 dark:text-white dark:shadow-slate-900/40 dark:ring-slate-500/45',
+    iconIdle: 'bg-slate-200/70 text-slate-800 dark:bg-slate-700/60 dark:text-slate-100',
+    iconActive: 'bg-slate-600 text-white shadow-inner dark:bg-slate-500',
+    countMuted: 'bg-white/80 text-slate-700 dark:bg-slate-800/90 dark:text-slate-200',
     countSelected: 'bg-slate-600 text-white dark:bg-slate-500',
   },
   {
@@ -99,9 +98,13 @@ const STATUS_TABS: {
     shortLabel: 'Aktif',
     hint: 'Başvuru veya sınav tarihi henüz geçmemiş duyurular',
     Icon: SvgViewActive,
-    well: 'bg-muted/70 text-muted-foreground ring-1 ring-border/45',
-    wellActive: 'bg-emerald-500/22 text-emerald-800 ring-1 ring-emerald-500/35 dark:bg-emerald-500/18 dark:text-emerald-200 dark:ring-emerald-400/35',
-    tabSelected: 'border border-emerald-300/60 bg-emerald-50/85 shadow-sm dark:border-emerald-800/55 dark:bg-emerald-950/40',
+    tabIdle:
+      'border border-emerald-200/80 bg-linear-to-b from-emerald-50/95 to-teal-50/40 text-emerald-900 shadow-sm hover:border-emerald-300 hover:shadow-md dark:border-emerald-900/50 dark:from-emerald-950/45 dark:to-teal-950/25 dark:text-emerald-100',
+    tabActive:
+      'border-2 border-emerald-400/80 bg-linear-to-br from-emerald-100 via-emerald-50 to-teal-50 text-emerald-950 shadow-lg shadow-emerald-500/25 ring-2 ring-emerald-400/40 dark:border-emerald-500 dark:from-emerald-900/70 dark:via-emerald-950 dark:to-teal-950/60 dark:text-emerald-50 dark:shadow-emerald-950/50 dark:ring-emerald-500/35',
+    iconIdle: 'bg-emerald-200/80 text-emerald-900 dark:bg-emerald-800/60 dark:text-emerald-100',
+    iconActive: 'bg-emerald-600 text-white shadow-inner dark:bg-emerald-500',
+    countMuted: 'bg-emerald-100/90 text-emerald-900 dark:bg-emerald-900/50 dark:text-emerald-100',
     countSelected: 'bg-emerald-600 text-white dark:bg-emerald-600',
   },
   {
@@ -110,9 +113,13 @@ const STATUS_TABS: {
     shortLabel: 'Yakın',
     hint: 'Son başvuru veya onay tarihi 7 gün içinde',
     Icon: SvgViewSoon,
-    well: 'bg-muted/70 text-muted-foreground ring-1 ring-border/45',
-    wellActive: 'bg-amber-500/24 text-amber-900 ring-1 ring-amber-500/40 dark:bg-amber-500/18 dark:text-amber-200 dark:ring-amber-400/40',
-    tabSelected: 'border border-amber-300/65 bg-amber-50/90 shadow-sm dark:border-amber-800/55 dark:bg-amber-950/35',
+    tabIdle:
+      'border border-amber-200/85 bg-linear-to-b from-amber-50/95 to-orange-50/35 text-amber-950 shadow-sm hover:border-amber-300 hover:shadow-md dark:border-amber-900/45 dark:from-amber-950/40 dark:to-orange-950/25 dark:text-amber-100',
+    tabActive:
+      'border-2 border-amber-400/85 bg-linear-to-br from-amber-100 via-amber-50 to-orange-50 text-amber-950 shadow-lg shadow-amber-500/30 ring-2 ring-amber-400/45 dark:border-amber-500 dark:from-amber-900/65 dark:via-amber-950 dark:to-orange-950/55 dark:text-amber-50 dark:shadow-amber-950/45 dark:ring-amber-500/40',
+    iconIdle: 'bg-amber-200/85 text-amber-950 dark:bg-amber-800/55 dark:text-amber-100',
+    iconActive: 'bg-amber-600 text-white shadow-inner dark:bg-amber-500',
+    countMuted: 'bg-amber-100/95 text-amber-950 dark:bg-amber-900/45 dark:text-amber-100',
     countSelected: 'bg-amber-600 text-white dark:bg-amber-600',
   },
   {
@@ -121,9 +128,13 @@ const STATUS_TABS: {
     shortLabel: 'Çıktı',
     hint: 'Görev çıktı işaretlediğiniz duyurular (hatırlatma)',
     Icon: SvgViewAssigned,
-    well: 'bg-muted/70 text-muted-foreground ring-1 ring-border/45',
-    wellActive: 'bg-sky-500/22 text-sky-900 ring-1 ring-sky-500/38 dark:bg-sky-500/18 dark:text-sky-200 dark:ring-sky-400/38',
-    tabSelected: 'border border-sky-300/60 bg-sky-50/88 shadow-sm dark:border-sky-800/55 dark:bg-sky-950/40',
+    tabIdle:
+      'border border-sky-200/85 bg-linear-to-b from-sky-50/95 to-cyan-50/40 text-sky-950 shadow-sm hover:border-sky-300 hover:shadow-md dark:border-sky-900/45 dark:from-sky-950/45 dark:to-cyan-950/25 dark:text-sky-100',
+    tabActive:
+      'border-2 border-sky-400/85 bg-linear-to-br from-sky-100 via-sky-50 to-cyan-50 text-sky-950 shadow-lg shadow-sky-500/28 ring-2 ring-sky-400/42 dark:border-sky-500 dark:from-sky-900/65 dark:via-sky-950 dark:to-cyan-950/55 dark:text-sky-50 dark:shadow-sky-950/45 dark:ring-sky-500/38',
+    iconIdle: 'bg-sky-200/85 text-sky-950 dark:bg-sky-800/55 dark:text-sky-100',
+    iconActive: 'bg-sky-600 text-white shadow-inner dark:bg-sky-500',
+    countMuted: 'bg-sky-100/95 text-sky-950 dark:bg-sky-900/45 dark:text-sky-100',
     countSelected: 'bg-sky-600 text-white dark:bg-sky-600',
   },
   {
@@ -132,9 +143,13 @@ const STATUS_TABS: {
     shortLabel: 'Eski',
     hint: 'Başvuru veya sınav tarihi geçmiş duyurular',
     Icon: SvgViewPast,
-    well: 'bg-muted/70 text-muted-foreground ring-1 ring-border/45',
-    wellActive: 'bg-zinc-500/20 text-zinc-800 ring-1 ring-zinc-400/40 dark:bg-zinc-500/15 dark:text-zinc-200 dark:ring-zinc-500/35',
-    tabSelected: 'border border-zinc-300/60 bg-zinc-50/90 shadow-sm dark:border-zinc-600/55 dark:bg-zinc-900/45',
+    tabIdle:
+      'border border-zinc-200/80 bg-linear-to-b from-zinc-50/95 to-neutral-50/45 text-zinc-800 shadow-sm hover:border-zinc-300 hover:shadow-md dark:border-zinc-700/70 dark:from-zinc-900/50 dark:to-neutral-950/35 dark:text-zinc-200',
+    tabActive:
+      'border-2 border-zinc-400/75 bg-linear-to-br from-zinc-100 via-zinc-50 to-neutral-100 text-zinc-900 shadow-lg shadow-zinc-500/20 ring-2 ring-zinc-400/35 dark:border-zinc-600 dark:from-zinc-800/80 dark:via-zinc-900 dark:to-neutral-950/70 dark:text-zinc-50 dark:shadow-zinc-950/40 dark:ring-zinc-500/35',
+    iconIdle: 'bg-zinc-200/80 text-zinc-800 dark:bg-zinc-700/55 dark:text-zinc-100',
+    iconActive: 'bg-zinc-600 text-white shadow-inner dark:bg-zinc-500',
+    countMuted: 'bg-zinc-100/95 text-zinc-800 dark:bg-zinc-800/60 dark:text-zinc-200',
     countSelected: 'bg-zinc-600 text-white dark:bg-zinc-500',
   },
 ];
@@ -193,6 +208,21 @@ function fmtDateTime(s: string | null | undefined): string {
       day: '2-digit',
       month: 'short',
       year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '—';
+  }
+}
+
+/** Mobil tek satır (yıl kısaltılır) */
+function fmtDateTimeShort(s: string | null | undefined): string {
+  if (!s) return '—';
+  try {
+    return new Date(s).toLocaleString('tr-TR', {
+      day: 'numeric',
+      month: 'short',
       hour: '2-digit',
       minute: '2-digit',
     });
@@ -526,7 +556,6 @@ export default function SinavGorevlerimPage() {
   const [loading, setLoading] = useState(true);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusTab, setStatusTab] = useState<StatusTab>('all');
-  const [searchQuery, setSearchQuery] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [assignedIds, setAssignedIds] = useState<Set<string>>(new Set());
   const [preferredDateMap, setPreferredDateMap] = useState<Record<string, string | null>>({});
@@ -537,7 +566,6 @@ export default function SinavGorevlerimPage() {
   const [examDutyPrefs, setExamDutyPrefs] = useState<ExamDutyPrefsForList | null>(null);
 
   const isTeacher = me?.role === 'teacher';
-  const q = searchQuery.trim().toLowerCase();
 
   const statusCounts = useMemo(() => {
     let active = 0;
@@ -556,13 +584,12 @@ export default function SinavGorevlerimPage() {
 
   const displayedItems = useMemo(() => {
     let list = [...items];
-    if (q) list = list.filter((i) => i.title.toLowerCase().includes(q) || (i.summary ?? '').toLowerCase().includes(q));
     if (statusTab === 'active') list = list.filter((i) => getStatus(i) === 'active');
     else if (statusTab === 'soon') list = list.filter((i) => getStatus(i) === 'soon');
     else if (statusTab === 'past') list = list.filter((i) => getStatus(i) === 'past');
     else if (statusTab === 'assigned') list = list.filter((i) => assignedIds.has(i.id));
     return list.sort(compareForTeacher);
-  }, [items, q, statusTab, assignedIds]);
+  }, [items, statusTab, assignedIds]);
 
   /* ── API ── */
 
@@ -663,98 +690,87 @@ export default function SinavGorevlerimPage() {
   if (!isTeacher) return null;
 
   return (
-    <div className="space-y-5">
-      {/* ── Toolbar ── */}
-      <Toolbar>
-        <ToolbarHeading>
-          <div className="flex items-center gap-3">
-            <div className="flex size-11 items-center justify-center rounded-xl bg-primary/10">
-              <ClipboardList className="size-5 text-primary" />
-            </div>
-            <div>
-              <ToolbarPageTitle>Sınav Görevlerim</ToolbarPageTitle>
-              <ToolbarIconHints
-                compact
-                className="hidden sm:flex"
-                items={[
-                  { label: 'Kurum duyuruları (MEB, ÖSYM vb.)', icon: Megaphone },
-                  { label: 'Bildirimler', icon: Bell },
-                  { label: 'Tercih ayarları', icon: SlidersHorizontal },
-                ]}
-                summary="MEB, ÖSYM vb. sınav görevi duyuruları"
-              />
-            </div>
-          </div>
-        </ToolbarHeading>
-        <ToolbarActions>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              void fetchList();
-              void fetchExamDutyPrefs();
-            }}
-            disabled={loading}
-            className="gap-1.5"
-          >
-            <RefreshCw className={cn('size-4', loading && 'animate-spin')} /> Yenile
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setShowPrefs((p) => !p)} className="gap-1.5">
-            <SlidersHorizontal className="size-4" />
-            <span className="hidden sm:inline">Bildirim</span> Tercihleri
-          </Button>
-          <Link href="/bildirimler">
-            <Button variant="outline" size="sm" className="gap-1.5">
-              <Bell className="size-4" /> <span className="hidden sm:inline">Bildirimler</span>
-            </Button>
-          </Link>
-        </ToolbarActions>
-      </Toolbar>
-
-      {/* ── Preferences (collapsible) ── */}
+    <div className="space-y-3">
       {showPrefs && (
         <div className="animate-in fade-in slide-in-from-top-1 duration-200">
-          <ExamDutyPreferencesForm />
+          <ExamDutyPreferencesForm onSaved={() => setShowPrefs(false)} />
         </div>
       )}
 
-      {/* ── Görünüm + liste ── */}
-      <Card className="overflow-hidden rounded-xl border-border/60 shadow-sm">
-        <CardHeader className="space-y-4 border-b border-border/40 bg-linear-to-br from-muted/25 via-muted/10 to-background px-4 py-4 sm:px-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex gap-3">
-              <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-primary ring-1 ring-primary/15">
-                <SvgMegaphone className="size-5" />
+      <Card className="overflow-hidden rounded-2xl border-border/50 shadow-md ring-1 ring-black/5 dark:ring-white/10">
+        <CardHeader className="space-y-0 border-b-0 p-0">
+          <div className="relative overflow-hidden bg-linear-to-br from-violet-600 via-indigo-600 to-sky-600 px-3 py-2.5 sm:px-4 sm:py-3 dark:from-violet-800 dark:via-indigo-800 dark:to-sky-800">
+            <div
+              className="pointer-events-none absolute inset-0 opacity-[0.12]"
+              style={{
+                backgroundImage:
+                  'radial-gradient(circle at 20% 20%, white 0%, transparent 45%), radial-gradient(circle at 80% 80%, #fbbf24 0%, transparent 40%)',
+              }}
+              aria-hidden
+            />
+            <div className="relative flex min-h-[44px] items-center gap-2 sm:gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/20 text-white shadow-inner ring-1 ring-white/25">
+                <ClipboardList className="size-4 sm:size-[18px]" aria-hidden />
               </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-primary/80">Liste</p>
-                <CardTitle className="text-base font-semibold tracking-tight sm:text-lg">
-                  Sınav görevi duyuruları
-                </CardTitle>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  Görünüm sekmesi ile süzün; kurum seçimi ve arama birlikte uygulanır.
+              <div className="min-w-0 flex-1">
+                <h1 className="truncate text-[15px] font-bold leading-tight tracking-tight text-white sm:text-base">
+                  Sınav görevlerim
+                </h1>
+                <p className="truncate text-[11px] leading-snug text-white/85 sm:text-xs">
+                  MEB, ÖSYM vb. · görünüm ve kurum süzün
                 </p>
+              </div>
+              {!loading && items.length > 0 ? (
+                <span
+                  className="shrink-0 rounded-full bg-white/25 px-2 py-0.5 text-[11px] font-bold tabular-nums leading-none text-white ring-1 ring-white/30 sm:px-2.5 sm:py-1 sm:text-xs"
+                  title="Gösterilen / toplam duyuru"
+                >
+                  {displayedItems.length}
+                  {statusTab !== 'all' || categoryFilter ? (
+                    <span className="font-semibold text-white/80">/{items.length}</span>
+                  ) : null}
+                </span>
+              ) : null}
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    void fetchList();
+                    void fetchExamDutyPrefs();
+                  }}
+                  disabled={loading}
+                  className="size-9 text-white hover:bg-white/20 sm:size-10"
+                  aria-label="Yenile"
+                >
+                  <RefreshCw className={cn('size-4', loading && 'animate-spin')} />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowPrefs((p) => !p)}
+                  className={cn(
+                    'size-9 text-white hover:bg-white/20 sm:size-10',
+                    showPrefs && 'bg-white/25 ring-1 ring-white/35'
+                  )}
+                  aria-label="Bildirim tercihleri"
+                >
+                  <SlidersHorizontal className="size-4" />
+                </Button>
+                <Button variant="ghost" size="icon" className="size-9 text-white hover:bg-white/20 sm:size-10" asChild>
+                  <Link href="/bildirimler" aria-label="Bildirimler">
+                    <Bell className="size-4" />
+                  </Link>
+                </Button>
               </div>
             </div>
-            {!loading && items.length > 0 && (
-              <div className="flex shrink-0 flex-col items-end gap-1 rounded-lg border border-border/50 bg-background/60 px-3 py-2 text-right shadow-sm sm:min-w-36">
-                <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Gösterilen
-                </span>
-                <p className="text-lg font-bold tabular-nums leading-none text-foreground">
-                  {displayedItems.length}
-                  <span className="text-sm font-semibold text-muted-foreground">
-                    {q || statusTab !== 'all' || categoryFilter ? ` / ${items.length}` : ''}
-                  </span>
-                </p>
-                <span className="text-[10px] text-muted-foreground">duyuru</span>
-              </div>
-            )}
           </div>
 
-          {/* Görünüm sekmeleri — segment */}
+          <div className="space-y-3 border-b border-border/40 bg-linear-to-b from-violet-50/40 via-muted/25 to-muted/10 px-2.5 pb-3 pt-3 dark:from-violet-950/20 sm:px-4">
           <div
-            className="flex gap-1 overflow-x-auto scroll-pb-1 rounded-xl border border-border/45 bg-linear-to-b from-muted/55 to-muted/35 p-1 [-ms-overflow-style:none] [scrollbar-width:none] sm:flex-wrap sm:overflow-visible [&::-webkit-scrollbar]:hidden"
+            className="grid grid-cols-5 gap-1 sm:gap-2"
             role="tablist"
             aria-label="Duyuru görünümü"
           >
@@ -772,29 +788,27 @@ export default function SinavGorevlerimPage() {
                   aria-label={`${t.label}. ${t.hint}`}
                   onClick={() => setStatusTab(t.value)}
                   className={cn(
-                    'flex min-h-[44px] min-w-0 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl px-2 py-1.5 text-[11px] font-medium transition-all touch-manipulation sm:min-h-[48px] sm:flex-1 sm:flex-row sm:gap-2 sm:px-2.5 sm:text-xs',
-                    active
-                      ? cn('text-foreground shadow-md', t.tabSelected)
-                      : 'border border-transparent text-muted-foreground hover:border-border/60 hover:bg-background/75 hover:text-foreground'
+                    'flex min-h-18 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 py-1.5 text-[9px] font-semibold leading-tight transition-all active:scale-[0.98] touch-manipulation sm:min-h-15 sm:gap-1 sm:rounded-2xl sm:px-1 sm:py-2 sm:text-[11px] md:text-xs',
+                    active ? t.tabActive : t.tabIdle
                   )}
                 >
                   <span
                     className={cn(
-                      'flex size-9 items-center justify-center rounded-lg transition-colors',
-                      active ? t.wellActive : t.well
+                      'flex size-7 shrink-0 items-center justify-center rounded-lg sm:size-9 sm:rounded-xl',
+                      active ? t.iconActive : t.iconIdle
                     )}
                   >
-                    <Icon className="size-4.5 sm:size-5" aria-hidden />
+                    <Icon className="size-[15px] sm:size-[18px]" aria-hidden />
                   </span>
-                  <span className="max-w-18 truncate text-center leading-tight sm:max-w-none">
-                    <span className="hidden sm:inline">{t.label}</span>
+                  <span className="w-full truncate text-center text-balance">
                     <span className="sm:hidden">{t.shortLabel}</span>
+                    <span className="hidden sm:inline">{t.label}</span>
                   </span>
                   {!loading && (
                     <span
                       className={cn(
-                        'tabular-nums rounded-full px-2 py-0.5 text-[10px] font-bold',
-                        active ? t.countSelected : 'bg-muted/90 text-muted-foreground'
+                        'tabular-nums rounded-full px-1 py-px text-[8px] font-bold sm:px-1.5 sm:text-[10px]',
+                        active ? t.countSelected : t.countMuted
                       )}
                     >
                       {count}
@@ -805,45 +819,23 @@ export default function SinavGorevlerimPage() {
             })}
           </div>
 
-          {/* Arama + kurum */}
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
-            <div className="relative w-full sm:max-w-md">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Başlık veya özet ara…"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-10 border-border/60 bg-background/80 pl-9 pr-9 text-sm shadow-sm"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  aria-label="Aramayı temizle"
-                >
-                  <X className="size-3.5" />
-                </button>
-              )}
-            </div>
-            <div className="flex w-full items-center gap-2 sm:w-auto">
-              <span className="hidden text-xs font-medium text-muted-foreground sm:inline">Kurum</span>
-              <label htmlFor="exam-duty-cat" className="sr-only">
-                Kuruma göre filtrele
-              </label>
-              <select
-                id="exam-duty-cat"
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                  className="h-10 w-full min-w-0 cursor-pointer rounded-lg border border-border/60 bg-background/80 px-3 text-sm shadow-sm sm:w-[min(100%,12rem)]"
-              >
-                {EXAM_DUTY_CATEGORIES.map((c) => (
-                  <option key={c.value || '_all'} value={c.value}>
-                    {c.value ? `Kurum: ${c.label}` : c.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div className="flex w-full items-center gap-2">
+            <label htmlFor="exam-duty-cat" className="sr-only">
+              Kuruma göre filtrele
+            </label>
+            <select
+              id="exam-duty-cat"
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="h-10 w-full min-w-0 cursor-pointer rounded-xl border border-border/60 bg-background/90 px-3 text-sm shadow-sm ring-1 ring-black/5 dark:bg-background/80 dark:ring-white/10"
+            >
+              {EXAM_DUTY_CATEGORIES.map((c) => (
+                <option key={c.value || '_all'} value={c.value}>
+                  {c.value ? `Kurum: ${c.label}` : c.label}
+                </option>
+              ))}
+            </select>
+          </div>
           </div>
         </CardHeader>
 
@@ -863,36 +855,27 @@ export default function SinavGorevlerimPage() {
           ) : displayedItems.length === 0 ? (
             <div className="flex flex-col items-center gap-3 px-4 py-14 text-center">
               <div className="flex size-14 items-center justify-center rounded-2xl bg-muted/80 text-muted-foreground">
-                <Search className="size-7" />
+                <ClipboardList className="size-7" />
               </div>
               <div>
                 <p className="text-sm font-medium text-foreground">Bu filtrelere uygun duyuru yok</p>
-                <p className="mt-1 text-xs text-muted-foreground">Arama, görünüm veya kurum seçimini değiştirmeyi deneyin.</p>
+                <p className="mt-1 text-xs text-muted-foreground">Görünüm veya kurum seçimini değiştirmeyi deneyin.</p>
               </div>
               <Button
                 variant="outline"
                 size="sm"
                 className="mt-1"
                 onClick={() => {
-                  setSearchQuery('');
                   setStatusTab('all');
                   setCategoryFilter('');
                 }}
               >
-                Tüm filtreleri sıfırla
+                Filtreleri sıfırla
               </Button>
             </div>
           ) : (
-            <div className="px-3 pb-3 pt-2 sm:px-4 sm:pb-4 sm:pt-3">
-              <div className="mb-2 flex items-center justify-between gap-2 px-0.5 sm:mb-3">
-                <h2 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Kayıtlar
-                </h2>
-                <span className="text-[11px] tabular-nums text-muted-foreground">
-                  {displayedItems.length} duyuru
-                </span>
-              </div>
-              <ul className="list-none space-y-3">
+            <div className="px-2 pb-2 pt-1 sm:px-4 sm:pb-4 sm:pt-3">
+              <ul className="list-none space-y-2.5 sm:space-y-5">
               {displayedItems.map((i) => (
                 <DutyRow
                   key={i.id}
@@ -998,26 +981,41 @@ function DutyRow({
   const multiDay = examFirstYMD && examLastYMD && examFirstYMD !== examLastYMD;
   const showDayChoice = assignDayChoiceForId === i.id;
 
+  const timelineScrollRef = useRef<HTMLDivElement>(null);
+  const soonChipId = appEndSoon && !appEndPast && appEndRaw ? `duty-soon-${i.id}` : undefined;
+
+  useEffect(() => {
+    if (!soonChipId) return;
+    const sc = timelineScrollRef.current;
+    const chip = document.getElementById(soonChipId);
+    if (!sc || !chip) return;
+    const raf = requestAnimationFrame(() => {
+      const left = chip.offsetLeft - sc.clientWidth / 2 + chip.offsetWidth / 2;
+      sc.scrollLeft = Math.max(0, left);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [soonChipId, i.id]);
+
   return (
     <li className="list-none">
     <article
       className={cn(
-        'relative flex gap-0 overflow-hidden rounded-xl border border-border/55 bg-card shadow-sm transition-all',
-        'hover:border-primary/18 hover:shadow-md',
+        'relative flex gap-0 overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm ring-1 ring-black/4 transition-all sm:rounded-xl sm:border-2 sm:border-border/70 sm:shadow-md dark:border-border/80 dark:bg-card dark:ring-white/6',
+        'hover:z-1 hover:border-primary/25 sm:hover:shadow-lg',
         status === 'past' && 'opacity-[0.88]',
         status === 'soon' && 'border-amber-200/45 bg-amber-50/25 dark:border-amber-900/35 dark:bg-amber-950/15',
         isAssigned && 'border-emerald-200/40 bg-emerald-50/20 dark:border-emerald-900/35 dark:bg-emerald-950/15'
       )}
     >
       {/* left stripe */}
-      <div className={cn('w-1.5 shrink-0 self-stretch', accent.stripe)} aria-hidden />
+      <div className={cn('w-1 shrink-0 self-stretch sm:w-1.5', accent.stripe)} aria-hidden />
 
-      <div className="flex-1 min-w-0 px-3 py-3 sm:px-4 sm:py-4">
-        {/* row 1: badges + title */}
+      <div className="flex-1 min-w-0 px-2 py-2 sm:px-4 sm:py-4">
+        {/* row 1: badges + title + özet (sadece sm+) + aksiyonlar */}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
-            <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-              <span className={cn('inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold', accent.badge)}>
+            <div className="mb-1 flex flex-wrap gap-1 sm:mb-1.5 sm:gap-1.5">
+              <span className={cn('inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold sm:rounded-md sm:px-2 sm:text-[11px]', accent.badge)}>
                 {CATEGORY_LABELS[cat] ?? (cat || 'Diğer')}
               </span>
               {status === 'past' && (
@@ -1036,52 +1034,56 @@ function DutyRow({
                 </span>
               )}
             </div>
-            <h3 className="text-sm font-semibold leading-snug text-foreground sm:text-[15px]">{i.title}</h3>
+            <h3 className="text-sm font-bold leading-snug tracking-tight text-foreground sm:text-[17px] sm:leading-tight">
+              {i.title}
+            </h3>
             {i.summary && !isExpanded && (
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground line-clamp-2">{i.summary}</p>
+              <p className="mt-1.5 hidden rounded-md border border-border/50 bg-muted/35 px-2 py-1.5 text-xs leading-snug text-muted-foreground line-clamp-2 dark:bg-muted/25 sm:mt-2 sm:block sm:rounded-lg sm:px-2.5 sm:py-2 sm:text-[13px]">
+                {i.summary}
+              </p>
             )}
           </div>
 
-          {/* action buttons (right side on desktop) */}
-          <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:ml-3">
+          <div className="flex w-full flex-col sm:w-auto sm:max-w-[min(100%,20rem)] sm:shrink-0 sm:items-end">
+            <div className="flex w-full flex-wrap items-center justify-end gap-1 sm:justify-end">
             {isAssigned ? (
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex w-full flex-wrap items-center justify-end gap-1 sm:w-auto">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-0.5 border-destructive/30 px-2 text-[10px] font-medium text-destructive hover:bg-destructive/10 touch-manipulation sm:h-7 sm:text-xs"
+                  onClick={() => onUnassign(i.id)}
+                  disabled={!!unassigningId}
+                >
+                  {unassigningId === i.id ? <RefreshCw className="size-3 animate-spin" /> : <><X className="size-3" /> Kaldır</>}
+                </Button>
                 {multiDay && (
                   <select
                     value={preferredDate ?? ''}
                     onChange={(e) => onUpdateDate(i.id, e.target.value || null)}
                     disabled={!!assigningId}
-                    className="h-8 min-h-[36px] cursor-pointer rounded-lg border border-emerald-300/60 bg-emerald-50 px-2 text-xs font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300 touch-manipulation"
+                    className="h-7 min-h-0 min-w-0 max-w-full flex-1 cursor-pointer rounded-md border border-emerald-300/60 bg-emerald-50 px-1.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300 touch-manipulation sm:max-w-56 sm:flex-none sm:text-xs"
                   >
                     <option value="">Her iki gün</option>
                     <option value={examFirstYMD!}>İlk gün ({examStart})</option>
                     <option value={examLastYMD!}>Son gün ({examEnd})</option>
                   </select>
                 )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 min-h-[36px] gap-1 text-xs text-muted-foreground hover:text-destructive touch-manipulation"
-                  onClick={() => onUnassign(i.id)}
-                  disabled={!!unassigningId}
-                >
-                  {unassigningId === i.id ? <RefreshCw className="size-3.5 animate-spin" /> : <><X className="size-3.5" /> Kaldır</>}
-                </Button>
               </div>
             ) : !examPast && (
               showDayChoice ? (
-                <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-amber-200/60 bg-amber-50/80 px-2 py-1.5 dark:border-amber-800/40 dark:bg-amber-950/30">
-                  <span className="text-[11px] font-medium text-amber-800 dark:text-amber-200">Hangi gün?</span>
+                <div className="flex w-full flex-wrap items-center justify-end gap-1 rounded-md border border-amber-200/60 bg-amber-50/80 px-1.5 py-1 dark:border-amber-800/40 dark:bg-amber-950/30 sm:w-auto">
+                  <span className="w-full text-[10px] font-medium text-amber-800 dark:text-amber-200 sm:w-auto sm:text-xs">Hangi gün?</span>
                   {[
                     { label: 'İlk gün', val: examFirstYMD },
                     { label: 'Son gün', val: examLastYMD },
                     { label: 'İkisi de', val: null },
                   ].map((opt) => (
-                    <Button key={opt.label} variant="outline" size="sm" className="h-7 min-h-[32px] text-[11px] touch-manipulation" onClick={() => onAssign(i.id, opt.val)} disabled={!!assigningId}>
+                    <Button key={opt.label} variant="outline" size="sm" className="h-7 px-2 text-[10px] touch-manipulation sm:text-xs" onClick={() => onAssign(i.id, opt.val)} disabled={!!assigningId}>
                       {opt.label}
                     </Button>
                   ))}
-                  <Button variant="ghost" size="sm" className="h-7 min-h-[32px] text-[11px] touch-manipulation" onClick={() => onSetDayChoice(null)}>
+                  <Button variant="ghost" size="sm" className="h-7 px-2 text-[10px] touch-manipulation sm:text-xs" onClick={() => onSetDayChoice(null)}>
                     İptal
                   </Button>
                 </div>
@@ -1089,24 +1091,25 @@ function DutyRow({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-8 min-h-[36px] gap-1.5 border-primary/30 text-xs font-medium text-primary hover:bg-primary/5 touch-manipulation"
+                  className="h-7 gap-1 border-primary/30 px-2 text-[10px] font-medium text-primary hover:bg-primary/5 touch-manipulation sm:text-xs"
                   onClick={() => multiDay ? onSetDayChoice(i.id) : onAssign(i.id)}
                   disabled={!!assigningId}
                 >
-                  {assigningId === i.id ? <RefreshCw className="size-3.5 animate-spin" /> : <Bell className="size-3.5" />}
+                  {assigningId === i.id ? <RefreshCw className="size-3 animate-spin" /> : <Bell className="size-3" />}
                   Hatırlatma al
                 </Button>
               )
-            )}
+            )
+            }
 
             {appUrl && (
               <a
                 href={appUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex h-8 min-h-[36px] items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 touch-manipulation"
+                className="inline-flex h-7 items-center gap-0.5 rounded-md bg-primary px-2 text-[10px] font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 touch-manipulation sm:text-xs"
               >
-                <ExternalLink className="size-3.5" /> Başvuru
+                <ExternalLink className="size-3 shrink-0" /> Başvuru
               </a>
             )}
             {srcUrl && (
@@ -1114,27 +1117,39 @@ function DutyRow({
                 href={srcUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex h-8 min-h-[36px] items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground touch-manipulation"
+                className="inline-flex h-7 items-center gap-0.5 rounded-md border border-border bg-background px-2 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground touch-manipulation sm:text-xs"
               >
-                <ExternalLink className="size-3.5" /> Kaynak
+                <ExternalLink className="size-3 shrink-0" /> Kaynak
               </a>
             )}
+            </div>
           </div>
         </div>
 
-        {/* Zaman çizelgesi (kronoloji): … → sınav−1g → sınav günü → sınav+1g → sabah hatırlatma */}
-        <div className="mt-3 flex flex-wrap gap-2 border-t border-border/35 pt-3 sm:gap-2.5">
+        {/* Zaman çizelgesi — metinden ayrı kutu */}
+        <div className="mt-2 rounded-lg border border-border/50 bg-muted/30 p-1.5 shadow-sm ring-1 ring-border/25 dark:bg-muted/15 dark:ring-border/40 sm:mt-4 sm:rounded-xl sm:p-3">
+          <p className="mb-1.5 px-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/90 sm:mb-2 sm:text-[10px] sm:tracking-widest">
+            Tarihler
+          </p>
+          <div
+            ref={timelineScrollRef}
+            className="-mx-0.5 flex gap-1.5 overflow-x-auto pb-1 pt-0.5 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:gap-2.5 sm:overflow-visible sm:pb-0 sm:pt-0 [&::-webkit-scrollbar]:hidden"
+          >
           <DateChip
             icon={Megaphone}
             label="Başvuru açıldı"
+            labelShort="Yayın"
             value={fmtDateTime(publishedRaw)}
+            valueCompact={fmtDateTimeShort(publishedRaw)}
             past={!!publishedRaw && isDatePast(publishedRaw)}
             soon={false}
             tone="blue"
           />
           <DateChip
+            id={soonChipId}
             icon={CalendarClock}
             label="Son başvuru günü"
+            labelShort="Son başv."
             value={fmtDate(appEndRaw)}
             past={appEndPast}
             soon={appEndSoon}
@@ -1143,6 +1158,7 @@ function DutyRow({
           <DateChip
             icon={FileCheck}
             label="Onay günü"
+            labelShort="Onay"
             value={fmtDate(appApprovalEndRaw)}
             past={!!appApprovalEndRaw && isDatePast(appApprovalEndRaw)}
             soon={appApprovalSoon}
@@ -1151,6 +1167,7 @@ function DutyRow({
           <DateChip
             icon={CalendarCheck}
             label="Sınavdan 1 gün önce"
+            labelShort="Önceki gün"
             value={examMinusIso ? fmtDate(examMinusIso) : '—'}
             past={!!examMinusIso && isDatePast(examMinusIso)}
             soon={!!examMinusIso && isWithinDays(examMinusIso, 7)}
@@ -1160,7 +1177,13 @@ function DutyRow({
             <DateChip
               icon={Calendar}
               label="Sınav günü"
+              labelShort="Sınav"
               value={examEnd !== '—' && examStart !== examEnd ? `${examStart} – ${examEnd}` : examStart}
+              valueCompact={
+                examEnd !== '—' && examStart !== examEnd && examDateRaw && examEndRaw
+                  ? `${fmtDate(examDateRaw).replace(/ \d{4}$/, '')} – ${fmtDate(examEndRaw).replace(/ \d{4}$/, '')}`
+                  : examStart
+              }
               past={!!lastExamDayRaw && isDatePast(lastExamDayRaw)}
               soon={
                 !!examDateRaw &&
@@ -1173,6 +1196,7 @@ function DutyRow({
           <DateChip
             icon={CalendarCheck}
             label="Sınavdan 1 gün sonra"
+            labelShort="Sonraki gün"
             value={examPlusIso ? fmtDate(examPlusIso) : '—'}
             past={!!examPlusIso && isDatePast(examPlusIso)}
             soon={!!examPlusIso && isWithinDays(examPlusIso, 7)}
@@ -1182,33 +1206,39 @@ function DutyRow({
             <DateChip
               icon={Bell}
               label="Sabah hatırlatma"
+              labelShort="Sabah"
               value={sabahChip.value}
               past={sabahChip.past}
               soon={sabahChip.soon}
               tone="teal"
             />
           ) : null}
-        </div>
+          </div>
         {(appStart !== '—' || examStart !== '—' || resultDt !== '—') && (
-          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+          <div className="mt-2 hidden flex-wrap gap-x-4 gap-y-1.5 border-t border-border/40 pt-2.5 text-[11px] tabular-nums sm:flex">
             {appStart !== '—' && (
-              <span>
-                <span className="font-medium text-foreground/80">Başvuru aralığı:</span> {appStart} – {appEnd}
+              <span className="text-muted-foreground">
+                <span className="mr-1 font-medium text-foreground/70">Başvuru</span>
+                <span className="text-foreground/85">{appStart} – {appEnd}</span>
               </span>
             )}
             {examStart !== '—' && (
-              <span>
-                <span className="font-medium text-foreground/80">Sınav:</span>{' '}
-                {examEnd !== '—' && examStart !== examEnd ? `${examStart} – ${examEnd}` : examStart}
+              <span className="text-muted-foreground">
+                <span className="mr-1 font-medium text-foreground/70">Sınav</span>
+                <span className="text-foreground/85">
+                  {examEnd !== '—' && examStart !== examEnd ? `${examStart} – ${examEnd}` : examStart}
+                </span>
               </span>
             )}
             {resultDt !== '—' && (
-              <span>
-                <span className="font-medium text-foreground/80">Sonuç:</span> {resultDt}
+              <span className="text-muted-foreground">
+                <span className="mr-1 font-medium text-foreground/70">Sonuç</span>
+                <span className="text-foreground/85">{resultDt}</span>
               </span>
             )}
           </div>
         )}
+        </div>
 
         {/* expandable body */}
         {isExpanded && hasBody && (
@@ -1261,25 +1291,35 @@ const DATE_TONE: Record<string, { card: string; iconBg: string; iconFg: string }
 };
 
 function DateChip({
+  id,
   icon: Icon,
   label,
+  labelShort,
   value,
+  valueCompact,
   past,
   soon,
   tone,
 }: {
+  id?: string;
   icon: typeof Calendar;
   label: string;
+  /** Mobilde kısa başlık */
+  labelShort?: string;
   value: string;
+  /** Mobilde kısa tarih/saat */
+  valueCompact?: string;
   past?: boolean;
   soon?: boolean;
   tone: keyof typeof DATE_TONE;
 }) {
   const t = DATE_TONE[tone] ?? DATE_TONE.blue;
+  const show = valueCompact ?? value;
   return (
     <span
+      id={id}
       className={cn(
-        'inline-flex max-w-full items-center gap-2 rounded-xl border px-2.5 py-1.5 text-[11px] shadow-sm ring-1 sm:text-xs',
+        'inline-flex max-w-[min(100%,11.5rem)] shrink-0 snap-start items-center gap-1 rounded-lg border px-1.5 py-1 text-[9px] shadow-sm ring-1 sm:max-w-full sm:gap-2 sm:rounded-xl sm:px-2.5 sm:py-1.5 sm:text-[11px] sm:text-xs',
         t.card,
         past && 'opacity-50 saturate-[0.65]',
         soon &&
@@ -1289,31 +1329,37 @@ function DateChip({
             : 'border-amber-300/80 bg-amber-50 ring-amber-400/35 dark:border-amber-700/60 dark:bg-amber-950/45')
       )}
     >
-      <span className={cn('flex size-7 shrink-0 items-center justify-center rounded-lg', t.iconBg, t.iconFg)}>
-        <Icon className="size-3.5" aria-hidden />
+      <span className={cn('flex size-5 shrink-0 items-center justify-center rounded-md sm:size-7 sm:rounded-lg', t.iconBg, t.iconFg)}>
+        <Icon className="size-2.5 sm:size-3.5" aria-hidden />
       </span>
       <span className="min-w-0 leading-tight">
         <span
           className={cn(
-            'block text-[10px] font-semibold uppercase tracking-wide',
-            tone === 'emerald' ? 'text-emerald-800/75 dark:text-emerald-300/85' : 'text-muted-foreground'
+            'block font-semibold uppercase tracking-wide sm:text-[10px]',
+            tone === 'emerald' ? 'text-emerald-800/75 dark:text-emerald-300/85' : 'text-muted-foreground',
+            'text-[8px] sm:tracking-wide'
           )}
         >
-          {label}
+          <span className="sm:hidden">{labelShort ?? label}</span>
+          <span className="hidden sm:inline">{label}</span>
         </span>
         <span
           className={cn(
-            'font-medium text-foreground',
+            'block font-medium text-foreground sm:inline',
             past && 'line-through decoration-muted-foreground/50',
             soon &&
               !past &&
               (tone === 'emerald' ? 'text-emerald-900 dark:text-emerald-100' : 'text-amber-800 dark:text-amber-200')
           )}
         >
-          {value}
+          <span className="text-[10px] sm:hidden">
+            {show}
+            {past ? <span className="text-muted-foreground"> · geçti</span> : null}
+          </span>
+          <span className="hidden text-xs sm:inline">{value}</span>
         </span>
         {past ? (
-          <span className="mt-0.5 block text-[9px] font-medium text-muted-foreground">Geçti</span>
+          <span className="mt-0.5 hidden text-[9px] font-medium text-muted-foreground sm:block">Geçti</span>
         ) : null}
       </span>
     </span>

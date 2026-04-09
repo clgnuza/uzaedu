@@ -25,12 +25,14 @@ import {
   AppConfigService,
   R2ConfigForAdmin,
   SchoolReviewsConfig,
+  SchoolReviewsContentRules,
   DersSaatiConfig,
   YayinSeoConfig,
   WebPublicConfig,
   LegalPagesConfig,
   OptikConfig,
   MailConfigForAdmin,
+  MailTemplatesStored,
   WebExtrasConfig,
   GdprConfig,
   CaptchaConfigForAdmin,
@@ -492,6 +494,21 @@ class UpdateGdprDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
+  cookie_banner_title?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  accept_button_label?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  reject_button_label?: string | null;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(600000)
   cookie_banner_body_html?: string | null;
 
@@ -737,6 +754,10 @@ class UpdateSchoolReviewsDto {
   @IsOptional()
   @IsBoolean()
   questions_require_moderation?: boolean;
+
+  @IsOptional()
+  @IsObject()
+  content_rules?: SchoolReviewsContentRules;
 }
 
 @Controller('app-config')
@@ -1004,6 +1025,21 @@ export class AppConfigController {
   @Roles(UserRole.superadmin)
   async testMailConnection(): Promise<{ ok: boolean; message: string }> {
     return this.service.testMailConnection();
+  }
+
+  @Get('mail-templates')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.superadmin)
+  async getMailTemplates() {
+    return this.service.getMailTemplatesMerged();
+  }
+
+  @Patch('mail-templates')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.superadmin)
+  async patchMailTemplates(@Body() dto: MailTemplatesStored): Promise<{ success: boolean }> {
+    await this.service.updateMailTemplates(dto ?? {});
+    return { success: true };
   }
 
   @Get('exam-duty-sync')

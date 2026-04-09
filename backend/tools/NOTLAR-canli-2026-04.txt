@@ -1,0 +1,15 @@
+Canlı (uzaedu) — yapılan notlar (2026-04)
+========================================
+
+CORS / "Backend bağlantısı kurulamadı" (uzaedu.com)
+---------------------------------------------------
+- Sorun: https://uzaedu.com üzerinden admin açılınca https://api.uzaedu.com istekleri tarayıcıda CORS ile bloklanıyordu; fetch hata verip api.ts bağlantı mesajını gösteriyordu.
+- Sebep: Sunucu /opt/uzaedu/backend/.env içinde CORS_ORIGINS sadece https://admin.uzaedu.com + localhost içeriyordu; https://uzaedu.com ve https://www.uzaedu.com yoktu.
+- Yapılan: CORS_ORIGINS güncellendi (uzaedu.com, www, admin, yerel portlar). pm2 restart uzaedu-api --update-env.
+- Doğrulama: curl -H "Origin: https://uzaedu.com" https://api.uzaedu.com/api/health → Access-Control-Allow-Origin: https://uzaedu.com
+
+Önceki oturum özeti
+-------------------
+- Nginx: infra/nginx/uzaedu.conf sunucuya uyarlandı; nginx -t + reload.
+- /opt/uzaedu/web-admin/.env.production: NEXT_PUBLIC_API_BASE_URL=https://api.uzaedu.com/api, NEXT_PUBLIC_SITE_URL=https://uzaedu.com (NEXT_PUBLIC_* build anında gömülür).
+- scripts/hetzner/bootstrap.sh CORS için DOMAIN_SITE kullanıyor; sunucudaki eski elle .env bootstrap ile uyumsuz olabilir.

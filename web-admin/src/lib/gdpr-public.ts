@@ -1,7 +1,12 @@
 import { cache } from 'react';
+import { getApiUrl } from '@/lib/api';
 
 export type GdprPublic = {
   cookie_banner_enabled: boolean;
+  /** Boşsa istemci "Çerez tercihleri" */
+  cookie_banner_title: string | null;
+  accept_button_label: string | null;
+  reject_button_label: string | null;
   cookie_banner_body_html: string | null;
   consent_version: string;
   data_controller_name: string | null;
@@ -11,8 +16,6 @@ export type GdprPublic = {
   cache_ttl_gdpr: number;
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000/api';
-
 const GDPR_ISR = Math.min(
   86400,
   Math.max(10, parseInt(process.env.NEXT_PUBLIC_GDPR_ISR || '120', 10) || 120),
@@ -20,7 +23,7 @@ const GDPR_ISR = Math.min(
 
 export const fetchGdprPublic = cache(async function fetchGdprPublic(): Promise<GdprPublic | null> {
   try {
-    const res = await fetch(`${API_BASE.replace(/\/$/, '')}/content/gdpr`, {
+    const res = await fetch(getApiUrl('/content/gdpr'), {
       next: { revalidate: GDPR_ISR },
     });
     if (!res.ok) return null;

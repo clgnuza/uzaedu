@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { canAccessRoute, getMatchedRoute } from '@/config/menu';
 import type { WebAdminRole } from '@/config/types';
-import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { AppShellLoadingCard } from '@/components/ui/app-shell-loading-card';
 import { useSupportModuleAvailability } from '@/hooks/use-support-module-availability';
 import { isPublicAdminPath } from '@/lib/public-admin-paths';
 
@@ -51,18 +51,18 @@ export function RouteGuard({
     }
     const allowed = canAccessRoute(pathname, role, moderatorModules, schoolEnabledModules, supportEnabledValue);
     if (!allowed) {
-      if ((pathname === '/school-reviews' || pathname.startsWith('/school-reviews/')) && role === 'school_admin') {
-        router.replace('/school-reviews-report');
-        return;
-      }
       router.replace('/403');
     }
   }, [loading, role, moderatorModules, schoolEnabledModules, pathname, router, loginPath, supportEnabledValue]);
 
   if (loading) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <LoadingSpinner label="Yükleniyor…" />
+      <div className="w-full min-h-[min(100dvh,48rem)] bg-muted/20 dark:bg-muted/10">
+        <AppShellLoadingCard
+          title="Öğretmen Pro"
+          subtitle="Yükleniyor…"
+          hint="Oturum ve sayfa yetkileri kontrol ediliyor."
+        />
       </div>
     );
   }

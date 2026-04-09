@@ -64,7 +64,7 @@ const REF_MAINT_PREFIXES = [
   '/optik-okuma-ayarlar',
   '/akademik-takvim-sablonu',
   '/bilsem-sablon',
-  '/school-reviews',
+  '/okul-degerlendirmeleri',
   '/storage',
 ].join('\n');
 

@@ -6,7 +6,7 @@ import { apiFetch } from '@/lib/api';
 import type { Me } from '@/providers/auth-provider';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { BadgeCheck, Mail, ShieldAlert } from 'lucide-react';
+import { Mail, ShieldAlert } from 'lucide-react';
 
 type Props = { me: Me };
 
@@ -33,13 +33,7 @@ export function TeacherSchoolJoinBanner({ me }: Props) {
   };
 
   if (stage === 'approved') {
-    return (
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200/80 bg-emerald-50/90 px-4 py-3 text-sm text-emerald-950 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-100">
-        <BadgeCheck className="size-5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
-        <span className="font-medium">Okul onaylı öğretmen</span>
-        {me.school?.name && <span className="text-emerald-800/90 dark:text-emerald-200/90">— {me.school.name}</span>}
-      </div>
-    );
+    return null;
   }
 
   if (stage === 'email_pending') {

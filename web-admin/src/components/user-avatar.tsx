@@ -85,12 +85,12 @@ export function UserAvatarBubble({
         </span>
         <span
           className={cn(
-            'pointer-events-none absolute bottom-0 right-0 z-[2] flex items-center justify-center rounded-full bg-emerald-500 text-white shadow-sm ring-2 ring-background',
+            'pointer-events-none absolute bottom-0 right-0 z-[2] flex items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm ring-2 ring-background',
             badgeOuter[size],
           )}
           aria-hidden
         >
-          <Check className={cn(badgeIcon[size], 'stroke-[3]')} aria-hidden />
+          <Check className={cn(badgeIcon[size], 'stroke-[2.75]')} aria-hidden />
         </span>
       </span>
     );

@@ -11,8 +11,9 @@ import { CardContent, CardHeader } from '@/components/ui/card';
 import { LoadingDots } from '@/components/ui/loading-spinner';
 import { AuthCard } from '@/components/auth/auth-card';
 import { toast } from 'sonner';
-import { ArrowRight, GraduationCap, ShieldCheck } from 'lucide-react';
+import { ArrowRight, GraduationCap, Info, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { AuthCompactDetails } from '@/components/auth/auth-compact-details';
 import { TURKEY_CITIES, getDistrictsForCity } from '@/lib/turkey-addresses';
 import { SCHOOL_TYPE_LABELS, SCHOOL_TYPE_ORDER, formatSchoolTypeLabel } from '@/lib/school-labels';
 
@@ -28,7 +29,7 @@ type SchoolHit = {
 type RegisterSchoolsResponse = { items: SchoolHit[] };
 
 const inputClass =
-  'w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/80 shadow-sm transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15';
+  'w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/80 shadow-sm transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 sm:rounded-xl sm:px-3 sm:py-2';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -132,54 +133,34 @@ export default function RegisterPage() {
   return (
     <AuthPageShell>
       <AuthCard>
-        <CardHeader className="space-y-0.5 px-4 pb-2 pt-3.5 sm:px-5">
-          <h2 className="text-base font-semibold tracking-tight text-foreground">Öğretmen kaydı</h2>
-          <p className="text-xs text-muted-foreground">E-posta ile hesap oluşturun — okul yöneticisi kaydı değildir.</p>
+        <CardHeader className="space-y-0.5 px-3 pb-1.5 pt-2.5 sm:px-5 sm:pb-2 sm:pt-3.5">
+          <h2 className="text-[0.9375rem] font-semibold tracking-tight text-foreground sm:text-base">Öğretmen kaydı</h2>
+          <p className="text-[10px] text-muted-foreground sm:text-xs">E-posta ile hesap (okul yöneticisi değil)</p>
         </CardHeader>
-        <CardContent className="space-y-3 px-4 pb-4 pt-0 sm:px-5">
-          <div className="relative overflow-hidden rounded-2xl border border-primary/20 bg-linear-to-br from-primary/6 via-background to-sky-500/5 p-3.5 shadow-sm ring-1 ring-black/3 dark:from-primary/8 dark:to-sky-950/30 dark:ring-white/5">
-            <div className="pointer-events-none absolute -right-6 -top-8 size-24 rounded-full bg-primary/10 blur-2xl" aria-hidden />
-            <div className="relative flex gap-3">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-primary shadow-inner shadow-primary/10">
-                <ShieldCheck className="size-[18px]" strokeWidth={2} aria-hidden />
-              </div>
-              <div className="min-w-0 space-y-1.5">
-                <p className="text-xs font-semibold tracking-tight text-foreground">Öğretmen kaydı</p>
-                <p className="text-[11px] leading-relaxed text-muted-foreground">
-                  Öğretmen hesabı için kurumsal e-posta zorunlu değildir. İsterseniz okul seçip kaydı tamamladıktan sonra
-                  e-posta doğrulaması ve okul yöneticisi onayı ile okulunuza bağlanabilirsiniz.
-                </p>
-                <p className="text-[11px] leading-snug text-muted-foreground">
-                  <span className="font-medium text-foreground/90">Okul seçerek kayıt</span>
-                  <span className="mx-1 text-primary" aria-hidden>
-                    →
-                  </span>
-                  okul seçin, bu sayfada kayıt olun, gelen e-postayı doğrulayın, ardından okul onayını bekleyin.
-                </p>
-              </div>
-            </div>
-          </div>
+        <CardContent className="space-y-2.5 px-3 pb-3 pt-0 sm:space-y-3 sm:px-5 sm:pb-4">
+          <AuthCompactDetails
+            icon={<ShieldCheck className="size-3.5 text-primary" strokeWidth={2} aria-hidden />}
+            title="Kayıt akışı (detay)"
+          >
+            Kurumsal e-posta zorunlu değil. İsterseniz okul seçin → e-postayı doğrulayın → yönetici onayı. Okulsuz da
+            açılır; sonra profilden bağlanırsınız.
+          </AuthCompactDetails>
 
           <Link
             href="/login"
             className={cn(
-              'flex items-center justify-between gap-2 rounded-xl border border-border/80 bg-muted/30 px-3 py-2.5 text-xs transition-colors hover:bg-muted/50',
+              'flex items-center justify-center gap-1.5 rounded-lg border border-border/80 bg-muted/25 px-2.5 py-2 text-[11px] font-medium transition-colors hover:bg-muted/45 sm:rounded-xl sm:py-2.5 sm:text-xs',
             )}
           >
-            <span className="flex items-center gap-2 text-muted-foreground">
-              <GraduationCap className="size-4 shrink-0 text-primary" aria-hidden />
-              <span>
-                Zaten hesabınız var mı?{' '}
-                <span className="font-semibold text-foreground">E-posta ile giriş</span>
-                <span className="text-muted-foreground"> — hesabınızla giriş yapın</span>
-              </span>
-            </span>
-            <ArrowRight className="size-4 shrink-0 text-primary" aria-hidden />
+            <GraduationCap className="size-3.5 shrink-0 text-primary" aria-hidden />
+            <span className="text-muted-foreground">Hesabınız var mı?</span>
+            <span className="font-semibold text-foreground">Giriş</span>
+            <ArrowRight className="size-3.5 shrink-0 text-primary" aria-hidden />
           </Link>
 
-          <form onSubmit={handleSubmit} className="space-y-3">
+          <form onSubmit={handleSubmit} className="space-y-2.5 sm:space-y-3">
             <div>
-              <label htmlFor="reg-email" className="mb-1 block text-xs font-medium text-foreground">
+              <label htmlFor="reg-email" className="mb-0.5 block text-[11px] font-medium text-foreground sm:text-xs">
                 E-posta <span className="text-destructive">*</span>
               </label>
               <input
@@ -194,7 +175,7 @@ export default function RegisterPage() {
               />
             </div>
             <div>
-              <label htmlFor="reg-display-name" className="mb-1 block text-xs font-medium text-foreground">
+              <label htmlFor="reg-display-name" className="mb-0.5 block text-[11px] font-medium text-foreground sm:text-xs">
                 Görünen ad
               </label>
               <input
@@ -202,18 +183,22 @@ export default function RegisterPage() {
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Rumuz veya ad (isteğe bağlı)"
+                placeholder="İsteğe bağlı"
                 autoComplete="nickname"
                 maxLength={255}
                 className={inputClass}
               />
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Tam adınızı paylaşmak zorunda değilsiniz; aynı okuldaki öğretmenlere adınız isteğe bağlı maskelenebilir.
-              </p>
+              <AuthCompactDetails
+                icon={<Info className="size-3.5" strokeWidth={2} aria-hidden />}
+                title="Görünen ad"
+                className="mt-1.5"
+              >
+                Zorunlu değil; aynı okulda maskelenebilir.
+              </AuthCompactDetails>
             </div>
             <div>
-              <label htmlFor="reg-invite" className="mb-1 block text-xs font-medium text-foreground">
-                Davet kodu (isteğe bağlı)
+              <label htmlFor="reg-invite" className="mb-0.5 block text-[11px] font-medium text-foreground sm:text-xs">
+                Davet kodu
               </label>
               <input
                 id="reg-invite"
@@ -227,8 +212,8 @@ export default function RegisterPage() {
               />
             </div>
             <div className="relative">
-              <label htmlFor="reg-school" className="mb-1 block text-xs font-medium text-foreground">
-                Okulunuz <span className="font-normal text-muted-foreground">(isteğe bağlı)</span>
+              <label htmlFor="reg-school" className="mb-0.5 block text-[11px] font-medium text-foreground sm:text-xs">
+                Okul <span className="font-normal text-muted-foreground">(isteğe bağlı)</span>
               </label>
               {selectedSchool ? (
                 <div className="space-y-1">
@@ -246,13 +231,13 @@ export default function RegisterPage() {
                       Kaldır
                     </button>
                   </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    Kayıt sonrası gelen e-postadaki bağlantı ile adresinizi doğrulayın; ardından okul yöneticisi onayı beklenir.
+                  <p className="text-[10px] text-muted-foreground sm:text-[11px]">
+                    E-postayı doğrulayın; sonra okul onayı.
                   </p>
                 </div>
               ) : (
                 <>
-                  <div className="mb-2 grid gap-2 sm:grid-cols-3">
+                  <div className="mb-1.5 grid grid-cols-1 gap-1.5 sm:mb-2 sm:grid-cols-3 sm:gap-2">
                     <select
                       value={regCity}
                       onChange={(e) => {
@@ -296,7 +281,7 @@ export default function RegisterPage() {
                     type="text"
                     value={schoolQuery}
                     onChange={(e) => setSchoolQuery(e.target.value)}
-                    placeholder="En az 2 harf ile ara…"
+                    placeholder="Okul ara (2+ harf)"
                     autoComplete="off"
                     className={inputClass}
                   />
@@ -332,12 +317,12 @@ export default function RegisterPage() {
                   )}
                 </>
               )}
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Okul seçmezseniz hesap genel öğretmen olarak açılır; sonra profilden okul bağlayabilirsiniz.
-              </p>
+              <AuthCompactDetails icon={<Info className="size-3.5" strokeWidth={2} aria-hidden />} title="Okul seçmeden" className="mt-1.5">
+                Hesap genel açılır; sonra profilden okul bağlanır.
+              </AuthCompactDetails>
             </div>
             <div>
-              <label htmlFor="reg-password" className="mb-1 block text-xs font-medium text-foreground">
+              <label htmlFor="reg-password" className="mb-0.5 block text-[11px] font-medium text-foreground sm:text-xs">
                 Şifre <span className="text-destructive">*</span>
               </label>
               <input
@@ -351,10 +336,10 @@ export default function RegisterPage() {
                 maxLength={128}
                 className={inputClass}
               />
-              <p className="mt-1 text-[11px] text-muted-foreground">8–128 karakter; en az bir harf ve bir rakam.</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground sm:text-[11px]">8–128 karakter, harf + rakam.</p>
             </div>
             <div>
-              <label htmlFor="reg-confirm" className="mb-1 block text-xs font-medium text-foreground">
+              <label htmlFor="reg-confirm" className="mb-0.5 block text-[11px] font-medium text-foreground sm:text-xs">
                 Şifre tekrar <span className="text-destructive">*</span>
               </label>
               <input
@@ -369,53 +354,51 @@ export default function RegisterPage() {
                 className={inputClass}
               />
             </div>
-            <div className="space-y-2 pt-1">
-              <label className="flex cursor-pointer items-start gap-2.5">
+            <div className="space-y-1.5 pt-0.5 sm:space-y-2 sm:pt-1">
+              <label className="flex cursor-pointer items-start gap-2">
                 <input
                   type="checkbox"
                   checked={consentTerms}
                   onChange={(e) => setConsentTerms(e.target.checked)}
                   className="mt-0.5 size-3.5 shrink-0 rounded border-input"
                 />
-                <span className="text-[11px] leading-snug text-foreground">
+                <span className="text-[10px] leading-snug text-foreground sm:text-[11px]">
                   <Link href="/gizlilik" target="_blank" className="text-primary hover:underline">
                     Gizlilik
                   </Link>
-                  {', '}
+                  {' / '}
                   <Link href="/kullanim-sartlari" target="_blank" className="text-primary hover:underline">
-                    Kullanım Şartları
-                  </Link>
-                  ’nı okudum; kişisel verilerimin KVKK kapsamında bu metinlere uygun işlenmesini kabul ediyorum.{' '}
-                  <span className="text-destructive">*</span>
+                    Şartlar
+                  </Link>{' '}
+                  — okudum; KVKK kapsamında kabul. <span className="text-destructive">*</span>
                 </span>
               </label>
-              <label className="flex cursor-pointer items-start gap-2.5">
+              <label className="flex cursor-pointer items-start gap-2">
                 <input
                   type="checkbox"
                   checked={consentMarketing}
                   onChange={(e) => setConsentMarketing(e.target.checked)}
                   className="mt-0.5 size-3.5 shrink-0 rounded border-input"
                 />
-                <span className="text-[11px] leading-snug text-muted-foreground">Kampanya iletişim izni (isteğe bağlı)</span>
+                <span className="text-[10px] leading-snug text-muted-foreground sm:text-[11px]">Kampanya (isteğe bağlı)</span>
               </label>
             </div>
-            {error && <Alert message={error} />}
+            {error && <Alert message={error} className="px-2.5 py-2 text-[11px] leading-snug [&_svg]:size-4" />}
             <button
               type="submit"
               disabled={loading || !consentTerms}
               aria-busy={loading}
-              className="flex w-full items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-opacity hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex w-full items-center justify-center rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-opacity hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 sm:rounded-xl sm:px-4 sm:py-2.5"
             >
               {loading ? <LoadingDots className="text-primary-foreground" /> : 'Kayıt ol'}
             </button>
           </form>
 
-          <p className="pt-1 text-center text-[11px] text-muted-foreground">
-            Yukarıdaki karttan veya{' '}
+          <p className="pt-0.5 text-center text-[10px] text-muted-foreground sm:text-[11px]">
+            Zaten hesap:{' '}
             <Link href="/login" className="font-semibold text-primary hover:underline">
-              giriş sayfasından
-            </Link>{' '}
-            e-posta ile oturum açın.
+              giriş
+            </Link>
           </p>
         </CardContent>
       </AuthCard>

@@ -18,19 +18,22 @@ const META: Record<
 > = {
   privacy: {
     label: 'Gizlilik Politikası',
-    description: 'Kamu sayfa: /gizlilik — GET /content/legal-pages',
+    description:
+      'Superadmin: Web ve mobil ayarlar → Gizlilik. Kamu içerik: GET /content/legal-pages (sayfa /gizlilik).',
     icon: Shield,
     path: '/gizlilik',
   },
   terms: {
     label: 'Kullanım Şartları',
-    description: 'Kamu sayfa: /kullanim-sartlari',
+    description:
+      'Superadmin: Web ve mobil ayarlar → Şartlar. Kamu: /kullanim-sartlari — aynı API ile yayınlanır.',
     icon: ScrollText,
     path: '/kullanim-sartlari',
   },
   cookies: {
     label: 'Çerez Politikası',
-    description: 'Kamu sayfa: /cerez',
+    description:
+      'Bu sekme tam sayfa çerez politikası metnidir (/cerez). Alttaki çerez bildirimi şeridi metni ayrı: Web ve mobil ayarlar → GDPR.',
     icon: Cookie,
     path: '/cerez',
   },

@@ -39,6 +39,13 @@ export class SchoolReviewsPublicController {
     return this.service.listCriteria();
   }
 
+  /** Bildirim sebepleri (metinler) ve günlük bildirim üst sınırı — ayarlardan. */
+  @Get('report-rules')
+  @Header('Cache-Control', 'public, max-age=120')
+  async getReportRules() {
+    return this.service.getReportRulesPublic();
+  }
+
   /** Anasayfa istatistikleri. */
   @Get('home-stats')
   @Header('Cache-Control', 'public, max-age=60')

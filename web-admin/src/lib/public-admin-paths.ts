@@ -4,7 +4,7 @@ export function isPublicAdminPath(pathname: string): boolean {
   return (
     p === '/haberler' ||
     p === '/haberler/yayin' ||
-    p === '/extra-lesson-calc' ||
+    p === '/ek-ders-hesaplama' ||
     p === '/hesaplamalar' ||
     p === '/sinav-gorev-ucretleri' ||
     p === '/okul-degerlendirmeleri' ||

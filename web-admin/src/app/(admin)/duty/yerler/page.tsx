@@ -14,6 +14,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Alert } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { DutySubTabs } from '@/components/duty/duty-sub-tabs';
+import { DutyPageHeader } from '@/components/duty/duty-page-header';
 
 type DutyArea = { id: string; name: string; sort_order: number; slots_required?: number; slotsRequired?: number };
 
@@ -274,14 +275,22 @@ export default function DutyYerlerPage() {
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Link href="/duty" className="inline-flex items-center justify-center gap-2 h-8 px-3 text-sm rounded-lg font-medium hover:bg-muted hover:text-foreground">
-          <ArrowLeft className="size-4" />
-          Nöbet
-        </Link>
-        <h1 className="text-2xl font-semibold text-foreground">Nöbet Ayarları</h1>
-      </div>
+    <div className="space-y-4 sm:space-y-6">
+      <DutyPageHeader
+        icon={Settings}
+        title="Nöbet ayarları"
+        description="Belge bilgisi, nöbet yerleri, muafiyet ve öğretmen özellikleri."
+        color="sky"
+        actions={
+          <Link
+            href="/duty"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background/90 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:gap-2 sm:px-3 sm:text-sm"
+          >
+            <ArrowLeft className="size-3.5 sm:size-4" />
+            Nöbet
+          </Link>
+        }
+      />
 
       <DutySubTabs
         aria-label="Nöbet ayarları bölümleri"
