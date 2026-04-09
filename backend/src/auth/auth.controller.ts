@@ -85,7 +85,7 @@ export class AuthController {
         message: 'Gizlilik politikası ve kullanım şartlarını kabul etmelisiniz.',
       });
     }
-    const { token, user } = await this.authService.register(
+    const { token, user, schoolVerifyEmailSent } = await this.authService.register(
       dto.email,
       dto.password,
       dto.display_name,
@@ -100,7 +100,11 @@ export class AuthController {
       ip: getClientIp(req),
       meta: { with_school: !!dto.school_id?.trim() },
     });
-    return { token, user: toUserResponse(user) };
+    return {
+      token,
+      user: toUserResponse(user),
+      ...(schoolVerifyEmailSent !== undefined && { school_verify_email_sent: schoolVerifyEmailSent }),
+    };
   }
 
   @Get('register-schools')

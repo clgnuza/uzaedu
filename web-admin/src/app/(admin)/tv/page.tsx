@@ -595,8 +595,12 @@ export default function TvPage() {
         ? byCategoryTeachers
         : byCategoryClassroom;
 
-  const previewUrlCorridor = schoolId ? `/tv/corridor?school_id=${schoolId}` : '/tv/corridor';
-  const previewUrlTeachers = schoolId ? `/tv/teachers?school_id=${schoolId}` : '/tv/teachers';
+  const previewUrlCorridor = schoolId
+    ? `/tv/corridor?school_id=${schoolId}&preview=1`
+    : '/tv/corridor?preview=1';
+  const previewUrlTeachers = schoolId
+    ? `/tv/teachers?school_id=${schoolId}&preview=1`
+    : '/tv/teachers?preview=1';
   const firstDeviceId = smartBoardDevices[0]?.id;
   const previewUrlClassroom =
     schoolId && firstDeviceId
@@ -1102,7 +1106,9 @@ export default function TvPage() {
             <div className="max-w-2xl">
               <h2 className="text-lg font-semibold text-foreground">TV cihazları</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Her ekran için <strong className="text-foreground">TV adresini kopyala</strong> → TV tarayıcısına yapıştırın → <strong className="text-foreground">Cihaz ekle</strong> ile kodu girin.
+                Koridor ve öğretmenler odası için <strong className="text-foreground">her ekranda en fazla bir cihaz</strong>.{' '}
+                <strong className="text-foreground">TV adresini kopyala</strong> → TV tarayıcısına yapıştırın →{' '}
+                <strong className="text-foreground">Cihaz ekle</strong> ile eşleştirme kodunu girin.
               </p>
             </div>
             <Card className="border-l-4 border-l-violet-400 dark:border-l-violet-600 bg-violet-50/30 dark:bg-violet-950/20">
@@ -1513,7 +1519,8 @@ function TvDevicesSection({
           <button
             type="button"
             onClick={() => createForGroup(group)}
-            disabled={!token || creating}
+            disabled={!token || creating || items.length >= 1}
+            title={items.length >= 1 ? 'Bu ekran için en fazla bir cihaz tanımlanabilir' : undefined}
             className="inline-flex items-center gap-1.5 rounded-lg border border-primary bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {creating ? <LoadingSpinner /> : <Plus className="size-3.5" />}
@@ -1524,44 +1531,55 @@ function TvDevicesSection({
       {items.length === 0 ? (
         <p className="mt-2 text-xs text-muted-foreground">Bu ekran için henüz cihaz eklenmemiş.</p>
       ) : (
-        <div className="mt-2 space-y-2">
-          {items.map((d) => (
-            <div key={d.id} className="flex items-center justify-between rounded border border-border bg-background p-2">
-              <div className="flex items-center gap-2">
-                {d.status === 'online' ? (
-                  <span title="Çevrimiçi"><Wifi className="size-4 text-emerald-600" /></span>
-                ) : (
-                  <span title="Çevrimdışı"><WifiOff className="size-4 text-muted-foreground" /></span>
-                )}
-                <div>
-                  <p className="text-sm font-medium">{d.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1">
-                      <code className="rounded bg-muted px-1 font-mono">{d.pairing_code}</code>
-                      <button
-                        type="button"
-                        onClick={() => { navigator.clipboard.writeText(d.pairing_code); toast.success('Kopyalandı'); }}
-                        className="rounded p-0.5 hover:bg-muted"
-                        title="Kopyala"
-                      >
-                        <Copy className="size-3" />
-                      </button>
-                    </span>
-                    {d.last_seen_at && ` · ${new Date(d.last_seen_at).toLocaleString('tr-TR')}`}
-                  </p>
+        <>
+          {items.length === 1 ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Bu ekran için cihaz tanımlı. Yenisini eklemek için önce bunu silin veya düzenleyerek grubu değiştirin.
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">
+              Bu ekranda birden fazla kayıt var; her ekran için yalnızca bir cihaz. Fazlalıkları silin.
+            </p>
+          )}
+          <div className="mt-2 space-y-2">
+            {items.map((d) => (
+              <div key={d.id} className="flex items-center justify-between rounded border border-border bg-background p-2">
+                <div className="flex items-center gap-2">
+                  {d.status === 'online' ? (
+                    <span title="Çevrimiçi"><Wifi className="size-4 text-emerald-600" /></span>
+                  ) : (
+                    <span title="Çevrimdışı"><WifiOff className="size-4 text-muted-foreground" /></span>
+                  )}
+                  <div>
+                    <p className="text-sm font-medium">{d.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      <span className="inline-flex items-center gap-1">
+                        <code className="rounded bg-muted px-1 font-mono">{d.pairing_code}</code>
+                        <button
+                          type="button"
+                          onClick={() => { navigator.clipboard.writeText(d.pairing_code); toast.success('Kopyalandı'); }}
+                          className="rounded p-0.5 hover:bg-muted"
+                          title="Kopyala"
+                        >
+                          <Copy className="size-3" />
+                        </button>
+                      </span>
+                      {d.last_seen_at && ` · ${new Date(d.last_seen_at).toLocaleString('tr-TR')}`}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button type="button" onClick={() => setEditingDevice(d)} className="rounded p-1.5 hover:bg-muted" title="Düzenle">
+                    <Pencil className="size-3.5" />
+                  </button>
+                  <button type="button" onClick={() => handleRemove(d.id)} className="rounded p-1.5 hover:bg-destructive/10 text-destructive" title="Sil">
+                    <Trash2 className="size-3.5" />
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-1">
-                <button type="button" onClick={() => setEditingDevice(d)} className="rounded p-1.5 hover:bg-muted" title="Düzenle">
-                  <Pencil className="size-3.5" />
-                </button>
-                <button type="button" onClick={() => handleRemove(d.id)} className="rounded p-1.5 hover:bg-destructive/10 text-destructive" title="Sil">
-                  <Trash2 className="size-3.5" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

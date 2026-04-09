@@ -295,10 +295,11 @@ export function Header({
               type="button"
               onClick={() => setUserMenuOpen(!userMenuOpen)}
               className={cn(
-                'group flex min-h-[44px] min-w-[44px] items-center gap-1.5 rounded-full border border-border/80 bg-card py-1 pl-1 pr-1.5 shadow-sm transition-all sm:gap-2 sm:pr-2',
-                'hover:border-primary/25 hover:bg-muted/40 hover:shadow-md',
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-                userMenuOpen && 'border-primary/35 bg-muted/30 ring-2 ring-ring/40 ring-offset-2 ring-offset-background',
+                'group flex min-h-[44px] min-w-[44px] items-center gap-1.5 rounded-full border border-transparent bg-gradient-to-r from-violet-500/10 via-fuchsia-500/8 to-cyan-500/10 py-1 pl-1 pr-1.5 shadow-sm ring-1 ring-border/60 transition-all sm:gap-2 sm:pr-2',
+                'hover:from-violet-500/15 hover:via-fuchsia-500/12 hover:to-cyan-500/15 hover:shadow-md dark:from-violet-500/15 dark:via-fuchsia-500/10 dark:to-cyan-500/12',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                userMenuOpen &&
+                  'border-violet-400/30 bg-gradient-to-r from-violet-500/18 via-fuchsia-500/14 to-cyan-500/16 ring-2 ring-violet-400/35 ring-offset-2 ring-offset-background dark:from-violet-500/22',
               )}
               aria-expanded={userMenuOpen}
               aria-haspopup="true"
@@ -332,49 +333,60 @@ export function Header({
                   onClick={() => setUserMenuOpen(false)}
                 />
                 <div
-                  className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-[min(calc(100vw-1rem),20rem)] origin-top-right rounded-2xl border border-border/80 bg-popover p-0 shadow-xl ring-1 ring-black/5 dark:ring-white/10"
+                  className={cn(
+                    'absolute right-0 top-[calc(100%+0.5rem)] z-50 max-h-[min(85dvh,36rem)] max-sm:max-h-[min(72dvh,28rem)] origin-top-right overflow-y-auto overscroll-contain rounded-3xl max-sm:rounded-2xl',
+                    'w-[min(calc(100vw-1rem),22rem)] max-sm:fixed max-sm:left-2 max-sm:right-2 max-sm:top-[calc(var(--header-height,3.5rem)+0.35rem)] max-sm:w-auto',
+                    'border border-white/20 bg-gradient-to-b from-card via-card to-muted/40 shadow-[0_24px_48px_-12px_rgba(0,0,0,0.25)] ring-1 ring-black/5 backdrop-blur-xl',
+                    'dark:border-white/10 dark:from-slate-900/98 dark:via-slate-950/95 dark:to-slate-950 dark:shadow-[0_24px_60px_-8px_rgba(0,0,0,0.55)] dark:ring-white/10',
+                  )}
                   role="menu"
                 >
-                  <div className="border-b border-border/80 bg-muted/30 px-4 py-3">
-                    <div className="flex gap-3">
+                  <div className="relative overflow-hidden rounded-t-3xl max-sm:rounded-t-2xl border-b border-violet-500/15 bg-gradient-to-r from-violet-500/12 via-fuchsia-500/10 to-cyan-500/12 px-4 py-4 max-sm:px-3 max-sm:py-3 dark:from-violet-500/20 dark:via-fuchsia-500/15 dark:to-cyan-500/18">
+                    <div
+                      className="pointer-events-none absolute -right-8 -top-10 size-32 max-sm:size-24 rounded-full bg-cyan-400/20 blur-2xl dark:bg-cyan-400/25"
+                      aria-hidden
+                    />
+                    <div className="relative flex gap-2.5 max-sm:gap-2">
                       <UserAvatarBubble
                         avatarKey={me?.avatar_key}
                         avatarUrl={me?.avatar_url}
                         displayName={displayLabel}
                         email={me?.email}
                         size="md"
-                        className="rounded-xl! ring-0! shadow-sm"
+                        className="max-sm:scale-95 rounded-2xl! ring-2! ring-white/40 shadow-lg dark:ring-violet-400/30"
                         verified={schoolVerified}
                       />
                       <div className="min-w-0 flex-1 pt-0.5">
-                        <p className="truncate text-sm font-semibold leading-tight text-foreground">{displayLabel}</p>
+                        <p className="truncate text-base max-sm:text-sm font-semibold leading-tight text-foreground">{displayLabel}</p>
                         {showEmailSub ? (
-                          <p className="mt-0.5 truncate text-xs text-muted-foreground">{emailLine}</p>
+                          <p className="mt-0.5 max-sm:mt-0 truncate text-xs max-sm:text-[11px] leading-relaxed text-muted-foreground">{emailLine}</p>
                         ) : null}
                       </div>
                     </div>
                   </div>
 
-                  <div className="space-y-3 p-3">
-                    <div className="rounded-xl border border-border/60 bg-muted/25 p-3 dark:bg-muted/15">
-                      <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        <Palette className="size-3.5 text-primary" aria-hidden />
+                  <div className="space-y-3 max-sm:space-y-2 p-3 max-sm:p-2 sm:p-3.5">
+                    <div className="rounded-2xl max-sm:rounded-xl border border-amber-200/50 bg-gradient-to-br from-amber-500/12 via-orange-500/8 to-rose-500/10 p-3 max-sm:p-2 shadow-inner dark:border-amber-500/20 dark:from-amber-400/15 dark:via-orange-500/10 dark:to-rose-500/15">
+                      <div className="mb-2.5 max-sm:mb-1.5 flex items-center gap-2 text-[11px] max-sm:text-[10px] font-bold uppercase tracking-wider text-amber-800 dark:text-amber-200/95">
+                        <span className="flex size-7 max-sm:size-6 items-center justify-center rounded-lg bg-amber-500/25 text-amber-700 dark:bg-amber-400/20 dark:text-amber-100">
+                          <Palette className="size-3.5 max-sm:size-3" aria-hidden />
+                        </span>
                         Tema
                       </div>
-                      <div className="grid grid-cols-3 gap-1 rounded-lg bg-background/80 p-1 shadow-inner dark:bg-background/40">
+                      <div className="grid grid-cols-3 gap-1.5 max-sm:gap-1">
                         <button
                           type="button"
                           role="menuitem"
                           onClick={() => handleAppTheme('light')}
                           className={cn(
-                            'flex flex-col items-center gap-1 rounded-md px-1.5 py-2 text-[11px] font-medium transition-all',
+                            'flex min-h-[48px] max-sm:min-h-[40px] flex-col items-center justify-center gap-1 max-sm:gap-0.5 rounded-xl px-2 py-2.5 max-sm:py-1.5 text-[11px] max-sm:text-[10px] font-semibold transition-all active:scale-[0.98]',
                             currentAppTheme === 'light'
-                              ? 'bg-background text-foreground shadow-sm ring-1 ring-border'
-                              : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground',
+                              ? 'bg-gradient-to-b from-amber-100 to-amber-50 text-amber-950 shadow-md ring-2 ring-amber-400/70 dark:from-amber-400/30 dark:to-amber-500/20 dark:text-amber-50 dark:ring-amber-300/50'
+                              : 'bg-background/70 text-muted-foreground hover:bg-amber-500/15 hover:text-foreground dark:bg-slate-900/60',
                           )}
                           title="Açık tema"
                         >
-                          <Sun className="size-4" aria-hidden />
+                          <Sun className="size-4 max-sm:size-3.5" aria-hidden />
                           Açık
                         </button>
                         <button
@@ -382,14 +394,14 @@ export function Header({
                           role="menuitem"
                           onClick={() => handleAppTheme('dark')}
                           className={cn(
-                            'flex flex-col items-center gap-1 rounded-md px-1.5 py-2 text-[11px] font-medium transition-all',
+                            'flex min-h-[48px] max-sm:min-h-[40px] flex-col items-center justify-center gap-1 max-sm:gap-0.5 rounded-xl px-2 py-2.5 max-sm:py-1.5 text-[11px] max-sm:text-[10px] font-semibold transition-all active:scale-[0.98]',
                             currentAppTheme === 'dark'
-                              ? 'bg-background text-foreground shadow-sm ring-1 ring-border'
-                              : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground',
+                              ? 'bg-gradient-to-b from-indigo-600 to-violet-700 text-white shadow-md ring-2 ring-indigo-400/60 dark:from-indigo-500 dark:to-violet-600'
+                              : 'bg-background/70 text-muted-foreground hover:bg-indigo-500/15 hover:text-foreground dark:bg-slate-900/60',
                           )}
                           title="Koyu tema"
                         >
-                          <Moon className="size-4" aria-hidden />
+                          <Moon className="size-4 max-sm:size-3.5" aria-hidden />
                           Koyu
                         </button>
                         <button
@@ -397,38 +409,40 @@ export function Header({
                           role="menuitem"
                           onClick={() => handleAppTheme('system')}
                           className={cn(
-                            'flex flex-col items-center gap-1 rounded-md px-1.5 py-2 text-[11px] font-medium transition-all',
+                            'flex min-h-[48px] max-sm:min-h-[40px] flex-col items-center justify-center gap-1 max-sm:gap-0.5 rounded-xl px-2 py-2.5 max-sm:py-1.5 text-[11px] max-sm:text-[10px] font-semibold transition-all active:scale-[0.98]',
                             currentAppTheme === 'system'
-                              ? 'bg-background text-foreground shadow-sm ring-1 ring-border'
-                              : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground',
+                              ? 'bg-gradient-to-b from-sky-500 to-cyan-600 text-white shadow-md ring-2 ring-sky-300/60'
+                              : 'bg-background/70 text-muted-foreground hover:bg-sky-500/15 hover:text-foreground dark:bg-slate-900/60',
                           )}
                           title="Sistem teması"
                         >
-                          <Monitor className="size-4" aria-hidden />
+                          <Monitor className="size-4 max-sm:size-3.5" aria-hidden />
                           Sistem
                         </button>
                       </div>
                     </div>
 
-                    <div className="rounded-xl border border-border/60 bg-muted/25 p-3 dark:bg-muted/15">
-                      <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        <PanelLeft className="size-3.5 text-primary" aria-hidden />
+                    <div className="rounded-2xl max-sm:rounded-xl border border-emerald-200/50 bg-gradient-to-br from-emerald-500/10 via-teal-500/8 to-cyan-500/10 p-3 max-sm:p-2 shadow-inner dark:border-emerald-500/25 dark:from-emerald-500/15 dark:via-teal-500/10 dark:to-cyan-500/12">
+                      <div className="mb-2.5 max-sm:mb-1.5 flex items-center gap-2 text-[11px] max-sm:text-[10px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-200/95">
+                        <span className="flex size-7 max-sm:size-6 items-center justify-center rounded-lg bg-emerald-500/25 text-emerald-800 dark:bg-emerald-400/20 dark:text-emerald-100">
+                          <PanelLeft className="size-3.5 max-sm:size-3" aria-hidden />
+                        </span>
                         Kenar çubuğu
                       </div>
-                      <div className="grid grid-cols-2 gap-1.5 rounded-lg bg-background/80 p-1 shadow-inner dark:bg-background/40">
+                      <div className="grid grid-cols-2 gap-2 max-sm:gap-1.5">
                         <button
                           type="button"
                           role="menuitem"
                           onClick={() => setSidebarTheme('light')}
                           className={cn(
-                            'flex items-center justify-center gap-2 rounded-md px-2 py-2.5 text-xs font-medium transition-all',
+                            'flex min-h-[48px] max-sm:min-h-[40px] items-center justify-center gap-2 max-sm:gap-1.5 rounded-xl px-3 max-sm:px-2 py-3 max-sm:py-2 text-sm max-sm:text-xs font-semibold transition-all active:scale-[0.98]',
                             currentSidebarTheme === 'light'
-                              ? 'bg-background text-foreground shadow-sm ring-1 ring-border'
-                              : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground',
+                              ? 'bg-gradient-to-r from-emerald-400 to-teal-500 text-white shadow-md ring-2 ring-emerald-300/50'
+                              : 'bg-background/70 text-muted-foreground hover:bg-emerald-500/12 hover:text-foreground dark:bg-slate-900/60',
                           )}
                           title="Açık kenar çubuğu"
                         >
-                          <Sun className="size-4 shrink-0" aria-hidden />
+                          <Sun className="size-4 max-sm:size-3.5 shrink-0" aria-hidden />
                           Açık
                         </button>
                         <button
@@ -436,44 +450,44 @@ export function Header({
                           role="menuitem"
                           onClick={() => setSidebarTheme('dark')}
                           className={cn(
-                            'flex items-center justify-center gap-2 rounded-md px-2 py-2.5 text-xs font-medium transition-all',
+                            'flex min-h-[48px] max-sm:min-h-[40px] items-center justify-center gap-2 max-sm:gap-1.5 rounded-xl px-3 max-sm:px-2 py-3 max-sm:py-2 text-sm max-sm:text-xs font-semibold transition-all active:scale-[0.98]',
                             currentSidebarTheme === 'dark'
-                              ? 'bg-background text-foreground shadow-sm ring-1 ring-border'
-                              : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground',
+                              ? 'bg-gradient-to-r from-slate-700 to-slate-900 text-white shadow-md ring-2 ring-slate-500/50 dark:from-slate-600 dark:to-slate-800'
+                              : 'bg-background/70 text-muted-foreground hover:bg-slate-500/20 hover:text-foreground dark:bg-slate-900/60',
                           )}
                           title="Koyu kenar çubuğu"
                         >
-                          <Moon className="size-4 shrink-0" aria-hidden />
+                          <Moon className="size-4 max-sm:size-3.5 shrink-0" aria-hidden />
                           Koyu
                         </button>
                       </div>
                     </div>
                   </div>
 
-                  <div className="border-t border-border/80 bg-card/50 p-1.5">
+                  <div className="space-y-1 border-t border-border/60 bg-muted/20 p-2 max-sm:p-1.5 dark:bg-slate-900/40">
                     <Link
                       href="/profile"
                       role="menuitem"
-                      className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                      className="flex min-h-[48px] max-sm:min-h-[42px] items-center gap-2.5 max-sm:gap-2 rounded-2xl max-sm:rounded-xl px-3 max-sm:px-2.5 py-3 max-sm:py-2 text-sm max-sm:text-[13px] font-semibold text-foreground transition-colors hover:bg-gradient-to-r hover:from-violet-500/15 hover:to-cyan-500/10 active:scale-[0.99] dark:hover:from-violet-500/25 dark:hover:to-cyan-500/15"
                       onClick={() => setUserMenuOpen(false)}
                     >
-                      <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                        <User className="size-4" aria-hidden />
+                      <span className="flex size-10 max-sm:size-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 to-cyan-500/20 text-violet-700 dark:from-violet-500/30 dark:to-cyan-500/25 dark:text-violet-200">
+                        <User className="size-4 max-sm:size-3.5" aria-hidden />
                       </span>
                       Profil
                     </Link>
                     <button
                       type="button"
                       role="menuitem"
-                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+                      className="flex min-h-[48px] max-sm:min-h-[42px] w-full items-center gap-2.5 max-sm:gap-2 rounded-2xl max-sm:rounded-xl px-3 max-sm:px-2.5 py-3 max-sm:py-2 text-left text-sm max-sm:text-[13px] font-semibold text-red-600 transition-colors hover:bg-gradient-to-r hover:from-red-500/15 hover:to-rose-500/10 active:scale-[0.99] dark:text-red-400 dark:hover:from-red-500/20 dark:hover:to-rose-500/15"
                       onClick={() => {
                         logout();
                         setUserMenuOpen(false);
                         router.refresh();
                       }}
                     >
-                      <span className="flex size-8 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
-                        <LogOut className="size-4" aria-hidden />
+                      <span className="flex size-10 max-sm:size-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-red-500/20 to-rose-500/15 text-red-600 dark:from-red-500/30 dark:to-rose-500/20 dark:text-red-300">
+                        <LogOut className="size-4 max-sm:size-3.5" aria-hidden />
                       </span>
                       Çıkış
                     </button>

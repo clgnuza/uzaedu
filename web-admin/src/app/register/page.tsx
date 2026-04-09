@@ -17,7 +17,7 @@ import { AuthCompactDetails } from '@/components/auth/auth-compact-details';
 import { TURKEY_CITIES, getDistrictsForCity } from '@/lib/turkey-addresses';
 import { SCHOOL_TYPE_LABELS, SCHOOL_TYPE_ORDER, formatSchoolTypeLabel } from '@/lib/school-labels';
 
-type RegisterResponse = { token: string };
+type RegisterResponse = { token: string; school_verify_email_sent?: boolean };
 type SchoolHit = {
   id: string;
   name: string;
@@ -119,7 +119,16 @@ export default function RegisterPage() {
         await setToken(res.token);
       }
       if (selectedSchool) {
-        toast.success('Kayıt oluşturuldu. E-postanızdaki kurumsal doğrulama bağlantısına tıklayın; ardından okul yöneticisi onayı beklenir.');
+        if (res.school_verify_email_sent === false) {
+          toast.warning(
+            'Hesabınız oluşturuldu ancak doğrulama e-postası gönderilemedi. Okul yöneticisi SMTP ayarlarını kontrol etmeli; panele girişten sonra «Yeniden gönder» ile tekrar deneyebilirsiniz.',
+            { duration: 12_000 },
+          );
+        } else {
+          toast.success(
+            'Kayıt oluşturuldu. E-postanızdaki kurumsal doğrulama bağlantısına tıklayın; ardından okul yöneticisi onayı beklenir.',
+          );
+        }
       }
       router.push('/dashboard');
       router.refresh();

@@ -502,6 +502,43 @@ export class TvPublicController {
   }
 
   /**
+   * TV eşleştirme ekranı – okul adı/konum (JWT yok). tv_allowed_ips varsa duyuru listesiyle aynı IP kuralı.
+   * GET /api/tv/school-info?school_id=uuid
+   */
+  @Get('school-info')
+  async getSchoolInfoForTvPairing(@Req() req: Request, @Query('school_id') schoolId?: string) {
+    const sid = schoolId?.trim();
+    if (!sid) {
+      return { ok: false as const, message: 'school_id gerekli' };
+    }
+    const school = await this.schoolRepo.findOne({
+      where: { id: sid },
+      select: ['id', 'name', 'city', 'district', 'tv_allowed_ips'],
+    });
+    if (!school) {
+      return { ok: false as const, message: 'Okul bulunamadı' };
+    }
+    if (school.tv_allowed_ips) {
+      const clientIp = getClientIp(req);
+      if (!isIpAllowed(clientIp, school.tv_allowed_ips)) {
+        throw new ForbiddenException({
+          code: 'TV_ACCESS_RESTRICTED',
+          message: 'TV sayfası sadece okul ağından erişilebilir.',
+        });
+      }
+    }
+    return {
+      ok: true as const,
+      school: {
+        id: school.id,
+        name: school.name,
+        city: school.city,
+        district: school.district,
+      },
+    };
+  }
+
+  /**
    * Cihaz eşleştirme – pairing_code ile device_id, school_id, display_group döner.
    * POST /api/tv/pair body: { pairing_code }
    */

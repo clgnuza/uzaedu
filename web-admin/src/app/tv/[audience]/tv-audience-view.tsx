@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { FormEvent, ReactNode } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { getApiUrl } from '@/lib/api';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { BookOpen, Megaphone, Rss, Users } from 'lucide-react';
@@ -188,6 +188,193 @@ function tvSlideVisibilityKey(slideType: string): string {
   return m[slideType] ?? `slide_${slideType}`;
 }
 
+const TV_LS_PREFIX = 'ogretmenpro_tv_';
+
+function TvPairingGate({
+  audience,
+  schoolId,
+  onPaired,
+}: {
+  audience: 'corridor' | 'teachers';
+  schoolId: string | undefined;
+  onPaired: (deviceId: string) => void;
+}) {
+  const router = useRouter();
+  const [code, setCode] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [schoolInfo, setSchoolInfo] = useState<{
+    name: string;
+    city: string | null;
+    district: string | null;
+  } | null>(null);
+  const [infoLoading, setInfoLoading] = useState(false);
+  const [infoError, setInfoError] = useState<string | null>(null);
+
+  const screenLabel = audience === 'teachers' ? 'Öğretmenler odası TV' : 'Koridor TV';
+
+  useEffect(() => {
+    const sid = schoolId?.trim();
+    if (!sid) {
+      setSchoolInfo(null);
+      setInfoError(null);
+      return;
+    }
+    let cancelled = false;
+    setInfoLoading(true);
+    setInfoError(null);
+    fetch(getApiUrl(`/tv/school-info?school_id=${encodeURIComponent(sid)}`))
+      .then(async (res) => {
+        const body = (await res.json()) as {
+          ok?: boolean;
+          message?: string;
+          school?: { name: string; city: string | null; district: string | null };
+        };
+        if (cancelled) return;
+        if (res.status === 403) {
+          setInfoError('Bu sayfa yalnızca izin verilen okul ağı IP’lerinden açılabilir.');
+          setSchoolInfo(null);
+          return;
+        }
+        if (!res.ok || !body.ok || !body.school) {
+          setInfoError(typeof body.message === 'string' ? body.message : 'Okul bilgisi alınamadı');
+          setSchoolInfo(null);
+          return;
+        }
+        setSchoolInfo(body.school);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setInfoError('Okul bilgisi yüklenemedi (ağ).');
+          setSchoolInfo(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setInfoLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [schoolId]);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    const raw = code.trim().toUpperCase().replace(/[^0-9A-F]/g, '');
+    if (raw.length < 4) {
+      setErr('Yönetim panelindeki eşleştirme kodunu girin.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = (await fetch(getApiUrl('/tv/pair'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pairing_code: raw }),
+      }).then((r) => r.json())) as {
+        ok?: boolean;
+        message?: string;
+        device_id?: string;
+        school_id?: string;
+        display_group?: string;
+      };
+      if (!res.ok || !res.device_id || !res.school_id) {
+        setErr(typeof res.message === 'string' ? res.message : 'Geçersiz kod.');
+        return;
+      }
+      const dg = res.display_group === 'teachers' ? 'teachers' : 'corridor';
+      if (dg !== audience) {
+        setErr(
+          dg === 'teachers'
+            ? 'Bu kod öğretmenler odası içindir. /tv/teachers adresini kullanın.'
+            : 'Bu kod koridor içindir. /tv/corridor adresini kullanın.',
+        );
+        return;
+      }
+      if (schoolId && res.school_id !== schoolId) {
+        setErr('Bu kod başka bir okula ait.');
+        return;
+      }
+      try {
+        localStorage.setItem(
+          `${TV_LS_PREFIX}${res.school_id}_${audience}`,
+          JSON.stringify({ device_id: res.device_id }),
+        );
+      } catch {
+        /* ignore */
+      }
+      onPaired(res.device_id);
+      if (!schoolId) {
+        router.replace(`/tv/${audience}?school_id=${encodeURIComponent(res.school_id)}`);
+      }
+    } catch {
+      setErr('Bağlantı hatası.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const locationLine = [schoolInfo?.city, schoolInfo?.district].filter(Boolean).join(' · ');
+
+  return (
+    <div className="flex min-h-screen flex-1 flex-col items-center justify-center gap-6 bg-[#0c1929] px-4 py-8">
+      <div className="w-full max-w-md rounded-2xl border border-slate-600/60 bg-slate-900/95 p-8 shadow-xl">
+        <p className="text-center text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-400/90">Öğretmen Pro · Duyuru TV</p>
+        <h1 className="mt-2 text-center text-xl font-semibold text-slate-100">TV eşleştirme</h1>
+        <p className="mt-1 text-center text-sm font-medium text-slate-300">{screenLabel}</p>
+
+        {schoolId?.trim() ? (
+          <div className="mt-5 rounded-xl border border-slate-600/80 bg-slate-950/80 px-4 py-4 text-center">
+            {infoLoading ? (
+              <p className="text-sm text-slate-500">Okul bilgisi yükleniyor…</p>
+            ) : schoolInfo ? (
+              <>
+                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Eşleştirilecek okul</p>
+                <p className="mt-1.5 text-lg font-semibold leading-snug text-white">{schoolInfo.name}</p>
+                {locationLine ? <p className="mt-1 text-sm text-slate-400">{locationLine}</p> : null}
+              </>
+            ) : (
+              <p className="text-sm text-amber-200/90">{infoError ?? 'Okul bilgisi gösterilemiyor.'}</p>
+            )}
+          </div>
+        ) : (
+          <div className="mt-5 rounded-xl border border-amber-500/25 bg-amber-950/30 px-4 py-3 text-center">
+            <p className="text-sm leading-relaxed text-amber-100/90">
+              Yönetimden aldığınız TV bağlantısını kullanın (adreste <span className="font-mono text-amber-200">school_id</span> olmalı). Kod
+              doğrulandığında okul otomatik tanınır.
+            </p>
+          </div>
+        )}
+
+        <p className="mt-5 text-center text-sm text-slate-400">
+          <strong className="text-slate-200">Duyuru TV → Cihazlar</strong> sayfasındaki eşleştirme kodunu aşağıya yazın.
+        </p>
+        <form onSubmit={submit} className="mt-6 space-y-4">
+          <input
+            type="text"
+            name="pairing_code"
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            value={code}
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            placeholder="Örn: A1B2C3D4"
+            className="w-full rounded-xl border border-slate-600 bg-slate-950 px-4 py-3 text-center font-mono text-2xl tracking-widest text-slate-100 placeholder:text-slate-600"
+          />
+          {err ? <p className="text-center text-sm text-red-400">{err}</p> : null}
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50"
+          >
+            {busy ? 'Kontrol ediliyor…' : 'Eşleştir ve yayını aç'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function TvAudienceContent() {
   const params = useParams<{ audience?: string }>();
   const searchParams = useSearchParams();
@@ -200,8 +387,40 @@ export default function TvAudienceContent() {
   const schoolId = searchParams?.get('school_id') ?? undefined;
   const deviceId = searchParams?.get('device_id') ?? undefined;
   const isKiosk = searchParams?.get('kiosk') === '1';
+  const isPreview = searchParams?.get('preview') === '1';
 
-  const cacheKey = `tv_${audience}_${schoolId || 'all'}_${audience === 'classroom' ? deviceId || '' : ''}`;
+  const [pairStorageReady, setPairStorageReady] = useState(false);
+  const [storedTvDeviceId, setStoredTvDeviceId] = useState<string | null>(null);
+
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (audience === 'classroom' || isPreview) {
+      setPairStorageReady(true);
+      return;
+    }
+    if (audience !== 'corridor' && audience !== 'teachers') {
+      setPairStorageReady(true);
+      return;
+    }
+    if (schoolId) {
+      try {
+        const raw = localStorage.getItem(`${TV_LS_PREFIX}${schoolId}_${audience}`);
+        if (raw) {
+          const p = JSON.parse(raw) as { device_id?: string };
+          if (p?.device_id) setStoredTvDeviceId(p.device_id);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    setPairStorageReady(true);
+  }, [audience, schoolId, isPreview]);
+
+  const pairedForCache =
+    audience === 'corridor' || audience === 'teachers' ? storedTvDeviceId ?? '' : '';
+  const cacheKey = `tv_${audience}_${schoolId || 'all'}_${
+    audience === 'classroom' ? deviceId || '' : pairedForCache
+  }`;
   const [data, setData] = useState<TvResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -221,11 +440,22 @@ export default function TvAudienceContent() {
   const [retryCount, setRetryCount] = useState(0);
   const [retrying, setRetrying] = useState(false);
   useEffect(() => {
+    if (!pairStorageReady) return;
+    const blockForPair =
+      (audience === 'corridor' || audience === 'teachers') && !isPreview && !storedTvDeviceId;
+    if (blockForPair) {
+      setLoading(false);
+      setError(null);
+      return;
+    }
     setError(null);
     setLoading(true);
     const params = new URLSearchParams();
     if (schoolId) params.set('school_id', schoolId);
     if (audience === 'classroom' && deviceId) params.set('device_id', deviceId);
+    else if ((audience === 'corridor' || audience === 'teachers') && storedTvDeviceId) {
+      params.set('device_id', storedTvDeviceId);
+    }
     const qs = params.toString();
     const url = qs ? `/tv/announcements/${audience}?${qs}` : `/tv/announcements/${audience}`;
 
@@ -272,7 +502,32 @@ export default function TvAudienceContent() {
         clearTimeout(timeoutId);
         setLoading(false);
       });
-  }, [audience, schoolId, deviceId, cacheKey, refreshTrigger, retryCount]);
+  }, [
+    audience,
+    schoolId,
+    deviceId,
+    cacheKey,
+    refreshTrigger,
+    retryCount,
+    pairStorageReady,
+    storedTvDeviceId,
+    isPreview,
+  ]);
+
+  useEffect(() => {
+    if (!storedTvDeviceId) return;
+    if (audience !== 'corridor' && audience !== 'teachers') return;
+    const ping = () => {
+      void fetch(getApiUrl('/tv/heartbeat'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id: storedTvDeviceId }),
+      }).catch(() => {});
+    };
+    ping();
+    const id = setInterval(ping, 45_000);
+    return () => clearInterval(id);
+  }, [storedTvDeviceId, audience]);
 
   useEffect(() => {
     if (!error || loading || retryCount >= 3) return;
@@ -287,9 +542,15 @@ export default function TvAudienceContent() {
   const triggerRetry = () => setRetryCount((c) => c + 1);
 
   useEffect(() => {
+    const blockForPair =
+      (audience === 'corridor' || audience === 'teachers') && !isPreview && !storedTvDeviceId;
+    if (!pairStorageReady || blockForPair) return;
     const params = new URLSearchParams();
     if (schoolId) params.set('school_id', schoolId);
     if (audience === 'classroom' && deviceId) params.set('device_id', deviceId);
+    else if ((audience === 'corridor' || audience === 'teachers') && storedTvDeviceId) {
+      params.set('device_id', storedTvDeviceId);
+    }
     const qs = params.toString();
     const url = qs ? `/tv/announcements/${audience}?${qs}` : `/tv/announcements/${audience}`;
     const interval = setInterval(() => {
@@ -306,7 +567,7 @@ export default function TvAudienceContent() {
         .catch(() => {});
     }, 60_000);
     return () => clearInterval(interval);
-  }, [audience, schoolId, deviceId, cacheKey]);
+  }, [audience, schoolId, deviceId, cacheKey, pairStorageReady, storedTvDeviceId, isPreview]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -771,6 +1032,20 @@ export default function TvAudienceContent() {
     }
     return out;
   }, [byCategory]);
+
+  if (!pairStorageReady) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <LoadingSpinner label="Duyuru TV yükleniyor…" />
+      </div>
+    );
+  }
+
+  if ((audience === 'corridor' || audience === 'teachers') && !isPreview && !storedTvDeviceId) {
+    return (
+      <TvPairingGate audience={audience} schoolId={schoolId} onPaired={(id) => setStoredTvDeviceId(id)} />
+    );
+  }
 
   if (loading) {
     return (

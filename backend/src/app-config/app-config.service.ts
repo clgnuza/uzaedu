@@ -20,6 +20,7 @@ import { sanitizeLegalHtml } from './legal-pages.sanitize';
 import { mergeDevOpsFromStored, type DevOpsConfig } from './devops.defaults';
 import { DEFAULT_SCHOOL_REVIEWS_BLOCKED_TERMS } from './school-reviews-blocked-terms.defaults';
 import { DEFAULT_MAIL_TEMPLATES, MAIL_TEMPLATE_IDS } from '../mail/mail-templates.defaults';
+import { createNodemailerTransporter } from '../mail/nodemailer-transport';
 import type { MailTemplateBlock, MailTemplateId, MailTemplatesStored } from '../mail/mail-templates.types';
 
 export type { MobileAppConfig } from './mobile.defaults';
@@ -1963,8 +1964,7 @@ export class AppConfigService {
       };
     }
     try {
-      const nodemailer = await import('nodemailer');
-      const transporter = nodemailer.default.createTransport({
+      const transporter = createNodemailerTransporter({
         host: config.smtp_host,
         port: config.smtp_port,
         secure: config.smtp_secure,

@@ -127,7 +127,7 @@ export class AuthService {
     displayName?: string,
     schoolId?: string | null,
     inviteCode?: string | null,
-  ): Promise<{ token: string; user: User }> {
+  ): Promise<{ token: string; user: User; schoolVerifyEmailSent?: boolean }> {
     const normalized = email.trim().toLowerCase();
     const existing = await this.userRepo.findOne({ where: { email: normalized } });
     if (existing) {
@@ -175,11 +175,12 @@ export class AuthService {
     }
     const withSchool = await this.userRepo.findOne({ where: { id: saved.id }, relations: ['school'] });
     const u = withSchool ?? saved;
+    let schoolVerifyEmailSent: boolean | undefined;
     if (school_id && u.school && joinToken) {
       const greet = u.display_name?.trim() || u.email.split('@')[0] || 'Merhaba';
-      void this.sendSchoolJoinVerifyMail(u, u.school.name, greet, joinToken).catch(() => {});
+      schoolVerifyEmailSent = await this.sendSchoolJoinVerifyMail(u, u.school.name, greet, joinToken);
     }
-    return { token: saved.id, user: u };
+    return { token: saved.id, user: u, schoolVerifyEmailSent };
   }
 
   /** Public: e-postadaki doğrulama bağlantısı (token tek kullanımlık). */
@@ -216,10 +217,10 @@ export class AuthService {
     schoolName: string,
     greet: string,
     token: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const base = await this.mailService.resolveAppBaseUrl();
     const verifyUrl = `${base}/verify-school-email?token=${encodeURIComponent(token)}`;
-    await this.mailService.sendSchoolJoinVerifyEmail(u.email, {
+    return this.mailService.sendSchoolJoinVerifyEmail(u.email, {
       schoolName,
       recipientName: greet,
       verifyUrl,
@@ -260,7 +261,13 @@ export class AuthService {
     const resetUrl = `${base}/reset-password?token=${encodeURIComponent(token)}`;
     const sent = await this.mailService.sendPasswordResetEmail(user.email, resetUrl);
     if (!sent) {
+      await this.tokenRepo.delete({ id: record.id });
       this.logger.warn('Şifre sıfırlama e-postası gönderilemedi (SMTP kapalı veya hata).');
+      return {
+        ok: false,
+        message:
+          'Şifre sıfırlama e-postası gönderilemedi. E-posta sunucusu (SMTP) ayarları kontrol edilmeli veya daha sonra tekrar deneyin.',
+      };
     }
     return { ok: true, message: 'E-posta adresinize şifre sıfırlama bağlantısı gönderildi.' };
   }

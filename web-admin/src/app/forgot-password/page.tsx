@@ -38,6 +38,10 @@ export default function ForgotPasswordPage() {
         method: 'POST',
         body: JSON.stringify({ email: e1 }),
       });
+      if (res.ok === false) {
+        setError(res.message ?? 'E-posta gönderilemedi.');
+        return;
+      }
       setSuccess(res.message ?? 'E-posta adresinize şifre sıfırlama bağlantısı gönderildi.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'İşlem başarısız.');

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TvDevice } from './entities/tv-device.entity';
@@ -36,6 +36,18 @@ export class TvDevicesService {
     if (role === UserRole.school_admin && !schoolId) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
+    const existing = await this.repo.count({
+      where: { school_id: schoolId, display_group: displayGroup },
+    });
+    if (existing >= 1) {
+      throw new BadRequestException({
+        code: 'TV_DEVICE_GROUP_LIMIT',
+        message:
+          displayGroup === 'teachers'
+            ? 'Öğretmenler odası ekranı için zaten bir cihaz tanımlı. Yenisini eklemek için önce mevcut cihazı silin.'
+            : 'Koridor ekranı için zaten bir cihaz tanımlı. Yenisini eklemek için önce mevcut cihazı silin.',
+      });
+    }
     const pairingCode = randomBytes(4).toString('hex').toUpperCase();
     const defaultName = displayGroup === 'teachers' ? 'Öğretmenler Odası TV' : 'Koridor TV';
     const device = this.repo.create({
@@ -59,7 +71,27 @@ export class TvDevicesService {
       throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu veriye erişim yetkiniz yok.' });
     }
     if (dto.name !== undefined) device.name = dto.name;
-    if (dto.display_group !== undefined) device.display_group = dto.display_group;
+    if (dto.display_group !== undefined) {
+      const nextGroup = dto.display_group === 'teachers' ? 'teachers' : 'corridor';
+      if (nextGroup !== device.display_group) {
+        const otherInTarget = await this.repo
+          .createQueryBuilder('t')
+          .where('t.school_id = :sid', { sid: device.school_id })
+          .andWhere('t.display_group = :dg', { dg: nextGroup })
+          .andWhere('t.id != :id', { id })
+          .getCount();
+        if (otherInTarget >= 1) {
+          throw new BadRequestException({
+            code: 'TV_DEVICE_GROUP_LIMIT',
+            message:
+              nextGroup === 'teachers'
+                ? 'Öğretmenler odası için zaten başka bir cihaz var.'
+                : 'Koridor için zaten başka bir cihaz var.',
+          });
+        }
+      }
+      device.display_group = nextGroup;
+    }
     return this.repo.save(device);
   }
 

@@ -3,6 +3,7 @@ import { AppConfigService, MailConfigForSending } from '../app-config/app-config
 import { env } from '../config/env';
 import { interpolateMailTemplate, escapeMailText } from './mail-template-render';
 import type { MailTemplateId } from './mail-templates.types';
+import { createNodemailerTransporter } from './nodemailer-transport';
 
 export interface NotificationEmailParams {
   title: string;
@@ -248,8 +249,7 @@ export class MailService {
     text: string,
   ): Promise<boolean> {
     try {
-      const nodemailer = await import('nodemailer');
-      const transporter = nodemailer.default.createTransport({
+      const transporter = createNodemailerTransporter({
         host: config.smtp_host,
         port: config.smtp_port,
         secure: config.smtp_secure,
