@@ -2,13 +2,19 @@ Yerel -> canli saglikli akis
 =====================
 
 AYRIM
-- Panel "Sunucuyu guncelle" (POST /api/deploy): DEPLOY_SCRIPT_PATH = git pull, build, pm2. Veritabani tasimaz.
+- Panel "Sunucuyu guncelle" (POST /api/deploy): DEPLOY_SCRIPT_PATH=/opt/uzaedu/scripts/deploy/server-deploy.sh (git pull, build, pm2). Veritabani tasimaz.
 - export-superadmin-full-sql.cjs + psql: sadece PostgreSQL. Kod deploy etmez.
 
+GITHUB ACTIONS
+- Repo: scripts/deploy/server-deploy.sh + .github/workflows/deploy-production.yml
+- Push main (backend/web-admin/scripts/deploy degisince) veya workflow_dispatch
+- Secrets: DEPLOY_SSH_HOST, DEPLOY_SSH_USER, DEPLOY_SSH_KEY
+- Yerel: scripts/deploy/push-and-release.ps1
+
 ONERILEN SIRA
-1) Commit/push
+1) Commit/push (veya Actions Run workflow)
 2) Sema: migration (sunucuda MIGRATE_ON_DEPLOY=1 ile server-deploy.sh icinde migration:run - opsiyonel)
-3) Kod: panel deploy veya server-deploy.sh
+3) Kod: Actions, panel deploy veya sunucuda bash scripts/deploy/server-deploy.sh
 4) Veri (istege bagli): export -> yedek -> psql import
 5) Import oncesi canlida pg_dump
 

@@ -50,8 +50,9 @@ export function MailSettingsPanel() {
     try {
       const data = await apiFetch<MailConfigForAdmin>('/app-config/mail', { token });
       setConfig(data);
-    } catch {
+    } catch (e) {
       setConfig(null);
+      toast.error(e instanceof Error ? e.message : 'Mail ayarları yüklenemedi');
     }
   }, [token, me?.role]);
 
@@ -211,15 +212,20 @@ export function MailSettingsPanel() {
           </WebSettingsField>
         </div>
       </div>
-      <label className="flex cursor-pointer items-center gap-2.5 text-sm">
-        <input
-          type="checkbox"
-          checked={!!(form.smtp_secure ?? config?.smtp_secure ?? false)}
-          onChange={(e) => handleChange('smtp_secure', e.target.checked)}
-          className="size-4 rounded border-input"
-        />
-        SSL/TLS (genelde port 465)
-      </label>
+      <div className="space-y-1">
+        <label className="flex cursor-pointer items-center gap-2.5 text-sm">
+          <input
+            type="checkbox"
+            checked={!!(form.smtp_secure ?? config?.smtp_secure ?? false)}
+            onChange={(e) => handleChange('smtp_secure', e.target.checked)}
+            className="size-4 rounded border-input"
+          />
+          Doğrudan SSL (SMTPS, çoğunlukla port 465)
+        </label>
+        <p className="pl-7 text-[11px] leading-snug text-muted-foreground">
+          Port <strong className="text-foreground">587</strong> için işaretlemeyin — STARTTLS kullanılır (Gmail vb.). İşaretli + 587 bağlantı hatası verir.
+        </p>
+      </div>
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/30 pt-4">
         <Button type="button" variant="secondary" className="rounded-xl" onClick={applyGmailTemplate}>
           Gmail şablonunu doldur

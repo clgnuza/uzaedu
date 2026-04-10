@@ -1,4 +1,4 @@
-# Production: SSH to server, run scripts/deploy/server-deploy.sh (git pull, build, pm2).
+# Production: SSH to server, pull main, run scripts/deploy/server-deploy.sh (build, pm2).
 # Secrets: DEPLOY_SSH_HOST, DEPLOY_SSH_USER, DEPLOY_SSH_KEY
 # If TCP probe fails: open port 22 on server firewall (GitHub runner IPs are dynamic).
 
@@ -55,4 +55,5 @@ jobs:
             cd /opt/uzaedu
             git fetch origin main
             git pull --ff-only origin main
+            export UZAEDU_SKIP_GIT_PULL=1
             bash scripts/deploy/server-deploy.sh

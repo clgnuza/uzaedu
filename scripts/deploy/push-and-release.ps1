@@ -1,15 +1,9 @@
-param(
-  [string]$Branch = "main",
-  [string]$Repo = "clgnuza/uzaedu"
-)
+﻿#Requires -Version 5.1
+<#
+  main -> origin push; GitHub Actions "Deploy production" tetiklenir (paths: backend, web-admin, scripts/deploy).
+  gh CLI yoksa: push sonrası https://github.com/clgnuza/uzaedu/actions/workflows/deploy-production.yml
+#>
 $ErrorActionPreference = "Stop"
-$Root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-Set-Location $Root
-Write-Host "Push $Branch ..."
-git push origin $Branch
-if (Get-Command gh -ErrorAction SilentlyContinue) {
-  Write-Host "Trigger workflow deploy-production.yml ..."
-  gh workflow run deploy-production.yml --repo $Repo --ref $Branch
-} else {
-  Write-Warning "GitHub CLI (gh) missing: install from https://cli.github.com or run workflow manually in Actions."
-}
+Set-Location (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent)
+git push origin main
+Write-Host "Push tamam. Actions: https://github.com/clgnuza/uzaedu/actions/workflows/deploy-production.yml"
