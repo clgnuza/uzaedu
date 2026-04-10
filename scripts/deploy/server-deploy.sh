@@ -18,7 +18,7 @@ fi
 
 echo "[deploy] backend install + build"
 rm -rf "$ROOT/backend/node_modules"
-(cd "$ROOT/backend" && unset NODE_ENV && npm ci && npm run build)
+(cd "$ROOT/backend" && unset NODE_ENV && npm ci --jobs=1 && npm run build)
 
 if [[ "${MIGRATE_ON_DEPLOY:-0}" == "1" ]]; then
   echo "[deploy] migration:run"
@@ -27,7 +27,7 @@ fi
 
 echo "[deploy] web-admin install + build"
 rm -rf "$ROOT/web-admin/node_modules"
-(cd "$ROOT/web-admin" && unset NODE_ENV && npm ci && NODE_ENV=production npm run build)
+(cd "$ROOT/web-admin" && unset NODE_ENV && npm ci --jobs=1 && NODE_ENV=production npm run build)
 
 echo "[deploy] pm2"
 pm2 restart uzaedu-api --update-env
