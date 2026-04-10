@@ -36,7 +36,7 @@ export function AppShellLoadingCard({
     >
       <div
         className={cn(
-          'w-full max-w-sm overflow-hidden rounded-2xl border border-slate-200/90 bg-background/90 shadow-xl shadow-slate-900/8 ring-1 ring-slate-900/5 backdrop-blur-md sm:max-w-md',
+          'w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200/90 bg-background/90 shadow-xl shadow-slate-900/8 ring-1 ring-slate-900/5 backdrop-blur-md sm:max-w-2xl',
           'dark:border-slate-700/90 dark:bg-slate-950/85 dark:shadow-black/40 dark:ring-white/8',
         )}
       >
@@ -55,7 +55,7 @@ export function AppShellLoadingCard({
             </div>
           </div>
         </div>
-        <div className="flex flex-col items-center gap-1 px-4 py-7 sm:gap-2 sm:px-6 sm:py-9">
+        <div className="flex flex-col items-center gap-2 px-3 py-6 sm:gap-3 sm:px-5 sm:py-8">
           <PageLoadingBrand density="shell" />
           {hint ? (
             <p className="mt-2 max-w-[18rem] text-center text-[0.7rem] leading-relaxed text-muted-foreground sm:text-xs">

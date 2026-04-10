@@ -1,75 +1,170 @@
-'use client';
-
-import { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
-
-const VIDEO_SRC = '/media/sayfa-yukleniyor.mp4';
 
 type PageLoadingBrandProps = {
   className?: string;
-  /** "shell" = route guard kartı; "page" = tam sayfa / spinner varyantı */
   density?: 'shell' | 'page';
 };
 
+/**
+ * Büyük SVG maskot: koşarak yetişen öğretmen (gradient + CSS animasyon, video yok).
+ */
 export function PageLoadingBrand({ className, density = 'shell' }: PageLoadingBrandProps) {
-  const ref = useRef<HTMLVideoElement>(null);
-
-  useEffect(() => {
-    const v = ref.current;
-    if (!v) return;
-    v.play().catch(() => {});
-  }, []);
-
   const isPage = density === 'page';
+  const frame = cn(
+    'relative mx-auto w-full max-w-full',
+    isPage
+      ? 'max-w-[min(96vw,44rem)] sm:max-w-[min(92vw,48rem)] md:max-w-[52rem]'
+      : 'max-w-[min(96vw,34rem)] sm:max-w-[min(90vw,40rem)] md:max-w-[44rem]',
+  );
 
   return (
-    <div className={cn('flex flex-col items-center justify-center gap-3', className)}>
-      <div
-        className={cn(
-          'relative overflow-hidden rounded-2xl',
-          isPage
-            ? 'shadow-[0_12px_40px_-12px_rgba(14,116,144,0.35)] ring-1 ring-sky-500/15 dark:shadow-[0_16px_48px_-16px_rgba(56,189,248,0.2)] dark:ring-sky-400/10'
-            : 'shadow-md ring-1 ring-slate-200/80 dark:ring-white/10',
-        )}
-      >
+    <div className={cn('flex flex-col items-center justify-center gap-5 sm:gap-6', className)}>
+      <div className={cn(frame, 'select-none')}>
         <div
-          className={cn(
-            'pointer-events-none absolute inset-0 opacity-90',
-            isPage
-              ? 'bg-gradient-to-br from-sky-500/10 via-transparent to-emerald-500/10 dark:from-sky-500/15 dark:to-emerald-500/8'
-              : 'bg-gradient-to-br from-sky-500/8 via-transparent to-teal-500/8 dark:from-sky-500/12',
-          )}
+          className="pointer-events-none absolute inset-[-8%] rounded-[40%] bg-linear-to-br from-sky-400/30 via-teal-400/20 to-indigo-400/25 blur-3xl motion-safe:animate-running-teacher-halo motion-reduce:animate-none dark:from-sky-500/25 dark:via-teal-500/15 dark:to-indigo-500/20"
           aria-hidden
         />
-        <video
-          ref={ref}
-          className={cn(
-            'relative z-[1] block object-contain',
-            isPage
-              ? 'h-14 w-14 max-h-[16vw] max-w-[16vw] sm:h-[4.25rem] sm:w-[4.25rem] sm:max-h-none sm:max-w-none'
-              : 'h-12 w-12 max-h-[14vw] max-w-[14vw] sm:h-14 sm:w-14 sm:max-h-none sm:max-w-none',
-          )}
-          src={VIDEO_SRC}
-          muted
-          loop
-          playsInline
-          preload="none"
-          aria-hidden
-        />
-      </div>
-
-      <div className="flex w-full max-w-40 flex-col items-center gap-2 sm:max-w-44">
-        <div
-          className="relative h-1 w-full overflow-hidden rounded-full bg-slate-200/90 dark:bg-slate-700/80"
+        <svg
+          className="relative z-1 h-auto w-full drop-shadow-[0_20px_40px_rgba(14,116,144,0.18)] dark:drop-shadow-[0_24px_48px_rgba(0,0,0,0.45)]"
+          viewBox="0 0 240 280"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
           aria-hidden
         >
-          <div className="absolute inset-y-0 left-0 w-[38%] rounded-full bg-gradient-to-r from-sky-500 via-teal-500 to-emerald-500 motion-safe:animate-page-load-bar motion-reduce:animate-none dark:from-sky-400 dark:via-teal-400 dark:to-emerald-400" />
+          <defs>
+            <linearGradient id="plb-skin" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#fcd9c4" />
+              <stop offset="100%" stopColor="#e8b196" />
+            </linearGradient>
+            <linearGradient id="plb-shirt" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#7dd3fc" />
+              <stop offset="55%" stopColor="#38bdf8" />
+              <stop offset="100%" stopColor="#0284c7" />
+            </linearGradient>
+            <linearGradient id="plb-pant" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#64748b" />
+              <stop offset="100%" stopColor="#334155" />
+            </linearGradient>
+            <linearGradient id="plb-shoe" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#1e293b" />
+              <stop offset="100%" stopColor="#0f172a" />
+            </linearGradient>
+            <linearGradient id="plb-tie" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#f87171" />
+              <stop offset="100%" stopColor="#b91c1c" />
+            </linearGradient>
+            <linearGradient id="plb-book" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#fef08a" />
+              <stop offset="100%" stopColor="#facc15" />
+            </linearGradient>
+            <filter id="plb-soft" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur in="SourceAlpha" stdDeviation="1.2" result="b" />
+              <feOffset dx="1" dy="2" in="b" result="o" />
+              <feMerge>
+                <feMergeNode in="o" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+
+          {/* Hız çizgileri */}
+          <g className="motion-safe:animate-running-teacher-streak motion-reduce:opacity-50" opacity={0.55}>
+            <path d="M28 88h-18M22 108h-26M34 128h-20M26 148h-30" stroke="currentColor" strokeWidth={3} strokeLinecap="round" className="text-sky-400/70 dark:text-sky-300/50" />
+          </g>
+
+          <g className="motion-safe:animate-running-teacher-bob motion-reduce:animate-none">
+            <ellipse cx={122} cy={258} rx={52} ry={11} fill="currentColor" className="text-slate-900/12 dark:text-black/40" />
+
+            {/* Arka bacak */}
+            <g transform="translate(128 172)">
+              <g className="motion-safe:animate-running-teacher-thigh-r motion-reduce:animate-none">
+                <path
+                  d="M0 0c-4 22-10 44-6 68"
+                  stroke="url(#plb-pant)"
+                  strokeWidth={17}
+                  strokeLinecap="round"
+                  filter="url(#plb-soft)"
+                />
+                <ellipse cx={-8} cy={76} rx={14} ry={8} fill="url(#plb-shoe)" transform="rotate(-12 -8 76)" />
+              </g>
+            </g>
+
+            {/* Ön bacak */}
+            <g transform="translate(108 172)">
+              <g className="motion-safe:animate-running-teacher-thigh-l motion-reduce:animate-none">
+                <path
+                  d="M0 0c2 24 12 46 28 66"
+                  stroke="url(#plb-pant)"
+                  strokeWidth={17}
+                  strokeLinecap="round"
+                  filter="url(#plb-soft)"
+                />
+                <ellipse cx={32} cy={72} rx={14} ry={8} fill="url(#plb-shoe)" transform="rotate(8 32 72)" />
+              </g>
+            </g>
+
+            {/* Gövde */}
+            <path
+              d="M88 168c-4-38 8-72 32-88 18-10 40-8 56 4 20 16 28 48 24 84-28 8-56 10-84 4-10-2-22-2-28-4z"
+              fill="url(#plb-shirt)"
+              filter="url(#plb-soft)"
+            />
+            <path d="M118 92l-6 52 18 4 4-50z" fill="url(#plb-tie)" />
+
+            {/* Arka kol */}
+            <g transform="translate(94 118)">
+              <g className="motion-safe:animate-running-teacher-arm-r motion-reduce:animate-none">
+                <path
+                  d="M0 0c-18 14-32 36-38 58"
+                  stroke="url(#plb-shirt)"
+                  strokeWidth={14}
+                  strokeLinecap="round"
+                />
+                <circle cx={-36} cy={62} r={9} fill="url(#plb-skin)" />
+              </g>
+            </g>
+
+            {/* Boyun + kafa */}
+            <rect x={108} y={86} width={24} height={18} rx={6} fill="url(#plb-skin)" />
+            <circle cx={120} cy={64} r={26} fill="url(#plb-skin)" filter="url(#plb-soft)" />
+            <path d="M98 52c8-16 28-22 44-14" stroke="#c2410c" strokeWidth={3} strokeLinecap="round" fill="none" opacity={0.35} />
+            <ellipse cx={108} cy={62} rx={4} ry={5} fill="#1e293b" opacity={0.65} />
+            <ellipse cx={128} cy={60} rx={4} ry={5} fill="#1e293b" opacity={0.65} />
+            <path d="M112 76q8 6 16 0" stroke="#b45309" strokeWidth={2} strokeLinecap="round" fill="none" opacity={0.5} />
+
+            {/* Ön kol + kitap */}
+            <g transform="translate(138 122)">
+              <g className="motion-safe:animate-running-teacher-arm-l motion-reduce:animate-none">
+                <path
+                  d="M0 0c16 10 28 28 34 50"
+                  stroke="url(#plb-shirt)"
+                  strokeWidth={14}
+                  strokeLinecap="round"
+                />
+                <g transform="translate(28 48) rotate(8)">
+                  <rect x={0} y={-14} width={22} height={30} rx={3} fill="url(#plb-book)" stroke="#ca8a04" strokeWidth={1.5} />
+                  <line x1={6} y1={-6} x2={18} y2={-6} stroke="#a16207" strokeWidth={1} opacity={0.6} />
+                  <line x1={6} y1={2} x2={18} y2={2} stroke="#a16207" strokeWidth={1} opacity={0.6} />
+                </g>
+                <circle cx={32} cy={54} r={9} fill="url(#plb-skin)" />
+              </g>
+            </g>
+          </g>
+        </svg>
+      </div>
+
+      <div className="w-full max-w-md px-1 sm:max-w-lg">
+        <div
+          className="relative h-2 w-full overflow-hidden rounded-full bg-slate-200/90 dark:bg-slate-700/80"
+          aria-hidden
+        >
+          <div className="absolute inset-y-0 left-0 w-[34%] rounded-full bg-linear-to-r from-sky-500 via-teal-500 to-emerald-500 motion-safe:animate-page-load-bar motion-reduce:animate-none dark:from-sky-400 dark:via-teal-400 dark:to-emerald-400" />
         </div>
-        <div className="flex items-center gap-1" aria-hidden>
+        <div className="mt-3 flex justify-center gap-2" aria-hidden>
           {[0, 1, 2].map((i) => (
             <span
               key={i}
-              className="size-1.5 rounded-full bg-sky-500/75 motion-safe:animate-bounce motion-reduce:animate-none dark:bg-sky-400/90 sm:size-2"
+              className="size-2.5 rounded-full bg-sky-500/80 motion-safe:animate-bounce motion-reduce:animate-none dark:bg-sky-400/90 sm:size-3"
               style={{ animationDelay: `${i * 140}ms` }}
             />
           ))}

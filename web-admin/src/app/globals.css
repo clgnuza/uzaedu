@@ -186,6 +186,106 @@
   }
 }
 
+/* Koşan öğretmen (SVG) — yükleme maskotu */
+@keyframes running-teacher-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-5deg);
+  }
+  50% {
+    transform: translateY(-12px) rotate(-8deg);
+  }
+}
+@keyframes running-teacher-thigh-l {
+  0%,
+  100% {
+    transform: rotate(-26deg);
+  }
+  50% {
+    transform: rotate(34deg);
+  }
+}
+@keyframes running-teacher-thigh-r {
+  0%,
+  100% {
+    transform: rotate(34deg);
+  }
+  50% {
+    transform: rotate(-26deg);
+  }
+}
+@keyframes running-teacher-arm-l {
+  0%,
+  100% {
+    transform: rotate(18deg);
+  }
+  50% {
+    transform: rotate(-22deg);
+  }
+}
+@keyframes running-teacher-arm-r {
+  0%,
+  100% {
+    transform: rotate(-20deg);
+  }
+  50% {
+    transform: rotate(24deg);
+  }
+}
+@keyframes running-teacher-streak {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+@keyframes running-teacher-halo {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.04);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .animate-running-teacher-bob {
+    transform-box: fill-box;
+    transform-origin: 50% 85%;
+    animation: running-teacher-bob 0.42s ease-in-out infinite;
+  }
+  .animate-running-teacher-thigh-l {
+    transform-box: fill-box;
+    transform-origin: 0 0;
+    animation: running-teacher-thigh-l 0.42s ease-in-out infinite;
+  }
+  .animate-running-teacher-thigh-r {
+    transform-box: fill-box;
+    transform-origin: 0 0;
+    animation: running-teacher-thigh-r 0.42s ease-in-out infinite;
+  }
+  .animate-running-teacher-arm-l {
+    transform-box: fill-box;
+    transform-origin: 0 0;
+    animation: running-teacher-arm-l 0.42s ease-in-out infinite;
+  }
+  .animate-running-teacher-arm-r {
+    transform-box: fill-box;
+    transform-origin: 0 0;
+    animation: running-teacher-arm-r 0.42s ease-in-out infinite;
+  }
+  .animate-running-teacher-streak {
+    animation: running-teacher-streak 0.42s ease-in-out infinite;
+  }
+  .animate-running-teacher-halo {
+    animation: running-teacher-halo 1.8s ease-in-out infinite;
+  }
+}
+
 @layer base {
   ::-webkit-scrollbar {
     width: 6px;

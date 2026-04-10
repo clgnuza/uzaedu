@@ -113,15 +113,10 @@ export function WelcomeZodiacPopupCard({
             <WelcomeMessageDisplay
               text={message}
               className={cn(
-                'relative text-pretty text-sm leading-relaxed tracking-normal text-white/92 sm:text-[0.9375rem] sm:leading-[1.65]',
-                '[&_p:first-child]:text-base [&_p:first-child]:font-semibold [&_p:first-child]:leading-snug',
-                '[&_p:first-child]:text-white',
-                '[&_p:nth-child(2)]:mt-2 [&_p:nth-child(2)]:text-[0.9375rem] [&_p:nth-child(2)]:font-medium [&_p:nth-child(2)]:text-white/88',
-                '[&_p:nth-child(3)]:mt-2 [&_p:nth-child(3)]:text-sm [&_p:nth-child(3)]:leading-relaxed [&_p:nth-child(3)]:text-white/75',
-                '[&_p:nth-child(n+4)]:mt-1.5 [&_p:nth-child(n+4)]:text-sm [&_p:nth-child(n+4)]:leading-relaxed [&_p:nth-child(n+4)]:text-white/70',
-                '[&_p]:max-w-none',
+                'relative text-pretty text-[12px] font-normal leading-relaxed tracking-normal text-white/92 sm:text-[0.9375rem]',
+                '[&_p+p]:mt-2',
                 '[&_strong]:font-semibold [&_strong]:text-white',
-                '[&_em]:text-white/82',
+                '[&_em]:italic [&_em]:text-white/85',
               )}
             />
           </div>

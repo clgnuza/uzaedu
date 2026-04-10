@@ -92,9 +92,13 @@ export function useWelcomeMotivationQuote(): UseWelcomeMotivationQuoteResult {
       if (!open) {
         try {
           localStorage.setItem(`${POPUP_SEEN_KEY}${data.date_key}`, '1');
+          // İlk popup kapanınca hero’daki “Bugünün sözü” şeridi de kapalı kalsın (dashboard ile aynı durum)
+          localStorage.setItem(`${BANNER_DISMISS_KEY}${data.date_key}`, '1');
         } catch {
           /* ignore */
         }
+        setBannerDismissed(true);
+        setManualOpen(false);
       }
       setPopupOpen(open);
     },
