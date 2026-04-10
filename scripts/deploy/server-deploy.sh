@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-# Canlı sunucu (/opt/uzaedu): git pull, backend/web build, pm2.
-# Tetikleyiciler: GitHub Actions deploy-production.yml, panel POST /api/deploy/run (DEPLOY_SCRIPT_PATH).
-# UZAEDU_SKIP_GIT_PULL=1: git adimini atla (CI once cekmis ise).
-# MIGRATE_ON_DEPLOY=1 → backend migration:run
-# DEPLOY_GIT_BRANCH (varsayılan main)
+# /opt/uzaedu: git pull, backend+web build, pm2. Triggers: Actions, panel POST /deploy/run.
+# UZAEDU_SKIP_GIT_PULL=1: skip git (CI already pulled). MIGRATE_ON_DEPLOY=1: run migrations.
 
 set -euo pipefail
 
@@ -11,7 +8,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 BRANCH="${DEPLOY_GIT_BRANCH:-main}"
-export NODE_ENV="${NODE_ENV:-production}"
 
 echo "[deploy] repo=$ROOT branch=$BRANCH"
 
@@ -21,6 +17,7 @@ if [[ -z "${UZAEDU_SKIP_GIT_PULL:-}" ]]; then
 fi
 
 echo "[deploy] backend install + build"
+# npm ci must install devDependencies (@nestjs/cli); do not set NODE_ENV=production before this
 (cd "$ROOT/backend" && npm ci && npm run build)
 
 if [[ "${MIGRATE_ON_DEPLOY:-0}" == "1" ]]; then
@@ -29,6 +26,7 @@ if [[ "${MIGRATE_ON_DEPLOY:-0}" == "1" ]]; then
 fi
 
 echo "[deploy] web-admin install + build"
+export NODE_ENV="${NODE_ENV:-production}"
 (cd "$ROOT/web-admin" && npm ci && npm run build)
 
 echo "[deploy] pm2"
