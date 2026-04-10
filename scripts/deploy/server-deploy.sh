@@ -17,7 +17,6 @@ if [[ -z "${UZAEDU_SKIP_GIT_PULL:-}" ]]; then
 fi
 
 echo "[deploy] backend install + build"
-# npm ci must install devDependencies (@nestjs/cli); do not set NODE_ENV=production before this
 (cd "$ROOT/backend" && npm ci && npm run build)
 
 if [[ "${MIGRATE_ON_DEPLOY:-0}" == "1" ]]; then
@@ -26,8 +25,8 @@ if [[ "${MIGRATE_ON_DEPLOY:-0}" == "1" ]]; then
 fi
 
 echo "[deploy] web-admin install + build"
-export NODE_ENV="${NODE_ENV:-production}"
-(cd "$ROOT/web-admin" && npm ci && npm run build)
+# npm ci needs devDependencies (typescript, next.config.ts); NODE_ENV=production only for next build
+(cd "$ROOT/web-admin" && npm ci && NODE_ENV="${NODE_ENV:-production}" npm run build)
 
 echo "[deploy] pm2"
 pm2 restart uzaedu-api --update-env
