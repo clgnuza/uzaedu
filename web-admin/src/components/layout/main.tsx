@@ -5,7 +5,6 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { useLayout } from './context';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
-import { Breadcrumb } from './breadcrumb';
 import type { WebAdminRole } from '@/config/types';
 
 interface MainProps {
@@ -41,7 +40,6 @@ export function Main({ children, role }: MainProps) {
         <Header role={role} onOpenSidebar={handleToggleSidebar} />
         <main className="grow pt-5" role="main">
           <div className="container space-y-5">
-            <Breadcrumb />
             {children}
           </div>
         </main>

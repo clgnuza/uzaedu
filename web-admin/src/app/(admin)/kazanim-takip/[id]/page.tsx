@@ -23,6 +23,18 @@ import {
   X,
 } from 'lucide-react';
 import { addSonPlan, setKaldiginYer, getKazanimDurum, toggleKazanimDurum } from '../kazanim-storage';
+import { cn } from '@/lib/utils';
+
+/** Hafta sekmesi — mobilde renk sırası */
+const WEEK_TAB_STYLES = [
+  { active: 'bg-violet-600 text-white shadow-md ring-2 ring-violet-400/45', idle: 'bg-violet-100/90 text-violet-900 dark:bg-violet-950/45 dark:text-violet-100' },
+  { active: 'bg-sky-600 text-white shadow-md ring-2 ring-sky-300/45', idle: 'bg-sky-100/90 text-sky-900 dark:bg-sky-950/45 dark:text-sky-100' },
+  { active: 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400/40', idle: 'bg-emerald-100/90 text-emerald-900 dark:bg-emerald-950/45 dark:text-emerald-100' },
+  { active: 'bg-amber-500 text-white shadow-md ring-2 ring-amber-300/50', idle: 'bg-amber-100/90 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100' },
+  { active: 'bg-rose-600 text-white shadow-md ring-2 ring-rose-400/45', idle: 'bg-rose-100/90 text-rose-900 dark:bg-rose-950/45 dark:text-rose-100' },
+  { active: 'bg-indigo-600 text-white shadow-md ring-2 ring-indigo-400/45', idle: 'bg-indigo-100/90 text-indigo-900 dark:bg-indigo-950/45 dark:text-indigo-100' },
+  { active: 'bg-teal-600 text-white shadow-md ring-2 ring-teal-400/45', idle: 'bg-teal-100/90 text-teal-900 dark:bg-teal-950/45 dark:text-teal-100' },
+] as const;
 
 type PlanItem = {
   id: string;
@@ -672,28 +684,76 @@ export default function KazanimTakipDetailPage() {
     <div className="kazanim-takip relative min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
       <BlurBackground />
 
-      <div className="px-2 sm:px-4 lg:px-8 py-4 max-w-[1200px] mx-auto">
-        <nav className="flex justify-center mb-4 sm:mb-6">
-          <ol className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/80 dark:bg-gray-800/80 backdrop-blur rounded-full text-xs">
+      <div className="mx-auto max-w-[1200px] px-2 py-3 sm:px-4 sm:py-4 lg:px-8">
+        <nav className="mb-3 hidden justify-center sm:mb-6 sm:flex">
+          <ol className="inline-flex max-w-full items-center gap-1 rounded-full border border-gray-200/80 bg-white/90 px-2 py-1 text-[10px] backdrop-blur-sm dark:border-gray-700 dark:bg-gray-800/90 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-xs">
             <li>
-              <Link href="/dashboard" className="text-muted-foreground hover:text-primary transition-colors">
-                <Home className="size-4 inline" />
+              <Link href="/dashboard" className="inline-flex rounded-lg p-1 text-muted-foreground hover:text-primary" title="Anasayfa">
+                <Home className="size-4" />
               </Link>
             </li>
-            <li className="text-muted-foreground/50"><ChevronRight className="size-3 inline" /></li>
-            <li>
-              <Link href="/kazanim-takip" className="text-muted-foreground hover:text-primary transition-colors">Kazanım Takip</Link>
+            <li className="text-muted-foreground/50">
+              <ChevronRight className="size-3" />
             </li>
-            <li className="text-muted-foreground/50"><ChevronRight className="size-3 inline" /></li>
-            <li className="font-medium text-primary">{dersLabel}</li>
+            <li>
+              <Link href="/kazanim-takip" className="inline-flex items-center gap-1 rounded-lg px-1 py-0.5 text-muted-foreground hover:text-primary" title="Planlar">
+                <Target className="size-3.5 shrink-0 text-primary sm:hidden" />
+                <span className="max-w-[4.5rem] truncate sm:max-w-none">Planlar</span>
+              </Link>
+            </li>
+            <li className="max-sm:hidden text-muted-foreground/50">
+              <ChevronRight className="size-3" />
+            </li>
+            <li className="max-sm:hidden min-w-0 font-medium text-primary">
+              <span className="line-clamp-1">{dersLabel}</span>
+            </li>
           </ol>
         </nav>
 
-        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
-          <div className="px-4 sm:px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          {/* Mobil: tek özet kartı */}
+          <div className="border-b border-indigo-200/50 bg-linear-to-r from-indigo-500/12 via-violet-500/10 to-sky-500/8 p-3 dark:border-indigo-900/40 dark:from-indigo-950/35 dark:via-violet-950/25 dark:to-sky-950/20 sm:hidden">
+            <div className="flex items-start gap-3">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md dark:bg-indigo-500">
+                <BookOpen className="size-5" aria-hidden />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 className="line-clamp-2 text-sm font-bold leading-snug text-gray-900 dark:text-white">{data.subject_label}</h2>
+                <p className="mt-1 text-[11px] font-medium text-gray-600 dark:text-gray-400">
+                  {data.grade}. sınıf · {data.academic_year}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <Link
+                    href={(() => {
+                      const q = new URLSearchParams({
+                        grade: String(data?.grade ?? ''),
+                        subject_code: data?.subject_code ?? '',
+                        academic_year: data?.academic_year ?? '',
+                      });
+                      if (data?.section) q.set('section', data.section);
+                      return `/evrak?${q.toString()}`;
+                    })()}
+                    className="inline-flex size-9 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm dark:bg-emerald-600"
+                    title="Excel indir"
+                  >
+                    <Download className="size-4" />
+                  </Link>
+                  <Link
+                    href="/kazanim-takip"
+                    className="inline-flex size-9 items-center justify-center rounded-lg border border-primary/40 bg-primary/10 text-primary"
+                    title="Listeye dön"
+                  >
+                    <ArrowLeft className="size-4" />
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="hidden border-b border-gray-100 bg-gray-50 px-4 py-4 dark:border-gray-700 dark:bg-gray-700/50 sm:block sm:px-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-bold flex items-center gap-2">
-                <BookOpen className="size-5 text-primary shrink-0" />
+              <h2 className="flex items-center gap-2 text-lg font-bold">
+                <BookOpen className="size-5 shrink-0 text-primary" />
                 <span className="line-clamp-1">{dersLabel}</span>
               </h2>
               <div className="flex items-center gap-2">
@@ -707,14 +767,14 @@ export default function KazanimTakipDetailPage() {
                     if (data?.section) q.set('section', data.section);
                     return `/evrak?${q.toString()}`;
                   })()}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/30 transition-colors"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/20 px-3 py-1.5 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-500/30 dark:text-emerald-400"
                 >
                   <Download className="size-4" />
                   Excel İndirme
                 </Link>
                 <Link
                   href="/kazanim-takip"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-primary rounded-lg bg-primary/10 hover:bg-primary/20 transition-colors"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/20"
                 >
                   <ArrowLeft className="size-4" />
                   Listeye dön
@@ -725,19 +785,36 @@ export default function KazanimTakipDetailPage() {
 
           {/* Akademik Takvim / İlerleme widget */}
           {weekOrder.length > 0 && (
-            <div className="px-4 sm:px-6 py-3 border-b border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800/50">
-              <div className="flex flex-wrap items-center gap-4">
+            <div className="border-b border-gray-100 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-800/50 sm:px-6 sm:py-3">
+              {/* Mobil: tek satır — ikon + çubuk + sayı */}
+              <div className="flex items-center gap-2 sm:hidden">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                  <Calendar className="size-4" aria-hidden />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all duration-500"
+                      style={{ width: `${calendarProgress.geçenPct}%` }}
+                    />
+                  </div>
+                  <p className="mt-1 text-center text-[10px] font-semibold tabular-nums text-muted-foreground">
+                    {calendarProgress.weeksPassed}/{calendarProgress.total} hafta · %{calendarProgress.geçenPct}
+                  </p>
+                </div>
+              </div>
+              <div className="hidden flex-wrap items-center gap-4 sm:flex">
                 <div className="flex items-center gap-2 text-sm">
-                  <Calendar className="size-4 text-primary shrink-0" />
+                  <Calendar className="size-4 shrink-0 text-primary" />
                   <span className="text-muted-foreground">
                     Geçen: <span className="font-semibold text-foreground">{calendarProgress.geçenPct}%</span>
                     {' · '}
                     Kalan: <span className="font-semibold text-foreground">{calendarProgress.kalanPct}%</span>
                   </span>
                 </div>
-                <div className="flex-1 min-w-[120px] max-w-[200px] h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                <div className="h-2 min-w-[120px] max-w-[200px] flex-1 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
                   <div
-                    className="h-full bg-primary rounded-full transition-all duration-500"
+                    className="h-full rounded-full bg-primary transition-all duration-500"
                     style={{ width: `${calendarProgress.geçenPct}%` }}
                   />
                 </div>
@@ -750,16 +827,17 @@ export default function KazanimTakipDetailPage() {
 
           {weekOrder.length > 0 && (
             <div className="relative bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 overflow-hidden">
-              <div className="flex flex-wrap items-center gap-3 px-4 py-2 border-b border-gray-200 dark:border-gray-700">
-                <div className="relative flex items-center gap-2 min-w-0 flex-1 max-w-md">
-                  <Search className="size-4 text-primary shrink-0" />
+              <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 px-2 py-2 dark:border-gray-700 sm:gap-3 sm:px-4">
+                <div className="relative flex min-w-0 max-w-md flex-1 items-center gap-2">
+                  <Search className="size-4 shrink-0 text-primary" />
                   <input
                     type="text"
                     value={arama}
                     onChange={(e) => setArama(e.target.value)}
-                    placeholder="Ünite, tema, konu veya kazanım metninde ara… (tüm planda)"
-                    className="flex-1 min-w-0 py-2 pl-3 pr-9 rounded-xl border border-primary/40 dark:border-primary/50 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-muted-foreground"
+                    placeholder="Ara…"
+                    className="min-w-0 flex-1 rounded-xl border border-primary/40 bg-white py-1.5 pl-2.5 pr-8 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50 dark:border-primary/50 dark:bg-gray-800 sm:py-2 sm:pl-3 sm:pr-9 sm:text-sm"
                     aria-label="Plan içeriğinde ara"
+                    title="Ünite, tema, konu veya kazanım metninde ara (tüm planda)"
                   />
                   {arama && (
                     <button
@@ -835,34 +913,58 @@ export default function KazanimTakipDetailPage() {
                   </button>
                 </div>
               </div>
-              <div ref={tabScrollRef} className="overflow-x-auto hide-scrollbar tab-nav-scroll px-2 sm:px-0">
-                <nav className="flex gap-1 min-w-max border-b-2 border-gray-200 dark:border-gray-700">
+              <div
+                ref={tabScrollRef}
+                className="tab-nav-scroll hide-scrollbar overflow-x-auto scroll-px-2 px-1.5 pb-2 pt-1 max-sm:snap-x max-sm:snap-mandatory sm:scroll-px-0 sm:px-0 sm:pb-0 sm:pt-0"
+              >
+                <nav className="flex min-w-max gap-1.5 sm:gap-1 sm:border-b-2 sm:border-gray-200 dark:sm:border-gray-700">
                   {(() => {
                     const todayStr = new Date().toISOString().slice(0, 10);
-                    return weekOrder.map((week) => {
+                    return weekOrder.map((week, tabIdx) => {
                       const first = byWeek.get(week)?.[0];
                       const label = first ? formatWeekLabel(first) : `${week}. Hafta`;
                       const isActive = activeTab === week;
                       const isThisWeek =
                         first?.week_start && first?.week_end && todayStr >= first.week_start && todayStr <= first.week_end;
-                    return (
-                      <button
-                        key={week}
-                        type="button"
-                        onClick={() => setActiveTab(week)}
-                        className={`group relative inline-flex items-center gap-1.5 px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold transition-all whitespace-nowrap ${
-                          isActive ? 'text-primary active-hafta' : 'text-muted-foreground hover:text-foreground'
-                        }`}
-                      >
-                        <span>{label}</span>
-                        {isThisWeek && (
-                          <span className="hidden sm:inline-flex text-[10px] font-normal px-1.5 py-0.5 rounded bg-primary/20 text-primary">
-                            Bu hafta
+                      const palette = WEEK_TAB_STYLES[tabIdx % WEEK_TAB_STYLES.length]!;
+                      return (
+                        <button
+                          key={week}
+                          type="button"
+                          onClick={() => setActiveTab(week)}
+                          className={cn(
+                            'relative inline-flex max-w-[9.5rem] shrink-0 snap-start flex-col items-center gap-0.5 rounded-xl px-2.5 py-1.5 text-left transition-all active:scale-[0.98] sm:max-w-none sm:snap-align-none sm:flex-row sm:rounded-none sm:px-6 sm:py-3 sm:text-sm',
+                            isActive
+                              ? cn(palette.active, 'sm:bg-transparent sm:text-primary sm:ring-0 sm:shadow-none')
+                              : cn(
+                                  palette.idle,
+                                  'opacity-90 hover:opacity-100 dark:opacity-95 sm:bg-transparent sm:text-muted-foreground sm:opacity-100 sm:hover:text-foreground',
+                                ),
+                          )}
+                        >
+                          <span className="line-clamp-2 text-[10px] font-bold leading-tight sm:line-clamp-none sm:text-sm sm:font-semibold">
+                            {label}
                           </span>
-                        )}
-                        <span className={`absolute bottom-0 left-0 right-0 h-0.5 ${isActive ? 'bg-primary' : 'bg-transparent group-hover:bg-gray-300 dark:group-hover:bg-gray-600'}`} />
-                      </button>
-                    );
+                          {isThisWeek && (
+                            <span
+                              className={cn(
+                                'inline-flex items-center rounded-full px-1.5 py-px text-[8px] font-bold uppercase tracking-wide sm:text-[10px] sm:font-normal',
+                                isActive
+                                  ? 'bg-white/25 text-white sm:bg-primary/20 sm:text-primary'
+                                  : 'bg-primary/25 text-primary dark:bg-primary/30',
+                              )}
+                            >
+                              Bu hafta
+                            </span>
+                          )}
+                          <span
+                            className={cn(
+                              'absolute bottom-0 left-2 right-2 hidden h-0.5 rounded-full sm:left-0 sm:right-0 sm:block',
+                              isActive ? 'bg-primary sm:bg-primary' : 'bg-transparent',
+                            )}
+                          />
+                        </button>
+                      );
                     });
                   })()}
                 </nav>

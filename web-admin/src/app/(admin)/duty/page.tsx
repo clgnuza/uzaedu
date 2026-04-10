@@ -134,6 +134,37 @@ function getDayOfWeek(d: Date) {
   return n === 0 ? 6 : n - 1;
 }
 
+/** Hafta sütunu: günleri ayırt etmek (bugün ayrı vurgulanır) — mobil sol şerit, md üst şerit */
+const WEEK_COLUMN_STRIPE_MOBILE = [
+  'max-md:border-l-[3px] max-md:border-l-sky-500/80',
+  'max-md:border-l-[3px] max-md:border-l-indigo-500/80',
+  'max-md:border-l-[3px] max-md:border-l-violet-500/80',
+  'max-md:border-l-[3px] max-md:border-l-fuchsia-500/80',
+  'max-md:border-l-[3px] max-md:border-l-amber-500/80',
+  'max-md:border-l-[3px] max-md:border-l-teal-500/80',
+  'max-md:border-l-[3px] max-md:border-l-rose-500/80',
+] as const;
+
+const WEEK_COLUMN_TOP_MD = [
+  'md:border-t-[3px] md:border-t-sky-500/70',
+  'md:border-t-[3px] md:border-t-indigo-500/70',
+  'md:border-t-[3px] md:border-t-violet-500/70',
+  'md:border-t-[3px] md:border-t-fuchsia-500/70',
+  'md:border-t-[3px] md:border-t-amber-500/70',
+  'md:border-t-[3px] md:border-t-teal-500/70',
+  'md:border-t-[3px] md:border-t-rose-500/70',
+] as const;
+
+const WEEK_HEADER_TINT = [
+  'border-b border-sky-200/70 from-sky-100/85 to-sky-50/50 text-sky-950 dark:border-sky-800/45 dark:from-sky-950/45 dark:to-sky-950/20 dark:text-sky-100',
+  'border-b border-indigo-200/70 from-indigo-100/85 to-indigo-50/50 text-indigo-950 dark:border-indigo-800/45 dark:from-indigo-950/45 dark:to-indigo-950/20 dark:text-indigo-100',
+  'border-b border-violet-200/70 from-violet-100/85 to-violet-50/50 text-violet-950 dark:border-violet-800/45 dark:from-violet-950/45 dark:to-violet-950/20 dark:text-violet-100',
+  'border-b border-fuchsia-200/70 from-fuchsia-100/85 to-fuchsia-50/50 text-fuchsia-950 dark:border-fuchsia-800/45 dark:from-fuchsia-950/45 dark:to-fuchsia-950/20 dark:text-fuchsia-100',
+  'border-b border-amber-200/70 from-amber-100/85 to-amber-50/50 text-amber-950 dark:border-amber-800/45 dark:from-amber-950/45 dark:to-amber-950/20 dark:text-amber-100',
+  'border-b border-teal-200/70 from-teal-100/85 to-teal-50/50 text-teal-950 dark:border-teal-800/45 dark:from-teal-950/45 dark:to-teal-950/20 dark:text-teal-100',
+  'border-b border-rose-200/70 from-rose-100/85 to-rose-50/50 text-rose-950 dark:border-rose-800/45 dark:from-rose-950/45 dark:to-rose-950/20 dark:text-rose-100',
+] as const;
+
 function groupSlotsByDate(slots: DutySlot[]): Record<string, DutySlot[]> {
   const map: Record<string, DutySlot[]> = {};
   for (const s of slots) {
@@ -658,31 +689,55 @@ export default function DutyPage() {
           </div>
           <div className="flex flex-col gap-2 border-t border-border/60 pt-2 sm:flex-row sm:items-center sm:justify-between">
             <div
-              className="grid w-full max-w-[220px] shrink-0 grid-cols-3 gap-px rounded-lg border border-border/50 bg-border/40 p-px sm:max-w-none sm:gap-0.5 sm:rounded-xl sm:p-0.5"
+              className="grid w-full shrink-0 grid-cols-3 gap-1.5 rounded-xl border border-border/50 bg-muted/25 p-1 sm:w-auto sm:max-w-none sm:gap-1 sm:rounded-2xl sm:p-1 sm:pe-1.5"
               role="tablist"
               aria-label="Takvim görünümü"
             >
-              {[
-                { id: 'month' as ViewMode, label: 'Ay', icon: Calendar },
-                { id: 'week' as ViewMode, label: 'Hafta', icon: CalendarRange },
-                { id: 'day' as ViewMode, label: 'Gün', icon: CalendarDays },
-              ].map(({ id, label, icon: Icon }) => {
-                const active = viewMode === id;
+              {(
+                [
+                  {
+                    id: 'month' as const,
+                    label: 'Ay',
+                    icon: Calendar,
+                    active:
+                      'bg-violet-600 text-white shadow-md ring-2 ring-violet-400/45 dark:bg-violet-600 dark:ring-violet-400/35',
+                    idle:
+                      'bg-violet-100/90 text-violet-900 hover:bg-violet-200/90 active:scale-[0.98] dark:bg-violet-950/50 dark:text-violet-100 dark:hover:bg-violet-900/55',
+                  },
+                  {
+                    id: 'week' as const,
+                    label: 'Hafta',
+                    icon: CalendarRange,
+                    active:
+                      'bg-sky-600 text-white shadow-md ring-2 ring-sky-300/50 dark:bg-sky-600 dark:ring-sky-400/35',
+                    idle:
+                      'bg-sky-100/90 text-sky-900 hover:bg-sky-200/90 active:scale-[0.98] dark:bg-sky-950/50 dark:text-sky-100 dark:hover:bg-sky-900/55',
+                  },
+                  {
+                    id: 'day' as const,
+                    label: 'Gün',
+                    icon: CalendarDays,
+                    active:
+                      'bg-amber-500 text-white shadow-md ring-2 ring-amber-300/55 dark:bg-amber-600 dark:ring-amber-400/35',
+                    idle:
+                      'bg-amber-100/90 text-amber-950 hover:bg-amber-200/90 active:scale-[0.98] dark:bg-amber-950/45 dark:text-amber-100 dark:hover:bg-amber-900/55',
+                  },
+                ] as const
+              ).map(({ id, label, icon: Icon, active, idle }) => {
+                const isActive = viewMode === id;
                 return (
                   <button
                     key={id}
                     type="button"
                     role="tab"
-                    aria-selected={active}
+                    aria-selected={isActive}
                     onClick={() => setViewMode(id)}
                     className={cn(
-                      'flex min-h-8 flex-col items-center justify-center gap-0 rounded-[5px] px-1 py-1 text-[9px] font-medium transition-colors sm:min-h-8 sm:flex-row sm:gap-1 sm:rounded-lg sm:px-2 sm:py-1.5 sm:text-[11px]',
-                      active
-                        ? 'bg-background text-foreground shadow-sm dark:bg-card'
-                        : 'bg-muted/30 text-muted-foreground hover:bg-muted/50',
+                      'flex min-h-10 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] font-semibold transition-all sm:min-h-9 sm:flex-row sm:gap-1.5 sm:rounded-xl sm:px-3 sm:py-2 sm:text-xs',
+                      isActive ? active : idle,
                     )}
                   >
-                    <Icon className="size-3 shrink-0 opacity-80 sm:size-3.5" aria-hidden />
+                    <Icon className="size-3.5 shrink-0 opacity-95 sm:size-4" aria-hidden />
                     <span className="leading-none">{label}</span>
                   </button>
                 );
@@ -859,33 +914,71 @@ export default function DutyPage() {
                   const slots = slotsByDate[ymd] ?? [];
                   const isToday = ymd === todayYMD;
                   const date = new Date(ymd + 'T12:00:00');
+                  const dow = getDayOfWeek(date);
+                  const stripeMobile = WEEK_COLUMN_STRIPE_MOBILE[dow];
+                  const stripeTopMd = WEEK_COLUMN_TOP_MD[dow];
+                  const headTint = WEEK_HEADER_TINT[dow];
                   return (
                     <div
                       key={ymd}
                       className={cn(
-                        'flex min-h-0 flex-col overflow-hidden rounded-lg border border-sky-200/45 bg-white/85 md:min-h-[200px] md:rounded-none md:border-0 md:border-r md:bg-transparent md:shadow-none md:last:border-r-0 dark:border-sky-800/30 dark:bg-card/50',
-                        isToday && 'bg-emerald-50/70 ring-1 ring-emerald-200/60 dark:bg-emerald-950/25 dark:ring-emerald-800/40 md:bg-emerald-50/40 md:ring-0',
+                        'flex min-h-0 flex-row overflow-hidden rounded-lg border border-sky-200/40 bg-white/92 md:flex-col md:min-h-[200px] md:rounded-none md:border-0 md:border-r md:shadow-none md:last:border-r-0 dark:border-sky-800/35 dark:bg-card/55',
+                        isToday
+                          ? 'max-md:border-l-[3px] max-md:border-l-emerald-500 md:border-t-4 md:border-t-emerald-500 bg-emerald-50/85 shadow-md shadow-emerald-500/15 ring-2 ring-emerald-400/45 dark:max-md:border-l-emerald-400 dark:bg-emerald-950/35 dark:shadow-emerald-950/30 dark:ring-emerald-500/35 md:ring-2 md:ring-emerald-400/35'
+                          : cn(stripeMobile, stripeTopMd),
+                        !isToday && 'md:bg-linear-to-b md:from-background md:to-muted/25',
                       )}
                     >
                       <div
                         className={cn(
-                          'border-b px-1.5 py-1 text-center md:px-2 md:py-2',
+                          'flex w-12 min-w-12 shrink-0 flex-col items-center justify-center gap-0.5 border-border/55 px-1 py-1 text-center max-md:border-b-0 max-md:border-r md:w-auto md:min-w-0 md:border-r-0 md:px-2 md:py-2',
                           isToday
-                            ? 'border-emerald-200/60 bg-emerald-100/50 font-medium text-emerald-900 dark:border-emerald-800/50 dark:bg-emerald-950/40 dark:text-emerald-100'
-                            : 'border-sky-100/80 bg-sky-50/50 dark:border-border dark:bg-muted/30',
+                            ? 'border-r border-emerald-400/55 bg-linear-to-b from-emerald-200/90 to-emerald-100/60 font-semibold text-emerald-950 md:border-b md:border-emerald-300/70 dark:border-emerald-600/45 dark:from-emerald-900/70 dark:to-emerald-950/50 dark:text-emerald-50 md:dark:border-emerald-700/55'
+                            : cn('bg-linear-to-b', headTint, 'max-md:border-r-border/50'),
                         )}
                       >
-                        <div className="text-[9px] font-semibold uppercase tracking-wide text-sky-800/80 dark:text-sky-200/80 sm:text-[11px]">
-                          {DAY_NAMES[getDayOfWeek(date)]}
+                        {isToday ? (
+                          <span className="inline-flex rounded-full bg-emerald-700 px-1 py-px text-[6px] font-extrabold uppercase leading-none tracking-wide text-white shadow-sm max-md:scale-90 dark:bg-emerald-500">
+                            Bugün
+                          </span>
+                        ) : null}
+                        <div
+                          className={cn(
+                            'text-[8px] font-bold uppercase leading-tight tracking-wide md:text-[11px]',
+                            isToday
+                              ? 'text-emerald-900/90 dark:text-emerald-100'
+                              : 'text-foreground/85 dark:text-foreground/80',
+                          )}
+                        >
+                          {DAY_NAMES[dow]}
                         </div>
-                        <div className={cn('text-sm font-bold sm:text-lg', isToday && 'text-emerald-800 dark:text-emerald-200')}>
+                        <div
+                          className={cn(
+                            'text-sm font-extrabold tabular-nums leading-none md:text-lg',
+                            isToday && 'text-emerald-900 dark:text-emerald-50',
+                          )}
+                        >
                           {date.getDate()}
                         </div>
-                        <div className="text-[9px] text-muted-foreground sm:text-xs">{MONTH_NAMES[date.getMonth()]}</div>
+                        <div
+                          className={cn(
+                            'max-w-full truncate text-[7px] leading-tight md:text-xs',
+                            isToday ? 'text-emerald-800/85 dark:text-emerald-200/90' : 'text-muted-foreground',
+                          )}
+                        >
+                          <span className="md:hidden">{date.toLocaleDateString('tr-TR', { month: 'short' })}</span>
+                          <span className="hidden md:inline">{MONTH_NAMES[date.getMonth()]}</span>
+                        </div>
                       </div>
-                      <div className="flex flex-1 flex-col space-y-0.5 p-1 sm:space-y-1 sm:p-2">
+                      <div
+                        className={cn(
+                          'flex min-w-0 flex-1 flex-col space-y-0.5 p-1 md:space-y-1 md:p-2',
+                          isToday && 'bg-emerald-50/50 dark:bg-emerald-950/25',
+                          !isToday && 'bg-slate-50/40 dark:bg-background/40 md:bg-transparent',
+                        )}
+                      >
                         {slots.length === 0 ? (
-                          <div className="rounded-md border border-dashed border-stone-200/80 py-2.5 text-center text-[9px] text-muted-foreground dark:border-stone-700 sm:py-6 sm:text-xs">
+                          <div className="rounded-md border border-dashed border-stone-200/80 py-1.5 text-center text-[8px] text-muted-foreground dark:border-stone-700 md:py-6 md:text-xs">
                             Nöbet yok
                           </div>
                         ) : (
@@ -896,35 +989,35 @@ export default function DutyPage() {
                                 key={s.id}
                                 onClick={() => setPanelTeacherId(s.user_id)}
                                 className={cn(
-                                  'cursor-pointer rounded-md border px-1 py-0.5 text-[9px] font-medium transition-colors select-none sm:rounded-lg sm:px-2 sm:py-1.5 sm:text-xs',
+                                  'cursor-pointer rounded-md border px-1 py-0.5 text-[8px] font-medium transition-colors select-none md:rounded-lg md:px-2 md:py-1.5 md:text-xs',
                                   col.bg, col.text, col.border, col.hoverBg,
                                   col.darkBg, col.darkText,
                                   s.absent_marked_at && 'opacity-50',
                                 )}
                               >
-                                <div className="flex items-center gap-1">
-                                  <span className={cn('size-1.5 shrink-0 rounded-full', col.dot)} />
-                                  <span className="truncate font-semibold">
+                                <div className="flex items-center gap-0.5 md:gap-1">
+                                  <span className={cn('size-1 shrink-0 rounded-full md:size-1.5', col.dot)} />
+                                  <span className="line-clamp-2 font-semibold leading-tight md:truncate">
                                     {s.user?.display_name || s.user?.email || '—'}
                                   </span>
                                 </div>
-                                <div className="mt-0.5 truncate text-[9px] opacity-80 sm:text-[10px]">
+                                <div className="mt-0.5 line-clamp-2 text-[7px] leading-tight opacity-80 md:truncate md:text-[10px]">
                                   {s.lesson_num ? `${s.lesson_num}. ders` : (s.area_name || '—')}
                                   {s.lesson_num && s.area_name ? ` · ${s.area_name}` : ''}
                                 </div>
-                                <div className="mt-0.5 flex flex-wrap gap-0.5 sm:gap-1">
+                                <div className="mt-0.5 flex flex-wrap gap-0.5 md:gap-1">
                                   {s.absent_marked_at && (
                                     <button
                                       type="button"
                                       onClick={(e) => { e.stopPropagation(); setCoverageSlotId(s.id); }}
-                                      className="rounded bg-rose-200/90 px-1 py-px text-[8px] font-bold uppercase text-rose-900 hover:bg-rose-300 dark:bg-rose-900/60 dark:text-rose-100 sm:text-[9px]"
+                                      className="rounded bg-rose-200/90 px-0.5 py-px text-[7px] font-bold uppercase text-rose-900 hover:bg-rose-300 dark:bg-rose-900/60 dark:text-rose-100 md:px-1 md:text-[9px]"
                                       title="Ders saati bazlı görevlendirme"
                                     >
                                       Gelmeyen
                                     </button>
                                   )}
                                   {s.reassigned_from_user_id && (
-                                    <span className="rounded bg-blue-100 px-1 py-px text-[8px] font-semibold text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 sm:text-[9px]">
+                                    <span className="rounded bg-blue-100 px-0.5 py-px text-[7px] font-semibold text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 md:px-1 md:text-[9px]">
                                       Yerine
                                     </span>
                                   )}
@@ -935,7 +1028,7 @@ export default function DutyPage() {
                                         e.stopPropagation();
                                         goToDay(ymd);
                                       }}
-                                      className="rounded px-1 py-px text-[8px] text-indigo-600 opacity-80 hover:underline dark:text-indigo-400 sm:text-[9px]"
+                                      className="rounded px-0.5 py-px text-[7px] text-indigo-600 opacity-80 hover:underline dark:text-indigo-400 md:px-1 md:text-[9px]"
                                       title="Gün görünümü"
                                     >
                                       Gün

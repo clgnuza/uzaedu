@@ -15,7 +15,7 @@ import { AuthCompactDetails } from '@/components/auth/auth-compact-details';
 type ForgotResponse = { ok: boolean; message: string };
 
 const inputClass =
-  'w-full rounded-lg border border-input bg-background px-2.5 py-1.5 pl-9 text-sm text-foreground placeholder:text-muted-foreground/80 shadow-sm transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 sm:rounded-xl sm:px-3 sm:py-2 sm:pl-10';
+  'w-full rounded-md border border-input bg-background px-2 py-1.5 pl-8 text-[13px] text-foreground placeholder:text-muted-foreground/75 shadow-sm transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 sm:rounded-lg sm:px-2.5 sm:py-2 sm:pl-9 sm:text-sm';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -51,20 +51,30 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <AuthPageShell>
-      <AuthCard>
-        <CardHeader className="space-y-0.5 px-3 pb-1.5 pt-2.5 sm:px-5 sm:pb-2 sm:pt-3.5">
-          <h2 className="text-[0.9375rem] font-semibold tracking-tight text-foreground sm:text-base">Şifre sıfırlama</h2>
-          <p className="text-[10px] text-muted-foreground sm:text-xs">E-postaya bağlantı</p>
+    <AuthPageShell compact eyebrow="Şifre sıfırlama">
+      <AuthCard className="rounded-xl sm:rounded-2xl">
+        <CardHeader className="space-y-0 px-2.5 pb-1 pt-2 sm:px-4 sm:pb-1.5 sm:pt-3">
+          <h2 className="text-[0.8125rem] font-semibold leading-tight tracking-tight text-foreground sm:text-[0.9375rem]">
+            Bağlantı iste
+          </h2>
+          <p className="text-[9px] leading-snug text-muted-foreground sm:text-[11px]">
+            Kayıtlı e-postanıza sıfırlama linki gider.
+          </p>
         </CardHeader>
-        <CardContent className="space-y-2.5 px-3 pb-3 pt-0 sm:space-y-3 sm:px-5 sm:pb-4">
-          <form onSubmit={handleSubmit} className="space-y-2.5 sm:space-y-3">
+        <CardContent className="space-y-2 px-2.5 pb-2.5 pt-0 sm:space-y-2.5 sm:px-4 sm:pb-3">
+          <form onSubmit={handleSubmit} className="space-y-2 sm:space-y-2.5">
             <div>
-              <label htmlFor="forgot-email" className="mb-0.5 block text-[11px] font-medium text-foreground sm:text-xs">
+              <label
+                htmlFor="forgot-email"
+                className="mb-0.5 block text-[10px] font-medium text-foreground sm:text-[11px]"
+              >
                 E-posta <span className="text-destructive">*</span>
               </label>
               <div className="relative">
-                <Mail className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70 sm:left-3 sm:size-4" aria-hidden />
+                <Mail
+                  className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground/70 sm:left-2.5 sm:size-3.5"
+                  aria-hidden
+                />
                 <input
                   id="forgot-email"
                   type="email"
@@ -72,19 +82,22 @@ export default function ForgotPasswordPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="ornek@okul.edu.tr"
                   autoComplete="email"
+                  inputMode="email"
                   required
                   disabled={loading}
                   className={cn(inputClass, 'disabled:opacity-60')}
                 />
               </div>
             </div>
-            {error && <Alert message={error} className="px-2.5 py-2 text-[11px] leading-snug [&_svg]:size-4" />}
+            {error && (
+              <Alert message={error} className="px-2 py-1.5 text-[10px] leading-snug [&_svg]:size-3.5 sm:text-[11px]" />
+            )}
             {success && (
               <div
                 role="status"
                 aria-live="polite"
                 aria-atomic="true"
-                className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-2 text-[11px] leading-snug text-emerald-900 dark:text-emerald-100 sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-xs"
+                className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1.5 text-[10px] leading-snug text-emerald-900 dark:text-emerald-100 sm:rounded-lg sm:px-2.5 sm:py-2 sm:text-[11px]"
               >
                 {success}
               </div>
@@ -93,22 +106,24 @@ export default function ForgotPasswordPage() {
               type="submit"
               disabled={loading}
               aria-busy={loading}
-              className="flex w-full items-center justify-center rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-opacity hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 sm:rounded-xl sm:px-4 sm:py-2.5"
+              className="flex w-full items-center justify-center rounded-md bg-primary px-2.5 py-1.5 text-[13px] font-semibold text-primary-foreground shadow-md shadow-primary/15 transition-opacity hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 sm:rounded-lg sm:px-3 sm:py-2 sm:text-sm"
             >
-              {loading ? <LoadingDots className="text-primary-foreground" /> : 'Sıfırlama bağlantısı gönder'}
+              {loading ? <LoadingDots className="text-primary-foreground" /> : 'Bağlantı gönder'}
             </button>
           </form>
 
           <AuthCompactDetails
-            icon={<Info className="size-3.5" strokeWidth={2} aria-hidden />}
+            className="rounded-lg border-border/50"
+            icon={<Info className="size-3" strokeWidth={2} aria-hidden />}
             title="E-posta gelmezse"
           >
-            Spam / gereksiz klasörüne bakın; birkaç dakika sürebilir.
+            Spam klasörüne bakın; birkaç dakika sürebilir. Google ile kayıtlıysanız şifre sıfırlama yerine Google
+            girişi kullanın.
           </AuthCompactDetails>
 
-          <p className="pt-0.5 text-center text-[10px] text-muted-foreground sm:text-xs">
+          <p className="pt-0 text-center text-[9px] text-muted-foreground sm:text-[10px]">
             <Link href="/login" className="font-semibold text-primary hover:underline">
-              ← Giriş
+              Girişe dön
             </Link>
           </p>
         </CardContent>

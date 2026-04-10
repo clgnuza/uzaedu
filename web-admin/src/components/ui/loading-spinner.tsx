@@ -1,12 +1,44 @@
 import { cn } from '@/lib/utils';
+import { PageLoadingBrand } from '@/components/ui/page-loading-brand';
 
 interface LoadingSpinnerProps {
   className?: string;
   /** Erişilebilirlik için açıklama */
   label?: string;
+  /**
+   * auto: className'da `size-*` yoksa video + çubuk (sayfa yüklemesi), varsa klasik spinner.
+   * default: her zaman klasik spinner.
+   * page: her zaman video varyantı.
+   */
+  variant?: 'auto' | 'default' | 'page';
 }
 
-export function LoadingSpinner({ className, label = 'Yükleniyor' }: LoadingSpinnerProps) {
+function isInlineSpinnerClass(className?: string) {
+  if (!className) return false;
+  return /\bsize-/.test(className);
+}
+
+export function LoadingSpinner({
+  className,
+  label = 'Yükleniyor',
+  variant = 'auto',
+}: LoadingSpinnerProps) {
+  const useBrand =
+    variant === 'page' || (variant === 'auto' && !isInlineSpinnerClass(className));
+
+  if (useBrand) {
+    return (
+      <div
+        className={cn('flex flex-col items-center justify-center gap-3 py-10 sm:gap-4 sm:py-12', className)}
+        role="status"
+        aria-label={label}
+      >
+        <PageLoadingBrand density="page" />
+        <p className="text-center text-sm font-medium tracking-tight text-muted-foreground">{label}</p>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn('flex flex-col items-center justify-center gap-3 py-12', className)}

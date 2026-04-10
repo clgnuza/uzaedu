@@ -18,6 +18,7 @@ import { tr } from 'date-fns/locale';
 import type { AssignedUserView, WeekWithItems } from './academic-calendar-timeline';
 import { BelirliPill, OgretmenPill } from './academic-calendar-timeline';
 import { cn } from '@/lib/utils';
+import { BILSEM_VIEW_TAB_STYLES } from '@/lib/bilsem-takvim-ui';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 
@@ -554,7 +555,7 @@ export function AcademicCalendarView({
     });
 
   return (
-    <div className={cn('space-y-5 sm:space-y-6', className)}>
+    <div className={cn('space-y-3 sm:space-y-6', className)}>
       <p className="sr-only" aria-live="polite" aria-atomic>
         {centerWeek
           ? `Seçili ${centerWeek.weekNumber}. hafta, ${centerWeek.dateStart && centerWeek.dateEnd ? formatDateRangeProminent(centerWeek.dateStart, centerWeek.dateEnd) : ''}`
@@ -562,24 +563,24 @@ export function AcademicCalendarView({
       </p>
 
       <div
-        className="sticky z-20 space-y-3 rounded-2xl border border-violet-100/80 bg-background/90 p-3 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-background/85 dark:border-violet-900/40 dark:bg-background/90"
+        className="sticky z-20 space-y-2 rounded-xl border border-violet-100/80 bg-background/90 p-2 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-background/85 dark:border-violet-900/40 dark:bg-background/90 sm:space-y-3 sm:rounded-2xl sm:p-3"
         style={{ top: 'var(--header-height)' }}
       >
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">Renkler</span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="size-2.5 shrink-0 rounded-full bg-orange-300 ring-1 ring-orange-400/30" aria-hidden />
-            Belirli gün / hafta
+        <div className="-mx-0.5 flex max-w-full flex-nowrap items-center gap-x-3 gap-y-1 overflow-x-auto px-0.5 pb-0.5 text-[10px] text-muted-foreground sm:flex-wrap sm:text-xs">
+          <span className="shrink-0 font-medium text-foreground">Renk</span>
+          <span className="inline-flex shrink-0 items-center gap-1">
+            <span className="size-2 shrink-0 rounded-full bg-orange-300 ring-1 ring-orange-400/30" aria-hidden />
+            Belirli gün
           </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="size-2.5 shrink-0 rounded-full bg-sky-300 ring-1 ring-sky-400/30" aria-hidden />
+          <span className="inline-flex shrink-0 items-center gap-1">
+            <span className="size-2 shrink-0 rounded-full bg-sky-300 ring-1 ring-sky-400/30" aria-hidden />
             Öğretmen işi
           </span>
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div className="min-w-0 flex-1 space-y-2">
-            <Label htmlFor={weekJumpId} className="text-muted-foreground">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
+          <div className="min-w-0 flex-1 space-y-1 sm:space-y-2">
+            <Label htmlFor={weekJumpId} className="text-[10px] text-muted-foreground sm:text-sm">
               Haftaya git
             </Label>
             <select
@@ -589,7 +590,7 @@ export function AcademicCalendarView({
                 const idx = weeks.findIndex((w) => w.id === e.target.value);
                 if (idx >= 0) setCenterIndex(idx);
               }}
-              className="min-h-11 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/50"
+              className="min-h-9 w-full rounded-lg border border-input bg-background px-2 py-1.5 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/50 sm:min-h-11 sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm"
               aria-label="Listeden hafta seçin"
             >
               {weeks.map((w) => (
@@ -601,35 +602,31 @@ export function AcademicCalendarView({
             </select>
           </div>
           {onViewChange && (
-            <div className="space-y-2 sm:min-w-[11rem]">
-              <span className="block text-sm font-medium text-muted-foreground">Görünüm</span>
-              <div className="flex rounded-xl border border-violet-100/80 bg-muted/30 p-1 dark:border-violet-900/50">
+            <div className="space-y-1 sm:min-w-[11rem] sm:space-y-2">
+              <span className="block text-[10px] font-medium text-muted-foreground sm:text-sm">Görünüm</span>
+              <div className="grid grid-cols-2 gap-0.5 rounded-lg border border-border/50 bg-muted/20 p-0.5 dark:bg-muted/10 sm:flex sm:gap-1 sm:rounded-xl sm:border-0 sm:bg-transparent sm:p-0">
                 <button
                   type="button"
                   onClick={() => onViewChange('week')}
                   className={cn(
-                    'flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-lg px-2 text-sm font-medium transition-colors',
-                    view === 'week'
-                      ? 'bg-background text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground'
+                    'flex min-h-8 items-center justify-center gap-1 rounded-md border px-1.5 py-1 text-[11px] font-semibold transition-colors sm:min-h-10 sm:flex-1 sm:rounded-lg sm:px-2 sm:text-sm',
+                    view === 'week' ? BILSEM_VIEW_TAB_STYLES.a.active : BILSEM_VIEW_TAB_STYLES.a.idle,
                   )}
                   aria-pressed={view === 'week'}
                 >
-                  <CalendarDays className="size-4 shrink-0 opacity-70" aria-hidden />
+                  <CalendarDays className="size-3.5 shrink-0 opacity-90 sm:size-4" aria-hidden />
                   Hafta
                 </button>
                 <button
                   type="button"
                   onClick={() => onViewChange('month')}
                   className={cn(
-                    'flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-lg px-2 text-sm font-medium transition-colors',
-                    view === 'month'
-                      ? 'bg-background text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground'
+                    'flex min-h-8 items-center justify-center gap-1 rounded-md border px-1.5 py-1 text-[11px] font-semibold transition-colors sm:min-h-10 sm:flex-1 sm:rounded-lg sm:px-2 sm:text-sm',
+                    view === 'month' ? BILSEM_VIEW_TAB_STYLES.b.active : BILSEM_VIEW_TAB_STYLES.b.idle,
                   )}
                   aria-pressed={view === 'month'}
                 >
-                  <LayoutList className="size-4 shrink-0 opacity-70" aria-hidden />
+                  <LayoutList className="size-3.5 shrink-0 opacity-90 sm:size-4" aria-hidden />
                   Liste
                 </button>
               </div>
@@ -660,17 +657,17 @@ export function AcademicCalendarView({
         </div>
       </div>
 
-      <div className="flex flex-col gap-4 rounded-2xl border border-violet-100/70 bg-gradient-to-br from-violet-50/40 via-background to-sky-50/30 p-4 shadow-sm dark:border-violet-900/35 dark:from-violet-950/25 dark:to-slate-950/30 sm:flex-row sm:items-center sm:justify-between sm:p-5">
-        <div className="flex w-full flex-wrap items-center justify-center gap-2 sm:w-auto sm:justify-start">
+      <div className="flex flex-col gap-2.5 rounded-xl border border-violet-100/70 bg-gradient-to-br from-violet-50/40 via-background to-sky-50/30 p-2.5 shadow-sm dark:border-violet-900/35 dark:from-violet-950/25 dark:to-slate-950/30 sm:gap-4 sm:rounded-2xl sm:p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex w-full flex-wrap items-center justify-center gap-1.5 sm:w-auto sm:justify-start sm:gap-2">
           <Button
             variant="outline"
             size="icon"
             onClick={goPrev}
             disabled={centerIndex <= 0}
             aria-label="Önceki hafta"
-            className="size-11 min-h-11 min-w-11 shrink-0 rounded-xl border-violet-200/80 bg-white/80 dark:border-violet-800/50 dark:bg-violet-950/40"
+            className="size-10 min-h-10 min-w-10 shrink-0 rounded-lg border-violet-200/80 bg-white/80 dark:border-violet-800/50 dark:bg-violet-950/40 sm:size-11 sm:min-h-11 sm:min-w-11 sm:rounded-xl"
           >
-            <ChevronLeft className="size-5" />
+            <ChevronLeft className="size-4 sm:size-5" />
           </Button>
           <Button
             variant="outline"
@@ -678,50 +675,50 @@ export function AcademicCalendarView({
             onClick={goNext}
             disabled={centerIndex >= weeks.length - 1}
             aria-label="Sonraki hafta"
-            className="size-11 min-h-11 min-w-11 shrink-0 rounded-xl border-violet-200/80 bg-white/80 dark:border-violet-800/50 dark:bg-violet-950/40"
+            className="size-10 min-h-10 min-w-10 shrink-0 rounded-lg border-violet-200/80 bg-white/80 dark:border-violet-800/50 dark:bg-violet-950/40 sm:size-11 sm:min-h-11 sm:min-w-11 sm:rounded-xl"
           >
-            <ChevronRight className="size-5" />
+            <ChevronRight className="size-4 sm:size-5" />
           </Button>
           {currentWeekIndex >= 0 && !isCenterCurrentWeek && (
             <Button
               variant="secondary"
               size="default"
               onClick={goToTodayWeek}
-              className="min-h-11 flex-1 rounded-xl text-sm sm:flex-none sm:px-4"
+              className="min-h-9 flex-1 rounded-lg text-xs sm:min-h-11 sm:flex-none sm:rounded-xl sm:px-4 sm:text-sm"
             >
               Bugünün haftası
             </Button>
           )}
         </div>
-        <div className="flex min-w-0 flex-1 flex-col items-center gap-1.5 px-1 text-center">
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <span className="inline-flex items-center rounded-full bg-violet-500/90 px-4 py-2 text-sm font-bold tabular-nums text-white shadow-sm dark:bg-violet-600/90">
+        <div className="flex min-w-0 flex-1 flex-col items-center gap-1 px-0.5 text-center sm:gap-1.5 sm:px-1">
+          <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
+            <span className="inline-flex items-center rounded-full bg-violet-500/90 px-3 py-1 text-xs font-bold tabular-nums text-white shadow-sm dark:bg-violet-600/90 sm:px-4 sm:py-2 sm:text-sm">
               {centerWeek?.weekNumber ?? centerIndex + 1}. hafta
             </span>
             {isCenterCurrentWeek && (
-              <span className="rounded-full bg-emerald-200/80 px-2.5 py-1 text-xs font-semibold text-emerald-900 dark:bg-emerald-900/50 dark:text-emerald-100">
+              <span className="rounded-full bg-emerald-200/80 px-2 py-0.5 text-[10px] font-semibold text-emerald-900 dark:bg-emerald-900/50 dark:text-emerald-100 sm:px-2.5 sm:py-1 sm:text-xs">
                 Şu an
               </span>
             )}
           </div>
-          <p className="text-pretty text-sm font-medium leading-snug text-foreground">
+          <p className="text-pretty text-xs font-medium leading-snug text-foreground sm:text-sm">
             {centerWeek?.dateStart && centerWeek?.dateEnd
               ? formatDateRangeProminent(centerWeek.dateStart, centerWeek.dateEnd)
               : centerWeek?.title ?? '—'}
           </p>
-          <p className="text-xs text-muted-foreground">İleri / geri veya yukarıdan hafta seçin</p>
+          <p className="hidden text-xs text-muted-foreground sm:block">İleri / geri veya yukarıdan hafta seçin</p>
         </div>
       </div>
 
       {view === 'week' && centerWeek && (
-        <div className="space-y-6">
+        <div className="space-y-3 sm:space-y-6">
           <WeekCardMain week={centerWeek} currentUserId={currentUserId} />
-          <div className="rounded-2xl border border-violet-100/60 bg-violet-50/25 p-4 dark:border-violet-900/35 dark:bg-violet-950/20 sm:p-5">
-            <p className="mb-3 text-center text-sm text-muted-foreground">
+          <div className="rounded-xl border border-violet-100/60 bg-violet-50/25 p-2 dark:border-violet-900/35 dark:bg-violet-950/20 sm:rounded-2xl sm:p-5">
+            <p className="mb-2 hidden text-center text-sm text-muted-foreground sm:mb-3 sm:block">
               Yakın haftalar — <span className="font-medium text-foreground">dokun</span> veya mobilde{' '}
               <span className="font-medium text-foreground">yana kaydır</span>
             </p>
-            <div className="-mx-1 flex max-w-full snap-x snap-mandatory flex-nowrap justify-start gap-2 overflow-x-auto px-1 pb-1 [-webkit-overflow-scrolling:touch] sm:flex-wrap sm:justify-center sm:overflow-visible">
+            <div className="-mx-0.5 flex max-w-full snap-x snap-mandatory flex-nowrap justify-start gap-1.5 overflow-x-auto px-0.5 pb-0.5 [-webkit-overflow-scrolling:touch] sm:-mx-1 sm:gap-2 sm:px-1 sm:pb-1 sm:flex-wrap sm:justify-center sm:overflow-visible">
               {quickNavWeeks.map((w) => {
                 const isSelected = w.id === centerWeek.id;
                 const isCurrent =
@@ -737,7 +734,7 @@ export function AcademicCalendarView({
                     type="button"
                     onClick={() => setCenterIndex(weeks.findIndex((x) => x.id === w.id))}
                     className={cn(
-                      'min-h-11 min-w-[5.5rem] shrink-0 snap-center rounded-xl border px-3 py-2.5 text-sm font-semibold tabular-nums transition-colors active:scale-[0.98]',
+                      'min-h-9 min-w-[4.75rem] shrink-0 snap-center rounded-lg border px-2 py-1.5 text-xs font-semibold tabular-nums transition-colors active:scale-[0.98] sm:min-h-11 sm:min-w-[5.5rem] sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm',
                       isSelected && 'border-violet-500 bg-violet-500 text-white shadow-sm dark:border-violet-400 dark:bg-violet-600',
                       !isSelected &&
                         isCurrent &&
@@ -757,24 +754,28 @@ export function AcademicCalendarView({
       )}
 
       {view === 'month' && (
-        <div className="space-y-4">
-          <div className="relative overflow-hidden rounded-2xl border border-violet-100/70 bg-gradient-to-br from-violet-50/50 to-sky-50/30 p-5 dark:border-violet-900/35 dark:from-violet-950/30 dark:to-slate-950/40">
+        <div className="space-y-2 sm:space-y-4">
+          <div className="relative overflow-hidden rounded-xl border border-violet-100/70 bg-gradient-to-br from-violet-50/50 to-sky-50/30 p-3 dark:border-violet-900/35 dark:from-violet-950/30 dark:to-slate-950/40 sm:rounded-2xl sm:p-5">
             <svg className="pointer-events-none absolute -bottom-8 end-0 size-32 text-violet-200/40 dark:text-violet-900/40" viewBox="0 0 128 128" fill="none" aria-hidden>
               <circle cx="100" cy="100" r="56" fill="currentColor" opacity="0.4" />
             </svg>
-            <div className="relative flex items-start gap-3">
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-white/80 text-violet-500 shadow-sm dark:bg-violet-950/60 dark:text-violet-300">
-                <LayoutGrid className="size-5" strokeWidth={1.75} aria-hidden />
+            <div className="relative flex items-start gap-2 sm:gap-3">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/80 text-violet-500 shadow-sm dark:bg-violet-950/60 dark:text-violet-300 sm:size-11 sm:rounded-2xl">
+                <LayoutGrid className="size-4 sm:size-5" strokeWidth={1.75} aria-hidden />
               </span>
-              <div>
-                <h3 className="text-base font-semibold text-foreground">Tüm haftalar</h3>
-                <p className="mt-1 text-pretty text-sm leading-relaxed text-muted-foreground">
-                  Bir haftaya dokunun; haftalık görünüme geçilir. Rozetlerde belirli gün (turuncu) ve öğretmen işi (mavi) sayıları yer alır.
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-foreground sm:text-base">Tüm haftalar</h3>
+                <p className="mt-0.5 text-pretty text-[11px] leading-snug text-muted-foreground sm:mt-1 sm:text-sm sm:leading-relaxed">
+                  Haftaya dokunun — haftalık görünüme geçilir.
+                  <span className="hidden sm:inline">
+                    {' '}
+                    Rozetler: turuncu belirli gün, mavi öğretmen işi.
+                  </span>
                 </p>
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
             {weeks.map((w) => {
               const isActive = w.id === centerWeek?.id;
               return (

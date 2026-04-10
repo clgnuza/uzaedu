@@ -30,6 +30,7 @@ type PlanSummary = {
 };
 
 import { getFavoriler, toggleFavori, getSonPlanlar, getSavedFilters, setSavedFilters, getKaldiginYer } from './kazanim-storage';
+import { cn } from '@/lib/utils';
 
 function getAcademicYears(): string[] {
   const years: string[] = [];
@@ -306,6 +307,13 @@ export default function KazanimTakipPage() {
     return branches.filter((b) => b.label.toLowerCase().includes(q) || b.code.toLowerCase().includes(q));
   }, [branches, searchQuery, debouncedSearch]);
 
+  const headerContextLine = useMemo(() => {
+    const g = filterGrade != null ? `${filterGrade}. sınıf` : 'Tüm sınıflar';
+    if (!filterSubject) return g;
+    const b = branches.find((x) => x.code === filterSubject);
+    return b ? `${g} · ${getBransAdi(b.label)}` : g;
+  }, [filterGrade, filterSubject, branches]);
+
   const sonPlanlarData = useMemo(() => {
     if (debouncedSearch.length >= 2) {
       const ids = new Set(allItems.map((p) => p.id));
@@ -325,71 +333,79 @@ export default function KazanimTakipPage() {
   }
 
   return (
-    <div className="kazanim-takip relative min-h-screen bg-[#f5f5f5] dark:bg-[#121212] text-gray-900 dark:text-gray-100 -mx-3 sm:-mx-4 md:-mx-6 lg:-mx-10 px-3 sm:px-4 md:px-6 lg:px-10 py-4 sm:py-6 lg:py-8 min-w-0 overflow-x-hidden">
-      <div className="max-w-[1320px] mx-auto space-y-6 sm:space-y-8">
-        <nav className="flex justify-center mb-6">
-          <ol className="inline-flex flex-wrap items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 rounded-xl text-xs shadow-sm border border-gray-200 dark:border-gray-700">
-            <li>
-              <Link href="/dashboard" className="text-gray-600 dark:text-gray-400 hover:text-primary transition-colors rounded-lg px-2 py-1">
-                <Home className="size-3.5 inline mr-1" /> Anasayfa
-              </Link>
-            </li>
-            <li className="text-gray-400"><ChevronRight className="size-3 inline" /></li>
-            <li>
-              <Link href="/kazanim-takip" className="text-gray-600 dark:text-gray-400 hover:text-primary transition-colors rounded-lg px-2 py-1">Planlarım</Link>
-            </li>
-            <li className="text-gray-400"><ChevronRight className="size-3 inline" /></li>
-            <li className="font-medium text-primary px-3 py-1 rounded-lg bg-primary/10">
-              {filterGrade != null ? `${filterGrade}. Sınıf Planları` : 'Tüm Sınıflar'}
-              {filterSubject != null && branches.find((b) => b.code === filterSubject) && (
-                <> · {branches.find((b) => b.code === filterSubject)?.label}</>
-              )}
-            </li>
-          </ol>
-        </nav>
-
-        <div className="mb-6 sm:mb-8">
-          <h1 className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 dark:text-white tracking-tight">
-            <span className="flex size-12 sm:size-14 items-center justify-center rounded-xl bg-primary/10 dark:bg-primary/20 text-primary shrink-0">
-              <Target className="size-6 sm:size-7" />
-            </span>
-            <span>
-              Kazanım Takip
-              <span className="mt-1 hidden text-sm font-normal text-gray-600 dark:text-gray-400 sm:block">
-                Yıllık planlarınızdaki kazanımları görüntüleyin, aşamalı takip yapın
-              </span>
-            </span>
-          </h1>
+    <div className="kazanim-takip relative min-h-screen bg-[#f5f5f5] dark:bg-[#121212] text-gray-900 dark:text-gray-100 -mx-3 sm:-mx-4 md:-mx-6 lg:-mx-10 px-3 sm:px-4 md:px-6 lg:px-10 py-3 sm:py-6 lg:py-8 min-w-0 overflow-x-hidden">
+      <div className="mx-auto max-w-[1320px] space-y-4 sm:space-y-6 lg:space-y-8">
+        <div className="flex items-center gap-1.5 rounded-xl border border-gray-200/90 bg-white px-2 py-1.5 shadow-sm dark:border-gray-700 dark:bg-gray-800 sm:gap-2 sm:px-3 sm:py-2">
+          <Link
+            href="/dashboard"
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-primary dark:text-gray-400 dark:hover:bg-gray-700"
+            aria-label="Anasayfa"
+            title="Anasayfa"
+          >
+            <Home className="size-[18px]" />
+          </Link>
+          <ChevronRight className="size-3 shrink-0 text-gray-400" aria-hidden />
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-sm dark:bg-indigo-500 sm:size-9">
+            <Target className="size-[15px] sm:size-4" aria-hidden />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h1
+              className="text-sm font-bold leading-tight text-gray-900 dark:text-white sm:text-base"
+              title="Yıllık plan haftalarındaki kazanımları görüntüleyin ve işaretleyin."
+            >
+              Kazanım takip
+            </h1>
+            <p className="truncate text-[10px] leading-tight text-gray-500 dark:text-gray-400 sm:text-xs" title={headerContextLine}>
+              {headerContextLine}
+            </p>
+          </div>
         </div>
 
-        {/* Sınıf Planları / Branş Filtresi - responsive toggle */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
-          <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">Sınıf Planları</h2>
-          <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-0.5 shadow-sm overflow-hidden w-full sm:w-auto">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <h2 className="hidden text-lg font-semibold text-gray-900 dark:text-white sm:block">Sınıf Planları</h2>
+          <div
+            className="grid w-full grid-cols-2 gap-1.5 rounded-xl border border-gray-200/80 bg-gray-50/80 p-1 dark:border-gray-700 dark:bg-gray-900/50 sm:flex sm:w-auto sm:rounded-lg sm:bg-white sm:p-0.5 sm:dark:bg-gray-800"
+            role="tablist"
+            aria-label="Görünüm"
+          >
             <button
               type="button"
+              role="tab"
+              aria-selected={viewMode === 'sinif'}
               onClick={() => setViewMode('sinif')}
-              className={`flex-1 sm:flex-none min-h-[44px] sm:min-h-0 px-3 sm:px-4 py-2.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'sinif' ? 'bg-primary text-white shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'}`}
+              className={cn(
+                'flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-[11px] font-semibold transition-all sm:min-h-0 sm:px-4 sm:py-2.5 sm:text-sm',
+                viewMode === 'sinif'
+                  ? 'bg-violet-600 text-white shadow-md ring-2 ring-violet-400/40 dark:bg-violet-600 dark:ring-violet-400/30'
+                  : 'bg-violet-100/90 text-violet-900 hover:bg-violet-200/90 active:scale-[0.98] dark:bg-violet-950/45 dark:text-violet-100 dark:hover:bg-violet-900/55',
+              )}
             >
-              <GraduationCap className="size-4 inline mr-1.5 sm:mr-2" />
-              <span className="hidden sm:inline">Sınıf Seviyeleri</span>
+              <GraduationCap className="size-4 shrink-0 sm:size-4" aria-hidden />
               <span className="sm:hidden">Sınıflar</span>
+              <span className="hidden sm:inline">Sınıf seviyeleri</span>
             </button>
             <button
               type="button"
+              role="tab"
+              aria-selected={viewMode === 'brans'}
               onClick={() => setViewMode('brans')}
-              className={`flex-1 sm:flex-none min-h-[44px] sm:min-h-0 px-3 sm:px-4 py-2.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'brans' ? 'bg-primary text-white shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'}`}
+              className={cn(
+                'flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-[11px] font-semibold transition-all sm:min-h-0 sm:px-4 sm:py-2.5 sm:text-sm',
+                viewMode === 'brans'
+                  ? 'bg-sky-600 text-white shadow-md ring-2 ring-sky-300/45 dark:bg-sky-600'
+                  : 'bg-sky-100/90 text-sky-900 hover:bg-sky-200/90 active:scale-[0.98] dark:bg-sky-950/45 dark:text-sky-100 dark:hover:bg-sky-900/55',
+              )}
             >
-              <Layers className="size-4 inline mr-1.5 sm:mr-2" />
-              Tüm Branşlar
+              <Layers className="size-4 shrink-0" aria-hidden />
+              Branşlar
             </button>
           </div>
         </div>
 
         {/* Sınıf kartları – tam genişlik, canlı gradient, orantılı grid */}
         {viewMode === 'sinif' && (
-        <section className="rounded-2xl bg-white dark:bg-gray-800 border border-gray-200/80 dark:border-gray-700/80 p-5 sm:p-6 lg:p-8 shadow-sm">
-          <div className="flex items-center justify-between mb-5 sm:mb-6">
+        <section className="rounded-2xl border border-gray-200/80 bg-white p-4 shadow-sm dark:border-gray-700/80 dark:bg-gray-800 sm:p-6 lg:p-8">
+          <div className="mb-4 flex items-center justify-between sm:mb-6">
             <span className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
               Tüm Sınıflar <span className="font-semibold text-gray-900 dark:text-white">{allItems.length}</span> plan
             </span>
@@ -450,20 +466,21 @@ export default function KazanimTakipPage() {
         )}
 
         {/* Ders adına göre ara */}
-        <section className="rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-4 sm:p-6 shadow-sm">
-          <div className="relative max-w-md group">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 size-4 text-gray-400 transition-colors group-focus-within:text-primary pointer-events-none" />
+        <section className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-800 sm:p-6">
+          <div className="group relative max-w-md">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400 transition-colors group-focus-within:text-primary sm:left-4" />
             <input
               ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={
+              placeholder="Ara…"
+              title={
                 filterGrade != null || viewMode === 'brans'
-                  ? 'Ders adı veya plan içeriğinde ara (ünite, konu, kazanım)…'
-                  : 'Ders adı, sınıf veya plan içeriği (ünite, konu, doğal vb.) ara… (/ kısayolu)'
+                  ? 'Ders adı veya plan içeriğinde ara: ünite, konu, kazanım. / ile odaklan.'
+                  : 'Ders adı, sınıf veya plan içeriğinde ara: ünite, konu vb. / ile odaklan.'
               }
-              className="w-full pl-11 pr-10 py-3 min-h-[48px] rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-base sm:text-sm placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+              className="min-h-[44px] w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-10 text-sm placeholder:text-gray-500 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-gray-600 dark:bg-gray-800 dark:placeholder:text-gray-400 sm:min-h-[48px] sm:py-3 sm:pl-11 sm:text-sm"
               aria-label="Arama"
             />
             {searchQuery && (
@@ -489,22 +506,24 @@ export default function KazanimTakipPage() {
 
         {/* Bugünün/Bu haftanın kazanımları */}
         {bugununPlanlari.length > 0 && (
-          <section className="rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-4 sm:p-6 shadow-sm">
-            <h2 className="flex items-center gap-3 text-lg font-semibold text-gray-900 dark:text-white mb-2">
-              <span className="flex size-9 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                <Zap className="size-4" />
+          <section className="rounded-xl border border-emerald-200/60 bg-white p-3 shadow-sm dark:border-emerald-800/40 dark:bg-gray-800 sm:border-gray-200 sm:p-6 dark:sm:border-gray-700">
+            <div className="mb-3 flex items-center gap-2.5 sm:mb-4 sm:gap-3">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-sm dark:bg-emerald-600">
+                <Zap className="size-4" aria-hidden />
               </span>
-              Bu Haftanın Kazanımları
-            </h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Favori ve son planlarınızdan bu haftaya hızlıca gidin
-            </p>
-            <div className="flex flex-wrap gap-2">
+              <div className="min-w-0 flex-1">
+                <h2 className="text-sm font-bold text-gray-900 dark:text-white sm:text-lg">Bu hafta</h2>
+                <p className="hidden text-sm text-gray-600 dark:text-gray-400 sm:block">
+                  Favori ve son planlarınızdan bu haftaya hızlıca gidin
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5 sm:gap-2">
               {bugununPlanlari.map((plan) => (
                 <Link
                   key={plan.id}
                   href={`/kazanim-takip/${encodeURIComponent(plan.id)}`}
-                  className="inline-flex items-center gap-2.5 px-4 py-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/20 hover:bg-emerald-100/80 dark:hover:bg-emerald-900/30 hover:border-emerald-300 dark:hover:border-emerald-700 transition-colors text-sm font-medium text-emerald-800 dark:text-emerald-200"
+                  className="inline-flex min-h-10 max-w-full items-center gap-2 rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-2.5 py-1.5 text-xs font-semibold text-emerald-900 transition-colors hover:border-emerald-300 hover:bg-emerald-100/90 dark:border-emerald-800/60 dark:bg-emerald-950/35 dark:text-emerald-100 dark:hover:bg-emerald-900/40 sm:gap-2.5 sm:px-4 sm:py-2.5 sm:text-sm"
                 >
                   <span className="flex size-8 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
                     <BookOpen className="size-4" />
@@ -537,22 +556,29 @@ export default function KazanimTakipPage() {
         )}
 
         {/* BEP / Özel eğitim filtresi */}
-        <section className="rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Plan türü:</span>
-            <div className="flex gap-2">
-              {(['all', 'ders', 'bep'] as const).map((s) => (
+        <section className="rounded-xl border border-gray-200 bg-white p-2 shadow-sm dark:border-gray-700 dark:bg-gray-800 sm:p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+            <span className="hidden text-sm text-gray-600 dark:text-gray-400 sm:inline">Plan türü</span>
+            <div className="grid w-full grid-cols-3 gap-1 sm:flex sm:w-auto sm:gap-2" role="tablist" aria-label="Plan türü">
+              {(
+                [
+                  { id: 'all' as const, label: 'Tümü', active: 'bg-slate-700 text-white ring-2 ring-slate-500/40 dark:bg-slate-600', idle: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200' },
+                  { id: 'ders' as const, label: 'Ders', active: 'bg-amber-500 text-white ring-2 ring-amber-300/50 dark:bg-amber-600', idle: 'bg-amber-100 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100' },
+                  { id: 'bep' as const, label: 'BEP', active: 'bg-teal-600 text-white ring-2 ring-teal-400/45 dark:bg-teal-600', idle: 'bg-teal-100 text-teal-950 dark:bg-teal-950/40 dark:text-teal-100' },
+                ] as const
+              ).map(({ id: s, label, active, idle }) => (
                 <button
                   key={s}
                   type="button"
+                  role="tab"
+                  aria-selected={filterSection === s}
                   onClick={() => setFilterSection(s)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
-                    filterSection === s
-                      ? 'bg-primary text-white border-primary'
-                      : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'
-                  }`}
+                  className={cn(
+                    'min-h-10 rounded-lg border border-transparent px-2 py-2 text-center text-[11px] font-bold transition-all active:scale-[0.98] sm:min-h-0 sm:px-4 sm:py-2 sm:text-sm',
+                    filterSection === s ? active : cn(idle, 'hover:opacity-90 dark:border-gray-600'),
+                  )}
                 >
-                  {s === 'all' ? 'Tümü' : s === 'ders' ? 'Ders' : 'BEP'}
+                  {label}
                 </button>
               ))}
             </div>

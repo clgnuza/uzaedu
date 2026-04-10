@@ -172,6 +172,20 @@
   }
 }
 
+@keyframes page-load-bar {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(380%);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .animate-page-load-bar {
+    animation: page-load-bar 1.15s ease-in-out infinite;
+  }
+}
+
 @layer base {
   ::-webkit-scrollbar {
     width: 6px;

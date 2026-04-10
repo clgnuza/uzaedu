@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
@@ -93,6 +94,13 @@ export function Header({
 }: HeaderProps) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [sidebarSheetOpen, setSidebarSheetOpen] = useState(false);
+  const userMenuAnchorRef = useRef<HTMLDivElement>(null);
+  const [userMenuPlacement, setUserMenuPlacement] = useState<{
+    top: number;
+    right: number;
+    maxWidth: number;
+    maxHeight: number;
+  } | null>(null);
   const pathname = usePathname();
   const router = useRouter();
   const isMobile = useIsMobile();
@@ -155,6 +163,36 @@ export function Header({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [userMenuOpen]);
+
+  useLayoutEffect(() => {
+    if (!userMenuOpen) {
+      setUserMenuPlacement(null);
+      return;
+    }
+    const update = () => {
+      const el = userMenuAnchorRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const pad = 8;
+      const maxW = isMobile ? Math.min(252, vw - pad * 2) : Math.min(320, vw - 24);
+      const maxH = isMobile ? Math.min(vh * 0.62, 340) : Math.min(vh * 0.72, 520);
+      setUserMenuPlacement({
+        top: r.bottom + 6,
+        right: vw - r.right,
+        maxWidth: maxW,
+        maxHeight: maxH,
+      });
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [userMenuOpen, isMobile]);
 
   const currentAppTheme: AppTheme = mounted ? (theme === 'system' ? 'system' : (theme as AppTheme) ?? 'light') : 'light';
   const currentSidebarTheme: SidebarTheme = sidebarTheme;
@@ -290,7 +328,7 @@ export function Header({
 
         {/* Sağ: hesap menüsü */}
         <div className="relative flex min-w-0 items-center justify-end gap-1.5 sm:gap-2">
-          <div className="relative">
+          <div className="relative" ref={userMenuAnchorRef}>
             <button
               type="button"
               onClick={() => setUserMenuOpen(!userMenuOpen)}
@@ -325,176 +363,181 @@ export function Header({
                 aria-hidden
               />
             </button>
-            {userMenuOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-40"
-                  aria-hidden
-                  onClick={() => setUserMenuOpen(false)}
-                />
-                <div
-                  className={cn(
-                    'absolute right-0 top-[calc(100%+0.5rem)] z-50 max-h-[min(85dvh,36rem)] max-sm:max-h-[min(72dvh,28rem)] origin-top-right overflow-y-auto overscroll-contain rounded-3xl max-sm:rounded-2xl',
-                    'w-[min(calc(100vw-1rem),22rem)] max-sm:fixed max-sm:left-2 max-sm:right-2 max-sm:top-[calc(var(--header-height,3.5rem)+0.35rem)] max-sm:w-auto',
-                    'border border-white/20 bg-gradient-to-b from-card via-card to-muted/40 shadow-[0_24px_48px_-12px_rgba(0,0,0,0.25)] ring-1 ring-black/5 backdrop-blur-xl',
-                    'dark:border-white/10 dark:from-slate-900/98 dark:via-slate-950/95 dark:to-slate-950 dark:shadow-[0_24px_60px_-8px_rgba(0,0,0,0.55)] dark:ring-white/10',
-                  )}
-                  role="menu"
-                >
-                  <div className="relative overflow-hidden rounded-t-3xl max-sm:rounded-t-2xl border-b border-violet-500/15 bg-gradient-to-r from-violet-500/12 via-fuchsia-500/10 to-cyan-500/12 px-4 py-4 max-sm:px-3 max-sm:py-3 dark:from-violet-500/20 dark:via-fuchsia-500/15 dark:to-cyan-500/18">
-                    <div
-                      className="pointer-events-none absolute -right-8 -top-10 size-32 max-sm:size-24 rounded-full bg-cyan-400/20 blur-2xl dark:bg-cyan-400/25"
-                      aria-hidden
-                    />
-                    <div className="relative flex gap-2.5 max-sm:gap-2">
-                      <UserAvatarBubble
-                        avatarKey={me?.avatar_key}
-                        avatarUrl={me?.avatar_url}
-                        displayName={displayLabel}
-                        email={me?.email}
-                        size="md"
-                        className="max-sm:scale-95 rounded-2xl! ring-2! ring-white/40 shadow-lg dark:ring-violet-400/30"
-                        verified={schoolVerified}
-                      />
-                      <div className="min-w-0 flex-1 pt-0.5">
-                        <p className="truncate text-base max-sm:text-sm font-semibold leading-tight text-foreground">{displayLabel}</p>
-                        {showEmailSub ? (
-                          <p className="mt-0.5 max-sm:mt-0 truncate text-xs max-sm:text-[11px] leading-relaxed text-muted-foreground">{emailLine}</p>
-                        ) : null}
+            {mounted &&
+              userMenuOpen &&
+              userMenuPlacement &&
+              createPortal(
+                <>
+                  <div
+                    className="fixed inset-0 z-[200] touch-manipulation bg-zinc-950/50 dark:bg-black/60"
+                    aria-hidden
+                    onClick={() => setUserMenuOpen(false)}
+                  />
+                  <div
+                    className={cn(
+                      'fixed z-[201] overflow-y-auto overscroll-contain rounded-xl border border-border bg-background shadow-2xl',
+                      'dark:border-zinc-800 dark:bg-zinc-950',
+                    )}
+                    style={{
+                      top: userMenuPlacement.top,
+                      right: userMenuPlacement.right,
+                      width: userMenuPlacement.maxWidth,
+                      maxHeight: userMenuPlacement.maxHeight,
+                    }}
+                    role="menu"
+                    aria-label="Hesap menüsü"
+                  >
+                    <div className="border-b border-border bg-muted px-3 py-2.5 dark:bg-zinc-900">
+                      <div className="flex gap-2">
+                        <UserAvatarBubble
+                          avatarKey={me?.avatar_key}
+                          avatarUrl={me?.avatar_url}
+                          displayName={displayLabel}
+                          email={me?.email}
+                          size={isMobile ? 'sm' : 'md'}
+                          className="rounded-xl! ring-1! ring-border shadow-sm"
+                          verified={schoolVerified}
+                        />
+                        <div className="min-w-0 flex-1 pt-0.5">
+                          <p className="truncate text-sm font-semibold leading-tight text-foreground">{displayLabel}</p>
+                          {showEmailSub ? (
+                            <p className="mt-0.5 truncate text-[11px] leading-snug text-muted-foreground">{emailLine}</p>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="space-y-3 max-sm:space-y-2 p-3 max-sm:p-2 sm:p-3.5">
-                    <div className="rounded-2xl max-sm:rounded-xl border border-amber-200/50 bg-gradient-to-br from-amber-500/12 via-orange-500/8 to-rose-500/10 p-3 max-sm:p-2 shadow-inner dark:border-amber-500/20 dark:from-amber-400/15 dark:via-orange-500/10 dark:to-rose-500/15">
-                      <div className="mb-2.5 max-sm:mb-1.5 flex items-center gap-2 text-[11px] max-sm:text-[10px] font-bold uppercase tracking-wider text-amber-800 dark:text-amber-200/95">
-                        <span className="flex size-7 max-sm:size-6 items-center justify-center rounded-lg bg-amber-500/25 text-amber-700 dark:bg-amber-400/20 dark:text-amber-100">
-                          <Palette className="size-3.5 max-sm:size-3" aria-hidden />
+                    <div className={cn('space-y-2', isMobile ? 'p-2' : 'p-2.5')}>
+                      <div className="rounded-lg border border-amber-200/80 bg-amber-50/90 p-2 dark:border-amber-500/30 dark:bg-amber-950/50">
+                        <div className="mb-1.5 flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wide text-amber-900 dark:text-amber-200">
+                          <span className="flex size-5 items-center justify-center rounded-md bg-amber-200/80 text-amber-900 dark:bg-amber-400/25 dark:text-amber-100">
+                            <Palette className="size-3" aria-hidden />
+                          </span>
+                          Tema
+                        </div>
+                        <div className="grid grid-cols-3 gap-1">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => handleAppTheme('light')}
+                            className={cn(
+                              'flex min-h-[34px] flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[9px] font-semibold transition-all active:scale-[0.98] sm:min-h-11 sm:gap-1 sm:px-2 sm:py-1.5 sm:text-[10px]',
+                              currentAppTheme === 'light'
+                                ? 'bg-amber-100 text-amber-950 shadow-sm ring-2 ring-amber-400/80 dark:bg-amber-400/25 dark:text-amber-50 dark:ring-amber-300/60'
+                                : 'bg-background text-muted-foreground hover:bg-amber-100/60 hover:text-foreground dark:bg-zinc-900 dark:hover:bg-amber-950/40',
+                            )}
+                            title="Açık tema"
+                          >
+                            <Sun className="size-3.5 sm:size-4" aria-hidden />
+                            Açık
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => handleAppTheme('dark')}
+                            className={cn(
+                              'flex min-h-[34px] flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[9px] font-semibold transition-all active:scale-[0.98] sm:min-h-11 sm:gap-1 sm:px-2 sm:py-1.5 sm:text-[10px]',
+                              currentAppTheme === 'dark'
+                                ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-400/70 dark:bg-indigo-500'
+                                : 'bg-background text-muted-foreground hover:bg-indigo-500/15 hover:text-foreground dark:bg-zinc-900',
+                            )}
+                            title="Koyu tema"
+                          >
+                            <Moon className="size-3.5 sm:size-4" aria-hidden />
+                            Koyu
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => handleAppTheme('system')}
+                            className={cn(
+                              'flex min-h-[34px] flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[9px] font-semibold transition-all active:scale-[0.98] sm:min-h-11 sm:gap-1 sm:px-2 sm:py-1.5 sm:text-[10px]',
+                              currentAppTheme === 'system'
+                                ? 'bg-sky-600 text-white shadow-sm ring-2 ring-sky-400/70'
+                                : 'bg-background text-muted-foreground hover:bg-sky-500/15 hover:text-foreground dark:bg-zinc-900',
+                            )}
+                            title="Sistem teması"
+                          >
+                            <Monitor className="size-3.5 sm:size-4" aria-hidden />
+                            Sistem
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border border-emerald-200/80 bg-emerald-50/90 p-2 dark:border-emerald-500/30 dark:bg-emerald-950/45">
+                        <div className="mb-1.5 flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wide text-emerald-900 dark:text-emerald-200">
+                          <span className="flex size-5 items-center justify-center rounded-md bg-emerald-200/80 text-emerald-900 dark:bg-emerald-400/25 dark:text-emerald-100">
+                            <PanelLeft className="size-3" aria-hidden />
+                          </span>
+                          Kenar çubuğu
+                        </div>
+                        <div className="grid grid-cols-2 gap-1">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => setSidebarTheme('light')}
+                            className={cn(
+                              'flex min-h-[36px] items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition-all active:scale-[0.98] sm:min-h-11 sm:gap-2 sm:text-sm',
+                              currentSidebarTheme === 'light'
+                                ? 'bg-emerald-500 text-white shadow-sm ring-2 ring-emerald-300/70'
+                                : 'bg-background text-muted-foreground hover:bg-emerald-100/70 hover:text-foreground dark:bg-zinc-900 dark:hover:bg-emerald-950/35',
+                            )}
+                            title="Açık kenar çubuğu"
+                          >
+                            <Sun className="size-3.5 shrink-0 sm:size-4" aria-hidden />
+                            Açık
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => setSidebarTheme('dark')}
+                            className={cn(
+                              'flex min-h-[36px] items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition-all active:scale-[0.98] sm:min-h-11 sm:gap-2 sm:text-sm',
+                              currentSidebarTheme === 'dark'
+                                ? 'bg-zinc-800 text-white shadow-sm ring-2 ring-zinc-500/60 dark:bg-zinc-700'
+                                : 'bg-background text-muted-foreground hover:bg-zinc-200/80 hover:text-foreground dark:bg-zinc-900 dark:hover:bg-zinc-800/60',
+                            )}
+                            title="Koyu kenar çubuğu"
+                          >
+                            <Moon className="size-3.5 shrink-0 sm:size-4" aria-hidden />
+                            Koyu
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-0.5 border-t border-border bg-muted/80 p-1.5 dark:bg-zinc-900/90">
+                      <Link
+                        href="/profile"
+                        role="menuitem"
+                        className="flex min-h-10 items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-background active:scale-[0.99] sm:min-h-11 sm:text-sm"
+                        onClick={() => setUserMenuOpen(false)}
+                      >
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-700 dark:bg-violet-500/25 dark:text-violet-200">
+                          <User className="size-3.5" aria-hidden />
                         </span>
-                        Tema
-                      </div>
-                      <div className="grid grid-cols-3 gap-1.5 max-sm:gap-1">
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => handleAppTheme('light')}
-                          className={cn(
-                            'flex min-h-[48px] max-sm:min-h-[40px] flex-col items-center justify-center gap-1 max-sm:gap-0.5 rounded-xl px-2 py-2.5 max-sm:py-1.5 text-[11px] max-sm:text-[10px] font-semibold transition-all active:scale-[0.98]',
-                            currentAppTheme === 'light'
-                              ? 'bg-gradient-to-b from-amber-100 to-amber-50 text-amber-950 shadow-md ring-2 ring-amber-400/70 dark:from-amber-400/30 dark:to-amber-500/20 dark:text-amber-50 dark:ring-amber-300/50'
-                              : 'bg-background/70 text-muted-foreground hover:bg-amber-500/15 hover:text-foreground dark:bg-slate-900/60',
-                          )}
-                          title="Açık tema"
-                        >
-                          <Sun className="size-4 max-sm:size-3.5" aria-hidden />
-                          Açık
-                        </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => handleAppTheme('dark')}
-                          className={cn(
-                            'flex min-h-[48px] max-sm:min-h-[40px] flex-col items-center justify-center gap-1 max-sm:gap-0.5 rounded-xl px-2 py-2.5 max-sm:py-1.5 text-[11px] max-sm:text-[10px] font-semibold transition-all active:scale-[0.98]',
-                            currentAppTheme === 'dark'
-                              ? 'bg-gradient-to-b from-indigo-600 to-violet-700 text-white shadow-md ring-2 ring-indigo-400/60 dark:from-indigo-500 dark:to-violet-600'
-                              : 'bg-background/70 text-muted-foreground hover:bg-indigo-500/15 hover:text-foreground dark:bg-slate-900/60',
-                          )}
-                          title="Koyu tema"
-                        >
-                          <Moon className="size-4 max-sm:size-3.5" aria-hidden />
-                          Koyu
-                        </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => handleAppTheme('system')}
-                          className={cn(
-                            'flex min-h-[48px] max-sm:min-h-[40px] flex-col items-center justify-center gap-1 max-sm:gap-0.5 rounded-xl px-2 py-2.5 max-sm:py-1.5 text-[11px] max-sm:text-[10px] font-semibold transition-all active:scale-[0.98]',
-                            currentAppTheme === 'system'
-                              ? 'bg-gradient-to-b from-sky-500 to-cyan-600 text-white shadow-md ring-2 ring-sky-300/60'
-                              : 'bg-background/70 text-muted-foreground hover:bg-sky-500/15 hover:text-foreground dark:bg-slate-900/60',
-                          )}
-                          title="Sistem teması"
-                        >
-                          <Monitor className="size-4 max-sm:size-3.5" aria-hidden />
-                          Sistem
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="rounded-2xl max-sm:rounded-xl border border-emerald-200/50 bg-gradient-to-br from-emerald-500/10 via-teal-500/8 to-cyan-500/10 p-3 max-sm:p-2 shadow-inner dark:border-emerald-500/25 dark:from-emerald-500/15 dark:via-teal-500/10 dark:to-cyan-500/12">
-                      <div className="mb-2.5 max-sm:mb-1.5 flex items-center gap-2 text-[11px] max-sm:text-[10px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-200/95">
-                        <span className="flex size-7 max-sm:size-6 items-center justify-center rounded-lg bg-emerald-500/25 text-emerald-800 dark:bg-emerald-400/20 dark:text-emerald-100">
-                          <PanelLeft className="size-3.5 max-sm:size-3" aria-hidden />
+                        Profil
+                      </Link>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-semibold text-red-600 transition-colors hover:bg-red-500/10 active:scale-[0.99] dark:text-red-400 sm:min-h-11 sm:text-sm"
+                        onClick={() => {
+                          logout();
+                          setUserMenuOpen(false);
+                          router.refresh();
+                        }}
+                      >
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-red-500/15 text-red-600 dark:bg-red-500/25 dark:text-red-300">
+                          <LogOut className="size-3.5" aria-hidden />
                         </span>
-                        Kenar çubuğu
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 max-sm:gap-1.5">
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => setSidebarTheme('light')}
-                          className={cn(
-                            'flex min-h-[48px] max-sm:min-h-[40px] items-center justify-center gap-2 max-sm:gap-1.5 rounded-xl px-3 max-sm:px-2 py-3 max-sm:py-2 text-sm max-sm:text-xs font-semibold transition-all active:scale-[0.98]',
-                            currentSidebarTheme === 'light'
-                              ? 'bg-gradient-to-r from-emerald-400 to-teal-500 text-white shadow-md ring-2 ring-emerald-300/50'
-                              : 'bg-background/70 text-muted-foreground hover:bg-emerald-500/12 hover:text-foreground dark:bg-slate-900/60',
-                          )}
-                          title="Açık kenar çubuğu"
-                        >
-                          <Sun className="size-4 max-sm:size-3.5 shrink-0" aria-hidden />
-                          Açık
-                        </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => setSidebarTheme('dark')}
-                          className={cn(
-                            'flex min-h-[48px] max-sm:min-h-[40px] items-center justify-center gap-2 max-sm:gap-1.5 rounded-xl px-3 max-sm:px-2 py-3 max-sm:py-2 text-sm max-sm:text-xs font-semibold transition-all active:scale-[0.98]',
-                            currentSidebarTheme === 'dark'
-                              ? 'bg-gradient-to-r from-slate-700 to-slate-900 text-white shadow-md ring-2 ring-slate-500/50 dark:from-slate-600 dark:to-slate-800'
-                              : 'bg-background/70 text-muted-foreground hover:bg-slate-500/20 hover:text-foreground dark:bg-slate-900/60',
-                          )}
-                          title="Koyu kenar çubuğu"
-                        >
-                          <Moon className="size-4 max-sm:size-3.5 shrink-0" aria-hidden />
-                          Koyu
-                        </button>
-                      </div>
+                        Çıkış
+                      </button>
                     </div>
                   </div>
-
-                  <div className="space-y-1 border-t border-border/60 bg-muted/20 p-2 max-sm:p-1.5 dark:bg-slate-900/40">
-                    <Link
-                      href="/profile"
-                      role="menuitem"
-                      className="flex min-h-[48px] max-sm:min-h-[42px] items-center gap-2.5 max-sm:gap-2 rounded-2xl max-sm:rounded-xl px-3 max-sm:px-2.5 py-3 max-sm:py-2 text-sm max-sm:text-[13px] font-semibold text-foreground transition-colors hover:bg-gradient-to-r hover:from-violet-500/15 hover:to-cyan-500/10 active:scale-[0.99] dark:hover:from-violet-500/25 dark:hover:to-cyan-500/15"
-                      onClick={() => setUserMenuOpen(false)}
-                    >
-                      <span className="flex size-10 max-sm:size-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 to-cyan-500/20 text-violet-700 dark:from-violet-500/30 dark:to-cyan-500/25 dark:text-violet-200">
-                        <User className="size-4 max-sm:size-3.5" aria-hidden />
-                      </span>
-                      Profil
-                    </Link>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="flex min-h-[48px] max-sm:min-h-[42px] w-full items-center gap-2.5 max-sm:gap-2 rounded-2xl max-sm:rounded-xl px-3 max-sm:px-2.5 py-3 max-sm:py-2 text-left text-sm max-sm:text-[13px] font-semibold text-red-600 transition-colors hover:bg-gradient-to-r hover:from-red-500/15 hover:to-rose-500/10 active:scale-[0.99] dark:text-red-400 dark:hover:from-red-500/20 dark:hover:to-rose-500/15"
-                      onClick={() => {
-                        logout();
-                        setUserMenuOpen(false);
-                        router.refresh();
-                      }}
-                    >
-                      <span className="flex size-10 max-sm:size-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-red-500/20 to-rose-500/15 text-red-600 dark:from-red-500/30 dark:to-rose-500/20 dark:text-red-300">
-                        <LogOut className="size-4 max-sm:size-3.5" aria-hidden />
-                      </span>
-                      Çıkış
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
+                </>,
+                document.body,
+              )}
           </div>
         </div>
       </Container>
