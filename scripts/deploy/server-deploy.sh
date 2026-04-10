@@ -27,6 +27,7 @@ fi
 
 echo "[deploy] web-admin install + build"
 rm -rf "$ROOT/web-admin/node_modules"
+rm -f "$ROOT/web-admin/.next/lock"
 (cd "$ROOT/web-admin" && unset NODE_ENV && npm ci --jobs=1 && NODE_ENV=production npm run build)
 
 echo "[deploy] pm2"
