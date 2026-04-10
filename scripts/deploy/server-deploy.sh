@@ -17,7 +17,7 @@ if [[ -z "${UZAEDU_SKIP_GIT_PULL:-}" ]]; then
 fi
 
 echo "[deploy] backend install + build"
-# Sunucuda NODE_ENV=production (pm2 vb.) npm ci'da devDependencies keser; nest CLI gerekir
+rm -rf "$ROOT/backend/node_modules"
 (cd "$ROOT/backend" && unset NODE_ENV && npm ci && npm run build)
 
 if [[ "${MIGRATE_ON_DEPLOY:-0}" == "1" ]]; then
@@ -26,6 +26,7 @@ if [[ "${MIGRATE_ON_DEPLOY:-0}" == "1" ]]; then
 fi
 
 echo "[deploy] web-admin install + build"
+rm -rf "$ROOT/web-admin/node_modules"
 (cd "$ROOT/web-admin" && unset NODE_ENV && npm ci && NODE_ENV=production npm run build)
 
 echo "[deploy] pm2"
