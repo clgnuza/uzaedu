@@ -17,7 +17,8 @@ if [[ -z "${UZAEDU_SKIP_GIT_PULL:-}" ]]; then
 fi
 
 echo "[deploy] backend install + build"
-(cd "$ROOT/backend" && npm ci && npm run build)
+# Sunucuda NODE_ENV=production (pm2 vb.) npm ci'da devDependencies keser; nest CLI gerekir
+(cd "$ROOT/backend" && unset NODE_ENV && npm ci && npm run build)
 
 if [[ "${MIGRATE_ON_DEPLOY:-0}" == "1" ]]; then
   echo "[deploy] migration:run"
@@ -25,8 +26,7 @@ if [[ "${MIGRATE_ON_DEPLOY:-0}" == "1" ]]; then
 fi
 
 echo "[deploy] web-admin install + build"
-# npm ci needs devDependencies (typescript, next.config.ts); NODE_ENV=production only for next build
-(cd "$ROOT/web-admin" && npm ci && NODE_ENV="${NODE_ENV:-production}" npm run build)
+(cd "$ROOT/web-admin" && unset NODE_ENV && npm ci && NODE_ENV=production npm run build)
 
 echo "[deploy] pm2"
 pm2 restart uzaedu-api --update-env
