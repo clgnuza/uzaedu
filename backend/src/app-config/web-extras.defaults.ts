@@ -66,6 +66,7 @@ export const DEFAULT_WEB_EXTRAS = {
   cache_ttl_web_extras: 30,
   global_robots_noindex: false,
   default_og_image_url: null as string | null,
+  meta_description: null as string | null,
   recaptcha_site_key: null as string | null,
   pwa_short_name: 'Öğretmen Pro',
   theme_color: '#0f172a',

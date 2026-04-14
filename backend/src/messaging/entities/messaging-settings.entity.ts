@@ -11,7 +11,7 @@ export class MessagingSettings {
   @Column({ type: 'varchar', length: 30, default: 'mock' })
   provider: 'mock' | 'meta' | 'twilio' | 'netgsm' | 'custom';
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ name: 'api_key', type: 'text', nullable: true })
   apiKey: string | null;
 
   @Column({ name: 'api_secret', type: 'text', nullable: true })

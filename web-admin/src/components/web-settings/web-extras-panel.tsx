@@ -92,6 +92,7 @@ const empty: WebExtrasPublic = {
   cache_ttl_web_extras: 30,
   global_robots_noindex: false,
   default_og_image_url: null,
+  meta_description: null,
   recaptcha_site_key: null,
   pwa_short_name: null,
   theme_color: null,

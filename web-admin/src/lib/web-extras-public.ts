@@ -27,6 +27,7 @@ export type WebExtrasPublic = {
   cache_ttl_web_extras: number;
   global_robots_noindex: boolean;
   default_og_image_url: string | null;
+  meta_description: string | null;
   recaptcha_site_key: string | null;
   pwa_short_name: string | null;
   theme_color: string | null;

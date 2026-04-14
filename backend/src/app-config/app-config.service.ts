@@ -236,6 +236,7 @@ export type WebExtrasConfig = {
   cache_ttl_web_extras: number;
   global_robots_noindex: boolean;
   default_og_image_url: string | null;
+  meta_description: string | null;
   recaptcha_site_key: string | null;
   pwa_short_name: string | null;
   theme_color: string | null;
@@ -389,6 +390,7 @@ function cloneWebExtrasDefaults(): WebExtrasConfig {
     cache_ttl_web_extras: DEFAULT_WEB_EXTRAS.cache_ttl_web_extras,
     global_robots_noindex: DEFAULT_WEB_EXTRAS.global_robots_noindex,
     default_og_image_url: DEFAULT_WEB_EXTRAS.default_og_image_url,
+    meta_description: DEFAULT_WEB_EXTRAS.meta_description,
     recaptcha_site_key: DEFAULT_WEB_EXTRAS.recaptcha_site_key,
     pwa_short_name: DEFAULT_WEB_EXTRAS.pwa_short_name,
     theme_color: DEFAULT_WEB_EXTRAS.theme_color,
@@ -431,6 +433,8 @@ function mergeWebExtrasFromStored(stored: Partial<WebExtrasConfig> | null): WebE
       typeof stored.global_robots_noindex === 'boolean' ? stored.global_robots_noindex : d.global_robots_noindex,
     default_og_image_url:
       stored.default_og_image_url !== undefined ? (stored.default_og_image_url?.trim() || null) : d.default_og_image_url,
+    meta_description:
+      stored.meta_description !== undefined ? (stored.meta_description?.trim() || null) : d.meta_description,
     recaptcha_site_key:
       stored.recaptcha_site_key !== undefined ? (stored.recaptcha_site_key?.trim() || null) : d.recaptcha_site_key,
     pwa_short_name: stored.pwa_short_name !== undefined ? (stored.pwa_short_name?.trim() || null) : d.pwa_short_name,
@@ -1282,6 +1286,7 @@ export class AppConfigService {
     if (dto.cache_ttl_web_extras !== undefined) next.cache_ttl_web_extras = clampCacheTtl(dto.cache_ttl_web_extras, 30);
     if (dto.global_robots_noindex !== undefined) next.global_robots_noindex = !!dto.global_robots_noindex;
     if (dto.default_og_image_url !== undefined) next.default_og_image_url = dto.default_og_image_url?.trim() || null;
+    if (dto.meta_description !== undefined) next.meta_description = dto.meta_description?.trim() || null;
     if (dto.pwa_short_name !== undefined) next.pwa_short_name = dto.pwa_short_name?.trim() || null;
     if (dto.theme_color !== undefined) next.theme_color = dto.theme_color?.trim() || null;
     if (dto.favicon_url !== undefined) next.favicon_url = dto.favicon_url?.trim() || null;
