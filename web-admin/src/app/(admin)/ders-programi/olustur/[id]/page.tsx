@@ -9,15 +9,12 @@ import {
   Trash2,
   Plus,
   X,
-  FileEdit,
   Calendar,
   CalendarDays,
   CalendarRange,
   Clock,
   Sun,
   Info,
-  Zap,
-  AlertTriangle,
   Check,
   Eraser,
   Table2,
@@ -27,7 +24,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { isWeekendDow, useSchoolTimetableSettings } from '@/hooks/use-school-timetable-settings';
-import { useSchoolClassesSubjects } from '@/hooks/use-school-classes-subjects';
+import { useSchoolClassesSubjects, type SchoolClass } from '@/hooks/use-school-classes-subjects';
 import { apiFetch } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -42,8 +39,15 @@ import {
 } from '@/components/ui/dialog';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { LessonCellCard } from '@/components/ders-programi/lesson-cell-card';
+import { DersProgramiWeekIllustration } from '@/components/ders-programi/ders-programi-week-illustration';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { formatSchoolSubjectOptionLabel, resolveSchoolSubjectDisplay } from '@/lib/school-subject-display';
+
+const SECTION_PANEL = 'rounded-xl border border-border/70 bg-card/50 p-3 shadow-sm sm:p-4';
+const SECTION_TITLE = 'flex items-center gap-2 text-sm font-bold text-foreground sm:text-base';
+const SECTION_HELP = 'hidden text-xs leading-snug text-muted-foreground sm:block';
+const MOBILE_HINT = 'text-[11px] leading-snug text-muted-foreground sm:hidden';
 
 type TimetableEntry = {
   day_of_week: number;
@@ -82,6 +86,16 @@ function formatTime(min: number): string {
   const h = Math.floor(min / 60);
   const m = min % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function formatClassOptionLabel(c: SchoolClass): string {
+  const name = c.name.trim();
+  if (c.grade == null) return name;
+  const g = c.grade;
+  if (new RegExp(`^${g}(?:[-\\s./]|$)`).test(name)) return name;
+  const low = name.toLocaleLowerCase('tr');
+  if (low.includes('sınıf') && low.includes(String(g))) return name;
+  return `${name} · Sınıf ${g}`;
 }
 
 type SlotDisplay = {
@@ -186,6 +200,7 @@ export default function ProgramEditPage() {
   const [addModal, setAddModal] = useState<{ day: number; lesson: number } | null>(null);
   const [addClassSection, setAddClassSection] = useState('');
   const [addSubject, setAddSubject] = useState('');
+  const [addSubjectId, setAddSubjectId] = useState('');
   const [schoolStart, setSchoolStart] = useState('08:30');
   const [schoolEnd, setSchoolEnd] = useState('17:30');
   const [lessonMin, setLessonMin] = useState(40);
@@ -339,7 +354,14 @@ export default function ProgramEditPage() {
   const handleAddLesson = async () => {
     if (!addModal || !token || !program) return;
     const classSection = addClassSection.trim().slice(0, 32);
-    const subject = addSubject.trim().slice(0, 128);
+    const picked = schoolSubjects.find((s) => s.id === addSubjectId);
+    const subject = (
+      schoolSubjects.length > 0
+        ? picked
+          ? formatSchoolSubjectOptionLabel(picked)
+          : ''
+        : addSubject.trim()
+    ).slice(0, 128);
     if (!classSection || !subject) {
       toast.error('Sınıf ve ders gerekli.');
       return;
@@ -369,6 +391,7 @@ export default function ProgramEditPage() {
       setAddModal(null);
       setAddClassSection('');
       setAddSubject('');
+      setAddSubjectId('');
       toast.success('Ders eklendi.');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Eklenemedi.');
@@ -463,119 +486,161 @@ export default function ProgramEditPage() {
   const termOptions = ['Tüm Yıl', '1. Dönem', '2. Dönem'];
   const allTermOptions = [...new Set([...termOptions, program.term].filter(Boolean))];
 
+  const entryCount = program.entries?.length ?? 0;
+
   return (
-    <div className="space-y-6">
-      {/* Sticky header + sekmeler */}
-      <div className="sticky top-0 z-20 space-y-2 border-b border-border/40 bg-background/90 pb-2 pt-0.5 shadow-sm backdrop-blur-md print:static print:border-0 print:bg-transparent print:pb-0 print:shadow-none">
-        <div className="flex items-center justify-between gap-3 rounded-t-xl bg-primary px-3 py-3 text-primary-foreground shadow-md sm:px-4 print:shadow-none">
-          <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/20">
-              <FileEdit className="size-5" />
+    <div className="mx-auto max-w-6xl space-y-4 px-0 sm:space-y-5 sm:px-1">
+      <div className="sticky top-0 z-20 space-y-2 border-b border-border/50 bg-background/95 pb-2 pt-1 shadow-sm backdrop-blur-md print:static print:border-0 print:bg-transparent print:pb-0 print:shadow-none sm:rounded-t-xl">
+        <div className="relative overflow-hidden rounded-xl border border-violet-200/45 bg-linear-to-br from-violet-500/12 via-background to-sky-500/10 p-3 ring-1 ring-violet-500/10 dark:border-violet-900/40 dark:from-violet-950/35 dark:to-sky-950/20 dark:ring-violet-900/25 sm:p-3.5">
+          <div className="pointer-events-none absolute -right-6 -top-8 size-24 rounded-full bg-violet-400/15 blur-2xl dark:bg-violet-500/20" aria-hidden />
+          <div className="relative flex gap-2.5 sm:gap-3">
+            <DersProgramiWeekIllustration className="size-[52px] shrink-0 sm:size-16" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300 sm:text-[10px]">
+                    Program düzenle
+                  </p>
+                  <h1 className="mt-0.5 truncate text-sm font-bold leading-tight text-foreground sm:text-base" title={program.name}>
+                    {program.name}
+                  </h1>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1 sm:gap-1.5">
+                    <span className="rounded-md border border-border/60 bg-background/90 px-1.5 py-0.5 font-mono text-[10px] font-medium tabular-nums text-muted-foreground sm:text-xs">
+                      {program.academic_year}
+                    </span>
+                    <span className="rounded-md border border-border/60 bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:text-xs">
+                      {program.term}
+                    </span>
+                    <span className="rounded-md border border-emerald-200/60 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:border-emerald-800/60 dark:text-emerald-200 sm:text-xs">
+                      {entryCount} ders kaydı
+                    </span>
+                  </div>
+                  <p className={cn(SECTION_HELP, 'mt-2 max-w-xl')}>
+                    Ad, dönem ve saatleri bu sayfada düzenleyin; haftalık tabloda ders ekleyip kaldırın. Kayıt için alttaki «Programı Güncelle» ve tabloda eklediğiniz dersler otomatik kaydolur.
+                  </p>
+                  <p className={cn(MOBILE_HINT, 'mt-1.5')}>Aşağıdaki sekmelerle bölümler arasında geçin.</p>
+                </div>
+                <Button size="sm" variant="secondary" asChild className="h-8 shrink-0 gap-1.5 px-2.5 text-xs shadow-sm sm:h-9 sm:px-3">
+                  <Link href="/ders-programi/programlarim" title="Programlarım listesine dön">
+                    <ArrowLeft className="size-3.5 sm:size-4" />
+                    <span className="hidden sm:inline">Geri</span>
+                  </Link>
+                </Button>
+              </div>
             </div>
-            <h1 className="truncate text-base font-semibold leading-snug sm:text-lg" title={`Program Düzenle: ${program.name}`}>
-              Program Düzenle: {program.name}
-            </h1>
           </div>
-          <Button size="sm" asChild className="shrink-0 bg-white/90 hover:bg-white text-primary border-0 shadow-sm">
-            <Link href="/ders-programi/programlarim" className="gap-2">
-              <ArrowLeft className="size-4" />
-              <span className="hidden sm:inline">Geri Dön</span>
-              <span className="sm:hidden">Geri</span>
-            </Link>
-          </Button>
         </div>
-        <div className="rounded-xl border-2 border-primary/30 bg-linear-to-br from-primary/10 via-muted/40 to-muted/25 p-2.5 shadow-md ring-1 ring-primary/15 dark:border-primary/40 dark:from-primary/15 dark:ring-primary/20 print:hidden">
-          <p className="mb-2 text-center text-[11px] font-bold uppercase tracking-wider text-primary sm:text-left" id="program-section-tabs-label">
-            Sayfa bölümleri
-          </p>
+
+        <nav className="w-full print:hidden" aria-label="Sayfa bölümleri">
           <div
-            className="-mx-0.5 flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1 sm:mx-0 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0"
             role="tablist"
-            aria-labelledby="program-section-tabs-label"
+            className="grid w-full grid-cols-3 gap-1 rounded-xl border-2 border-violet-200/85 bg-violet-50/80 p-1 shadow-sm dark:border-violet-900/55 dark:bg-violet-950/35 sm:gap-1.5 sm:p-1"
           >
             <button
               type="button"
               role="tab"
               aria-selected={activeSection === 'general'}
               id="tab-program-general"
+              title="Ad, yıl, dönem"
               onClick={() => scrollToSection('general')}
               className={cn(
-                'flex min-h-[52px] min-w-[calc(100vw-4rem)] shrink-0 snap-center flex-col items-center justify-center gap-0.5 rounded-lg border-2 px-3 py-2.5 text-center transition-all duration-200 sm:min-h-[56px] sm:min-w-0 sm:snap-none sm:px-3',
+                'flex min-h-10 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-center text-[10px] font-bold transition-all sm:min-h-11 sm:flex-row sm:gap-2 sm:px-2 sm:py-2 sm:text-xs',
                 activeSection === 'general'
-                  ? 'border-primary bg-primary text-primary-foreground shadow-lg ring-2 ring-primary/35'
-                  : 'border-border/80 bg-background/90 text-foreground hover:border-primary/45 hover:bg-muted/60 active:scale-[0.99] dark:border-border/60',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                  ? 'bg-violet-600 text-white shadow-md ring-2 ring-violet-500/40 dark:bg-violet-500 dark:ring-violet-300/30'
+                  : 'border border-transparent bg-white/75 text-violet-900/75 hover:border-violet-300/80 hover:bg-white dark:bg-violet-950/45 dark:text-violet-100/80 dark:hover:border-violet-800',
               )}
             >
-              <Calendar className="size-5 shrink-0 opacity-95" aria-hidden />
-              <span className="text-sm font-bold leading-tight">Genel Bilgiler</span>
-              <span className="text-[10px] font-medium opacity-90 sm:text-[11px]">Ad, yıl, dönem</span>
+              <Calendar className="size-3.5 shrink-0 opacity-90 sm:size-4" aria-hidden />
+              <span className="leading-tight">Genel</span>
+              <span
+                className={cn(
+                  'hidden text-[10px] sm:inline',
+                  activeSection === 'general' ? 'font-normal text-white/85' : 'font-normal text-muted-foreground',
+                )}
+              >
+                Bilgiler
+              </span>
             </button>
             <button
               type="button"
               role="tab"
               aria-selected={activeSection === 'times'}
               id="tab-program-times"
+              title="Günlük çizelge ve saatler"
               onClick={() => scrollToSection('times')}
               className={cn(
-                'flex min-h-[52px] min-w-[calc(100vw-4rem)] shrink-0 snap-center flex-col items-center justify-center gap-0.5 rounded-lg border-2 px-3 py-2.5 text-center transition-all duration-200 sm:min-h-[56px] sm:min-w-0 sm:snap-none sm:px-3',
+                'flex min-h-10 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-center text-[10px] font-bold transition-all sm:min-h-11 sm:flex-row sm:gap-2 sm:px-2 sm:py-2 sm:text-xs',
                 activeSection === 'times'
-                  ? 'border-primary bg-primary text-primary-foreground shadow-lg ring-2 ring-primary/35'
-                  : 'border-border/80 bg-background/90 text-foreground hover:border-primary/45 hover:bg-muted/60 active:scale-[0.99] dark:border-border/60',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                  ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-500/40 dark:bg-emerald-500 dark:ring-emerald-300/30'
+                  : 'border border-transparent bg-white/75 text-emerald-900/75 hover:border-emerald-300/80 hover:bg-white dark:bg-emerald-950/40 dark:text-emerald-100/80 dark:hover:border-emerald-800',
               )}
             >
-              <Clock className="size-5 shrink-0 opacity-95" aria-hidden />
-              <span className="text-sm font-bold leading-tight">Program saatleri</span>
-              <span className="text-[10px] font-medium opacity-90 sm:text-[11px]">Günlük çizelge</span>
+              <Clock className="size-3.5 shrink-0 opacity-90 sm:size-4" aria-hidden />
+              <span className="leading-tight">Saatler</span>
+              <span
+                className={cn(
+                  'hidden text-[10px] sm:inline',
+                  activeSection === 'times' ? 'font-normal text-white/85' : 'font-normal text-muted-foreground',
+                )}
+              >
+                Çizelge
+              </span>
             </button>
             <button
               type="button"
               role="tab"
               aria-selected={activeSection === 'weekly'}
               id="tab-program-weekly"
+              title="Haftalık ders yerleşimi"
               onClick={() => scrollToSection('weekly')}
               className={cn(
-                'flex min-h-[52px] min-w-[calc(100vw-4rem)] shrink-0 snap-center flex-col items-center justify-center gap-0.5 rounded-lg border-2 px-3 py-2.5 text-center transition-all duration-200 sm:min-h-[56px] sm:min-w-0 sm:snap-none sm:px-3',
+                'flex min-h-10 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-center text-[10px] font-bold transition-all sm:min-h-11 sm:flex-row sm:gap-2 sm:px-2 sm:py-2 sm:text-xs',
                 activeSection === 'weekly'
-                  ? 'border-primary bg-primary text-primary-foreground shadow-lg ring-2 ring-primary/35'
-                  : 'border-border/80 bg-background/90 text-foreground hover:border-primary/45 hover:bg-muted/60 active:scale-[0.99] dark:border-border/60',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                  ? 'bg-sky-600 text-white shadow-md ring-2 ring-sky-500/40 dark:bg-sky-500 dark:ring-sky-300/30'
+                  : 'border border-transparent bg-white/75 text-sky-900/75 hover:border-sky-300/80 hover:bg-white dark:bg-sky-950/45 dark:text-sky-100/80 dark:hover:border-sky-800',
               )}
             >
-              <Table2 className="size-5 shrink-0 opacity-95" aria-hidden />
-              <span className="text-sm font-bold leading-tight">Haftalık Program</span>
-              <span className="text-[10px] font-medium opacity-90 sm:text-[11px]">Ders yerleşimi</span>
+              <Table2 className="size-3.5 shrink-0 opacity-90 sm:size-4" aria-hidden />
+              <span className="leading-tight">Haftalık</span>
+              <span
+                className={cn(
+                  'hidden text-[10px] sm:inline',
+                  activeSection === 'weekly' ? 'font-normal text-white/85' : 'font-normal text-muted-foreground',
+                )}
+              >
+                Tablo
+              </span>
             </button>
           </div>
-        </div>
+        </nav>
       </div>
 
-      <div className="space-y-6 rounded-b-xl border border-t-0 border-border p-4">
+      <div className="space-y-4 rounded-xl border border-border/60 bg-muted/10 p-3 sm:space-y-5 sm:p-4 md:p-5">
         {/* Program Bilgileri */}
         <section
           ref={(el) => {
             sectionRefs.current.general = el;
           }}
-          className="space-y-4 scroll-mt-40 sm:scroll-mt-44"
+          className="scroll-mt-36 space-y-3 sm:scroll-mt-40 sm:space-y-4"
         >
-          <div className="space-y-1">
-            <h2 className="text-base font-semibold tracking-tight text-foreground">Genel bilgiler</h2>
-            <p className="text-sm text-muted-foreground">
-              Programınızı tanımlayan üç alan. <span className="text-foreground/80">Programlarım</span> listesinde ve düzenlerken bu bilgiler birlikte gösterilir.
-            </p>
+          <div className="flex items-center gap-2 border-b border-violet-200/50 pb-2 dark:border-violet-900/40">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-violet-500/15 text-violet-700 dark:text-violet-300">
+              <Calendar className="size-4" aria-hidden />
+            </span>
+            <div>
+              <h2 className={SECTION_TITLE}>Genel bilgiler</h2>
+              <p className={SECTION_HELP}>Program adı, yıl ve dönem — listelerde birlikte görünür.</p>
+            </div>
           </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-card/50 p-4 shadow-sm">
+          <div className="grid gap-3 sm:grid-cols-3 sm:gap-4">
+            <div className={cn('flex flex-col gap-2', SECTION_PANEL)}>
               <Label htmlFor="program-name" className="flex items-start gap-2 text-sm font-semibold text-foreground">
-                <Tag className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                <Tag className="mt-0.5 size-4 shrink-0 text-violet-600 dark:text-violet-400" aria-hidden />
                 <span>
                   Program adı <span className="text-destructive">*</span>
                 </span>
               </Label>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                Kısa ve ayırt edici bir ad verin (ör. sınıf veya branş). Okul programından aktarıldıysa başlıkta bunu belirtebilirsiniz.
-              </p>
+              <p className={SECTION_HELP}>Kısa, ayırt edici ad (sınıf / branş).</p>
               <Input
                 id="program-name"
                 value={program.name}
@@ -585,15 +650,15 @@ export default function ProgramEditPage() {
                 autoComplete="off"
               />
             </div>
-            <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-card/50 p-4 shadow-sm">
+            <div className={cn('flex flex-col gap-2', SECTION_PANEL)}>
               <Label htmlFor="program-academic-year" className="flex items-start gap-2 text-sm font-semibold text-foreground">
-                <GraduationCap className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                <GraduationCap className="mt-0.5 size-4 shrink-0 text-violet-600 dark:text-violet-400" aria-hidden />
                 <span>
                   Akademik yıl <span className="text-destructive">*</span>
                 </span>
               </Label>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                Eğitim-öğretim yılı, iki yıl arası tire ile: <span className="font-medium text-foreground/90">2026-2027</span>
+              <p className={SECTION_HELP}>
+                İki yıl tire ile: <span className="font-mono font-medium">2026-2027</span>
               </p>
               <Input
                 id="program-academic-year"
@@ -605,16 +670,14 @@ export default function ProgramEditPage() {
                 autoComplete="off"
               />
             </div>
-            <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-card/50 p-4 shadow-sm">
+            <div className={cn('flex flex-col gap-2', SECTION_PANEL)}>
               <Label htmlFor="program-term" className="flex items-start gap-2 text-sm font-semibold text-foreground">
-                <Layers className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                <Layers className="mt-0.5 size-4 shrink-0 text-violet-600 dark:text-violet-400" aria-hidden />
                 <span>
                   Dönem <span className="text-destructive">*</span>
                 </span>
               </Label>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                Tüm yıl veya dönem bazlı; haftalık tablo ile aynı kapsamı seçtiğinizden emin olun.
-              </p>
+              <p className={SECTION_HELP}>Tüm yıl veya dönem.</p>
               <select
                 id="program-term"
                 value={program.term}
@@ -631,23 +694,31 @@ export default function ProgramEditPage() {
           </div>
         </section>
 
-        {/* Kişisel program için temel çizelge (okul genel ayarını değiştirmez) */}
-        <section
+        <div
           ref={(el) => {
             sectionRefs.current.times = el;
           }}
-          className="space-y-4 scroll-mt-40 sm:scroll-mt-44"
+          className="scroll-mt-36 space-y-4 sm:scroll-mt-40 sm:space-y-5"
         >
-          <div className="space-y-1">
-            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <Clock className="size-4 text-muted-foreground" />
-              Program için temel saatler
-            </h2>
-            <p className="text-xs text-muted-foreground leading-snug">
-              Yalnızca <strong className="text-foreground/90">bu programa</strong> ait çizelgeyi ayarlarsınız; okulun genel ders saatleri ve diğer öğretmenler etkilenmez.
+        <div className="flex items-center gap-2 border-b border-emerald-200/50 pb-2 dark:border-emerald-900/40">
+          <span className="flex size-8 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+            <Clock className="size-4" aria-hidden />
+          </span>
+          <div>
+            <h2 className={SECTION_TITLE}>Program saatleri</h2>
+            <p className={SECTION_HELP}>
+              Sadece bu programınızın önizlemesi; okul genel ayarları ve diğer öğretmenler değişmez.
             </p>
+            <p className={MOBILE_HINT}>Bu bölüm yalnızca sizin planınız içindir.</p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        </div>
+
+        {/* Kişisel program için temel çizelge (okul genel ayarını değiştirmez) */}
+        <section className={cn('space-y-3', SECTION_PANEL, 'sm:space-y-4')}>
+          <h3 className="text-xs font-bold uppercase tracking-wide text-muted-foreground sm:text-sm sm:normal-case sm:tracking-normal">
+            Temel saatler
+          </h3>
+          <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
             <div className="space-y-2">
               <Label className="text-sm">İlk ders başlangıcı *</Label>
               <Input type="time" value={schoolStart} onChange={(e) => setSchoolStart(e.target.value)} />
@@ -679,16 +750,13 @@ export default function ProgramEditPage() {
           </div>
         </section>
 
-        {/* Öğle — bu program önizlemesi */}
-        <section className="space-y-4">
-          <div className="space-y-1">
-            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <Sun className="size-4 text-muted-foreground" />
-              Öğle arası (bu program)
-            </h2>
-            <p className="text-xs text-muted-foreground">Haftalık tabloda öğle satırı; sadece sizin program görünümünüz için.</p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <section className={cn('space-y-3', SECTION_PANEL, 'sm:space-y-4')}>
+          <h3 className="flex items-center gap-2 text-xs font-bold text-amber-800 dark:text-amber-200 sm:text-sm">
+            <Sun className="size-4 shrink-0" aria-hidden />
+            Öğle arası
+          </h3>
+          <p className={SECTION_HELP}>Tabloda öğle satırı; yalnızca bu programda.</p>
+          <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
             <div className="space-y-2">
               <Label className="text-sm">Öğle Tatili Başlangıç *</Label>
               <Input type="time" value={lunchStart} onChange={(e) => setLunchStart(e.target.value)} />
@@ -727,30 +795,26 @@ export default function ProgramEditPage() {
           </div>
         </section>
 
-        {/* Günlük çizelge — kişisel program */}
-        <section className="space-y-3">
-          <div className="space-y-1">
-            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <Clock className="size-4 text-muted-foreground" />
-              Günlük ders saatleri (sadece bu program)
-            </h2>
-            <p className="text-xs text-muted-foreground leading-snug">
-              Aşağıdaki tablo yalnızca <strong className="text-foreground/90">sizin bu programınızın</strong> haftalık görünümünde kullanılır.
-            </p>
+        <section className={cn('space-y-3', SECTION_PANEL, 'sm:space-y-4')}>
+          <h3 className="flex items-center gap-2 text-xs font-bold text-emerald-800 dark:text-emerald-200 sm:text-sm">
+            <Layers className="size-4 shrink-0" aria-hidden />
+            Günlük çizelge
+          </h3>
+          <div className="flex flex-col gap-2 rounded-lg border border-emerald-200/60 bg-emerald-500/5 p-2.5 dark:border-emerald-900/50 sm:flex-row sm:items-start sm:gap-3 sm:p-3">
+            <Info className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+            <div className="min-w-0 space-y-1.5 text-[11px] leading-snug text-muted-foreground sm:text-xs">
+              <p>
+                <span className="font-semibold text-foreground">Otomatik:</span> Saat değişince sıradaki dersler yeniden hesaplanır.
+              </p>
+              <p className="hidden sm:block">
+                <span className="font-semibold text-amber-800 dark:text-amber-200">Kayıt:</span> Haftalık tabloya yansıması için «Programı Güncelle» kullanın; okul genel programı etkilenmez.
+              </p>
+              <p className="sm:hidden">
+                <span className="font-semibold text-amber-800 dark:text-amber-200">Kayıt:</span> «Programı Güncelle» ile kaydedin.
+              </p>
+            </div>
           </div>
-          <div className="flex gap-2.5 rounded-lg border border-green-200 bg-green-50 px-3 py-2.5 text-sm text-foreground dark:border-green-800 dark:bg-green-950/30 sm:gap-3 sm:px-4 sm:py-3">
-            <Zap className="mt-0.5 size-5 shrink-0 text-green-600 dark:text-green-400" />
-            <span className="min-w-0 flex-1 wrap-break-word leading-snug">
-              <strong>Otomatik yerleştirme:</strong> Başlangıç/bitiş veya teneffüs değişince sonraki dersler yeniden hesaplanır (yalnızca bu ekranda, sizin programınız için).
-            </span>
-          </div>
-          <div className="flex gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-foreground dark:border-amber-800 dark:bg-amber-950/30 sm:gap-3 sm:px-4 sm:py-3">
-            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" />
-            <span className="min-w-0 flex-1 wrap-break-word leading-snug">
-              <strong>Önemli:</strong> Bu tablodaki değişikliklerin <strong>haftalık program tablonuza</strong> yansıması için alttaki <strong>Programı Güncelle</strong> ile kaydedin (okul genel programını değiştirmez).
-            </span>
-          </div>
-          <div className="flex max-w-full flex-col gap-1.5 rounded-lg border border-border/60 bg-muted/15 px-2.5 py-2 sm:flex-row sm:items-center sm:gap-3">
+          <div className="flex max-w-full flex-col gap-1.5 rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2 sm:flex-row sm:items-center sm:gap-3">
             <button
               type="button"
               role="switch"
@@ -778,49 +842,51 @@ export default function ProgramEditPage() {
           </div>
 
           {manualTimes && (
-            <Card className="overflow-hidden">
-              <CardContent className="space-y-3 p-3 sm:p-4">
-                <div className="rounded-xl border-2 border-primary/30 bg-linear-to-br from-primary/8 via-muted/40 to-muted/20 p-2 shadow-md ring-1 ring-primary/10 dark:border-primary/35 dark:from-primary/12 dark:ring-primary/15">
-                  <p className="mb-2 px-0.5 text-center text-[11px] font-bold uppercase tracking-wider text-primary sm:text-left">
-                    Hangi günlerin saatleri?
-                  </p>
-                  <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-row sm:gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setManualScheduleTab('weekday')}
-                      className={cn(
-                        'flex min-h-[52px] flex-col items-center justify-center gap-0.5 rounded-lg border-2 px-3 py-2 text-center transition-all sm:min-h-[56px] sm:min-w-[160px] sm:flex-1',
-                        manualScheduleTab === 'weekday'
-                          ? 'border-primary bg-primary text-primary-foreground shadow-lg ring-2 ring-primary/30'
-                          : 'border-border/70 bg-background/80 text-foreground hover:border-primary/40 hover:bg-muted/50',
-                      )}
-                    >
-                      <CalendarDays className="size-5 shrink-0 opacity-90 sm:size-5" aria-hidden />
-                      <span className="text-sm font-bold leading-tight">Hafta içi</span>
-                      <span className="text-[10px] font-medium opacity-90 sm:text-[11px]">Pzt – Cuma</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setManualScheduleTab('weekend')}
-                      className={cn(
-                        'flex min-h-[52px] flex-col items-center justify-center gap-0.5 rounded-lg border-2 px-3 py-2 text-center transition-all sm:min-h-[56px] sm:min-w-[160px] sm:flex-1',
-                        manualScheduleTab === 'weekend'
-                          ? 'border-primary bg-primary text-primary-foreground shadow-lg ring-2 ring-primary/30'
-                          : 'border-border/70 bg-background/80 text-foreground hover:border-primary/40 hover:bg-muted/50',
-                      )}
-                    >
-                      <CalendarRange className="size-5 shrink-0 opacity-90 sm:size-5" aria-hidden />
-                      <span className="text-sm font-bold leading-tight">Hafta sonu</span>
-                      <span className="text-[10px] font-medium opacity-90 sm:text-[11px]">Cmt – Paz</span>
-                    </button>
-                  </div>
+            <Card className="overflow-hidden border-emerald-200/40 shadow-sm dark:border-emerald-900/35">
+              <CardContent className="space-y-2 p-2.5 sm:space-y-3 sm:p-4">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-200 sm:text-xs sm:normal-case sm:tracking-normal">
+                  Hangi günlerin saatleri?
+                </p>
+                <div className="grid w-full grid-cols-2 gap-1 rounded-lg border border-border/70 bg-muted/30 p-0.5 dark:bg-muted/20 sm:gap-1.5 sm:p-1">
+                  <button
+                    type="button"
+                    onClick={() => setManualScheduleTab('weekday')}
+                    className={cn(
+                      'flex min-h-9 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-center text-[11px] font-semibold transition-all sm:min-h-10 sm:text-sm',
+                      manualScheduleTab === 'weekday'
+                        ? 'bg-background text-emerald-800 shadow-sm ring-1 ring-black/5 dark:text-emerald-200 dark:ring-white/10'
+                        : 'text-muted-foreground hover:bg-background/70',
+                    )}
+                  >
+                    <CalendarDays className="size-3.5 shrink-0 sm:size-4" aria-hidden />
+                    <span>
+                      <span className="sm:hidden">İçi</span>
+                      <span className="hidden sm:inline">Hafta içi</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setManualScheduleTab('weekend')}
+                    className={cn(
+                      'flex min-h-9 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-center text-[11px] font-semibold transition-all sm:min-h-10 sm:text-sm',
+                      manualScheduleTab === 'weekend'
+                        ? 'bg-background text-sky-800 shadow-sm ring-1 ring-black/5 dark:text-sky-200 dark:ring-white/10'
+                        : 'text-muted-foreground hover:bg-background/70',
+                    )}
+                  >
+                    <CalendarRange className="size-3.5 shrink-0 sm:size-4" aria-hidden />
+                    <span>
+                      <span className="sm:hidden">Sonu</span>
+                      <span className="hidden sm:inline">Hafta sonu</span>
+                    </span>
+                  </button>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-9 border-2"
+                    className="h-8 text-[11px] sm:h-9 sm:text-sm"
                     onClick={() => {
                       const copy = scheduleRowsWeekday.map((r, i) => ({
                         ...r,
@@ -831,15 +897,16 @@ export default function ProgramEditPage() {
                       toast.success('Hafta içi saatleri hafta sonuna kopyalandı; düzenleyebilirsiniz.');
                     }}
                   >
-                    Hafta içini hafta sonuna kopyala
+                    <span className="sm:hidden">İçi → sonu</span>
+                    <span className="hidden sm:inline">Hafta içini hafta sonuna kopyala</span>
                   </Button>
+                  <p className="text-[10px] text-muted-foreground sm:text-xs">
+                    Düzenlenen:{' '}
+                    <strong className="text-foreground">
+                      {manualScheduleTab === 'weekday' ? 'Pzt–Cuma' : 'Cmt–Paz'}
+                    </strong>
+                  </p>
                 </div>
-                <p className="text-[11px] text-muted-foreground sm:text-xs">
-                  Şu an düzenlenen:{' '}
-                  <strong className="text-foreground">
-                    {manualScheduleTab === 'weekday' ? 'Pazartesi–Cuma' : 'Cumartesi–Pazar'}
-                  </strong>
-                </p>
               </CardContent>
               <CardContent className="border-t border-border/60 p-0">
                 <div className="max-h-[min(50vh,24rem)] overflow-auto overscroll-x-contain">
@@ -1043,10 +1110,20 @@ export default function ProgramEditPage() {
           )}
         </section>
 
-        <Button onClick={handleSaveMeta} disabled={saving} size="sm">
-          <Save className="size-4" />
-          {saving ? 'Kaydediliyor…' : 'Programı Güncelle'}
-        </Button>
+        </div>
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <Button onClick={handleSaveMeta} disabled={saving} size="sm" className="w-full gap-2 bg-emerald-600 text-white hover:bg-emerald-700 sm:w-auto">
+            <Save className="size-4" />
+            {saving ? 'Kaydediliyor…' : 'Programı Güncelle'}
+          </Button>
+          <p className="text-[11px] leading-snug text-muted-foreground sm:hidden">
+            Ad, yıl, dönem ve saat çizelgesi bu düğmeyle kaydedilir.
+          </p>
+          <p className="hidden max-w-xl text-xs text-muted-foreground sm:block">
+            Üst bilgiler ve saat çizelgesi bu düğmeyle kaydedilir; tablodan eklenen veya kaldırılan dersler hücre işlemiyle anında sunucuya yazılır.
+          </p>
+        </div>
       </div>
 
       {/* Haftalık Ders Programı Tablosu */}
@@ -1054,14 +1131,17 @@ export default function ProgramEditPage() {
         ref={(el) => {
           sectionRefs.current.weekly = el;
         }}
-        className="scroll-mt-40 border-border shadow-md overflow-hidden sm:scroll-mt-44"
+        className="scroll-mt-36 overflow-hidden border-border shadow-md sm:scroll-mt-40"
       >
-        <CardHeader className="border-b border-border bg-linear-to-r from-muted/30 to-transparent">
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-primary/15 shadow-inner">
-              <Calendar className="size-5 text-primary" />
+        <CardHeader className="border-b border-sky-200/50 bg-linear-to-r from-sky-500/8 via-card to-transparent px-3 py-3 dark:border-sky-900/40 sm:px-5 sm:py-4">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-sky-500/15 text-sky-700 shadow-inner dark:text-sky-300 sm:size-10">
+              <Table2 className="size-[18px] sm:size-5" aria-hidden />
             </div>
-            <CardTitle className="text-lg">Haftalık Ders Programı</CardTitle>
+            <div className="min-w-0 flex-1">
+              <CardTitle className="text-base font-bold sm:text-lg">Haftalık program</CardTitle>
+              <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">Hücrelere dokunarak ders ekleyin veya kaldırın.</p>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0 table-x-scroll">
@@ -1132,7 +1212,7 @@ export default function ProgramEditPage() {
                         {entry ? (
                           <div className="flex h-full min-h-14 w-full items-stretch justify-center sm:min-h-16">
                             <LessonCellCard
-                              subject={entry.subject}
+                              subject={resolveSchoolSubjectDisplay(entry.subject, schoolSubjects)}
                               classSection={entry.class_section}
                               timeRange={getCellTimeRange(day, lessonNum)}
                               onRemove={() => handleRemoveLesson(day, lessonNum)}
@@ -1162,22 +1242,31 @@ export default function ProgramEditPage() {
         </CardContent>
       </Card>
 
-      <div className="flex gap-2">
-        <Button variant="outline" asChild>
+      <div className="flex flex-wrap gap-2 border-t border-border/60 pt-4">
+        <Button variant="outline" size="sm" className="h-9" asChild>
           <Link href="/ders-programi/programlarim">Programlarım</Link>
         </Button>
         <Button
           variant="ghost"
-          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+          size="sm"
+          className="h-9 text-destructive hover:bg-destructive/10 hover:text-destructive"
           onClick={handleDelete}
           disabled={deleting}
         >
           <Trash2 className="size-4" />
-          {deleting ? 'Siliniyor…' : 'Programı Sil'}
+          {deleting ? 'Siliniyor…' : 'Sil'}
         </Button>
       </div>
 
-      <Dialog open={!!addModal} onOpenChange={(o) => !o && setAddModal(null)}>
+      <Dialog
+        open={!!addModal}
+        onOpenChange={(o) => {
+          if (!o) {
+            setAddModal(null);
+            setAddSubjectId('');
+          }
+        }}
+      >
         <DialogContent className="max-w-md p-0 overflow-hidden [&>div:last-child]:p-0">
           <div className="flex items-center justify-between bg-primary px-4 py-3 text-primary-foreground">
             <div className="flex items-center gap-2">
@@ -1188,7 +1277,10 @@ export default function ProgramEditPage() {
             </div>
             <button
               type="button"
-              onClick={() => setAddModal(null)}
+              onClick={() => {
+                setAddModal(null);
+                setAddSubjectId('');
+              }}
               className="rounded-full p-1.5 hover:bg-white/20 transition-colors"
               aria-label="Kapat"
             >
@@ -1200,15 +1292,14 @@ export default function ProgramEditPage() {
               <Label>Ders Seçin</Label>
               {schoolSubjects.length > 0 ? (
                 <select
-                  value={addSubject}
-                  onChange={(e) => setAddSubject(e.target.value)}
+                  value={addSubjectId}
+                  onChange={(e) => setAddSubjectId(e.target.value)}
                   className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <option value="">Ders seçiniz…</option>
                   {schoolSubjects.map((s) => (
-                    <option key={s.id} value={s.name}>
-                      {s.name}
-                      {s.code ? ` (${s.code})` : ''}
+                    <option key={s.id} value={s.id}>
+                      {formatSchoolSubjectOptionLabel(s)}
                     </option>
                   ))}
                 </select>
@@ -1231,8 +1322,7 @@ export default function ProgramEditPage() {
                   <option value="">Sınıf seçiniz…</option>
                   {schoolClasses.map((c) => (
                     <option key={c.id} value={c.name}>
-                      {c.name}
-                      {c.grade != null ? ` · Sınıf ${c.grade}` : ''}
+                      {formatClassOptionLabel(c)}
                     </option>
                   ))}
                 </select>
@@ -1288,7 +1378,13 @@ export default function ProgramEditPage() {
             })()}
           </div>
           <div className="flex justify-end gap-2 px-4 pb-4">
-            <Button variant="outline" onClick={() => setAddModal(null)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setAddModal(null);
+                setAddSubjectId('');
+              }}
+            >
               İptal
             </Button>
             <Button onClick={handleAddLesson} disabled={saving} className="gap-2">

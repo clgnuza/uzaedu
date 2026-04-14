@@ -109,10 +109,11 @@ export class TeacherTimetableService {
       .createQueryBuilder('p')
       .select('p.id')
       .where('p.school_id = :schoolId', { schoolId })
-      .andWhere('p.status = :status', { status: 'published' })
+      .andWhere('p.status IN (:...statuses)', { statuses: ['published', 'archived'] })
       .andWhere('p.valid_from <= :date', { date })
       .andWhere('(p.valid_until IS NULL OR p.valid_until >= :date)', { date })
-      .orderBy('p.valid_from', 'DESC')
+      .orderBy(`CASE WHEN p.status = 'published' THEN 0 ELSE 1 END`, 'ASC')
+      .addOrderBy('p.valid_from', 'DESC')
       .getOne();
     return plan?.id ?? null;
   }
@@ -125,10 +126,11 @@ export class TeacherTimetableService {
       .createQueryBuilder('p')
       .select(['p.id', 'p.name', 'p.valid_from', 'p.valid_until'])
       .where('p.school_id = :schoolId', { schoolId })
-      .andWhere('p.status = :status', { status: 'published' })
+      .andWhere('p.status IN (:...statuses)', { statuses: ['published', 'archived'] })
       .andWhere('p.valid_from <= :date', { date: dateStr })
       .andWhere('(p.valid_until IS NULL OR p.valid_until >= :date)', { date: dateStr })
-      .orderBy('p.valid_from', 'DESC')
+      .orderBy(`CASE WHEN p.status = 'published' THEN 0 ELSE 1 END`, 'ASC')
+      .addOrderBy('p.valid_from', 'DESC')
       .getOne();
     return plan ? { plan_id: plan.id, name: plan.name, valid_from: plan.valid_from, valid_until: plan.valid_until } : null;
   }
@@ -395,17 +397,27 @@ export class TeacherTimetableService {
     return n >= 6 && n <= 12 ? n : n > 0 ? Math.min(12, Math.max(6, n)) : 8;
   }
 
-  /** Öğretmenin tarih aralığındaki günlük ders sayıları (ajanda takvimi için) */
+  /** Öğretmenin tarih aralığındaki günlük ders sayıları + saatlik liste (ajanda takvimi için) */
   async getTeacherLessonSummaryForDateRange(
     schoolId: string | null,
     userId: string,
     startDate: string,
     endDate: string,
-  ): Promise<Array<{ date: string; lessonCount: number }>> {
+  ): Promise<
+    Array<{
+      date: string;
+      lessonCount: number;
+      lessons: Array<{ lesson_num: number; class_section: string; subject: string }>;
+    }>
+  > {
     if (!schoolId) return [];
     const start = new Date(startDate.slice(0, 10));
     const end = new Date(endDate.slice(0, 10));
-    const result: Array<{ date: string; lessonCount: number }> = [];
+    const result: Array<{
+      date: string;
+      lessonCount: number;
+      lessons: Array<{ lesson_num: number; class_section: string; subject: string }>;
+    }> = [];
     const current = new Date(start);
     while (current <= end) {
       const dateStr = current.toISOString().slice(0, 10);
@@ -413,9 +425,17 @@ export class TeacherTimetableService {
       if (dayOfWeek >= 1 && dayOfWeek <= 5) {
         try {
           const byDate = await this.getByDate(schoolId, dateStr);
-          const lessons = byDate[userId] ?? {};
-          const count = Object.keys(lessons).length;
-          if (count > 0) result.push({ date: dateStr, lessonCount: count });
+          const lessonsMap = byDate[userId] ?? {};
+          const lessons = Object.entries(lessonsMap)
+            .map(([num, v]) => ({
+              lesson_num: Number(num),
+              class_section: (v.class_section ?? '').trim(),
+              subject: (v.subject ?? '').trim(),
+            }))
+            .filter((l) => l.lesson_num >= 1)
+            .sort((a, b) => a.lesson_num - b.lesson_num);
+          if (lessons.length > 0)
+            result.push({ date: dateStr, lessonCount: lessons.length, lessons });
         } catch {
           // skip
         }
@@ -888,38 +908,29 @@ export class TeacherTimetableService {
     }
 
     const vUntilMax = vUntil ?? '9999-12-31';
-    const conflict = await this.planRepo
+    const toArchive = await this.planRepo
       .createQueryBuilder('p')
       .where('p.school_id = :schoolId', { schoolId })
       .andWhere('p.status = :status', { status: 'published' })
       .andWhere('p.id != :planId', { planId })
       .andWhere('(p.valid_until IS NULL OR p.valid_until >= :vFrom)', { vFrom })
       .andWhere('p.valid_from <= :vUntilMax', { vUntilMax })
-      .getOne();
-
-    if (conflict) {
-      const untilStr = conflict.valid_until ?? 'açık uçlu';
-      throw new BadRequestException({
-        code: 'TIMETABLE_PLAN_OVERLAP',
-        message: `Bu tarih aralığı başka bir programla çakışıyor: ${conflict.name ?? '(adsız)'} (${conflict.valid_from} – ${untilStr}). Bitiş tarihini düzenleyin veya mevcut programı sonlandırın.`,
-      });
-    }
-
-    const prevOpenEnded = await this.planRepo
-      .createQueryBuilder('p')
-      .where('p.school_id = :schoolId', { schoolId })
-      .andWhere('p.status = :status', { status: 'published' })
-      .andWhere('p.valid_until IS NULL')
-      .andWhere('p.valid_from < :vFrom', { vFrom })
-      .andWhere('p.id != :planId', { planId })
       .getMany();
+
     const dayBefore = new Date(vFrom + 'T12:00:00');
     dayBefore.setDate(dayBefore.getDate() - 1);
-    const newUntil = dayBefore.toISOString().slice(0, 10);
-    for (const prev of prevOpenEnded) {
-      prev.valid_until = newUntil;
-      await this.planRepo.save(prev);
+    const dayBeforeStr = dayBefore.toISOString().slice(0, 10);
+
+    for (const p of toArchive) {
+      p.status = 'archived';
+      if (p.valid_from < vFrom) {
+        const pEnd = p.valid_until ?? '9999-12-31';
+        let nu = pEnd <= dayBeforeStr ? pEnd : dayBeforeStr;
+        if (nu < p.valid_from) nu = p.valid_from;
+        p.valid_until = nu;
+      }
     }
+    if (toArchive.length) await this.planRepo.save(toArchive);
 
     const entries = plan.entries ?? [];
     const ttEntities = entries.map((e) =>
@@ -1110,7 +1121,7 @@ export class TeacherTimetableService {
     const entries = Array.isArray(body.entries) ? body.entries : [];
     if (entries.length > 0) {
       const entryEntities = entries
-        .filter((e) => e.day_of_week >= 1 && e.day_of_week <= 5 && e.lesson_num >= 1 && e.lesson_num <= 12)
+        .filter((e) => e.day_of_week >= 1 && e.day_of_week <= 7 && e.lesson_num >= 1 && e.lesson_num <= 12)
         .map((e) =>
           this.personalEntryRepo.create({
             program_id: program.id,
@@ -1145,7 +1156,7 @@ export class TeacherTimetableService {
 
     if (Array.isArray(body.entries)) {
       await this.personalEntryRepo.delete({ program_id: programId });
-      const valid = body.entries.filter((e) => e.day_of_week >= 1 && e.day_of_week <= 5 && e.lesson_num >= 1 && e.lesson_num <= 12);
+      const valid = body.entries.filter((e) => e.day_of_week >= 1 && e.day_of_week <= 7 && e.lesson_num >= 1 && e.lesson_num <= 12);
       if (valid.length > 0) {
         const entryEntities = valid.map((e) =>
           this.personalEntryRepo.create({

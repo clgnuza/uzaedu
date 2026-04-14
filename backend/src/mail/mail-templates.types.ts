@@ -1,5 +1,6 @@
 export type MailTemplateId =
   | 'password_reset'
+  | 'verification_code'
   | 'school_join_verify'
   | 'teacher_school_pending'
   | 'teacher_school_approved'

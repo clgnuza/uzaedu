@@ -128,6 +128,14 @@ export class User {
   @Column({ name: 'school_join_email_verified_at', type: 'timestamptz', nullable: true })
   schoolJoinEmailVerifiedAt: Date | null;
 
+  /** E-posta ile kayıt: OTP doğrulaması sonrası dolu (sosyal/Firebase’de otomatik) */
+  @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
+  emailVerifiedAt: Date | null;
+
+  /** USB / tahta: sınıf TV ekranı için öğretmene özel PIN (bcrypt); idare atar. */
+  @Column({ name: 'smart_board_usb_pin_hash', type: 'varchar', length: 255, nullable: true })
+  smartBoardUsbPinHash: string | null;
+
   @CreateDateColumn()
   created_at: Date;
 

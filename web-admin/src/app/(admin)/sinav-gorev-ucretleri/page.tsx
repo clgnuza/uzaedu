@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch, isAbortError } from '@/lib/api';
@@ -32,6 +33,8 @@ import {
   Settings,
   Share2,
   Trash2,
+  Copy,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 /* ─────────────────────────────────────────────────────── formatters */
@@ -45,9 +48,12 @@ function formatTL(n: number): string {
 }
 
 /* ─────────────────────────────────────────────────────── decoration */
-function DotPattern() {
+function DotPattern({ excludeFromScreenshot }: { excludeFromScreenshot?: boolean }) {
   return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl">
+    <div
+      className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl"
+      {...(excludeFromScreenshot ? { 'data-html2canvas-ignore': '' } : {})}
+    >
       <div
         className="absolute -inset-px opacity-[0.02]"
         style={{
@@ -57,6 +63,36 @@ function DotPattern() {
       />
     </div>
   );
+}
+
+/** Mobil iç genişliğe yakın kart — WhatsApp vb. için oranlı PNG */
+async function captureExamDutyCardAsPng(
+  primary: HTMLElement | null,
+  fallback: HTMLElement | null
+): Promise<Blob | null> {
+  const el = primary ?? fallback;
+  if (!el || typeof window === 'undefined') return null;
+  try {
+    const html2canvas = (await import('html2canvas')).default;
+    const dpr = window.devicePixelRatio || 2;
+    const canvas = await html2canvas(el, {
+      backgroundColor: '#ffffff',
+      scale: Math.min(3, Math.max(2, dpr)),
+      useCORS: true,
+      logging: false,
+      scrollX: 0,
+      scrollY: 0,
+      ignoreElements: (node) =>
+        node instanceof HTMLElement && node.hasAttribute('data-html2canvas-ignore'),
+      onclone: (clonedDoc) => {
+        clonedDoc.documentElement.classList.remove('dark');
+        clonedDoc.documentElement.style.colorScheme = 'light';
+      },
+    });
+    return await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/png', 0.96));
+  } catch {
+    return null;
+  }
 }
 
 function CalcSkeleton() {
@@ -424,62 +460,119 @@ export default function SinavGorevUcretleriPage() {
     if (!catalog || !selectedRole || !selectedCategory) return '';
     const m = getCatMeta(selectedCategory.id);
     const kurum = m.label || selectedCategory.label;
-    return `${kurum} · ${selectedRole.label}\nNet: ${formatTL(result.net)} · ${catalog.period_label}`;
-  }, [catalog, selectedCategory, selectedRole, result.net]);
+    return [
+      '📋 Sınav görev ücreti · Öğretmen Pro',
+      `📅 ${catalog.period_label}`,
+      `🏛 ${kurum}`,
+      `📝 ${selectedRole.label}`,
+      '',
+      `💶 Tahmini net: ${formatTL(result.net)}`,
+      `📊 Brüt toplam: ${formatTL(result.totalBrut)}`,
+    ].join('\n');
+  }, [catalog, selectedCategory, selectedRole, result.net, result.totalBrut]);
 
   const resultCardRef = useRef<HTMLDivElement>(null);
-  /** Paylaşım PNG: her zaman açık tema, sabit genişlik — mobil ekrandaki karanlık tema / tutamaç html2canvas’a yansımaz */
   const shareSnapshotRef = useRef<HTMLDivElement>(null);
 
-  const handleShare = useCallback(async () => {
+  /** Paylaşım kartı genişliği: mobil viewport’a göre (WhatsApp önizlemesi için) */
+  const [shareExportWidth, setShareExportWidth] = useState(360);
+  useEffect(() => {
+    const ro = () => {
+      if (typeof window === 'undefined') return;
+      const w = Math.min(420, Math.max(304, window.innerWidth - 32));
+      setShareExportWidth(w);
+    };
+    ro();
+    window.addEventListener('resize', ro);
+    return () => window.removeEventListener('resize', ro);
+  }, []);
+
+  const [shareSheetOpen, setShareSheetOpen] = useState(false);
+  const [shareSheetMounted, setShareSheetMounted] = useState(false);
+  const [sharePreviewUrl, setSharePreviewUrl] = useState<string | null>(null);
+  useEffect(() => setShareSheetMounted(true), []);
+
+  useEffect(() => {
+    if (!shareSheetOpen || !hasSelection) {
+      setSharePreviewUrl((u) => {
+        if (u) URL.revokeObjectURL(u);
+        return null;
+      });
+      return;
+    }
+    let cancelled = false;
+    const t = window.setTimeout(() => {
+      void (async () => {
+        const blob = await captureExamDutyCardAsPng(resultCardRef.current, shareSnapshotRef.current);
+        if (cancelled || !blob) return;
+        const url = URL.createObjectURL(blob);
+        setSharePreviewUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+      })();
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [shareSheetOpen, hasSelection, result.net, result.totalBrut, result.gvKesinti, result.dvKesinti]);
+
+  useEffect(() => {
+    if (!shareSheetOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [shareSheetOpen]);
+
+  const performShare = useCallback(async () => {
     const textFull = buildShareText();
     if (!textFull) return;
-    const title = 'Sınav görev ücreti';
+    const title = 'Sınav görev ücreti — Öğretmen Pro';
+    const short = buildShareShort();
+    let blob: Blob | null = null;
+    if (typeof window !== 'undefined') {
+      blob = await captureExamDutyCardAsPng(resultCardRef.current, shareSnapshotRef.current);
+    }
+
+    const tryCopyImage = async (): Promise<boolean> => {
+      if (!blob || !navigator.clipboard?.write) return false;
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        toast.success('Sonuç kartı görseli panoya kopyalandı');
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
     try {
       if (typeof navigator !== 'undefined' && navigator.share) {
-        let blob: Blob | null = null;
-        const captureEl = shareSnapshotRef.current ?? resultCardRef.current;
-        if (captureEl && typeof window !== 'undefined') {
-          try {
-            const html2canvas = (await import('html2canvas')).default;
-            const dpr = window.devicePixelRatio || 2;
-            const canvas = await html2canvas(captureEl, {
-              backgroundColor: '#ffffff',
-              scale: Math.min(2.75, Math.max(2, dpr)),
-              useCORS: true,
-              logging: false,
-              scrollX: 0,
-              scrollY: 0,
-            });
-            blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png', 0.96));
-          } catch {
-            /* görsel üretilemezse metin */
-          }
-        }
-
         if (blob) {
           const file = new File([blob], 'sinav-gorev-sonuc.png', { type: 'image/png' });
-          const short = buildShareShort();
-
           const tryFilesText = { title, text: short, files: [file] } as ShareData;
           if (navigator.canShare?.(tryFilesText)) {
             await navigator.share(tryFilesText);
-            toast.success('Görsel ve özet paylaşıldı');
+            toast.success('Sonuç kartı görseli ve özet paylaşıldı');
             return;
           }
           const tryFilesOnly = { title, files: [file] } as ShareData;
           if (navigator.canShare?.(tryFilesOnly)) {
             await navigator.share(tryFilesOnly);
-            toast.success('Görsel paylaşıldı');
+            toast.success('Sonuç kartı görseli paylaşıldı');
             return;
           }
         }
-
-        await navigator.share({ title, text: textFull });
-        toast.success(blob ? 'Tam metin paylaşıldı (görsel bu uygulamada eklenemedi)' : 'Metin paylaşıldı');
-      } else if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(textFull);
-        toast.success('Metin panoya kopyalandı');
+        await navigator.share({ title, text: `${short}\n\n${textFull}` });
+        toast.success(blob ? 'Metin paylaşıldı (görsel eklenemedi)' : 'Metin paylaşıldı');
+        return;
+      }
+      if (blob && (await tryCopyImage())) return;
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(`${short}\n\n${textFull}`);
+        toast.success(blob ? 'Metin panoya kopyalandı (görsel kopyalanamadı)' : 'Metin panoya kopyalandı');
       } else {
         toast.error('Paylaşım desteklenmiyor');
       }
@@ -488,6 +581,44 @@ export default function SinavGorevUcretleriPage() {
       toast.error((e as Error).message || 'Paylaşılamadı');
     }
   }, [buildShareText, buildShareShort]);
+
+  const copyShareText = useCallback(async () => {
+    const textFull = buildShareText();
+    if (!textFull) return;
+    try {
+      await navigator.clipboard.writeText(`${buildShareShort()}\n\n${textFull}`);
+      toast.success('Metin kopyalandı');
+      setShareSheetOpen(false);
+    } catch {
+      toast.error('Kopyalanamadı');
+    }
+  }, [buildShareText, buildShareShort]);
+
+  const copyShareImageOnly = useCallback(async () => {
+    const blob = await captureExamDutyCardAsPng(resultCardRef.current, shareSnapshotRef.current);
+    if (!blob) {
+      toast.error('Sonuç kartı görseli oluşturulamadı');
+      return;
+    }
+    try {
+      if (navigator.clipboard?.write) {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        toast.success('Sonuç kartı görseli panoya kopyalandı');
+        return;
+      }
+    } catch {
+      /* continue */
+    }
+    toast.error('Tarayıcı görsel kopyalamayı desteklemiyor');
+  }, []);
+
+  const openMobileShareSheet = useCallback(() => {
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches) {
+      setShareSheetOpen(true);
+    } else {
+      void performShare();
+    }
+  }, [performShare]);
 
   const inputCls =
     'w-full min-h-11 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm transition-all placeholder:text-zinc-400 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:placeholder:text-zinc-500 sm:min-h-[44px] sm:rounded-xl sm:px-3.5 sm:py-2.5';
@@ -524,14 +655,25 @@ export default function SinavGorevUcretleriPage() {
             </div>
             <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:gap-2 lg:flex lg:flex-col lg:items-stretch">
               {hasSelection ? (
-                <button
-                  type="button"
-                  onClick={() => void handleShare()}
-                  className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-violet-300 bg-violet-500 px-3 py-2 text-xs font-medium text-white shadow-sm transition-all hover:bg-violet-600 active:scale-[0.98] sm:min-h-[44px] sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm dark:border-violet-600 dark:bg-violet-600"
-                >
-                  <Share2 className="size-3.5 sm:size-4" strokeWidth={2} />
-                  Paylaş
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => openMobileShareSheet()}
+                    className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-violet-300 bg-violet-500 px-3 py-2 text-xs font-medium text-white shadow-sm transition-all hover:bg-violet-600 active:scale-[0.98] sm:min-h-[44px] sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm dark:border-violet-600 dark:bg-violet-600"
+                  >
+                    <Share2 className="size-3.5 sm:size-4" strokeWidth={2} />
+                    Paylaş
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void copyShareImageOnly()}
+                    className="hidden min-h-10 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-800 shadow-sm transition-all hover:bg-zinc-50 active:scale-[0.98] sm:inline-flex sm:min-h-[44px] sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700/80"
+                    title="Sonuç kartının PNG görüntüsünü panoya kopyalar"
+                  >
+                    <ImageIcon className="size-3.5 sm:size-4" strokeWidth={2} />
+                    Kart görseli
+                  </button>
+                </>
               ) : null}
               <button
                 type="button"
@@ -1002,11 +1144,14 @@ export default function SinavGorevUcretleriPage() {
                 ref={resultCardRef}
                 className="relative overflow-hidden rounded-t-2xl border-2 border-b-0 border-violet-300/80 bg-white shadow-[0_-8px_32px_-8px_rgba(79,70,229,0.18)] dark:border-violet-700/55 dark:bg-zinc-900 sm:rounded-t-3xl lg:rounded-2xl lg:border-b lg:border-violet-300/70 lg:shadow-xl"
               >
-                <div className="absolute inset-0 bg-linear-to-br from-violet-500/10 via-fuchsia-500/5 to-amber-500/5" />
-                <DotPattern />
+                <div
+                  className="absolute inset-0 bg-linear-to-br from-violet-500/10 via-fuchsia-500/5 to-amber-500/5"
+                  data-html2canvas-ignore
+                />
+                <DotPattern excludeFromScreenshot />
                 <div className="relative p-4 pb-6 sm:p-6 sm:pb-6" style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}>
                   {/* drag handle */}
-                  <div className="mb-3 flex justify-center lg:hidden">
+                  <div className="mb-3 flex justify-center lg:hidden" data-html2canvas-ignore>
                     <span className="h-1 w-10 rounded-full bg-violet-300/60 dark:bg-violet-600/50" />
                   </div>
 
@@ -1178,8 +1323,8 @@ export default function SinavGorevUcretleriPage() {
       {hasSelection && catalog && selectedCategory && selectedRole ? (
         <div
           ref={shareSnapshotRef}
-          className="pointer-events-none fixed left-[-9999px] top-0 z-0 box-border w-[340px] overflow-hidden rounded-2xl border-2 border-violet-300 bg-white p-4 text-zinc-900 shadow-2xl"
-          style={{ fontFamily: 'system-ui, "Segoe UI", sans-serif' }}
+          className="pointer-events-none fixed left-[-9999px] top-0 z-0 box-border overflow-hidden rounded-2xl border-2 border-violet-300 bg-white p-4 text-zinc-900 shadow-2xl"
+          style={{ fontFamily: 'system-ui, "Segoe UI", sans-serif', width: shareExportWidth }}
           aria-hidden
         >
           <div className="flex items-start justify-between gap-2 border-b border-violet-100 pb-3">
@@ -1192,7 +1337,12 @@ export default function SinavGorevUcretleriPage() {
             </span>
           </div>
 
-          <div className="mt-3 rounded-xl bg-linear-to-br from-violet-600 via-fuchsia-600 to-amber-500 p-4 text-white shadow-lg">
+          <div
+            className="mt-3 rounded-xl p-4 text-white shadow-lg"
+            style={{
+              background: 'linear-gradient(135deg, #7c3aed 0%, #c026d3 50%, #d97706 100%)',
+            }}
+          >
             <p className="text-[10px] font-semibold uppercase tracking-wider text-white/90">Tahmini net tutar</p>
             <p className="mt-2 text-[32px] font-bold leading-none tabular-nums tracking-tight">{formatTL(result.net)}</p>
             <p className="mt-2 text-[10px] leading-snug text-white/88">
@@ -1238,6 +1388,87 @@ export default function SinavGorevUcretleriPage() {
           </p>
         </div>
       ) : null}
+
+      {shareSheetMounted &&
+      hasSelection &&
+      catalog &&
+      selectedCategory &&
+      selectedRole &&
+      shareSheetOpen
+        ? createPortal(
+            <div className="fixed inset-0 z-[100] sm:hidden">
+              <button
+                type="button"
+                className="absolute inset-0 bg-zinc-900/50 backdrop-blur-[2px]"
+                aria-label="Kapat"
+                onClick={() => setShareSheetOpen(false)}
+              />
+              <div
+                className="absolute bottom-0 left-0 right-0 max-h-[90vh] overflow-y-auto rounded-t-3xl border border-zinc-200/90 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950"
+                style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="sg-share-sheet-title"
+              >
+                <div className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-zinc-200 dark:bg-zinc-700" />
+                <div className="px-5 pt-2 pb-4">
+                  <h2 id="sg-share-sheet-title" className="text-lg font-bold text-zinc-900 dark:text-zinc-50">
+                    Paylaş
+                  </h2>
+                  <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                    Aşağıdaki görsel, ekrandaki sonuç kartının PNG kopyasıdır (genişlik cihazınıza göre ayarlanır).
+                  </p>
+                  {sharePreviewUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={sharePreviewUrl}
+                      alt="Sınav görev ücreti sonuç kartı önizlemesi"
+                      className="mt-4 w-full rounded-2xl border border-zinc-200 object-top shadow-md dark:border-zinc-600"
+                    />
+                  ) : (
+                    <div className="mt-4 flex min-h-[200px] items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 text-xs text-zinc-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+                      Önizleme hazırlanıyor…
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    className="mt-5 flex w-full min-h-12 items-center justify-center gap-2 rounded-xl bg-violet-600 py-3.5 text-base font-semibold text-white shadow-lg active:scale-[0.99] dark:bg-violet-600"
+                    onClick={() => {
+                      void performShare().finally(() => setShareSheetOpen(false));
+                    }}
+                  >
+                    <Share2 className="size-5" strokeWidth={2} />
+                    Paylaşımı aç
+                  </button>
+                  <button
+                    type="button"
+                    className="mt-2 flex w-full min-h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 py-3 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                    onClick={() => void copyShareImageOnly()}
+                  >
+                    <ImageIcon className="size-4" strokeWidth={2} />
+                    Sadece kart görselini kopyala
+                  </button>
+                  <button
+                    type="button"
+                    className="mt-2 flex w-full min-h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 py-3 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                    onClick={() => void copyShareText()}
+                  >
+                    <Copy className="size-4" strokeWidth={2} />
+                    Tüm metni kopyala
+                  </button>
+                  <button
+                    type="button"
+                    className="mt-1 w-full py-3 text-sm text-zinc-500 dark:text-zinc-400"
+                    onClick={() => setShareSheetOpen(false)}
+                  >
+                    Vazgeç
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

@@ -79,6 +79,39 @@ Bu isteği siz yapmadıysanız bu mesajı yok sayın.
   return { subject, html, text };
 }
 
+function blockVerificationCode(): MailTemplateBlock {
+  const html = `<!DOCTYPE html>
+<html lang="tr">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f3f4f6;">
+  <div style="display:none;max-height:0;overflow:hidden;">{{preheader}}</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+    <tr><td style="padding:32px 16px;">
+      <table role="presentation" width="100%" style="max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;">
+        <tr><td style="height:3px;background:#0f766e;line-height:3px;font-size:0;">&#160;</td></tr>
+        <tr><td style="padding:28px 32px 26px;">
+          <div style="font-size:18px;font-weight:600;color:#111827;">{{app_name}}</div>
+          <p style="margin:18px 0 0;font-size:15px;color:#4b5563;line-height:1.65;">{{purpose_line}}</p>
+          <div style="margin:24px 0;text-align:center;">
+            <span style="display:inline-block;padding:14px 28px;font-size:28px;font-weight:700;letter-spacing:0.25em;color:#0f766e;background:#f0fdfa;border:2px dashed #5eead4;border-radius:10px;">{{code}}</span>
+          </div>
+          <p style="margin:0;font-size:13px;color:#6b7280;line-height:1.55;">Kod {{ttl_minutes}} dakika geçerlidir. Siz istemediyseniz bu e-postayı yok sayın.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+  const text = `{{app_name}}
+
+{{purpose_line}}
+
+Kod: {{code}}
+(Geçerlilik: {{ttl_minutes}} dakika)`;
+  const subject = '{{app_name}} – Doğrulama kodu: {{code}}';
+  return { subject, html, text };
+}
+
 function blockSchoolVerify(): MailTemplateBlock {
   const shell = SHELL_START.replace('{{bar_gradient}}', '#1e40af')
     .replace('{{badge_bg}}', '#eff6ff')
@@ -227,6 +260,7 @@ Giriş: {{secondary_url}}
 
 export const MAIL_TEMPLATE_IDS: MailTemplateId[] = [
   'password_reset',
+  'verification_code',
   'school_join_verify',
   'teacher_school_pending',
   'teacher_school_approved',
@@ -235,6 +269,7 @@ export const MAIL_TEMPLATE_IDS: MailTemplateId[] = [
 
 export const DEFAULT_MAIL_TEMPLATES: Record<MailTemplateId, MailTemplateBlock> = {
   password_reset: blockPasswordReset(),
+  verification_code: blockVerificationCode(),
   school_join_verify: blockSchoolVerify(),
   teacher_school_pending: blockPending(),
   teacher_school_approved: blockApproved(),
@@ -252,6 +287,12 @@ export const MAIL_TEMPLATE_UI_META: {
     title: 'Şifremi unuttum',
     hint: 'Şifre sıfırlama bağlantısı.',
     placeholders: ['app_name', 'from_name', 'preheader', 'reset_url'],
+  },
+  {
+    id: 'verification_code',
+    title: 'Doğrulama kodu (OTP)',
+    hint: 'Giriş, kayıt, şifre sıfırlama ve okul e-postası için tek kullanımlık kod.',
+    placeholders: ['app_name', 'from_name', 'preheader', 'purpose_line', 'code', 'ttl_minutes'],
   },
   {
     id: 'school_join_verify',

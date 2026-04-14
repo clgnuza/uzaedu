@@ -3,14 +3,17 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, In } from 'typeorm';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
+import * as bcrypt from 'bcrypt';
 import { SmartBoardDevice } from './entities/smart-board-device.entity';
 import { SmartBoardDeviceSchedule } from './entities/smart-board-device-schedule.entity';
 import { SmartBoardAuthorizedTeacher } from './entities/smart-board-authorized-teacher.entity';
 import { SmartBoardSession } from './entities/smart-board-session.entity';
+import { TvClassroomUsbToken } from './entities/tv-classroom-usb-token.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole, UserStatus } from '../types/enums';
 import { SchoolsService } from '../schools/schools.service';
@@ -19,9 +22,13 @@ import { TeacherTimetableService } from '../teacher-timetable/teacher-timetable.
 import { NotificationsService } from '../notifications/notifications.service';
 
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 dakika
+const TV_USB_TOKEN_TTL_MS = 10 * 60 * 60 * 1000; // 10 saat (okul günü)
+const USB_PIN_PATTERN = /^\d{4,8}$/;
 
 @Injectable()
 export class SmartBoardService {
+  private readonly usbUnlockFailTs = new Map<string, number[]>();
+
   constructor(
     @InjectRepository(SmartBoardDevice)
     private readonly deviceRepo: Repository<SmartBoardDevice>,
@@ -31,6 +38,8 @@ export class SmartBoardService {
     private readonly authRepo: Repository<SmartBoardAuthorizedTeacher>,
     @InjectRepository(SmartBoardSession)
     private readonly sessionRepo: Repository<SmartBoardSession>,
+    @InjectRepository(TvClassroomUsbToken)
+    private readonly tvUsbTokenRepo: Repository<TvClassroomUsbToken>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly schoolsService: SchoolsService,
@@ -320,7 +329,7 @@ export class SmartBoardService {
   async listAuthorizedTeachers(
     schoolId: string,
     scope: { schoolId: string | null; role: UserRole },
-  ): Promise<{ id: string; user_id: string; display_name: string | null; email: string }[]> {
+  ): Promise<{ id: string; user_id: string; display_name: string | null; email: string; has_usb_pin: boolean }[]> {
     if (scope.role === UserRole.school_admin && scope.schoolId !== schoolId) {
       throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu veriye erişim yetkiniz yok.' });
     }
@@ -334,7 +343,154 @@ export class SmartBoardService {
       user_id: r.user_id,
       display_name: r.user?.display_name ?? null,
       email: r.user?.email ?? '',
+      has_usb_pin: !!(r.user?.smartBoardUsbPinHash && String(r.user.smartBoardUsbPinHash).length > 0),
     }));
+  }
+
+  /**
+   * Okul yöneticisi: öğretmen için USB / sınıf TV PIN’i (4–8 rakam) veya kaldırma (null).
+   */
+  async setTeacherUsbPin(
+    schoolId: string,
+    targetUserId: string,
+    scope: { schoolId: string | null; role: UserRole },
+    actorUserId: string | undefined,
+    pin: string | null,
+  ): Promise<{ ok: true }> {
+    if (scope.role === UserRole.school_admin && scope.schoolId !== schoolId) {
+      throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu işlem için yetkiniz yok.' });
+    }
+    const user = await this.userRepo.findOne({ where: { id: targetUserId } });
+    if (!user || user.role !== UserRole.teacher || user.school_id !== schoolId) {
+      throw new BadRequestException({ code: 'INVALID_TEACHER', message: 'Öğretmen bu okula ait değil.' });
+    }
+    if (pin === null || pin === '') {
+      user.smartBoardUsbPinHash = null;
+      await this.userRepo.save(user);
+      await this.auditService.log({
+        action: 'SMARTBOARD_USB_PIN_CLEARED',
+        userId: actorUserId ?? null,
+        schoolId,
+        meta: { targetUserId },
+      });
+      return { ok: true };
+    }
+    const normalized = String(pin).trim();
+    if (!USB_PIN_PATTERN.test(normalized)) {
+      throw new BadRequestException({ code: 'INVALID_PIN', message: 'PIN 4–8 haneli rakam olmalıdır.' });
+    }
+    user.smartBoardUsbPinHash = await bcrypt.hash(normalized, 10);
+    await this.userRepo.save(user);
+    await this.auditService.log({
+      action: 'SMARTBOARD_USB_PIN_SET',
+      userId: actorUserId ?? null,
+      schoolId,
+      meta: { targetUserId },
+    });
+    return { ok: true };
+  }
+
+  private assertUsbUnlockRate(clientIp: string): void {
+    const now = Date.now();
+    const windowMs = 15 * 60 * 1000;
+    const max = 24;
+    const arr = (this.usbUnlockFailTs.get(clientIp) ?? []).filter((t) => now - t < windowMs);
+    if (arr.length >= max) {
+      throw new ForbiddenException({
+        code: 'USB_UNLOCK_RATE',
+        message: 'Çok fazla deneme. Lütfen bir süre sonra tekrar deneyin.',
+      });
+    }
+  }
+
+  private recordUsbUnlockFail(clientIp: string): void {
+    const now = Date.now();
+    const windowMs = 15 * 60 * 1000;
+    const arr = (this.usbUnlockFailTs.get(clientIp) ?? []).filter((t) => now - t < windowMs);
+    arr.push(now);
+    this.usbUnlockFailTs.set(clientIp, arr);
+  }
+
+  private clearUsbUnlockFails(clientIp: string): void {
+    this.usbUnlockFailTs.delete(clientIp);
+  }
+
+  /**
+   * TV sınıf ekranı: USB ile açılışta öğretmen PIN doğrulama; tek seferlik tahta oturum belirteci üretir.
+   */
+  async unlockClassroomWithUsbPin(
+    schoolId: string,
+    deviceId: string,
+    pin: string,
+    clientIp: string,
+  ): Promise<{ access_token: string; expires_in: number; teacher_name: string | null }> {
+    this.assertUsbUnlockRate(clientIp);
+    const school = await this.schoolsService.findById(schoolId);
+    if (!this.isModuleEnabled(school)) {
+      this.recordUsbUnlockFail(clientIp);
+      throw new UnauthorizedException({ code: 'USB_PIN_INVALID', message: 'PIN geçersiz veya yetki yok.' });
+    }
+    const device = await this.deviceRepo.findOne({ where: { id: deviceId, school_id: schoolId } });
+    if (!device) {
+      this.recordUsbUnlockFail(clientIp);
+      throw new UnauthorizedException({ code: 'USB_PIN_INVALID', message: 'PIN geçersiz veya yetki yok.' });
+    }
+    const autoAuth = school.smartBoardAutoAuthorize ?? false;
+    const teachers = await this.userRepo.find({
+      where: { school_id: schoolId, role: UserRole.teacher, status: UserStatus.active },
+      select: ['id', 'display_name', 'smartBoardUsbPinHash'],
+    });
+    let matched: User | null = null;
+    for (const u of teachers) {
+      if (!u.smartBoardUsbPinHash) continue;
+      const ok = await bcrypt.compare(String(pin).trim(), u.smartBoardUsbPinHash);
+      if (ok) {
+        matched = u;
+        break;
+      }
+    }
+    if (!matched) {
+      this.recordUsbUnlockFail(clientIp);
+      throw new UnauthorizedException({ code: 'USB_PIN_INVALID', message: 'PIN geçersiz veya yetki yok.' });
+    }
+    if (!autoAuth) {
+      const auth = await this.authRepo.findOne({ where: { school_id: schoolId, user_id: matched.id } });
+      if (!auth) {
+        this.recordUsbUnlockFail(clientIp);
+        throw new UnauthorizedException({ code: 'USB_PIN_INVALID', message: 'PIN geçersiz veya yetki yok.' });
+      }
+    }
+    const raw = randomBytes(32).toString('base64url');
+    const token_hash = createHash('sha256').update(raw).digest('hex');
+    const expires_at = new Date(Date.now() + TV_USB_TOKEN_TTL_MS);
+    await this.tvUsbTokenRepo.save(
+      this.tvUsbTokenRepo.create({
+        token_hash,
+        school_id: schoolId,
+        device_id: deviceId,
+        user_id: matched.id,
+        expires_at,
+      }),
+    );
+    this.clearUsbUnlockFails(clientIp);
+    return {
+      access_token: raw,
+      expires_in: Math.floor(TV_USB_TOKEN_TTL_MS / 1000),
+      teacher_name: matched.display_name ?? null,
+    };
+  }
+
+  async verifyTvClassroomUsbToken(
+    rawToken: string | undefined | null,
+    schoolId: string,
+    deviceId: string,
+  ): Promise<boolean> {
+    if (!rawToken?.trim()) return false;
+    const token_hash = createHash('sha256').update(rawToken.trim()).digest('hex');
+    const row = await this.tvUsbTokenRepo.findOne({ where: { token_hash } });
+    if (!row) return false;
+    if (row.expires_at.getTime() < Date.now()) return false;
+    return row.school_id === schoolId && row.device_id === deviceId;
   }
 
   async addAuthorizedTeacher(
@@ -418,6 +574,266 @@ export class SmartBoardService {
       disconnected_at: s.disconnected_at?.toISOString() ?? null,
       is_active: !s.disconnected_at,
     }));
+  }
+
+  /** TR saat diliminde 0–23 saat */
+  private hourInIstanbul(d: Date): number {
+    const h = d.toLocaleString('en-GB', { timeZone: 'Europe/Istanbul', hour: 'numeric', hour12: false });
+    const n = parseInt(h, 10);
+    return Number.isFinite(n) ? n % 24 : 0;
+  }
+
+  /** Oturumun [rangeStart, rangeEnd] ile kesişim süresi (dakika, yuvarlanmış). */
+  private sessionMinutesInRange(
+    connectedAt: Date,
+    disconnectedAt: Date | null,
+    rangeStart: Date,
+    rangeEnd: Date,
+    now: Date,
+  ): number {
+    const end = disconnectedAt ?? now;
+    const start = connectedAt.getTime() > rangeStart.getTime() ? connectedAt : rangeStart;
+    const finish = end.getTime() < rangeEnd.getTime() ? end : rangeEnd;
+    if (finish.getTime() <= start.getTime()) return 0;
+    return Math.round((finish.getTime() - start.getTime()) / 60_000);
+  }
+
+  /**
+   * Okul tahta kullanım özeti: tarih aralığında kesişen oturumlar; sınıf / öğretmen / cihaz / saat dağılımı.
+   * En fazla 90 günlük aralık.
+   */
+  async getUsageStats(
+    schoolId: string,
+    scope: { schoolId: string | null; role: UserRole },
+    fromYmd: string,
+    toYmd: string,
+  ): Promise<{
+    range: { from: string; to: string };
+    totals: { session_count: number; total_minutes: number };
+    by_class: { key: string; session_count: number; minutes: number }[];
+    by_teacher: { user_id: string; user_name: string | null; session_count: number; minutes: number }[];
+    by_device: {
+      device_id: string;
+      device_name: string;
+      class_section: string | null;
+      session_count: number;
+      minutes: number;
+    }[];
+    by_hour_tr: { hour: number; count: number }[];
+    items: {
+      id: string;
+      device_id: string;
+      device_name: string;
+      class_section: string | null;
+      user_id: string;
+      user_name: string | null;
+      connected_at: string;
+      disconnected_at: string | null;
+      minutes_in_range: number;
+      is_active: boolean;
+    }[];
+  }> {
+    if (scope.role === UserRole.school_admin && scope.schoolId !== schoolId) {
+      throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu veriye erişim yetkiniz yok.' });
+    }
+    const from = (fromYmd || '').slice(0, 10);
+    const to = (toYmd || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      throw new BadRequestException({ code: 'INVALID_DATES', message: 'from ve to YYYY-MM-DD olmalıdır.' });
+    }
+    const rangeStart = new Date(`${from}T00:00:00+03:00`);
+    const rangeEnd = new Date(`${to}T23:59:59.999+03:00`);
+    if (rangeStart.getTime() > rangeEnd.getTime()) {
+      throw new BadRequestException({ code: 'INVALID_RANGE', message: 'Başlangıç bitişten sonra olamaz.' });
+    }
+    const maxMs = 90 * 24 * 60 * 60 * 1000;
+    if (rangeEnd.getTime() - rangeStart.getTime() > maxMs) {
+      throw new BadRequestException({ code: 'RANGE_TOO_LONG', message: 'En fazla 90 günlük aralık seçilebilir.' });
+    }
+
+    const now = new Date();
+    const sessions = await this.sessionRepo
+      .createQueryBuilder('s')
+      .innerJoinAndSelect('s.device', 'd')
+      .innerJoinAndSelect('s.user', 'u')
+      .where('d.school_id = :schoolId', { schoolId })
+      .andWhere('s.connected_at <= :rangeEnd', { rangeEnd })
+      .andWhere('(s.disconnected_at IS NULL OR s.disconnected_at >= :rangeStart)', { rangeStart })
+      .orderBy('s.connected_at', 'DESC')
+      .getMany();
+
+    const classMap = new Map<string, { session_count: number; minutes: number }>();
+    const teacherMap = new Map<string, { user_name: string | null; session_count: number; minutes: number }>();
+    const deviceMap = new Map<
+      string,
+      { device_name: string; class_section: string | null; session_count: number; minutes: number }
+    >();
+    const hourCounts = new Array(24).fill(0) as number[];
+
+    let totalMinutes = 0;
+    const items: {
+      id: string;
+      device_id: string;
+      device_name: string;
+      class_section: string | null;
+      user_id: string;
+      user_name: string | null;
+      connected_at: string;
+      disconnected_at: string | null;
+      minutes_in_range: number;
+      is_active: boolean;
+    }[] = [];
+
+    for (const s of sessions) {
+      const d = s.device;
+      const u = s.user;
+      const mins = this.sessionMinutesInRange(s.connected_at, s.disconnected_at, rangeStart, rangeEnd, now);
+      const isActive = !s.disconnected_at;
+      const deviceName = d?.name ?? '—';
+      const classKey = (d?.classSection?.trim() || '—') as string;
+      const userName = u?.display_name ?? u?.email ?? null;
+
+      totalMinutes += mins;
+      items.push({
+        id: s.id,
+        device_id: s.device_id,
+        device_name: deviceName,
+        class_section: d?.classSection?.trim() || null,
+        user_id: s.user_id,
+        user_name: userName,
+        connected_at: s.connected_at.toISOString(),
+        disconnected_at: s.disconnected_at?.toISOString() ?? null,
+        minutes_in_range: mins,
+        is_active: isActive,
+      });
+
+      const cc = classMap.get(classKey) ?? { session_count: 0, minutes: 0 };
+      cc.session_count += 1;
+      cc.minutes += mins;
+      classMap.set(classKey, cc);
+
+      const tc = teacherMap.get(s.user_id) ?? { user_name: userName, session_count: 0, minutes: 0 };
+      tc.session_count += 1;
+      tc.minutes += mins;
+      teacherMap.set(s.user_id, tc);
+
+      const dc = deviceMap.get(s.device_id) ?? {
+        device_name: deviceName,
+        class_section: d?.classSection?.trim() || null,
+        session_count: 0,
+        minutes: 0,
+      };
+      dc.session_count += 1;
+      dc.minutes += mins;
+      deviceMap.set(s.device_id, dc);
+
+      if (s.connected_at.getTime() >= rangeStart.getTime() && s.connected_at.getTime() <= rangeEnd.getTime()) {
+        hourCounts[this.hourInIstanbul(s.connected_at)] += 1;
+      }
+    }
+
+    const by_class = [...classMap.entries()]
+      .map(([key, v]) => ({ key, ...v }))
+      .sort((a, b) => b.minutes - a.minutes);
+    const by_teacher = [...teacherMap.entries()]
+      .map(([user_id, v]) => ({ user_id, user_name: v.user_name, session_count: v.session_count, minutes: v.minutes }))
+      .sort((a, b) => b.minutes - a.minutes);
+    const by_device = [...deviceMap.entries()]
+      .map(([device_id, v]) => ({ device_id, ...v }))
+      .sort((a, b) => b.minutes - a.minutes);
+    const by_hour_tr = hourCounts.map((count, hour) => ({ hour, count }));
+
+    return {
+      range: { from, to },
+      totals: { session_count: sessions.length, total_minutes: totalMinutes },
+      by_class,
+      by_teacher,
+      by_device,
+      by_hour_tr,
+      items,
+    };
+  }
+
+  /** Tahta / oturum uyarıları (kesik heartbeat, çevrimiçi görünüp sessiz cihaz vb.) */
+  async getBoardHealthAlerts(
+    schoolId: string,
+    scope: { schoolId: string | null; role: UserRole },
+  ): Promise<{
+    alerts: {
+      severity: 'warning' | 'info';
+      code: string;
+      title: string;
+      detail: string;
+      device_id?: string;
+      session_id?: string;
+    }[];
+  }> {
+    if (scope.role === UserRole.school_admin && scope.schoolId !== schoolId) {
+      throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu veriye erişim yetkiniz yok.' });
+    }
+    const school = await this.schoolsService.findById(schoolId);
+    const timeoutMin = school?.smartBoardSessionTimeoutMinutes ?? 2;
+    const staleHeartbeatMs = Math.max(timeoutMin + 1, 3) * 60 * 1000;
+    const now = new Date();
+    const alerts: {
+      severity: 'warning' | 'info';
+      code: string;
+      title: string;
+      detail: string;
+      device_id?: string;
+      session_id?: string;
+    }[] = [];
+
+    const devices = await this.deviceRepo.find({ where: { school_id: schoolId } });
+    const activeSessions = await this.sessionRepo.find({
+      where: { disconnected_at: IsNull() },
+      relations: ['device', 'user'],
+    });
+
+    for (const s of activeSessions) {
+      if (s.device?.school_id !== schoolId) continue;
+      const hb = s.last_heartbeat_at ?? s.connected_at;
+      if (now.getTime() - hb.getTime() > staleHeartbeatMs) {
+        const teacher = s.user?.display_name || s.user?.email || 'Öğretmen';
+        alerts.push({
+          severity: 'warning',
+          code: 'STALE_HEARTBEAT',
+          title: 'Oturum sinyali zayıf veya kesildi',
+          detail: `${s.device?.name ?? 'Tahta'} · ${teacher}: son sinyal gecikmeli; tahta uygulaması kapalı olabilir veya ağ sorunu.`,
+          device_id: s.device_id,
+          session_id: s.id,
+        });
+      }
+    }
+
+    for (const d of devices) {
+      if (d.status === 'online' && d.last_seen_at) {
+        const seen = new Date(d.last_seen_at).getTime();
+        if (now.getTime() - seen > ONLINE_THRESHOLD_MS) {
+          alerts.push({
+            severity: 'warning',
+            code: 'DEVICE_ONLINE_STALE',
+            title: 'Çevrimiçi görünüyor ama yanıt yok',
+            detail: `${d.name}: panel son görülme zamanı güncel değil; cihaz kapalı veya eşleşme kopmuş olabilir.`,
+            device_id: d.id,
+          });
+        }
+      }
+      if (d.status === 'offline' && !d.last_seen_at && d.created_at) {
+        const ageDays = (now.getTime() - new Date(d.created_at).getTime()) / (24 * 60 * 60 * 1000);
+        if (ageDays >= 14) {
+          alerts.push({
+            severity: 'info',
+            code: 'DEVICE_NEVER_CONNECTED',
+            title: 'Henüz bağlanmamış tahta',
+            detail: `${d.name}: oluşturulalı ${Math.floor(ageDays)} gün oldu; eşleme kodu sınıfta girilmedi.`,
+            device_id: d.id,
+          });
+        }
+      }
+    }
+
+    return { alerts };
   }
 
   async connect(

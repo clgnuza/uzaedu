@@ -4,15 +4,8 @@ import { YillikPlanTeacherWizard } from '@/components/yillik-plan/yillik-plan-te
 
 export default function BilsemYillikPlanPage() {
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Yıllık plan</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Word belgesi olarak oluşturup indirebilirsiniz.</p>
-      </div>
-
-      <div className="min-h-[320px]">
-        <YillikPlanTeacherWizard scope="bilsem" hideHeader />
-      </div>
+    <div className="min-h-[min(58vh,20rem)] px-1.5 pb-3 sm:min-h-[min(70vh,28rem)] sm:px-0 sm:pb-0">
+      <YillikPlanTeacherWizard scope="bilsem" hideHeader />
     </div>
   );
 }

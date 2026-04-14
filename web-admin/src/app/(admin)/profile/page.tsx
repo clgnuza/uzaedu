@@ -25,9 +25,9 @@ export default function ProfilePage() {
   return (
     <div className="mx-auto max-w-6xl px-2.5 pb-5 sm:px-4 sm:pb-8 lg:px-2">
       <div className="max-sm:-mt-2 lg:grid lg:grid-cols-[minmax(0,260px)_1fr] lg:gap-5 xl:grid-cols-[280px_1fr] xl:gap-6 lg:items-start space-y-3 sm:space-y-6 lg:space-y-0 pt-2 sm:pt-6">
-        <ProfileSidebar me={me} compactMobile={isTeacher} />
+        <ProfileSidebar me={me} compactMobile={isTeacher || isSchoolAdmin} />
 
-        <div className="min-w-0 space-y-4 sm:space-y-6">
+        <div className="min-w-0 space-y-3 sm:space-y-6">
           {isTeacher && (
             <Suspense fallback={<Loading />}>
               <TeacherAccountTabs />
@@ -36,7 +36,9 @@ export default function ProfilePage() {
 
           {isSchoolAdmin && (
             <Suspense fallback={<Loading />}>
-              <SchoolAdminAccountTabs />
+              <div className="rounded-2xl border border-sky-500/15 bg-linear-to-br from-sky-500/6 via-background to-violet-500/5 p-1.5 shadow-sm ring-1 ring-sky-500/10 dark:from-sky-950/35 dark:via-background dark:to-violet-950/25 dark:ring-sky-500/15 sm:rounded-3xl sm:p-3 md:p-4">
+                <SchoolAdminAccountTabs />
+              </div>
             </Suspense>
           )}
 

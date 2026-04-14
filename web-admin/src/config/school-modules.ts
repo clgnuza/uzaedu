@@ -14,6 +14,9 @@ export const SCHOOL_MODULE_KEYS = [
   'bilsem',
   'school_profile',
   'school_reviews',
+  'butterfly_exam',
+  'sorumluluk_sinav',
+  'messaging',
 ] as const;
 
 export type SchoolModuleKey = (typeof SCHOOL_MODULE_KEYS)[number];
@@ -31,6 +34,9 @@ export const SCHOOL_MODULE_LABELS: Record<SchoolModuleKey, string> = {
   bilsem: 'BİLSEM',
   school_profile: 'Okul Tanıtım',
   school_reviews: 'Okul Değerlendirme',
+  butterfly_exam: 'Kertenkele Sınav',
+  sorumluluk_sinav: 'Sorumluluk / Beceri Sınavı',
+  messaging: 'Mesaj Gönderme Merkezi',
 };
 
 /** Market sayfası: modül hücresi için kısa bağlam (hover) */
@@ -46,6 +52,9 @@ export const SCHOOL_MODULE_MARKET_HINTS: Record<SchoolModuleKey, string> = {
   bilsem: 'BİLSEM takvim ve yıllık plan.',
   school_profile: 'Okul tanıtım sayfası ve vitrin içeriği.',
   school_reviews: 'Veli/öğrenci okul değerlendirmeleri ve raporlar.',
+  butterfly_exam: 'Ortak sınavlarda kelebek yerleştirme, salon ve koltuk planı.',
+  sorumluluk_sinav: 'Sorumluluk ve beceri sınavları programlama, görevlendirme ve raporlar.',
+  messaging: 'WhatsApp mesaj gönderme: veli, öğretmen, ek ders, maaş, devamsızlık, karne dağıtımı.',
 };
 
 export const SCHOOL_MODULE_OPTIONS = SCHOOL_MODULE_KEYS.map((key) => ({

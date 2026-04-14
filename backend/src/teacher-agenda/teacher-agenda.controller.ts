@@ -127,6 +127,12 @@ export class TeacherAgendaController {
     return this.service.setTaskStatus(id, p.userId, status);
   }
 
+  @Get('tasks/:id')
+  @Roles(UserRole.teacher, UserRole.school_admin)
+  getTask(@Param('id') id: string, @CurrentUser() p: CurrentUserPayload) {
+    return this.service.getTaskById(id, p.userId);
+  }
+
   @Get('tasks')
   @Roles(UserRole.teacher, UserRole.school_admin)
   listTasks(@CurrentUser() p: CurrentUserPayload, @Query() dto: ListAgendaTasksDto) {
@@ -445,10 +451,12 @@ export class TeacherAgendaController {
     @Body() dto: Partial<CreateCriterionDto> & { sortOrder?: number },
   ) {
     return this.service.updateCriterion(id, p.userId, {
-      ...dto,
-      description: dto.description ?? undefined,
-      scoreType: dto.scoreType ?? undefined,
-      subjectId: dto.subjectId ?? undefined,
+      name: dto.name,
+      description: dto.description !== undefined ? dto.description : undefined,
+      maxScore: dto.maxScore,
+      scoreType: dto.scoreType,
+      sortOrder: dto.sortOrder,
+      subjectId: dto.subjectId !== undefined ? dto.subjectId : undefined,
     });
   }
 

@@ -13,8 +13,10 @@ function isAuthHref(href: ComponentProps<typeof Link>['href']): href is string {
   return (
     href === '/login' ||
     href.startsWith('/login?') ||
+    href.startsWith('/login/') ||
     href === '/register' ||
-    href.startsWith('/register?')
+    href.startsWith('/register?') ||
+    href.startsWith('/register/')
   );
 }
 

@@ -6,8 +6,6 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
-import { Toolbar, ToolbarHeading, ToolbarPageTitle } from '@/components/layout/toolbar';
-import { ToolbarIconHints } from '@/components/layout/toolbar-icon-hints';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -17,7 +15,6 @@ import {
   ListTodo,
   StickyNote,
   Plus,
-  Filter,
   ChevronLeft,
   ChevronRight,
   CalendarDays,
@@ -26,13 +23,11 @@ import {
   Search,
   Download,
   Printer,
-  Target,
-  Building2,
-  EyeOff,
 } from 'lucide-react';
 import { getApiUrl } from '@/lib/api';
 import { COOKIE_SESSION_TOKEN } from '@/lib/auth-session';
 import { AgendaCalendarGrid, type CalendarEvent } from './components/agenda-calendar-grid';
+import { AGENDA_SOURCE_KEYS, AGENDA_SOURCE_THEME } from './components/agenda-source-theme';
 import { EventDetailModal } from './components/event-detail-modal';
 import { NoteFormModal } from './components/note-form-modal';
 import { NoteDetailModal } from './components/note-detail-modal';
@@ -42,6 +37,7 @@ import { ParentMeetingFormModal } from './components/parent-meeting-form-modal';
 import { SchoolEventFormModal } from './components/school-event-form-modal';
 import { TemplatePickerModal } from './components/template-picker-modal';
 import { StudentNoteDetailModal, type StudentNoteDetail } from './components/student-note-detail-modal';
+import { AgendaHeroSchool, AgendaHeroTeacher } from './components/AgendaHero';
 import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
@@ -66,7 +62,18 @@ type AgendaTask = {
   status: string;
   priority: string;
   repeat?: string;
+  studentId?: string | null;
+  reminders?: { id: string; remindAt: string; pushSent?: boolean }[];
 };
+
+function agendaTaskRemindAtLocal(task: AgendaTask): string | undefined {
+  const r = task.reminders?.find((x) => !x.pushSent);
+  if (!r?.remindAt) return undefined;
+  const d = new Date(r.remindAt);
+  if (Number.isNaN(d.getTime())) return undefined;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 type Student = { id: string; name: string };
 type Subject = { id: string; label: string };
 type Class = { id: string; label: string };
@@ -74,39 +81,20 @@ type Class = { id: string; label: string };
 type ViewTab = 'calendar' | 'notes' | 'tasks' | 'student_notes' | 'parent_meetings';
 
 function toYMD(d: Date) {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
-const SAMPLE_NOTES: AgendaNote[] = [
-  { id: 'demo-1', title: 'Matematik sınav hazırlığı', body: '7. sınıf denklem konusu için soru bankası hazırla. Öğrencilere dağıtılacak ek alıştırmalar.\n\n- Çoktan seçmeli 20 soru\n- Açık uçlu 5 soru', tags: ['sınav', 'matematik'], color: '#dbeafe', pinned: true, attachments: [{ id: 'a1', fileUrl: 'https://placehold.co/200x150/e2e8f0/64748b?text=PDF', fileName: 'soru_bankasi.pdf', fileType: 'application/pdf' }] },
-  { id: 'demo-2', title: 'Veli toplantısı notları', body: 'Ahmet Yılmaz velisi ile görüşüldü. Ders çalışma programı üzerinde anlaşıldı.', tags: ['veli', 'takip'], color: '#d1fae5' },
-  { id: 'demo-3', title: 'Proje ödevi hatırlatması', body: 'Fen bilimleri proje ödevleri 20 Mart\'a kadar teslim edilecek.', tags: ['proje', 'ödev'], color: '#fef3c7' },
-];
-
-const SAMPLE_TASKS: AgendaTask[] = [
-  { id: 'demo-t1', title: 'Sınav kağıtlarını okumak', dueDate: toYMD(new Date()), dueTime: '14:00', status: 'pending', priority: 'high' },
-  { id: 'demo-t2', title: 'Haftalık plan güncellemesi', dueDate: toYMD(new Date(Date.now() + 86400000)), status: 'pending', priority: 'medium' },
-  { id: 'demo-t3', title: 'Öğrenci değerlendirme formları', dueDate: toYMD(new Date(Date.now() - 86400000)), status: 'pending', priority: 'high' },
-];
-
-function getSampleEvents(): CalendarEvent[] {
-  const today = toYMD(new Date());
-  return [
-    { id: 'demo-e1', type: 'school_event', title: 'Toplantı: Zümre', start: `${today}T09:00:00`, source: 'SCHOOL', createdBy: 'Müdür Yardımcısı' },
-    { id: 'demo-e2', type: 'task', title: 'Sınav okuma', start: `${today}T14:00:00`, source: 'PERSONAL', createdBy: 'Siz' },
-    { id: 'demo-e3', type: 'parent_meeting', title: 'Veli görüşmesi', start: `${today}T16:00:00`, source: 'PERSONAL', createdBy: 'Siz' },
-  ];
+/** API yyyy-MM-dd → mobilde 11/04/2026 */
+function formatYmdSlash(ymd: string | null | undefined): string {
+  if (!ymd || ymd.length < 10) return String(ymd ?? '');
+  const p = ymd.slice(0, 10).split('-');
+  if (p.length !== 3) return ymd;
+  const [y, m, d] = p;
+  return `${d}/${m}/${y}`;
 }
-
-const SAMPLE_STUDENT_NOTES = [
-  { id: 'demo-s1', noteType: 'positive', noteDate: toYMD(new Date()), student: { name: 'Elif Kaya' } },
-  { id: 'demo-s2', noteType: 'observation', noteDate: toYMD(new Date(Date.now() - 86400000)), student: { name: 'Mehmet Demir' } },
-];
-
-const SAMPLE_PARENT_MEETINGS = [
-  { id: 'demo-p1', meetingDate: toYMD(new Date()), subject: 'Ders başarısı', student: { name: 'Ayşe Yıldız' } },
-  { id: 'demo-p2', meetingDate: toYMD(new Date(Date.now() + 86400000)), subject: 'Davranış', student: { name: 'Can Öztürk' } },
-];
 
 function escapeHtml(s: string) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -117,6 +105,50 @@ function toStartEnd(month: Date) {
   const end = new Date(month.getFullYear(), month.getMonth() + 1, 0);
   return { start: toYMD(start), end: toYMD(end) };
 }
+
+const PANEL_CARD_SHELL =
+  'shadow-[0_1px_0_rgba(0,0,0,0.04),0_8px_24px_-8px_rgba(15,23,42,0.1)] ring-1 ring-black/3 dark:shadow-[0_8px_24px_-8px_rgba(0,0,0,0.4)] dark:ring-white/6';
+
+/** Sekme kartları — üst şerit + çerçeve (Kişisel/Okul/Platform takvim renkleriyle çakışmaması için not=indigo, öğr.notu=teal) */
+const AGENDA_PANEL = {
+  calendar: {
+    card: cn('border-blue-200/45 dark:border-blue-900/40', PANEL_CARD_SHELL),
+    head: 'border-b border-blue-200/40 bg-blue-500/6 px-3 py-3 dark:border-blue-900/40 sm:px-6 sm:py-4',
+    iconWrap: 'bg-blue-500/15 ring-1 ring-blue-500/20',
+    iconClass: 'text-blue-700 dark:text-blue-400',
+  },
+  notes: {
+    card: cn('border-indigo-200/50 dark:border-indigo-900/45', PANEL_CARD_SHELL),
+    head: 'border-b border-indigo-200/45 bg-indigo-500/6 px-3 py-3 dark:border-indigo-900/45 sm:px-6 sm:py-4',
+    iconWrap: 'bg-indigo-500/15 ring-1 ring-indigo-500/20',
+    iconClass: 'text-indigo-800 dark:text-indigo-300',
+    rowHover: 'hover:border-indigo-400/35 hover:shadow-md hover:ring-1 hover:ring-indigo-500/15',
+    accentBar: 'border-l-indigo-500',
+  },
+  tasks: {
+    card: cn('border-emerald-200/45 dark:border-emerald-900/40', PANEL_CARD_SHELL),
+    head: 'border-b border-emerald-200/40 bg-emerald-500/6 px-3 py-3 dark:border-emerald-900/40 sm:px-6 sm:py-4',
+    iconWrap: 'bg-emerald-500/15 ring-1 ring-emerald-500/20',
+    iconClass: 'text-emerald-800 dark:text-emerald-300',
+    rowHover: 'hover:border-emerald-400/40 hover:shadow-md hover:ring-1 hover:ring-emerald-500/15',
+    filterActive: 'bg-emerald-600 text-white shadow-md shadow-emerald-600/25 dark:bg-emerald-600',
+    filterIdle: 'bg-muted/50 hover:bg-muted ring-1 ring-border/40',
+  },
+  student_notes: {
+    card: cn('border-teal-200/50 dark:border-teal-900/45', PANEL_CARD_SHELL),
+    head: 'border-b border-teal-200/45 bg-teal-500/6 px-3 py-3 dark:border-teal-900/45 sm:px-6 sm:py-4',
+    iconWrap: 'bg-teal-500/15 ring-1 ring-teal-500/20',
+    iconClass: 'text-teal-800 dark:text-teal-300',
+    rowHover: 'hover:border-teal-400/40 hover:shadow-md hover:ring-1 hover:ring-teal-500/15',
+  },
+  parent_meetings: {
+    card: cn('border-rose-200/45 dark:border-rose-900/40', PANEL_CARD_SHELL),
+    head: 'border-b border-rose-200/40 bg-rose-500/6 px-3 py-3 dark:border-rose-900/40 sm:px-6 sm:py-4',
+    iconWrap: 'bg-rose-500/15 ring-1 ring-rose-500/20',
+    iconClass: 'text-rose-800 dark:text-rose-300',
+    rowHover: 'hover:border-rose-400/40 hover:shadow-md hover:ring-1 hover:ring-rose-500/15',
+  },
+} as const;
 
 function AgendaSkeleton() {
   return (
@@ -184,7 +216,6 @@ function OgretmenAjandasiPageContent() {
   const [includeArchived, setIncludeArchived] = useState(false);
   const [mobileTab, setMobileTab] = useState<ViewTab>('calendar');
   const [togglingTaskId, setTogglingTaskId] = useState<string | null>(null);
-  const [showDemo, setShowDemo] = useState(true);
   const [globalSearch, setGlobalSearch] = useState('');
   const [searchResults, setSearchResults] = useState<{ notes: AgendaNote[]; tasks: AgendaTask[]; studentNotes: unknown[]; parentMeetings: unknown[] } | null>(null);
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
@@ -371,6 +402,25 @@ function OgretmenAjandasiPageContent() {
     fetchWeeklyStats();
   }, [fetchCalendar, fetchNotes, fetchTasks, fetchStudentNotes, fetchParentMeetings, fetchSummary, fetchTemplates, fetchWeeklyStats]);
 
+  const openTaskEdit = useCallback(
+    async (t: AgendaTask) => {
+      if (!token) {
+        setEditingTask(t);
+        setTaskModalOpen(true);
+        return;
+      }
+      try {
+        const full = await apiFetch<AgendaTask>(`/teacher-agenda/tasks/${t.id}`, { token });
+        setEditingTask(full);
+        setTaskModalOpen(true);
+      } catch {
+        setEditingTask(t);
+        setTaskModalOpen(true);
+      }
+    },
+    [token],
+  );
+
   useEffect(() => {
     const announcementId = searchParams.get('announcementId');
     const fromTv = searchParams.get('fromTv') === '1';
@@ -466,7 +516,7 @@ function OgretmenAjandasiPageContent() {
   }, []);
 
   useEffect(() => {
-    if (!studentNoteDetailId || !token || studentNoteDetailId.startsWith('demo-')) {
+    if (!studentNoteDetailId || !token) {
       setStudentNoteDetail(null);
       return;
     }
@@ -488,11 +538,6 @@ function OgretmenAjandasiPageContent() {
   };
 
   const handleNoteClick = async (note: AgendaNote) => {
-    if (note.id.startsWith('demo-')) {
-      setSelectedNote(note);
-      setNoteDetailOpen(true);
-      return;
-    }
     if (!token) return;
     try {
       const full = await apiFetch<AgendaNote>(`/teacher-agenda/notes/${note.id}`, { token });
@@ -568,7 +613,6 @@ function OgretmenAjandasiPageContent() {
     id: string,
     data: { title: string; body?: string; tags?: string[] }
   ) => {
-    if (id.startsWith('demo-')) { toast.info('Örnek veri düzenlenemez'); return; }
     if (!token) return;
     await apiFetch(`/teacher-agenda/notes/${id}`, {
       method: 'PATCH',
@@ -581,7 +625,6 @@ function OgretmenAjandasiPageContent() {
   };
 
   const handleArchiveNote = async (id: string) => {
-    if (id.startsWith('demo-')) { toast.info('Örnek veri arşivlenemez'); return; }
     if (!token) return;
     await apiFetch(`/teacher-agenda/notes/${id}/archive`, { method: 'POST', token });
     toast.success('Not arşivlendi');
@@ -589,7 +632,6 @@ function OgretmenAjandasiPageContent() {
   };
 
   const handleDeleteNote = async (id: string) => {
-    if (id.startsWith('demo-')) { toast.info('Örnek veri silinemez'); return; }
     if (!token) return;
     await apiFetch(`/teacher-agenda/notes/${id}`, { method: 'DELETE', token });
     toast.success('Not silindi');
@@ -607,7 +649,7 @@ function OgretmenAjandasiPageContent() {
     remindAt?: string;
   }) => {
     if (!token) return;
-    const task = await apiFetch<{ id: string }>('/teacher-agenda/tasks', {
+    await apiFetch<{ id: string }>('/teacher-agenda/tasks', {
       method: 'POST',
       token,
       body: JSON.stringify({
@@ -618,29 +660,40 @@ function OgretmenAjandasiPageContent() {
         priority: data.priority,
         repeat: data.repeat || 'none',
         studentId: data.studentId || undefined,
+        ...(data.remindAt?.trim() ? { remindAt: data.remindAt.trim() } : {}),
       }),
     });
-    if (data.remindAt && task?.id) {
-      await apiFetch('/teacher-agenda/reminders', {
-        method: 'POST',
-        token,
-        body: JSON.stringify({ taskId: task.id, remindAt: data.remindAt }),
-      });
-    }
     toast.success('Görev eklendi');
     refresh();
   };
 
   const handleUpdateTask = async (
     id: string,
-    data: Partial<{ title: string; description: string; dueDate: string; dueTime: string; priority: string; repeat: string }>
+    data: Partial<{
+      title: string;
+      description: string;
+      dueDate: string;
+      dueTime: string;
+      priority: string;
+      repeat: string;
+      studentId?: string;
+      remindAt: string;
+    }>,
   ) => {
-    if (id.startsWith('demo-')) { toast.info('Örnek veri düzenlenemez'); setEditingTask(null); return; }
     if (!token) return;
     await apiFetch(`/teacher-agenda/tasks/${id}`, {
       method: 'PATCH',
       token,
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        title: data.title,
+        description: data.description || undefined,
+        dueDate: data.dueDate || undefined,
+        dueTime: data.dueTime || undefined,
+        priority: data.priority,
+        repeat: data.repeat || 'none',
+        studentId: data.studentId || undefined,
+        remindAt: data.remindAt ?? '',
+      }),
     });
     toast.success('Görev güncellendi');
     refresh();
@@ -648,7 +701,6 @@ function OgretmenAjandasiPageContent() {
   };
 
   const handleDeleteTask = async (id: string) => {
-    if (id.startsWith('demo-')) { toast.info('Örnek veri silinemez'); return; }
     if (!token || !confirm('Bu görevi silmek istediğinize emin misiniz?')) return;
     await apiFetch(`/teacher-agenda/tasks/${id}`, { method: 'DELETE', token });
     toast.success('Görev silindi');
@@ -656,7 +708,6 @@ function OgretmenAjandasiPageContent() {
   };
 
   const handleTaskDateChange = async (taskId: string, newDate: string) => {
-    if (taskId.startsWith('demo-')) { toast.info('Örnek veri'); return; }
     if (!token) return;
     try {
       await apiFetch(`/teacher-agenda/tasks/${taskId}`, {
@@ -710,7 +761,6 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
   };
 
   const handleTaskStatus = async (taskId: string, status: string) => {
-    if (taskId.startsWith('demo-')) { toast.info('Örnek veri'); return; }
     if (!token) return;
     setTogglingTaskId(taskId);
     const prevStatus = tasks.items.find((t) => t.id === taskId)?.status;
@@ -843,8 +893,7 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
 
   const handleBulkArchiveNotes = async () => {
     if (!token || selectedNoteIds.size === 0) return;
-    const ids = Array.from(selectedNoteIds).filter((id) => !id.startsWith('demo-'));
-    if (ids.length === 0) { toast.info('Örnek veri arşivlenemez'); return; }
+    const ids = Array.from(selectedNoteIds);
     await apiFetch('/teacher-agenda/notes/bulk-archive', { method: 'POST', token, body: JSON.stringify({ ids }) });
     toast.success(`${ids.length} not arşivlendi`);
     setSelectedNoteIds(new Set());
@@ -853,8 +902,7 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
 
   const handleBulkDeleteNotes = async () => {
     if (!token || selectedNoteIds.size === 0 || !confirm('Seçili notları silmek istediğinize emin misiniz?')) return;
-    const ids = Array.from(selectedNoteIds).filter((id) => !id.startsWith('demo-'));
-    if (ids.length === 0) { toast.info('Örnek veri silinemez'); return; }
+    const ids = Array.from(selectedNoteIds);
     await apiFetch('/teacher-agenda/notes/bulk-delete', { method: 'POST', token, body: JSON.stringify({ ids }) });
     toast.success(`${ids.length} not silindi`);
     setSelectedNoteIds(new Set());
@@ -863,8 +911,7 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
 
   const handleBulkDeleteTasks = async () => {
     if (!token || selectedTaskIds.size === 0 || !confirm('Seçili görevleri silmek istediğinize emin misiniz?')) return;
-    const ids = Array.from(selectedTaskIds).filter((id) => !id.startsWith('demo-'));
-    if (ids.length === 0) { toast.info('Örnek veri silinemez'); return; }
+    const ids = Array.from(selectedTaskIds);
     await apiFetch('/teacher-agenda/tasks/bulk-delete', { method: 'POST', token, body: JSON.stringify({ ids }) });
     toast.success(`${ids.length} görev silindi`);
     setSelectedTaskIds(new Set());
@@ -873,8 +920,7 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
 
   const handleBulkCompleteTasks = async () => {
     if (!token || selectedTaskIds.size === 0) return;
-    const ids = Array.from(selectedTaskIds).filter((id) => !id.startsWith('demo-'));
-    if (ids.length === 0) { toast.info('Örnek veri'); return; }
+    const ids = Array.from(selectedTaskIds);
     await apiFetch('/teacher-agenda/tasks/bulk-status', { method: 'POST', token, body: JSON.stringify({ ids, status: 'completed' }) });
     toast.success(`${ids.length} görev tamamlandı`);
     setSelectedTaskIds(new Set());
@@ -961,19 +1007,17 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
   const goToday = () => setMonth(new Date());
   const monthLabel = month.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' });
 
-  const useDemo = showDemo && notes.items.length === 0 && tasks.items.length === 0;
-  const displayNotes = useDemo ? SAMPLE_NOTES : notes.items;
-  const displayTasksRaw = useDemo ? SAMPLE_TASKS : tasks.items;
-  const displayTasks = [...displayTasksRaw].sort((a, b) => {
+  const displayNotes = notes.items;
+  const displayTasks = [...tasks.items].sort((a, b) => {
     if (taskSortBy === 'priority') {
       const order = { high: 0, medium: 1, low: 2 };
       return (order[a.priority as keyof typeof order] ?? 1) - (order[b.priority as keyof typeof order] ?? 1);
     }
     return (a.dueDate ?? '').localeCompare(b.dueDate ?? '');
   });
-  const displayEvents = useDemo ? getSampleEvents() : events;
-  const displayStudentNotes = useDemo ? SAMPLE_STUDENT_NOTES : studentNotes.items;
-  const displayParentMeetings = useDemo ? SAMPLE_PARENT_MEETINGS : parentMeetings.items;
+  const displayEvents = events;
+  const displayStudentNotes = studentNotes.items;
+  const displayParentMeetings = parentMeetings.items;
 
   const filteredEvents =
     filterSource && filterSource !== 'all'
@@ -1007,119 +1051,107 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
   }
 
   const isTeacher = me.role === 'teacher';
-  const tabs: { id: ViewTab; label: string; count?: number; base: string; active: string }[] = isTeacher
+  type TabDef = {
+    id: ViewTab;
+    label: string;
+    shortLabel: string;
+    icon: typeof Calendar;
+    count?: number;
+    base: string;
+    active: string;
+  };
+  const tabs: TabDef[] = isTeacher
     ? [
-        { id: 'calendar', label: 'Takvim', base: 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30', active: 'bg-blue-500/25 border-blue-500/50 ring-1 ring-blue-500/40' },
-        { id: 'notes', label: 'Notlar', count: useDemo ? displayNotes.length : notes.total, base: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30', active: 'bg-amber-500/25 border-amber-500/50 ring-1 ring-amber-500/40' },
-        { id: 'tasks', label: 'Görevler', count: useDemo ? displayTasks.length : tasks.total, base: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30', active: 'bg-emerald-500/25 border-emerald-500/50 ring-1 ring-emerald-500/40' },
-        { id: 'student_notes', label: 'Öğr. Notları', count: useDemo ? displayStudentNotes.length : studentNotes.total, base: 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30', active: 'bg-violet-500/25 border-violet-500/50 ring-1 ring-violet-500/40' },
-        { id: 'parent_meetings', label: 'Veli Topl.', count: useDemo ? displayParentMeetings.length : parentMeetings.total, base: 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30', active: 'bg-rose-500/25 border-rose-500/50 ring-1 ring-rose-500/40' },
+        {
+          id: 'calendar',
+          label: 'Takvim',
+          shortLabel: 'Takvim',
+          icon: Calendar,
+          base: 'border-blue-500/35 bg-blue-500/12 text-blue-800 dark:text-blue-200',
+          active: 'ring-2 ring-blue-500/35 shadow-sm',
+        },
+        {
+          id: 'notes',
+          label: 'Notlar',
+          shortLabel: 'Not',
+          icon: StickyNote,
+          count: notes.total,
+          base: 'border-indigo-500/35 bg-indigo-500/12 text-indigo-950 dark:text-indigo-100',
+          active: 'ring-2 ring-indigo-500/35 shadow-sm',
+        },
+        {
+          id: 'tasks',
+          label: 'Görevler',
+          shortLabel: 'Görev',
+          icon: ListTodo,
+          count: tasks.total,
+          base: 'border-emerald-500/35 bg-emerald-500/12 text-emerald-900 dark:text-emerald-100',
+          active: 'ring-2 ring-emerald-500/35 shadow-sm',
+        },
+        {
+          id: 'student_notes',
+          label: 'Öğrenci notları',
+          shortLabel: 'Öğr.',
+          icon: Users,
+          count: studentNotes.total,
+          base: 'border-teal-500/35 bg-teal-500/12 text-teal-950 dark:text-teal-100',
+          active: 'ring-2 ring-teal-500/35 shadow-sm',
+        },
+        {
+          id: 'parent_meetings',
+          label: 'Veli toplantıları',
+          shortLabel: 'Veli',
+          icon: UserPlus,
+          count: parentMeetings.total,
+          base: 'border-rose-500/35 bg-rose-500/12 text-rose-900 dark:text-rose-100',
+          active: 'ring-2 ring-rose-500/35 shadow-sm',
+        },
       ]
-    : [{ id: 'calendar', label: 'Okul Takvimi', base: 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30', active: 'bg-blue-500/25 border-blue-500/50 ring-1 ring-blue-500/40' }];
+    : [
+        {
+          id: 'calendar',
+          label: 'Okul takvimi',
+          shortLabel: 'Takvim',
+          icon: Calendar,
+          base: 'border-blue-500/35 bg-blue-500/12 text-blue-800 dark:text-blue-200',
+          active: 'ring-2 ring-blue-500/35 shadow-sm',
+        },
+      ];
 
   return (
-    <div className="min-w-0 space-y-5 sm:space-y-6 pb-24 sm:pb-0">
-      <Toolbar>
-        <ToolbarHeading>
-          <ToolbarPageTitle className="text-xl sm:text-2xl font-bold tracking-tight">
-            {isSchoolAdmin ? 'Okul Takvimi' : 'Öğretmen Ajandası'}
-          </ToolbarPageTitle>
-          {isSchoolAdmin ? (
-            <ToolbarIconHints
-              compact
-              items={[
-                { label: 'Okul takvimi', icon: Calendar },
-                { label: 'Yönetim', icon: Building2 },
-                { label: 'Öğretmen verisi gizli', icon: EyeOff },
-              ]}
-              summary="Okul etkinliklerini görüntüleyin ve yönetin. Öğretmen notları ve görevleri görüntülenmez."
-            />
-          ) : (
-            <ToolbarIconHints
-              items={[
-                { label: 'Takvim', icon: Calendar },
-                { label: 'Notlar', icon: StickyNote },
-                { label: 'Görevler', icon: ListTodo },
-                { label: 'Veli toplantıları', icon: Users },
-              ]}
-              summary="Notlar, görevler, öğrenci notları, veli toplantıları ve takvim."
-            />
-          )}
-        </ToolbarHeading>
-        {isTeacher && notes.items.length === 0 && tasks.items.length === 0 && (
-          <Button
-            variant={showDemo ? 'secondary' : 'outline'}
-            size="sm"
-            onClick={() => setShowDemo(!showDemo)}
-            className="mt-4 rounded-xl"
-          >
-            {showDemo ? 'Örnekleri Gizle' : 'Örnekleri Göster'}
-          </Button>
-        )}
-        {(summary || useDemo) && (
-          <div className="flex flex-wrap gap-3 mt-4">
-            {isTeacher && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => { setMobileTab('tasks'); setFilterStatus('pending'); setTaskViewFilter('all'); }}
-                  className="flex items-center gap-2.5 rounded-2xl bg-primary/10 px-4 py-2.5 border border-primary/20 shadow-sm hover:bg-primary/20 transition-colors text-left"
-                >
-                  <ListTodo className="size-5 text-primary shrink-0" />
-                  <span className="text-sm font-semibold text-foreground">{useDemo ? 3 : (summary?.pendingTasks ?? 0)}</span>
-                  <span className="text-xs text-muted-foreground">bekleyen</span>
-                </button>
-                {(useDemo ? 1 : (summary?.overdueTasks ?? 0)) > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => { setMobileTab('tasks'); setFilterStatus('overdue'); setTaskViewFilter('overdue'); }}
-                    className="flex items-center gap-2.5 rounded-2xl bg-destructive/10 px-4 py-2.5 border border-destructive/20 shadow-sm hover:bg-destructive/20 transition-colors text-left"
-                  >
-                    <span className="text-sm font-semibold text-destructive">{useDemo ? 1 : (summary?.overdueTasks ?? 0)}</span>
-                    <span className="text-xs text-destructive/90">gecikmiş</span>
-                  </button>
-                )}
-              </>
-            )}
-            <button
-              type="button"
-              onClick={() => { setMobileTab('calendar'); setMonth(new Date()); setCalendarViewMode('day'); }}
-              className="flex items-center gap-2.5 rounded-2xl bg-muted/60 px-4 py-2.5 border border-border shadow-sm hover:bg-muted transition-colors text-left"
-            >
-              <CalendarDays className="size-5 text-muted-foreground shrink-0" />
-              <span className="text-sm font-semibold text-foreground">{useDemo ? 3 : (summary?.todayEventCount ?? 0)}</span>
-              <span className="text-xs text-muted-foreground">bugün</span>
-            </button>
-            {isTeacher && (
-              <Link
-                href="/ogretmen-ajandasi/degerlendirme"
-                className="flex items-center gap-2.5 rounded-2xl bg-violet-500/10 px-4 py-2.5 border border-violet-500/20 shadow-sm hover:bg-violet-500/20 transition-colors text-left"
-              >
-                <Target className="size-5 text-violet-600 dark:text-violet-400 shrink-0" />
-                <span className="text-sm font-semibold text-foreground">Öğrenci Değerlendirme</span>
-              </Link>
-            )}
-          </div>
-        )}
-      </Toolbar>
-
+    <div className="min-w-0 space-y-2 pb-24 sm:space-y-5 sm:pb-0">
       {error && <Alert message={error} className="mb-4" />}
-      {isTeacher && useDemo && (
-        <div className="rounded-xl bg-primary/5 border border-primary/20 px-4 py-2.5 text-sm text-muted-foreground flex items-center gap-2">
-          <span className="font-medium text-primary">Örnek veriler gösteriliyor.</span>
-          Gerçek verilerinizi görmek için not veya görev ekleyin.
-        </div>
+      {isSchoolAdmin && <AgendaHeroSchool />}
+      {isTeacher && (
+        <AgendaHeroTeacher
+          summary={summary}
+          weeklyStats={weeklyStats}
+          onPendingTasks={() => {
+            setMobileTab('tasks');
+            setFilterStatus('pending');
+            setTaskViewFilter('all');
+          }}
+          onOverdueTasks={() => {
+            setMobileTab('tasks');
+            setFilterStatus('overdue');
+            setTaskViewFilter('overdue');
+          }}
+          onTodayEvents={() => {
+            setMobileTab('calendar');
+            setMonth(new Date());
+            setCalendarViewMode('day');
+          }}
+        />
       )}
-
       {isTeacher && (
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+        <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground sm:left-3 sm:size-4" />
         <input
           type="text"
-          placeholder="Not, görev, öğrenci notu ara... (min 2 karakter)"
+          placeholder="Ajandada ara… (2+ harf)"
           value={globalSearch}
           onChange={(e) => setGlobalSearch(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-input bg-background text-sm"
+          className="w-full rounded-lg border border-input bg-background py-1.5 pl-8 pr-2.5 text-sm sm:rounded-xl sm:py-2.5 sm:pl-10 sm:pr-4"
         />
         {searchResults && (
           <div className="absolute top-full left-0 right-0 mt-1 rounded-xl border bg-card shadow-lg z-50 max-h-[320px] overflow-y-auto">
@@ -1133,7 +1165,7 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
                   </button>
                 ))}
                 {searchResults.tasks.map((t) => (
-                  <button key={t.id} type="button" onClick={() => { setEditingTask(t); setTaskModalOpen(true); setSearchResults(null); setGlobalSearch(''); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted text-sm flex items-center gap-2">
+                  <button key={t.id} type="button" onClick={() => { void openTaskEdit(t); setSearchResults(null); setGlobalSearch(''); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted text-sm flex items-center gap-2">
                     <ListTodo className="size-4 shrink-0" /> {t.title}
                   </button>
                 ))}
@@ -1154,38 +1186,100 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
       </div>
       )}
 
-      <div className="flex rounded-2xl bg-muted/40 p-1.5 gap-1 overflow-x-auto scrollbar-none -mx-1">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setMobileTab(tab.id)}
-            className={cn(
-              'flex-1 min-w-[72px] min-h-[48px] rounded-xl text-xs font-semibold transition-all shrink-0 border',
-              tab.base,
-              mobileTab === tab.id && tab.active,
-            )}
-          >
-            {tab.label}
-            {tab.count !== undefined && ` (${tab.count})`}
-          </button>
-        ))}
+      <div
+        className={cn(
+          'akilli-tahta-tabnav -mx-0.5 px-0.5 pb-0.5 sm:mx-0 sm:px-0',
+          'max-sm:overflow-x-visible',
+          'sm:snap-x sm:snap-mandatory sm:overflow-x-auto sm:pb-0.5 sm:[-webkit-overflow-scrolling:touch] sm:[scrollbar-width:none] sm:[&::-webkit-scrollbar]:hidden',
+        )}
+      >
+        <div
+          role="tablist"
+          aria-label="Ajanda görünümü"
+          className={cn(
+            'w-full gap-1 rounded-xl border-2 border-border/90 bg-linear-to-b from-muted/70 to-muted/45 p-1 shadow-md dark:border-border dark:from-muted/50 dark:to-muted/30',
+            'max-sm:grid max-sm:gap-1',
+            isTeacher ? 'max-sm:grid-cols-5' : 'max-sm:grid-cols-1',
+            'sm:flex sm:w-max sm:flex-wrap sm:justify-start sm:gap-1.5 sm:rounded-2xl sm:border sm:border-border/70 sm:bg-muted/40 sm:p-1.5 sm:shadow-sm',
+          )}
+        >
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            const active = mobileTab === tab.id;
+            const c = tab.count !== undefined ? (tab.count > 99 ? '99+' : String(tab.count)) : null;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                title={tab.label}
+                onClick={() => setMobileTab(tab.id)}
+                className={cn(
+                  'flex items-center justify-center font-semibold transition-all',
+                  'max-sm:flex max-sm:flex-col max-sm:gap-0.5 max-sm:rounded-lg max-sm:border max-sm:px-0.5 max-sm:py-1.5 max-sm:text-[9px] max-sm:leading-tight',
+                  'sm:snap-start sm:shrink-0 sm:flex-row sm:gap-1.5 sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-xs sm:min-h-[44px] md:text-sm',
+                  active
+                    ? cn('z-1 border', tab.base, tab.active, 'max-sm:shadow-sm max-sm:ring-2 max-sm:ring-offset-1 max-sm:ring-offset-background')
+                    : cn(
+                        'border-border/50 bg-background/85 text-muted-foreground hover:bg-background hover:text-foreground dark:bg-background/50',
+                        'max-sm:border max-sm:bg-muted/50',
+                        'sm:border-transparent sm:bg-muted/30 sm:hover:bg-background/90',
+                      ),
+                )}
+              >
+                <Icon className={cn('size-3.5 shrink-0 sm:size-4', active && 'sm:size-[1.15rem]')} aria-hidden />
+                <span className="hidden items-center sm:inline-flex">
+                  {tab.label}
+                  {c !== null && <span className="ml-1 tabular-nums opacity-80">({c})</span>}
+                </span>
+                <span className="flex flex-col items-center gap-0 text-center sm:hidden">
+                  <span className="max-w-full truncate font-bold leading-none">{tab.shortLabel}</span>
+                  {c !== null && <span className="tabular-nums text-[8px] font-semibold leading-none opacity-90">{c}</span>}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-col gap-1.5 pb-0.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:overflow-visible sm:pb-0">
         {isTeacher && (
-          <div className="flex items-center gap-2 rounded-xl border bg-muted/30 px-3 py-2.5 min-h-[44px]">
-            <Filter className="size-4 shrink-0 text-muted-foreground" />
-            <select
-              value={filterSource}
-              onChange={(e) => setFilterSource(e.target.value)}
-              className="flex-1 min-w-0 border-0 bg-transparent text-sm focus:outline-none py-1"
+          <div
+            role="group"
+            aria-label="Takvim kaynağı"
+            className="grid w-full min-w-0 grid-cols-4 gap-1 sm:max-w-2xl"
+          >
+            <button
+              type="button"
+              onClick={() => setFilterSource('')}
+              className={cn(
+                'min-h-9 rounded-lg px-1 py-1.5 text-center text-[10px] font-bold leading-tight transition-all sm:min-h-10 sm:px-2 sm:text-xs',
+                filterSource === ''
+                  ? 'border border-slate-700 bg-slate-800 text-white shadow-md dark:border-slate-600 dark:bg-slate-200 dark:text-slate-900'
+                  : 'border border-border/60 bg-muted/45 text-muted-foreground hover:bg-muted',
+              )}
             >
-              <option value="">Tüm kaynaklar</option>
-              <option value="PERSONAL">Kişisel</option>
-              <option value="SCHOOL">Okul</option>
-              <option value="PLATFORM">Platform</option>
-            </select>
+              Tümü
+            </button>
+            {AGENDA_SOURCE_KEYS.map((key) => {
+              const st = AGENDA_SOURCE_THEME[key];
+              const on = filterSource === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setFilterSource(key)}
+                  className={cn(
+                    'min-h-9 rounded-lg px-1 py-1.5 text-center text-[10px] font-bold transition-all sm:min-h-10 sm:px-2 sm:text-xs',
+                    on ? st.filterActive : st.filterIdle,
+                  )}
+                >
+                  <span className="sm:hidden">{st.shortLabel}</span>
+                  <span className="hidden sm:inline">{st.label}</span>
+                </button>
+              );
+            })}
           </div>
         )}
         {isSchoolAdmin && (
@@ -1196,26 +1290,35 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
         )}
         {isTeacher && (
           <>
-            <Button size="sm" variant="outline" onClick={() => { setMobileTab('student_notes'); setStudentNoteModalOpen(true); }} className="rounded-xl" title="Öğrenci hakkında +/− not veya gözlem ekleyin">
-              <Users className="size-4 mr-1" />
-              Öğrenci Notu
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setMobileTab('student_notes');
+                setStudentNoteModalOpen(true);
+              }}
+              className="h-8 shrink-0 rounded-lg px-2 sm:h-9 sm:rounded-xl sm:px-3"
+              title="Öğrenci hakkında +/− not veya gözlem ekleyin"
+            >
+              <Users className="size-3.5 sm:mr-1 sm:size-4" />
+              <span className="max-sm:sr-only sm:inline">Öğrenci Notu</span>
             </Button>
-            <div className="flex gap-1 flex-wrap">
-              <Button variant="outline" size="sm" onClick={handleIcalDownload} className="rounded-xl" title="Takvimi .ics formatında indir">
-                <Calendar className="size-4 mr-1" />
-                iCal
+            <div className="flex shrink-0 gap-1">
+              <Button variant="outline" size="sm" onClick={handleIcalDownload} className="h-8 rounded-lg px-2 sm:h-9 sm:rounded-xl sm:px-3" title="Takvimi .ics formatında indir">
+                <Calendar className="size-3.5 sm:mr-1 sm:size-4" />
+                <span className="max-sm:sr-only sm:inline">iCal</span>
               </Button>
-              <Button variant="outline" size="sm" onClick={() => handleExport('notes')} className="rounded-xl" title="Notları CSV olarak indir">
-                <Download className="size-4 mr-1" />
-                Notlar CSV
+              <Button variant="outline" size="sm" onClick={() => handleExport('notes')} className="h-8 rounded-lg px-2 sm:h-9 sm:rounded-xl sm:px-3" title="Notları CSV olarak indir">
+                <Download className="size-3.5 sm:mr-1 sm:size-4" />
+                <span className="max-sm:sr-only sm:inline">Notlar CSV</span>
               </Button>
-              <Button variant="outline" size="sm" onClick={() => handleExport('tasks')} className="rounded-xl" title="Görevleri CSV olarak indir">
-                <Download className="size-4 mr-1" />
-                Görevler CSV
+              <Button variant="outline" size="sm" onClick={() => handleExport('tasks')} className="h-8 rounded-lg px-2 sm:h-9 sm:rounded-xl sm:px-3" title="Görevleri CSV olarak indir">
+                <Download className="size-3.5 sm:mr-1 sm:size-4" />
+                <span className="max-sm:sr-only sm:inline">Görevler CSV</span>
               </Button>
-              <Button variant="outline" size="sm" onClick={handlePrint} className="rounded-xl">
-                <Printer className="size-4 mr-1" />
-                Yazdır
+              <Button variant="outline" size="sm" onClick={handlePrint} className="h-8 rounded-lg px-2 sm:h-9 sm:rounded-xl sm:px-3" title="Yazdır">
+                <Printer className="size-3.5 sm:mr-1 sm:size-4" />
+                <span className="max-sm:sr-only sm:inline">Yazdır</span>
               </Button>
             </div>
           </>
@@ -1227,14 +1330,6 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
           </Button>
         )}
       </div>
-
-      {isTeacher && weeklyStats && !useDemo && (
-        <div className="rounded-xl bg-muted/40 px-4 py-2.5 border border-border flex items-center gap-4 text-sm">
-          <span className="font-medium">Bu hafta:</span>
-          <span>{weeklyStats.completed}/{weeklyStats.total} görev tamamlandı</span>
-          <span className="text-primary font-semibold">%{weeklyStats.completionRate}</span>
-        </div>
-      )}
 
       {isTeacher && selectedNoteIds.size > 0 && (
         <div className="flex items-center gap-2 rounded-xl bg-primary/10 px-4 py-2.5 border border-primary/20">
@@ -1264,22 +1359,26 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
               mobileTab !== 'calendar' && 'hidden sm:block',
             )}
           >
-            <Card className="overflow-hidden border shadow-sm rounded-2xl bg-card">
-              <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 sm:p-6 bg-muted/20">
-                <CardTitle className="flex items-center gap-2 text-base sm:text-lg font-semibold">
-                  <Calendar className="size-5 shrink-0 text-primary" />
-                  Takvim
-                </CardTitle>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="flex gap-1">
+            <Card className={cn('overflow-hidden rounded-2xl border bg-card', AGENDA_PANEL.calendar.card)}>
+              <CardHeader className={cn('flex flex-col gap-3', AGENDA_PANEL.calendar.head)}>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <CardTitle className="flex items-center gap-2 text-base font-semibold sm:text-lg">
+                    <span className={cn('flex size-8 items-center justify-center rounded-lg', AGENDA_PANEL.calendar.iconWrap)}>
+                      <Calendar className={cn('size-4 shrink-0', AGENDA_PANEL.calendar.iconClass)} />
+                    </span>
+                    Takvim
+                  </CardTitle>
+                  <div className="grid w-full grid-cols-3 gap-1 rounded-xl border border-border/60 bg-muted/40 p-1 shadow-inner sm:w-auto sm:inline-grid sm:min-w-[220px]">
                     {(['month', 'week', 'day'] as const).map((v) => (
                       <button
                         key={v}
                         type="button"
                         onClick={() => setCalendarViewMode(v)}
                         className={cn(
-                          'rounded-lg px-2 py-1.5 text-xs font-medium transition-all',
-                          calendarViewMode === v ? 'bg-primary text-primary-foreground' : 'bg-muted/50 hover:bg-muted',
+                          'rounded-lg py-2 text-center text-[11px] font-bold transition-all sm:px-3 sm:text-xs',
+                          calendarViewMode === v
+                            ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25 dark:bg-blue-600'
+                            : 'bg-background/80 text-muted-foreground ring-1 ring-border/40 hover:bg-background hover:text-foreground',
                         )}
                       >
                         {v === 'month' && 'Ay'}
@@ -1288,22 +1387,24 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
                       </button>
                     ))}
                   </div>
-                  <Button variant="outline" size="sm" onClick={prevMonth} className="min-h-[40px] px-3 rounded-xl">
+                </div>
+                <div className="flex min-w-0 flex-wrap items-center justify-center gap-1.5 sm:justify-end">
+                  <Button variant="outline" size="sm" onClick={prevMonth} className="h-9 shrink-0 rounded-lg px-2.5 sm:h-10 sm:rounded-xl sm:px-3" aria-label="Önceki">
                     <ChevronLeft className="size-4" />
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={goToday} className="min-h-[40px] px-3 rounded-xl">
-                    <CalendarDays className="size-4 mr-1" />
+                  <Button variant="secondary" size="sm" onClick={goToday} className="h-9 shrink-0 gap-1 rounded-lg px-2.5 text-xs font-semibold sm:h-10 sm:rounded-xl sm:px-3">
+                    <CalendarDays className="size-3.5 sm:size-4" />
                     Bugün
                   </Button>
-                  <span className="min-w-[120px] sm:min-w-[160px] text-center text-sm font-medium capitalize">
+                  <span className="min-w-0 flex-1 basis-32 truncate text-center text-xs font-semibold capitalize tabular-nums text-foreground sm:basis-auto sm:text-sm">
                     {monthLabel}
                   </span>
-                  <Button variant="outline" size="sm" onClick={nextMonth} className="min-h-[40px] px-3 rounded-xl">
+                  <Button variant="outline" size="sm" onClick={nextMonth} className="h-9 shrink-0 rounded-lg px-2.5 sm:h-10 sm:rounded-xl sm:px-3" aria-label="Sonraki">
                     <ChevronRight className="size-4" />
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="p-3 sm:p-6 pt-0">
+              <CardContent className="px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
                 <AgendaCalendarGrid
                   month={month}
                   events={filteredEvents}
@@ -1312,10 +1413,13 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
                   onEventDrop={handleTaskDateChange}
                   viewMode={calendarViewMode}
                 />
-                <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t border-border/60 text-[10px] sm:text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-primary/80" /> Kişisel</span>
-                  <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-blue-500/80" /> Okul</span>
-                  <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-amber-500/80" /> Platform</span>
+                <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border/60 pt-4 text-[10px] font-medium sm:text-xs">
+                  {AGENDA_SOURCE_KEYS.map((k) => (
+                    <span key={k} className="flex items-center gap-1.5 text-foreground">
+                      <span className={cn('size-2.5 shrink-0 rounded-full', AGENDA_SOURCE_THEME[k].legendDot)} aria-hidden />
+                      {AGENDA_SOURCE_THEME[k].label}
+                    </span>
+                  ))}
                 </div>
               </CardContent>
             </Card>
@@ -1328,51 +1432,55 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
             )}
           >
             {mobileTab === 'notes' && (
-              <Card className="overflow-hidden border shadow-sm rounded-2xl">
-                <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-4 sm:p-6">
-                  <CardTitle className="flex items-center gap-2 text-base sm:text-lg font-semibold">
-                    <StickyNote className="size-5 shrink-0 text-primary" />
-                    Notlar
-                  </CardTitle>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="relative flex-1 min-w-[120px]">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Card className={cn('overflow-hidden rounded-2xl border bg-card', AGENDA_PANEL.notes.card)}>
+                <CardHeader className={cn('flex flex-col gap-3', AGENDA_PANEL.notes.head)}>
+                  <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <CardTitle className="flex min-w-0 items-center gap-2 text-base font-semibold sm:text-lg">
+                      <span className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg', AGENDA_PANEL.notes.iconWrap)}>
+                        <StickyNote className={cn('size-4 shrink-0', AGENDA_PANEL.notes.iconClass)} />
+                      </span>
+                      Notlar
+                    </CardTitle>
+                    <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground sm:text-sm">
+                      {notes.total} not
+                    </span>
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                    <div className="relative w-full min-w-0 sm:max-w-md sm:flex-1">
+                      <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground sm:left-3" />
                       <input
                         type="text"
-                        placeholder="Ara..."
+                        placeholder="Notlarda ara…"
                         value={noteSearch}
                         onChange={(e) => setNoteSearch(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2 rounded-xl border border-input bg-background text-sm"
+                        className="w-full rounded-xl border border-input bg-background py-2 pl-9 pr-3 text-sm sm:pl-10"
                       />
                     </div>
-                    <Button size="sm" onClick={() => { setNoteFromTemplate(null); setNoteModalOpen(true); }} className="min-h-[40px] px-4 rounded-xl">
-                      <Plus className="size-4" />
-                      Ekle
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => { setTemplatePickerOpen(true); }}
-                      className="min-h-[40px] px-4 rounded-xl"
-                    >
-                      Şablondan
-                    </Button>
-                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={includeArchived}
-                        onChange={(e) => setIncludeArchived(e.target.checked)}
-                      />
-                      Arşiv
-                    </label>
-                    <span className="text-sm text-muted-foreground">{useDemo ? displayNotes.length : notes.total} not</span>
+                    <div className="flex min-w-0 flex-wrap gap-1.5">
+                      <Button size="sm" onClick={() => { setNoteFromTemplate(null); setNoteModalOpen(true); }} className="h-9 shrink-0 rounded-xl px-3 sm:h-10 sm:px-4">
+                        <Plus className="size-4 sm:mr-1" />
+                        <span className="max-sm:sr-only">Ekle</span>
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => { setTemplatePickerOpen(true); }} className="h-9 shrink-0 rounded-xl px-3 sm:h-10 sm:px-4">
+                        <span className="text-xs font-semibold sm:text-sm">Şablondan</span>
+                      </Button>
+                      <label className="flex h-9 min-w-0 cursor-pointer items-center gap-2 rounded-xl border border-border/60 bg-muted/30 px-2.5 text-xs font-medium sm:h-10 sm:px-3 sm:text-sm">
+                        <input
+                          type="checkbox"
+                          checked={includeArchived}
+                          onChange={(e) => setIncludeArchived(e.target.checked)}
+                          className="rounded"
+                        />
+                        Arşiv
+                      </label>
+                    </div>
                   </div>
                 </CardHeader>
-                <CardContent className="p-4 sm:p-6 pt-0">
+                <CardContent className="px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
                   {displayNotes.length === 0 ? (
-                    <div className="py-16 text-center rounded-2xl bg-gradient-to-b from-muted/30 to-transparent border border-dashed border-border">
-                      <div className="inline-flex size-16 items-center justify-center rounded-2xl bg-primary/10 mb-4">
-                        <StickyNote className="size-8 text-primary" />
+                    <div className="rounded-2xl border border-dashed border-border bg-linear-to-b from-indigo-500/5 to-transparent py-12 text-center sm:py-16">
+                      <div className="mb-4 inline-flex size-14 items-center justify-center rounded-2xl bg-indigo-500/15 ring-1 ring-indigo-500/20 sm:size-16">
+                        <StickyNote className="size-7 text-indigo-800 dark:text-indigo-300 sm:size-8" />
                       </div>
                       <p className="text-base font-medium text-foreground mb-1">Henüz not yok</p>
                       <p className="text-sm text-muted-foreground mb-4">İlk notunuzu ekleyerek başlayın</p>
@@ -1382,33 +1490,32 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
                       </Button>
                     </div>
                   ) : (
-                    <ul className="space-y-2">
+                    <ul className="space-y-2.5">
                       {displayNotes.map((n) => (
                         <li
                           key={n.id}
                           className={cn(
-                            'rounded-xl border bg-card px-4 py-3.5 text-sm font-medium transition-all min-h-[52px] flex items-center touch-manipulation gap-3',
-                            !n.id.startsWith('demo-') && 'hover:bg-muted/40 hover:shadow-md hover:border-primary/20',
+                            'flex min-h-[52px] touch-manipulation items-center gap-3 rounded-xl border border-border/80 bg-card px-3 py-3 text-sm font-semibold shadow-sm transition-all sm:px-4 sm:py-3.5',
+                            !n.color && cn('border-l-4', AGENDA_PANEL.notes.accentBar),
+                            AGENDA_PANEL.notes.rowHover,
                           )}
                           style={n.color ? { borderLeftWidth: 4, borderLeftColor: n.color } : undefined}
                         >
-                          {!n.id.startsWith('demo-') && (
-                            <input
-                              type="checkbox"
-                              checked={selectedNoteIds.has(n.id)}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                setSelectedNoteIds((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(n.id)) next.delete(n.id);
-                                  else next.add(n.id);
-                                  return next;
-                                });
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              className="rounded shrink-0"
-                            />
-                          )}
+                          <input
+                            type="checkbox"
+                            checked={selectedNoteIds.has(n.id)}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              setSelectedNoteIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(n.id)) next.delete(n.id);
+                                else next.add(n.id);
+                                return next;
+                              });
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="rounded shrink-0"
+                          />
                           <span
                             className="flex-1 cursor-pointer"
                             onClick={() => handleNoteClick(n)}
@@ -1425,35 +1532,42 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
             )}
 
             {mobileTab === 'tasks' && (
-              <Card className="overflow-hidden border shadow-sm rounded-2xl">
-                <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-4 sm:p-6">
-                  <CardTitle className="flex items-center gap-2 text-base sm:text-lg font-semibold">
-                    <ListTodo className="size-5 shrink-0 text-primary" />
-                    Görevler
-                  </CardTitle>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder="Ara..."
-                      value={taskSearch}
-                      onChange={(e) => setTaskSearch(e.target.value)}
-                      className="w-24 sm:w-32 rounded-xl border border-input bg-background px-3 py-2 text-sm min-h-[40px]"
-                    />
-                    <Button size="sm" onClick={() => { setTaskModalDate(undefined); setTaskModalOpen(true); }} className="min-h-[40px] px-4 rounded-xl">
-                      <Plus className="size-4" />
-                      Ekle
-                    </Button>
-                    <div className="flex gap-1 flex-wrap">
+              <Card className={cn('overflow-hidden rounded-2xl border bg-card', AGENDA_PANEL.tasks.card)}>
+                <CardHeader className={cn('flex flex-col gap-3', AGENDA_PANEL.tasks.head)}>
+                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <CardTitle className="flex min-w-0 items-center gap-2 text-base font-semibold sm:text-lg">
+                      <span className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg', AGENDA_PANEL.tasks.iconWrap)}>
+                        <ListTodo className={cn('size-4 shrink-0', AGENDA_PANEL.tasks.iconClass)} />
+                      </span>
+                      Görevler
+                    </CardTitle>
+                    <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground sm:text-sm">
+                      {tasks.total} görev
+                    </span>
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="Görevde ara…"
+                        value={taskSearch}
+                        onChange={(e) => setTaskSearch(e.target.value)}
+                        className="min-h-9 min-w-0 flex-1 rounded-xl border border-input bg-background px-3 py-2 text-sm sm:min-w-40 sm:max-w-xs"
+                      />
+                      <Button size="sm" onClick={() => { setTaskModalDate(undefined); setTaskModalOpen(true); }} className="h-9 shrink-0 rounded-xl px-3 sm:h-10 sm:px-4">
+                        <Plus className="size-4 sm:mr-1" />
+                        <span className="max-sm:sr-only">Ekle</span>
+                      </Button>
+                    </div>
+                    <div className="-mx-1 flex gap-1 overflow-x-auto pb-0.5 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible [&::-webkit-scrollbar]:hidden">
                       {(['all', 'today', 'week', 'overdue'] as const).map((v) => (
                         <button
                           key={v}
                           type="button"
                           onClick={() => setTaskViewFilter(v)}
                           className={cn(
-                            'rounded-lg px-2 py-1.5 text-xs font-medium transition-all',
-                            taskViewFilter === v
-                              ? 'bg-primary text-primary-foreground'
-                              : 'bg-muted/50 hover:bg-muted',
+                            'shrink-0 rounded-lg px-2.5 py-2 text-center text-[11px] font-bold transition-all sm:py-1.5 sm:text-xs',
+                            taskViewFilter === v ? AGENDA_PANEL.tasks.filterActive : AGENDA_PANEL.tasks.filterIdle,
                           )}
                         >
                           {v === 'all' && 'Tümü'}
@@ -1463,41 +1577,42 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
                         </button>
                       ))}
                     </div>
-                    <select
-                      value={filterStatus}
-                      onChange={(e) => setFilterStatus(e.target.value)}
-                      className="rounded-xl border border-input bg-background px-3 py-2 text-sm min-h-[40px]"
-                    >
-                      <option value="pending">Bekleyen</option>
-                      <option value="completed">Tamamlanan</option>
-                      <option value="overdue">Geciken</option>
-                    </select>
-                    <select
-                      value={filterPriority}
-                      onChange={(e) => setFilterPriority(e.target.value)}
-                      className="rounded-xl border border-input bg-background px-3 py-2 text-sm min-h-[40px]"
-                    >
-                      <option value="">Tüm öncelikler</option>
-                      <option value="low">Düşük</option>
-                      <option value="medium">Orta</option>
-                      <option value="high">Yüksek</option>
-                    </select>
-                    <select
-                      value={taskSortBy}
-                      onChange={(e) => setTaskSortBy(e.target.value as 'date' | 'priority')}
-                      className="rounded-xl border border-input bg-background px-3 py-2 text-sm min-h-[40px]"
-                    >
-                      <option value="date">Tarihe göre</option>
-                      <option value="priority">Önceliğe göre</option>
-                    </select>
-                    <span className="text-sm text-muted-foreground">{useDemo ? displayTasks.length : tasks.total} görev</span>
+                    <div className="grid grid-cols-1 gap-1.5 sm:flex sm:flex-wrap sm:gap-2">
+                      <select
+                        value={filterStatus}
+                        onChange={(e) => setFilterStatus(e.target.value)}
+                        className="min-h-9 w-full rounded-xl border border-input bg-background px-2 py-2 text-xs font-medium sm:min-h-10 sm:w-auto sm:min-w-34 sm:text-sm"
+                      >
+                        <option value="pending">Bekleyen</option>
+                        <option value="completed">Tamamlanan</option>
+                        <option value="overdue">Geciken</option>
+                      </select>
+                      <select
+                        value={filterPriority}
+                        onChange={(e) => setFilterPriority(e.target.value)}
+                        className="min-h-9 w-full rounded-xl border border-input bg-background px-2 py-2 text-xs font-medium sm:min-h-10 sm:w-auto sm:min-w-34 sm:text-sm"
+                      >
+                        <option value="">Tüm öncelikler</option>
+                        <option value="low">Düşük</option>
+                        <option value="medium">Orta</option>
+                        <option value="high">Yüksek</option>
+                      </select>
+                      <select
+                        value={taskSortBy}
+                        onChange={(e) => setTaskSortBy(e.target.value as 'date' | 'priority')}
+                        className="min-h-9 w-full rounded-xl border border-input bg-background px-2 py-2 text-xs font-medium sm:min-h-10 sm:w-auto sm:min-w-36 sm:text-sm"
+                      >
+                        <option value="date">Tarihe göre</option>
+                        <option value="priority">Önceliğe göre</option>
+                      </select>
+                    </div>
                   </div>
                 </CardHeader>
-                <CardContent className="p-4 sm:p-6 pt-0">
+                <CardContent className="px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
                   {displayTasks.length === 0 ? (
-                    <div className="py-16 text-center rounded-2xl bg-gradient-to-b from-muted/30 to-transparent border border-dashed border-border">
-                      <div className="inline-flex size-16 items-center justify-center rounded-2xl bg-primary/10 mb-4">
-                        <ListTodo className="size-8 text-primary" />
+                    <div className="rounded-2xl border border-dashed border-border bg-linear-to-b from-emerald-500/5 to-transparent py-12 text-center sm:py-16">
+                      <div className="mb-4 inline-flex size-14 items-center justify-center rounded-2xl bg-emerald-500/15 sm:size-16">
+                        <ListTodo className="size-7 text-emerald-800 dark:text-emerald-300 sm:size-8" />
                       </div>
                       <p className="text-base font-medium text-foreground mb-1">Görev yok</p>
                       <p className="text-sm text-muted-foreground mb-4">Yapılacaklar listenize görev ekleyin</p>
@@ -1507,32 +1622,31 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
                       </Button>
                     </div>
                   ) : (
-                    <ul className="space-y-2">
+                    <ul className="space-y-2.5">
                       {displayTasks.map((t) => (
                         <li
                           key={t.id}
                           className={cn(
-                            'flex items-center gap-3 rounded-xl border bg-card px-4 py-3.5 text-sm min-h-[56px] touch-manipulation transition-all hover:shadow-md hover:border-primary/20 group',
-                            isOverdue(t) && 'border-destructive/40 bg-destructive/5',
+                            'group flex min-h-[56px] touch-manipulation items-center gap-3 rounded-xl border border-border/80 bg-card px-3 py-3 text-sm shadow-sm transition-all sm:px-4 sm:py-3.5',
+                            AGENDA_PANEL.tasks.rowHover,
+                            isOverdue(t) && 'border-destructive/45 bg-destructive/5 ring-1 ring-destructive/15',
                           )}
                         >
-                          {!t.id.startsWith('demo-') && (
-                            <input
-                              type="checkbox"
-                              checked={selectedTaskIds.has(t.id)}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                setSelectedTaskIds((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(t.id)) next.delete(t.id);
-                                  else next.add(t.id);
-                                  return next;
-                                });
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              className="rounded shrink-0"
-                            />
-                          )}
+                          <input
+                            type="checkbox"
+                            checked={selectedTaskIds.has(t.id)}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              setSelectedTaskIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(t.id)) next.delete(t.id);
+                                else next.add(t.id);
+                                return next;
+                              });
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="rounded shrink-0"
+                          />
                           <input
                             type="checkbox"
                             checked={t.status === 'completed'}
@@ -1544,21 +1658,22 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
                           />
                           <span
                             className={cn(
-                              'flex-1 min-w-0 font-medium truncate cursor-pointer',
-                              t.status === 'completed' && 'line-through text-muted-foreground',
+                              'min-w-0 flex-1 cursor-pointer truncate font-semibold leading-snug',
+                              t.status === 'completed' && 'text-muted-foreground line-through',
                             )}
-                            onClick={() => setEditingTask(t)}
+                            onClick={() => void openTaskEdit(t)}
                           >
                             {t.title}
                           </span>
                           {t.dueDate && (
                             <span
                               className={cn(
-                                'text-xs shrink-0',
+                                'text-xs shrink-0 tabular-nums',
                                 isOverdue(t) ? 'text-destructive font-semibold' : 'text-muted-foreground',
                               )}
                             >
-                              {format(new Date(t.dueDate), 'd MMM')}
+                              <span className="sm:hidden">{formatYmdSlash(t.dueDate)}</span>
+                              <span className="hidden sm:inline">{format(new Date(`${t.dueDate}T12:00:00`), 'd MMM', { locale: tr })}</span>
                             </span>
                           )}
                           <Button
@@ -1581,25 +1696,31 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
             )}
 
             {mobileTab === 'student_notes' && (
-              <Card className="overflow-hidden border shadow-sm rounded-2xl">
-                <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-4 sm:p-6">
-                  <CardTitle className="flex items-center gap-2 text-base sm:text-lg font-semibold">
-                    <Users className="size-5 shrink-0 text-primary" />
-                    Öğrenci Notları
-                  </CardTitle>
-                  <div className="flex items-center gap-2">
-                    <Button size="sm" onClick={() => setStudentNoteModalOpen(true)} className="min-h-[40px] px-4 rounded-xl">
-                      <Plus className="size-4" />
-                      Ekle
-                    </Button>
-                    <span className="text-sm text-muted-foreground">{useDemo ? displayStudentNotes.length : studentNotes.total} not</span>
+              <Card className={cn('overflow-hidden rounded-2xl border bg-card', AGENDA_PANEL.student_notes.card)}>
+                <CardHeader className={cn('flex flex-col gap-3', AGENDA_PANEL.student_notes.head)}>
+                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <CardTitle className="flex min-w-0 items-center gap-2 text-base font-semibold sm:text-lg">
+                      <span className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg', AGENDA_PANEL.student_notes.iconWrap)}>
+                        <Users className={cn('size-4 shrink-0', AGENDA_PANEL.student_notes.iconClass)} />
+                      </span>
+                      Öğrenci notları
+                    </CardTitle>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button size="sm" onClick={() => setStudentNoteModalOpen(true)} className="h-9 rounded-xl px-3 sm:h-10 sm:px-4">
+                        <Plus className="size-4 sm:mr-1" />
+                        Ekle
+                      </Button>
+                      <span className="text-xs font-semibold tabular-nums text-muted-foreground sm:text-sm">
+                        {studentNotes.total} not
+                      </span>
+                    </div>
                   </div>
                 </CardHeader>
-                <CardContent className="p-4 sm:p-6 pt-0">
+                <CardContent className="px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
                   {displayStudentNotes.length === 0 ? (
-                    <div className="py-16 text-center rounded-2xl bg-gradient-to-b from-muted/30 to-transparent border border-dashed border-border">
-                      <div className="inline-flex size-16 items-center justify-center rounded-2xl bg-primary/10 mb-4">
-                        <Users className="size-8 text-primary" />
+                    <div className="rounded-2xl border border-dashed border-border bg-linear-to-b from-teal-500/5 to-transparent py-12 text-center sm:py-16">
+                      <div className="mb-4 inline-flex size-14 items-center justify-center rounded-2xl bg-teal-500/15 ring-1 ring-teal-500/20 sm:size-16">
+                        <Users className="size-7 text-teal-800 dark:text-teal-300 sm:size-8" />
                       </div>
                       <p className="text-base font-medium text-foreground mb-1">Öğrenci notu yok</p>
                       <p className="text-sm text-muted-foreground mb-4">Öğrenciler hakkında not ekleyin</p>
@@ -1609,22 +1730,40 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
                       </Button>
                     </div>
                   ) : (
-                    <ul className="space-y-2">
-                      {(displayStudentNotes as { id: string; noteType: string; noteDate: string; student?: { name: string } }[]).map((sn) => (
-                        <li
-                          key={sn.id}
-                          onClick={() => { if (!sn.id.startsWith('demo-')) { setStudentNoteDetailId(sn.id); } }}
-                          className={cn(
-                            'rounded-xl border bg-card px-4 py-3.5 text-sm transition-all hover:bg-muted/40 hover:shadow-md',
-                            !sn.id.startsWith('demo-') && 'cursor-pointer',
-                          )}
-                        >
-                          <span className="font-semibold">{sn.student?.name ?? 'Öğrenci'}</span>
-                          <span className="text-muted-foreground ml-2">
-                            {sn.noteType === 'positive' ? 'Olumlu' : sn.noteType === 'negative' ? 'Olumsuz' : 'Gözlem'} – {sn.noteDate}
-                          </span>
-                        </li>
-                      ))}
+                    <ul className="space-y-2.5">
+                      {(displayStudentNotes as { id: string; noteType: string; noteDate: string; student?: { name: string } }[]).map((sn) => {
+                        const typeLabel =
+                          sn.noteType === 'positive' ? 'Olumlu' : sn.noteType === 'negative' ? 'Olumsuz' : 'Gözlem';
+                        const badge =
+                          sn.noteType === 'positive'
+                            ? 'bg-emerald-500/15 text-emerald-900 ring-emerald-500/25 dark:text-emerald-100'
+                            : sn.noteType === 'negative'
+                              ? 'bg-rose-500/15 text-rose-900 ring-rose-500/25 dark:text-rose-100'
+                              : 'bg-slate-500/12 text-slate-800 ring-slate-500/20 dark:text-slate-200';
+                        return (
+                          <li
+                            key={sn.id}
+                            onClick={() => setStudentNoteDetailId(sn.id)}
+                            className={cn(
+                              'cursor-pointer rounded-xl border border-border/80 border-l-4 border-l-teal-500 bg-card px-3 py-3 text-sm shadow-sm transition-all sm:px-4 sm:py-3.5',
+                              AGENDA_PANEL.student_notes.rowHover,
+                            )}
+                          >
+                            <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                              <span className="min-w-0 truncate font-bold text-foreground">{sn.student?.name ?? 'Öğrenci'}</span>
+                              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                <span className={cn('inline-flex shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1', badge)}>
+                                  {typeLabel}
+                                </span>
+                                <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                                  <span className="sm:hidden">{formatYmdSlash(sn.noteDate)}</span>
+                                  <span className="hidden sm:inline">{sn.noteDate}</span>
+                                </span>
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </CardContent>
@@ -1632,25 +1771,31 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
             )}
 
             {mobileTab === 'parent_meetings' && (
-              <Card className="overflow-hidden border shadow-sm rounded-2xl">
-                <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-4 sm:p-6">
-                  <CardTitle className="flex items-center gap-2 text-base sm:text-lg font-semibold">
-                    <UserPlus className="size-5 shrink-0 text-primary" />
-                    Veli Toplantıları
-                  </CardTitle>
-                  <div className="flex items-center gap-2">
-                    <Button size="sm" onClick={() => setParentMeetingModalOpen(true)} className="min-h-[40px] px-4 rounded-xl">
-                      <Plus className="size-4" />
-                      Ekle
-                    </Button>
-                    <span className="text-sm text-muted-foreground">{useDemo ? displayParentMeetings.length : parentMeetings.total} toplantı</span>
+              <Card className={cn('overflow-hidden rounded-2xl border bg-card', AGENDA_PANEL.parent_meetings.card)}>
+                <CardHeader className={cn('flex flex-col gap-3', AGENDA_PANEL.parent_meetings.head)}>
+                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <CardTitle className="flex min-w-0 items-center gap-2 text-base font-semibold sm:text-lg">
+                      <span className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg', AGENDA_PANEL.parent_meetings.iconWrap)}>
+                        <UserPlus className={cn('size-4 shrink-0', AGENDA_PANEL.parent_meetings.iconClass)} />
+                      </span>
+                      Veli toplantıları
+                    </CardTitle>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button size="sm" onClick={() => setParentMeetingModalOpen(true)} className="h-9 rounded-xl px-3 sm:h-10 sm:px-4">
+                        <Plus className="size-4 sm:mr-1" />
+                        Ekle
+                      </Button>
+                      <span className="text-xs font-semibold tabular-nums text-muted-foreground sm:text-sm">
+                        {parentMeetings.total} toplantı
+                      </span>
+                    </div>
                   </div>
                 </CardHeader>
-                <CardContent className="p-4 sm:p-6 pt-0">
+                <CardContent className="px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
                   {displayParentMeetings.length === 0 ? (
-                    <div className="py-16 text-center rounded-2xl bg-gradient-to-b from-muted/30 to-transparent border border-dashed border-border">
-                      <div className="inline-flex size-16 items-center justify-center rounded-2xl bg-primary/10 mb-4">
-                        <UserPlus className="size-8 text-primary" />
+                    <div className="rounded-2xl border border-dashed border-border bg-linear-to-b from-rose-500/5 to-transparent py-12 text-center sm:py-16">
+                      <div className="mb-4 inline-flex size-14 items-center justify-center rounded-2xl bg-rose-500/15 sm:size-16">
+                        <UserPlus className="size-7 text-rose-800 dark:text-rose-300 sm:size-8" />
                       </div>
                       <p className="text-base font-medium text-foreground mb-1">Veli toplantısı yok</p>
                       <p className="text-sm text-muted-foreground mb-4">Planlanan veli görüşmelerini ekleyin</p>
@@ -1660,13 +1805,25 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
                       </Button>
                     </div>
                   ) : (
-                    <ul className="space-y-2">
+                    <ul className="space-y-2.5">
                       {(displayParentMeetings as { id: string; meetingDate: string; subject?: string; student?: { name: string } }[]).map((pm) => (
-                        <li key={pm.id} className="rounded-xl border bg-card px-4 py-3.5 text-sm transition-all hover:bg-muted/40 hover:shadow-md">
-                          <span className="font-semibold">{pm.student?.name ?? 'Öğrenci'}</span>
-                          <span className="text-muted-foreground ml-2">
-                            {pm.subject ?? 'Veli toplantısı'} – {pm.meetingDate}
-                          </span>
+                        <li
+                          key={pm.id}
+                          className={cn(
+                            'rounded-xl border border-border/80 border-l-4 border-l-rose-500 bg-card px-3 py-3 text-sm shadow-sm transition-all sm:px-4 sm:py-3.5',
+                            AGENDA_PANEL.parent_meetings.rowHover,
+                          )}
+                        >
+                          <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate font-bold text-foreground">{pm.student?.name ?? 'Öğrenci'}</p>
+                              <p className="mt-0.5 text-sm font-medium leading-snug text-foreground/90">{pm.subject ?? 'Veli toplantısı'}</p>
+                            </div>
+                            <span className="shrink-0 rounded-md bg-rose-500/10 px-2 py-1 text-xs font-bold tabular-nums text-rose-900 ring-1 ring-rose-500/20 dark:text-rose-100">
+                              <span className="sm:hidden">{formatYmdSlash(pm.meetingDate)}</span>
+                              <span className="hidden sm:inline">{pm.meetingDate}</span>
+                            </span>
+                          </div>
                         </li>
                       ))}
                     </ul>
@@ -1744,7 +1901,10 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
       <TaskFormModal
         open={taskModalOpen || !!editingTask}
         onOpenChange={(open) => {
-          if (!open) setEditingTask(null);
+          if (!open) {
+            setEditingTask(null);
+            setTaskModalDate(undefined);
+          }
           setTaskModalOpen(open);
         }}
         onSubmit={editingTask
@@ -1752,6 +1912,7 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
           : handleCreateTask
         }
         initialDate={taskModalDate}
+        editTaskId={editingTask?.id ?? null}
         initial={editingTask ? {
           title: editingTask.title,
           description: editingTask.description ?? undefined,
@@ -1759,7 +1920,8 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
           dueTime: editingTask.dueTime ?? undefined,
           priority: editingTask.priority as 'low' | 'medium' | 'high',
           repeat: (editingTask.repeat as 'none' | 'daily' | 'weekly' | 'monthly') ?? 'none',
-          studentId: (editingTask as { studentId?: string }).studentId ?? undefined,
+          studentId: editingTask.studentId ?? undefined,
+          remindAt: agendaTaskRemindAtLocal(editingTask),
         } : undefined}
         students={students}
       />

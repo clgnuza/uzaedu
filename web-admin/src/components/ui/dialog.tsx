@@ -89,27 +89,27 @@ export function DialogContent({
         aria-labelledby={title ? 'dialog-title' : undefined}
         aria-describedby={descriptionId}
         className={cn(
-          'fixed left-1/2 top-1/2 z-50 flex max-h-[min(90vh,calc(100dvh-2rem))] w-[min(100%,calc(100vw-2rem))] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-border/80 bg-background shadow-2xl',
+          'fixed left-1/2 top-1/2 z-50 flex max-h-[min(92dvh,calc(100dvh-0.75rem))] w-[min(100%,calc(100vw-1rem))] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border/80 bg-background shadow-2xl ring-1 ring-black/5 dark:ring-white/10 sm:max-h-[min(90vh,calc(100dvh-2rem))] sm:w-[min(100%,calc(100vw-2rem))] sm:rounded-2xl',
           className,
         )}
         {...props}
       >
         {title && (
-          <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
-            <h2 id="dialog-title" className="text-lg font-semibold text-foreground">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/80 bg-muted/15 px-4 py-2.5 sm:gap-3 sm:px-5 sm:py-3.5">
+            <h2 id="dialog-title" className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight text-foreground sm:text-lg">
               {title}
             </h2>
             <button
               type="button"
-              className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground sm:p-1"
               onClick={() => onOpenChange(false)}
               aria-label="Kapat"
             >
-              <X className="size-5" />
+              <X className="size-4 sm:size-5" />
             </button>
           </div>
         )}
-        <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
           {children}
         </div>
       </div>

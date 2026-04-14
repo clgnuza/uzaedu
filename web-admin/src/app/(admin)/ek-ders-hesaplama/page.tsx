@@ -33,6 +33,7 @@ import {
   Minus,
   Plus,
   Copy,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiFetch, isAbortError } from '@/lib/api';
@@ -59,9 +60,12 @@ function formatCompact(n: number): string {
 }
 
 // Dekoratif nokta deseni
-function DotPattern() {
+function DotPattern({ excludeFromScreenshot }: { excludeFromScreenshot?: boolean }) {
   return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl">
+    <div
+      className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl"
+      {...(excludeFromScreenshot ? { 'data-html2canvas-ignore': '' } : {})}
+    >
       <div
         className="absolute -inset-px opacity-[0.02]"
         style={{
@@ -71,6 +75,35 @@ function DotPattern() {
       />
     </div>
   );
+}
+
+async function captureEkDersCardAsPng(
+  primary: HTMLElement | null,
+  fallback: HTMLElement | null
+): Promise<Blob | null> {
+  const el = primary ?? fallback;
+  if (!el || typeof window === 'undefined') return null;
+  try {
+    const html2canvas = (await import('html2canvas')).default;
+    const dpr = window.devicePixelRatio || 2;
+    const canvas = await html2canvas(el, {
+      backgroundColor: '#ffffff',
+      scale: Math.min(3, Math.max(2, dpr)),
+      useCORS: true,
+      logging: false,
+      scrollX: 0,
+      scrollY: 0,
+      ignoreElements: (node) =>
+        node instanceof HTMLElement && node.hasAttribute('data-html2canvas-ignore'),
+      onclone: (clonedDoc) => {
+        clonedDoc.documentElement.classList.remove('dark');
+        clonedDoc.documentElement.style.colorScheme = 'light';
+      },
+    });
+    return await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/png', 0.96));
+  } catch {
+    return null;
+  }
 }
 
 function CalcSkeleton() {
@@ -91,7 +124,7 @@ const FIELD_HINT = {
   matrah:
     'Bu ödemeye kadar toplam brüt ücret matrahı (net değil). Girildiğinde GV, GVK ücret tarifesine göre dilim dilim (artımlı) hesaplanır.',
   ekDersSaatleri:
-    'Her satıra ilgili ek ders türü için saat yazın. Gündüz ve gece (veya takviye gündüz/gece) ayrı satırlardır. Satır altındaki ≈ tutar o kalem için brüt önizlemesidir. Gruplar (standart, özel eğitim %25, cezaevi, takviye, İYEP vb.) parametre tanımına göre listelenir.',
+    'EDYGG (diğer ücret türleri) ayrı satırlardır; nöbet, belleticilik, sınav, egzersiz, hizmet içi ile EDYGG öğrenim ücret farkı uygulanmaz (lisans birim ücreti). Gündüz/gece ve DYK ayrı satırlardır. ≈ brüt önizleme; kalem sırası parametre şablonundaki gibi.',
 } as const;
 
 type HintAccent = 'emerald' | 'sky' | 'violet' | 'zinc';
@@ -591,7 +624,7 @@ export default function ExtraLessonCalcPage() {
       'SONUÇ',
       '───────────────────────────────',
       `  Net: ${formatTL(result.net)}`,
-      `  Gelir toplamı (brüt): ${formatTL(result.totalBrut)}`,
+      `  Gelir toplamı: ${formatTL(result.totalBrut)}`,
       `  Kesinti toplamı: −${formatTL(result.totalKesinti)} (GV −${formatTL(result.gvKesinti)} | DV −${formatTL(result.dvKesinti)}${result.sgkKesinti > 0 ? ` | SGK −${formatTL(result.sgkKesinti)}` : ''})`,
       '',
       'Kalemler:',
@@ -661,7 +694,42 @@ export default function ExtraLessonCalcPage() {
 
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [shareSheetMounted, setShareSheetMounted] = useState(false);
+  const [sharePreviewUrl, setSharePreviewUrl] = useState<string | null>(null);
   useEffect(() => setShareSheetMounted(true), []);
+
+  useEffect(() => {
+    if (!shareSheetOpen || !hasInput) {
+      setSharePreviewUrl((u) => {
+        if (u) URL.revokeObjectURL(u);
+        return null;
+      });
+      return;
+    }
+    let cancelled = false;
+    const t = window.setTimeout(() => {
+      void (async () => {
+        const blob = await captureEkDersCardAsPng(resultCardRef.current, shareSnapshotRef.current);
+        if (cancelled || !blob) return;
+        const url = URL.createObjectURL(blob);
+        setSharePreviewUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+      })();
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [
+    shareSheetOpen,
+    hasInput,
+    result.net,
+    result.totalBrut,
+    result.totalKesinti,
+    result.breakdown.length,
+    inputSummary.totalHourly,
+  ]);
   useEffect(() => {
     if (!shareSheetOpen) return;
     const prev = document.body.style.overflow;
@@ -674,51 +742,53 @@ export default function ExtraLessonCalcPage() {
   const performShare = useCallback(async () => {
     const textFull = buildShareText();
     const title = 'Ek ders ücreti — Öğretmen Pro';
+    const short = buildShareShort();
+    let blob: Blob | null = null;
+    if (typeof window !== 'undefined') {
+      blob = await captureEkDersCardAsPng(resultCardRef.current, shareSnapshotRef.current);
+    }
+
+    const tryCopyImage = async (): Promise<boolean> => {
+      if (!blob || !navigator.clipboard?.write) return false;
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        toast.success('Sonuç kartı görseli panoya kopyalandı');
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
     try {
       if (typeof navigator !== 'undefined' && navigator.share) {
-        let blob: Blob | null = null;
-        const captureEl = shareSnapshotRef.current ?? resultCardRef.current;
-        if (captureEl && typeof window !== 'undefined') {
-          try {
-            const html2canvas = (await import('html2canvas')).default;
-            const dpr = window.devicePixelRatio || 2;
-            const canvas = await html2canvas(captureEl, {
-              backgroundColor: '#ffffff',
-              scale: Math.min(3, Math.max(2, dpr)),
-              useCORS: true,
-              logging: false,
-              scrollX: 0,
-              scrollY: 0,
-            });
-            blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png', 0.96));
-          } catch {
-            /* görsel yoksa metin */
-          }
-        }
-
         if (blob) {
           const file = new File([blob], 'ek-ders-sonuc.png', { type: 'image/png' });
-          const short = buildShareShort();
 
           const tryFilesText = { title, text: short, files: [file] } as ShareData;
           if (navigator.canShare?.(tryFilesText)) {
             await navigator.share(tryFilesText);
-            toast.success('Kart görseli ve özet paylaşıldı');
+            toast.success('Sonuç kartı görseli ve özet paylaşıldı');
             return;
           }
           const tryFilesOnly = { title, files: [file] } as ShareData;
           if (navigator.canShare?.(tryFilesOnly)) {
             await navigator.share(tryFilesOnly);
-            toast.success('Kart görseli paylaşıldı');
+            toast.success('Sonuç kartı görseli paylaşıldı');
             return;
           }
         }
 
-        await navigator.share({ title, text: `${buildShareShort()}\n\n${textFull}` });
-        toast.success(blob ? 'Tam metin paylaşıldı (görsel eklenemedi)' : 'Metin paylaşıldı');
-      } else if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(`${buildShareShort()}\n\n${textFull}`);
-        toast.success('Metin panoya kopyalandı');
+        await navigator.share({ title, text: `${short}\n\n${textFull}` });
+        toast.success(blob ? 'Metin paylaşıldı (görsel eklenemedi)' : 'Metin paylaşıldı');
+        return;
+      }
+
+      if (blob && (await tryCopyImage())) {
+        return;
+      }
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(`${short}\n\n${textFull}`);
+        toast.success(blob ? 'Metin panoya kopyalandı (görsel kopyalanamadı)' : 'Metin panoya kopyalandı');
       } else {
         toast.error('Paylaşım desteklenmiyor');
       }
@@ -738,6 +808,24 @@ export default function ExtraLessonCalcPage() {
       toast.error('Kopyalanamadı');
     }
   }, [buildShareText, buildShareShort]);
+
+  const copyShareImageOnly = useCallback(async () => {
+    const blob = await captureEkDersCardAsPng(resultCardRef.current, shareSnapshotRef.current);
+    if (!blob) {
+      toast.error('Sonuç kartı görseli oluşturulamadı');
+      return;
+    }
+    try {
+      if (navigator.clipboard?.write) {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        toast.success('Sonuç kartı görseli panoya kopyalandı');
+        return;
+      }
+    } catch {
+      /* continue */
+    }
+    toast.error('Tarayıcı görsel kopyalamayı desteklemiyor');
+  }, []);
 
   const openMobileShareSheet = useCallback(() => {
     if (typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches) {
@@ -861,14 +949,25 @@ export default function ExtraLessonCalcPage() {
               )}
             >
               {hasInput && p && (
-                <button
-                  type="button"
-                  onClick={() => openMobileShareSheet()}
-                  className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-500 px-3 py-2 text-xs font-medium text-white shadow-sm transition-all hover:bg-emerald-600 active:scale-[0.98] sm:min-h-[44px] sm:w-auto sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm dark:border-emerald-600 dark:bg-emerald-600"
-                >
-                  <Share2 className="size-3.5 sm:size-4" strokeWidth={2} />
-                  Paylaş
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => openMobileShareSheet()}
+                    className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-500 px-3 py-2 text-xs font-medium text-white shadow-sm transition-all hover:bg-emerald-600 active:scale-[0.98] sm:min-h-[44px] sm:w-auto sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm dark:border-emerald-600 dark:bg-emerald-600"
+                  >
+                    <Share2 className="size-3.5 sm:size-4" strokeWidth={2} />
+                    Paylaş
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void copyShareImageOnly()}
+                    className="hidden min-h-10 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-800 shadow-sm transition-all hover:bg-zinc-50 active:scale-[0.98] sm:inline-flex sm:min-h-[44px] sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700/80"
+                    title="Ekrandaki sonuç kartının PNG görüntüsünü panoya kopyalar"
+                  >
+                    <ImageIcon className="size-3.5 sm:size-4" strokeWidth={2} />
+                    Kart görseli
+                  </button>
+                </>
               )}
               <button
                 type="button"
@@ -1318,8 +1417,11 @@ export default function ExtraLessonCalcPage() {
                 ref={resultCardRef}
                 className="relative overflow-hidden rounded-t-2xl border-2 border-b-0 border-emerald-300/80 bg-white shadow-[0_-8px_32px_-8px_rgba(16,185,129,0.2)] dark:border-emerald-700/55 dark:bg-zinc-900 sm:rounded-t-3xl lg:rounded-2xl lg:border-b lg:border-emerald-300/70 lg:shadow-xl"
               >
-                <div className="absolute inset-0 bg-linear-to-br from-emerald-500/10 via-teal-500/5 to-cyan-500/5" />
-                <DotPattern />
+                <div
+                  className="absolute inset-0 bg-linear-to-br from-emerald-500/10 via-teal-500/5 to-cyan-500/5"
+                  data-html2canvas-ignore
+                />
+                <DotPattern excludeFromScreenshot />
                 <div className="relative p-4 pb-6 sm:p-6 sm:pb-6" style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}>
                   <div className="mb-3 flex justify-center lg:hidden">
                     <span className="h-1 w-10 rounded-full bg-emerald-300/60 dark:bg-emerald-600/50" aria-hidden="true" />
@@ -1390,7 +1492,7 @@ export default function ExtraLessonCalcPage() {
 
                       <dl className="space-y-1.5 text-xs sm:space-y-2 sm:text-sm">
                         <div className="flex justify-between gap-2 rounded-lg bg-zinc-50 px-2.5 py-2 sm:px-3 sm:py-2.5 dark:bg-zinc-800/50">
-                          <dt className="text-zinc-600 dark:text-zinc-400">Gelir toplamı (brüt)</dt>
+                          <dt className="text-zinc-600 dark:text-zinc-400">Gelir toplamı</dt>
                           <dd className="shrink-0 font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{formatTL(result.totalBrut)}</dd>
                         </div>
                         <div className="flex justify-between gap-2 rounded-lg bg-red-50 px-2.5 py-2 sm:px-3 sm:py-2.5 dark:bg-red-950/30">
@@ -1500,7 +1602,10 @@ export default function ExtraLessonCalcPage() {
           style={{ fontFamily: 'system-ui, "Segoe UI", sans-serif' }}
           aria-hidden
         >
-          <div className="bg-linear-to-r from-emerald-600 to-teal-600 px-4 py-3 text-white">
+          <div
+            className="px-4 py-3 text-white"
+            style={{ background: 'linear-gradient(90deg, #059669 0%, #0d9488 100%)' }}
+          >
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-100">Ek ders hesaplama</p>
@@ -1518,7 +1623,12 @@ export default function ExtraLessonCalcPage() {
           </div>
 
           <div className="px-4 pt-4">
-            <div className="rounded-2xl bg-linear-to-br from-emerald-500 via-teal-600 to-cyan-600 p-4 text-center text-white shadow-lg">
+            <div
+              className="rounded-2xl p-4 text-center text-white shadow-lg"
+              style={{
+                background: 'linear-gradient(135deg, #10b981 0%, #0d9488 50%, #06b6d4 100%)',
+              }}
+            >
               <p className="text-[10px] font-semibold uppercase tracking-wider text-white/90">Tahmini net ücret</p>
               <p className="mt-2 text-[36px] font-bold leading-none tabular-nums tracking-tight">{formatTL(result.net)}</p>
             </div>
@@ -1607,24 +1717,29 @@ export default function ExtraLessonCalcPage() {
                     Paylaş
                   </h2>
                   <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                    Özet kart görseli ve emoji ile düzenlenmiş kısa metin seçtiğiniz uygulamaya gider. Tam dökümü kopyalamak için aşağıdaki düğmeyi kullanın.
+                    Aşağıdaki görsel, ekrandaki sonuç kartının PNG kopyasıdır. Paylaşımda bu görsel ve kısa özet gider; tam metin için ayrı düğmeyi kullanın.
                   </p>
-                  <div className="mt-4 overflow-hidden rounded-2xl border border-emerald-200/60 bg-linear-to-br from-emerald-500 to-teal-600 p-4 text-white shadow-lg">
-                    <p className="text-[10px] font-medium uppercase tracking-wider text-emerald-100">Tahmini net</p>
-                    <p className="mt-1 text-3xl font-bold tabular-nums">{formatTL(result.net)}</p>
-                    <p className="mt-2 text-[12px] text-emerald-100/95">
-                      Brüt {formatTL(result.totalBrut)}
-                      {result.totalKesinti > 0 ? ` · Kesinti −${formatTL(result.totalKesinti)}` : ''}
-                    </p>
-                  </div>
+                  {sharePreviewUrl ? (
+                    // blob: URL — next/image uygun değil
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={sharePreviewUrl}
+                      alt="Ek ders sonuç kartı önizlemesi"
+                      className="mt-4 w-full rounded-2xl border border-zinc-200 object-top shadow-md dark:border-zinc-600"
+                    />
+                  ) : (
+                    <div className="mt-4 flex min-h-[200px] items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 text-xs text-zinc-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+                      Önizleme hazırlanıyor…
+                    </div>
+                  )}
                   <ul className="mt-4 space-y-2 text-[13px] text-zinc-600 dark:text-zinc-400">
                     <li className="flex gap-2">
                       <span className="shrink-0 font-semibold text-emerald-600 dark:text-emerald-400">✓</span>
-                      <span>PNG özet kart (yatay, paylaşıma uygun)</span>
+                      <span>Sonuç kartı PNG (WhatsApp vb. ile görsel paylaşım)</span>
                     </li>
                     <li className="flex gap-2">
                       <span className="shrink-0 font-semibold text-emerald-600 dark:text-emerald-400">✓</span>
-                      <span>Kısa açıklama + isteğe bağlı tam metin</span>
+                      <span>Kısa özet metin + isteğe bağlı tam döküm</span>
                     </li>
                   </ul>
                   <button
@@ -1636,6 +1751,14 @@ export default function ExtraLessonCalcPage() {
                   >
                     <Share2 className="size-5" strokeWidth={2} />
                     Paylaşımı aç
+                  </button>
+                  <button
+                    type="button"
+                    className="mt-2 flex w-full min-h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 py-3 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                    onClick={() => void copyShareImageOnly()}
+                  >
+                    <ImageIcon className="size-4" strokeWidth={2} />
+                    Sadece kart görselini kopyala
                   </button>
                   <button
                     type="button"

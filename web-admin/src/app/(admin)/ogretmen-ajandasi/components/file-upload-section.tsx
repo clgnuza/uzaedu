@@ -50,7 +50,7 @@ export function FileUploadSection({
   const isImage = (f: File) => f.type.startsWith('image/');
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5 sm:space-y-2">
       <input
         ref={inputRef}
         type="file"
@@ -66,18 +66,18 @@ export function FileUploadSection({
         size="sm"
         onClick={() => inputRef.current?.click()}
         disabled={disabled || files.length >= maxFiles}
-        className="rounded-xl border-dashed"
+        className="h-8 w-full justify-center rounded-lg border-dashed px-2 text-xs sm:h-9 sm:w-auto sm:rounded-xl sm:px-3 sm:text-sm"
       >
-        <Paperclip className="size-4 mr-1.5" />
-        Dosya Ekle ({files.length}/{maxFiles})
+        <Paperclip className="mr-1 size-3.5 shrink-0 sm:mr-1.5 sm:size-4" />
+        Dosya ({files.length}/{maxFiles})
       </Button>
       {files.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5 sm:gap-2">
           {files.map((pf, idx) => (
             <div
               key={idx}
               className={cn(
-                'flex items-center gap-2 rounded-xl border bg-muted/30 px-3 py-2 text-sm',
+                'flex items-center gap-1.5 rounded-lg border bg-muted/30 px-2 py-1.5 text-xs sm:gap-2 sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm',
                 pf.error && 'border-destructive/50 bg-destructive/5',
               )}
             >

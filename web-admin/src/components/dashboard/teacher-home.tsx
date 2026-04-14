@@ -762,106 +762,173 @@ export function TeacherHome({
       <div className="min-w-0 space-y-4 sm:space-y-6 xl:space-y-8">
       <div
         id="bugun-ozet"
-        className={cn(
-          'scroll-mt-[4.75rem] sm:scroll-mt-24 grid min-w-0 gap-2 sm:gap-3',
-          dutyEnabled ? 'grid-cols-2 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-2',
-        )}
+        className="scroll-mt-[4.75rem] sm:scroll-mt-24 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 sm:items-stretch sm:gap-3"
       >
         {dutyEnabled && (
-          <Link
-            href="/duty"
-            className={cn(
-              'group relative flex min-h-[6.5rem] flex-col gap-1.5 overflow-hidden rounded-2xl border p-3 transition-all duration-300 sm:min-h-0 sm:gap-2 sm:p-4',
-              'border-emerald-200/55 bg-gradient-to-br from-emerald-50/90 via-white to-teal-50/50 shadow-[0_12px_36px_-16px_rgba(16,185,129,0.28)] ring-1 ring-emerald-500/15',
-              'hover:-translate-y-0.5 hover:shadow-[0_20px_44px_-18px_rgba(16,185,129,0.32)] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40',
-              'dark:border-emerald-500/35 dark:from-emerald-950/50 dark:via-zinc-950 dark:to-teal-950/30 dark:ring-emerald-500/25',
-              mySlots.length > 0 &&
-                'border-emerald-300/70 from-emerald-100/80 via-emerald-50/90 to-teal-50/60 dark:from-emerald-950/60 dark:via-emerald-950/40 dark:to-teal-950/35',
-              !mySlots.length && 'dark:from-zinc-900/80 dark:via-zinc-950 dark:to-zinc-950',
-            )}
-          >
-            <div
-              className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-gradient-to-br from-emerald-400/30 to-teal-400/10 blur-2xl dark:from-emerald-500/15 dark:to-teal-500/10"
-              aria-hidden
-            />
-            <div className="relative z-[1] flex items-start justify-between gap-2">
+          <div className="flex h-full min-h-0 min-w-0 flex-col gap-3">
+            <Link
+              href="/duty"
+              className={cn(
+                'group relative flex min-h-[6.5rem] min-w-0 flex-1 flex-col justify-between gap-2 overflow-hidden rounded-2xl border p-3 transition-all duration-300 sm:min-h-[7rem] sm:p-4',
+                'border-emerald-200/55 bg-gradient-to-br from-emerald-50/90 via-white to-teal-50/50 shadow-[0_12px_36px_-16px_rgba(16,185,129,0.28)] ring-1 ring-emerald-500/15',
+                'hover:-translate-y-0.5 hover:shadow-[0_20px_44px_-18px_rgba(16,185,129,0.32)] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40',
+                'dark:border-emerald-500/35 dark:from-emerald-950/50 dark:via-zinc-950 dark:to-teal-950/30 dark:ring-emerald-500/25',
+                mySlots.length > 0 &&
+                  'border-emerald-300/70 from-emerald-100/80 via-emerald-50/90 to-teal-50/60 dark:from-emerald-950/60 dark:via-emerald-950/40 dark:to-teal-950/35',
+                !mySlots.length && 'dark:from-zinc-900/80 dark:via-zinc-950 dark:to-zinc-950',
+              )}
+            >
               <div
-                className={cn(
-                  'flex size-9 items-center justify-center rounded-xl shadow-lg sm:size-11',
-                  mySlots.length
-                    ? 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white ring-2 ring-white/50 dark:ring-emerald-400/20'
-                    : 'bg-gradient-to-br from-slate-200 to-slate-300 text-slate-600 dark:from-zinc-700 dark:to-zinc-800 dark:text-zinc-300',
-                )}
-              >
-                <CalendarClock className="size-4 sm:size-5" />
-              </div>
-              <ArrowRight className="size-4 shrink-0 text-emerald-600/70 transition-transform group-hover:translate-x-1 dark:text-emerald-400/80" />
-            </div>
-            <div className="relative z-[1]">
-              <p className="text-sm font-bold leading-tight text-foreground">
-                {mySlots.length ? `${mySlots.length} görev` : 'Yok'}
-              </p>
-              <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700/90 sm:text-[11px] dark:text-emerald-300/90">
-                Nöbet
-              </p>
-              {mySlots.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {mySlots.slice(0, 2).map((s, i) => (
-                    <span
-                      key={i}
-                      className="inline-flex max-w-full items-center gap-1 truncate rounded-lg border border-emerald-200/60 bg-white/90 px-2 py-0.5 text-xs font-medium text-emerald-900 shadow-sm dark:border-emerald-500/30 dark:bg-emerald-950/50 dark:text-emerald-100"
-                    >
-                      <MapPin className="size-3 shrink-0" />
-                      {s.area_name || s.slot_name || 'Nöbet'}
-                    </span>
-                  ))}
-                  {mySlots.length > 2 && (
-                    <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                      +{mySlots.length - 2}
-                    </span>
+                className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-gradient-to-br from-emerald-400/30 to-teal-400/10 blur-2xl dark:from-emerald-500/15 dark:to-teal-500/10"
+                aria-hidden
+              />
+              <div className="relative z-[1] flex items-start gap-2.5 sm:gap-3">
+                <div
+                  className={cn(
+                    'flex size-9 shrink-0 items-center justify-center rounded-xl shadow-lg sm:size-10',
+                    mySlots.length
+                      ? 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white ring-2 ring-white/50 dark:ring-emerald-400/20'
+                      : 'bg-gradient-to-br from-slate-200 to-slate-300 text-slate-600 dark:from-zinc-700 dark:to-zinc-800 dark:text-zinc-300',
                   )}
+                >
+                  <CalendarClock className="size-4 sm:size-5" />
                 </div>
-              )}
-              {dutyMarketLocked && (
-                <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-800 dark:text-amber-200">
-                  <Lock className="size-3.5 shrink-0" aria-hidden />
-                  Market’te etkinleştirme gerekir
-                </p>
-              )}
-            </div>
-          </Link>
+                <div className="min-w-0 flex-1 pt-0.5">
+                  <p className="text-sm font-bold leading-tight text-foreground">
+                    {mySlots.length ? `${mySlots.length} görev` : 'Yok'}
+                  </p>
+                  <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700/90 sm:text-[11px] dark:text-emerald-300/90">
+                    Nöbet
+                  </p>
+                </div>
+                <ArrowRight className="mt-0.5 size-4 shrink-0 text-emerald-600/70 transition-transform group-hover:translate-x-1 dark:text-emerald-400/80" />
+              </div>
+              <div className="relative z-[1] mt-2 min-w-0">
+                {mySlots.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {mySlots.slice(0, 2).map((s, i) => (
+                      <span
+                        key={i}
+                        className="inline-flex max-w-full items-center gap-1 truncate rounded-lg border border-emerald-200/60 bg-white/90 px-2 py-0.5 text-xs font-medium text-emerald-900 shadow-sm dark:border-emerald-500/30 dark:bg-emerald-950/50 dark:text-emerald-100"
+                      >
+                        <MapPin className="size-3 shrink-0" />
+                        {s.area_name || s.slot_name || 'Nöbet'}
+                      </span>
+                    ))}
+                    {mySlots.length > 2 && (
+                      <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                        +{mySlots.length - 2}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {dutyMarketLocked && (
+                  <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-800 dark:text-amber-200">
+                    <Lock className="size-3.5 shrink-0" aria-hidden />
+                    Market’te etkinleştirme gerekir
+                  </p>
+                )}
+              </div>
+            </Link>
+
+            <Link
+              href="/bildirimler"
+              className="group relative flex shrink-0 flex-col gap-1 overflow-hidden rounded-2xl border border-indigo-200/70 bg-gradient-to-br from-indigo-50/95 via-white to-violet-50/45 p-3 shadow-[0_10px_28px_-14px_rgba(99,102,241,0.35)] ring-1 ring-indigo-400/15 transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-12px_rgba(99,102,241,0.38)] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:border-indigo-500/40 dark:from-indigo-950/50 dark:via-zinc-950 dark:to-violet-950/30 dark:ring-indigo-500/20 sm:p-3.5"
+            >
+              <div
+                className="pointer-events-none absolute -right-6 -bottom-8 h-24 w-24 rounded-full bg-gradient-to-tr from-indigo-400/25 to-violet-400/10 blur-2xl dark:from-indigo-500/12 dark:to-violet-500/10"
+                aria-hidden
+              />
+              <div className="relative z-[1] flex items-start gap-2.5 sm:gap-3">
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-md ring-2 ring-white/35 dark:ring-indigo-400/25 sm:size-9">
+                  <Bell className="size-4" strokeWidth={2} />
+                </div>
+                <div className="min-w-0 flex-1 pt-0.5">
+                  <p className="text-sm font-bold text-indigo-950 dark:text-indigo-50">Bildirimler</p>
+                  <p className="text-[10px] font-medium text-indigo-800/90 dark:text-indigo-200/85 sm:text-[11px]">
+                    {allNotificationsUnread > 0 ? 'Okunmamış var' : 'Tümü güncel'}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+                  {allNotificationsUnread > 0 ? (
+                    <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-bold tabular-nums text-white shadow-sm dark:bg-indigo-500">
+                      {allNotificationsUnread > 99 ? '99+' : allNotificationsUnread}
+                    </span>
+                  ) : null}
+                  <ArrowRight className="size-4 shrink-0 text-indigo-600/75 transition-transform group-hover:translate-x-0.5 dark:text-indigo-300/90" />
+                </div>
+              </div>
+            </Link>
+          </div>
         )}
 
         {belirliGunAssignments.length > 0 ? (
-          <Link
-            href="/akademik-takvim"
-            className="group relative flex min-h-[6.5rem] flex-col gap-1.5 overflow-hidden rounded-2xl border border-amber-200/70 bg-gradient-to-br from-amber-50/95 via-orange-50/50 to-rose-50/40 p-3 shadow-[0_12px_36px_-16px_rgba(245,158,11,0.3)] ring-1 ring-amber-400/20 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_20px_44px_-18px_rgba(245,158,11,0.35)] focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/45 dark:border-amber-500/40 dark:from-amber-950/55 dark:via-orange-950/35 dark:to-rose-950/25 dark:ring-amber-500/25 sm:min-h-0 sm:gap-2 sm:p-4"
+          <div
+            className={cn(
+              'relative flex h-full min-h-[7.25rem] min-w-0 flex-col gap-2 overflow-hidden rounded-2xl border border-amber-200/70 bg-gradient-to-br from-amber-50/95 via-orange-50/50 to-rose-50/40 p-3 shadow-[0_12px_36px_-16px_rgba(245,158,11,0.3)] ring-1 ring-amber-400/20 dark:border-amber-500/40 dark:from-amber-950/55 dark:via-orange-950/35 dark:to-rose-950/25 dark:ring-amber-500/25 sm:min-h-[7.5rem] sm:p-4',
+              !dutyEnabled && 'sm:col-span-2',
+            )}
           >
             <div
               className="pointer-events-none absolute -left-8 -bottom-12 h-36 w-36 rounded-full bg-gradient-to-tr from-amber-400/35 to-orange-400/15 blur-2xl dark:from-amber-500/15 dark:to-orange-500/10"
               aria-hidden
             />
-            <div className="relative z-[1] flex items-start justify-between">
-              <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 via-orange-500 to-rose-600 text-white shadow-lg ring-2 ring-white/40 dark:ring-amber-400/25 sm:size-11">
+            <div className="relative z-[1] flex shrink-0 items-start gap-2.5 sm:gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 via-orange-500 to-rose-600 text-white shadow-lg ring-2 ring-white/40 dark:ring-amber-400/25 sm:size-10">
                 <Award className="size-4 sm:size-5" />
               </div>
-              <ArrowRight className="size-4 text-amber-700/90 transition-transform group-hover:translate-x-1 dark:text-amber-300" />
+              <div className="min-w-0 flex-1 pt-0.5">
+                <p className="text-sm font-bold leading-tight text-amber-950 dark:text-amber-50">
+                  {belirliGunAssignments.length} görev
+                </p>
+                <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800/95 dark:text-amber-200/95 sm:text-[11px]">
+                  Belirli gün
+                </p>
+              </div>
+              <Link
+                href="/akademik-takvim#akademik-takvim-icerik"
+                className="mt-0.5 shrink-0 rounded-lg p-1 text-amber-800 transition-colors hover:bg-amber-500/15 dark:text-amber-200 dark:hover:bg-amber-500/10"
+                aria-label="Akademik takvime git"
+              >
+                <ArrowRight className="size-4" />
+              </Link>
             </div>
-            <div className="relative z-[1]">
-              <p className="text-sm font-bold text-amber-950 dark:text-amber-50">
-                {belirliGunAssignments.length} görev
-              </p>
-              <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800/95 dark:text-amber-200/95">
-                Belirli gün
-              </p>
-              <p className="mt-1 line-clamp-1 text-[11px] text-amber-900/90 dark:text-amber-100/90 max-sm:sr-only sm:line-clamp-2 sm:text-xs">
-                {belirliGunAssignments[0]?.itemTitle}
-                {belirliGunAssignments.length > 1 ? ` · +${belirliGunAssignments.length - 1}` : ''}
-              </p>
+            <div className="relative z-[1] flex min-h-0 min-w-0 flex-1 flex-col">
+              <ul className="mt-1 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overscroll-contain pr-0.5 [-webkit-overflow-scrolling:touch]">
+                {belirliGunAssignments.map((a) => {
+                  const href =
+                    a.weekDateStart != null && /^\d{4}-\d{2}-\d{2}$/.test(a.weekDateStart)
+                      ? `/akademik-takvim?hafta=${encodeURIComponent(a.weekDateStart)}#akademik-takvim-icerik`
+                      : '/akademik-takvim#akademik-takvim-icerik';
+                  return (
+                    <li key={a.id} className="shrink-0">
+                      <Link
+                        href={href}
+                        className="flex w-full min-w-0 items-start gap-2 rounded-lg border border-amber-200/70 bg-white/90 px-2 py-1.5 text-left text-[11px] font-medium leading-snug text-amber-950 shadow-sm transition-colors hover:border-amber-400/80 hover:bg-amber-50/90 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-50 dark:hover:bg-amber-950/65 sm:text-xs"
+                      >
+                        <ChevronRight className="mt-0.5 size-3.5 shrink-0 text-amber-600/80 dark:text-amber-400/90" aria-hidden />
+                        <span className="min-w-0 flex-1">
+                          <span className="line-clamp-2">{a.itemTitle}</span>
+                          {a.weekLabel ? (
+                            <span className="mt-0.5 block line-clamp-1 text-[10px] font-normal text-amber-800/85 dark:text-amber-200/75">
+                              {a.weekLabel}
+                            </span>
+                          ) : null}
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
-          </Link>
+          </div>
         ) : (
-          <div className="relative flex min-h-[6.5rem] flex-col items-center justify-center overflow-hidden rounded-2xl border border-violet-200/50 bg-gradient-to-br from-violet-50/80 via-white to-fuchsia-50/50 p-3 text-center shadow-inner ring-1 ring-violet-300/15 dark:border-violet-500/30 dark:from-violet-950/40 dark:via-zinc-950 dark:to-fuchsia-950/20 dark:ring-violet-500/15 sm:min-h-0 sm:p-4">
+          <div
+            className={cn(
+              'relative flex min-h-[7.25rem] flex-col items-center justify-center overflow-hidden rounded-2xl border border-violet-200/50 bg-gradient-to-br from-violet-50/80 via-white to-fuchsia-50/50 p-3 text-center shadow-inner ring-1 ring-violet-300/15 dark:border-violet-500/30 dark:from-violet-950/40 dark:via-zinc-950 dark:to-fuchsia-950/20 dark:ring-violet-500/15 sm:min-h-[7.5rem] sm:p-4',
+              !dutyEnabled && 'sm:col-span-2',
+            )}
+          >
             <div
               className="pointer-events-none absolute inset-0 opacity-40 dark:opacity-25"
               style={{

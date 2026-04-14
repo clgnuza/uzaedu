@@ -1,7 +1,6 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, Repository } from 'typeorm';
-import { randomBytes } from 'crypto';
+import { FindOptionsWhere, In, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User } from './entities/user.entity';
 import {
@@ -20,6 +19,13 @@ import { paginate } from '../common/dtos/pagination.dto';
 import { TeacherAgendaImportService } from '../teacher-agenda/teacher-agenda-import.service';
 import { MailService } from '../mail/mail.service';
 import { schoolJoinStage, SchoolJoinStage } from '../common/utils/school-join-stage';
+import { AuthOtpService } from '../auth/auth-otp.service';
+import {
+  parseMebbisPersonnelSheet,
+  syntheticMebbisEmail,
+  mebbisPlaceholderEmailsForLookup,
+  type ParsedMebbisPerson,
+} from './mebbis-personnel-xls.parser';
 
 @Injectable()
 export class UsersService {
@@ -29,7 +35,17 @@ export class UsersService {
     private readonly schoolsService: SchoolsService,
     private readonly teacherAgendaImportService: TeacherAgendaImportService,
     private readonly mailService: MailService,
+    private readonly authOtp: AuthOtpService,
   ) {}
+
+  private async sendSchoolJoinOtpEmail(user: User, schoolName: string): Promise<boolean> {
+    const code = await this.authOtp.issue(user.email, 'school_join');
+    return this.mailService.sendVerificationCodeEmail(user.email, {
+      code,
+      purposeLine: 'Okul başvurunuzda kurumsal e-postanızı doğrulamak için kodunuz:',
+      ttlMinutes: 12,
+    });
+  }
 
   async findById(id: string, relations: ('school')[] = ['school']): Promise<User> {
     const user = await this.userRepo.findOne({ where: { id }, relations });
@@ -103,8 +119,130 @@ export class UsersService {
     return paginate(items, total, page, limit);
   }
 
+  /** Okul panelindeki öğretmen sayacı ile aynı (öğretmen + ders veren okul yöneticisi). */
+  async countTeachersForSchool(schoolId: string): Promise<number> {
+    return this.userRepo
+      .createQueryBuilder('u')
+      .where('u.school_id = :schoolId', { schoolId })
+      .andWhere('u.role IN (:...roles)', { roles: [UserRole.teacher, UserRole.school_admin] })
+      .getCount();
+  }
+
+  async importMebbisPersonnelXls(
+    buffer: Buffer,
+    scope: { role: UserRole; schoolId: string | null },
+  ): Promise<{
+    added: number;
+    skipped_existing: number;
+    skipped_duplicate_in_file: number;
+    skipped_limit: number;
+    errors: { row: number; message: string }[];
+  }> {
+    if (scope.role !== UserRole.school_admin || !scope.schoolId) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Yalnızca okul yöneticisi bu dosyayı yükleyebilir.' });
+    }
+    const schoolId = scope.schoolId;
+    let rows: ParsedMebbisPerson[];
+    try {
+      rows = parseMebbisPersonnelSheet(buffer);
+    } catch {
+      throw new BadRequestException({ code: 'PARSE', message: 'Excel dosyası okunamadı.' });
+    }
+    if (rows.length > 2500) {
+      throw new BadRequestException({ code: 'TOO_MANY_ROWS', message: 'En fazla 2500 öğretmen satırı işlenebilir.' });
+    }
+    const school = await this.schoolsService.findById(schoolId);
+    const limit = school.teacher_limit ?? 100;
+    let slots = Math.max(0, limit - (await this.countTeachersForSchool(schoolId)));
+
+    const unique: ParsedMebbisPerson[] = [];
+    const seenTc = new Set<string>();
+    let skipped_duplicate_in_file = 0;
+    for (const r of rows) {
+      if (seenTc.has(r.tc)) {
+        skipped_duplicate_in_file += 1;
+        continue;
+      }
+      seenTc.add(r.tc);
+      unique.push(r);
+    }
+
+    const emails = unique.flatMap((r) => mebbisPlaceholderEmailsForLookup(schoolId, r.tc));
+    const existing = emails.length
+      ? await this.userRepo.find({ where: { email: In([...new Set(emails)]) }, select: ['email'] })
+      : [];
+    const existingSet = new Set(existing.map((u) => u.email.toLowerCase()));
+
+    let added = 0;
+    let skipped_existing = 0;
+    let skipped_limit = 0;
+    const errors: { row: number; message: string }[] = [];
+
+    for (const r of unique) {
+      const email = syntheticMebbisEmail(schoolId, r.tc);
+      const [shortPh, longPh] = mebbisPlaceholderEmailsForLookup(schoolId, r.tc);
+      if (existingSet.has(shortPh) || existingSet.has(longPh)) {
+        skipped_existing += 1;
+        continue;
+      }
+      if (slots <= 0) {
+        skipped_limit += 1;
+        continue;
+      }
+      try {
+        const user = this.userRepo.create({
+          email,
+          display_name: r.displayName,
+          role: UserRole.teacher,
+          school_id: schoolId,
+          teacherSchoolMembership: TeacherSchoolMembershipStatus.approved,
+          teacherPublicNameMasked: true,
+          status: UserStatus.active,
+          firebaseUid: null,
+          passwordHash: null,
+          teacherBranch: r.teacherBranch,
+          teacherPhone: null,
+          teacherTitle: r.teacherTitle,
+          avatarUrl: null,
+          teacherSubjectIds: null,
+          moderatorModules: null,
+          schoolJoinEmailToken: null,
+          schoolJoinEmailTokenExpiresAt: null,
+          schoolJoinEmailVerifiedAt: null,
+          emailVerifiedAt: null,
+        });
+        await this.userRepo.save(user);
+        existingSet.add(email);
+        slots -= 1;
+        added += 1;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Kayıt oluşturulamadı';
+        errors.push({ row: r.sheetRow, message: msg });
+      }
+    }
+
+    return { added, skipped_existing, skipped_duplicate_in_file, skipped_limit, errors };
+  }
+
   async create(dto: CreateUserDto, scopeSchoolId: string | null): Promise<User> {
-    if (scopeSchoolId !== null) dto.school_id = scopeSchoolId;
+    if (scopeSchoolId !== null) {
+      if (dto.role !== UserRole.teacher) {
+        throw new ForbiddenException({ code: 'ONLY_TEACHERS', message: 'Yalnızca öğretmen ekleyebilirsiniz.' });
+      }
+      dto.school_id = scopeSchoolId;
+      const school = await this.schoolsService.findById(scopeSchoolId);
+      const n = await this.countTeachersForSchool(scopeSchoolId);
+      if (n >= (school.teacher_limit ?? 100)) {
+        throw new BadRequestException({
+          code: 'TEACHER_LIMIT',
+          message: `Öğretmen limiti (${school.teacher_limit ?? 100}) dolu.`,
+        });
+      }
+    }
+    const dup = await this.userRepo.findOne({ where: { email: dto.email.trim().toLowerCase() } });
+    if (dup) {
+      throw new ConflictException({ code: 'EMAIL_EXISTS', message: 'Bu e-posta adresi zaten kayıtlı.' });
+    }
     const sid = dto.school_id ?? null;
     const user = this.userRepo.create({
       email: dto.email,
@@ -180,8 +318,8 @@ export class UsersService {
           }
           user.school_id = next;
           user.teacherSchoolMembership = TeacherSchoolMembershipStatus.pending;
-          user.schoolJoinEmailToken = randomBytes(32).toString('hex');
-          user.schoolJoinEmailTokenExpiresAt = new Date(Date.now() + 48 * 3600 * 1000);
+          user.schoolJoinEmailToken = null;
+          user.schoolJoinEmailTokenExpiresAt = null;
           user.schoolJoinEmailVerifiedAt = null;
         }
       } else {
@@ -225,23 +363,9 @@ export class UsersService {
     const saved = await this.userRepo.save(user);
     if (dto.school_id !== undefined && user.role === UserRole.teacher) {
       const next = dto.school_id ? String(dto.school_id).trim() : null;
-      if (
-        next &&
-        saved.school_id === next &&
-        saved.schoolJoinEmailToken &&
-        !saved.schoolJoinEmailVerifiedAt
-      ) {
+      if (next && saved.school_id === next && !saved.schoolJoinEmailVerifiedAt) {
         const school = await this.schoolsService.findById(next);
-        const greet = saved.display_name?.trim() || saved.email.split('@')[0] || 'Merhaba';
-        const base = await this.mailService.resolveAppBaseUrl();
-        const verifyUrl = `${base}/verify-school-email?token=${encodeURIComponent(saved.schoolJoinEmailToken)}`;
-        void this.mailService
-          .sendSchoolJoinVerifyEmail(saved.email, {
-            schoolName: school.name,
-            recipientName: greet,
-            verifyUrl,
-          })
-          .catch(() => {});
+        void this.sendSchoolJoinOtpEmail(saved, school.name).catch(() => {});
       }
     }
     return saved;
@@ -283,16 +407,9 @@ export class UsersService {
           }
           user.school_id = next;
           user.teacherSchoolMembership = TeacherSchoolMembershipStatus.pending;
-          const isSocialLogin = !!user.firebaseUid && !user.passwordHash;
-          if (isSocialLogin) {
-            user.schoolJoinEmailVerifiedAt = new Date();
-            user.schoolJoinEmailToken = null;
-            user.schoolJoinEmailTokenExpiresAt = null;
-          } else {
-            user.schoolJoinEmailToken = randomBytes(32).toString('hex');
-            user.schoolJoinEmailTokenExpiresAt = new Date(Date.now() + 48 * 3600 * 1000);
-            user.schoolJoinEmailVerifiedAt = null;
-          }
+          user.schoolJoinEmailToken = null;
+          user.schoolJoinEmailTokenExpiresAt = null;
+          user.schoolJoinEmailVerifiedAt = null;
         } else {
           user.school_id = null;
           user.teacherSchoolMembership = TeacherSchoolMembershipStatus.none;
@@ -318,23 +435,9 @@ export class UsersService {
     const saved = await this.userRepo.save(user);
     if (dto.school_id !== undefined && user.role === UserRole.teacher) {
       const next = dto.school_id ? String(dto.school_id).trim() : null;
-      if (
-        next &&
-        saved.school_id === next &&
-        saved.schoolJoinEmailToken &&
-        !saved.schoolJoinEmailVerifiedAt
-      ) {
+      if (next && saved.school_id === next && !saved.schoolJoinEmailVerifiedAt) {
         const school = await this.schoolsService.findById(next);
-        const greet = saved.display_name?.trim() || saved.email.split('@')[0] || 'Merhaba';
-        const base = await this.mailService.resolveAppBaseUrl();
-        const verifyUrl = `${base}/verify-school-email?token=${encodeURIComponent(saved.schoolJoinEmailToken)}`;
-        void this.mailService
-          .sendSchoolJoinVerifyEmail(saved.email, {
-            schoolName: school.name,
-            recipientName: greet,
-            verifyUrl,
-          })
-          .catch(() => {});
+        void this.sendSchoolJoinOtpEmail(saved, school.name).catch(() => {});
       }
     }
     return saved;
@@ -351,18 +454,11 @@ export class UsersService {
     if (user.schoolJoinEmailVerifiedAt) {
       throw new BadRequestException({ code: 'ALREADY_VERIFIED', message: 'E-posta zaten doğrulanmış.' });
     }
-    user.schoolJoinEmailToken = randomBytes(32).toString('hex');
-    user.schoolJoinEmailTokenExpiresAt = new Date(Date.now() + 48 * 3600 * 1000);
+    user.schoolJoinEmailToken = null;
+    user.schoolJoinEmailTokenExpiresAt = null;
     await this.userRepo.save(user);
     const school = await this.schoolsService.findById(user.school_id);
-    const greet = user.display_name?.trim() || user.email.split('@')[0] || 'Merhaba';
-    const base = await this.mailService.resolveAppBaseUrl();
-    const verifyUrl = `${base}/verify-school-email?token=${encodeURIComponent(user.schoolJoinEmailToken)}`;
-    const sent = await this.mailService.sendSchoolJoinVerifyEmail(user.email, {
-      schoolName: school.name,
-      recipientName: greet,
-      verifyUrl,
-    });
+    const sent = await this.sendSchoolJoinOtpEmail(user, school.name);
     if (!sent) {
       throw new BadRequestException({
         code: 'MAIL_NOT_CONFIGURED',

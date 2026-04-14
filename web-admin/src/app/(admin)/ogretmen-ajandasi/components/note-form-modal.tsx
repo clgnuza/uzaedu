@@ -97,94 +97,104 @@ export function NoteFormModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent title={initial ? 'Notu Düzenle' : 'Yeni Not'}>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
           <div>
-            <Label htmlFor="note-title">Başlık</Label>
+            <Label htmlFor="note-title" className="text-xs sm:text-sm">
+              Başlık
+            </Label>
             <Input
               id="note-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Not başlığı"
               required
-              className="mt-1 min-h-[44px] text-base sm:text-sm"
+              className="mt-1 min-h-10 text-sm sm:min-h-11"
             />
           </div>
           <div>
-            <Label htmlFor="note-body">Açıklama</Label>
+            <Label htmlFor="note-body" className="text-xs sm:text-sm">
+              Açıklama
+            </Label>
             <textarea
               id="note-body"
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder="Açıklama (opsiyonel)"
-              rows={4}
-              className="mt-1 w-full rounded-lg border border-input bg-background px-4 py-3 sm:py-2 text-base sm:text-sm min-h-[100px]"
+              rows={3}
+              className="mt-1 min-h-[88px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-[100px] sm:px-3 sm:py-2.5"
             />
           </div>
           <div>
-            <Label htmlFor="note-tags">Etiketler (virgülle ayırın)</Label>
+            <Label htmlFor="note-tags" className="text-xs sm:text-sm">
+              Etiketler
+            </Label>
             <Input
               id="note-tags"
               value={tags}
               onChange={(e) => setTags(e.target.value)}
-              placeholder="örn: önemli, takip"
-              className="mt-1 min-h-[44px] text-base sm:text-sm"
+              placeholder="Virgülle ayırın"
+              className="mt-1 min-h-10 text-sm sm:min-h-11"
             />
           </div>
           {(subjects.length > 0 || classes.length > 0) && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
               {subjects.length > 0 && (
                 <div>
-                  <Label>Ders</Label>
+                  <Label className="text-xs sm:text-sm">Ders</Label>
                   <select
                     value={subjectId}
                     onChange={(e) => setSubjectId(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-input bg-background px-4 py-3 sm:py-2 text-base sm:text-sm min-h-[44px]"
+                    className="mt-1 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-11"
                   >
                     <option value="">Seçin</option>
                     {subjects.map((s) => (
-                      <option key={s.id} value={s.id}>{s.label}</option>
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
                     ))}
                   </select>
                 </div>
               )}
               {classes.length > 0 && (
                 <div>
-                  <Label>Sınıf</Label>
+                  <Label className="text-xs sm:text-sm">Sınıf</Label>
                   <select
                     value={classId}
                     onChange={(e) => setClassId(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-input bg-background px-4 py-3 sm:py-2 text-base sm:text-sm min-h-[44px]"
+                    className="mt-1 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-11"
                   >
                     <option value="">Seçin</option>
                     {classes.map((c) => (
-                      <option key={c.id} value={c.id}>{c.label}</option>
+                      <option key={c.id} value={c.id}>
+                        {c.label}
+                      </option>
                     ))}
                   </select>
                 </div>
               )}
             </div>
           )}
-          <div className="flex flex-wrap items-center gap-4">
-            <div>
-              <Label className="text-xs">Renk</Label>
-              <div className="flex gap-2 mt-1">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+            <div className="min-w-0">
+              <Label className="text-[11px] sm:text-xs">Renk</Label>
+              <div className="mt-1 flex flex-wrap gap-1.5 sm:gap-2">
                 {COLORS.map((c) => (
                   <button
                     key={c || 'none'}
                     type="button"
                     onClick={() => setColor(c)}
                     className={cn(
-                      'size-8 rounded-full border-2 transition-all',
-                      color === c ? 'border-foreground ring-2 ring-offset-2' : 'border-transparent',
+                      'size-7 rounded-full border-2 transition-all sm:size-8',
+                      color === c ? 'border-foreground ring-2 ring-offset-1 ring-offset-background sm:ring-offset-2' : 'border-transparent',
                     )}
                     style={c ? { backgroundColor: c } : { backgroundColor: 'var(--muted)' }}
                   />
                 ))}
               </div>
             </div>
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className="flex cursor-pointer items-center gap-2">
               <input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} className="rounded" />
-              <span className="text-sm">Sabitle</span>
+              <span className="text-xs sm:text-sm">Sabitle</span>
             </label>
           </div>
           {!initial && (
@@ -192,7 +202,7 @@ export function NoteFormModal({
           )}
           {onUploadFile && !initial && (
             <div>
-              <Label className="text-xs text-muted-foreground">Ekler</Label>
+              <Label className="text-[11px] text-muted-foreground sm:text-xs">Ekler</Label>
               <FileUploadSection
                 files={pendingFiles}
                 onFilesChange={setPendingFiles}
@@ -202,11 +212,11 @@ export function NoteFormModal({
               />
             </div>
           )}
-          <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="min-h-[44px] w-full sm:w-auto rounded-xl">
+          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end sm:pt-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
               İptal
             </Button>
-            <Button type="submit" disabled={loading || !title.trim()} className="min-h-[44px] w-full sm:w-auto rounded-xl">
+            <Button type="submit" disabled={loading || !title.trim()} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
               {loading ? 'Kaydediliyor…' : 'Kaydet'}
             </Button>
           </div>

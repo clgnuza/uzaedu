@@ -158,6 +158,7 @@ export class SeedService {
       });
       if (superadmin) {
         superadmin.passwordHash = hashSuperadmin;
+        if (!superadmin.emailVerifiedAt) superadmin.emailVerifiedAt = new Date();
         await this.userRepo.save(superadmin);
       }
       let school = await this.schoolRepo.findOne({ where: {} });
@@ -180,6 +181,7 @@ export class SeedService {
         about_description:
           'Demo Okulu test verileriyle doldurulmuştur. Atatürk ilke ve inkılâplarına bağlı, geleceğe yön veren örnek bir eğitim kurumudur.',
         principalName: 'Demo Müdür',
+        enabled_modules: ['butterfly_exam', 'sorumluluk_sinav', 'messaging', 'teacher_agenda', 'duty', 'bilsem', 'optical', 'smart_board', 'tv', 'school_reviews', 'document', 'outcome'],
       };
       if (!school) {
         school = await this.schoolRepo.save(this.schoolRepo.create(demoSchoolData));
@@ -200,10 +202,12 @@ export class SeedService {
             status: UserStatus.active,
             firebaseUid: null,
             passwordHash: hashSchoolAdmin,
+            emailVerifiedAt: new Date(),
           }),
         );
       } else {
         schoolAdminExists.passwordHash = hashSchoolAdmin;
+        if (!schoolAdminExists.emailVerifiedAt) schoolAdminExists.emailVerifiedAt = new Date();
         await this.userRepo.save(schoolAdminExists);
       }
       const teacherExists = await this.userRepo.findOne({
@@ -219,10 +223,12 @@ export class SeedService {
             status: UserStatus.active,
             firebaseUid: null,
             passwordHash: hashTeacher,
+            emailVerifiedAt: new Date(),
           }),
         );
       } else {
         teacherExists.passwordHash = hashTeacher;
+        if (!teacherExists.emailVerifiedAt) teacherExists.emailVerifiedAt = new Date();
         await this.userRepo.save(teacherExists);
       }
       const first = await this.userRepo.findOne({ where: {}, order: { created_at: 'ASC' } });
@@ -242,6 +248,7 @@ export class SeedService {
       district: 'Çankaya',
       status: SchoolStatus.aktif,
       teacher_limit: 100,
+      enabled_modules: ['butterfly_exam', 'sorumluluk_sinav', 'messaging', 'teacher_agenda', 'duty', 'bilsem', 'optical', 'smart_board', 'tv', 'school_reviews', 'document', 'outcome'],
     });
     const savedSchool = await this.schoolRepo.save(school);
 
@@ -253,6 +260,7 @@ export class SeedService {
       status: UserStatus.active,
       firebaseUid: null,
       passwordHash: hashSuperadmin,
+      emailVerifiedAt: new Date(),
     });
     await this.userRepo.save(superadmin);
 
@@ -264,6 +272,7 @@ export class SeedService {
       status: UserStatus.active,
       firebaseUid: null,
       passwordHash: hashSchoolAdmin,
+      emailVerifiedAt: new Date(),
     });
     await this.userRepo.save(schoolAdmin);
 
@@ -275,6 +284,7 @@ export class SeedService {
       status: UserStatus.active,
       firebaseUid: null,
       passwordHash: hashTeacher,
+      emailVerifiedAt: new Date(),
     });
     await this.userRepo.save(teacher);
 

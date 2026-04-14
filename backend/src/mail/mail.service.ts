@@ -193,6 +193,28 @@ export class MailService {
     return this.sendMailWithConfig(config, toEmail.trim(), rendered.subject, rendered.html, rendered.text);
   }
 
+  async sendVerificationCodeEmail(
+    toEmail: string,
+    params: { code: string; purposeLine: string; ttlMinutes: number },
+  ): Promise<boolean> {
+    const config = await this.resolveSmtpConfigForPasswordReset();
+    if (!config) {
+      this.logger.warn(`Doğrulama kodu SMTP yok; kod (log): ${params.code} → ${toEmail}`);
+      return false;
+    }
+    const appName = 'Öğretmen Pro';
+    const fromName = (config.smtp_from_name || appName).trim();
+    const rendered = await this.renderMailTemplate('verification_code', {
+      app_name: appName,
+      from_name: escapeMailText(fromName),
+      preheader: escapeMailText(`Doğrulama kodu: ${params.code}`),
+      purpose_line: escapeMailText(params.purposeLine),
+      code: escapeMailText(params.code),
+      ttl_minutes: String(params.ttlMinutes),
+    });
+    return this.sendMailWithConfig(config, toEmail.trim(), rendered.subject, rendered.html, rendered.text);
+  }
+
   private async renderMailTemplate(
     id: MailTemplateId,
     vars: Record<string, string>,
@@ -237,6 +259,83 @@ export class MailService {
       smtp_from: (env.smtp.from || user).trim(),
       smtp_from_name: 'Öğretmen Pro',
       smtp_secure: port === 465,
+      mail_app_base_url: null,
+    };
+  }
+
+  /** İletişim formu: uzaeduapp@gmail.com adresine iletir. */
+  async sendContactEmail(params: {
+    name: string;
+    email: string;
+    subject: string;
+    message: string;
+  }): Promise<boolean> {
+    const config = await this.appConfig.getMailConfigForSending();
+    const to = 'uzaeduapp@gmail.com';
+    const subject = `[İletişim] ${params.subject}`;
+    const esc = (s: string) => escapeHtml(s);
+    const html = `<!DOCTYPE html>
+<html lang="tr">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>İletişim Formu</title></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f3f4f6;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f4f6;">
+    <tr><td style="padding:28px 16px;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0"
+        style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,0.06);">
+        <tr><td style="height:3px;background:#007bff;line-height:3px;font-size:0;">&#160;</td></tr>
+        <tr><td style="padding:26px 32px;">
+          <div style="font-size:18px;font-weight:700;color:#111827;">Öğretmen Pro</div>
+          <div style="font-size:11px;color:#6b7280;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;margin-top:2px;">İletişim Formu</div>
+          <table style="margin-top:20px;width:100%;border-collapse:collapse;">
+            <tr><td style="padding:8px 0;font-size:12px;color:#6b7280;font-weight:600;width:90px;">Ad Soyad</td>
+                <td style="padding:8px 0;font-size:14px;color:#111827;">${esc(params.name)}</td></tr>
+            <tr style="background:#f9fafb;">
+                <td style="padding:8px 0;font-size:12px;color:#6b7280;font-weight:600;width:90px;">E-posta</td>
+                <td style="padding:8px 0;font-size:14px;color:#111827;">${esc(params.email)}</td></tr>
+            <tr><td style="padding:8px 0;font-size:12px;color:#6b7280;font-weight:600;width:90px;">Konu</td>
+                <td style="padding:8px 0;font-size:14px;color:#111827;">${esc(params.subject)}</td></tr>
+          </table>
+          <div style="margin-top:16px;padding:16px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;">
+            <div style="font-size:12px;color:#6b7280;font-weight:600;margin-bottom:8px;">Mesaj</div>
+            <div style="font-size:14px;color:#374151;line-height:1.7;white-space:pre-wrap;">${esc(params.message)}</div>
+          </div>
+          <div style="margin-top:16px;">
+            <a href="mailto:${esc(params.email)}" style="display:inline-block;padding:10px 20px;background:#007bff;color:#fff;font-size:13px;font-weight:600;text-decoration:none;border-radius:8px;">
+              Yanıtla: ${esc(params.email)}
+            </a>
+          </div>
+        </td></tr>
+        <tr><td style="padding:14px 32px 18px;background:#f9fafb;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;">
+          Öğretmen Pro · İletişim Formu · ogretmenpro.com
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+    const text = `İletişim Formu\n\nAd Soyad: ${params.name}\nE-posta: ${params.email}\nKonu: ${params.subject}\n\nMesaj:\n${params.message}`;
+
+    if (config.mail_enabled && config.smtp_host && config.smtp_user && config.smtp_pass) {
+      return this.sendMailWithConfig(config, to, subject, html, text);
+    }
+    // SMTP kapalıysa env üzerinden dene
+    const envConfig = this._envMailConfig();
+    if (envConfig) return this.sendMailWithConfig(envConfig, to, subject, html, text);
+    this.logger.warn('Contact form submitted but SMTP not configured');
+    return false;
+  }
+
+  private _envMailConfig(): MailConfigForSending | null {
+    const { host, port, user, pass } = env.smtp ?? {};
+    if (!host || !user || !pass) return null;
+    return {
+      mail_enabled: true,
+      smtp_host: host,
+      smtp_port: typeof port === 'number' ? port : parseInt(String(port ?? '587'), 10),
+      smtp_user: user,
+      smtp_pass: pass,
+      smtp_from: user,
+      smtp_from_name: 'Öğretmen Pro',
+      smtp_secure: (typeof port === 'number' ? port : parseInt(String(port ?? '587'), 10)) === 465,
       mail_app_base_url: null,
     };
   }

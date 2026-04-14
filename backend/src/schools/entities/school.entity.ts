@@ -75,6 +75,13 @@ export class School {
   @Column({ type: 'int', default: 100 })
   teacher_limit: number;
 
+  /**
+   * Yönetimin eklediği şifresiz öğretmen kaydı ile, aynı okul + aynı görünen ad ile
+   * web üzerinden yapılan ilk kaydı tek hesapta birleştir.
+   */
+  @Column({ name: 'merge_teacher_on_name_match', type: 'boolean', default: false })
+  mergeTeacherOnNameMatch: boolean;
+
   /** Okul Değerlendirme: detay sayfası görüntülenme sayısı */
   @Column({ type: 'int', default: 0 })
   review_view_count: number;
@@ -276,8 +283,9 @@ export class School {
   tv_now_in_class_bar_marquee_duration: number | null;
 
   /**
-   * Duyuru TV: Sadece bu IP'lerden erişilebilir. Virgülle ayrılmış (örn. 85.123.45.67 veya 192.168.1.).
-   * Boş = tüm IP'lerden erişim (varsayılan).
+   * Duyuru TV ve sınıf akıllı tahtası (/tv/classroom): sadece bu IP'lerden erişim.
+   * Virgülle ayrılmış tam IP veya önek (örn. 10.12.34.56, 192.168.1.).
+   * Boş = kısıtlama yok. Kapalı devrede okul ağı önekleriyle doldurulması önerilir.
    */
   @Column({ type: 'varchar', length: 512, nullable: true })
   tv_allowed_ips: string | null;

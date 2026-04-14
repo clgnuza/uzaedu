@@ -3,11 +3,10 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Users as UsersIcon, UserPlus, UserCheck, LayoutGrid, List, Search, Pencil, Mail, Calendar, Phone, Briefcase, BookOpen, ClipboardList, Tv, ChevronLeft, ChevronRight, Megaphone, BarChart3, MailPlus, Download, ArrowRight, ShieldCheck, Clock, AlertTriangle, Undo2, GraduationCap } from 'lucide-react';
+import { Users as UsersIcon, UserPlus, UserCheck, LayoutGrid, List, Search, Pencil, Mail, Calendar, Phone, Briefcase, BookOpen, ClipboardList, Tv, ChevronLeft, ChevronRight, Megaphone, BarChart3, MailPlus, Download, ArrowRight, ShieldCheck, Clock, AlertTriangle, Undo2, GraduationCap, FileSpreadsheet } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
-import { Toolbar, ToolbarHeading, ToolbarPageTitle, ToolbarActions } from '@/components/layout/toolbar';
 import { ToolbarIconHints } from '@/components/layout/toolbar-icon-hints';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
@@ -17,6 +16,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { useAdminMessagesUnread } from '@/hooks/use-admin-messages-unread';
 import { cn } from '@/lib/utils';
 import { UserAvatarBubble } from '@/components/user-avatar';
+import { MebbisBulkImportDialog } from './components/MebbisBulkImportDialog';
 
 type UserItem = {
   id: string;
@@ -124,7 +124,8 @@ export default function TeachersPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const editId = searchParams?.get('edit');
-  const { token, me } = useAuth();
+  const { token, me, refetchMe } = useAuth();
+  const [mergeSaving, setMergeSaving] = useState(false);
   const adminMessagesUnread = useAdminMessagesUnread(token, me?.role ?? null);
   const [data, setData] = useState<ListResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -134,6 +135,7 @@ export default function TeachersPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [mebbisBulkOpen, setMebbisBulkOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState<UserItem | null>(null);
   const [totalTeacherCount, setTotalTeacherCount] = useState<number | null>(null);
   const [subjects, setSubjects] = useState<SchoolSubject[]>([]);
@@ -315,142 +317,168 @@ export default function TeachersPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <Toolbar>
-        <ToolbarHeading>
-          <ToolbarPageTitle>Öğretmenler</ToolbarPageTitle>
-          <ToolbarIconHints
-            items={[
-              { label: 'Öğretmen listesi', icon: UsersIcon },
-              { label: 'Görünüm / arama', icon: LayoutGrid },
-              ...(me?.role === 'school_admin'
-                ? [
-                    { label: 'Üyelik durumu', icon: ShieldCheck },
-                    { label: 'Kişisel bilgi', icon: UserCheck },
-                  ]
-                : []),
-            ]}
-            summary={
-              me?.role === 'school_admin'
-                ? 'Okul üyeliği onayı e-posta doğrulaması sonrası verilir. Ad/kişisel bilgiler yalnızca öğretmenin kendi ayarlarından değişir.'
-                : 'Okulunuzdaki öğretmen listesi ve yönetimi'
-            }
-          />
-        </ToolbarHeading>
-        <ToolbarActions>
-          <Link
-            href="/duty"
-            className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted hover:border-muted-foreground/20"
-          >
-            <ClipboardList className="size-4 text-muted-foreground" />
-            Nöbet planı
-          </Link>
-          <Link
-            href="/tv"
-            className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted hover:border-muted-foreground/20"
-          >
-            <Tv className="size-4 text-muted-foreground" />
-            Duyuru TV
-          </Link>
-          <button
-            type="button"
-            onClick={() => setAddModalOpen(true)}
-            disabled={!canAddMore}
-            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-all hover:opacity-90 hover:shadow disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <UserPlus className="size-4" />
-            Öğretmen ekle
-          </button>
-        </ToolbarActions>
-      </Toolbar>
+    <div className="support-page space-y-2 pb-4 sm:space-y-4 sm:pb-6">
+      <div className="relative overflow-hidden rounded-xl border border-sky-400/25 bg-linear-to-br from-sky-500/12 via-cyan-500/8 to-emerald-500/10 p-2.5 shadow-md ring-1 ring-sky-500/15 dark:border-sky-500/20 dark:from-sky-950/45 dark:via-cyan-950/20 dark:to-emerald-950/30 sm:rounded-2xl sm:p-3">
+        <div
+          className="pointer-events-none absolute -right-8 -top-10 size-28 rounded-full bg-cyan-400/18 blur-3xl dark:bg-cyan-500/10 sm:size-32"
+          aria-hidden
+        />
+        <div className="relative flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
+          <div className="flex min-w-0 items-start gap-2 sm:gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-sky-600 to-cyan-600 text-white shadow-md ring-2 ring-white/20 dark:ring-white/10 sm:size-10">
+              <UsersIcon className="size-[1.05rem] sm:size-[1.2rem]" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-base font-semibold leading-tight tracking-tight text-foreground sm:text-lg">Öğretmenler</h1>
+              <ToolbarIconHints
+                compact
+                showOnMobile
+                className="text-[11px] sm:text-xs"
+                items={[
+                  { label: 'Liste', icon: UsersIcon },
+                  { label: 'Görünüm', icon: LayoutGrid },
+                  ...(me?.role === 'school_admin'
+                    ? [
+                        { label: 'Üyelik', icon: ShieldCheck },
+                        { label: 'Profil', icon: UserCheck },
+                      ]
+                    : []),
+                ]}
+                summary={
+                  me?.role === 'school_admin'
+                    ? 'Üyelik onayı e-posta sonrası. Kişisel bilgiler öğretmen profilindedir.'
+                    : 'Okul öğretmen listesi ve yönetimi.'
+                }
+              />
+            </div>
+          </div>
+          <div className="flex w-full flex-wrap items-stretch justify-end gap-1.5 sm:w-auto sm:items-center sm:gap-2">
+            <Link
+              href="/duty"
+              className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-sky-500/25 bg-background/85 px-2.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-sky-500/10 sm:flex-initial sm:px-3 sm:text-sm"
+            >
+              <ClipboardList className="size-3.5 text-sky-600 sm:size-4" />
+              Nöbet
+            </Link>
+            <Link
+              href="/tv"
+              className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-sky-500/25 bg-background/85 px-2.5 text-xs font-medium transition-colors hover:bg-sky-500/10 sm:flex-initial sm:px-3 sm:text-sm"
+            >
+              <Tv className="size-3.5 text-muted-foreground sm:size-4" />
+              TV
+            </Link>
+            <div className="flex w-full flex-[1_1_100%] gap-1.5 sm:w-auto sm:flex-initial">
+              {me?.role === 'school_admin' && (
+                <button
+                  type="button"
+                  onClick={() => setMebbisBulkOpen(true)}
+                  className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-emerald-600/35 bg-emerald-500/10 px-2.5 text-xs font-semibold text-emerald-900 shadow-sm transition-all hover:bg-emerald-500/18 dark:text-emerald-100 sm:flex-initial sm:px-3 sm:text-sm"
+                >
+                  <FileSpreadsheet className="size-3.5 sm:size-4" aria-hidden />
+                  MEBBİS toplu
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setAddModalOpen(true)}
+                disabled={!canAddMore}
+                className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-initial sm:px-3 sm:text-sm"
+              >
+                <UserPlus className="size-3.5 sm:size-4" />
+                Öğretmen ekle
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Hızlı aksiyon kartları */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-1.5 sm:gap-3 lg:grid-cols-4">
         <Link
           href="/tv"
-          className="group flex items-center gap-4 rounded-xl border border-border bg-card p-4 shadow-sm transition-all hover:border-primary/30 hover:shadow-md"
+          className="group flex items-center gap-2 rounded-xl border border-border/50 bg-card/95 p-2.5 shadow-sm ring-1 ring-black/5 transition-all hover:border-sky-500/30 hover:shadow-md sm:gap-3 sm:p-3.5 dark:ring-white/5"
         >
-          <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <Megaphone className="size-6" />
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/12 text-sky-600 ring-1 ring-sky-500/20 sm:size-11 sm:rounded-xl">
+            <Megaphone className="size-4 sm:size-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="font-medium text-foreground">Duyuru gönder</p>
-            <p className="text-xs text-muted-foreground">Duyuru oluştur, TV&apos;de yayınla</p>
+            <p className="text-xs font-semibold text-foreground sm:text-sm">Duyuru</p>
+            <p className="text-[10px] text-muted-foreground sm:text-xs">TV yayını</p>
           </div>
-          <ArrowRight className="size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
+          <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-sky-600 sm:size-5" />
         </Link>
         <Link
           href="/classes-subjects"
-          className="group flex items-center gap-4 rounded-xl border border-border bg-card p-4 shadow-sm transition-all hover:border-primary/30 hover:shadow-md"
+          className="group flex items-center gap-2 rounded-xl border border-border/50 bg-card/95 p-2.5 shadow-sm ring-1 ring-black/5 transition-all hover:border-emerald-500/35 hover:shadow-md sm:gap-3 sm:p-3.5 dark:ring-white/5"
         >
-          <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-            <BookOpen className="size-6" />
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/12 text-emerald-700 ring-1 ring-emerald-500/20 dark:text-emerald-300 sm:size-11 sm:rounded-xl">
+            <BookOpen className="size-4 sm:size-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="font-medium text-foreground">Sınıflar & Dersler</p>
-            <p className="text-xs text-muted-foreground">Ders atamalarını yönet</p>
+            <p className="text-xs font-semibold text-foreground sm:text-sm">Sınıf & ders</p>
+            <p className="text-[10px] text-muted-foreground sm:text-xs">Gruplar</p>
           </div>
-          <ArrowRight className="size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
+          <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-emerald-600 sm:size-5" />
         </Link>
         <Link
           href="/school-reviews-report"
-          className="group flex items-center gap-4 rounded-xl border border-border bg-card p-4 shadow-sm transition-all hover:border-primary/30 hover:shadow-md"
+          className="group flex items-center gap-2 rounded-xl border border-border/50 bg-card/95 p-2.5 shadow-sm ring-1 ring-black/5 transition-all hover:border-amber-500/35 hover:shadow-md sm:gap-3 sm:p-3.5 dark:ring-white/5"
         >
-          <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
-            <BarChart3 className="size-6" />
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/12 text-amber-700 ring-1 ring-amber-500/20 dark:text-amber-300 sm:size-11 sm:rounded-xl">
+            <BarChart3 className="size-4 sm:size-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="font-medium text-foreground">Okul Değerlendirme Raporu</p>
-            <p className="text-xs text-muted-foreground">Öğretmen değerlendirmeleri özeti</p>
+            <p className="text-xs font-semibold leading-tight text-foreground sm:text-sm">Okul değerlendirmesi</p>
+            <p className="text-[10px] text-muted-foreground sm:text-xs">Genel özet</p>
           </div>
-          <ArrowRight className="size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
+          <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-amber-600 sm:size-5" />
         </Link>
         <Link
           href="/system-messages"
-          className="group flex items-center gap-4 rounded-xl border border-border bg-card p-4 shadow-sm transition-all hover:border-primary/30 hover:shadow-md"
+          className="group relative flex items-center gap-2 rounded-xl border border-border/50 bg-card/95 p-2.5 shadow-sm ring-1 ring-black/5 transition-all hover:border-violet-500/35 hover:shadow-md sm:gap-3 sm:p-3.5 dark:ring-white/5"
         >
-          <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-400">
-            <Mail className="size-6" />
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/12 text-violet-700 ring-1 ring-violet-500/20 dark:text-violet-300 sm:size-11 sm:rounded-xl">
+            <Mail className="size-4 sm:size-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="font-medium text-foreground">Sistem Mesajları</p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs font-semibold text-foreground sm:text-sm">Sistem</p>
+            <p className="text-[10px] text-muted-foreground sm:text-xs">
               {adminMessagesUnread > 0 ? (
-                <span className="font-medium text-amber-600 dark:text-amber-400">{adminMessagesUnread} okunmamış</span>
+                <span className="font-semibold text-amber-600 dark:text-amber-400">{adminMessagesUnread} yeni</span>
               ) : (
-                'Merkezden gelen mesajlar'
+                'Mesajlar'
               )}
             </p>
           </div>
           {adminMessagesUnread > 0 && (
-            <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-amber-500 text-xs font-bold text-white">
+            <span className="absolute right-2 top-2 flex size-5 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white sm:right-3 sm:top-3 sm:size-6 sm:text-xs">
               {adminMessagesUnread}
             </span>
           )}
-          <ArrowRight className="size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
+          <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-violet-600 sm:size-5" />
         </Link>
       </div>
 
       {/* Özet istatistikler */}
       {stats && (
-        <div className="flex flex-wrap items-center gap-6 rounded-xl border border-border bg-card p-4">
-          <div className="flex items-center gap-2">
-            <UsersIcon className="size-5 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">Toplam öğretmen:</span>
-            <span className="font-semibold text-foreground">{teacherCount}</span>
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/50 bg-linear-to-r from-sky-500/6 via-background to-violet-500/5 p-2.5 shadow-sm ring-1 ring-sky-500/10 dark:from-sky-950/25 dark:to-violet-950/20 dark:ring-sky-500/15 sm:gap-5 sm:p-3.5">
+          <div className="flex items-center gap-1.5 text-[11px] sm:text-sm">
+            <UsersIcon className="size-4 shrink-0 text-sky-600 sm:size-5" />
+            <span className="text-muted-foreground">Öğretmen</span>
+            <span className="font-bold tabular-nums text-foreground">{teacherCount}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <Megaphone className="size-5 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">Toplam duyuru:</span>
-            <span className="font-semibold text-foreground">{stats.announcements}</span>
+          <div className="flex items-center gap-1.5 text-[11px] sm:text-sm">
+            <Megaphone className="size-4 shrink-0 text-emerald-600 sm:size-5" />
+            <span className="text-muted-foreground">Duyuru</span>
+            <span className="font-bold tabular-nums text-foreground">{stats.announcements}</span>
           </div>
           <Link
             href="/duty"
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors"
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-700 transition-colors hover:underline dark:text-sky-300 sm:text-sm"
           >
-            <ClipboardList className="size-5" />
-            Nöbet planı yönetimi
-            <ArrowRight className="size-4" />
+            <ClipboardList className="size-3.5 sm:size-4" />
+            Nöbet planı
+            <ArrowRight className="size-3 sm:size-4" />
           </Link>
         </div>
       )}
@@ -462,44 +490,79 @@ export default function TeachersPage() {
         />
       )}
 
-      <Card className="overflow-hidden">
-        <CardHeader className="border-b border-border/50 bg-slate-50/60 dark:bg-slate-900/20 pb-4">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <CardTitle className="text-base sm:text-lg">Öğretmen listesi</CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">{filteredItems.length}</span> öğretmen gösteriliyor
-                <span className="mx-1.5">·</span>
-                <span className="font-medium text-foreground">{teacherCount}</span> / {teacherLimit} toplam
+      {me?.role === 'school_admin' && me.school?.id && (
+        <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-border/60 bg-card/90 px-3 py-2.5 text-xs sm:text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5 rounded border-input"
+            checked={me.school.merge_teacher_on_name_match === true}
+            disabled={mergeSaving}
+            onChange={async (e) => {
+              if (!token) return;
+              const v = e.target.checked;
+              setMergeSaving(true);
+              try {
+                await apiFetch(`/schools/${me.school!.id}`, {
+                  method: 'PATCH',
+                  token,
+                  body: JSON.stringify({ merge_teacher_on_name_match: v }),
+                });
+                await refetchMe();
+                toast.success(v ? 'Ada göre birleştirme açık' : 'Ada göre birleştirme kapalı');
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : 'Ayar kaydedilemedi');
+              } finally {
+                setMergeSaving(false);
+              }
+            }}
+          />
+          <span>
+            <span className="font-medium text-foreground">Kayıtta ada göre birleştir</span>
+            <span className="mt-0.5 block text-muted-foreground">
+              Okul tarafından eklenen (şifresiz) öğretmen ile aynı ad-soyadla web kaydı tek hesapta birleşir; aynı adda birden fazla ön kayıt varsa kayıt engellenir.
+            </span>
+          </span>
+        </label>
+      )}
+
+      <Card className="overflow-hidden rounded-xl border border-sky-500/15 bg-card/95 shadow-sm ring-1 ring-sky-500/10 dark:ring-sky-500/15 sm:rounded-2xl">
+        <CardHeader className="border-b border-border/50 bg-linear-to-r from-sky-500/8 via-muted/15 to-violet-500/6 px-3 py-3 dark:from-sky-950/30 dark:via-background/50 dark:to-violet-950/20 sm:px-5 sm:py-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <CardTitle className="text-sm font-bold sm:text-lg">Öğretmen listesi</CardTitle>
+              <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-sm">
+                <span className="font-semibold text-foreground">{filteredItems.length}</span> gösteriliyor
+                <span className="mx-1">·</span>
+                <span className="font-semibold text-foreground">{teacherCount}</span> / {teacherLimit}
               </p>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2.5">
+            <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
               <button
                 type="button"
                 onClick={handleExportCsv}
                 disabled={loading || !data?.items?.length}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium transition-colors hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-background px-2.5 text-xs font-medium transition-colors hover:bg-sky-500/8 disabled:cursor-not-allowed disabled:opacity-50 sm:px-3 sm:text-sm"
               >
-                <Download className="size-4" />
-                CSV İndir
+                <Download className="size-3.5 sm:size-4" />
+                CSV
               </button>
               {selectedIds.size > 0 && (
                 <a
                   href={`mailto:?bcc=${encodeURIComponent(selectedEmails)}`}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-primary/50 bg-primary/5 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+                  className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2.5 text-xs font-semibold text-sky-900 transition-colors hover:bg-sky-500/15 dark:text-sky-100 sm:px-3 sm:text-sm"
                 >
-                  <MailPlus className="size-4" />
-                  {selectedIds.size} kişiye e-posta
+                  <MailPlus className="size-3.5 sm:size-4" />
+                  {selectedIds.size} e-posta
                 </a>
               )}
-              <div className="relative w-full sm:min-w-[180px] sm:max-w-[280px]">
-                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <div className="relative w-full sm:min-w-[160px] sm:max-w-[260px]">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground sm:left-3 sm:size-4" />
                 <input
                   type="search"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="İsim veya e-posta ara…"
-                  className="w-full rounded-lg border border-input bg-background py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 transition-colors"
+                  placeholder="Ara…"
+                  className="w-full rounded-lg border border-input bg-background py-2 pl-9 pr-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-sky-500/40 focus:outline-none focus:ring-2 focus:ring-sky-500/15 sm:py-2.5 sm:pl-10 sm:pr-3 sm:text-sm"
                 />
               </div>
               <select
@@ -508,10 +571,10 @@ export default function TeachersPage() {
                   setSortBy(e.target.value as 'branch' | 'name');
                   setPage(1);
                 }}
-                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 sm:w-auto"
+                className="min-h-9 w-full rounded-lg border border-input bg-background px-2 py-1.5 text-xs focus:border-sky-500/40 focus:outline-none focus:ring-2 focus:ring-sky-500/15 sm:w-auto sm:px-3 sm:py-2 sm:text-sm"
               >
-                <option value="branch">Branşa göre sırala</option>
-                <option value="name">Ada göre sırala</option>
+                <option value="branch">Branş sırası</option>
+                <option value="name">Ad sırası</option>
               </select>
               <select
                 value={statusFilter}
@@ -519,7 +582,7 @@ export default function TeachersPage() {
                   setStatusFilter(e.target.value);
                   setPage(1);
                 }}
-                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 sm:w-auto"
+                className="min-h-9 w-full rounded-lg border border-input bg-background px-2 py-1.5 text-xs focus:border-sky-500/40 focus:outline-none focus:ring-2 focus:ring-sky-500/15 sm:w-auto sm:px-3 sm:py-2 sm:text-sm"
               >
                 <option value="">Tüm durumlar</option>
                 <option value="active">Aktif</option>
@@ -532,42 +595,52 @@ export default function TeachersPage() {
                   setMembershipFilter(e.target.value);
                   setPage(1);
                 }}
-                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20 sm:w-auto"
+                className="min-h-9 w-full rounded-lg border border-input bg-background px-2 py-1.5 text-xs focus:border-sky-500/40 focus:outline-none focus:ring-2 focus:ring-sky-500/15 sm:w-auto sm:px-3 sm:py-2 sm:text-sm"
               >
                 <option value="">Tüm üyelikler</option>
                 <option value="pending">Onay bekleyen</option>
-                <option value="approved">Doğrulanmış okul</option>
-                <option value="none">Okul seçmemiş</option>
+                <option value="approved">Doğrulanmış</option>
+                <option value="none">Okul yok</option>
               </select>
-              <div className="flex rounded-lg border border-border bg-background p-0.5" role="group" aria-label="Görünüm">
+              <div
+                className="flex w-full rounded-lg border border-sky-200/70 bg-sky-500/8 p-0.5 dark:border-sky-800/50 dark:bg-sky-950/30 sm:w-auto"
+                role="group"
+                aria-label="Görünüm"
+              >
                 <button
                   type="button"
                   onClick={() => setViewMode('cards')}
-                  className={`rounded-md p-2 transition-colors ${
-                    viewMode === 'cards' ? 'bg-primary/15 text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                  }`}
+                  className={cn(
+                    'flex flex-1 items-center justify-center rounded-md p-1.5 transition-colors sm:flex-initial sm:p-2',
+                    viewMode === 'cards'
+                      ? 'bg-sky-600 text-white shadow-sm dark:bg-sky-500'
+                      : 'text-muted-foreground hover:bg-background/80 hover:text-foreground',
+                  )}
                   aria-label="Kart görünümü"
                   title="Kart görünümü"
                 >
-                  <LayoutGrid className="size-4" />
+                  <LayoutGrid className="size-3.5 sm:size-4" />
                 </button>
                 <button
                   type="button"
                   onClick={() => setViewMode('table')}
-                  className={`rounded-md p-2 transition-colors ${
-                    viewMode === 'table' ? 'bg-primary/15 text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                  }`}
+                  className={cn(
+                    'flex flex-1 items-center justify-center rounded-md p-1.5 transition-colors sm:flex-initial sm:p-2',
+                    viewMode === 'table'
+                      ? 'bg-sky-600 text-white shadow-sm dark:bg-sky-500'
+                      : 'text-muted-foreground hover:bg-background/80 hover:text-foreground',
+                  )}
                   aria-label="Tablo görünümü"
                   title="Tablo görünümü"
                 >
-                  <List className="size-4" />
+                  <List className="size-3.5 sm:size-4" />
                 </button>
               </div>
             </div>
           </div>
-          {error && <Alert message={error} className="mt-4" />}
+          {error && <Alert message={error} className="mt-3 py-2 text-sm" />}
         </CardHeader>
-        <CardContent className="pt-6">
+        <CardContent className="bg-linear-to-b from-background/50 to-transparent px-2 pt-4 sm:px-4 sm:pt-6 dark:from-transparent">
           {loading ? (
             <LoadingSpinner label="Öğretmen listesi yükleniyor…" />
           ) : data && data.items.length > 0 ? (
@@ -760,11 +833,17 @@ export default function TeachersPage() {
         open={addModalOpen}
         onOpenChange={setAddModalOpen}
         token={token}
-        subjects={subjects}
         onSuccess={() => {
           setAddModalOpen(false);
           refreshAll();
         }}
+      />
+
+      <MebbisBulkImportDialog
+        open={mebbisBulkOpen}
+        onOpenChange={setMebbisBulkOpen}
+        token={token}
+        onSuccess={refreshAll}
       />
 
       {editModalOpen && (
@@ -1001,17 +1080,20 @@ const TITLE_OPTIONS = [
   { value: 'Maaş karşılığı', label: 'Maaş karşılığı' },
 ];
 
+const fieldClass =
+  'mt-1.5 flex min-h-11 w-full rounded-xl border border-input bg-background px-3 py-2 text-base text-foreground shadow-sm transition-[border-color,box-shadow] placeholder:text-muted-foreground focus-visible:border-emerald-500/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20 sm:min-h-10 sm:px-3.5 sm:text-sm';
+
+const labelClass = 'text-xs font-medium text-muted-foreground sm:text-sm sm:text-foreground';
+
 function AddTeacherModal({
   open,
   onOpenChange,
   token,
-  subjects,
   onSuccess,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   token: string | null;
-  subjects: SchoolSubject[];
   onSuccess: () => void;
 }) {
   const [email, setEmail] = useState('');
@@ -1020,7 +1102,6 @@ function AddTeacherModal({
   const [teacherPhone, setTeacherPhone] = useState('');
   const [teacherTitle, setTeacherTitle] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
-  const [subjectIds, setSubjectIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1041,7 +1122,7 @@ function AddTeacherModal({
           teacher_phone: teacherPhone.trim() || null,
           teacher_title: teacherTitle || null,
           avatar_url: avatarUrl.trim() || null,
-          teacher_subject_ids: subjectIds.length ? subjectIds : null,
+          teacher_subject_ids: null,
         }),
       });
       toast.success('Öğretmen eklendi');
@@ -1051,7 +1132,6 @@ function AddTeacherModal({
       setTeacherPhone('');
       setTeacherTitle('');
       setAvatarUrl('');
-      setSubjectIds([]);
       onSuccess();
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Eklenemedi';
@@ -1064,129 +1144,148 @@ function AddTeacherModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title="Öğretmen ekle">
-        <form onSubmit={handleSubmit} className="space-y-4 max-h-[85vh] overflow-y-auto">
-          {error && <Alert message={error} />}
-          <div>
-            <label htmlFor="teacher-email" className="block text-sm font-medium text-foreground">
-              E-posta (zorunlu)
-            </label>
-            <input
-              id="teacher-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              placeholder="ornek@okul.gov.tr"
-              className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-            />
+      <DialogContent title="Öğretmen ekle" className="max-w-[min(100%,28rem)] sm:max-w-xl" descriptionId="add-teacher-desc">
+        <div className="-mt-0.5 flex items-start gap-3 border-b border-border/60 pb-4">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-emerald-500/15 to-sky-500/10 text-emerald-700 ring-1 ring-emerald-500/20 dark:from-emerald-950/50 dark:to-sky-950/30 dark:text-emerald-300 sm:size-11 sm:rounded-2xl">
+            <UserPlus className="size-[1.15rem] sm:size-5" aria-hidden />
           </div>
-          <div>
-            <label htmlFor="teacher-name" className="block text-sm font-medium text-foreground">
-              Görünen ad (opsiyonel)
-            </label>
-            <input
-              id="teacher-name"
-              type="text"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              maxLength={255}
-              placeholder="Ad Soyad"
-              className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-            />
-          </div>
-          <div>
-            <label htmlFor="teacher-branch" className="block text-sm font-medium text-foreground">
-              Branş / Ne öğretmeni (opsiyonel)
-            </label>
-            <input
-              id="teacher-branch"
-              type="text"
-              value={teacherBranch}
-              onChange={(e) => setTeacherBranch(e.target.value)}
-              maxLength={100}
-              placeholder="Coğrafya Öğretmeni, Matematik Öğretmeni vb."
-              className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-            />
-          </div>
-          <div>
-            <label htmlFor="teacher-title" className="block text-sm font-medium text-foreground">
-              Ünvan (opsiyonel)
-            </label>
-            <select
-              id="teacher-title"
-              value={teacherTitle}
-              onChange={(e) => setTeacherTitle(e.target.value)}
-              className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-            >
-              {TITLE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="teacher-phone" className="block text-sm font-medium text-foreground">
-              Telefon (opsiyonel)
-            </label>
-            <input
-              id="teacher-phone"
-              type="tel"
-              value={teacherPhone}
-              onChange={(e) => setTeacherPhone(e.target.value)}
-              maxLength={32}
-              placeholder="05XX XXX XX XX"
-              className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-            />
-          </div>
-          <div>
-            <label htmlFor="teacher-avatar" className="block text-sm font-medium text-foreground">
-              Fotoğraf URL (opsiyonel)
-            </label>
-            <input
-              id="teacher-avatar"
-              type="url"
-              value={avatarUrl}
-              onChange={(e) => setAvatarUrl(e.target.value)}
-              maxLength={512}
-              placeholder="https://..."
-              className="mt-1.5 w-full rounded-lg border border-input bg-background px-4 py-2.5 text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-            />
-          </div>
-          {subjects.length > 0 && (
-            <div>
-              <label className="block text-sm font-medium text-foreground">
-                Okuttuğu dersler (opsiyonel)
-              </label>
-              <div className="mt-1.5 flex flex-wrap gap-2">
-                {subjects.map((s) => (
-                  <label key={s.id} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-sm cursor-pointer hover:bg-muted/50">
-                    <input
-                      type="checkbox"
-                      checked={subjectIds.includes(s.id)}
-                      onChange={(e) =>
-                        setSubjectIds((prev) =>
-                          e.target.checked ? [...prev, s.id] : prev.filter((id) => id !== s.id)
-                        )
-                      }
-                    />
-                    {s.name}
-                  </label>
-                ))}
-              </div>
+          <p id="add-teacher-desc" className="min-w-0 flex-1 pt-0.5 text-sm leading-relaxed text-muted-foreground">
+            Zorunlu alan e-postadır. Branş ve dersleri öğretmen kendi profilinden tamamlayabilir.
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-0">
+          {error && (
+            <div className="mb-4">
+              <Alert message={error} />
             </div>
           )}
-          <div className="flex justify-end gap-3 pt-2">
+
+          <div className="space-y-4 sm:space-y-5">
+            <div className="rounded-2xl border border-border/70 bg-muted/20 p-3.5 shadow-sm ring-1 ring-black/[0.03] dark:ring-white/[0.06] sm:p-4">
+              <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground sm:text-[11px]">
+                <Mail className="size-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden />
+                Hesap
+              </p>
+              <div className="space-y-3.5">
+                <div>
+                  <label htmlFor="teacher-email" className={labelClass}>
+                    E-posta <span className="text-rose-600 dark:text-rose-400">*</span>
+                  </label>
+                  <input
+                    id="teacher-email"
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    placeholder="ornek@okul.gov.tr"
+                    className={fieldClass}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="teacher-name" className={labelClass}>
+                    Görünen ad
+                  </label>
+                  <input
+                    id="teacher-name"
+                    type="text"
+                    autoComplete="name"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    maxLength={255}
+                    placeholder="Ad Soyad"
+                    className={fieldClass}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border/70 bg-muted/10 p-3.5 sm:p-4">
+              <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground sm:text-[11px]">
+                <Briefcase className="size-3.5 text-sky-600 dark:text-sky-400" aria-hidden />
+                Okul kaydı <span className="font-normal normal-case text-muted-foreground/80">(isteğe bağlı)</span>
+              </p>
+              <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 sm:gap-x-4">
+                <div className="sm:col-span-2">
+                  <label htmlFor="teacher-branch" className={labelClass}>
+                    Branş
+                  </label>
+                  <input
+                    id="teacher-branch"
+                    type="text"
+                    value={teacherBranch}
+                    onChange={(e) => setTeacherBranch(e.target.value)}
+                    maxLength={100}
+                    placeholder="Örn. Matematik öğretmeni"
+                    className={fieldClass}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="teacher-title" className={labelClass}>
+                    Ünvan
+                  </label>
+                  <select
+                    id="teacher-title"
+                    value={teacherTitle}
+                    onChange={(e) => setTeacherTitle(e.target.value)}
+                    className={cn(fieldClass, 'cursor-pointer')}
+                  >
+                    {TITLE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="teacher-phone" className={labelClass}>
+                    Telefon
+                  </label>
+                  <input
+                    id="teacher-phone"
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    value={teacherPhone}
+                    onChange={(e) => setTeacherPhone(e.target.value)}
+                    maxLength={32}
+                    placeholder="05XX XXX XX XX"
+                    className={fieldClass}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label htmlFor="teacher-avatar" className={labelClass}>
+                    Profil fotoğrafı URL
+                  </label>
+                  <input
+                    id="teacher-avatar"
+                    type="url"
+                    inputMode="url"
+                    value={avatarUrl}
+                    onChange={(e) => setAvatarUrl(e.target.value)}
+                    maxLength={512}
+                    placeholder="https://…"
+                    className={fieldClass}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="sticky bottom-0 z-[1] -mx-4 mt-6 flex flex-col-reverse gap-2 border-t border-border/80 bg-background/95 px-4 py-3 backdrop-blur-md supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:flex-row sm:justify-end sm:gap-3 sm:px-6 sm:py-4">
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              className="rounded-lg border border-border px-4 py-2.5 text-sm font-medium"
+              className="min-h-11 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted/60 sm:min-h-10 sm:w-auto"
             >
               İptal
             </button>
             <button
               type="submit"
               disabled={submitting}
-              className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white shadow-md shadow-emerald-900/15 transition-[opacity,transform] hover:bg-emerald-700 active:scale-[0.99] disabled:pointer-events-none disabled:opacity-50 sm:min-h-10 sm:w-auto dark:shadow-emerald-950/40"
             >
               {submitting ? 'Ekleniyor…' : 'Ekle'}
             </button>

@@ -6,8 +6,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const data = await fetchLegalPagesPublic();
   const block = data?.cookies;
   return {
-    title: block ? `${block.title} | Öğretmen Pro` : 'Çerez Politikası | Öğretmen Pro',
-    description: block?.meta_description ?? 'Öğretmen Pro çerez kullanımı ve tercihleri',
+    title: block ? `${block.title} | ÖğretmenPro` : 'Çerez Politikası | ÖğretmenPro',
+    description: block?.meta_description ?? 'ÖğretmenPro çerez kullanımı ve tercih ayarları. Hangi çerezleri kullandığımızı öğrenin.',
   };
 }
 

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleInit, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
@@ -43,7 +43,8 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 dakika
 type CacheEntry<T> = { data: T; ts: number };
 
 @Injectable()
-export class ExtraLessonParamsService {
+export class ExtraLessonParamsService implements OnModuleInit {
+  private readonly logger = new Logger(ExtraLessonParamsService.name);
   private paramsCache = new Map<string, CacheEntry<ExtraLessonParams | null>>();
   private semestersCache: CacheEntry<{ semester_code: string; title: string }[]> | null = null;
 
@@ -57,6 +58,109 @@ export class ExtraLessonParamsService {
     @InjectRepository(ExtraLessonLineItemTemplate)
     private readonly templateRepo: Repository<ExtraLessonLineItemTemplate>,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.seedNewLineItemTemplatesOnly();
+      await this.syncCanonicalTemplatesToDatabase();
+      await this.rebuildAllParamLineItemsFromTemplatesPreserveLabels();
+      this.invalidateReadCache();
+    } catch (e) {
+      this.logger.error('Eduhep hizalı ek ders şablon/param senkronu başarısız', e as Error);
+    }
+  }
+
+  /** EDUHEP (Kadrolu ek ders) sırası ve göstergeleri — kod tek kaynak. */
+  private getCanonicalLineItemTemplateRows(): TemplateRow[] {
+    return [
+      { key: 'gunduz', label: 'Gündüz Tutar', type: 'hourly', indicator_day: 140, indicator_night: 150, sort_order: 1 },
+      { key: 'gece', label: 'Gece Tutar', type: 'hourly', indicator_day: 150, indicator_night: null, sort_order: 2 },
+      { key: 'edygg_gunduz', label: 'EDYGG-Gündüz Tutar', type: 'hourly', indicator_day: 140, indicator_night: null, sort_order: 3 },
+      { key: 'edygg_gece', label: 'EDYGG-Gece Tutar', type: 'hourly', indicator_day: 150, indicator_night: null, sort_order: 4 },
+      { key: 'nobet', label: 'Nöbet Ücreti Tutar', type: 'hourly', indicator_day: 140, indicator_night: null, sort_order: 5 },
+      { key: 'belleticilik', label: 'Belletmenlik Tutar', type: 'hourly', indicator_day: 140, indicator_night: null, sort_order: 6 },
+      { key: 'sinav_gorevi', label: 'Sınav Görevi Tutar', type: 'hourly', indicator_day: 140, indicator_night: null, sort_order: 7 },
+      { key: 'egzersiz', label: 'Egzersiz Tutar', type: 'hourly', indicator_day: 140, indicator_night: null, sort_order: 8 },
+      { key: 'hizmet_ici', label: 'Hizmet İçi Tutar', type: 'hourly', indicator_day: 140, indicator_night: null, sort_order: 9 },
+      { key: 'ozel_egitim_25_gunduz', label: '%25 Gündüz Tutar', type: 'hourly', indicator_day: 175, indicator_night: 187.5, sort_order: 10 },
+      { key: 'ozel_egitim_25_gece', label: '%25 Gece Tutar', type: 'hourly', indicator_day: 187.5, indicator_night: null, sort_order: 11 },
+      { key: 'edygg_25_gunduz', label: 'EDYGG-%25 Gündüz Tutar', type: 'hourly', indicator_day: 175, indicator_night: null, sort_order: 12 },
+      { key: 'edygg_25_gece', label: 'EDYGG-%25 Gece Tutar', type: 'hourly', indicator_day: 187.5, indicator_night: null, sort_order: 13 },
+      { key: 'ozel_egitim_25_nobet', label: '%25 Nöbet Ücreti Tutar', type: 'hourly', indicator_day: 175, indicator_night: null, sort_order: 14 },
+      { key: 'ozel_egitim_25_belleticilik', label: '%25 Belletmenlik Tutar', type: 'hourly', indicator_day: 175, indicator_night: null, sort_order: 15 },
+      { key: 'destek_odasi_25', label: 'Destek Odası %25 Tutar', type: 'hourly', indicator_day: 175, indicator_night: null, sort_order: 16 },
+      { key: 'evde_egitim_25', label: 'Evde Eğitim %25 Tutar', type: 'hourly', indicator_day: 175, indicator_night: null, sort_order: 17 },
+      { key: 'cezaevi_gunduz', label: 'Cezaevi Görevi Gündüz Tutar', type: 'hourly', indicator_day: 175, indicator_night: 187.5, sort_order: 18 },
+      { key: 'cezaevi_gece', label: 'Cezaevi Görevi Gece Tutar', type: 'hourly', indicator_day: 187.5, indicator_night: null, sort_order: 19 },
+      { key: 'takviye_gunduz', label: 'Takviye Kursu-Gündüz Tutar', type: 'hourly', indicator_day: 280, indicator_night: 300, sort_order: 20 },
+      { key: 'takviye_gece', label: 'Takviye Kursu-Gece Tutar', type: 'hourly', indicator_day: 300, indicator_night: null, sort_order: 21 },
+      { key: 'iyep_gunduz', label: 'İYEP-Gündüz Tutar', type: 'hourly', indicator_day: 140, indicator_night: null, sort_order: 22 },
+      { key: 'iyep_gece', label: 'İYEP-Gece Tutar', type: 'hourly', indicator_day: 150, indicator_night: null, sort_order: 23 },
+    ];
+  }
+
+  private async seedNewLineItemTemplatesOnly(): Promise<void> {
+    const defaults = this.getCanonicalLineItemTemplateRows();
+    const existing = await this.templateRepo.find({ select: ['key'] });
+    const existingKeys = new Set(existing.map((e) => e.key));
+    for (const d of defaults) {
+      if (existingKeys.has(d.key)) continue;
+      const ent = this.templateRepo.create({
+        key: d.key,
+        label: d.label,
+        type: d.type,
+        indicator_day: d.indicator_day,
+        indicator_night: d.indicator_night ?? undefined,
+        sort_order: d.sort_order,
+      } as Partial<ExtraLessonLineItemTemplate>);
+      await this.templateRepo.save(ent);
+      existingKeys.add(d.key);
+    }
+  }
+
+  /** Sunucu açılışında şablon satırlarını koddaki EDUHEP tablosuna eşitler. */
+  private async syncCanonicalTemplatesToDatabase(): Promise<void> {
+    for (const d of this.getCanonicalLineItemTemplateRows()) {
+      let ent = await this.templateRepo.findOne({ where: { key: d.key } });
+      if (!ent) {
+        ent = this.templateRepo.create({
+          key: d.key,
+          label: d.label,
+          type: d.type,
+          indicator_day: d.indicator_day,
+          indicator_night: d.indicator_night ?? undefined,
+          sort_order: d.sort_order,
+        } as Partial<ExtraLessonLineItemTemplate>);
+      } else {
+        ent.label = d.label;
+        ent.type = d.type;
+        ent.indicator_day = d.indicator_day;
+        ent.indicator_night = d.indicator_night ?? null;
+        ent.sort_order = d.sort_order;
+      }
+      await this.templateRepo.save(ent);
+    }
+  }
+
+  /**
+   * Tüm dönem parametrelerinde line_items’ı güncel şablon + katsayı ile yeniden üretir.
+   * Etiketler EDUHEP ile aynı canonical isimlerdir (gösterge/brüt formülü şablondan).
+   */
+  private async rebuildAllParamLineItemsFromTemplatesPreserveLabels(): Promise<void> {
+    const templateRows = this.getCanonicalLineItemTemplateRows();
+    const all = await this.repo.find({ order: { semester_code: 'ASC' } });
+    for (const entity of all) {
+      const coeff = parseFloat(entity.monthly_coefficient || AYLIK_KATSAYI_2026_OCAK_HAZIRAN);
+      const baseItems = templateRows.map((t) => ({
+        key: t.key,
+        label: t.label,
+        type: t.type,
+        sort_order: t.sort_order,
+      }));
+      entity.line_items = this.resolveLineItemsFromTemplates(baseItems, templateRows, coeff);
+      await this.repo.save(entity);
+    }
+  }
 
   async create(dto: CreateExtraLessonParamsDto): Promise<ExtraLessonParams> {
     const coeff = dto.monthly_coefficient ?? parseFloat(AYLIK_KATSAYI_2026_OCAK_HAZIRAN);
@@ -214,7 +318,7 @@ export class ExtraLessonParamsService {
    * Gösterge tablosu kalemleri. Boşsa varsayılan değerlerle doldurulur.
    */
   async getLineItemTemplates(): Promise<TemplateRow[]> {
-    await this.seedLineItemTemplatesIfEmpty();
+    await this.seedNewLineItemTemplatesOnly();
     const rows = await this.templateRepo.find({
       order: { sort_order: 'ASC', key: 'ASC' },
     });
@@ -258,45 +362,6 @@ export class ExtraLessonParamsService {
       }
     }
     return this.getLineItemTemplates();
-  }
-
-  private async seedLineItemTemplatesIfEmpty(): Promise<void> {
-    const defaults: TemplateRow[] = [
-      { key: 'gunduz', label: 'Gündüz', type: 'hourly', indicator_day: 140, indicator_night: 150, sort_order: 1 },
-      { key: 'gece', label: 'Gece', type: 'hourly', indicator_day: 150, indicator_night: null, sort_order: 2 },
-      { key: 'nobet', label: 'Nöbet Görevi', type: 'hourly', indicator_day: 140, indicator_night: null, sort_order: 3 },
-      { key: 'belleticilik', label: 'Belleticilik', type: 'hourly', indicator_day: 140, indicator_night: null, sort_order: 4 },
-      { key: 'sinav_gorevi', label: 'Sınav Görevi', type: 'hourly', indicator_day: 140, indicator_night: null, sort_order: 5 },
-      { key: 'egzersiz', label: 'Egzersiz', type: 'hourly', indicator_day: 140, indicator_night: null, sort_order: 6 },
-      { key: 'hizmet_ici', label: 'Hizmet İçi', type: 'hourly', indicator_day: 140, indicator_night: null, sort_order: 7 },
-      { key: 'ozel_egitim_25_gunduz', label: '%25 Fazla - Gündüz (EYG Gündüz Gör.)', type: 'hourly', indicator_day: 175, indicator_night: 187.5, sort_order: 8 },
-      { key: 'ozel_egitim_25_gece', label: '%25 Fazla - Gece (EYG Gece Gör.)', type: 'hourly', indicator_day: 187.5, indicator_night: null, sort_order: 9 },
-      { key: 'ozel_egitim_25_nobet', label: '%25 Fazla - Nöbet (gösterge 187,5)', type: 'hourly', indicator_day: 187.5, indicator_night: null, sort_order: 10 },
-      { key: 'ozel_egitim_25_belleticilik', label: '%25 Fazla - Belleticilik', type: 'hourly', indicator_day: 175, indicator_night: null, sort_order: 11 },
-      { key: 'destek_odasi_25', label: 'Destek Odası %25', type: 'hourly', indicator_day: 175, indicator_night: null, sort_order: 12 },
-      { key: 'evde_egitim_25', label: 'Evde Eğitim %25', type: 'hourly', indicator_day: 175, indicator_night: null, sort_order: 13 },
-      { key: 'cezaevi_gunduz', label: 'Cezaevi Görevi Gündüz', type: 'hourly', indicator_day: 175, indicator_night: 187.5, sort_order: 14 },
-      { key: 'cezaevi_gece', label: 'Cezaevi Görevi Gece', type: 'hourly', indicator_day: 187.5, indicator_night: null, sort_order: 15 },
-      { key: 'takviye_gunduz', label: 'DYK Gündüz', type: 'hourly', indicator_day: 280, indicator_night: 300, sort_order: 16 },
-      { key: 'takviye_gece', label: 'DYK Gece', type: 'hourly', indicator_day: 300, indicator_night: null, sort_order: 17 },
-      { key: 'iyep_gunduz', label: 'İYEP Gündüz', type: 'hourly', indicator_day: 140, indicator_night: null, sort_order: 18 },
-      { key: 'iyep_gece', label: 'İYEP Gece', type: 'hourly', indicator_day: 150, indicator_night: null, sort_order: 19 },
-    ];
-    const existing = await this.templateRepo.find({ select: ['key'] });
-    const existingKeys = new Set(existing.map((e) => e.key));
-    for (const d of defaults) {
-      if (existingKeys.has(d.key)) continue;
-      const ent = this.templateRepo.create({
-        key: d.key,
-        label: d.label,
-        type: d.type,
-        indicator_day: d.indicator_day,
-        indicator_night: d.indicator_night ?? undefined,
-        sort_order: d.sort_order,
-      } as Partial<ExtraLessonLineItemTemplate>);
-      await this.templateRepo.save(ent);
-      existingKeys.add(d.key);
-    }
   }
 
   /**

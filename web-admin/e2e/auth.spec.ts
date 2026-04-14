@@ -4,14 +4,14 @@ test.describe('Auth sayfaları', () => {
   test('Giriş sayfası açılıyor', async ({ page }) => {
     await page.goto('/login');
     await expect(page).toHaveTitle(/Öğretmen|Giriş|Pro/i);
-    await expect(page.getByRole('heading', { name: /giriş|oturum|öğretmen/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /giriş|nasıl/i })).toBeVisible();
   });
 
   test('Şifre unuttum sayfası açılıyor', async ({ page }) => {
     await page.goto('/forgot-password');
     await expect(page.getByRole('heading', { name: /şifre unuttum/i })).toBeVisible();
-    await expect(page.getByPlaceholder(/e-posta|email/i)).toBeVisible();
-    await expect(page.getByRole('button', { name: /sıfırlama|gönder/i })).toBeVisible();
+    await expect(page.getByPlaceholder(/ornek@posta|e-posta|email/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: /kod gönder/i })).toBeVisible();
   });
 
   test('Şifre sıfırlama sayfası token olmadan hata gösteriyor', async ({ page }) => {
@@ -31,6 +31,6 @@ test.describe('Auth sayfaları', () => {
 
   test('Kayıt sayfası açılıyor', async ({ page }) => {
     await page.goto('/register');
-    await expect(page.getByRole('heading', { name: /kayıt|üye ol/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /hesap|kayıt/i })).toBeVisible();
   });
 });

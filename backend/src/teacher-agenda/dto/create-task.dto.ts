@@ -36,4 +36,9 @@ export class CreateAgendaTaskDto {
   @IsOptional()
   @IsString()
   linkedEntityId?: string | null;
+
+  /** ISO veya datetime-local; görevle birlikte hatırlatıcı oluşturur */
+  @IsOptional()
+  @IsString()
+  remindAt?: string | null;
 }

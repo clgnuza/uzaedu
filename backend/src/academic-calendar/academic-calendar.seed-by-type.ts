@@ -340,12 +340,22 @@ const BILSEM_W: WeekExtra[] = [
   Wx(40, [], ['BILSEM Özel Gelişim Programı', 'İdareye Teslim Evraklar']),
 ];
 
+const LISE_FAMILY = buildLise();
+
 export const ACADEMIC_CALENDAR_TYPE_EXTRAS_2025_2026: Partial<Record<SchoolType, WeekExtra[]>> = {
   [SchoolType.anaokul]: ANAOKUL,
   [SchoolType.ilkokul]: ILKOKUL,
   [SchoolType.ortaokul]: ORTAOKUL,
-  [SchoolType.lise]: buildLise(),
+  [SchoolType.temel_egitim]: ORTAOKUL,
+  [SchoolType.lise]: LISE_FAMILY,
   [SchoolType.meslek_lisesi]: MESLEK,
+  [SchoolType.fen_lisesi]: LISE_FAMILY,
+  [SchoolType.sosyal_bilimler_lisesi]: LISE_FAMILY,
+  [SchoolType.anadolu_lisesi]: LISE_FAMILY,
+  [SchoolType.cok_programli_anadolu_lisesi]: LISE_FAMILY,
+  [SchoolType.acik_ogretim_lisesi]: LISE_FAMILY,
+  [SchoolType.guzel_sanatlar_lisesi]: LISE_FAMILY,
+  [SchoolType.spor_lisesi]: LISE_FAMILY,
   [SchoolType.imam_hatip_ortaokul]: IHL_O,
   [SchoolType.imam_hatip_lise]: IHL_L,
   [SchoolType.ozel_egitim]: OZEL,

@@ -168,8 +168,6 @@ function filterMenuTree(
     }
 
     if (item.children?.length) {
-      const kids = filterMenuTree(item.children, role, moderatorModules, schoolEnabledModules, supportEnabled);
-      if (kids.length === 0) continue;
       if (!item.allowedRoles.includes(role)) continue;
       if (role === 'moderator' && item.requiredModule) {
         if (!moderatorModules?.includes(item.requiredModule)) continue;
@@ -177,6 +175,18 @@ function filterMenuTree(
       if ((role === 'teacher' || role === 'school_admin') && item.requiredSchoolModule) {
         if (schoolEnabledModules?.length && !schoolEnabledModules.includes(item.requiredSchoolModule)) continue;
       }
+      const kids = filterMenuTree(item.children, role, moderatorModules, schoolEnabledModules, supportEnabled);
+      const hubOnly = !!(role && item.sidebarHubOnlyRoles?.includes(role));
+      if (hubOnly) {
+        out.push({
+          ...item,
+          children: [],
+          renderAsHubOnly: true,
+          hubOnlyPath: item.sidebarHubPath ?? '/hesaplamalar',
+        });
+        continue;
+      }
+      if (kids.length === 0) continue;
       out.push({ ...item, children: kids });
       continue;
     }
@@ -294,12 +304,57 @@ function MenuBranch({
   variant: MenuGroupKey;
   compact?: boolean;
 }) {
+  const pathname = usePathname();
   const shell = GROUP_SHELL[variant];
   const displayParent = resolveTitle(item, role, schoolEnabledModules);
   const childActive = item.children?.some((c) => c.path && isActive(c.path)) ?? false;
   const showSubLabel =
     (variant === 'indigo' && (role === 'superadmin' || role === 'moderator')) ||
     (variant === 'sky' && (role === 'school_admin' || role === 'teacher'));
+
+  if (item.renderAsHubOnly && item.hubOnlyPath) {
+    const prefixes = item.sidebarHubActivePrefixes ?? [item.hubOnlyPath];
+    const hubActive = prefixes.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+    return (
+      <Link
+        href={item.hubOnlyPath}
+        className={cn(
+          shell.wrap,
+          'block shadow-sm no-underline outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+          compact && 'rounded-lg border p-1 shadow-none',
+          hubActive ? shell.linkActive : shell.linkIdle,
+        )}
+      >
+        <div
+          className={cn(
+            'flex items-center',
+            compact ? 'gap-1.5 px-0.5 py-0.5' : 'gap-2.5 px-1.5 py-1.5',
+          )}
+        >
+          {item.icon && (
+            <span
+              className={cn(
+                'flex shrink-0 items-center justify-center rounded-md',
+                compact ? 'size-5' : 'size-8 rounded-lg',
+                shell.iconWrap,
+              )}
+            >
+              <item.icon className={compact ? 'size-3' : 'size-4'} aria-hidden />
+            </span>
+          )}
+          <span
+            data-slot="accordion-menu-title"
+            className={cn(
+              'min-w-0 flex-1 font-bold leading-tight tracking-tight text-foreground',
+              compact ? 'text-[10px]' : 'text-sm',
+            )}
+          >
+            {displayParent}
+          </span>
+        </div>
+      </Link>
+    );
+  }
 
   return (
     <div
@@ -433,7 +488,7 @@ export function SidebarMenu({ role, moderatorModules, schoolEnabledModules, comp
               </div>
             );
           }
-          if (item.children?.length) {
+          if (item.renderAsHubOnly || (item.children?.length ?? 0) > 0) {
             const variant = item.menuGroup ?? DEFAULT_MENU_GROUP;
             return (
               <MenuBranch

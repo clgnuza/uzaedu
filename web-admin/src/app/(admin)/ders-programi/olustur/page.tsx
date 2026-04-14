@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import {
-  ArrowLeft,
   Upload,
   FileSpreadsheet,
   Trash2,
@@ -24,6 +23,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { TeacherProgramCreateForm } from '@/components/ders-programi/teacher-program-create-form';
+import { DersProgramiSubpageIntro } from '@/components/ders-programi/ders-programi-subpage-intro';
 
 type TimetableEntry = {
   user_id: string;
@@ -130,8 +130,8 @@ export default function OlusturPage() {
   const handlePublish = async () => {
     const planId = lastResult?.plan_id;
     if (!token || !planId) return;
-    if (!openEnded && validFrom > validUntil) {
-      toast.error('Bitiş tarihi başlangıçtan önce olamaz.');
+    if (!openEnded && (!validUntil?.trim() || validFrom > validUntil)) {
+      toast.error(!validUntil?.trim() ? 'Bitiş tarihi girin veya açık uçlu seçin.' : 'Bitiş tarihi başlangıçtan önce olamaz.');
       return;
     }
     setPublishing(true);
@@ -179,22 +179,11 @@ export default function OlusturPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <Link
-            href="/ders-programi"
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="size-4" />
-            Ders Programı
-          </Link>
-        </div>
-        <h1 className="text-2xl font-semibold text-foreground">Excel ile Yükle</h1>
-      </div>
+    <div className="mx-auto w-full max-w-6xl space-y-4 sm:space-y-6">
+      <DersProgramiSubpageIntro title="Excel ile yükle" subtitle="Yükle → Tarih ve yayın → Programlarım" accent="emerald" />
 
       {/* Admin stepper */}
-      <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200/45 bg-emerald-500/[0.05] px-3 py-2.5 text-xs dark:border-emerald-900/45 dark:bg-emerald-950/20 sm:gap-3 sm:px-4 sm:py-3 sm:text-sm">
         <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
           1
         </span>
@@ -335,7 +324,8 @@ export default function OlusturPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Geçerlilik tarihlerini seçin ve yayınlayın. Yayınlandıktan sonra öğretmenlere bildirim gönderilir.
+              Geçerlilik tarihlerini seçin ve yayınlayın. Yayınlandıktan sonra öğretmenlere bildirim gönderilir. Bu aralıkla çakışan
+              eski yayınlar otomatik arşivlenir; başlangıç ≤ bitiş olmalıdır.
             </p>
             <div className="grid gap-4 sm:grid-cols-2 max-w-md">
               <div className="space-y-2">

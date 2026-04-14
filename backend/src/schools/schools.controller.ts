@@ -11,11 +11,17 @@ import { BulkCreateSchoolDto } from './dto/bulk-create-school.dto';
 import { UpdateSchoolDto } from './dto/update-school.dto';
 import { ListSchoolsDto } from './dto/list-schools.dto';
 import { BulkSchoolModuleDto } from './dto/bulk-school-module.dto';
+import { ReconcilePreviewDto, ReconcileApplyDto } from './dto/reconcile-schools.dto';
+import { MebbisKurumlistesiService } from './mebbis-kurumlistesi.service';
+import { MebbisFetchDto, MebbisIlceQueryDto } from './dto/mebbis-fetch.dto';
 
 @Controller('schools')
 @UseGuards(JwtAuthGuard)
 export class SchoolsController {
-  constructor(private readonly schoolsService: SchoolsService) {}
+  constructor(
+    private readonly schoolsService: SchoolsService,
+    private readonly mebbisKurumlistesi: MebbisKurumlistesiService,
+  ) {}
 
   @Get()
   @UseGuards(RolesGuard)
@@ -24,6 +30,27 @@ export class SchoolsController {
   async list(@Query() dto: ListSchoolsDto, @CurrentUser() payload: CurrentUserPayload) {
     const scope = { role: payload.user.role as UserRole, schoolId: payload.schoolId };
     return this.schoolsService.list(dto, scope);
+  }
+
+  @Get('mebbis/il-options')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin)
+  mebbisIlOptions() {
+    return this.mebbisKurumlistesi.getIlOptions();
+  }
+
+  @Post('mebbis/ilce-options')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin)
+  mebbisIlceOptions(@Body() dto: MebbisIlceQueryDto) {
+    return this.mebbisKurumlistesi.getIlceOptions(dto);
+  }
+
+  @Post('mebbis/fetch-rows')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin)
+  mebbisFetchRows(@Body() dto: MebbisFetchDto) {
+    return this.mebbisKurumlistesi.fetchSchools(dto);
   }
 
   @Get(':id')
@@ -52,6 +79,20 @@ export class SchoolsController {
   @Roles(UserRole.superadmin)
   async bulkCreate(@Body() dto: BulkCreateSchoolDto, @CurrentUser() payload: CurrentUserPayload) {
     return this.schoolsService.bulkCreate(dto, payload.userId);
+  }
+
+  @Post('reconcile/preview')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin)
+  async reconcilePreview(@Body() dto: ReconcilePreviewDto) {
+    return this.schoolsService.reconcilePreview(dto.schools);
+  }
+
+  @Post('reconcile/apply')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin)
+  async reconcileApply(@Body() dto: ReconcileApplyDto, @CurrentUser() payload: CurrentUserPayload) {
+    return this.schoolsService.reconcileApply(dto, payload.userId);
   }
 
   @Patch('bulk-enabled-modules')

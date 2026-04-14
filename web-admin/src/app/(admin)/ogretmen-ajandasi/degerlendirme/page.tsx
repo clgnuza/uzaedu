@@ -1,17 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
-import { Toolbar, ToolbarHeading, ToolbarPageTitle } from '@/components/layout/toolbar';
-import { ToolbarIconHints } from '@/components/layout/toolbar-icon-hints';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
   Target,
-  ChevronLeft,
   Users,
   List,
   Printer,
@@ -25,45 +21,65 @@ import {
   Info,
   Download,
   Trash2,
+  Pencil,
   Plus,
+  Table,
+  ChevronRight,
+  BookOpen,
+  type LucideIcon,
 } from 'lucide-react';
+import { DegerlendirmeHero } from './components/DegerlendirmeHero';
+import { PrintReportModal } from './components/print-report-modal';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 
-type Criterion = { id: string; name: string; maxScore: number; scoreType?: 'numeric' | 'sign'; description?: string | null };
+type Criterion = {
+  id: string;
+  name: string;
+  maxScore: number;
+  scoreType?: 'numeric' | 'sign';
+  description?: string | null;
+  subjectId?: string | null;
+};
+type SubjectOption = { id: string; label: string };
 type StudentList = { id: string; name: string; studentIds: string[] };
 type Student = { id: string; name: string };
-type Score = { id: string; criterionId: string; studentId: string; score: number; noteDate: string; criterion?: Criterion };
+type Score = {
+  id: string;
+  criterionId: string;
+  studentId: string;
+  score: number;
+  noteDate: string;
+  note?: string | null;
+  createdAt?: string;
+  criterion?: Criterion;
+};
 type StudentNote = { id: string; studentId: string; noteType: string; noteDate: string; description?: string | null; createdAt?: string };
 
-const SAMPLE_CRITERIA: Criterion[] = [
-  { id: 'demo-c1', name: 'Derse Katılım', maxScore: 5, scoreType: 'numeric' },
-  { id: 'demo-c2', name: 'Ödev Teslimi', maxScore: 5, scoreType: 'sign' },
-  { id: 'demo-c3', name: 'Sınav Başarısı', maxScore: 10, scoreType: 'numeric' },
-];
-const SAMPLE_STUDENTS: Student[] = [
-  { id: 'demo-s1', name: 'Elif Kaya' },
-  { id: 'demo-s2', name: 'Mehmet Demir' },
-  { id: 'demo-s3', name: 'Zeynep Yılmaz' },
-  { id: 'demo-s4', name: 'Ahmet Öztürk' },
-  { id: 'demo-s5', name: 'Ayşe Çelik' },
-];
-const SAMPLE_LISTS: StudentList[] = [
-  { id: 'demo-l1', name: '7-A Sınıfı', studentIds: ['demo-s1', 'demo-s2', 'demo-s3', 'demo-s4', 'demo-s5'] },
-];
-const SAMPLE_SCORES: Score[] = [
-  { id: 'demo-sc1', criterionId: 'demo-c1', studentId: 'demo-s1', score: 4, noteDate: '', criterion: SAMPLE_CRITERIA[0] },
-  { id: 'demo-sc2', criterionId: 'demo-c1', studentId: 'demo-s2', score: 3, noteDate: '', criterion: SAMPLE_CRITERIA[0] },
-  { id: 'demo-sc3', criterionId: 'demo-c2', studentId: 'demo-s1', score: 5, noteDate: '', criterion: SAMPLE_CRITERIA[1] },
-];
-const SAMPLE_STUDENT_NOTES: StudentNote[] = [
-  { id: 'demo-n1', studentId: 'demo-s1', noteType: 'positive', noteDate: '2025-03-14', description: 'Derse aktif katılım' },
-  { id: 'demo-n2', studentId: 'demo-s1', noteType: 'positive', noteDate: '2025-03-10' },
-  { id: 'demo-n3', studentId: 'demo-s1', noteType: 'negative', noteDate: '2025-03-08', description: 'Ödev eksik' },
-  { id: 'demo-n4', studentId: 'demo-s2', noteType: 'negative', noteDate: '2025-03-12' },
-];
+type EvalTab = 'tablo' | 'kriterler' | 'listeler';
+
+const EVAL_PANEL = {
+  table: {
+    card: 'border-indigo-200/45 dark:border-indigo-900/40',
+    head: 'border-b border-indigo-200/40 bg-indigo-500/6 px-3 py-3 dark:border-indigo-900/40 sm:px-6 sm:py-4',
+    iconWrap: 'bg-indigo-500/15',
+    iconClass: 'text-indigo-800 dark:text-indigo-300',
+  },
+  criteria: {
+    card: 'border-violet-200/45 dark:border-violet-900/40',
+    head: 'border-b border-violet-200/40 bg-violet-500/6 px-3 py-3 dark:border-violet-900/40 sm:px-6 sm:py-4',
+    iconWrap: 'bg-violet-500/15',
+    iconClass: 'text-violet-800 dark:text-violet-300',
+  },
+  lists: {
+    card: 'border-amber-200/45 dark:border-amber-900/40',
+    head: 'border-b border-amber-200/40 bg-amber-500/6 px-3 py-3 dark:border-amber-900/40 sm:px-6 sm:py-4',
+    iconWrap: 'bg-amber-500/15',
+    iconClass: 'text-amber-800 dark:text-amber-300',
+  },
+} as const;
 
 export default function DegerlendirmePage() {
   const { me, token } = useAuth();
@@ -77,18 +93,26 @@ export default function DegerlendirmePage() {
   const [studentDetailStudent, setStudentDetailStudent] = useState<Student | null>(null);
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [criterionModalOpen, setCriterionModalOpen] = useState(false);
+  const [criterionEditing, setCriterionEditing] = useState<Criterion | null>(null);
+
+  const openCriterionModal = (edit: Criterion | null = null) => {
+    setCriterionEditing(edit);
+    setCriterionModalOpen(true);
+  };
   const [listModalOpen, setListModalOpen] = useState(false);
   const [scoreModal, setScoreModal] = useState<{ student: Student; criterion: Criterion } | null>(null);
-  const [showDemo, setShowDemo] = useState(true);
-  const [demoNotesAdded, setDemoNotesAdded] = useState<StudentNote[]>([]);
-  const [demoCriteriaAdded, setDemoCriteriaAdded] = useState<Criterion[]>([]);
   const [studentSearch, setStudentSearch] = useState('');
+  const [evalTab, setEvalTab] = useState<EvalTab>('tablo');
+  const [subjects, setSubjects] = useState<SubjectOption[]>([]);
+  /** Tablo sütunları: null = tüm kriterler; uuid = genel + o derse özel */
+  const [tableSubjectFilterId, setTableSubjectFilterId] = useState<string | null>(null);
+  const [printModalOpen, setPrintModalOpen] = useState(false);
   const today = format(new Date(), 'yyyy-MM-dd');
 
   const fetchData = useCallback(async () => {
     if (!token) return;
     setLoading(true);
-    const listId = selectedListId?.startsWith('demo-') ? undefined : selectedListId;
+    const listId = selectedListId ?? undefined;
     try {
       const res = await apiFetch<{ criteria: Criterion[]; lists: StudentList[]; students: Student[]; scores: Score[]; studentNotes?: StudentNote[] }>(
         `/teacher-agenda/evaluation${listId ? `?listId=${listId}` : ''}`,
@@ -106,17 +130,60 @@ export default function DegerlendirmePage() {
     }
   }, [token, selectedListId]);
 
-  const useDemo = showDemo && criteria.length === 0 && lists.length === 0 && students.length === 0;
-  const displayCriteria = useDemo ? [...SAMPLE_CRITERIA, ...demoCriteriaAdded] : criteria;
-  const displayLists = useDemo ? SAMPLE_LISTS : lists;
-  const displayStudentsResolved = useDemo ? SAMPLE_STUDENTS : students;
-  const displayScores = useDemo ? SAMPLE_SCORES : scores;
-  const displayStudentNotes = useDemo ? [...SAMPLE_STUDENT_NOTES, ...demoNotesAdded] : studentNotes;
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<Array<{ id: string; label?: string; name?: string }>>('/classes-subjects/subjects', { token })
+      .then((rows) =>
+        setSubjects(
+          (rows ?? []).map((s) => ({
+            id: s.id,
+            label: String(s.name ?? s.label ?? s.id).trim() || s.id,
+          })),
+        ),
+      )
+      .catch(() => setSubjects([]));
+  }, [token]);
+
+  const displayCriteria = criteria;
+
+  const tableCriteria = useMemo(() => {
+    if (tableSubjectFilterId === null) return displayCriteria;
+    return displayCriteria.filter((c) => !c.subjectId || c.subjectId === tableSubjectFilterId);
+  }, [displayCriteria, tableSubjectFilterId]);
+
+  const subjectLabel = useCallback(
+    (subjectId: string | null | undefined) => {
+      if (!subjectId) return 'Tüm dersler';
+      return subjects.find((s) => s.id === subjectId)?.label ?? subjectId;
+    },
+    [subjects],
+  );
+
+  const criteriaGrouped = useMemo(() => {
+    const genel: Criterion[] = [];
+    const bySub = new Map<string, Criterion[]>();
+    for (const c of displayCriteria) {
+      if (!c.subjectId) genel.push(c);
+      else {
+        const arr = bySub.get(c.subjectId) ?? [];
+        arr.push(c);
+        bySub.set(c.subjectId, arr);
+      }
+    }
+    const orderedSubs = [...bySub.entries()].sort((a, b) => subjectLabel(a[0]).localeCompare(subjectLabel(b[0]), 'tr'));
+    return { genel, bySubject: orderedSubs };
+  }, [displayCriteria, subjectLabel]);
+  const displayLists = lists;
+  const displayStudentsResolved = students;
+  const displayScores = scores;
+  const displayStudentNotes = studentNotes;
   const getNotesForStudent = (studentId: string) => displayStudentNotes.filter((n) => n.studentId === studentId);
   const filteredStudents = studentSearch.trim()
     ? displayStudentsResolved.filter((s) => s.name.toLowerCase().includes(studentSearch.toLowerCase()))
     : displayStudentsResolved;
 
+  const listLabelShort =
+    selectedListId === null ? 'Tüm öğrenciler' : displayLists.find((l) => l.id === selectedListId)?.name ?? 'Liste';
   useEffect(() => {
     fetchData();
   }, [fetchData]);
@@ -125,7 +192,6 @@ export default function DegerlendirmePage() {
     displayScores.find((s) => s.studentId === studentId && s.criterionId === criterionId);
 
   const handleAddScore = async (studentId: string, criterionId: string, score: number) => {
-    if (studentId.startsWith('demo-') || criterionId.startsWith('demo-')) { toast.info('Örnek veri düzenlenemez'); return; }
     if (!token) return;
     try {
       await apiFetch('/teacher-agenda/evaluation/scores', {
@@ -143,11 +209,6 @@ export default function DegerlendirmePage() {
 
   const handleQuickNote = async (studentId: string, studentName: string, noteType: 'positive' | 'negative', e?: React.MouseEvent) => {
     e?.stopPropagation();
-    if (studentId.startsWith('demo-')) {
-      setDemoNotesAdded((prev) => [{ id: `demo-n-${Date.now()}`, studentId, noteType, noteDate: today }, ...prev]);
-      toast.success(`${studentName}: ${noteType === 'positive' ? 'Olumlu' : 'Olumsuz'} not eklendi`);
-      return;
-    }
     if (!token) return;
     try {
       const created = await apiFetch<StudentNote>('/teacher-agenda/student-notes', {
@@ -165,36 +226,29 @@ export default function DegerlendirmePage() {
   };
 
   const handleDeleteCriterion = async (criterionId: string) => {
-    if (criterionId.startsWith('demo-')) { toast.info('Örnek veri silinemez'); return; }
     if (!token) return;
     try {
       await apiFetch(`/teacher-agenda/evaluation/criteria/${criterionId}`, { method: 'DELETE', token });
       toast.success('Kriter silindi');
       setCriteria((prev) => prev.filter((c) => c.id !== criterionId));
-      setDemoCriteriaAdded((prev) => prev.filter((c) => c.id !== criterionId));
     } catch {
       toast.error('Silinemedi');
     }
   };
 
-  const handlePrint = () => {
-    const rows = displayStudentsResolved.map((s) => {
-      const row = [s.name];
-      displayCriteria.forEach((c) => {
-        const sc = getScore(s.id, c.id);
-        if (!sc) row.push('-');
-        else if ((c.scoreType ?? 'numeric') === 'sign') row.push(sc.score === 1 ? '+' : sc.score === -1 ? '−' : '·');
-        else row.push(String(sc.score));
+  const handleCriterionSubjectChange = async (criterionId: string, subjectId: string | null) => {
+    if (!token) return;
+    try {
+      await apiFetch(`/teacher-agenda/evaluation/criteria/${criterionId}`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ subjectId }),
       });
-      return `<tr><td>${row.join('</td><td>')}</td></tr>`;
-    }).join('');
-    const headers = ['Öğrenci', ...displayCriteria.map((c) => c.name)].map((h) => `<th>${h}</th>`).join('');
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Öğrenci Değerlendirme</title><style>body{font-family:sans-serif;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px}th{background:#f5f5f5}@media print{body{padding:0}}</style></head><body><h1>Öğrenci Değerlendirme – ${format(new Date(), 'd MMMM yyyy', { locale: tr })}</h1><table><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table></body></html>`;
-    const w = window.open('', '_blank');
-    if (!w) { toast.error('Pop-up engellendi'); return; }
-    w.document.write(html);
-    w.document.close();
-    w.print();
+      setCriteria((prev) => prev.map((c) => (c.id === criterionId ? { ...c, subjectId } : c)));
+      toast.success('Ders güncellendi');
+    } catch {
+      toast.error('Güncellenemedi');
+    }
   };
 
   if (!me || me.role !== 'teacher') {
@@ -205,143 +259,363 @@ export default function DegerlendirmePage() {
     );
   }
 
-  return (
-    <div className="min-w-0 space-y-5 sm:space-y-6 pb-24 sm:pb-0">
-      <Toolbar>
-        <ToolbarHeading>
-          <Link href="/ogretmen-ajandasi" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-2">
-            <ChevronLeft className="size-4" />
-            Öğretmen Ajandası
-          </Link>
-          <ToolbarPageTitle className="text-xl sm:text-2xl font-bold tracking-tight">Öğrenci Değerlendirme</ToolbarPageTitle>
-          <ToolbarIconHints
-            items={[
-              { label: 'Kriterler', icon: Target },
-              { label: 'Listeler', icon: List },
-              { label: 'Yazdır', icon: Printer },
-              { label: 'Hızlı not', icon: ThumbsUp },
-            ]}
-            summary="Başarı kriterleri, liste yönetimi ve hızlı +/- not verme."
-          />
-        </ToolbarHeading>
-        <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" size="sm" onClick={() => setCriterionModalOpen(true)} className="rounded-xl">
-            <Target className="size-4 mr-1" />
-            Kriter Ekle
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setListModalOpen(true)} className="rounded-xl">
-            <List className="size-4 mr-1" />
-            Liste Ekle
-          </Button>
-          <Button variant="outline" size="sm" onClick={handlePrint} className="rounded-xl">
-            <Printer className="size-4 mr-1" />
-            Yazdır
-          </Button>
-        </div>
-      </Toolbar>
+  type TabDef = {
+    id: EvalTab;
+    label: string;
+    shortLabel: string;
+    icon: LucideIcon;
+    count: number;
+    base: string;
+    active: string;
+  };
+  const evalTabs: TabDef[] = [
+    {
+      id: 'tablo',
+      label: 'Değerlendirme tablosu',
+      shortLabel: 'Tablo',
+      icon: Table,
+      count: displayStudentsResolved.length,
+      base: 'border-indigo-500/35 bg-indigo-500/12 text-indigo-900 dark:text-indigo-100',
+      active: 'ring-2 ring-indigo-500/35 shadow-sm',
+    },
+    {
+      id: 'kriterler',
+      label: 'Kriterler',
+      shortLabel: 'Kriter',
+      icon: Target,
+      count: displayCriteria.length,
+      base: 'border-violet-500/35 bg-violet-500/12 text-violet-900 dark:text-violet-100',
+      active: 'ring-2 ring-violet-500/35 shadow-sm',
+    },
+    {
+      id: 'listeler',
+      label: 'Öğrenci listeleri',
+      shortLabel: 'Liste',
+      icon: List,
+      count: displayLists.length,
+      base: 'border-amber-500/35 bg-amber-500/12 text-amber-900 dark:text-amber-100',
+      active: 'ring-2 ring-amber-500/35 shadow-sm',
+    },
+  ];
 
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Kriterler</span>
-        {displayCriteria.map((c, i) => (
-          <span
-            key={c.id}
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium group',
-              i % 3 === 0 && 'bg-violet-500/15 text-violet-700 dark:text-violet-300',
-              i % 3 === 1 && 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
-              i % 3 === 2 && 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+  return (
+    <div className="min-w-0 space-y-3 sm:space-y-5 pb-24 sm:pb-0">
+      <DegerlendirmeHero
+        criteriaCount={displayCriteria.length}
+        studentCount={displayStudentsResolved.length}
+        listLabel={listLabelShort}
+        activeTab={evalTab}
+        onSelectTab={setEvalTab}
+      />
+
+      <div className="mobile-tab-scroll akilli-tahta-tabnav -mx-1 hidden snap-x snap-mandatory px-1 pb-0.5 sm:mx-0 sm:block sm:px-0">
+        <div
+          role="tablist"
+          aria-label="Değerlendirme bölümleri"
+          className="flex w-max gap-1 rounded-2xl border border-border/70 bg-muted/40 p-1 shadow-sm sm:w-full sm:flex-wrap sm:justify-start sm:gap-1.5 sm:overflow-visible sm:p-1.5"
+        >
+          {evalTabs.map((tab) => {
+            const Icon = tab.icon;
+            const active = evalTab === tab.id;
+            const c = tab.count > 99 ? '99+' : String(tab.count);
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                title={tab.label}
+                onClick={() => setEvalTab(tab.id)}
+                className={cn(
+                  'flex snap-start shrink-0 items-center justify-center gap-1.5 rounded-xl border px-2.5 py-2 text-xs font-semibold transition-all sm:min-h-[44px] sm:px-3 sm:py-2.5 sm:text-sm',
+                  active ? cn('border', tab.base, tab.active) : 'border-transparent bg-muted/30 text-muted-foreground hover:bg-background/90 hover:text-foreground',
+                )}
+              >
+                <Icon className={cn('size-4 shrink-0', active && 'sm:size-5')} />
+                <span className="max-sm:hidden">
+                  {tab.label}
+                  <span className="ml-1 tabular-nums opacity-80">({c})</span>
+                </span>
+                <span className="sm:hidden">
+                  {tab.shortLabel}
+                  <span className="ml-0.5 tabular-nums text-[10px] opacity-80">{c}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-1.5 sm:flex sm:flex-wrap sm:items-center sm:gap-2 sm:overflow-visible">
+        <Button variant="outline" size="sm" onClick={() => openCriterionModal(null)} className="h-11 shrink-0 rounded-xl px-2 sm:h-9 sm:px-3">
+          <Target className="size-4 shrink-0 sm:mr-1" />
+          <span className="max-sm:sr-only sm:inline">Kriter Ekle</span>
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => setListModalOpen(true)} className="h-11 shrink-0 rounded-xl px-2 sm:h-9 sm:px-3">
+          <List className="size-4 shrink-0 sm:mr-1" />
+          <span className="max-sm:sr-only sm:inline">Liste Ekle</span>
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => setPrintModalOpen(true)} className="h-11 shrink-0 rounded-xl px-2 sm:h-9 sm:px-3">
+          <Printer className="size-4 shrink-0 sm:mr-1" />
+          <span className="max-sm:sr-only sm:inline">Yazdır</span>
+        </Button>
+      </div>
+
+      {evalTab === 'kriterler' && (
+        <Card className={cn('overflow-hidden rounded-2xl border shadow-sm bg-card', EVAL_PANEL.criteria.card)}>
+          <CardHeader className={cn('flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between', EVAL_PANEL.criteria.head)}>
+            <div className="flex min-w-0 items-center gap-3">
+              <span className={cn('flex size-8 items-center justify-center rounded-lg', EVAL_PANEL.criteria.iconWrap)}>
+                <Target className={cn('size-4 shrink-0', EVAL_PANEL.criteria.iconClass)} />
+              </span>
+              <div>
+                <CardTitle className="text-base font-semibold">Başarı kriterleri</CardTitle>
+                <p className="text-xs text-muted-foreground">Ders seçerek tabloda sütunları süzebilirsiniz; genel kriterler her derste görünür.</p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" className="shrink-0 rounded-xl" onClick={() => openCriterionModal(null)}>
+              <Plus className="size-4 mr-1" />
+              Kriter Ekle
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-5 p-3 sm:p-6">
+            {criteriaGrouped.genel.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Tüm dersler (genel)</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {criteriaGrouped.genel.map((c, i) => (
+                    <span
+                      key={c.id}
+                      className={cn(
+                        'inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium',
+                        i % 3 === 0 && 'bg-violet-500/15 text-violet-700 dark:text-violet-300',
+                        i % 3 === 1 && 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+                        i % 3 === 2 && 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+                      )}
+                    >
+                      <span className="min-w-0 truncate">{c.name}</span>
+                      <span className="text-xs opacity-80">
+                        {(c.scoreType ?? 'numeric') === 'sign' ? '+/−' : `0–${c.maxScore}`}
+                      </span>
+                      <select
+                        value={c.subjectId ?? ''}
+                        onChange={(e) => handleCriterionSubjectChange(c.id, e.target.value || null)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="max-w-36 rounded-lg border border-border/80 bg-background/80 px-1.5 py-0.5 text-[10px] font-medium"
+                        title="Ders"
+                        aria-label="Kriter dersi"
+                      >
+                        <option value="">Genel</option>
+                        {subjects.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openCriterionModal(c);
+                        }}
+                        className="rounded p-0.5 opacity-60 hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
+                        title="Düzenle"
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteCriterion(c.id);
+                        }}
+                        className="rounded p-0.5 opacity-60 hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
+                        title="Kriteri sil"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
-          >
-            {c.name}
-            <span className="text-xs opacity-80">
-              {(c.scoreType ?? 'numeric') === 'sign' ? '+/−' : `0–${c.maxScore}`}
-            </span>
-            {!c.id.startsWith('demo-') && (
+            {criteriaGrouped.bySubject.map(([subId, list]) => (
+              <div key={subId} className="space-y-2">
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <BookOpen className="size-3.5 shrink-0 opacity-70" />
+                  {subjectLabel(subId)}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {list.map((c, i) => (
+                    <span
+                      key={c.id}
+                      className={cn(
+                        'inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium',
+                        i % 3 === 0 && 'bg-sky-500/15 text-sky-800 dark:text-sky-300',
+                        i % 3 === 1 && 'bg-fuchsia-500/12 text-fuchsia-800 dark:text-fuchsia-300',
+                        i % 3 === 2 && 'bg-teal-500/12 text-teal-800 dark:text-teal-300',
+                      )}
+                    >
+                      <span className="min-w-0 truncate">{c.name}</span>
+                      <span className="text-xs opacity-80">
+                        {(c.scoreType ?? 'numeric') === 'sign' ? '+/−' : `0–${c.maxScore}`}
+                      </span>
+                      <select
+                        value={c.subjectId ?? ''}
+                        onChange={(e) => handleCriterionSubjectChange(c.id, e.target.value || null)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="max-w-36 rounded-lg border border-border/80 bg-background/80 px-1.5 py-0.5 text-[10px] font-medium"
+                        title="Ders"
+                        aria-label="Kriter dersi"
+                      >
+                        <option value="">Genel</option>
+                        {subjects.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openCriterionModal(c);
+                        }}
+                        className="rounded p-0.5 opacity-60 hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
+                        title="Düzenle"
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteCriterion(c.id);
+                        }}
+                        className="rounded p-0.5 opacity-60 hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
+                        title="Kriteri sil"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => openCriterionModal(null)}
+              className="inline-flex items-center gap-1 rounded-xl border border-dashed border-muted-foreground/40 px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:bg-primary/5 hover:text-primary"
+              title="Yeni kriter ekle"
+            >
+              <Plus className="size-4" />
+              Kriter Ekle
+            </button>
+          </CardContent>
+        </Card>
+      )}
+
+      {evalTab === 'listeler' && (
+        <Card className={cn('overflow-hidden rounded-2xl border shadow-sm bg-card', EVAL_PANEL.lists.card)}>
+          <CardHeader className={cn('flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between', EVAL_PANEL.lists.head)}>
+            <div className="flex min-w-0 items-center gap-3">
+              <span className={cn('flex size-8 items-center justify-center rounded-lg', EVAL_PANEL.lists.iconWrap)}>
+                <List className={cn('size-4 shrink-0', EVAL_PANEL.lists.iconClass)} />
+              </span>
+              <div>
+                <CardTitle className="text-base font-semibold">Hangi öğrenciler?</CardTitle>
+                <p className="text-xs text-muted-foreground">Liste seçimi tabloyu ve veri yüklemesini günceller.</p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" className="shrink-0 rounded-xl" onClick={() => setListModalOpen(true)}>
+              <Plus className="size-4 mr-1" />
+              Liste Ekle
+            </Button>
+          </CardHeader>
+          <CardContent className="p-3 sm:p-6">
+            <div className="mobile-tab-scroll flex gap-2 pb-0.5 sm:flex-wrap sm:overflow-visible sm:pb-0">
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); handleDeleteCriterion(c.id); }}
-                className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 opacity-60 hover:opacity-100"
-                title="Kriteri sil"
+                onClick={() => setSelectedListId(null)}
+                className={cn(
+                  'shrink-0 snap-start rounded-xl px-4 py-2 text-sm font-medium transition-all',
+                  !selectedListId ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-muted/80 hover:bg-muted',
+                )}
               >
-                <Trash2 className="size-3.5" />
+                Tüm Öğrenciler
               </button>
-            )}
-          </span>
-        ))}
-        <button
-          type="button"
-          onClick={() => setCriterionModalOpen(true)}
-          className="inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-sm font-medium border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-colors"
-          title="Yeni kriter ekle"
-        >
-          <Plus className="size-4" />
-          Kriter Ekle
-        </button>
-      </div>
+              {displayLists.map((l) => (
+                <button
+                  key={l.id}
+                  type="button"
+                  onClick={() => setSelectedListId(l.id)}
+                  className={cn(
+                    'shrink-0 snap-start rounded-xl px-4 py-2 text-sm font-medium transition-all',
+                    selectedListId === l.id ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-muted/80 hover:bg-muted',
+                  )}
+                >
+                  {l.name}
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Liste</span>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setSelectedListId(null)}
+      {evalTab === 'tablo' && loading ? (
+        <div className="rounded-2xl border border-dashed border-border p-12 text-center sm:p-16">
+          <div className="mb-4 inline-flex size-12 items-center justify-center rounded-2xl bg-indigo-500/10">
+            <Table className="size-6 animate-pulse text-indigo-600 dark:text-indigo-400" />
+          </div>
+          <p className="font-medium text-muted-foreground">Yükleniyor...</p>
+        </div>
+      ) : evalTab === 'tablo' ? (
+        <Card className={cn('overflow-hidden rounded-2xl border shadow-sm', EVAL_PANEL.table.card)}>
+          <CardHeader
             className={cn(
-              'rounded-xl px-4 py-2 text-sm font-medium transition-all',
-              !selectedListId ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-muted/80 hover:bg-muted',
+              'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between',
+              EVAL_PANEL.table.head,
             )}
           >
-            Tüm Öğrenciler
-          </button>
-          {displayLists.map((l) => (
-            <button
-              key={l.id}
-              type="button"
-              onClick={() => setSelectedListId(l.id)}
-              className={cn(
-                'rounded-xl px-4 py-2 text-sm font-medium transition-all',
-                selectedListId === l.id ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-muted/80 hover:bg-muted',
-              )}
-            >
-              {l.name}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="rounded-2xl border border-dashed border-border p-16 text-center">
-          <div className="inline-flex size-12 items-center justify-center rounded-2xl bg-primary/10 mb-4">
-            <Target className="size-6 text-primary animate-pulse" />
-          </div>
-          <p className="text-muted-foreground font-medium">Yükleniyor...</p>
-        </div>
-      ) : (
-        <Card className="overflow-hidden border shadow-sm rounded-2xl">
-          <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 sm:p-6 bg-muted/20">
-            <CardTitle className="text-base font-semibold">Değerlendirme Tablosu</CardTitle>
-            <div className="flex items-center gap-2">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+            <div className="flex min-w-0 items-center gap-3">
+              <span className={cn('flex size-8 items-center justify-center rounded-lg', EVAL_PANEL.table.iconWrap)}>
+                <Table className={cn('size-4 shrink-0', EVAL_PANEL.table.iconClass)} />
+              </span>
+              <CardTitle className="text-base font-semibold">Değerlendirme tablosu</CardTitle>
+            </div>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
+              <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+                <BookOpen className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <select
+                  value={tableSubjectFilterId ?? ''}
+                  onChange={(e) => setTableSubjectFilterId(e.target.value || null)}
+                  className="h-11 min-w-0 flex-1 rounded-xl border border-input bg-background px-3 text-sm sm:h-auto sm:max-w-56 sm:flex-none sm:py-2"
+                  aria-label="Tabloda gösterilecek ders kriterleri"
+                >
+                  <option value="">Tüm dersler (tüm sütunlar)</option>
+                  {subjects.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label} — genel + bu ders
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="relative min-w-0 w-full sm:w-48">
+                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
                   placeholder="Öğrenci ara..."
                   value={studentSearch}
                   onChange={(e) => setStudentSearch(e.target.value)}
-                  className="w-40 sm:w-48 pl-9 pr-3 py-2 rounded-xl border border-input bg-background text-sm"
+                  className="h-11 w-full pl-9 pr-3 text-sm sm:h-auto sm:py-2 rounded-xl border border-input bg-background"
                 />
               </div>
-              <span className="text-sm text-muted-foreground whitespace-nowrap">
-                {filteredStudents.length} / {displayStudentsResolved.length} öğrenci
+              <span className="whitespace-nowrap text-xs text-muted-foreground sm:text-sm">
+                {filteredStudents.length} / {displayStudentsResolved.length} öğrenci · {tableCriteria.length} sütun
               </span>
             </div>
           </CardHeader>
-          <CardContent className="p-0 table-x-scroll">
-            {useDemo && (
-              <div className="rounded-xl bg-primary/5 border border-primary/20 px-4 py-2.5 mx-4 mt-2 text-sm text-muted-foreground flex items-center justify-between">
-                <span className="font-medium text-primary">Örnek veriler gösteriliyor.</span>
-                <Button variant="ghost" size="sm" onClick={() => setShowDemo(false)}>Gizle</Button>
-              </div>
-            )}
+          <CardContent className="p-0 sm:table-x-scroll">
             {displayStudentsResolved.length === 0 ? (
               <div className="py-20 text-center">
                 <div className="inline-flex size-16 items-center justify-center rounded-2xl bg-muted/50 mb-4">
@@ -361,32 +635,165 @@ export default function DegerlendirmePage() {
               </p>
               </div>
             ) : (
+              <>
+              <div className="flex flex-col gap-3.5 px-3 pb-4 sm:hidden">
+                {filteredStudents.map((s, idx) => (
+                  <div
+                    key={s.id}
+                    className={cn(
+                      'overflow-hidden rounded-[1.35rem] p-3.5 shadow-[0_2px_12px_-4px_rgba(99,102,241,0.12),0_1px_0_rgba(255,255,255,0.8)_inset] ring-1 ring-black/4 dark:shadow-[0_8px_28px_-12px_rgba(0,0,0,0.35)] dark:ring-white/8',
+                      idx % 3 === 0 &&
+                        'border border-indigo-200/70 bg-linear-to-br from-indigo-50/95 via-violet-50/40 to-white dark:border-indigo-800/35 dark:from-indigo-950/50 dark:via-violet-950/25 dark:to-background',
+                      idx % 3 === 1 &&
+                        'border border-violet-200/70 bg-linear-to-br from-violet-50/95 via-fuchsia-50/35 to-white dark:border-violet-800/35 dark:from-violet-950/50 dark:via-fuchsia-950/20 dark:to-background',
+                      idx % 3 === 2 &&
+                        'border border-sky-200/70 bg-linear-to-br from-sky-50/95 via-cyan-50/35 to-white dark:border-sky-800/35 dark:from-sky-950/45 dark:via-cyan-950/20 dark:to-background',
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setStudentDetailStudent(s)}
+                      className={cn(
+                        'flex w-full min-w-0 items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left shadow-sm transition-colors active:opacity-90',
+                        idx % 3 === 0 &&
+                          'border-indigo-200/80 bg-white/70 text-indigo-950 dark:border-indigo-800/50 dark:bg-indigo-950/30 dark:text-indigo-100',
+                        idx % 3 === 1 &&
+                          'border-violet-200/80 bg-white/70 text-violet-950 dark:border-violet-800/50 dark:bg-violet-950/30 dark:text-violet-100',
+                        idx % 3 === 2 &&
+                          'border-sky-200/80 bg-white/70 text-sky-950 dark:border-sky-800/50 dark:bg-sky-950/30 dark:text-sky-100',
+                      )}
+                    >
+                      <span className="truncate text-sm font-semibold tracking-tight">{s.name}</span>
+                      <ChevronRight
+                        className={cn(
+                          'size-4 shrink-0 opacity-60',
+                          idx % 3 === 0 && 'text-indigo-600 dark:text-indigo-300',
+                          idx % 3 === 1 && 'text-violet-600 dark:text-violet-300',
+                          idx % 3 === 2 && 'text-sky-600 dark:text-sky-300',
+                        )}
+                      />
+                    </button>
+                    <div className="mt-3 flex flex-col items-center gap-2">
+                      <div className="flex items-center gap-2 rounded-2xl border border-white/60 bg-white/45 px-2 py-1.5 shadow-sm dark:border-white/10 dark:bg-black/15">
+                        <button
+                          type="button"
+                          onClick={(e) => handleQuickNote(s.id, s.name, 'positive', e)}
+                          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-emerald-100/90 text-emerald-700 shadow-sm transition-colors hover:bg-emerald-200/90 active:scale-[0.98] dark:bg-emerald-950/50 dark:text-emerald-300 dark:hover:bg-emerald-900/55"
+                          title="Olumlu not ekle"
+                        >
+                          <ThumbsUp className="size-5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => handleQuickNote(s.id, s.name, 'negative', e)}
+                          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-rose-100/90 text-rose-600 shadow-sm transition-colors hover:bg-rose-200/80 active:scale-[0.98] dark:bg-rose-950/45 dark:text-rose-300 dark:hover:bg-rose-900/50"
+                          title="Olumsuz not ekle"
+                        >
+                          <ThumbsDown className="size-5" />
+                        </button>
+                      </div>
+                      {(() => {
+                        const notes = getNotesForStudent(s.id);
+                        const pos = notes.filter((n) => n.noteType === 'positive').length;
+                        const neg = notes.filter((n) => n.noteType === 'negative').length;
+                        if (notes.length === 0) return null;
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => setNotesDetailStudent(s)}
+                            className="flex items-center gap-2.5 rounded-full border border-violet-200/70 bg-violet-100/70 px-3.5 py-1.5 text-xs font-semibold text-violet-900 shadow-sm transition-colors hover:bg-violet-100 active:scale-[0.98] dark:border-violet-800/45 dark:bg-violet-950/40 dark:text-violet-100 dark:hover:bg-violet-950/55"
+                            title="Detayları görüntüle"
+                          >
+                            <span className="text-emerald-700 dark:text-emerald-300">+{pos}</span>
+                            <span className="text-rose-600 opacity-80 dark:text-rose-300">−{neg}</span>
+                          </button>
+                        );
+                      })()}
+                    </div>
+                    <div
+                      className={cn(
+                        'mt-3 grid grid-cols-2 gap-2 rounded-2xl border p-2.5',
+                        idx % 3 === 0 && 'border-indigo-200/50 bg-indigo-100/25 dark:border-indigo-800/30 dark:bg-indigo-950/20',
+                        idx % 3 === 1 && 'border-violet-200/50 bg-violet-100/25 dark:border-violet-800/30 dark:bg-violet-950/20',
+                        idx % 3 === 2 && 'border-sky-200/50 bg-sky-100/25 dark:border-sky-800/30 dark:bg-sky-950/20',
+                      )}
+                    >
+                      {tableCriteria.map((c, ci) => {
+                        const sc = getScore(s.id, c.id);
+                        const pastel = [
+                          'border-violet-200/60 bg-violet-50/90 text-violet-900 dark:border-violet-800/40 dark:bg-violet-950/35 dark:text-violet-100',
+                          'border-emerald-200/60 bg-emerald-50/90 text-emerald-900 dark:border-emerald-800/40 dark:bg-emerald-950/35 dark:text-emerald-100',
+                          'border-amber-200/60 bg-amber-50/90 text-amber-950 dark:border-amber-800/40 dark:bg-amber-950/35 dark:text-amber-100',
+                        ] as const;
+                        const p = pastel[ci % 3];
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => setScoreModal({ student: s, criterion: c })}
+                            className={cn(
+                              'flex min-h-[44px] items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-left shadow-sm transition-all active:scale-[0.99]',
+                              p,
+                            )}
+                          >
+                            <span className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight opacity-90">{c.name}</span>
+                            {sc ? (
+                              <span
+                                className={cn(
+                                  'inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold shadow-sm',
+                                  ci % 3 === 0 && 'bg-violet-200/80 text-violet-900 dark:bg-violet-800/60 dark:text-violet-50',
+                                  ci % 3 === 1 && 'bg-emerald-200/80 text-emerald-900 dark:bg-emerald-800/55 dark:text-emerald-50',
+                                  ci % 3 === 2 && 'bg-amber-200/85 text-amber-950 dark:bg-amber-800/50 dark:text-amber-50',
+                                )}
+                              >
+                                {(c.scoreType ?? 'numeric') === 'sign'
+                                  ? (sc.score === 1 ? '+' : sc.score === -1 ? '−' : '·')
+                                  : sc.score}
+                              </span>
+                            ) : (
+                              <span
+                                className={cn(
+                                  'inline-flex size-9 shrink-0 items-center justify-center rounded-lg border border-dashed text-xs font-medium opacity-70',
+                                  ci % 3 === 0 && 'border-violet-300/70 text-violet-600 dark:border-violet-600/50 dark:text-violet-300',
+                                  ci % 3 === 1 && 'border-emerald-300/70 text-emerald-600 dark:border-emerald-600/50 dark:text-emerald-300',
+                                  ci % 3 === 2 && 'border-amber-300/70 text-amber-700 dark:border-amber-600/50 dark:text-amber-200',
+                                )}
+                              >
+                                +
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="hidden sm:block table-x-scroll">
               <table className="w-full min-w-[500px] text-sm">
                 <thead>
                   <tr className="bg-muted/50 border-b-2 border-border">
                     <th className="text-left px-4 py-3.5 font-semibold sticky left-0 bg-muted/50 z-10 rounded-tl-lg">Öğrenci</th>
                     <th className="text-center px-2 py-3.5 min-w-[100px]">+ / − Notlar</th>
-                    {displayCriteria.map((c) => (
+                    {tableCriteria.map((c) => (
                       <th key={c.id} className="text-center px-2 py-3.5 min-w-[64px] font-medium group/cell">
                         <div className="flex items-center justify-center gap-1">
                           {c.name}
-                          {!c.id.startsWith('demo-') && (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); handleDeleteCriterion(c.id); }}
-                              className="p-1 rounded opacity-0 group-hover/cell:opacity-100 hover:bg-destructive/20 text-destructive"
-                              title="Kriteri sil"
-                            >
-                              <Trash2 className="size-3.5" />
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleDeleteCriterion(c.id); }}
+                            className="p-1 rounded opacity-0 group-hover/cell:opacity-100 hover:bg-destructive/20 text-destructive"
+                            title="Kriteri sil"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
                         </div>
                       </th>
                     ))}
                     <th className="text-center px-2 py-3.5 min-w-[64px]">
                       <button
                         type="button"
-                        onClick={() => setCriterionModalOpen(true)}
+                        onClick={() => openCriterionModal(null)}
                         className="inline-flex items-center justify-center size-9 rounded-xl border border-dashed border-muted-foreground/30 text-muted-foreground hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-colors"
                         title="Yeni kriter ekle"
                       >
@@ -453,7 +860,7 @@ export default function DegerlendirmePage() {
                           })()}
                         </div>
                       </td>
-                      {displayCriteria.map((c) => {
+                      {tableCriteria.map((c) => {
                         const sc = getScore(s.id, c.id);
                         return (
                           <td
@@ -481,20 +888,46 @@ export default function DegerlendirmePage() {
                   ))}
                 </tbody>
               </table>
+              </div>
+              </>
             )}
           </CardContent>
         </Card>
-      )}
+      ) : null}
 
+      {printModalOpen && me && (
+        <PrintReportModal
+          open={printModalOpen}
+          onClose={() => setPrintModalOpen(false)}
+          token={token}
+          initialListId={selectedListId}
+          initialSubjectFilterId={tableSubjectFilterId}
+          lists={displayLists}
+          subjects={subjects}
+          allCriteria={displayCriteria}
+          me={me}
+        />
+      )}
       {criterionModalOpen && (
         <CriterionModal
-          onClose={() => setCriterionModalOpen(false)}
-          onSuccess={(created) => {
+          subjects={subjects}
+          editing={criterionEditing}
+          onClose={() => {
             setCriterionModalOpen(false);
-            if (created) {
-              if (useDemo) setDemoCriteriaAdded((prev) => [...prev, created]);
-              else setCriteria((prev) => [...prev, created]);
-            } else fetchData();
+            setCriterionEditing(null);
+          }}
+          onSuccess={(saved, mode) => {
+            setCriterionModalOpen(false);
+            setCriterionEditing(null);
+            if (!saved) {
+              fetchData();
+              return;
+            }
+            if (mode === 'update') {
+              setCriteria((prev) => prev.map((c) => (c.id === saved.id ? saved : c)));
+            } else {
+              setCriteria((prev) => [...prev, saved]);
+            }
           }}
           token={token}
         />
@@ -559,9 +992,10 @@ function StudentDetailModal({
   const neg = notes.filter((n) => n.noteType === 'negative').length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-card rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col border border-border" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-5 border-b border-border">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
+      <div className="bg-card max-h-[min(92vh,100dvh)] w-full max-w-lg flex flex-col rounded-t-2xl border border-border shadow-2xl sm:max-h-[90vh] sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-muted-foreground/25 sm:hidden" aria-hidden />
+        <div className="flex items-center justify-between p-4 border-b border-border sm:p-5">
           <div>
             <h3 className="text-lg font-semibold">{student.name}</h3>
             <p className="text-sm text-muted-foreground">
@@ -647,9 +1081,10 @@ function StudentNotesDetailModal({
   const sorted = [...notes].sort((a, b) => (b.noteDate ?? '').localeCompare(a.noteDate ?? ''));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-card rounded-2xl shadow-2xl max-w-md w-full max-h-[85vh] flex flex-col border border-border" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-5 border-b border-border">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
+      <div className="bg-card max-h-[min(88vh,100dvh)] w-full max-w-md flex flex-col rounded-t-2xl border border-border shadow-2xl sm:max-h-[85vh] sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-muted-foreground/25 sm:hidden" aria-hidden />
+        <div className="flex items-center justify-between p-4 border-b border-border sm:p-5">
           <div>
             <h3 className="text-lg font-semibold">{student.name}</h3>
             <p className="text-sm text-muted-foreground">
@@ -719,8 +1154,9 @@ function ScoreModal({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-card rounded-2xl shadow-2xl max-w-sm w-full p-6 border border-border" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
+      <div className="bg-card w-full max-w-sm rounded-t-2xl border border-border p-5 shadow-2xl sm:rounded-2xl sm:p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="mx-auto -mt-1 mb-3 h-1 w-10 rounded-full bg-muted-foreground/25 sm:hidden" aria-hidden />
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold">{isSign ? 'Değerlendir' : 'Puan Ver'}</h3>
           <button type="button" onClick={onClose} className="p-2 rounded-xl hover:bg-muted transition-colors">
@@ -778,87 +1214,211 @@ function ScoreModal({
   );
 }
 
-function CriterionModal({ onClose, onSuccess, token }: { onClose: () => void; onSuccess: (created?: Criterion) => void; token: string | null }) {
+function CriterionModal({
+  subjects,
+  editing,
+  onClose,
+  onSuccess,
+  token,
+}: {
+  subjects: SubjectOption[];
+  editing: Criterion | null;
+  onClose: () => void;
+  onSuccess: (saved?: Criterion, mode?: 'create' | 'update') => void;
+  token: string | null;
+}) {
+  const isEdit = !!editing;
   const [name, setName] = useState('');
   const [maxScore, setMaxScore] = useState(5);
   const [scoreType, setScoreType] = useState<'numeric' | 'sign'>('numeric');
+  const [subjectId, setSubjectId] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (editing) {
+      setName(editing.name);
+      setMaxScore(editing.maxScore);
+      setScoreType(editing.scoreType ?? 'numeric');
+      setSubjectId(editing.subjectId ?? '');
+    } else {
+      setName('');
+      setMaxScore(5);
+      setScoreType('numeric');
+      setSubjectId('');
+    }
+  }, [editing]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token || !name.trim()) return;
     setLoading(true);
     try {
-      const created = await apiFetch<Criterion>('/teacher-agenda/evaluation/criteria', {
-        method: 'POST',
-        token,
-        body: JSON.stringify({ name: name.trim(), maxScore, scoreType }),
-      });
-      toast.success('Kriter eklendi');
-      onSuccess(created);
+      if (isEdit && editing) {
+        const body: Record<string, unknown> = {
+          name: name.trim(),
+          scoreType,
+          subjectId: subjectId || null,
+        };
+        if (scoreType === 'numeric') body.maxScore = maxScore;
+        const updated = await apiFetch<Criterion>(`/teacher-agenda/evaluation/criteria/${editing.id}`, {
+          method: 'PATCH',
+          token,
+          body: JSON.stringify(body),
+        });
+        toast.success('Kriter güncellendi');
+        onSuccess(updated, 'update');
+      } else {
+        const created = await apiFetch<Criterion>('/teacher-agenda/evaluation/criteria', {
+          method: 'POST',
+          token,
+          body: JSON.stringify({
+            name: name.trim(),
+            maxScore,
+            scoreType,
+            ...(subjectId ? { subjectId } : {}),
+          }),
+        });
+        toast.success('Kriter eklendi');
+        onSuccess(created, 'create');
+      }
     } catch {
-      toast.error('Eklenemedi');
+      toast.error(isEdit ? 'Güncellenemedi' : 'Eklenemedi');
     } finally {
       setLoading(false);
     }
   };
 
+  const subjectHint = (
+    <p className="mt-1 text-[10px] leading-snug text-muted-foreground sm:mt-0.5">
+      Genel: her ders filtresinde görünür. Derse bağlı: yalnızca o ders + genel görünümde.
+    </p>
+  );
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-card rounded-2xl shadow-2xl max-w-md w-full p-6 border border-border" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="text-lg font-semibold">Başarı Kriteri Ekle</h3>
-          <button type="button" onClick={onClose} className="p-2 rounded-xl hover:bg-muted transition-colors">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
+      <div
+        className="max-h-[min(88vh,100dvh)] w-full max-w-md overflow-y-auto rounded-t-3xl border border-border/70 bg-card/95 p-3 shadow-2xl ring-1 ring-black/6 backdrop-blur-md dark:bg-card/98 dark:ring-white/10 sm:max-h-[85vh] sm:rounded-2xl sm:p-4 sm:ring-0"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto mb-2 h-1 w-10 shrink-0 rounded-full bg-muted-foreground/25 sm:hidden" aria-hidden />
+        <div className="mb-2.5 flex items-center justify-between sm:mb-3">
+          <h3 className="text-sm font-semibold sm:text-base">{isEdit ? 'Kriteri düzenle' : 'Kriter ekle'}</h3>
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-muted">
             <X className="size-4" />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-2.5 sm:space-y-3">
           <div>
-            <label className="block text-sm font-medium mb-1">Kriter Adı *</label>
+            <label className="mb-0.5 block text-[10px] font-medium text-muted-foreground sm:text-[11px]">Ad *</label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-xl border border-input bg-background px-4 py-2.5"
-              placeholder="örn: Derse Katılım"
+              className="h-8 w-full rounded-xl border border-input bg-background px-2.5 text-xs shadow-sm sm:h-9 sm:rounded-lg sm:text-sm"
+              placeholder="örn: Derse katılım"
               required
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Değerlendirme türü</label>
-            <div className="flex gap-2 mt-1">
-              <label className={cn(
-                'flex-1 flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 cursor-pointer transition-colors',
-                scoreType === 'numeric' ? 'border-primary bg-primary/10 text-primary' : 'border-input hover:bg-muted/50',
-              )}>
-                <input type="radio" name="scoreType" value="numeric" checked={scoreType === 'numeric'} onChange={() => setScoreType('numeric')} className="sr-only" />
-                <span className="font-medium">Puan (0–max)</span>
+            <label className="mb-1 block text-[10px] font-medium text-muted-foreground sm:mb-0.5 sm:text-[11px]">Ders</label>
+            <div
+              className="touch-pan-y sm:hidden"
+              role="listbox"
+              aria-label="Ders seçin"
+            >
+              <div className="max-h-[min(9.5rem,28dvh)] overflow-y-auto overscroll-y-contain rounded-xl border border-border/60 bg-muted/30 p-1 shadow-inner dark:bg-muted/20">
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={subjectId === ''}
+                  onClick={() => setSubjectId('')}
+                  className={cn(
+                    'flex w-full min-h-8 items-center rounded-lg px-2 py-1.5 text-left text-[11px] font-medium transition-colors active:scale-[0.99]',
+                    subjectId === ''
+                      ? 'bg-primary/15 text-primary ring-1 ring-primary/30'
+                      : 'text-foreground hover:bg-background/90',
+                  )}
+                >
+                  <span className="min-w-0 flex-1 truncate">Genel (tüm dersler)</span>
+                </button>
+                {subjects.map((s) => (
+                  <button
+                    type="button"
+                    key={s.id}
+                    role="option"
+                    aria-selected={subjectId === s.id}
+                    onClick={() => setSubjectId(s.id)}
+                    className={cn(
+                      'flex w-full min-h-8 items-center rounded-lg px-2 py-1.5 text-left text-[11px] font-medium transition-colors active:scale-[0.99]',
+                      subjectId === s.id
+                        ? 'bg-primary/15 text-primary ring-1 ring-primary/30'
+                        : 'text-foreground hover:bg-background/90',
+                    )}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{s.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <select
+              value={subjectId}
+              onChange={(e) => setSubjectId(e.target.value)}
+              className="hidden h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm sm:block"
+            >
+              <option value="">Genel (tüm dersler)</option>
+              {subjects.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            {subjectHint}
+          </div>
+          <div>
+            <label className="mb-0.5 block text-[10px] font-medium text-muted-foreground sm:text-[11px]">Tür</label>
+            <div className="flex gap-1">
+              <label
+                className={cn(
+                  'flex min-h-8 flex-1 cursor-pointer items-center justify-center rounded-xl border px-2 py-1 text-[11px] font-medium transition-colors sm:rounded-lg sm:py-1.5 sm:text-xs',
+                  scoreType === 'numeric' ? 'border-primary bg-primary/10 text-primary' : 'border-input hover:bg-muted/50',
+                )}
+              >
+                <input type="radio" name="critScoreType" checked={scoreType === 'numeric'} onChange={() => setScoreType('numeric')} className="sr-only" />
+                Puan 0–max
               </label>
-              <label className={cn(
-                'flex-1 flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 cursor-pointer transition-colors',
-                scoreType === 'sign' ? 'border-primary bg-primary/10 text-primary' : 'border-input hover:bg-muted/50',
-              )}>
-                <input type="radio" name="scoreType" value="sign" checked={scoreType === 'sign'} onChange={() => setScoreType('sign')} className="sr-only" />
-                <span className="font-medium">+ / −</span>
+              <label
+                className={cn(
+                  'flex min-h-8 flex-1 cursor-pointer items-center justify-center rounded-xl border px-2 py-1 text-[11px] font-medium transition-colors sm:rounded-lg sm:py-1.5 sm:text-xs',
+                  scoreType === 'sign' ? 'border-primary bg-primary/10 text-primary' : 'border-input hover:bg-muted/50',
+                )}
+              >
+                <input type="radio" name="critScoreType" checked={scoreType === 'sign'} onChange={() => setScoreType('sign')} className="sr-only" />
+                + / −
               </label>
             </div>
           </div>
           {scoreType === 'numeric' && (
             <div>
-              <label className="block text-sm font-medium mb-1">Maksimum Puan</label>
+              <label className="mb-0.5 block text-[10px] font-medium text-muted-foreground sm:text-[11px]">Üst puan</label>
               <select
                 value={maxScore}
                 onChange={(e) => setMaxScore(Number(e.target.value))}
-                className="w-full rounded-xl border border-input bg-background px-4 py-2.5"
+                className="h-8 w-full rounded-xl border border-input bg-background px-2.5 text-xs shadow-sm sm:h-9 sm:rounded-lg sm:text-sm"
               >
                 {[1, 2, 3, 4, 5, 10].map((n) => (
-                  <option key={n} value={n}>{n}</option>
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
                 ))}
               </select>
             </div>
           )}
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={onClose} className="rounded-xl">İptal</Button>
-            <Button type="submit" disabled={loading || !name.trim()} className="rounded-xl">Kaydet</Button>
+          <div className="flex justify-end gap-2 pt-0.5 sm:pt-1">
+            <Button type="button" variant="outline" size="sm" onClick={onClose} className="h-8 rounded-xl text-xs sm:rounded-lg">
+              İptal
+            </Button>
+            <Button type="submit" size="sm" disabled={loading || !name.trim()} className="h-8 rounded-xl text-xs sm:rounded-lg">
+              {isEdit ? 'Kaydet' : 'Ekle'}
+            </Button>
           </div>
         </form>
       </div>

@@ -25,6 +25,8 @@ import { UserRole } from '../types/enums';
 
 const FETCH_TIMEOUT_MS = 30000;
 const RSS_ITEM_LIMIT = 50;
+/** Scrape: sayfa/slayt havuzundan tarih+DOM sırasıyla seçilip içerik kontrolü yapılacak azami link (varsayılan). */
+const SCRAPE_LATEST_CONTENT_CHECK_LIMIT = 15;
 const FETCH_RETRIES = 2;
 const GPT_DELAY_MS = 300;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -824,10 +826,21 @@ export class ExamDutySyncService {
       slider_item_limit?: number;
       /** Her sync'te işlenecek azami yeni aday sayısı (sırayla 1'er; 0=sınırsız) */
       max_process_per_sync?: number;
+      /** Liste havuzundan “en güncel” N link GPT/içerik kontrolünden geçer (1–80, varsayılan 15) */
+      latest_content_check_limit?: number;
     } | null;
 
-    const SLIDER_ITEM_LIMIT = Math.min(config?.slider_item_limit ?? 15, 15);
     const maxProcessPerSync = config?.max_process_per_sync ?? 0;
+    const latestContentCheckLimit = Math.min(
+      Math.max(
+        Number(config?.latest_content_check_limit ?? SCRAPE_LATEST_CONTENT_CHECK_LIMIT) ||
+          SCRAPE_LATEST_CONTENT_CHECK_LIMIT,
+        1,
+      ),
+      80,
+    );
+    /** Slayt havuzundan toplanacak üst sınır (sonra yine “en güncel N” seçilir) */
+    const sliderPoolCap = Math.min(config?.slider_item_limit ?? 40, 60);
 
     const listUrl = config?.list_url ?? config?.list_urls?.[0];
     if (!listUrl) throw new Error('scrape_config.list_url veya list_urls tanımlı değil');
@@ -861,22 +874,22 @@ export class ExamDutySyncService {
     const titleSelector = config?.title_selector ?? 'a';
     const dateSelector = config?.date_selector ?? '';
 
-    const candidates: { title: string; href: string; dateStr: string; preloadedBody?: string }[] = [];
+    const candidates: {
+      title: string;
+      href: string;
+      dateStr: string;
+      preloadedBody?: string;
+      domOrder: number;
+      fromRecheck?: boolean;
+    }[] = [];
     const seenHref = new Set<string>();
+    let domOrderSeq = 0;
 
     const sliderSelector = config?.slider_selector?.trim();
-    const containerItemLimit =
-      maxProcessPerSync > 0
-        ? undefined
-        : containerSelectors.length > 0 && !sliderSelector
-          ? Math.min(config?.slider_item_limit ?? 15, 15)
-          : undefined;
 
-    const collectFromScope = ($scope: ReturnType<typeof $>, limit?: number) => {
-      let added = 0;
+    const collectFromScope = ($scope: ReturnType<typeof $>) => {
       const $items = $scope?.length ? $scope.find(itemSelector) : $(itemSelector);
       $items.each((_, el) => {
-        if (limit != null && added >= limit) return false;
         const $el = $(el);
         const $link = $el.is('a') ? $el : $el.find(linkSelector).first();
         if ($link.length === 0) return;
@@ -895,8 +908,7 @@ export class ExamDutySyncService {
 
         let dateStr = '';
         if (dateSelector) dateStr = $el.find(dateSelector).first().text().trim();
-        candidates.push({ title, href, dateStr });
-        added++;
+        candidates.push({ title, href, dateStr, domOrder: domOrderSeq++ });
       });
     };
 
@@ -904,13 +916,13 @@ export class ExamDutySyncService {
       for (const sel of containerSelectors) {
         const $scope = $(sel);
         if (!$scope.length) this.logger.warn(`[${source.key}] container_selector "${sel}" bulunamadı`);
-        else collectFromScope($scope, containerItemLimit);
+        else collectFromScope($scope);
       }
     } else {
       collectFromScope($.root());
     }
 
-    // Sayfada slayt/carousel varsa bu bloktan en fazla 15 haber içeriği de aday listesine eklenir.
+    // Sayfada slayt/carousel varsa bu bloktan haber adayları eklenir (son seçim latest_content_check_limit ile yapılır).
     if (sliderSelector) {
       const $slider = $(sliderSelector);
       if ($slider.length) {
@@ -918,7 +930,7 @@ export class ExamDutySyncService {
         const $sliderItems = $slider.find(sliderItemSel);
         let addedFromSlider = 0;
         $sliderItems.each((_, el) => {
-          if (addedFromSlider >= SLIDER_ITEM_LIMIT) return false;
+          if (addedFromSlider >= sliderPoolCap) return false;
           const $el = $(el);
           const $link = $el.is('a') ? $el : $el.find(linkSelector).first();
           if ($link.length === 0) return;
@@ -937,11 +949,11 @@ export class ExamDutySyncService {
 
           let dateStr = '';
           if (dateSelector) dateStr = $el.find(dateSelector).first().text().trim();
-          candidates.push({ title, href, dateStr });
+          candidates.push({ title, href, dateStr, domOrder: domOrderSeq++ });
           addedFromSlider++;
         });
         if (addedFromSlider > 0)
-          this.logger.log(`[${source.key}] Slayt: ${addedFromSlider} haber adayı eklendi (max ${SLIDER_ITEM_LIMIT})`);
+          this.logger.log(`[${source.key}] Slayt: ${addedFromSlider} haber adayı eklendi (havuz üst sınır ${sliderPoolCap})`);
       } else {
         this.logger.warn(`[${source.key}] slider_selector "${sliderSelector}" bulunamadı`);
       }
@@ -963,8 +975,18 @@ export class ExamDutySyncService {
         href: recheckUrl,
         dateStr: '',
         preloadedBody: preloadedBody ?? undefined,
+        domOrder: domOrderSeq++,
+        fromRecheck: true,
       });
       this.logger.log(`[${source.key}] Recheck: silinen duyuru linki eklendi (${recheckUrl.slice(0, 60)}…)`);
+    }
+
+    const candidatesPoolSize = candidates.length;
+    const processList = this.limitScrapeCandidatesToLatest(candidates, latestContentCheckLimit);
+    if (candidatesPoolSize > processList.length) {
+      this.logger.log(
+        `[${source.key}] Aday havuzu ${candidatesPoolSize} → içerik kontrolü ${processList.length} link (son eklenen öncelik, limit=${latestContentCheckLimit})`,
+      );
     }
 
     const detectCategoryPerItem = config?.detect_category_per_item === true;
@@ -985,7 +1007,7 @@ export class ExamDutySyncService {
     const existingIds = new Set(
       existingRows.map((d) => d.externalId).filter((id): id is string => !!id),
     );
-    this.logger.log(`[${source.key}] Scrape: ${candidates.length} aday, ${existingIds.size} mevcut kayıt`);
+    this.logger.log(`[${source.key}] Scrape: ${processList.length} aday (içerik kontrolü), ${existingIds.size} mevcut kayıt`);
 
     const skipTitleKeywords = config?.skip_title_keywords === true;
     let created = 0;
@@ -1009,12 +1031,13 @@ export class ExamDutySyncService {
     };
 
     const normLastProcessed = lastProcessedUrl ? normalizeExternalId(lastProcessedUrl) : null;
-    const lastProcessedInList = normLastProcessed && candidates.some((c) => normalizeExternalId(c.href) === normLastProcessed);
+    const lastProcessedInList =
+      normLastProcessed && processList.some((c) => normalizeExternalId(c.href) === normLastProcessed);
     let passedLastProcessed = !normLastProcessed || !lastProcessedInList;
     let processedCount = 0;
     let processedUrl: string | null = null;
 
-    for (const c of candidates) {
+    for (const c of processList) {
       const normHref = normalizeExternalId(c.href);
       if (seen.has(normHref)) continue;
       seen.add(normHref);
@@ -1334,9 +1357,9 @@ export class ExamDutySyncService {
       created++;
       processedUrl = c.href;
     }
-    if (candidates.length > 0 && created === 0 && restored === 0) {
+    if (processList.length > 0 && created === 0 && restored === 0) {
       this.logger.warn(
-        `[${source.key}] 0 eklendi: aday=${candidates.length}, keyword=${skippedKeywords}, mevcut=${skippedExisting}, gpt_no=${skippedGpt}, kural_no=${skippedRule}`,
+        `[${source.key}] 0 eklendi: aday=${processList.length}, keyword=${skippedKeywords}, mevcut=${skippedExisting}, gpt_no=${skippedGpt}, kural_no=${skippedRule}`,
       );
     }
     if (restored > 0) {
@@ -1364,6 +1387,49 @@ export class ExamDutySyncService {
     }
     const d = new Date(str);
     return isNaN(d.getTime()) ? null : d;
+  }
+
+  /** Liste satırındaki tarih metninden sıralama için zaman damgası (yoksa 0). */
+  private scrapeCandidateTimeMs(dateStr: string): number {
+    const s = dateStr?.trim();
+    if (!s) return 0;
+    const tr = this.parseTrDate(s);
+    if (tr) return tr.getTime();
+    const r = parseRssDate(s);
+    return r ? r.getTime() : 0;
+  }
+
+  /**
+   * Sayfa+slayt havuzundan “en güncel” N linki seçer: önce tarih (azalan), eşit/yoksa DOM sırası (küçük = üstte, tipik yeni haber).
+   * Silinen duyuru recheck kayıtları her zaman sona eklenir (limit dışı sayılmaz).
+   */
+  private limitScrapeCandidatesToLatest(
+    candidates: Array<{
+      title: string;
+      href: string;
+      dateStr: string;
+      preloadedBody?: string;
+      domOrder: number;
+      fromRecheck?: boolean;
+    }>,
+    limit: number,
+  ): Array<{
+    title: string;
+    href: string;
+    dateStr: string;
+    preloadedBody?: string;
+    domOrder: number;
+    fromRecheck?: boolean;
+  }> {
+    const recheck = candidates.filter((c) => c.fromRecheck);
+    const page = candidates.filter((c) => !c.fromRecheck);
+    page.sort((a, b) => {
+      const tb = this.scrapeCandidateTimeMs(b.dateStr);
+      const ta = this.scrapeCandidateTimeMs(a.dateStr);
+      if (tb !== ta) return tb - ta;
+      return a.domOrder - b.domOrder;
+    });
+    return [...page.slice(0, limit), ...recheck];
   }
 
   /** Haber detay sayfasından içerik metnini çıkar */

@@ -1,161 +1,17 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import * as XLSX from 'xlsx';
 import { Upload, Download, FileSpreadsheet } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { Alert } from '@/components/ui/alert';
 import { SCHOOL_TYPE_ORDER } from '@/lib/school-labels';
-
-const TEMPLATE_COLUMNS = [
-  'name',
-  'type',
-  'segment',
-  'city',
-  'district',
-  'institution_code',
-  'address',
-  'website_url',
-  'phone',
-  'fax',
-  'institutional_email',
-  'principal_name',
-  'about_description',
-  'status',
-  'teacher_limit',
-] as const;
-
-const TYPE_VALUES: string[] = [...SCHOOL_TYPE_ORDER];
-const SEGMENT_VALUES = ['devlet', 'ozel'];
-const STATUS_VALUES = ['deneme', 'aktif', 'askida'];
-
-type ParsedRow = Record<string, string | number>;
-
-function downloadTemplate() {
-  const headers = [
-    'name',
-    'type',
-    'segment',
-    'city',
-    'district',
-    'institution_code',
-    'address',
-    'website_url',
-    'phone',
-    'fax',
-    'institutional_email',
-    'principal_name',
-    'about_description',
-    'status',
-    'teacher_limit',
-  ];
-  const example = [
-    'Örnek İlkokulu',
-    'ilkokul',
-    'devlet',
-    'Ankara',
-    'Çankaya',
-    '123456',
-    'Mahalle, Cadde No:1',
-    'https://okul.meb.gov.tr',
-    '0312 555 00 00',
-    '0312 555 00 01',
-    'bilgi@okul.meb.k12.tr',
-    'Ad Soyad',
-    'Okulumuz hakkında kısa bilgi...',
-    'aktif',
-    '100',
-  ];
-  const ws = XLSX.utils.aoa_to_sheet([headers, example]);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Okullar');
-  XLSX.writeFile(wb, 'okul_sablonu.xlsx');
-}
-
-function parseExcelToRows(file: File): Promise<ParsedRow[]> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = e.target?.result;
-        if (!data) return reject(new Error('Dosya okunamadı'));
-        const wb = XLSX.read(data, { type: 'binary' });
-        const firstSheet = wb.Sheets[wb.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json<(string | number)[]>(firstSheet, { header: 1, defval: '' });
-        if (!json.length) return resolve([]);
-        const headers = json[0].map((h) => String(h).trim().toLowerCase().replace(/\s/g, '_'));
-        const rows: ParsedRow[] = [];
-        for (let i = 1; i < json.length; i++) {
-          const row = json[i] ?? [];
-          const obj: ParsedRow = {};
-          headers.forEach((h, j) => {
-            const v = row[j];
-            obj[h] = v != null && v !== '' ? (typeof v === 'number' ? v : String(v).trim()) : '';
-          });
-          if (obj.name) rows.push(obj);
-        }
-        resolve(rows);
-      } catch (err) {
-        reject(err);
-      }
-    };
-    reader.onerror = () => reject(new Error('Dosya okunamadı'));
-    reader.readAsBinaryString(file);
-  });
-}
-
-function getVal(r: ParsedRow, ...keys: string[]): string | number {
-  for (const k of keys) {
-    const v = r[k];
-    if (v != null && v !== '') return v;
-  }
-  return '';
-}
-
-function mapToApiSchools(rows: ParsedRow[]): Array<{
-  name: string;
-  type: string;
-  segment: string;
-  city?: string | null;
-  district?: string | null;
-  institution_code?: string | null;
-  address?: string | null;
-  website_url?: string | null;
-  phone?: string | null;
-  fax?: string | null;
-  institutional_email?: string | null;
-  principal_name?: string | null;
-  about_description?: string | null;
-  status?: string;
-  teacher_limit?: number;
-}> {
-  return rows.map((r) => {
-    const type = String(getVal(r, 'type', 'tür')).toLowerCase() || 'lise';
-    const segment = String(getVal(r, 'segment')).toLowerCase() || 'devlet';
-    const status = String(getVal(r, 'status', 'durum')).toLowerCase() || 'deneme';
-    return {
-      name: String(getVal(r, 'name', 'okul_adi', 'okul adı')).trim(),
-      type: TYPE_VALUES.includes(type) ? type : 'lise',
-      segment: SEGMENT_VALUES.includes(segment) ? segment : 'devlet',
-      city: String(getVal(r, 'city', 'il')).trim() || null,
-      district: String(getVal(r, 'district', 'ilce', 'ilçe')).trim() || null,
-      institution_code: String(getVal(r, 'institution_code', 'kurum_kodu', 'meb_kodu')).trim() || null,
-      address: String(getVal(r, 'address', 'adres', 'acik_adres')).trim() || null,
-      website_url: String(getVal(r, 'website_url', 'web_sitesi', 'website')).trim() || null,
-      phone: String(getVal(r, 'phone', 'telefon')).trim() || null,
-      fax: String(getVal(r, 'fax', 'faks')).trim() || null,
-      institutional_email: String(getVal(r, 'institutional_email', 'kurumsal_eposta', 'kurumsal_email')).trim() || null,
-      principal_name: String(getVal(r, 'principal_name', 'mudur', 'müdür', 'okul_muduru')).trim() || null,
-      about_description: String(getVal(r, 'about_description', 'detay', 'okulumuz_hakkinda')).trim() || null,
-      status: STATUS_VALUES.includes(status) ? status : 'deneme',
-      teacher_limit: (() => {
-        const v = getVal(r, 'teacher_limit', 'ogretmen_limiti', 'limit');
-        return typeof v === 'number' ? v : parseInt(String(v), 10) || 100;
-      })(),
-    };
-  });
-}
+import {
+  downloadSchoolExcelTemplate,
+  parseExcelToSchoolRows,
+  mapRowsToBulkApiSchools,
+  type ParsedSchoolRow,
+} from '@/lib/school-excel-import';
 
 export function SchoolBulkImport({
   token,
@@ -166,7 +22,7 @@ export function SchoolBulkImport({
   onSuccess: () => void;
   onCancel: () => void;
 }) {
-  const [rows, setRows] = useState<ParsedRow[]>([]);
+  const [rows, setRows] = useState<ParsedSchoolRow[]>([]);
   const [uploading, setUploading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -178,7 +34,7 @@ export function SchoolBulkImport({
     setError(null);
     setUploading(true);
     try {
-      const parsed = await parseExcelToRows(file);
+      const parsed = await parseExcelToSchoolRows(file);
       setRows(parsed);
       if (parsed.length === 0) toast.warning('Dosyada geçerli satır bulunamadı');
       else toast.success(`${parsed.length} okul yüklendi, önizlemeyi kontrol edin`);
@@ -195,7 +51,7 @@ export function SchoolBulkImport({
     setImporting(true);
     setError(null);
     try {
-      const schools = mapToApiSchools(rows);
+      const schools = mapRowsToBulkApiSchools(rows);
       const res = await apiFetch<{ created: number; ids: string[]; errors?: { row: number; message: string }[] }>(
         '/schools/bulk',
         {
@@ -225,7 +81,7 @@ export function SchoolBulkImport({
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
-          onClick={downloadTemplate}
+          onClick={downloadSchoolExcelTemplate}
           className="inline-flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-2.5 text-sm font-medium hover:bg-muted"
         >
           <Download className="size-4" />

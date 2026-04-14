@@ -1,0 +1,184 @@
+'use client';
+
+import Link from 'next/link';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { useAuth } from '@/hooks/use-auth';
+import { cn } from '@/lib/utils';
+import { sorumlulukExamApiQuery } from '@/lib/sorumluluk-exam-school-q';
+import { LayoutGrid, Users, CalendarRange, Shuffle, UserCheck, FileDown } from 'lucide-react';
+
+const TABS = [
+  {
+    path:     '/sorumluluk-sinav',
+    label:    'Gruplar',
+    icon:     LayoutGrid,
+    adminOnly: false,
+    step:     '1',
+    hint:     'Sınav grubu oluştur',
+    match:    (p: string) => p === '/sorumluluk-sinav',
+    idle:     'bg-indigo-50  text-indigo-700  border-indigo-200  hover:bg-indigo-100  dark:bg-indigo-950/30  dark:text-indigo-300  dark:border-indigo-800/40',
+    active:   'bg-indigo-600 text-white       border-indigo-600  shadow-indigo-500/35 shadow-md',
+    dot:      'bg-indigo-400',
+  },
+  {
+    path:     '/sorumluluk-sinav/ogrenciler',
+    label:    'Öğrenciler',
+    icon:     Users,
+    adminOnly: false,
+    step:     '2',
+    hint:     'Öğrenci & ders ekle',
+    match:    (p: string) => p.startsWith('/sorumluluk-sinav/ogrenciler'),
+    idle:     'bg-sky-50     text-sky-700     border-sky-200     hover:bg-sky-100     dark:bg-sky-950/30     dark:text-sky-300     dark:border-sky-800/40',
+    active:   'bg-sky-600    text-white       border-sky-600     shadow-sky-500/35    shadow-md',
+    dot:      'bg-sky-400',
+  },
+  {
+    path:     '/sorumluluk-sinav/oturumlar',
+    label:    'Oturumlar',
+    icon:     CalendarRange,
+    adminOnly: true,
+    step:     '3',
+    hint:     'Tarih / saat / salon',
+    match:    (p: string) => p.startsWith('/sorumluluk-sinav/oturumlar'),
+    idle:     'bg-amber-50   text-amber-700   border-amber-200   hover:bg-amber-100   dark:bg-amber-950/30   dark:text-amber-300   dark:border-amber-800/40',
+    active:   'bg-amber-500  text-white       border-amber-500   shadow-amber-500/35  shadow-md',
+    dot:      'bg-amber-400',
+  },
+  {
+    path:     '/sorumluluk-sinav/programlama',
+    label:    'Programlama',
+    icon:     Shuffle,
+    adminOnly: true,
+    step:     '4',
+    hint:     'Otomatik / manuel ata',
+    match:    (p: string) => p.startsWith('/sorumluluk-sinav/programlama'),
+    idle:     'bg-violet-50  text-violet-700  border-violet-200  hover:bg-violet-100  dark:bg-violet-950/30  dark:text-violet-300  dark:border-violet-800/40',
+    active:   'bg-violet-600 text-white       border-violet-600  shadow-violet-500/35 shadow-md',
+    dot:      'bg-violet-400',
+  },
+  {
+    path:     '/sorumluluk-sinav/gorevlendirme',
+    label:    'Görevlendirme',
+    icon:     UserCheck,
+    adminOnly: true,
+    step:     '5',
+    hint:     'Komisyon & gözcü',
+    match:    (p: string) => p.startsWith('/sorumluluk-sinav/gorevlendirme'),
+    idle:     'bg-teal-50    text-teal-700    border-teal-200    hover:bg-teal-100    dark:bg-teal-950/30    dark:text-teal-300    dark:border-teal-800/40',
+    active:   'bg-teal-600   text-white       border-teal-600    shadow-teal-500/35   shadow-md',
+    dot:      'bg-teal-400',
+  },
+  {
+    path:     '/sorumluluk-sinav/raporlar',
+    label:    'Raporlar',
+    icon:     FileDown,
+    adminOnly: false,
+    step:     '6',
+    hint:     'PDF & yoklama',
+    match:    (p: string) => p.startsWith('/sorumluluk-sinav/raporlar'),
+    idle:     'bg-emerald-50  text-emerald-700  border-emerald-200  hover:bg-emerald-100  dark:bg-emerald-950/30  dark:text-emerald-300  dark:border-emerald-800/40',
+    active:   'bg-emerald-600 text-white        border-emerald-600  shadow-emerald-500/35 shadow-md',
+    dot:      'bg-emerald-400',
+  },
+] as const;
+
+export default function SorumlulukSinavLayout({ children }: { children: React.ReactNode }) {
+  const pathname     = usePathname();
+  const searchParams = useSearchParams();
+  const { me }       = useAuth();
+  const isAdmin      = me?.role === 'school_admin' || me?.role === 'superadmin' || me?.role === 'moderator';
+  const schoolQ      = sorumlulukExamApiQuery(me?.role, searchParams.get('school_id'));
+  const groupId      = searchParams.get('group_id');
+  const visible      = TABS.filter((t) => !t.adminOnly || isAdmin);
+
+  const tabHref = (path: string) => {
+    const params = new URLSearchParams();
+    if (schoolQ) {
+      schoolQ.replace(/^\?/, '').split('&').forEach((pair) => {
+        const [k, v] = pair.split('='); if (k && v) params.set(k, v);
+      });
+    }
+    if (groupId) params.set('group_id', groupId);
+    const qs = params.toString();
+    return qs ? `${path}?${qs}` : path;
+  };
+
+  const activeTab = visible.find((t) => t.match(pathname));
+
+  return (
+    <div className="mx-auto max-w-5xl space-y-4 sm:space-y-5">
+      {/* Header kart */}
+      <div className="overflow-hidden rounded-2xl border border-indigo-200/50 bg-linear-to-br from-indigo-500/10 via-violet-500/5 to-teal-400/8 shadow-sm dark:border-indigo-900/40 dark:from-indigo-950/55 dark:via-violet-950/25 dark:to-teal-950/15">
+
+        {/* Başlık */}
+        <div className="px-4 pt-4 pb-3 sm:px-5 sm:pt-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-lg font-bold tracking-tight text-indigo-950 dark:text-indigo-50 sm:text-xl">
+                Sorumluluk / Beceri Sınavı
+              </h1>
+              <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
+                {activeTab
+                  ? `${activeTab.step}. adım — ${activeTab.hint}`
+                  : 'Öğrenci-ders girişi, programlama, görevlendirme ve raporlar.'}
+              </p>
+            </div>
+            {activeTab && (
+              <span className="shrink-0 rounded-xl bg-white/70 px-3 py-1.5 text-sm font-bold text-indigo-700 shadow-sm dark:bg-zinc-900/60 dark:text-indigo-300">
+                {activeTab.step} / {visible.length}
+              </span>
+            )}
+          </div>
+
+          {/* İlerleme çizgisi */}
+          <div className="mt-3 flex gap-1">
+            {visible.map((tab) => {
+              const isActive = tab.match(pathname);
+              const isPast   = parseInt(tab.step) < parseInt(activeTab?.step ?? '99');
+              return (
+                <Link key={tab.path} href={tabHref(tab.path)}
+                  className={cn('h-1.5 flex-1 rounded-full transition-all',
+                    isActive ? tab.dot :
+                    isPast   ? 'bg-slate-300 dark:bg-zinc-600' :
+                               'bg-slate-200 dark:bg-zinc-700/50')} />
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Sekme çubuğu */}
+        <nav className="flex gap-1.5 overflow-x-auto px-3 pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="tablist">
+          {visible.map((tab) => {
+            const isActive = tab.match(pathname);
+            const Icon     = tab.icon;
+            return (
+              <Link
+                key={tab.path}
+                href={tabHref(tab.path)}
+                role="tab"
+                aria-selected={isActive}
+                className={cn(
+                  'flex flex-1 min-w-[72px] flex-col items-center gap-1.5 rounded-xl border px-2 py-2.5 text-center transition-all duration-200 sm:flex-row sm:justify-center sm:gap-2 sm:px-3 sm:py-2',
+                  isActive ? tab.active : tab.idle,
+                )}>
+                {/* Adım numarası */}
+                <span className={cn(
+                  'inline-flex size-4 items-center justify-center rounded-full text-[8px] font-bold shrink-0',
+                  isActive ? 'bg-white/30 text-white' : 'bg-white/80 dark:bg-zinc-800 text-current opacity-70',
+                )}>
+                  {tab.step}
+                </span>
+                <Icon className="size-4 shrink-0" strokeWidth={2} />
+                <span className="text-[10px] font-semibold leading-tight sm:text-[11px] truncate">
+                  {tab.label}
+                </span>
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
+
+      {children}
+    </div>
+  );
+}

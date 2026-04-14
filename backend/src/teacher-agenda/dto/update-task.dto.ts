@@ -37,4 +37,9 @@ export class UpdateAgendaTaskDto {
   @IsOptional()
   @IsString()
   linkedEntityId?: string | null;
+
+  /** Gönderilirse: gönderilmemiş hatırlatıcılar silinir; boş string ise temizlenir */
+  @IsOptional()
+  @IsString()
+  remindAt?: string | null;
 }

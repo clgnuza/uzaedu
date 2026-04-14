@@ -86,6 +86,7 @@ const EVENT_LABELS: Record<string, string> = {
   'support.ticket.assigned': 'Size destek talebi atandı',
   'support.ticket.escalated': 'Üst birime iletildi',
   'agenda.school_event_added': 'Okul etkinliği',
+  'agenda.reminder': 'Ajanda hatırlatması',
   'market.school_credit_added': 'Market (okul)',
   'market.user_credit_added': 'Market (bireysel)',
 };
@@ -98,7 +99,7 @@ const DUTY_PLAN_EVENT_TYPES = ['duty.published', 'duty.changed'];
 const DUTY_DAILY_EVENT_TYPES = ['duty.reassigned', 'duty.coverage_assigned', 'duty.reminder'];
 const BELIRLI_GUN_EVENT_TYPES = ['belirli_gun_hafta.assigned', 'belirli_gun_hafta.reminder', 'belirli_gun_hafta.notification_sent'];
 const BILSEM_CALENDAR_EVENT_TYPES = ['bilsem_calendar.assigned', 'bilsem_calendar.notification_sent'];
-const AGENDA_EVENT_TYPES = ['agenda.school_event_added'];
+const AGENDA_EVENT_TYPES = ['agenda.school_event_added', 'agenda.reminder'];
 const SMART_BOARD_EVENT_TYPES = ['smart_board.disconnected_by_admin', 'smart_board.session_ended_by_admin'];
 const MARKET_EVENT_TYPES = ['market.school_credit_added', 'market.user_credit_added'];
 
@@ -159,6 +160,11 @@ function getNotificationLink(item: NotificationItem): string {
       return '/duty/planlar';
     }
     return '/duty';
+  }
+  if (item.event_type?.startsWith('butterfly_exam.')) {
+    const schoolId = (item.metadata as { school_id?: string } | null)?.school_id;
+    const q = schoolId ? `?school_id=${schoolId}` : '';
+    return `/kelebek-sinav/sinav-islemleri${q}`;
   }
   return '/dashboard';
 }

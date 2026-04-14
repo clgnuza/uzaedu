@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, In, IsNull } from 'typeorm';
+import { Repository, Between, In, IsNull, Brackets } from 'typeorm';
 import { Student } from '../students/entities/student.entity';
 import { AgendaNote } from './entities/agenda-note.entity';
 import { AgendaNoteAttachment } from './entities/agenda-note-attachment.entity';
@@ -82,6 +82,82 @@ export class TeacherAgendaService {
   private ensureSchool(userId: string, schoolId: string | null, role: UserRole) {
     if (role !== UserRole.superadmin && role !== UserRole.moderator && !schoolId)
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Okul bilgisi gerekli.' });
+  }
+
+  private nextDueDateAfter(ymd: string, repeat: AgendaTask['repeat']): string {
+    const [y, m, d] = ymd.split('-').map((n) => parseInt(n, 10));
+    const base = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+    if (repeat === 'daily') base.setUTCDate(base.getUTCDate() + 1);
+    else if (repeat === 'weekly') base.setUTCDate(base.getUTCDate() + 7);
+    else if (repeat === 'monthly') base.setUTCMonth(base.getUTCMonth() + 1);
+    return base.toISOString().slice(0, 10);
+  }
+
+  /** Takvim aralığı için tekrarlı (pending) görev olasılıklarını üretir; UTC ile `nextDueDateAfter` ile uyumlu */
+  private expandTaskOccurrencesInCalendarRange(
+    anchorYmd: string,
+    repeat: AgendaTask['repeat'],
+    rangeStart: string,
+    rangeEnd: string,
+    maxSteps = 900,
+  ): string[] {
+    if (repeat === 'none' || !anchorYmd) return [];
+    let cur = anchorYmd;
+    let guard = 0;
+    while (cur < rangeStart && guard++ < maxSteps) {
+      const next = this.nextDueDateAfter(cur, repeat);
+      if (next <= cur) break;
+      cur = next;
+    }
+    const out: string[] = [];
+    guard = 0;
+    while (cur <= rangeEnd && guard++ < maxSteps) {
+      out.push(cur);
+      const next = this.nextDueDateAfter(cur, repeat);
+      if (next <= cur) break;
+      cur = next;
+    }
+    return out;
+  }
+
+  private ymdAddDaysUtc(ymd: string, deltaDays: number): string {
+    const [y, m, d] = ymd.split('-').map((n) => parseInt(n, 10));
+    if ([y, m, d].some((n) => Number.isNaN(n))) return ymd;
+    const base = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+    base.setUTCDate(base.getUTCDate() + deltaDays);
+    return base.toISOString().slice(0, 10);
+  }
+
+  private assertRepeatRequiresDueDate(repeat: AgendaTask['repeat'] | undefined, dueDate: string | null | undefined) {
+    const r = repeat ?? 'none';
+    if (r === 'none') return;
+    const d = (dueDate ?? '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      throw new BadRequestException({
+        code: 'BAD_REQUEST',
+        message: 'Günlük / haftalık / aylık tekrar için geçerli son tarih (yyyy-aa-gg) zorunludur.',
+      });
+    }
+  }
+
+  private async spawnNextRecurringIfNeeded(task: AgendaTask): Promise<void> {
+    if (task.repeat === 'none' || !task.dueDate) return;
+    const nextDue = this.nextDueDateAfter(task.dueDate, task.repeat);
+    await this.taskRepo.save(
+      this.taskRepo.create({
+        title: task.title,
+        description: task.description,
+        dueDate: nextDue,
+        dueTime: task.dueTime,
+        priority: task.priority,
+        repeat: task.repeat,
+        status: 'pending',
+        source: task.source,
+        userId: task.userId,
+        schoolId: task.schoolId,
+        studentId: task.studentId,
+      }),
+    );
   }
 
   async createNote(
@@ -165,24 +241,64 @@ export class TeacherAgendaService {
     schoolId: string | null,
     dto: CreateAgendaTaskDto,
   ) {
+    const raw = dto as CreateAgendaTaskDto & { remindAt?: string | null };
+    const { remindAt, ...fields } = raw;
+    this.assertRepeatRequiresDueDate(fields.repeat ?? 'none', fields.dueDate ?? null);
     const status = 'pending';
-    const task = this.taskRepo.create({
-      ...dto,
-      source: 'PERSONAL',
-      userId,
-      schoolId,
-      status,
-      priority: dto.priority ?? 'medium',
-      repeat: dto.repeat ?? 'none',
+    return this.taskRepo.manager.transaction(async (em) => {
+      const task = em.create(AgendaTask, {
+        ...fields,
+        source: 'PERSONAL',
+        userId,
+        schoolId,
+        status,
+        priority: fields.priority ?? 'medium',
+        repeat: fields.repeat ?? 'none',
+      });
+      const saved = await em.save(task);
+      const ra = remindAt?.trim();
+      if (ra) {
+        const rem = em.create(AgendaReminder, {
+          taskId: saved.id,
+          remindAt: new Date(ra),
+        });
+        await em.save(rem);
+      }
+      return saved;
     });
-    return this.taskRepo.save(task);
+  }
+
+  async getTaskById(id: string, userId: string) {
+    const task = await this.taskRepo.findOne({
+      where: { id, userId },
+      relations: ['reminders'],
+    });
+    if (!task) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Görev bulunamadı.' });
+    return task;
   }
 
   async updateTask(id: string, userId: string, dto: UpdateAgendaTaskDto) {
+    const raw = dto as UpdateAgendaTaskDto & { remindAt?: string | null };
+    const { remindAt, ...patch } = raw;
     const task = await this.taskRepo.findOne({ where: { id, userId } });
     if (!task) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Görev bulunamadı.' });
-    Object.assign(task, dto);
-    return this.taskRepo.save(task);
+    const nextRepeat = patch.repeat !== undefined ? patch.repeat : task.repeat;
+    const nextDue = patch.dueDate !== undefined ? patch.dueDate : task.dueDate;
+    this.assertRepeatRequiresDueDate(nextRepeat, nextDue);
+    Object.assign(task, patch);
+    await this.taskRepo.save(task);
+    if (remindAt !== undefined) {
+      await this.reminderRepo
+        .createQueryBuilder()
+        .delete()
+        .from(AgendaReminder)
+        .where('task_id = :taskId', { taskId: id })
+        .andWhere('push_sent = :sent', { sent: false })
+        .execute();
+      const ra = remindAt?.trim();
+      if (ra) await this.createReminder(userId, { taskId: id, remindAt: ra });
+    }
+    return this.getTaskById(id, userId);
   }
 
   async setTaskStatus(id: string, userId: string, status: AgendaTask['status']) {
@@ -190,7 +306,9 @@ export class TeacherAgendaService {
     if (!task) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Görev bulunamadı.' });
     task.status = status;
     task.completedAt = status === 'completed' ? new Date() : null;
-    return this.taskRepo.save(task);
+    const saved = await this.taskRepo.save(task);
+    if (status === 'completed') await this.spawnNextRecurringIfNeeded(task);
+    return saved;
   }
 
   async listTasks(userId: string, dto: ListAgendaTasksDto) {
@@ -283,24 +401,57 @@ export class TeacherAgendaService {
         });
     }
 
+    const startYmd = dto.start.slice(0, 10);
+    const endYmd = dto.end.slice(0, 10);
+    const expandFromYmd = this.ymdAddDaysUtc(startYmd, -800);
     const tasks = await this.taskRepo
       .createQueryBuilder('t')
       .where('t.user_id = :userId', { userId })
       .andWhere('t.source = :source', { source: 'PERSONAL' })
-      .andWhere('t.due_date >= :start', { start: dto.start.slice(0, 10) })
-      .andWhere('t.due_date <= :end', { end: dto.end.slice(0, 10) })
+      .andWhere(
+        new Brackets((qb) => {
+          qb.where('(t.due_date >= :start AND t.due_date <= :end)', { start: startYmd, end: endYmd }).orWhere(
+            '(t.status = :pending AND t.repeat IS NOT NULL AND t.repeat <> :rnone AND t.due_date <= :end AND t.due_date >= :expandFrom)',
+            { pending: 'pending', rnone: 'none', end: endYmd, expandFrom: expandFromYmd },
+          );
+        }),
+      )
       .getMany();
     for (const t of tasks) {
-      const startStr = t.dueTime ? `${t.dueDate}T${t.dueTime}:00` : `${t.dueDate}T09:00:00`;
-      events.push({
-        id: t.id,
-        type: 'task',
-        title: t.title,
-        start: startStr,
-        source: 'PERSONAL',
-        createdBy: currentUserName,
-        metadata: { status: t.status, priority: t.priority },
-      });
+      if (!t.dueDate) continue;
+      const inRange = t.dueDate >= startYmd && t.dueDate <= endYmd;
+      if (t.status === 'pending' && t.repeat && t.repeat !== 'none') {
+        const occ = this.expandTaskOccurrencesInCalendarRange(t.dueDate, t.repeat, startYmd, endYmd);
+        for (const ymd of occ) {
+          const startStr = t.dueTime ? `${ymd}T${t.dueTime}:00` : `${ymd}T09:00:00`;
+          const isAnchorDay = ymd === t.dueDate;
+          events.push({
+            id: isAnchorDay ? t.id : `task~${t.id}~${ymd}`,
+            type: 'task',
+            title: t.title,
+            start: startStr,
+            source: 'PERSONAL',
+            createdBy: currentUserName,
+            metadata: {
+              status: t.status,
+              priority: t.priority,
+              repeat: t.repeat,
+              ...(isAnchorDay ? {} : { recurringVirtual: true as const, taskId: t.id }),
+            },
+          });
+        }
+      } else if (inRange) {
+        const startStr = t.dueTime ? `${t.dueDate}T${t.dueTime}:00` : `${t.dueDate}T09:00:00`;
+        events.push({
+          id: t.id,
+          type: 'task',
+          title: t.title,
+          start: startStr,
+          source: 'PERSONAL',
+          createdBy: currentUserName,
+          metadata: { status: t.status, priority: t.priority },
+        });
+      }
     }
 
     if (schoolId && (role === UserRole.teacher || role === UserRole.school_admin)) {
@@ -358,7 +509,15 @@ export class TeacherAgendaService {
             start: dateStr,
             source: 'SCHOOL',
             createdBy: 'Nöbet Planı',
-            metadata: { area: s.area_name, shift: s.shift },
+            metadata: {
+              area: s.area_name,
+              shift: s.shift,
+              slotName: s.slot_name,
+              slotStartTime: s.slot_start_time,
+              slotEndTime: s.slot_end_time,
+              lessonNum: s.lesson_num,
+              note: s.note,
+            },
           });
         }
       } catch {
@@ -490,7 +649,10 @@ export class TeacherAgendaService {
             start: `${t.date}T08:00:00`,
             source: 'SCHOOL',
             createdBy: 'Ders Programı',
-            metadata: { lessonCount: t.lessonCount },
+            metadata: {
+              lessonCount: t.lessonCount,
+              lessons: t.lessons,
+            },
           });
         }
       } catch {
@@ -907,8 +1069,22 @@ export class TeacherAgendaService {
 
   async bulkUpdateTaskStatus(userId: string, ids: string[], status: string) {
     if (!ids?.length) return { updated: 0 };
-    const r = await this.taskRepo.update({ userId, id: In(ids) }, { status: status as 'pending' | 'completed' | 'overdue' | 'postponed' });
-    return { updated: r.affected ?? 0 };
+    const st = status as AgendaTask['status'];
+    if (st !== 'completed') {
+      const r = await this.taskRepo.update(
+        { userId, id: In(ids) },
+        { status: st, completedAt: null as unknown as Date },
+      );
+      return { updated: r.affected ?? 0 };
+    }
+    const tasks = await this.taskRepo.find({ where: { userId, id: In(ids) } });
+    for (const t of tasks) {
+      t.status = 'completed';
+      t.completedAt = new Date();
+      await this.taskRepo.save(t);
+      await this.spawnNextRecurringIfNeeded(t);
+    }
+    return { updated: tasks.length };
   }
 
   async searchAll(userId: string, schoolId: string | null, q: string, limit = 10) {
@@ -1005,10 +1181,19 @@ export class TeacherAgendaService {
     return this.criterionRepo.save(c);
   }
 
-  async updateCriterion(id: string, teacherId: string, dto: { name?: string; description?: string; maxScore?: number; scoreType?: 'numeric' | 'sign'; subjectId?: string; sortOrder?: number }) {
+  async updateCriterion(
+    id: string,
+    teacherId: string,
+    dto: { name?: string; description?: string | null; maxScore?: number; scoreType?: 'numeric' | 'sign'; subjectId?: string | null; sortOrder?: number },
+  ) {
     const c = await this.criterionRepo.findOne({ where: { id, teacherId } });
     if (!c) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Kriter bulunamadı.' });
-    Object.assign(c, dto);
+    if (dto.name !== undefined) c.name = dto.name;
+    if (dto.description !== undefined) c.description = dto.description;
+    if (dto.maxScore !== undefined) c.maxScore = dto.maxScore;
+    if (dto.scoreType !== undefined) c.scoreType = dto.scoreType;
+    if (dto.sortOrder !== undefined) c.sortOrder = dto.sortOrder;
+    if (dto.subjectId !== undefined) c.subjectId = dto.subjectId;
     return this.criterionRepo.save(c);
   }
 

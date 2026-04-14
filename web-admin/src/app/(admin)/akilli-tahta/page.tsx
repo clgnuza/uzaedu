@@ -19,8 +19,6 @@ import {
   UserPlus,
   UserMinus,
   Users,
-  CheckCircle2,
-  XCircle,
   LayoutDashboard,
   Activity,
   Settings,
@@ -30,10 +28,13 @@ import {
   Search,
   PowerOff,
   Filter,
-  Info,
   Table2,
+  BarChart3,
+  KeyRound,
 } from 'lucide-react';
-import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Device, AuthorizedTeacher, Session, Status } from './types';
 import { TeacherDeviceCard } from './components/TeacherDeviceCard';
@@ -43,8 +44,11 @@ import { EditDeviceDialog } from './components/EditDeviceDialog';
 import { AddDeviceDialog } from './components/AddDeviceDialog';
 import { DeviceScheduleDialog } from './components/DeviceScheduleDialog';
 import { FloorPlanEditor } from './components/FloorPlanEditor';
+import { SmartBoardUsagePanel } from './components/SmartBoardUsagePanel';
 import { SmartBoardSettings } from './components/SmartBoardSettings';
+import { TeacherSmartBoardHero } from './components/TeacherSmartBoardHero';
 import { TURKEY_CITIES, getDistrictsForCity } from '@/lib/turkey-addresses';
+import { cn } from '@/lib/utils';
 
 function buildSchoolsQuery(params: { limit: number; city?: string; district?: string }): string {
   const u = new URLSearchParams();
@@ -57,22 +61,29 @@ function buildSchoolsQuery(params: { limit: number; city?: string; district?: st
 
 /** Sekme accent renkleri – kullanım kolaylığı ve görsel hiyerarşi */
 const ADMIN_TABS = [
-  { id: 'genel-bakis', label: 'Genel Bakış', icon: LayoutDashboard, accent: 'primary' },
-  { id: 'cihazlar', label: 'Cihazlar', icon: Monitor, accent: 'teal' },
-  { id: 'yerlesim', label: 'Yerleşim', icon: MapPin, accent: 'amber' },
-  { id: 'yetkiler', label: 'Yetkili Öğretmenler', icon: Users, accent: 'violet' },
-  { id: 'oturumlar', label: 'Oturumlar', icon: Activity, accent: 'emerald' },
-  { id: 'ayarlar', label: 'Ayarlar', icon: Settings, accent: 'slate' },
+  { id: 'genel-bakis', label: 'Genel Bakış', shortLabel: 'Genel', icon: LayoutDashboard, accent: 'primary' },
+  { id: 'cihazlar', label: 'Cihazlar', shortLabel: 'Cihaz', icon: Monitor, accent: 'teal' },
+  { id: 'yerlesim', label: 'Yerleşim', shortLabel: 'Yer', icon: MapPin, accent: 'amber' },
+  { id: 'yetkiler', label: 'Yetkili Öğretmenler', shortLabel: 'Yetki', icon: Users, accent: 'violet' },
+  { id: 'oturumlar', label: 'Oturumlar', shortLabel: 'Oturum', icon: Activity, accent: 'emerald' },
+  { id: 'istatistikler', label: 'İstatistikler', shortLabel: 'İstat.', icon: BarChart3, accent: 'rose' },
+  { id: 'ayarlar', label: 'Ayarlar', shortLabel: 'Ayar', icon: Settings, accent: 'slate' },
 ] as const;
 
 function getTabActiveStyles(accent: string): string {
   const map: Record<string, string> = {
-    primary: 'bg-primary/12 text-primary border-primary/30 dark:bg-primary/20',
-    teal: 'bg-teal-500/12 text-teal-700 border-teal-500/30 dark:bg-teal-400/20 dark:text-teal-300',
-    amber: 'bg-amber-500/12 text-amber-700 border-amber-500/30 dark:bg-amber-400/20 dark:text-amber-300',
-    violet: 'bg-violet-500/12 text-violet-700 border-violet-500/30 dark:bg-violet-400/20 dark:text-violet-300',
-    emerald: 'bg-emerald-500/12 text-emerald-700 border-emerald-500/30 dark:bg-emerald-400/20 dark:text-emerald-300',
-    slate: 'bg-slate-500/12 text-slate-700 border-slate-500/30 dark:bg-slate-400/20 dark:text-slate-300',
+    primary:
+      'bg-primary/14 text-primary border-primary/35 shadow-sm ring-2 ring-primary/25 dark:bg-primary/20',
+    teal: 'bg-teal-500/14 text-teal-800 border-teal-500/35 shadow-sm ring-2 ring-teal-500/20 dark:bg-teal-400/15 dark:text-teal-200',
+    amber:
+      'bg-amber-500/14 text-amber-900 border-amber-500/35 shadow-sm ring-2 ring-amber-500/20 dark:bg-amber-400/15 dark:text-amber-100',
+    violet:
+      'bg-violet-500/14 text-violet-900 border-violet-500/35 shadow-sm ring-2 ring-violet-500/20 dark:bg-violet-400/15 dark:text-violet-100',
+    emerald:
+      'bg-emerald-500/14 text-emerald-900 border-emerald-500/35 shadow-sm ring-2 ring-emerald-500/20 dark:bg-emerald-400/15 dark:text-emerald-100',
+    slate:
+      'bg-slate-500/14 text-slate-800 border-slate-500/35 shadow-sm ring-2 ring-slate-400/25 dark:bg-slate-400/15 dark:text-slate-100',
+    rose: 'bg-rose-500/14 text-rose-900 border-rose-500/35 shadow-sm ring-2 ring-rose-500/20 dark:bg-rose-400/15 dark:text-rose-100',
   };
   return map[accent] ?? map.primary;
 }
@@ -102,6 +113,10 @@ export default function AkilliTahtaPage() {
   const [teacherSearch, setTeacherSearch] = useState('');
   const [teacherFilterMyClasses, setTeacherFilterMyClasses] = useState(false);
   const [yetkilerSearch, setYetkilerSearch] = useState('');
+  const [usbPinFor, setUsbPinFor] = useState<AuthorizedTeacher | null>(null);
+  const [usbPinInput, setUsbPinInput] = useState('');
+  const [usbPinSaving, setUsbPinSaving] = useState(false);
+  const [teacherDeviceSort, setTeacherDeviceSort] = useState<'recent' | 'name' | 'online'>('recent');
   const [schoolFilters, setSchoolFilters] = useState({ city: '', district: '' });
   const schoolFiltersRef = useRef(schoolFilters);
   schoolFiltersRef.current = schoolFilters;
@@ -386,6 +401,31 @@ export default function AkilliTahtaPage() {
     }
   };
 
+  const handleSaveUsbPin = async () => {
+    if (!token || !effectiveSchoolId || !usbPinFor) return;
+    const trimmed = usbPinInput.trim();
+    if (trimmed.length > 0 && (trimmed.length < 4 || trimmed.length > 8)) {
+      toast.error('PIN 4–8 haneli olmalıdır.');
+      return;
+    }
+    setUsbPinSaving(true);
+    try {
+      await apiFetch(`/smart-board/schools/${effectiveSchoolId}/teachers/${usbPinFor.user_id}/usb-pin`, {
+        method: 'PATCH',
+        body: JSON.stringify({ pin: trimmed === '' ? null : trimmed }),
+        token,
+      });
+      toast.success(trimmed === '' ? 'PIN kaldırıldı.' : 'PIN kaydedildi.');
+      setUsbPinFor(null);
+      setUsbPinInput('');
+      fetchAuthorizedTeachers();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'İşlem başarısız.');
+    } finally {
+      setUsbPinSaving(false);
+    }
+  };
+
   const copyPairingCode = (code: string) => {
     navigator.clipboard?.writeText(code);
     toast.success('Eşleme kodu kopyalandı: ' + code);
@@ -569,16 +609,20 @@ export default function AkilliTahtaPage() {
               ? `Akıllı Tahta – ${schools.find((s) => s.id === effectiveSchoolId)?.name ?? 'Okul'}`
               : 'Akıllı Tahta'}
           </ToolbarPageTitle>
-          <ToolbarIconHints
-            items={[
-              { label: 'Tahta cihazları', icon: Monitor },
-              { label: 'Yetkili öğretmenler', icon: Users },
-              { label: 'Bağlantı oturumları', icon: Activity },
-              { label: 'Ders programı verisi', icon: Table2 },
-              { label: 'Modül ayarı', icon: Puzzle },
-            ]}
-            summary="Tahta cihazları, yetkili öğretmenler ve bağlantı oturumları. Ders ve öğretmen bilgisi Ders Programı ayarlarından otomatik alınır. Modül aç/kapa Modüller sayfasından yapılır."
-          />
+          {!isTeacher ? (
+            <div className="hidden min-w-0 lg:block">
+              <ToolbarIconHints
+                items={[
+                  { label: 'Tahta cihazları', icon: Monitor },
+                  { label: 'Yetkili öğretmenler', icon: Users },
+                  { label: 'Bağlantı oturumları', icon: Activity },
+                  { label: 'Ders programı verisi', icon: Table2 },
+                  { label: 'Modül ayarı', icon: Puzzle },
+                ]}
+                summary="Tahta cihazları, yetkili öğretmenler ve bağlantı oturumları. Ders ve öğretmen bilgisi Ders Programı ayarlarından otomatik alınır. Modül aç/kapa Modüller sayfasından yapılır."
+              />
+            </div>
+          ) : null}
         </ToolbarHeading>
         <ToolbarActions>
           {isSuperadmin && (
@@ -652,10 +696,11 @@ export default function AkilliTahtaPage() {
             </span>
           )}
           {isSchoolAdmin && effectiveSchoolId && (
-            <Link href="/tv" className="inline-flex">
-              <Button variant="outline" size="sm">
-                <Tv className="mr-2 size-4" />
-                Duyuru TV
+            <Link href="/tv" className="inline-flex min-w-0">
+              <Button variant="outline" size="sm" className="h-8 shrink-0 gap-1 px-2 text-xs sm:h-9 sm:gap-2 sm:px-3 sm:text-sm">
+                <Tv className="size-3.5 shrink-0 sm:mr-0 sm:size-4" />
+                <span className="max-sm:hidden">Duyuru TV</span>
+                <span className="sm:hidden">TV</span>
               </Button>
             </Link>
           )}
@@ -705,103 +750,100 @@ export default function AkilliTahtaPage() {
       )}
 
       {isTeacher && (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Monitor className="size-5" />
-              Modül Durumu
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {status ? (
-              <div className="flex flex-wrap gap-4">
-                <div className="flex items-center gap-2">
-                  {status.enabled ? (
-                    <CheckCircle2 className="size-5 text-emerald-500" />
-                  ) : (
-                    <XCircle className="size-5 text-red-500" />
-                  )}
-                  <span>{status.enabled ? 'Modül açık' : 'Modül kapalı'}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {status.authorized ? (
-                    <CheckCircle2 className="size-5 text-emerald-500" />
-                  ) : (
-                    <XCircle className="size-5 text-amber-500" />
-                  )}
-                  <span>
-                    {status.authorized
-                      ? 'Tahtaya bağlanma yetkiniz var'
-                      : 'Henüz yetkili değilsiniz. Okul idaresiyle iletişime geçerek tahtaya bağlanma yetkisi talep edin.'}
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <p className="text-muted-foreground">Durum yükleniyor…</p>
-            )}
-          </CardContent>
-        </Card>
+        <TeacherSmartBoardHero
+          status={status}
+          deviceCount={devices.length}
+          schoolName={me?.school?.name}
+        />
       )}
 
       {isTeacher && status?.mySession && (
-        <div className="mb-6 sticky top-0 z-10 flex items-center justify-between gap-4 rounded-xl border-2 border-emerald-500/40 bg-emerald-500/10 px-4 py-3 shadow-md">
-          <div className="flex items-center gap-2">
-            <div className="flex size-10 items-center justify-center rounded-full bg-emerald-500/20">
-              <Monitor className="size-5 text-emerald-600" />
+        <div className="mb-4 sticky top-0 z-10 flex flex-col gap-3 rounded-xl border-2 border-emerald-500/45 bg-emerald-500/10 px-3 py-3 shadow-md sm:mb-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-4">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/25 sm:size-10">
+              <Monitor className="size-4 text-emerald-700 sm:size-5 dark:text-emerald-300" />
             </div>
-            <div>
-              <p className="font-semibold text-emerald-800 dark:text-emerald-200">
-                {status.mySession.device_name} sınıfına bağlısınız
+            <div className="min-w-0">
+              <p className="text-sm font-semibold leading-tight text-emerald-900 dark:text-emerald-100">
+                {status.mySession.device_name}
               </p>
-              <p className="text-sm text-muted-foreground">Bağlantı aktif. Tahtayı kullanabilirsiniz.</p>
+              <p className="text-xs text-muted-foreground">Bağlantı aktif</p>
             </div>
           </div>
           <Button
             variant="outline"
             size="sm"
-            className="border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-900/30"
+            className="w-full shrink-0 border-amber-300 text-amber-800 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-950/40 sm:w-auto"
             onClick={() => handleDisconnect(status.mySession!.session_id)}
           >
             <PowerOff className="mr-1 size-4" />
-            Bağlantıyı Kes
+            Bağlantıyı kes
           </Button>
         </div>
       )}
 
       {isTeacher && status?.authorized && (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>Tahtalar</CardTitle>
+        <Card className="mb-3 overflow-hidden border-teal-200/45 shadow-sm dark:border-teal-900/35 sm:mb-6">
+          <CardHeader className="space-y-2 border-b border-teal-200/40 bg-teal-500/6 px-3 py-2.5 dark:border-teal-900/40 sm:space-y-0 sm:px-6 sm:py-4">
+            <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
+              <span className="flex size-7 items-center justify-center rounded-lg bg-teal-500/15 sm:size-8">
+                <Monitor className="size-3.5 text-teal-700 dark:text-teal-400 sm:size-4" />
+              </span>
+              Tahtalar
+            </CardTitle>
             {devices.length > 0 && (
-              <div className="mt-4 flex flex-wrap items-center gap-3">
-                <div className="relative w-full flex-1 sm:min-w-[180px] sm:max-w-xs">
-                  <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <div className="flex flex-col gap-2 sm:mt-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+                <div className="relative w-full flex-1 sm:min-w-[200px] sm:max-w-sm">
+                  <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground sm:left-2.5 sm:size-4" />
                   <input
                     type="search"
-                    placeholder="Sınıf, lokasyon veya tahta adı ara…"
+                    placeholder="Sınıf, lokasyon veya kod ara…"
                     value={teacherSearch}
                     onChange={(e) => setTeacherSearch(e.target.value)}
-                    className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    className="h-8 w-full rounded-lg border border-input bg-background pl-8 pr-2 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-9 sm:pl-9 sm:pr-3 sm:text-sm"
                   />
+                </div>
+                <div className="flex flex-wrap items-center gap-1">
+                  {(
+                    [
+                      { id: 'recent' as const, label: 'Son kullanılan' },
+                      { id: 'name' as const, label: 'Ada göre' },
+                      { id: 'online' as const, label: 'Önce açık' },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setTeacherDeviceSort(opt.id)}
+                      className={cn(
+                        'rounded-md border px-2 py-1 text-[10px] font-medium transition-colors sm:text-xs',
+                        teacherDeviceSort === opt.id
+                          ? 'border-teal-600 bg-teal-500/20 text-teal-900 dark:border-teal-500 dark:text-teal-100'
+                          : 'border-border/60 bg-background/80 text-muted-foreground hover:bg-muted/50',
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
                 </div>
                 {status.myClassSections && status.myClassSections.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setTeacherFilterMyClasses((v) => !v)}
-                    className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                    className={`flex h-8 items-center justify-center gap-1 rounded-lg border px-2.5 text-[10px] font-medium transition-colors sm:h-9 sm:gap-1.5 sm:px-3 sm:text-sm ${
                       teacherFilterMyClasses
-                        ? 'border-primary bg-primary/10 text-primary'
+                        ? 'border-teal-600 bg-teal-500/15 text-teal-900 dark:border-teal-500 dark:text-teal-100'
                         : 'border-border hover:bg-muted/50'
                     }`}
                   >
-                    <Filter className="size-4" />
-                    Benim sınıflarım
+                    <Filter className="size-3 sm:size-4" />
+                    Sınıflarım
                   </button>
                 )}
               </div>
             )}
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-3 py-2 sm:px-6 sm:py-6">
             {devices.length === 0 ? (
               <EmptyState
                 icon={<Monitor className="size-10 text-muted-foreground" />}
@@ -836,11 +878,16 @@ export default function AkilliTahtaPage() {
                 return name.includes(q) || room.includes(q) || cs.includes(q) || code.includes(q);
               });
               filtered = filtered.sort((a, b) => {
-                if (lastConnected) {
+                if (teacherDeviceSort === 'online') {
+                  const ao = a.status === 'online' ? 0 : 1;
+                  const bo = b.status === 'online' ? 0 : 1;
+                  if (ao !== bo) return ao - bo;
+                }
+                if (teacherDeviceSort === 'recent' && lastConnected) {
                   if (a.id === lastConnected) return -1;
                   if (b.id === lastConnected) return 1;
                 }
-                return (a.name ?? '').localeCompare(b.name ?? '');
+                return (a.name ?? '').localeCompare(b.name ?? '', 'tr');
               });
               return filtered.length === 0 ? (
                 <EmptyState
@@ -871,128 +918,158 @@ export default function AkilliTahtaPage() {
       {canView && (
         <>
           {isSuperadmin && (
-            <Alert variant="info" className="mb-6">
-              Tahta ekleme, yetki verme ve bağlantı sonlandırma işlemleri okul yöneticisi tarafından yapılır. Modül aç/kapa için Okullar sayfasını kullanın.
+            <Alert variant="info" className="mb-3 text-[11px] leading-snug sm:mb-6 sm:text-sm">
+              Tahta ekleme, yetki ve oturum sonlandırma okul yöneticisindedir. Modül aç/kapa: Okullar.
             </Alert>
           )}
 
-          <div className="mobile-tab-scroll mb-6 pb-1">
+          <div className="akilli-tahta-admin-scope min-w-0 max-w-full overflow-x-hidden">
             <nav
-              className="flex min-w-max gap-1 rounded-xl border border-border/80 bg-muted/35 p-1.5 shadow-sm"
+              className="akilli-tahta-tabnav -mx-1 mb-2 flex min-w-0 snap-x snap-mandatory gap-1 overflow-x-auto overscroll-x-contain px-1 pb-1 pt-0.5 [scrollbar-width:none] sm:mx-0 sm:mb-6 sm:flex-wrap sm:overflow-visible sm:rounded-2xl sm:border sm:border-border/70 sm:bg-muted/40 sm:p-1.5 sm:pb-1.5 sm:pt-1.5 sm:shadow-sm sm:snap-none [&::-webkit-scrollbar]:hidden"
               aria-label="Akıllı Tahta sekmeleri"
             >
               {ADMIN_TABS.map((t) => {
                 const Icon = t.icon;
                 const isActive = adminTab === t.id;
+                const idleTint =
+                  t.accent === 'primary'
+                    ? 'border-primary/15 bg-primary/5'
+                    : t.accent === 'teal'
+                      ? 'border-teal-500/20 bg-teal-500/8'
+                      : t.accent === 'amber'
+                        ? 'border-amber-500/20 bg-amber-500/8'
+                        : t.accent === 'violet'
+                          ? 'border-violet-500/20 bg-violet-500/8'
+                          : t.accent === 'emerald'
+                            ? 'border-emerald-500/20 bg-emerald-500/8'
+                            : t.accent === 'rose'
+                              ? 'border-rose-500/20 bg-rose-500/8'
+                              : 'border-slate-400/20 bg-slate-500/8';
                 return (
                   <Link
                     key={t.id}
                     href={`/akilli-tahta?tab=${t.id}`}
+                    title={t.label}
                     aria-current={isActive ? 'page' : undefined}
-                    className={`flex shrink-0 items-center gap-2.5 rounded-lg border px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                    className={cn(
+                      'flex min-h-0 shrink-0 snap-start flex-col items-center justify-center gap-0.5 rounded-lg border px-2 py-1.5 text-center text-[9px] font-semibold leading-tight transition-all duration-200 max-sm:min-w-[4.25rem] sm:min-h-0 sm:flex-initial sm:flex-row sm:gap-2 sm:rounded-xl sm:border-2 sm:px-3 sm:py-2.5 sm:text-left sm:text-sm',
                       isActive
-                        ? `${getTabActiveStyles(t.accent)} shadow-md`
-                        : 'border-transparent text-muted-foreground hover:bg-background/80 hover:text-foreground'
-                    }`}
+                        ? getTabActiveStyles(t.accent)
+                        : cn('text-muted-foreground active:opacity-90', idleTint, 'sm:border-transparent sm:bg-transparent sm:hover:bg-background/90'),
+                    )}
                   >
-                    <Icon className={`shrink-0 ${isActive ? 'size-5' : 'size-4'}`} />
-                    {t.label}
+                    <Icon className="size-3.5 shrink-0 sm:size-4" />
+                    <span className="line-clamp-2 max-sm:leading-[1.15] sm:hidden">{t.shortLabel}</span>
+                    <span className="hidden sm:inline">{t.label}</span>
                   </Link>
                 );
               })}
             </nav>
-          </div>
 
           {adminTab === 'genel-bakis' && (
-            <div className="space-y-6">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <Card className="overflow-hidden border-border/80 shadow-sm transition-all hover:shadow-md hover:border-teal-200 dark:hover:border-teal-900/40">
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Kayıtlı Tahta</CardTitle>
-                    <div className="rounded-xl bg-teal-500/15 p-2.5">
-                      <Monitor className="size-5 text-teal-600 dark:text-teal-400" />
+            <div className="space-y-2 sm:space-y-6">
+              <div className="grid grid-cols-2 gap-1.5 lg:grid-cols-4 sm:gap-4">
+                <Card className="overflow-hidden border-teal-200/50 bg-teal-500/[0.06] shadow-sm transition-all dark:border-teal-900/40 sm:border-border/80 sm:bg-card sm:dark:border-border/80">
+                  <CardHeader className="flex flex-row items-center justify-between gap-1 px-2 py-1.5 pb-0 sm:px-3 sm:py-2 sm:pb-1">
+                    <CardTitle className="text-[10px] font-semibold leading-tight text-muted-foreground sm:text-sm sm:font-medium">
+                      Kayıtlı tahta
+                    </CardTitle>
+                    <div className="rounded-md bg-teal-500/15 p-1 sm:rounded-xl sm:p-2.5">
+                      <Monitor className="size-3.5 text-teal-600 dark:text-teal-400 sm:size-5" />
                     </div>
                   </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold tracking-tight">{devices.length}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Toplam cihaz</p>
+                  <CardContent className="px-2 pb-2 pt-0 sm:px-3 sm:pb-3">
+                    <p className="text-lg font-bold tabular-nums tracking-tight sm:text-3xl">{devices.length}</p>
+                    <p className="mt-0.5 text-[9px] text-muted-foreground sm:mt-1 sm:text-xs">Toplam cihaz</p>
                   </CardContent>
                 </Card>
-                <Card className="overflow-hidden border-border/80 shadow-sm transition-all hover:shadow-md hover:border-emerald-200 dark:hover:border-emerald-900/40">
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Çevrimiçi</CardTitle>
-                    <div className="rounded-xl bg-emerald-500/15 p-2.5">
-                      <Monitor className="size-5 text-emerald-600 dark:text-emerald-400" />
+                <Card className="overflow-hidden border-emerald-200/50 bg-emerald-500/[0.06] shadow-sm transition-all dark:border-emerald-900/40 sm:border-border/80 sm:bg-card sm:dark:border-border/80">
+                  <CardHeader className="flex flex-row items-center justify-between gap-1 px-2 py-1.5 pb-0 sm:px-3 sm:py-2 sm:pb-1">
+                    <CardTitle className="text-[10px] font-semibold leading-tight text-muted-foreground sm:text-sm sm:font-medium">
+                      Çevrimiçi
+                    </CardTitle>
+                    <div className="rounded-md bg-emerald-500/15 p-1 sm:rounded-xl sm:p-2.5">
+                      <Monitor className="size-3.5 text-emerald-600 dark:text-emerald-400 sm:size-5" />
                     </div>
                   </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">
+                  <CardContent className="px-2 pb-2 pt-0 sm:px-3 sm:pb-3">
+                    <p className="text-lg font-bold tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400 sm:text-3xl">
                       {devices.filter((d) => d.status === 'online').length}
                     </p>
-                    <p className="text-xs text-muted-foreground mt-1">Şu an aktif</p>
+                    <p className="mt-0.5 text-[9px] text-muted-foreground sm:mt-1 sm:text-xs">Şu an aktif</p>
                   </CardContent>
                 </Card>
-                <Card className="overflow-hidden border-border/80 shadow-sm transition-all hover:shadow-md hover:border-violet-200 dark:hover:border-violet-900/40">
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Yetkili Öğretmen</CardTitle>
-                    <div className="rounded-xl bg-violet-500/15 p-2.5">
-                      <Users className="size-5 text-violet-600 dark:text-violet-400" />
+                <Card className="overflow-hidden border-violet-200/50 bg-violet-500/[0.06] shadow-sm transition-all dark:border-violet-900/40 sm:border-border/80 sm:bg-card sm:dark:border-border/80">
+                  <CardHeader className="flex flex-row items-center justify-between gap-1 px-2 py-1.5 pb-0 sm:px-3 sm:py-2 sm:pb-1">
+                    <CardTitle className="text-[10px] font-semibold leading-tight text-muted-foreground sm:text-sm sm:font-medium">
+                      Yetkili öğretmen
+                    </CardTitle>
+                    <div className="rounded-md bg-violet-500/15 p-1 sm:rounded-xl sm:p-2.5">
+                      <Users className="size-3.5 text-violet-600 dark:text-violet-400 sm:size-5" />
                     </div>
                   </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold tracking-tight">{authorizedTeachers.length}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Bağlanabilir</p>
+                  <CardContent className="px-2 pb-2 pt-0 sm:px-3 sm:pb-3">
+                    <p className="text-lg font-bold tabular-nums tracking-tight sm:text-3xl">{authorizedTeachers.length}</p>
+                    <p className="mt-0.5 text-[9px] text-muted-foreground sm:mt-1 sm:text-xs">Bağlanabilir</p>
                   </CardContent>
                 </Card>
-                <Card className="overflow-hidden border-border/80 shadow-sm transition-all hover:shadow-md hover:border-amber-200 dark:hover:border-amber-900/40">
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Bugün Bağlanan</CardTitle>
-                    <div className="rounded-xl bg-amber-500/15 p-2.5">
-                      <Activity className="size-5 text-amber-600 dark:text-amber-400" />
+                <Card className="overflow-hidden border-amber-200/50 bg-amber-500/[0.06] shadow-sm transition-all dark:border-amber-900/40 sm:border-border/80 sm:bg-card sm:dark:border-border/80">
+                  <CardHeader className="flex flex-row items-center justify-between gap-1 px-2 py-1.5 pb-0 sm:px-3 sm:py-2 sm:pb-1">
+                    <CardTitle className="text-[10px] font-semibold leading-tight text-muted-foreground sm:text-sm sm:font-medium">
+                      Bugün bağlanan
+                    </CardTitle>
+                    <div className="rounded-md bg-amber-500/15 p-1 sm:rounded-xl sm:p-2.5">
+                      <Activity className="size-3.5 text-amber-600 dark:text-amber-400 sm:size-5" />
                     </div>
                   </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold tracking-tight">{sessionsToday.length}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Oturum sayısı</p>
+                  <CardContent className="px-2 pb-2 pt-0 sm:px-3 sm:pb-3">
+                    <p className="text-lg font-bold tabular-nums tracking-tight sm:text-3xl">{sessionsToday.length}</p>
+                    <p className="mt-0.5 text-[9px] text-muted-foreground sm:mt-1 sm:text-xs">Oturum</p>
                   </CardContent>
                 </Card>
               </div>
               <Card className="border-border/80">
-                <CardHeader>
-                  <CardTitle className="text-base">Hızlı Erişim</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    Tahta ekleme, yetki verme ve oturum yönetimi için ilgili sekmelere gidin. Ders/öğretmen bilgisi için Ders Programı ayarlarınızı güncelleyin.
+                <CardHeader className="space-y-1 px-3 py-2 sm:px-6 sm:py-6">
+                  <CardTitle className="text-xs sm:text-base">Hızlı erişim</CardTitle>
+                  <p className="line-clamp-3 text-[11px] leading-snug text-muted-foreground sm:line-clamp-none sm:text-sm">
+                    Sekmeler veya aşağıdaki kısayollar. Ders bilgisi: Ders Programı.
                   </p>
                 </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-3">
-                    <Link href="/ders-programi">
-                      <Button variant="secondary" size="sm">
-                        Ders Programı
+                <CardContent className="px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
+                  <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
+                    <Link href="/ders-programi" className="min-w-0">
+                      <Button variant="secondary" size="sm" className="h-9 w-full justify-center gap-1 px-2 text-[11px] sm:h-10 sm:w-auto sm:text-sm">
+                        Ders prog.
                       </Button>
                     </Link>
-                    <Link href="/akilli-tahta?tab=cihazlar">
-                      <Button variant="outline" size="sm" className="border-teal-200 hover:bg-teal-50 hover:border-teal-300 dark:border-teal-800 dark:hover:bg-teal-950/50">
-                        <Monitor className="mr-2 size-4 text-teal-600 dark:text-teal-400" />
+                    <Link href="/akilli-tahta?tab=cihazlar" className="min-w-0">
+                      <Button variant="outline" size="sm" className="h-9 w-full justify-center gap-1 border-teal-200 px-2 text-[11px] hover:bg-teal-50 hover:border-teal-300 dark:border-teal-800 dark:hover:bg-teal-950/50 sm:h-10 sm:w-auto sm:text-sm">
+                        <Monitor className="size-3.5 shrink-0 text-teal-600 dark:text-teal-400 sm:mr-1 sm:size-4" />
                         Cihazlar
                       </Button>
                     </Link>
-                    <Link href="/akilli-tahta?tab=yerlesim">
-                      <Button variant="outline" size="sm" className="border-amber-200 hover:bg-amber-50 hover:border-amber-300 dark:border-amber-800 dark:hover:bg-amber-950/50">
-                        <MapPin className="mr-2 size-4 text-amber-600 dark:text-amber-400" />
+                    <Link href="/akilli-tahta?tab=yerlesim" className="min-w-0">
+                      <Button variant="outline" size="sm" className="h-9 w-full justify-center gap-1 border-amber-200 px-2 text-[11px] hover:bg-amber-50 dark:border-amber-800 dark:hover:bg-amber-950/50 sm:h-10 sm:w-auto sm:text-sm">
+                        <MapPin className="size-3.5 shrink-0 text-amber-600 sm:mr-1 sm:size-4" />
                         Yerleşim
                       </Button>
                     </Link>
-                    <Link href="/akilli-tahta?tab=yetkiler">
-                      <Button variant="outline" size="sm" className="border-violet-200 hover:bg-violet-50 hover:border-violet-300 dark:border-violet-800 dark:hover:bg-violet-950/50">
-                        <Users className="mr-2 size-4 text-violet-600 dark:text-violet-400" />
-                        Yetkili Öğretmenler
+                    <Link href="/akilli-tahta?tab=yetkiler" className="min-w-0">
+                      <Button variant="outline" size="sm" className="h-9 w-full justify-center gap-1 border-violet-200 px-2 text-[11px] hover:bg-violet-50 dark:border-violet-800 dark:hover:bg-violet-950/50 sm:h-10 sm:w-auto sm:text-sm">
+                        <Users className="size-3.5 shrink-0 text-violet-600 sm:mr-1 sm:size-4" />
+                        <span className="truncate">Yetkiler</span>
                       </Button>
                     </Link>
-                    <Link href="/akilli-tahta?tab=oturumlar">
-                      <Button variant="outline" size="sm" className="border-emerald-200 hover:bg-emerald-50 hover:border-emerald-300 dark:border-emerald-800 dark:hover:bg-emerald-950/50">
-                        <Activity className="mr-2 size-4 text-emerald-600 dark:text-emerald-400" />
-                        Oturumlar
+                    <Link href="/akilli-tahta?tab=oturumlar" className="min-w-0 sm:col-span-1">
+                      <Button variant="outline" size="sm" className="h-9 w-full justify-center gap-1 border-emerald-200 px-2 text-[11px] hover:bg-emerald-50 dark:border-emerald-800 dark:hover:bg-emerald-950/50 sm:h-10 sm:w-auto sm:text-sm">
+                        <Activity className="size-3.5 shrink-0 text-emerald-600 sm:mr-1 sm:size-4" />
+                        Oturum
+                      </Button>
+                    </Link>
+                    <Link href="/akilli-tahta?tab=istatistikler" className="min-w-0">
+                      <Button variant="outline" size="sm" className="h-9 w-full justify-center gap-1 border-rose-200 px-2 text-[11px] hover:bg-rose-50 dark:border-rose-800 dark:hover:bg-rose-950/50 sm:h-10 sm:w-auto sm:text-sm">
+                        <BarChart3 className="size-3.5 shrink-0 text-rose-600 sm:mr-1 sm:size-4" />
+                        İstatistik
                       </Button>
                     </Link>
                   </div>
@@ -1002,11 +1079,13 @@ export default function AkilliTahtaPage() {
           )}
 
           {adminTab === 'cihazlar' && (
-            <Card className="mb-6">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <Monitor className="size-5" />
-                  Tahta Cihazları
+            <Card className="mb-4 overflow-hidden border-teal-200/40 dark:border-teal-900/35 sm:mb-6">
+              <CardHeader className="flex flex-col gap-2 border-b border-teal-200/40 bg-teal-500/6 px-3 py-2.5 dark:border-teal-900/40 sm:flex-row sm:items-center sm:justify-between sm:py-4">
+                <CardTitle className="flex min-w-0 items-center gap-2 text-sm sm:text-base">
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-teal-500/15 sm:size-8">
+                    <Monitor className="size-3.5 text-teal-700 dark:text-teal-400 sm:size-4" />
+                  </span>
+                  Tahta cihazları
                 </CardTitle>
                 {canManage && (
                   <AddDeviceDialog
@@ -1018,20 +1097,20 @@ export default function AkilliTahtaPage() {
                       toast.success('Tahta eklendi. Eşleme kodu: ' + device.pairing_code);
                     }}
                     trigger={
-                      <Button size="sm">
-                        <Plus className="mr-2 size-4" />
-                        Tahta Ekle
+                      <Button size="sm" className="h-9 w-full gap-1.5 sm:h-10 sm:w-auto">
+                        <Plus className="size-4 shrink-0 sm:mr-0" />
+                        Tahta ekle
                       </Button>
                     }
                   />
                 )}
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex gap-3 rounded-lg border border-sky-200/80 bg-sky-50/50 px-3 py-2.5 text-sm text-sky-950 dark:border-sky-800/60 dark:bg-sky-950/30 dark:text-sky-100">
-                  <Tv className="mt-0.5 size-5 shrink-0 text-sky-600 dark:text-sky-400" aria-hidden />
-                  <div className="min-w-0 space-y-1">
-                    <p className="font-medium text-foreground">Sınıf ekranında Duyuru TV (akış)</p>
-                    <ol className="list-decimal space-y-1 pl-4 text-xs leading-relaxed text-muted-foreground">
+              <CardContent className="space-y-3 px-3 sm:space-y-4 sm:px-6">
+                <div className="flex gap-2 rounded-lg border border-sky-200/80 bg-sky-50/70 px-2 py-1.5 text-sky-950 dark:border-sky-800/60 dark:bg-sky-950/35 dark:text-sky-100 sm:gap-3 sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm">
+                  <Tv className="mt-0.5 size-3.5 shrink-0 text-sky-600 dark:text-sky-400 sm:size-5" aria-hidden />
+                  <div className="max-h-38 min-w-0 space-y-0.5 overflow-y-auto pr-0.5 sm:max-h-none sm:space-y-1 sm:overflow-visible">
+                    <p className="text-[11px] font-semibold leading-tight text-foreground sm:text-sm">Duyuru TV · sınıf ekranı</p>
+                    <ol className="list-decimal space-y-0.5 pl-3 text-[10px] leading-snug text-muted-foreground sm:space-y-1 sm:pl-4 sm:text-xs sm:leading-relaxed">
                       <li>
                         Bu listede <strong className="text-foreground">Tahta Ekle</strong> ile cihaz oluşturun;{' '}
                         <strong className="text-foreground">eşleme kodunu</strong> sınıftaki tahta uygulamasında girin (tahta ↔ panel kaydı).
@@ -1100,39 +1179,31 @@ export default function AkilliTahtaPage() {
           )}
 
           {adminTab === 'yetkiler' && (
-            <div className="space-y-4">
-              <Card className="border-violet-200/80 bg-violet-50/30 dark:border-violet-900/50 dark:bg-violet-950/20">
-                <CardContent className="flex gap-3 pt-4">
-                  <Info className="size-5 shrink-0 text-violet-600 dark:text-violet-400 mt-0.5" />
-                  <div className="text-sm text-muted-foreground">
-                    <p>
-                      Bu listedeki öğretmenler Akıllı Tahta sayfasından tahtaya bağlanabilir. <strong className="text-foreground">Otomatik yetki</strong> açıksa (Ayarlar) tüm öğretmenler bağlanabilir ve bu liste görüntüleme amaçlıdır.
+            <div className="space-y-3 sm:space-y-4">
+              <Card className="overflow-hidden border-violet-200/45 dark:border-violet-900/40">
+                <CardHeader className="flex flex-col gap-2 border-b border-violet-200/40 bg-violet-500/6 px-3 py-2.5 dark:border-violet-900/40 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6 sm:py-4">
+                  <div className="min-w-0 space-y-1">
+                    <CardTitle className="flex flex-wrap items-center gap-1.5 text-sm sm:gap-2 sm:text-base">
+                      <span className="flex size-7 items-center justify-center rounded-lg bg-violet-500/15 sm:size-8">
+                        <Users className="size-3.5 text-violet-700 dark:text-violet-400 sm:size-4" />
+                      </span>
+                      Yetkili öğretmenler
+                      <span className="text-xs font-normal text-muted-foreground sm:text-sm">({authorizedTeachers.length})</span>
+                    </CardTitle>
+                    <p className="line-clamp-3 text-[10px] leading-snug text-muted-foreground sm:line-clamp-none sm:text-xs">
+                      Listedekiler bağlanabilir. <strong className="text-foreground">Otomatik yetki</strong> açıksa (Ayarlar) tüm öğretmenler bağlanır; liste bilgi amaçlıdır. USB ile tahta açılışında öğretmene özel PIN buradan tanımlanır.
                     </p>
                   </div>
-                </CardContent>
-              </Card>
-
-              <Card className="border-border/80">
-                <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <div className="rounded-lg bg-violet-500/15 p-2">
-                      <Users className="size-5 text-violet-600 dark:text-violet-400" />
-                    </div>
-                    Yetkili Öğretmenler
-                    <span className="text-base font-normal text-muted-foreground">
-                      ({authorizedTeachers.length})
-                    </span>
-                  </CardTitle>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
                     {authorizedTeachers.length > 3 && (
-                      <div className="relative">
-                        <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                      <div className="relative min-w-0 flex-1 sm:max-w-xs">
+                        <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground sm:left-2.5 sm:size-4" />
                         <input
                           type="search"
-                          placeholder="Öğretmen ara…"
+                          placeholder="Ara…"
                           value={yetkilerSearch}
                           onChange={(e) => setYetkilerSearch(e.target.value)}
-                          className="h-9 w-full rounded-md border border-input bg-background pl-8 pr-3 text-sm sm:w-48"
+                          className="h-9 w-full rounded-md border border-input bg-background py-1 pl-7 pr-2 text-xs sm:pl-8 sm:pr-3 sm:text-sm"
                         />
                       </div>
                     )}
@@ -1143,16 +1214,16 @@ export default function AkilliTahtaPage() {
                         excludedIds={authorizedTeachers.map((t) => t.user_id)}
                         onSelect={handleAddTeacher}
                         trigger={
-                          <Button size="sm" className="bg-violet-600 hover:bg-violet-700">
-                            <UserPlus className="mr-2 size-4" />
-                            Yetki Ver
+                          <Button size="sm" className="h-9 w-full bg-violet-600 text-xs hover:bg-violet-700 sm:w-auto sm:text-sm">
+                            <UserPlus className="mr-1 size-3.5 sm:mr-2 sm:size-4" />
+                            Yetki ver
                           </Button>
                         }
                       />
                     )}
                   </div>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="px-2 pb-3 pt-0 sm:px-6 sm:pb-6 sm:pt-0">
                   {authorizedTeachers.length === 0 ? (
                     <EmptyState
                       icon={<Users className="size-10 text-violet-400/60" />}
@@ -1185,6 +1256,9 @@ export default function AkilliTahtaPage() {
                               <th className="px-4 py-3 text-left font-medium">Öğretmen</th>
                               <th className="hidden px-4 py-3 text-left font-medium md:table-cell">E-posta</th>
                               <th className="px-4 py-3 text-left font-medium">Durum</th>
+                              {canManage && (
+                                <th className="w-28 px-4 py-3 text-right font-medium">USB PIN</th>
+                              )}
                               {canManage && (
                                 <th className="w-24 px-4 py-3 text-right font-medium">İşlem</th>
                               )}
@@ -1223,6 +1297,23 @@ export default function AkilliTahtaPage() {
                                 {canManage && (
                                   <td className="px-4 py-3 text-right">
                                     <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-8 gap-1 text-xs"
+                                      onClick={() => {
+                                        setUsbPinFor(t);
+                                        setUsbPinInput('');
+                                      }}
+                                    >
+                                      <KeyRound className="size-3.5" />
+                                      {t.has_usb_pin ? 'PIN’i değiştir' : 'PIN ata'}
+                                    </Button>
+                                  </td>
+                                )}
+                                {canManage && (
+                                  <td className="px-4 py-3 text-right">
+                                    <Button
                                       variant="ghost"
                                       size="sm"
                                       className="text-destructive hover:bg-destructive/10 hover:text-destructive"
@@ -1254,6 +1345,10 @@ export default function AkilliTahtaPage() {
             />
           )}
 
+          {adminTab === 'istatistikler' && effectiveSchoolId && (
+            <SmartBoardUsagePanel token={token} schoolId={effectiveSchoolId} />
+          )}
+
           {adminTab === 'ayarlar' && (
             <SmartBoardSettings
               schoolId={effectiveSchoolId!}
@@ -1269,14 +1364,57 @@ export default function AkilliTahtaPage() {
               }}
             />
           )}
+          </div>
         </>
       )}
 
-      {isTeacher && !status?.authorized && (
-        <Alert variant="info">
-          Tahtaya bağlanma yetkiniz yok. İdareyle iletişime geçerek yetki talep edebilirsiniz.
-        </Alert>
-      )}
+      <Dialog
+        open={!!usbPinFor}
+        onOpenChange={(open) => {
+          if (!open) {
+            setUsbPinFor(null);
+            setUsbPinInput('');
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>USB sınıf tahtası PIN’i</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              {usbPinFor?.display_name || usbPinFor?.email}. 4–8 rakam. Boş bırakıp kaydederseniz PIN kaldırılır.
+            </p>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="smart-board-usb-pin">PIN</Label>
+            <Input
+              id="smart-board-usb-pin"
+              type="password"
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={8}
+              value={usbPinInput}
+              onChange={(e) => setUsbPinInput(e.target.value.replace(/\D/g, '').slice(0, 8))}
+              placeholder="••••"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={usbPinSaving}
+              onClick={() => {
+                setUsbPinFor(null);
+                setUsbPinInput('');
+              }}
+            >
+              İptal
+            </Button>
+            <Button type="button" disabled={usbPinSaving} onClick={() => void handleSaveUsbPin()}>
+              Kaydet
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {editDevice && (
         <EditDeviceDialog

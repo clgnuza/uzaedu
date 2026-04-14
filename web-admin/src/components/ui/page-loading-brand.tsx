@@ -6,31 +6,45 @@ type PageLoadingBrandProps = {
 };
 
 /**
- * Büyük SVG maskot: koşarak yetişen öğretmen (gradient + CSS animasyon, video yok).
+ * Küçük SVG öğretmen: konteyner içinde soldan sağa yürür (gradient + CSS, video yok).
  */
 export function PageLoadingBrand({ className, density = 'shell' }: PageLoadingBrandProps) {
   const isPage = density === 'page';
   const frame = cn(
     'relative mx-auto w-full max-w-full',
     isPage
-      ? 'max-w-[min(96vw,44rem)] sm:max-w-[min(92vw,48rem)] md:max-w-[52rem]'
-      : 'max-w-[min(96vw,34rem)] sm:max-w-[min(90vw,40rem)] md:max-w-[44rem]',
+      ? 'max-w-[min(92vw,15rem)] sm:max-w-[min(88vw,16.5rem)]'
+      : 'max-w-[min(92vw,13rem)] sm:max-w-[min(88vw,14rem)]',
   );
 
   return (
-    <div className={cn('flex flex-col items-center justify-center gap-5 sm:gap-6', className)}>
+    <div className={cn('flex flex-col items-center justify-center gap-3 sm:gap-4', className)}>
       <div className={cn(frame, 'select-none')}>
         <div
-          className="pointer-events-none absolute inset-[-8%] rounded-[40%] bg-linear-to-br from-sky-400/30 via-teal-400/20 to-indigo-400/25 blur-3xl motion-safe:animate-running-teacher-halo motion-reduce:animate-none dark:from-sky-500/25 dark:via-teal-500/15 dark:to-indigo-500/20"
-          aria-hidden
-        />
-        <svg
-          className="relative z-1 h-auto w-full drop-shadow-[0_20px_40px_rgba(14,116,144,0.18)] dark:drop-shadow-[0_24px_48px_rgba(0,0,0,0.45)]"
-          viewBox="0 0 240 280"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
+          className={cn(
+            'relative mx-auto h-17 w-full overflow-hidden rounded-2xl sm:h-18',
+            'bg-slate-100/40 dark:bg-slate-900/35',
+          )}
           aria-hidden
         >
+          <div
+            className={cn(
+              'absolute top-1/2 z-1 w-[2.85rem] sm:w-12',
+              'motion-safe:animate-running-teacher-walk',
+              'motion-reduce:animate-none motion-reduce:left-1/2 motion-reduce:-translate-x-1/2 motion-reduce:-translate-y-1/2',
+            )}
+          >
+            <div
+              className="pointer-events-none absolute inset-[-18%] rounded-[40%] bg-linear-to-br from-sky-400/28 via-teal-400/18 to-indigo-400/22 blur-2xl motion-safe:animate-running-teacher-halo motion-reduce:animate-none dark:from-sky-500/22 dark:via-teal-500/12 dark:to-indigo-500/18"
+              aria-hidden
+            />
+            <svg
+              className="relative z-1 h-auto w-full drop-shadow-[0_8px_18px_rgba(14,116,144,0.14)] dark:drop-shadow-[0_10px_22px_rgba(0,0,0,0.35)]"
+              viewBox="0 0 240 280"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden
+            >
           <defs>
             <linearGradient id="plb-skin" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stopColor="#fcd9c4" />
@@ -67,6 +81,7 @@ export function PageLoadingBrand({ className, density = 'shell' }: PageLoadingBr
             </filter>
           </defs>
 
+          <g>
           {/* Hız çizgileri */}
           <g className="motion-safe:animate-running-teacher-streak motion-reduce:opacity-50" opacity={0.55}>
             <path d="M28 88h-18M22 108h-26M34 128h-20M26 148h-30" stroke="currentColor" strokeWidth={3} strokeLinecap="round" className="text-sky-400/70 dark:text-sky-300/50" />
@@ -150,7 +165,10 @@ export function PageLoadingBrand({ className, density = 'shell' }: PageLoadingBr
               </g>
             </g>
           </g>
-        </svg>
+          </g>
+            </svg>
+          </div>
+        </div>
       </div>
 
       <div className="w-full max-w-md px-1 sm:max-w-lg">
@@ -160,11 +178,11 @@ export function PageLoadingBrand({ className, density = 'shell' }: PageLoadingBr
         >
           <div className="absolute inset-y-0 left-0 w-[34%] rounded-full bg-linear-to-r from-sky-500 via-teal-500 to-emerald-500 motion-safe:animate-page-load-bar motion-reduce:animate-none dark:from-sky-400 dark:via-teal-400 dark:to-emerald-400" />
         </div>
-        <div className="mt-3 flex justify-center gap-2" aria-hidden>
+        <div className="mt-2 flex justify-center gap-2.5" aria-hidden>
           {[0, 1, 2].map((i) => (
             <span
               key={i}
-              className="size-2.5 rounded-full bg-sky-500/80 motion-safe:animate-bounce motion-reduce:animate-none dark:bg-sky-400/90 sm:size-3"
+              className="size-2 rounded-full bg-sky-500/80 motion-safe:animate-running-load-dot motion-reduce:animate-none dark:bg-sky-400/90 sm:size-2.5"
               style={{ animationDelay: `${i * 140}ms` }}
             />
           ))}

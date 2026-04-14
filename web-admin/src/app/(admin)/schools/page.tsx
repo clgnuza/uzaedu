@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Plus, School, Search, ChevronRight, Upload } from 'lucide-react';
+import { Plus, School, Search, ChevronRight, Upload, GitCompareArrows } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
@@ -15,6 +15,7 @@ import { Alert } from '@/components/ui/alert';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SchoolBulkImport } from '@/components/school-bulk-import';
+import { SchoolReconcilePanel } from '@/components/school-reconcile-dialog';
 import { TURKEY_CITIES, getDistrictsForCity } from '@/lib/turkey-addresses';
 import {
   SCHOOL_TYPE_LABELS,
@@ -53,6 +54,7 @@ export default function SchoolsPage() {
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [reconcileOpen, setReconcileOpen] = useState(false);
   const [filters, setFilters] = useState({
     city: '',
     district: '',
@@ -64,6 +66,14 @@ export default function SchoolsPage() {
   });
   const limit = 25;
   const isSuperadmin = me?.role === 'superadmin';
+  const isModerator = me?.role === 'moderator';
+  const canUseFilters = isSuperadmin || isModerator;
+  const canOpenDetail = canUseFilters;
+
+  const patchFilters = useCallback((updater: (f: typeof filters) => typeof filters) => {
+    setFilters(updater);
+    setPage(1);
+  }, []);
 
   const fetchList = useCallback(async () => {
     if (!token) return;
@@ -110,10 +120,19 @@ export default function SchoolsPage() {
           <ToolbarIconHints
             items={[
               { label: 'Okul listesi', icon: School },
-              { label: 'Toplu yükle', icon: Upload },
-              { label: 'Yeni okul', icon: Plus },
+              ...(isSuperadmin
+                ? [
+                    { label: 'Toplu yükle', icon: Upload },
+                    { label: 'Kaynakla eşitle', icon: GitCompareArrows },
+                    { label: 'Yeni okul', icon: Plus },
+                  ]
+                : []),
             ]}
-            summary="Okul listesi ve yönetimi (superadmin)"
+            summary={
+              isSuperadmin
+                ? 'Okul listesi, filtreler, toplu içe aktarma, kaynak listeyle eşitleme, yeni kurum (süper yönetici)'
+                : 'Okul listesi ve filtreler (moderatör, schools modülü)'
+            }
           />
         </ToolbarHeading>
         {isSuperadmin && (
@@ -137,6 +156,27 @@ export default function SchoolsPage() {
                       fetchList();
                     }}
                     onCancel={() => setBulkOpen(false)}
+                  />
+                </DialogContent>
+              </Dialog>
+              <Dialog open={reconcileOpen} onOpenChange={setReconcileOpen}>
+                <DialogTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted"
+                  >
+                    <GitCompareArrows className="size-4" />
+                    Kaynakla eşitle
+                  </button>
+                </DialogTrigger>
+                <DialogContent title="Okulları kaynak listeyle eşitle" className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                  <SchoolReconcilePanel
+                    token={token}
+                    onDone={() => {
+                      setReconcileOpen(false);
+                      fetchList();
+                    }}
+                    onCancel={() => setReconcileOpen(false)}
                   />
                 </DialogContent>
               </Dialog>
@@ -170,16 +210,16 @@ export default function SchoolsPage() {
         <CardHeader>
           <CardTitle>Okul listesi</CardTitle>
           {error && <Alert message={error} className="mt-2" />}
-          {isSuperadmin && (
+          {canUseFilters && (
             <form
-              onSubmit={(e) => { e.preventDefault(); setPage(1); fetchList(); }}
+              onSubmit={(e) => { e.preventDefault(); setPage(1); void fetchList(); }}
               className="mt-4 flex flex-wrap items-end gap-3"
             >
               <div>
                 <label className="block text-xs font-medium text-muted-foreground">İl</label>
                 <select
                   value={filters.city}
-                  onChange={(e) => setFilters((f) => ({ ...f, city: e.target.value, district: '' }))}
+                  onChange={(e) => patchFilters((f) => ({ ...f, city: e.target.value, district: '' }))}
                   className="mt-0.5 w-32 rounded border border-input bg-background px-2.5 py-1.5 text-sm"
                 >
                   <option value="">Tümü</option>
@@ -192,7 +232,7 @@ export default function SchoolsPage() {
                 <label className="block text-xs font-medium text-muted-foreground">İlçe</label>
                 <select
                   value={filters.district}
-                  onChange={(e) => setFilters((f) => ({ ...f, district: e.target.value }))}
+                  onChange={(e) => patchFilters((f) => ({ ...f, district: e.target.value }))}
                   className="mt-0.5 w-32 rounded border border-input bg-background px-2.5 py-1.5 text-sm"
                 >
                   <option value="">Tümü</option>
@@ -205,7 +245,7 @@ export default function SchoolsPage() {
                 <label className="block text-xs font-medium text-muted-foreground">Durum</label>
                 <select
                   value={filters.status}
-                  onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
+                  onChange={(e) => patchFilters((f) => ({ ...f, status: e.target.value }))}
                   className="mt-0.5 w-28 rounded border border-input bg-background px-2.5 py-1.5 text-sm"
                 >
                   <option value="">Tümü</option>
@@ -219,7 +259,7 @@ export default function SchoolsPage() {
                 <select
                   value={filters.type_group}
                   onChange={(e) =>
-                    setFilters((f) => ({ ...f, type_group: e.target.value, type: e.target.value ? '' : f.type }))
+                    patchFilters((f) => ({ ...f, type_group: e.target.value, type: e.target.value ? '' : f.type }))
                   }
                   className="mt-0.5 min-w-[11rem] max-w-[18rem] rounded border border-input bg-background px-2.5 py-1.5 text-sm"
                 >
@@ -234,7 +274,7 @@ export default function SchoolsPage() {
                 <select
                   value={filters.type}
                   onChange={(e) =>
-                    setFilters((f) => ({ ...f, type: e.target.value, type_group: e.target.value ? '' : f.type_group }))
+                    patchFilters((f) => ({ ...f, type: e.target.value, type_group: e.target.value ? '' : f.type_group }))
                   }
                   disabled={!!filters.type_group}
                   className="mt-0.5 min-w-[10rem] max-w-[14rem] rounded border border-input bg-background px-2.5 py-1.5 text-sm disabled:opacity-50"
@@ -249,11 +289,11 @@ export default function SchoolsPage() {
                 <label className="block text-xs font-medium text-muted-foreground">Segment</label>
                 <select
                   value={filters.segment}
-                  onChange={(e) => setFilters((f) => ({ ...f, segment: e.target.value }))}
+                  onChange={(e) => patchFilters((f) => ({ ...f, segment: e.target.value }))}
                   className="mt-0.5 w-28 rounded border border-input bg-background px-2.5 py-1.5 text-sm"
                 >
                   <option value="">Tümü</option>
-                  <option value="devlet">Devlet</option>
+                  <option value="devlet">Devlet (resmi)</option>
                   <option value="ozel">Özel</option>
                 </select>
               </div>
@@ -264,7 +304,7 @@ export default function SchoolsPage() {
                   <input
                     type="text"
                     value={filters.search}
-                    onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+                    onChange={(e) => patchFilters((f) => ({ ...f, search: e.target.value }))}
                     placeholder="Okul adı"
                     className="w-36 border-0 bg-transparent px-2 py-1.5 text-sm focus:outline-none focus:ring-0"
                   />
@@ -306,7 +346,7 @@ export default function SchoolsPage() {
                     <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       Limit
                     </th>
-                    {isSuperadmin && (
+                    {canOpenDetail && (
                       <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         İşlem
                       </th>
@@ -330,7 +370,7 @@ export default function SchoolsPage() {
                         {SCHOOL_STATUS_LABELS[s.status] ?? s.status}
                       </td>
                       <td className="px-5 py-4 text-muted-foreground">{s.teacher_limit}</td>
-                      {isSuperadmin && (
+                      {canOpenDetail && (
                         <td className="px-5 py-4 text-right">
                           <Link
                             href={`/schools/${s.id}`}

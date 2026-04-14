@@ -155,6 +155,28 @@ export function Header({
     setUserMenuOpen(false);
   }, [pathname]);
 
+  // Mobil: aşağı kaydırınca gizle, yukarı kaydırınca göster
+  const [hideHeader, setHideHeader] = useState(false);
+  useEffect(() => {
+    if (!isMobile) { setHideHeader(false); return; }
+    let lastY = window.scrollY;
+    let ticking = false;
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        const y = window.scrollY;
+        const delta = y - lastY;
+        if (delta > 4 && y > 60) setHideHeader(true);   // aşağı
+        else if (delta < -4) setHideHeader(false);         // yukarı
+        lastY = y;
+        ticking = false;
+      });
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [isMobile]);
+
   useEffect(() => {
     if (!userMenuOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -214,16 +236,54 @@ export function Header({
     (shellStyle === 'glass' || shellStyle === 'brand') &&
     (headerPublicCfg?.header_shell_accent ?? WEB_PUBLIC_DEFAULT_HEADER.header_shell_accent);
 
+  const hideCls = isMobile && hideHeader
+    ? '-translate-y-full shadow-none'
+    : 'translate-y-0';
+  const transitionCls = 'transition-transform duration-300 ease-in-out';
+
   if (guestPublicChrome) {
     const brandSub = logoSubtitleConfigured || guestPublicBrandSubtitle(pathname ?? '');
     return (
-      <header className={headerShellClassName(shellStyle)}>
-        {showAccent ? (
+      <header className={cn(headerShellClassName(shellStyle), transitionCls, hideCls)}>
+        {/* Üstten alta ışık süzmesi */}
+        <div
+          className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
+          aria-hidden
+        >
           <div
-            className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px bg-linear-to-r from-transparent via-primary/28 to-transparent"
-            aria-hidden
+            className="absolute inset-x-0 top-0 h-full"
+            style={{
+              background:
+                'radial-gradient(ellipse 70% 140% at 50% -5%, rgba(139,92,246,0.13) 0%, rgba(99,102,241,0.07) 38%, transparent 70%),' +
+                'linear-gradient(180deg, rgba(255,255,255,0.055) 0%, rgba(255,255,255,0.018) 48%, transparent 100%)',
+            }}
           />
-        ) : null}
+          {/* Işık huzmesi soldan */}
+          <div
+            className="absolute -left-8 top-0 h-full w-1/3"
+            style={{
+              background:
+                'conic-gradient(from 105deg at 0% 0%, rgba(251,113,133,0.10) 0deg, transparent 35deg)',
+            }}
+          />
+          {/* Işık huzmesi sağdan */}
+          <div
+            className="absolute -right-8 top-0 h-full w-1/3"
+            style={{
+              background:
+                'conic-gradient(from -105deg at 100% 0%, rgba(34,211,238,0.09) 0deg, transparent 35deg)',
+            }}
+          />
+        </div>
+        {/* Üst parlak çizgi */}
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[1.5px]"
+          aria-hidden
+          style={{
+            background:
+              'linear-gradient(90deg, transparent 0%, rgba(139,92,246,0.55) 25%, rgba(255,255,255,0.7) 50%, rgba(34,211,238,0.55) 75%, transparent 100%)',
+          }}
+        />
         <Container className="flex h-full w-full min-w-0 max-w-full items-center gap-2 overflow-x-auto sm:gap-3">
           <Link
             href="/"
@@ -281,13 +341,44 @@ export function Header({
   }
 
   return (
-    <header className={headerShellClassName(shellStyle, { loggedInScrollbarPad: true })}>
-      {showAccent ? (
+    <header className={cn(headerShellClassName(shellStyle, { loggedInScrollbarPad: true }), transitionCls, hideCls)}>
+      {/* Üstten alta ışık süzmesi */}
+      <div
+        className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
+        aria-hidden
+      >
         <div
-          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px bg-linear-to-r from-transparent via-primary/28 to-transparent"
-          aria-hidden
+          className="absolute inset-x-0 top-0 h-full"
+          style={{
+            background:
+              'radial-gradient(ellipse 70% 140% at 50% -5%, rgba(139,92,246,0.13) 0%, rgba(99,102,241,0.07) 38%, transparent 70%),' +
+              'linear-gradient(180deg, rgba(255,255,255,0.055) 0%, rgba(255,255,255,0.018) 48%, transparent 100%)',
+          }}
         />
-      ) : null}
+        <div
+          className="absolute -left-8 top-0 h-full w-1/3"
+          style={{
+            background:
+              'conic-gradient(from 105deg at 0% 0%, rgba(251,113,133,0.10) 0deg, transparent 35deg)',
+          }}
+        />
+        <div
+          className="absolute -right-8 top-0 h-full w-1/3"
+          style={{
+            background:
+              'conic-gradient(from -105deg at 100% 0%, rgba(34,211,238,0.09) 0deg, transparent 35deg)',
+          }}
+        />
+      </div>
+      {/* Üst parlak çizgi */}
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[1.5px]"
+        aria-hidden
+        style={{
+          background:
+            'linear-gradient(90deg, transparent 0%, rgba(139,92,246,0.55) 25%, rgba(255,255,255,0.7) 50%, rgba(34,211,238,0.55) 75%, transparent 100%)',
+        }}
+      />
       <Container className="flex w-full items-center justify-between gap-2 sm:gap-4">
         {/* Sol: mobil menü + logo */}
         <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">

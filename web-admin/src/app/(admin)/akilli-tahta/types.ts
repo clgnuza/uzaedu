@@ -24,6 +24,7 @@ export type AuthorizedTeacher = {
   user_id: string;
   display_name: string | null;
   email: string;
+  has_usb_pin?: boolean;
 };
 
 export type Session = {
@@ -42,4 +43,42 @@ export type Status = {
   authorized: boolean;
   mySession?: { session_id: string; device_id: string; device_name: string };
   myClassSections?: string[];
+};
+
+export type SmartBoardUsageStats = {
+  range: { from: string; to: string };
+  totals: { session_count: number; total_minutes: number };
+  by_class: { key: string; session_count: number; minutes: number }[];
+  by_teacher: { user_id: string; user_name: string | null; session_count: number; minutes: number }[];
+  by_device: {
+    device_id: string;
+    device_name: string;
+    class_section: string | null;
+    session_count: number;
+    minutes: number;
+  }[];
+  by_hour_tr: { hour: number; count: number }[];
+  items: {
+    id: string;
+    device_id: string;
+    device_name: string;
+    class_section: string | null;
+    user_id: string;
+    user_name: string | null;
+    connected_at: string;
+    disconnected_at: string | null;
+    minutes_in_range: number;
+    is_active: boolean;
+  }[];
+};
+
+export type SmartBoardHealthAlerts = {
+  alerts: {
+    severity: 'warning' | 'info';
+    code: string;
+    title: string;
+    detail: string;
+    device_id?: string;
+    session_id?: string;
+  }[];
 };

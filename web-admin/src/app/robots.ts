@@ -7,19 +7,51 @@ const SITE_URL = normalizePublicSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
 export default async function robots(): Promise<MetadataRoute.Robots> {
   const base = SITE_URL.replace(/\/$/, '');
   const extras = await fetchWebExtrasPublic();
+
   if (extras?.global_robots_noindex) {
-    return {
-      rules: { userAgent: '*', disallow: '/' },
-    };
+    return { rules: { userAgent: '*', disallow: '/' } };
   }
+
   return {
     rules: [
       {
         userAgent: '*',
-        allow: '/',
-        disallow: ['/api/', '/_next/', '/403'],
+        allow: [
+          '/',
+          '/login',
+          '/login/',
+          '/register',
+          '/register/',
+          '/sinav-gorev-ucretleri',
+          '/ek-ders-hesaplama',
+          '/hesaplamalar',
+          '/iletisim',
+          '/gizlilik',
+          '/kullanim-sartlari',
+          '/cerez',
+          '/haberler/yayin',
+        ],
+        disallow: [
+          '/api/',
+          '/_next/',
+          '/403',
+          '/dashboard',
+          '/settings',
+          '/profile',
+          '/teachers',
+          '/schools',
+          '/users',
+          '/announcements',
+          '/support',
+          '/system-messages',
+          '/web-ayarlar',
+          '/market',
+          '/moderation',
+          '/reklamlar',
+        ],
       },
     ],
     sitemap: `${base}/sitemap.xml`,
+    host: base,
   };
 }

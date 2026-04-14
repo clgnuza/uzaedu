@@ -612,20 +612,38 @@ export default function TvPage() {
   const TV_H = 576;
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const [previewWidth, setPreviewWidth] = useState(0);
-  const [previewScale, setPreviewScale] = useState(1);
+  const [viewportNarrow, setViewportNarrow] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 639px)');
+    const apply = () => setViewportNarrow(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
   useEffect(() => {
     const el = previewContainerRef.current;
     if (!el) return;
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width ?? 0;
-      if (w > 0) {
-        setPreviewWidth(w);
-        setPreviewScale(w / TV_W);
-      }
+      if (w > 0) setPreviewWidth(w);
     });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  const previewScale = useMemo(() => {
+    const w = previewWidth;
+    if (w <= 0) return 0;
+    const byWidth = w / TV_W;
+    if (!viewportNarrow) return byWidth;
+    return Math.min(byWidth, 160 / TV_H);
+  }, [previewWidth, viewportNarrow]);
+
+  const previewContainerHeight = useMemo(() => {
+    if (previewWidth <= 0) return viewportNarrow ? 132 : 200;
+    return Math.max(viewportNarrow ? 120 : 200, Math.round(TV_H * previewScale));
+  }, [previewWidth, previewScale, viewportNarrow]);
 
   const hasCorridorDevice = tvDevicesFiltered.some((d) => d.display_group === 'corridor');
   const hasTeachersDevice = tvDevicesFiltered.some((d) => d.display_group === 'teachers');
@@ -644,17 +662,17 @@ export default function TvPage() {
   const [previewTab, setPreviewTab] = useState<'corridor' | 'teachers' | 'classroom'>('corridor');
 
   return (
-    <div className="space-y-6">
-      <header className="sticky top-0 z-[1] -mt-4 rounded-xl border border-border bg-card/95 shadow-sm backdrop-blur supports-backdrop-filter:bg-card/90">
-        <div className="flex flex-col gap-4 border-b border-border/80 px-4 py-5 sm:px-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className="space-y-3 sm:space-y-6 max-sm:-mx-2 max-sm:rounded-2xl max-sm:bg-gradient-to-b max-sm:from-cyan-500/[0.07] max-sm:via-background max-sm:to-indigo-500/10 max-sm:px-2 max-sm:pb-2 max-sm:pt-0.5 dark:max-sm:from-cyan-950/50 dark:max-sm:via-background dark:max-sm:to-indigo-950/40">
+      <header className="sticky top-0 z-[1] -mt-4 max-sm:-mt-2 rounded-lg border border-border/70 bg-card/90 shadow-sm ring-1 ring-cyan-500/10 backdrop-blur-md supports-backdrop-filter:bg-card/85 sm:rounded-xl dark:ring-cyan-400/10">
+        <div className="flex flex-col gap-2 border-b border-border/60 px-2 py-2 sm:gap-4 sm:px-6 sm:py-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <div className="min-w-0 flex-1">
-              <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">Duyuru TV</h1>
-              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+              <h1 className="text-lg font-semibold tracking-tight text-foreground sm:text-2xl md:text-3xl">Duyuru TV</h1>
+              <p className="mt-1 line-clamp-2 max-w-2xl text-[11px] leading-snug text-muted-foreground sm:mt-2 sm:line-clamp-none sm:text-sm sm:leading-relaxed">
                 Koridor, öğretmenler odası ve akıllı tahta için görünüm ve içerik. Her sekme yalnızca o konuyla ilgili alanı gösterir.
               </p>
             </div>
-            <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 sm:w-auto sm:justify-end">
+            <div className="flex w-full shrink-0 flex-wrap items-stretch justify-stretch gap-1 sm:w-auto sm:items-center sm:justify-end sm:gap-2">
               <Dialog open={createAnnouncementOpen} onOpenChange={setCreateAnnouncementOpen}>
                 <DialogContent title="Yeni duyuru" className="max-w-2xl">
                   <CreateAnnouncementForm
@@ -676,40 +694,40 @@ export default function TvPage() {
                 type="button"
                 disabled={isSuperadmin && !schoolId}
                 onClick={() => openCreateAnnouncement('general')}
-                className="inline-flex items-center gap-2 rounded-xl border border-primary bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-shadow duration-150 hover:bg-primary/90 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
+                className="inline-flex min-h-8 flex-1 items-center justify-center gap-1 rounded-lg border border-cyan-600/30 bg-gradient-to-r from-cyan-600 to-indigo-600 px-2 py-1.5 text-[11px] font-semibold text-white shadow-sm transition-all hover:from-cyan-600/90 hover:to-indigo-600/90 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 disabled:pointer-events-none disabled:opacity-50 sm:min-h-9 sm:flex-initial sm:gap-1.5 sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm"
               >
-                <Plus className="size-4" />
+                <Plus className="size-3.5 sm:size-4" />
                 Yeni duyuru
               </button>
               <button
                 type="button"
                 onClick={() => setMainTab('duyurular')}
                 className={cn(
-                  'inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium shadow-sm transition-all duration-150',
+                  'inline-flex min-h-8 flex-1 items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-[11px] font-semibold shadow-sm transition-all sm:min-h-9 sm:flex-initial sm:gap-1.5 sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm',
                   mainTab === 'duyurular'
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border hover:bg-muted hover:shadow-md',
+                    ? 'border-indigo-500/40 bg-indigo-500/12 text-indigo-700 ring-1 ring-indigo-500/20 dark:text-indigo-200'
+                    : 'border-border/80 bg-muted/40 text-foreground hover:bg-muted',
                 )}
               >
-                <Megaphone className="size-4" />
+                <Megaphone className="size-3.5 sm:size-4" />
                 Duyuru listesi
               </button>
               <Link
                 href={previewUrlCorridor}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium shadow-sm transition-all duration-150 hover:bg-muted hover:shadow-md"
+                className="inline-flex min-h-8 flex-[1_1_calc(50%-0.2rem)] items-center justify-center gap-0.5 rounded-md border border-border/80 bg-background/80 px-2 py-1.5 text-[10px] font-medium text-foreground shadow-sm backdrop-blur-sm transition-colors hover:border-cyan-500/35 hover:bg-cyan-500/5 sm:min-h-9 sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm"
               >
-                <ExternalLink className="size-4" />
+                <ExternalLink className="size-3.5 sm:size-4" />
                 Koridor
               </Link>
               <Link
                 href={previewUrlTeachers}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium shadow-sm transition-all duration-150 hover:bg-muted hover:shadow-md"
+                className="inline-flex min-h-8 flex-[1_1_calc(50%-0.2rem)] items-center justify-center gap-0.5 rounded-md border border-border/80 bg-background/80 px-2 py-1.5 text-[10px] font-medium text-foreground shadow-sm backdrop-blur-sm transition-colors hover:border-violet-500/35 hover:bg-violet-500/5 sm:min-h-9 sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm"
               >
-                <ExternalLink className="size-4" />
+                <ExternalLink className="size-3.5 sm:size-4" />
                 Öğretmenler
               </Link>
               {previewUrlClassroom ? (
@@ -717,19 +735,19 @@ export default function TvPage() {
                   href={previewUrlClassroom}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium shadow-sm transition-colors duration-150 hover:bg-muted hover:shadow-md"
+                  className="inline-flex min-h-8 w-full flex-[1_1_100%] items-center justify-center gap-0.5 rounded-md border border-border/80 bg-background/80 px-2 py-1.5 text-[10px] font-medium text-foreground shadow-sm backdrop-blur-sm transition-colors hover:border-amber-500/40 hover:bg-amber-500/5 sm:min-h-9 sm:w-auto sm:flex-initial sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm"
                 >
-                  <Monitor className="size-4" />
+                  <Monitor className="size-3.5 sm:size-4" />
                   Akıllı Tahta
                 </Link>
               ) : null}
             </div>
           </div>
           {isSuperadmin && (
-            <div className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="grid gap-1">
-                  <label htmlFor="tv-filter-city" className="text-xs font-medium text-muted-foreground">
+            <div className="space-y-1.5 sm:space-y-3">
+              <div className="grid gap-1.5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
+                <div className="grid gap-0.5 sm:gap-1">
+                  <label htmlFor="tv-filter-city" className="text-[10px] font-medium text-muted-foreground sm:text-xs">
                     İl
                   </label>
                   <select
@@ -739,7 +757,7 @@ export default function TvPage() {
                       setSchoolFilters((f) => ({ ...f, city: e.target.value, district: '' }));
                     }}
                     disabled={schoolsLoading}
-                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs sm:h-auto sm:rounded-lg sm:px-3 sm:py-2 sm:text-sm"
                   >
                     <option value="">Tüm iller</option>
                     {filterCities.map((c) => (
@@ -749,8 +767,8 @@ export default function TvPage() {
                     ))}
                   </select>
                 </div>
-                <div className="grid gap-1">
-                  <label htmlFor="tv-filter-district" className="text-xs font-medium text-muted-foreground">
+                <div className="grid gap-0.5 sm:gap-1">
+                  <label htmlFor="tv-filter-district" className="text-[10px] font-medium text-muted-foreground sm:text-xs">
                     İlçe
                   </label>
                   <select
@@ -760,7 +778,7 @@ export default function TvPage() {
                       setSchoolFilters((f) => ({ ...f, district: e.target.value }));
                     }}
                     disabled={schoolsLoading || !schoolFilters.city}
-                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs sm:h-auto sm:rounded-lg sm:px-3 sm:py-2 sm:text-sm"
                   >
                     <option value="">Tüm ilçeler</option>
                     {filterDistricts.map((d) => (
@@ -770,8 +788,8 @@ export default function TvPage() {
                     ))}
                   </select>
                 </div>
-                <div className="grid gap-1">
-                  <label htmlFor="tv-filter-segment" className="text-xs font-medium text-muted-foreground">
+                <div className="grid gap-0.5 sm:gap-1">
+                  <label htmlFor="tv-filter-segment" className="text-[10px] font-medium text-muted-foreground sm:text-xs">
                     Kurum
                   </label>
                   <select
@@ -784,15 +802,15 @@ export default function TvPage() {
                       }));
                     }}
                     disabled={schoolsLoading}
-                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs sm:h-auto sm:rounded-lg sm:px-3 sm:py-2 sm:text-sm"
                   >
                     <option value="">Tümü</option>
                     <option value="devlet">Devlet</option>
                     <option value="ozel">Özel</option>
                   </select>
                 </div>
-                <div className="grid gap-1">
-                  <label htmlFor="tv-filter-search" className="text-xs font-medium text-muted-foreground">
+                <div className="grid gap-0.5 sm:gap-1">
+                  <label htmlFor="tv-filter-search" className="text-[10px] font-medium text-muted-foreground sm:text-xs">
                     Okul adı
                   </label>
                   <input
@@ -804,14 +822,14 @@ export default function TvPage() {
                     }}
                     placeholder="Ara…"
                     disabled={schoolsLoading}
-                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs sm:h-auto sm:rounded-lg sm:px-3 sm:py-2 sm:text-sm"
                   />
                 </div>
               </div>
-              <div className="flex flex-wrap items-end gap-2">
-                <School className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                <div className="grid min-w-0 flex-1 gap-1 sm:min-w-[14rem]">
-                  <label htmlFor="tv-school-select" className="text-sm font-medium text-foreground">
+              <div className="flex flex-wrap items-end gap-1.5 sm:gap-2">
+                <School className="size-3.5 shrink-0 text-muted-foreground sm:size-4" aria-hidden />
+                <div className="grid min-w-0 flex-1 gap-0.5 sm:min-w-56 sm:gap-1">
+                  <label htmlFor="tv-school-select" className="text-xs font-medium text-foreground sm:text-sm">
                     Okul
                   </label>
                   <select
@@ -827,7 +845,7 @@ export default function TvPage() {
                       setRefreshKey((k) => k + 1);
                     }}
                     disabled={schoolsLoading || schools.length === 0}
-                    className="min-w-0 max-w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                    className="h-8 min-w-0 max-w-full rounded-md border border-input bg-background px-2 text-xs sm:h-auto sm:rounded-lg sm:px-3 sm:py-2 sm:text-sm"
                   >
                     {schools.map((s) => (
                       <option key={s.id} value={s.id}>
@@ -842,7 +860,7 @@ export default function TvPage() {
                     setSchoolFilters({ city: '', district: '', segment: '', search: '' });
                   }}
                   disabled={schoolsLoading}
-                  className="rounded-lg border border-input bg-background px-3 py-2 text-sm text-muted-foreground hover:bg-muted/60"
+                  className="h-8 rounded-md border border-input bg-background px-2 text-xs text-muted-foreground hover:bg-muted/60 sm:h-auto sm:rounded-lg sm:px-3 sm:py-2 sm:text-sm"
                 >
                   Filtreleri temizle
                 </button>
@@ -857,7 +875,7 @@ export default function TvPage() {
         <div
           role="tablist"
           aria-label="Duyuru TV bölümleri"
-          className="flex gap-1.5 overflow-x-auto px-2 py-3 sm:flex-wrap sm:px-4 sm:pb-4"
+          className="-mx-0.5 flex snap-x snap-mandatory gap-0.5 overflow-x-auto px-1.5 py-1.5 sm:flex-wrap sm:gap-1.5 sm:px-4 sm:py-3.5"
         >
           {(
             [
@@ -876,17 +894,17 @@ export default function TvPage() {
               aria-selected={mainTab === id}
               onClick={() => setMainTab(id)}
               className={cn(
-                'flex min-w-[9.25rem] shrink-0 flex-col items-start gap-0.5 rounded-xl border px-3 py-2.5 text-left transition-all sm:min-w-0',
+                'flex min-w-[5.5rem] shrink-0 snap-start flex-row items-center gap-1 rounded-md border px-1.5 py-1.5 text-left transition-all sm:min-w-0 sm:flex-col sm:items-start sm:gap-0 sm:rounded-xl sm:px-3 sm:py-2.5',
                 mainTab === id
-                  ? 'border-primary bg-primary/10 text-foreground shadow-sm ring-1 ring-primary/20'
-                  : 'border-transparent bg-muted/35 text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground',
+                  ? 'border-cyan-500/45 bg-gradient-to-br from-cyan-500/12 via-background to-indigo-500/12 text-foreground shadow-sm ring-1 ring-cyan-500/25 dark:from-cyan-500/15 dark:to-indigo-500/15'
+                  : 'border-transparent bg-muted/30 text-muted-foreground hover:border-border/80 hover:bg-muted/60 hover:text-foreground',
               )}
             >
-              <span className="flex items-center gap-2 text-sm font-semibold">
-                <Icon className="size-4 shrink-0 opacity-90" aria-hidden />
+              <span className="flex items-center gap-1 text-[10px] font-semibold sm:gap-2 sm:text-sm">
+                <Icon className="size-3 shrink-0 opacity-90 sm:size-4" aria-hidden />
                 {label}
               </span>
-              <span className="hidden text-[11px] leading-snug text-muted-foreground sm:block">{hint}</span>
+              <span className="hidden text-[11px] leading-snug text-muted-foreground sm:line-clamp-1 sm:block">{hint}</span>
             </button>
           ))}
         </div>
@@ -894,29 +912,33 @@ export default function TvPage() {
 
       {error && <Alert message={error} />}
 
-      <div className="rounded-2xl border border-border bg-card shadow-sm">
+      <div className="min-w-0 max-w-full rounded-xl border border-border/70 bg-card/90 shadow-sm ring-1 ring-indigo-500/5 backdrop-blur-sm dark:bg-card/80 dark:ring-indigo-400/10 sm:rounded-2xl">
         {mainTab === 'genel' && (
-          <div className="space-y-6 p-4 sm:p-6">
+          <div className="space-y-3 p-2 sm:space-y-6 sm:p-6">
             <div>
-              <h2 className="text-lg font-semibold text-foreground">Genel bakış</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Canlı önizleme ve kurulum kontrol listesi.</p>
+              <h2 className="text-sm font-semibold text-foreground sm:text-lg">Genel bakış</h2>
+              <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground sm:mt-1 sm:line-clamp-none sm:text-sm">
+                Canlı önizleme ve kurulum kontrol listesi.
+              </p>
             </div>
-            <Card className="overflow-hidden border-border">
-              <CardHeader className="pb-2">
-                <div className="flex items-center gap-2">
-                  <PlayCircle className="size-5 text-primary" />
-                  <CardTitle className="text-base">Canlı TV önizleme</CardTitle>
+            <Card className="overflow-hidden border-border/60 bg-gradient-to-b from-background to-cyan-500/[0.03] dark:to-cyan-950/20">
+              <CardHeader className="space-y-0.5 p-3 pb-1.5 sm:space-y-1 sm:p-5 sm:pb-2">
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <PlayCircle className="size-3.5 text-cyan-600 dark:text-cyan-400 sm:size-5" />
+                  <CardTitle className="text-xs sm:text-base">Canlı TV önizleme</CardTitle>
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground">Hangi ekranda ne göründüğünü seçin.</p>
+                <p className="text-[10px] text-muted-foreground sm:text-sm">Hangi ekranda ne göründüğünü seçin.</p>
               </CardHeader>
-              <CardContent className="border-t border-border pt-4">
-                <div className="flex flex-wrap gap-2 pb-3">
+              <CardContent className="border-t border-border/60 p-3 pt-2 sm:p-5 sm:pt-4">
+                <div className="grid grid-cols-3 gap-1 pb-1.5 sm:flex sm:flex-wrap sm:gap-2 sm:pb-3">
               <button
                 type="button"
                 onClick={() => setPreviewTab('corridor')}
                 className={cn(
-                  'rounded-xl border px-3 py-1.5 text-sm font-medium transition-all duration-150',
-                  previewTab === 'corridor' ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-muted',
+                  'rounded-lg border px-1.5 py-1.5 text-center text-[10px] font-semibold transition-all sm:rounded-xl sm:px-3 sm:py-1.5 sm:text-sm',
+                  previewTab === 'corridor'
+                    ? 'border-cyan-500/50 bg-cyan-500/12 text-cyan-800 dark:text-cyan-200'
+                    : 'border-border/70 bg-muted/25 hover:bg-muted/50',
                 )}
               >
                 Koridor
@@ -925,8 +947,10 @@ export default function TvPage() {
                 type="button"
                 onClick={() => setPreviewTab('teachers')}
                 className={cn(
-                  'rounded-xl border px-3 py-1.5 text-sm font-medium transition-all duration-150',
-                  previewTab === 'teachers' ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-muted',
+                  'rounded-lg border px-1.5 py-1.5 text-center text-[10px] font-semibold transition-all sm:rounded-xl sm:px-3 sm:py-1.5 sm:text-sm',
+                  previewTab === 'teachers'
+                    ? 'border-violet-500/50 bg-violet-500/12 text-violet-800 dark:text-violet-200'
+                    : 'border-border/70 bg-muted/25 hover:bg-muted/50',
                 )}
               >
                 Öğretmenler
@@ -935,8 +959,10 @@ export default function TvPage() {
                 type="button"
                 onClick={() => setPreviewTab('classroom')}
                 className={cn(
-                  'rounded-xl border px-3 py-1.5 text-sm font-medium transition-all duration-150',
-                  previewTab === 'classroom' ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-muted',
+                  'rounded-lg border px-1.5 py-1.5 text-center text-[10px] font-semibold transition-all sm:rounded-xl sm:px-3 sm:py-1.5 sm:text-sm',
+                  previewTab === 'classroom'
+                    ? 'border-amber-500/50 bg-amber-500/12 text-amber-900 dark:text-amber-200'
+                    : 'border-border/70 bg-muted/25 hover:bg-muted/50',
                 )}
               >
                 Akıllı Tahta
@@ -945,16 +971,16 @@ export default function TvPage() {
             {/* Dış kap: 16/9, gerçek piksel yüksekliği = genişlik*(720/1280) */}
             <div
               ref={previewContainerRef}
-              className="relative w-full overflow-hidden rounded-lg border border-border bg-muted md:mx-auto md:max-w-5xl"
-              style={{ height: Math.max(220, Math.round((previewWidth || 760) * (TV_H / TV_W))) }}
+              className="relative w-full overflow-hidden rounded-lg border border-border/70 bg-gradient-to-b from-slate-900/5 to-muted dark:from-slate-950/80 dark:to-slate-900/50 md:mx-auto md:max-w-5xl"
+              style={{ height: previewContainerHeight }}
             >
               {previewTab === 'classroom' && !previewUrlClassroom ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
-                  <Monitor className="size-12 text-muted-foreground" />
-                  <p className="text-sm font-medium text-muted-foreground">
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 p-3 text-center sm:gap-3 sm:p-6">
+                  <Monitor className="size-8 text-muted-foreground sm:size-12" />
+                  <p className="text-[11px] font-medium text-muted-foreground sm:text-sm">
                     Tahta önizlemesi için önce Akıllı Tahta sayfasından bir tahta ekleyin.
                   </p>
-                  <Link href="/akilli-tahta" className="text-sm font-medium text-primary hover:underline">
+                  <Link href="/akilli-tahta" className="text-[11px] font-medium text-primary hover:underline sm:text-sm">
                     Akıllı Tahta sayfasına git
                   </Link>
                 </div>
@@ -1001,29 +1027,37 @@ export default function TvPage() {
 
             <Card
               className={cn(
-                'overflow-hidden shadow-sm',
+                'overflow-hidden border-border/60 shadow-sm',
                 setupComplete
-                  ? 'border-l-4 border-l-emerald-400 dark:border-l-emerald-600 border-emerald-200 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-950/20'
-                  : 'border-l-4 border-l-amber-400 dark:border-l-amber-600 border-amber-200/60 dark:border-amber-800/60 bg-amber-50/20 dark:bg-amber-950/15',
+                  ? 'border-l-4 border-l-emerald-500 bg-gradient-to-r from-emerald-500/10 via-background to-teal-500/5 dark:border-l-emerald-400 dark:from-emerald-950/30'
+                  : 'border-l-4 border-l-amber-500 bg-gradient-to-r from-amber-500/10 via-background to-orange-500/5 dark:border-l-amber-400 dark:from-amber-950/25',
               )}
             >
-              <CardHeader className="pb-2">
-                <div className="flex items-center gap-2">
+              <CardHeader className="space-y-0.5 p-3 pb-1.5 sm:space-y-1 sm:p-5 sm:pb-2">
+                <div className="flex items-center gap-1.5 sm:gap-2">
                   {setupComplete ? (
-                    <CheckCircle2 className="size-5 text-emerald-600" />
+                    <CheckCircle2 className="size-3.5 text-emerald-600 sm:size-5" />
                   ) : (
-                    <Circle className="size-5 text-primary" />
+                    <Circle className="size-3.5 text-cyan-600 sm:size-5 dark:text-cyan-400" />
                   )}
-                  <CardTitle className="text-base">
+                  <CardTitle className="text-xs sm:text-base">
                     {setupComplete ? 'Kurulum tamamlandı' : `İlk kurulum adımları (${setupStepCount}/4)`}
                   </CardTitle>
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground">Bu adımları tamamladığınızda TV ekranları hazır olur.</p>
+                <p className="line-clamp-2 text-[10px] text-muted-foreground sm:line-clamp-none sm:text-sm">
+                  Bu adımları tamamladığınızda TV ekranları hazır olur.
+                </p>
               </CardHeader>
-              <CardContent className="border-t border-border pt-4">
-                <ol className="space-y-3 text-sm">
-                  <li className="flex items-start gap-3">
-                    {hasTvSettings ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" /> : <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-primary text-xs font-bold text-primary">1</span>}
+              <CardContent className="border-t border-border/60 p-3 pt-2 sm:p-5 sm:pt-4">
+                <ol className="space-y-2 text-[11px] sm:space-y-3 sm:text-sm">
+                  <li className="flex items-start gap-2 sm:gap-3">
+                    {hasTvSettings ? (
+                      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 sm:size-5" />
+                    ) : (
+                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border-2 border-primary text-[10px] font-bold text-primary sm:size-5 sm:text-xs">
+                        1
+                      </span>
+                    )}
                     <div>
                       <strong>TV ayarlarını doldur</strong> — Hava durumu şehri, hoş geldin görseli ve (isterseniz) YouTube linki.
                       {!hasTvSettings && (
@@ -1033,11 +1067,13 @@ export default function TvPage() {
                       )}
                     </div>
                   </li>
-                  <li className="flex items-start gap-3">
+                  <li className="flex items-start gap-2 sm:gap-3">
                     {hasCorridorDevice && hasTeachersDevice ? (
-                      <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" />
+                      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 sm:size-5" />
                     ) : (
-                      <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-primary text-xs font-bold text-primary">2</span>
+                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border-2 border-primary text-[10px] font-bold text-primary sm:size-5 sm:text-xs">
+                        2
+                      </span>
                     )}
                     <div>
                       <strong>Her ekran için cihaz ekle ve eşleştir</strong> — Koridor ve öğretmenler odası için ayrı cihaz.
@@ -1048,8 +1084,14 @@ export default function TvPage() {
                       )}
                     </div>
                   </li>
-                  <li className="flex items-start gap-3">
-                    {hasTvContent ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" /> : <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-primary text-xs font-bold text-primary">3</span>}
+                  <li className="flex items-start gap-2 sm:gap-3">
+                    {hasTvContent ? (
+                      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 sm:size-5" />
+                    ) : (
+                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border-2 border-primary text-[10px] font-bold text-primary sm:size-5 sm:text-xs">
+                        3
+                      </span>
+                    )}
                     <div>
                       <strong>Duyurularda “Duyuru TV ekranında göster” işaretle</strong> — Kategori ve hedef ekran seçin.
                       {!hasTvContent && (
@@ -1066,11 +1108,11 @@ export default function TvPage() {
         )}
 
         {mainTab === 'ayarlar' && (
-          <div className="space-y-4 p-4 sm:p-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="space-y-2 p-2 sm:space-y-4 sm:p-6">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
               <div className="max-w-2xl">
-                <h2 className="text-lg font-semibold text-foreground">TV ayarları</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <h2 className="text-base font-semibold text-foreground sm:text-lg">TV ayarları</h2>
+                <p className="mt-0.5 text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm sm:leading-normal">
                   Hava durumu, hoş geldin görseli, tema, yan kartlar, yemek/nöbet listeleri, Excel içe aktarma ve yedekleme. Yalnızca bu sekmede düzenlenir.
                 </p>
               </div>
@@ -1078,15 +1120,15 @@ export default function TvPage() {
                 <button
                   type="button"
                   onClick={() => openCreateAnnouncement('general')}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-primary bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
+                  className="inline-flex min-h-9 w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-cyan-600/30 bg-gradient-to-r from-cyan-600 to-indigo-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:from-cyan-600/90 hover:to-indigo-600/90 sm:w-auto sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm"
                 >
-                  <Plus className="size-4" aria-hidden />
+                  <Plus className="size-3.5 sm:size-4" aria-hidden />
                   Yeni duyuru
                 </button>
               ) : null}
             </div>
-            <Card className="border-l-4 border-l-blue-400 dark:border-l-blue-600 bg-blue-50/30 dark:bg-blue-950/20 shadow-sm">
-              <CardContent className="pt-6">
+            <Card className="border-l-4 border-l-cyan-500 bg-gradient-to-r from-cyan-500/8 via-background to-indigo-500/6 shadow-sm dark:border-l-cyan-400 dark:from-cyan-950/35 dark:to-indigo-950/25">
+              <CardContent className="pt-4 sm:pt-6">
                 {!schoolId ? (
                   <p className="py-4 text-sm text-muted-foreground">Okul atanmamış. Ayarlara erişmek için bir okula bağlı olmanız gerekir.</p>
                 ) : school ? (
@@ -1102,17 +1144,17 @@ export default function TvPage() {
         )}
 
         {mainTab === 'cihazlar' && (
-          <div className="space-y-4 p-4 sm:p-6">
-            <div className="max-w-2xl">
-              <h2 className="text-lg font-semibold text-foreground">TV cihazları</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
+          <div className="min-w-0 space-y-2 p-2 sm:space-y-4 sm:p-6">
+            <div className="max-w-2xl min-w-0">
+              <h2 className="text-base font-semibold text-foreground sm:text-lg">TV cihazları</h2>
+              <p className="mt-0.5 break-words text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm sm:leading-normal">
                 Koridor ve öğretmenler odası için <strong className="text-foreground">her ekranda en fazla bir cihaz</strong>.{' '}
                 <strong className="text-foreground">TV adresini kopyala</strong> → TV tarayıcısına yapıştırın →{' '}
                 <strong className="text-foreground">Cihaz ekle</strong> ile eşleştirme kodunu girin.
               </p>
             </div>
-            <Card className="border-l-4 border-l-violet-400 dark:border-l-violet-600 bg-violet-50/30 dark:bg-violet-950/20">
-              <CardContent className="pt-6">
+            <Card className="min-w-0 overflow-hidden border-l-4 border-l-violet-500 bg-gradient-to-r from-violet-500/10 via-background to-fuchsia-500/5 shadow-sm dark:border-l-violet-400 dark:from-violet-950/40 dark:to-fuchsia-950/20">
+              <CardContent className="min-w-0 overflow-x-hidden px-4 pt-4 sm:px-5 sm:pt-6">
                 <TvDevicesSection
                   token={token}
                   devices={tvDevicesFiltered}
@@ -1125,50 +1167,55 @@ export default function TvPage() {
         )}
 
         {mainTab === 'icerik' && (
-          <div className="space-y-4 p-4 sm:p-6">
+          <div className="space-y-2 p-2 sm:space-y-4 sm:p-6">
             <div className="max-w-2xl">
-              <h2 className="text-lg font-semibold text-foreground">İçerik özeti</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <h2 className="text-base font-semibold text-foreground sm:text-lg">İçerik özeti</h2>
+              <p className="mt-0.5 text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm sm:leading-normal">
                 TV’de hangi duyuruların hangi ekranda nasıl göründüğünü kontrol edin. Alt sekmeden ekran seçin.
               </p>
             </div>
-            <Card className="border-l-4 border-l-amber-400 dark:border-l-amber-600 bg-amber-50/30 dark:bg-amber-950/20">
-              <CardHeader className="pb-3">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <CardTitle className="text-base">Hedef ekran</CardTitle>
-                  <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-muted/30 p-1">
+            <Card className="border-l-4 border-l-indigo-500 bg-gradient-to-r from-indigo-500/8 via-background to-cyan-500/5 shadow-sm dark:border-l-indigo-400 dark:from-indigo-950/35 dark:to-cyan-950/20">
+              <CardHeader className="space-y-2 pb-2 sm:pb-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                  <CardTitle className="text-sm sm:text-base">Hedef ekran</CardTitle>
+                  <div className="grid grid-cols-3 gap-0.5 rounded-lg border border-border/70 bg-muted/25 p-0.5 sm:flex sm:flex-wrap sm:gap-1 sm:p-1">
                     <button
                       type="button"
                       onClick={() => setAudienceTab('corridor')}
-                      className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                      className={`rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight transition-colors sm:px-4 sm:py-1.5 sm:text-sm ${
                         audienceTab === 'corridor'
-                          ? 'bg-background text-foreground shadow-sm'
+                          ? 'bg-background text-cyan-700 shadow-sm ring-1 ring-cyan-500/25 dark:text-cyan-200'
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      Koridor ({tvItemsCorridor.length})
+                      <span className="max-sm:block">Koridor</span>
+                      <span className="tabular-nums text-muted-foreground max-sm:text-[9px]">({tvItemsCorridor.length})</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setAudienceTab('teachers')}
-                      className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                      className={`rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight transition-colors sm:px-4 sm:py-1.5 sm:text-sm ${
                         audienceTab === 'teachers'
-                          ? 'bg-background text-foreground shadow-sm'
+                          ? 'bg-background text-violet-700 shadow-sm ring-1 ring-violet-500/25 dark:text-violet-200'
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      Öğretmenler ({tvItemsTeachers.length})
+                      <span className="max-sm:block">Öğrt.</span>
+                      <span className="hidden sm:inline">Öğretmenler </span>
+                      <span className="tabular-nums text-muted-foreground max-sm:text-[9px] sm:inline">({tvItemsTeachers.length})</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setAudienceTab('classroom')}
-                      className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                      className={`rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight transition-colors sm:px-4 sm:py-1.5 sm:text-sm ${
                         audienceTab === 'classroom'
-                          ? 'bg-background text-foreground shadow-sm'
+                          ? 'bg-background text-amber-800 shadow-sm ring-1 ring-amber-500/30 dark:text-amber-200'
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      Akıllı Tahta ({tvItemsClassroom.length})
+                      <span className="max-sm:block">Tahta</span>
+                      <span className="hidden sm:inline">Akıllı Tahta </span>
+                      <span className="tabular-nums text-muted-foreground max-sm:text-[9px] sm:inline">({tvItemsClassroom.length})</span>
                     </button>
                   </div>
                 </div>
@@ -1198,10 +1245,10 @@ export default function TvPage() {
         )}
 
         {mainTab === 'duyurular' && (
-          <div className="space-y-4 p-4 sm:p-6">
+          <div className="space-y-2 p-2 sm:space-y-4 sm:p-6">
             <div className="max-w-2xl">
-              <h2 className="text-lg font-semibold text-foreground">Okul duyuruları</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <h2 className="text-base font-semibold text-foreground sm:text-lg">Okul duyuruları</h2>
+              <p className="mt-0.5 text-xs leading-snug text-muted-foreground sm:mt-1 sm:text-sm sm:leading-normal">
                 TV’de görünecek duyuruları burada yönetin. Üstteki hızlı şablonlar veya &quot;Yeni duyuru&quot; ile ekleyebilirsiniz.
               </p>
             </div>
@@ -1213,15 +1260,15 @@ export default function TvPage() {
               onRefresh={refetchAnnouncements}
               onCreateClick={canCreateAnnouncement ? () => openCreateAnnouncement('general') : undefined}
               onCreateWithTemplate={canCreateAnnouncement ? openCreateAnnouncement : undefined}
-              cardClassName="border-l-4 border-l-amber-400 dark:border-l-amber-600 bg-amber-50/25 dark:bg-amber-950/20"
+              cardClassName="border-l-4 border-l-cyan-500 bg-gradient-to-r from-cyan-500/10 via-background to-indigo-500/6 shadow-sm dark:border-l-cyan-400 dark:from-cyan-950/30 dark:to-indigo-950/25"
               showAddToAgenda={agendaAfterTvAyarlar}
             />
           </div>
         )}
 
         {mainTab === 'yardim' && (
-          <div className="mx-auto max-w-4xl space-y-8 px-4 py-6 sm:px-6">
-            <div className="relative overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-br from-sky-500/10 via-background to-violet-500/10 p-6 shadow-sm sm:p-8 dark:from-sky-500/10 dark:via-background dark:to-violet-500/20">
+          <div className="mx-auto max-w-4xl space-y-3 px-2 py-3 sm:space-y-8 sm:px-6 sm:py-6">
+            <div className="relative overflow-hidden rounded-lg border border-border/60 bg-gradient-to-br from-cyan-500/12 via-background to-indigo-500/12 p-3 shadow-sm sm:rounded-2xl sm:p-8 dark:from-cyan-950/40 dark:via-background dark:to-indigo-950/35">
               <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-primary/15 blur-3xl" aria-hidden />
               <div className="pointer-events-none absolute -bottom-20 -left-20 h-56 w-56 rounded-full bg-violet-500/10 blur-3xl dark:bg-violet-500/15" aria-hidden />
               <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -1252,22 +1299,22 @@ export default function TvPage() {
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-3 sm:gap-3">
               {[
-                { t: 'Koridor', d: 'Genel duyuru ve slaytlar', icon: Monitor, className: 'bg-sky-500/10 text-sky-700 dark:text-sky-300' },
-                { t: 'Öğretmenler odası', d: 'Aynı içerik, ayrı adres', icon: Users, className: 'bg-violet-500/10 text-violet-700 dark:text-violet-300' },
-                { t: 'Akıllı tahta', d: 'Sınıf / cihaz eşlemesi', icon: LayoutGrid, className: 'bg-amber-500/10 text-amber-800 dark:text-amber-200' },
+                { t: 'Koridor', d: 'Genel duyuru ve slaytlar', icon: Monitor, className: 'bg-cyan-500/12 text-cyan-800 dark:text-cyan-300' },
+                { t: 'Öğretmenler odası', d: 'Aynı içerik, ayrı adres', icon: Users, className: 'bg-violet-500/12 text-violet-800 dark:text-violet-300' },
+                { t: 'Akıllı tahta', d: 'Sınıf / cihaz eşlemesi', icon: LayoutGrid, className: 'bg-amber-500/12 text-amber-900 dark:text-amber-200' },
               ].map((c) => (
                 <div
                   key={c.t}
-                  className="flex gap-3 rounded-xl border border-border/70 bg-card/50 p-4 shadow-sm backdrop-blur-sm transition-colors hover:border-primary/30"
+                  className="flex gap-2 rounded-lg border border-border/60 bg-card/60 p-3 shadow-sm backdrop-blur-sm transition-colors hover:border-cyan-500/25 sm:gap-3 sm:rounded-xl sm:p-4"
                 >
-                  <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-xl', c.className)}>
-                    <c.icon className="size-5" aria-hidden />
+                  <div className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg sm:size-10 sm:rounded-xl', c.className)}>
+                    <c.icon className="size-4 sm:size-5" aria-hidden />
                   </div>
                   <div className="min-w-0">
-                    <p className="font-semibold text-foreground">{c.t}</p>
-                    <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{c.d}</p>
+                    <p className="text-sm font-semibold text-foreground">{c.t}</p>
+                    <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground sm:text-xs">{c.d}</p>
                   </div>
                 </div>
               ))}
@@ -1492,28 +1539,31 @@ function TvDevicesSection({
   const DeviceCard = ({ group, groupLabel, items }: { group: 'corridor' | 'teachers'; groupLabel: string; items: TvDevice[] }) => (
     <div
       className={cn(
-        'rounded-lg border p-4',
+        'min-w-0 max-w-full overflow-hidden rounded-lg border p-3 sm:p-4',
         group === 'corridor'
           ? 'border-sky-200 dark:border-sky-800/70 bg-sky-50/40 dark:bg-sky-950/25'
           : 'border-violet-200 dark:border-violet-800/70 bg-violet-50/40 dark:bg-violet-950/25',
       )}
     >
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+        <div className="min-w-0 w-full flex-1 sm:w-auto">
           <h4 className="text-sm font-semibold text-foreground">{groupLabel}</h4>
-          <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground" title={schoolId ? tvPlayerPath(group, schoolId) : tvPlayerPath(group)}>
+          <p
+            className="mt-1 break-all font-mono text-[10px] leading-snug text-muted-foreground sm:text-[11px]"
+            title={schoolId ? tvPlayerPath(group, schoolId) : tvPlayerPath(group)}
+          >
             {schoolId ? tvPlayerPath(group, schoolId) : `${tvPlayerPath(group)} — okul seçin`}
           </p>
         </div>
-        <div className="flex shrink-0 flex-wrap gap-2">
+        <div className="flex w-full min-w-0 shrink-0 flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
           <button
             type="button"
             onClick={() => copyTvUrl(group)}
             disabled={!schoolId}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium shadow-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:py-1.5"
             title="Tam adresi panoya kopyalar (uzun URL yazmaya gerek yok)"
           >
-            <Copy className="size-3.5" />
+            <Copy className="size-3.5 shrink-0" />
             Adresi kopyala
           </button>
           <button
@@ -1521,9 +1571,9 @@ function TvDevicesSection({
             onClick={() => createForGroup(group)}
             disabled={!token || creating || items.length >= 1}
             title={items.length >= 1 ? 'Bu ekran için en fazla bir cihaz tanımlanabilir' : undefined}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-primary bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-primary bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 sm:w-auto sm:py-1.5"
           >
-            {creating ? <LoadingSpinner /> : <Plus className="size-3.5" />}
+            {creating ? <LoadingSpinner /> : <Plus className="size-3.5 shrink-0" />}
             Cihaz ekle
           </button>
         </div>
@@ -1543,36 +1593,50 @@ function TvDevicesSection({
           )}
           <div className="mt-2 space-y-2">
             {items.map((d) => (
-              <div key={d.id} className="flex items-center justify-between rounded border border-border bg-background p-2">
-                <div className="flex items-center gap-2">
+              <div
+                key={d.id}
+                className="flex min-w-0 flex-col gap-2 rounded border border-border bg-background p-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3"
+              >
+                <div className="flex min-w-0 flex-1 items-start gap-2">
                   {d.status === 'online' ? (
-                    <span title="Çevrimiçi"><Wifi className="size-4 text-emerald-600" /></span>
+                    <span className="mt-0.5 shrink-0" title="Çevrimiçi">
+                      <Wifi className="size-4 text-emerald-600" />
+                    </span>
                   ) : (
-                    <span title="Çevrimdışı"><WifiOff className="size-4 text-muted-foreground" /></span>
+                    <span className="mt-0.5 shrink-0" title="Çevrimdışı">
+                      <WifiOff className="size-4 text-muted-foreground" />
+                    </span>
                   )}
-                  <div>
-                    <p className="text-sm font-medium">{d.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      <span className="inline-flex items-center gap-1">
-                        <code className="rounded bg-muted px-1 font-mono">{d.pairing_code}</code>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{d.name}</p>
+                    <p className="mt-0.5 break-words text-xs text-muted-foreground">
+                      <span className="inline-flex max-w-full flex-wrap items-center gap-x-1 gap-y-1">
+                        <code className="max-w-full break-all rounded bg-muted px-1 font-mono text-[11px]">{d.pairing_code}</code>
                         <button
                           type="button"
-                          onClick={() => { navigator.clipboard.writeText(d.pairing_code); toast.success('Kopyalandı'); }}
-                          className="rounded p-0.5 hover:bg-muted"
+                          onClick={() => {
+                            navigator.clipboard.writeText(d.pairing_code);
+                            toast.success('Kopyalandı');
+                          }}
+                          className="shrink-0 rounded p-0.5 hover:bg-muted"
                           title="Kopyala"
                         >
                           <Copy className="size-3" />
                         </button>
                       </span>
-                      {d.last_seen_at && ` · ${new Date(d.last_seen_at).toLocaleString('tr-TR')}`}
+                      {d.last_seen_at ? (
+                        <span className="mt-1 block text-[10px] leading-snug opacity-90 sm:inline sm:mt-0 sm:text-xs">
+                          {new Date(d.last_seen_at).toLocaleString('tr-TR')}
+                        </span>
+                      ) : null}
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex shrink-0 justify-end gap-1 border-t border-border/60 pt-2 sm:border-t-0 sm:pt-0">
                   <button type="button" onClick={() => setEditingDevice(d)} className="rounded p-1.5 hover:bg-muted" title="Düzenle">
                     <Pencil className="size-3.5" />
                   </button>
-                  <button type="button" onClick={() => handleRemove(d.id)} className="rounded p-1.5 hover:bg-destructive/10 text-destructive" title="Sil">
+                  <button type="button" onClick={() => handleRemove(d.id)} className="rounded p-1.5 text-destructive hover:bg-destructive/10" title="Sil">
                     <Trash2 className="size-3.5" />
                   </button>
                 </div>
@@ -1585,11 +1649,11 @@ function TvDevicesSection({
   );
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
+    <div className="min-w-0 max-w-full space-y-3 sm:space-y-4">
+      <p className="break-words text-xs text-muted-foreground sm:text-sm">
         Akıllı Tahta TV bağlantıları <strong className="text-foreground">Akıllı Tahta</strong> sayfasındadır.
       </p>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid min-w-0 gap-3 sm:grid-cols-2 sm:gap-4">
         <DeviceCard group="corridor" groupLabel="Koridor ekranı" items={corridorDevices} />
         <DeviceCard group="teachers" groupLabel="Öğretmenler odası ekranı" items={teachersDevices} />
       </div>
@@ -1672,20 +1736,22 @@ function TvDeviceEditModal({
               TV cihaz eşleştirme: Koridor veya Öğretmenler Odası. Akıllı Tahta ayrı modülden.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Eşleştirme kodu:</span>
-            <code className="rounded bg-muted px-2 py-1 font-mono text-sm">{device.pairing_code}</code>
-            <button
-              type="button"
-              onClick={() => {
-                navigator.clipboard.writeText(device.pairing_code);
-                toast.success('Eşleştirme kodu kopyalandı');
-              }}
-              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-muted"
-            >
-              <Copy className="size-3.5" />
-              Kopyala
-            </button>
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
+            <span className="shrink-0 text-xs text-muted-foreground">Eşleştirme kodu:</span>
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+              <code className="max-w-full break-all rounded bg-muted px-2 py-1 font-mono text-sm">{device.pairing_code}</code>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(device.pairing_code);
+                  toast.success('Eşleştirme kodu kopyalandı');
+                }}
+                className="inline-flex shrink-0 items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-muted"
+              >
+                <Copy className="size-3.5" />
+                Kopyala
+              </button>
+            </div>
           </div>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={onClose} className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted">
@@ -1784,9 +1850,9 @@ function BlockGrid({
   };
 
   const renderGroup = (label: string, configs: typeof orta) => (
-    <div key={label} className="space-y-3">
-      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <div key={label} className="space-y-2 sm:space-y-3">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:text-xs">{label}</p>
+      <div className="grid gap-2 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3">
         {configs.map((cfg) => {
           const items = getItems(cfg);
           const scheduleCount =
@@ -1838,7 +1904,7 @@ function BlockGrid({
   );
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5 sm:space-y-8">
       {renderGroup('Orta bölüm (slaytlar)', orta)}
       {renderGroup('Sağ panel', sag)}
       {renderGroup('Alt şeritler', alt)}
@@ -1929,22 +1995,22 @@ function SectionBlock({
   return (
     <div
       className={cn(
-        'group rounded-xl border p-4 shadow-sm transition-all hover:shadow-md',
-        accentStyles ? accentStyles.card : 'border-border bg-card hover:border-primary/30',
+        'group rounded-lg border p-3 shadow-sm transition-all hover:shadow-md sm:rounded-xl sm:p-4',
+        accentStyles ? accentStyles.card : 'border-border bg-card/80 hover:border-cyan-500/25 dark:bg-card/60',
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
+      <div className="flex items-start justify-between gap-2 sm:gap-3">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <div
             className={cn(
-              'flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors',
-              accentStyles ? `${accentStyles.iconBg} ${accentStyles.iconText}` : 'bg-primary/10 text-primary group-hover:bg-primary/15',
+              'flex size-9 shrink-0 items-center justify-center rounded-md transition-colors sm:size-10 sm:rounded-lg',
+              accentStyles ? `${accentStyles.iconBg} ${accentStyles.iconText}` : 'bg-cyan-500/12 text-cyan-700 dark:text-cyan-300 group-hover:bg-cyan-500/18',
             )}
           >
             {icon}
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-foreground">
+            <p className="text-xs font-semibold leading-tight text-foreground sm:text-sm">
               {title}
               {helpTooltip && (
                 <span title={helpTooltip} className="ml-1.5 cursor-help">

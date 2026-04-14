@@ -2,13 +2,11 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { Toolbar, ToolbarHeading, ToolbarPageTitle, ToolbarActions } from '@/components/layout/toolbar';
-import { ToolbarIconHints } from '@/components/layout/toolbar-icon-hints';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Calendar, Plus, Trash2, Printer } from 'lucide-react';
+import { Plus, Trash2, Printer, ClipboardList } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -58,6 +56,24 @@ function getDefaultAcademicYear(): string {
   return now.getMonth() >= 8 ? `${now.getFullYear()}-${now.getFullYear() + 1}` : `${now.getFullYear() - 1}-${now.getFullYear()}`;
 }
 
+const YILLIK_PRINT_PAGE_STYLE_ID = 'bilsem-yillik-plan-print-atpage';
+const YILLIK_PRINT_PAGE_CSS = `@media print {
+  @page { size: A4 portrait; margin: 3mm 4.5mm; }
+  html, body { height: auto !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}`;
+
+function ensureYillikPrintPageStyle() {
+  if (document.getElementById(YILLIK_PRINT_PAGE_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = YILLIK_PRINT_PAGE_STYLE_ID;
+  style.textContent = YILLIK_PRINT_PAGE_CSS;
+  document.head.appendChild(style);
+}
+
+function removeYillikPrintPageStyle() {
+  document.getElementById(YILLIK_PRINT_PAGE_STYLE_ID)?.remove();
+}
+
 export default function BilsemYillikPlanPage() {
   const { me } = useAuth();
   const isSchoolAdmin = me?.role === 'school_admin';
@@ -87,6 +103,18 @@ export default function BilsemYillikPlanPage() {
     }
   }, [me]);
 
+  useEffect(() => {
+    const onBefore = () => ensureYillikPrintPageStyle();
+    const onAfter = () => removeYillikPrintPageStyle();
+    window.addEventListener('beforeprint', onBefore);
+    window.addEventListener('afterprint', onAfter);
+    return () => {
+      window.removeEventListener('beforeprint', onBefore);
+      window.removeEventListener('afterprint', onAfter);
+      removeYillikPrintPageStyle();
+    };
+  }, []);
+
   const addRow = useCallback(() => {
     setRows((r) => [...r, { id: crypto.randomUUID(), month: '', task: '', date: '', responsible: '' }]);
     toast.success('Satır eklendi');
@@ -108,6 +136,7 @@ export default function BilsemYillikPlanPage() {
   }, []);
 
   const handlePrint = useCallback(() => {
+    ensureYillikPrintPageStyle();
     window.print();
   }, []);
 
@@ -115,44 +144,57 @@ export default function BilsemYillikPlanPage() {
   const dateStr = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
   return (
-    <div className="yillik-calisma-plani space-y-6 print:space-y-0">
-      <div className="print:hidden rounded-xl bg-muted/30 p-4">
-        <Toolbar>
-          <ToolbarHeading>
-            <ToolbarPageTitle>BİLSEM yıllık çalışma planı</ToolbarPageTitle>
-            <ToolbarIconHints
-              compact
-              items={[
-                { label: 'Öğretim yılı', icon: Calendar },
-                { label: 'Yazdır', icon: Printer },
-                { label: 'Satır ekle', icon: Plus },
-              ]}
-              summary={`${academicYear} eğitim-öğretim yılı BİLSEM yıllık çalışma programı.${canEdit ? ' Düzenleyip yazdırabilirsiniz.' : ' Görüntüleyip yazdırabilirsiniz.'}`}
-            />
-          </ToolbarHeading>
-          <ToolbarActions>
-            <div className="flex items-center gap-2">
-              <Label className="text-sm text-muted-foreground shrink-0">Öğr. yılı</Label>
+    <div className="yillik-calisma-plani space-y-4 sm:space-y-5 print:space-y-0">
+      <div className="print:hidden overflow-hidden rounded-2xl border border-violet-200/50 bg-gradient-to-br from-violet-50/95 via-white to-fuchsia-50/60 shadow-sm ring-1 ring-violet-500/10 dark:border-violet-800/45 dark:from-violet-950/45 dark:via-zinc-950 dark:to-fuchsia-950/25 dark:ring-violet-500/15">
+        <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:p-5">
+          <div className="flex min-w-0 items-start gap-3">
+            <div
+              className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white shadow-md shadow-violet-500/25"
+              aria-hidden
+            >
+              <ClipboardList className="size-6" strokeWidth={2} />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">BİLSEM yıllık çalışma planı</h1>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                {academicYear} · Kurum üst bilgisini düzenleyip tabloyu doldurun; yazdırmada yalnızca belge çıkar.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+            <div className="flex items-center gap-2 rounded-xl border border-violet-200/60 bg-white/80 px-3 py-2 dark:border-violet-800/50 dark:bg-zinc-900/60">
+              <Label htmlFor="bilsem-ycp-yil" className="text-xs font-medium text-muted-foreground">
+                Öğr. yılı
+              </Label>
               <Input
+                id="bilsem-ycp-yil"
                 value={academicYear}
                 onChange={(e) => setAcademicYear(e.target.value)}
-                className="w-24"
+                className="h-8 w-[6.5rem] border-violet-200/80 text-sm dark:border-violet-800/60"
                 placeholder="2025-2026"
                 readOnly={!canEdit}
               />
             </div>
             {canEdit && (
               <>
-                <Button variant="outline" size="sm" onClick={addRow} title="Yeni satır ekle">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addRow}
+                  title="Yeni satır ekle"
+                  className="border-violet-200/80 bg-white/90 dark:border-violet-800/50 dark:bg-zinc-900/60"
+                >
                   <Plus className="mr-1.5 size-4" />
                   Ekle
                 </Button>
                 <Button
+                  type="button"
                   variant="outline"
                   size="sm"
                   onClick={clearAllRows}
                   disabled={rows.length === 0}
-                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  className="border-violet-200/80 bg-white/90 text-destructive hover:bg-destructive/10 hover:text-destructive dark:border-violet-800/50 dark:bg-zinc-900/60"
                   title="Tüm satırları sil"
                 >
                   <Trash2 className="mr-1.5 size-4" />
@@ -160,17 +202,28 @@ export default function BilsemYillikPlanPage() {
                 </Button>
               </>
             )}
-            <Button variant="outline" size="sm" onClick={handlePrint} title="Yazdır">
+            <Button
+              type="button"
+              size="sm"
+              onClick={handlePrint}
+              title="Yazdır"
+              className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-md shadow-violet-500/25 hover:from-violet-700 hover:to-fuchsia-700"
+            >
               <Printer className="mr-1.5 size-4" />
               Yazdır
             </Button>
-          </ToolbarActions>
-        </Toolbar>
+          </div>
+        </div>
       </div>
 
-      <Card className="yillik-calisma-document overflow-hidden border border-slate-200 bg-white shadow-md dark:border-slate-700 dark:bg-slate-900 print:border print:border-black print:bg-white print:shadow-none">
+      <Card
+        className={cn(
+          'yillik-calisma-document overflow-hidden border-violet-200/50 bg-white shadow-md dark:border-violet-800/40 dark:bg-zinc-950',
+          'print:border print:border-black print:bg-white print:shadow-none',
+        )}
+      >
         <CardContent className="p-0">
-          <div className="border-b border-slate-200 bg-white px-8 py-6 dark:border-slate-700 dark:bg-slate-900 print:border-b print:border-black print:bg-white print:py-8">
+          <div className="yillik-print-header border-b border-violet-100/80 bg-gradient-to-b from-violet-50/40 to-white px-4 py-5 dark:border-violet-900/35 dark:from-violet-950/30 dark:to-zinc-950 print:border-b print:border-black print:bg-white print:from-transparent print:to-transparent">
             <div className="space-y-2 text-center">
               <p className="text-sm font-medium tracking-[0.3em] text-black print:text-sm">T.C.</p>
               <p className="text-base font-semibold text-black print:text-base print:font-bold">
@@ -191,15 +244,19 @@ export default function BilsemYillikPlanPage() {
                   placeholder="Kurum adı (örn: Akşehir BİLSEM Müdürlüğü)"
                 />
               </p>
-              <div className="mx-auto mt-4 h-px w-48 bg-slate-300 print:bg-black" />
+              <div className="mx-auto mt-4 h-px w-48 bg-violet-200 print:bg-black dark:bg-violet-800/50" />
               <p className="mt-3 text-base font-bold text-black print:text-base">
                 {academicYear} EĞİTİM-ÖĞRETİM YILI YILLIK ÇALIŞMA PROGRAMI
               </p>
             </div>
           </div>
 
-          <div className="table-x-scroll rounded-lg border-2 border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900 print:border print:border-black">
-            <table className="yillik-plani-table w-full min-w-[640px] table-fixed border-collapse text-black print:text-black">
+          <div className="table-x-scroll -mx-px overflow-x-auto rounded-lg border-2 border-violet-200/50 bg-white dark:border-violet-800/45 dark:bg-zinc-950 print:mx-0 print:overflow-visible print:rounded-none print:border print:border-black">
+            <table
+              className={cn(
+                'yillik-plani-table w-full min-w-[640px] table-fixed border-collapse text-black print:min-w-0 print:table-auto print:text-black',
+              )}
+            >
               <colgroup>
                 <col style={{ width: '10%' }} />
                 <col style={{ width: '45%' }} />
@@ -208,12 +265,20 @@ export default function BilsemYillikPlanPage() {
                 {canEdit && <col style={{ width: '40px' }} />}
               </colgroup>
               <thead>
-                <tr className="border-b-2 border-slate-400 bg-slate-200 dark:border-slate-500 dark:bg-slate-700 print:border-b-2 print:border-black print:bg-slate-200">
-                  <th className="border border-slate-400 px-3 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-800 dark:border-slate-500 dark:text-slate-100 print:border print:border-black print:py-2 print:text-black">Aylar</th>
-                  <th className="border border-slate-400 px-3 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-800 dark:border-slate-500 dark:text-slate-100 print:border print:border-black print:py-2 print:text-black">Yapılacak Çalışmalar</th>
-                  <th className="border border-slate-400 px-3 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-800 dark:border-slate-500 dark:text-slate-100 print:border print:border-black print:py-2 print:text-black">Tarih</th>
-                  <th className="border border-slate-400 px-3 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-800 dark:border-slate-500 dark:text-slate-100 print:border print:border-black print:py-2 print:text-black">Düşünceler</th>
-                  {canEdit && <th className="w-10 px-2 py-3 print:hidden" />}
+                <tr className="border-b-2 border-violet-300/70 bg-violet-100/90 dark:border-violet-700 dark:bg-violet-950/50 print:border-b-2 print:border-black print:bg-slate-200">
+                  <th className="border border-violet-200/80 px-2 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-violet-950 dark:border-violet-800 dark:text-violet-100 print:border print:border-black print:py-2 print:text-black">
+                    Aylar
+                  </th>
+                  <th className="border border-violet-200/80 px-2 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-violet-950 dark:border-violet-800 dark:text-violet-100 print:border print:border-black print:py-2 print:text-black">
+                    Yapılacak Çalışmalar
+                  </th>
+                  <th className="border border-violet-200/80 px-2 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-violet-950 dark:border-violet-800 dark:text-violet-100 print:border print:border-black print:py-2 print:text-black">
+                    Tarih
+                  </th>
+                  <th className="border border-violet-200/80 px-2 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-violet-950 dark:border-violet-800 dark:text-violet-100 print:border print:border-black print:py-2 print:text-black">
+                    Düşünceler
+                  </th>
+                  {canEdit && <th className="w-10 px-2 py-2.5 print:hidden" />}
                 </tr>
               </thead>
               <tbody>
@@ -221,11 +286,13 @@ export default function BilsemYillikPlanPage() {
                   <tr
                     key={row.id}
                     className={cn(
-                      'border-b border-slate-300 transition-colors hover:bg-slate-100/80 dark:border-slate-600 dark:hover:bg-slate-800/50 print:border-b print:border-black',
-                      row.month ? 'bg-slate-100 dark:bg-slate-800/70 print:bg-slate-100' : idx % 2 === 1 && 'bg-slate-50/80 dark:bg-slate-900/40 print:bg-white',
+                      'border-b border-violet-100/90 transition-colors hover:bg-violet-50/40 dark:border-violet-900/40 dark:hover:bg-violet-950/20 print:border-b print:border-black',
+                      row.month
+                        ? 'bg-violet-50/70 dark:bg-violet-950/35 print:bg-slate-100'
+                        : idx % 2 === 1 && 'bg-fuchsia-50/25 dark:bg-fuchsia-950/15 print:bg-white',
                     )}
                   >
-                    <td className="wrap-break-word border-r border-slate-300 px-3 py-2.5 align-top dark:border-slate-600 print:border print:border-black print:py-2 print:text-sm">
+                    <td className="wrap-break-word border-r border-violet-100/90 px-2 py-2 align-top dark:border-violet-900/35 print:border print:border-black print:py-2 print:text-sm">
                       <Input
                         value={row.month}
                         onChange={(e) => updateRow(row.id, 'month', e.target.value)}
@@ -234,7 +301,7 @@ export default function BilsemYillikPlanPage() {
                         placeholder="Ay"
                       />
                     </td>
-                    <td className="wrap-break-word border-r border-slate-300 px-3 py-2.5 align-top dark:border-slate-600 print:border print:border-black print:py-2 print:text-sm">
+                    <td className="wrap-break-word border-r border-violet-100/90 px-2 py-2 align-top dark:border-violet-900/35 print:border print:border-black print:py-2 print:text-sm">
                       <textarea
                         value={row.task}
                         onChange={(e) => updateRow(row.id, 'task', e.target.value)}
@@ -242,12 +309,12 @@ export default function BilsemYillikPlanPage() {
                         rows={2}
                         className={cn(
                           'yillik-plani-input w-full resize-y border-0 bg-transparent text-black shadow-none focus-visible:ring-0 print:min-h-0 print:resize-none print:text-sm',
-                          !canEdit && 'cursor-default resize-none overflow-hidden'
+                          !canEdit && 'cursor-default resize-none overflow-hidden',
                         )}
                         placeholder="Yapılacak iş"
                       />
                     </td>
-                    <td className="wrap-break-word border-r border-slate-300 px-3 py-2.5 align-top dark:border-slate-600 print:border print:border-black print:py-2 print:text-sm">
+                    <td className="wrap-break-word border-r border-violet-100/90 px-2 py-2 align-top dark:border-violet-900/35 print:border print:border-black print:py-2 print:text-sm">
                       <Input
                         value={row.date}
                         onChange={(e) => updateRow(row.id, 'date', e.target.value)}
@@ -256,7 +323,7 @@ export default function BilsemYillikPlanPage() {
                         placeholder="Tarih"
                       />
                     </td>
-                    <td className="wrap-break-word border-r border-slate-300 px-3 py-2.5 align-top dark:border-slate-600 print:border print:border-black print:py-2 print:text-sm">
+                    <td className="wrap-break-word border-r border-violet-100/90 px-2 py-2 align-top dark:border-violet-900/35 print:border print:border-black print:py-2 print:text-sm">
                       <Input
                         value={row.responsible}
                         onChange={(e) => updateRow(row.id, 'responsible', e.target.value)}
@@ -266,8 +333,9 @@ export default function BilsemYillikPlanPage() {
                       />
                     </td>
                     {canEdit && (
-                      <td className="border-l border-slate-300 px-2 py-2 align-top dark:border-slate-600 print:hidden">
+                      <td className="border-l border-violet-100/90 px-1 py-1 align-top dark:border-violet-900/35 print:hidden">
                         <Button
+                          type="button"
                           variant="ghost"
                           size="sm"
                           onClick={() => removeRow(row.id)}
@@ -284,7 +352,7 @@ export default function BilsemYillikPlanPage() {
             </table>
           </div>
 
-          <div className="border-t-2 border-slate-300 bg-white px-8 py-8 dark:border-slate-600 dark:bg-slate-900 print:border-t-2 print:border-black print:bg-white print:py-10">
+          <div className="yillik-print-footer border-t-2 border-violet-100/90 bg-gradient-to-b from-white to-violet-50/30 px-4 py-6 dark:border-violet-900/40 dark:from-zinc-950 dark:to-violet-950/20 print:border-t-2 print:border-black print:bg-white print:from-transparent print:to-transparent">
             <div className="flex justify-end">
               <div className="text-right">
                 <p className="text-sm font-bold text-black print:text-sm">Uygundur.</p>
@@ -293,7 +361,7 @@ export default function BilsemYillikPlanPage() {
                   value={mudurAdi}
                   onChange={(e) => setMudurAdi(e.target.value)}
                   readOnly={!canEdit}
-                  className="yillik-plani-input mt-3 w-48 border-0 border-b-2 border-black bg-transparent text-center text-sm font-semibold text-black shadow-none focus-visible:ring-0 print:mt-4 print:border-b-2 print:border-black print:text-sm"
+                  className="yillik-plani-input mt-3 w-48 max-w-full border-0 border-b-2 border-black bg-transparent text-center text-sm font-semibold text-black shadow-none focus-visible:ring-0 print:mt-4 print:border-b-2 print:border-black print:text-sm"
                 />
                 <p className="mt-2 text-xs font-medium text-black print:text-xs">Bilim ve Sanat Merkezi Müdürü</p>
               </div>

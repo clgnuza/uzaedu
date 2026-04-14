@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import {
-  ArrowLeft,
   Table2,
   PlusCircle,
   Pencil,
@@ -14,10 +13,12 @@ import {
   Calendar,
   Minus,
   Search,
+  Archive,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
 import { useSchoolTimetableSettings } from '@/hooks/use-school-timetable-settings';
+import { useSchoolClassesSubjects } from '@/hooks/use-school-classes-subjects';
 import { useKazanimPlanMap } from '@/hooks/use-kazanim-plan-map';
 import { apiFetch } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -25,9 +26,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { cn } from '@/lib/utils';
+import { resolveSchoolSubjectDisplay } from '@/lib/school-subject-display';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LessonCellCard } from '@/components/ders-programi/lesson-cell-card';
 import { TEACHER_WEEK_THEME } from '@/components/ders-programi/timetable-pastel-theme';
+import { DersProgramiSubpageIntro } from '@/components/ders-programi/ders-programi-subpage-intro';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 
@@ -99,6 +102,7 @@ function fmtUntil(validUntil: string | null): string {
 export default function ProgramlarimPage() {
   const { token, me } = useAuth();
   const { maxLessons: schoolMaxLessons, getTimeRangeForDay } = useSchoolTimetableSettings();
+  const { subjects: schoolSubjects } = useSchoolClassesSubjects();
   const [entries, setEntries] = useState<TimetableEntry[] | null>(null);
   const [personalPrograms, setPersonalPrograms] = useState<PersonalProgram[]>([]);
   const [teachers, setTeachers] = useState<TeacherInfo[]>([]);
@@ -115,6 +119,7 @@ export default function ProgramlarimPage() {
   const [editOpenEnded, setEditOpenEnded] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [adminSectionTab, setAdminSectionTab] = useState<'programs' | 'archive'>('programs');
   const [teacherQuery, setTeacherQuery] = useState('');
   const [teacherSort, setTeacherSort] = useState<'name_asc' | 'name_desc' | 'lessons_desc' | 'lessons_asc'>('name_asc');
   const [exemptFilter, setExemptFilter] = useState<'all' | 'exempt' | 'not_exempt'>('all');
@@ -124,8 +129,15 @@ export default function ProgramlarimPage() {
   const { getKazanimHref } = useKazanimPlanMap(token, !!isTeacher);
 
   const publishedPlans = plans.filter((p) => p.status === 'published');
+  const draftPlans = useMemo(() => plans.filter((p) => p.status === 'draft'), [plans]);
+  const archivedPlans = useMemo(() => plans.filter((p) => p.status === 'archived'), [plans]);
+  const selectablePlans = useMemo(
+    () => [...publishedPlans, ...archivedPlans].sort((a, b) => a.valid_from.localeCompare(b.valid_from)),
+    [publishedPlans, archivedPlans],
+  );
   const selectedDate =
-    selectedView === 'today' ? today : publishedPlans.find((p) => p.id === selectedView)?.valid_from ?? today;
+    selectedView === 'today' ? today : selectablePlans.find((p) => p.id === selectedView)?.valid_from ?? today;
+  const canEditPlanDates = !!(planInfo && publishedPlans.some((p) => p.id === planInfo.plan_id));
 
   const todayDayOfWeek = useMemo(() => {
     const d = new Date().getDay();
@@ -184,7 +196,7 @@ export default function ProgramlarimPage() {
         if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(key, '1');
         if (res.has_school_and_personal) {
           toast.info(
-            'Haftalık görünümde geçerli olan okul (idare) programıdır. Kişisel programlar aşağıda ayrı listelenir.',
+            'Bu sayfadaki özet tabloda okul (idare) programı gösterilir. Kişisel programlarınız aşağıda listelenir; düzenleme için Haftalık tablo veya Program Oluştur kullanın.',
             { duration: 9000 },
           );
         }
@@ -309,26 +321,24 @@ export default function ProgramlarimPage() {
   const lessonNums = Array.from({ length: schoolMaxLessons }, (_, i) => i + 1);
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-4">
-      <div className="rounded-xl border border-border/70 bg-linear-to-br from-primary/5 via-background to-muted/25 px-3 py-3 sm:px-4">
-        <Link
-          href="/ders-programi"
-          className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground sm:text-xs"
-        >
-          <ArrowLeft className="size-3.5 shrink-0" />
-          Ders Programı
-        </Link>
-        <h1 className="mt-2 text-base font-semibold tracking-tight text-foreground sm:text-lg">Programlarım</h1>
-        <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">Okul programınız ve kişisel programlarınız</p>
-      </div>
+    <div className="mx-auto w-full max-w-6xl space-y-2 sm:space-y-4">
+      <DersProgramiSubpageIntro
+        title="Programlarım"
+        subtitle={isAdmin ? 'Okul planı ve öğretmen programları' : 'Okul programınız ve kişisel programlarınız'}
+        accent="violet"
+      />
 
       {loading ? (
-        <div className="flex items-center justify-center py-12">
+        <div className="flex items-center justify-center py-8 sm:py-12">
           <LoadingSpinner className="size-8" />
         </div>
-      ) : isAdmin && publishedPlans.length === 0 && (!entries || entries.length === 0) ? (
+      ) : isAdmin &&
+        publishedPlans.length === 0 &&
+        archivedPlans.length === 0 &&
+        draftPlans.length === 0 &&
+        (!entries || entries.length === 0) ? (
         <Card>
-          <CardContent className="py-12">
+          <CardContent className="py-8 sm:py-12">
             <EmptyState
               icon={<Table2 className="size-10" />}
               title="Program bulunamadı"
@@ -354,7 +364,7 @@ export default function ProgramlarimPage() {
         </Card>
       ) : !isAdmin && (!entries || entries.length === 0) && personalPrograms.length === 0 ? (
         <Card>
-          <CardContent className="py-12">
+          <CardContent className="py-8 sm:py-12">
             <EmptyState
               icon={<Table2 className="size-10" />}
               title="Henüz programınız yok"
@@ -381,23 +391,125 @@ export default function ProgramlarimPage() {
         </Card>
       ) : (
         <>
+          {isAdmin && (
+            <div
+              role="tablist"
+              aria-label="Program arşiv"
+              className="flex gap-1 rounded-xl border-2 border-primary/35 bg-primary/8 p-1 shadow-sm dark:border-primary/45 dark:bg-primary/15"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={adminSectionTab === 'programs'}
+                onClick={() => setAdminSectionTab('programs')}
+                className={cn(
+                  'flex-1 rounded-lg px-3 py-2 text-sm font-bold transition-all sm:flex-none sm:px-4',
+                  adminSectionTab === 'programs'
+                    ? 'bg-primary text-primary-foreground shadow-md ring-2 ring-primary/35'
+                    : 'border border-transparent bg-background/80 text-foreground/75 hover:border-primary/25 hover:bg-background',
+                )}
+              >
+                Programlar
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={adminSectionTab === 'archive'}
+                onClick={() => setAdminSectionTab('archive')}
+                className={cn(
+                  'inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-bold transition-all sm:flex-none sm:px-4',
+                  adminSectionTab === 'archive'
+                    ? 'bg-amber-600 text-white shadow-md ring-2 ring-amber-500/45 dark:bg-amber-500 dark:ring-amber-300/35'
+                    : 'border border-transparent bg-background/80 text-amber-950/80 hover:border-amber-400/50 hover:bg-amber-50 dark:text-amber-100/85 dark:hover:border-amber-700 dark:hover:bg-amber-950/40',
+                )}
+              >
+                <Archive className="size-3.5 shrink-0" />
+                Arşiv
+                {archivedPlans.length > 0 ? (
+                  <span
+                    className={cn(
+                      'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+                      adminSectionTab === 'archive'
+                        ? 'bg-white/25 text-white'
+                        : 'bg-amber-200/90 text-amber-950 dark:bg-amber-900/80 dark:text-amber-100',
+                    )}
+                  >
+                    {archivedPlans.length}
+                  </span>
+                ) : null}
+              </button>
+            </div>
+          )}
+
+          {isAdmin && adminSectionTab === 'archive' && (
+            <Card>
+              <CardHeader className="space-y-1 px-3 pb-2 pt-3 sm:px-6 sm:pt-6">
+                <CardTitle className="text-sm sm:text-base">Arşivlenmiş programlar</CardTitle>
+                <p className="line-clamp-3 text-[11px] leading-snug text-muted-foreground sm:line-clamp-none sm:text-xs">
+                  Yeni program yayınlandığında çakışan eski yayınlar burada tutulur; tabloda görmek için Programlar sekmesinden plan seçin.
+                </p>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {archivedPlans.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">Arşivde kayıt yok.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[520px] text-sm">
+                      <thead>
+                        <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          <th className="py-2 pr-3">Plan</th>
+                          <th className="py-2 pr-3">Başlangıç</th>
+                          <th className="py-2 pr-3">Bitiş</th>
+                          <th className="py-2 text-right">Ders</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {archivedPlans.map((p) => (
+                          <tr key={p.id} className="border-b border-border/60">
+                            <td className="py-2 pr-3 font-medium">{p.name || p.academic_year || 'Plan'}</td>
+                            <td className="py-2 pr-3 text-muted-foreground">{fmtDate(p.valid_from)}</td>
+                            <td className="py-2 pr-3 text-muted-foreground">{fmtUntil(p.valid_until)}</td>
+                            <td className="py-2 text-right tabular-nums">{p.entry_count}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Admin: Geçerlilik tarihleri + Plan seçici */}
-          {isAdmin && publishedPlans.length > 0 && (
+          {isAdmin && adminSectionTab === 'programs' && (selectablePlans.length > 0 || draftPlans.length > 0 || planInfo) && (
             <Card className="border-primary/20 bg-linear-to-br from-primary/5 to-transparent">
-              <CardContent className="py-4">
-                <div className="flex flex-wrap items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="size-5 text-primary" />
-                    <span className="text-sm font-medium">Geçerlilik:</span>
+              <CardContent className="px-3 py-3 sm:px-6 sm:py-4">
+                {draftPlans.length > 0 && (
+                  <p className="mb-2 line-clamp-3 text-[11px] leading-snug text-amber-800 dark:text-amber-200/90 sm:mb-3 sm:line-clamp-none sm:text-xs">
+                    {draftPlans.length} taslak plan var. Yayınlamak için{' '}
+                    <Link href="/ders-programi/olustur" className="font-medium underline underline-offset-2">
+                      Excel ile yükle
+                    </Link>{' '}
+                    adımından devam edin.
+                  </p>
+                )}
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+                    <Calendar className="size-4 shrink-0 text-primary sm:size-5" />
+                    <span className="text-xs font-medium sm:text-sm">Geçerlilik:</span>
                     {planInfo ? (
                       <>
-                        <span className="rounded-lg bg-primary/10 px-2.5 py-1 text-sm font-semibold text-primary">
+                        <span className="max-w-full wrap-break-word rounded-lg bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary sm:px-2.5 sm:py-1 sm:text-sm">
                           {fmtDate(planInfo.valid_from)} – {fmtUntil(planInfo.valid_until)}
                         </span>
-                        <Button variant="outline" size="sm" onClick={openEditDialog} className="gap-1.5">
-                          <Pencil className="size-3.5" />
-                          Düzenle
-                        </Button>
+                        {canEditPlanDates ? (
+                          <Button variant="outline" size="sm" onClick={openEditDialog} className="gap-1.5">
+                            <Pencil className="size-3.5" />
+                            Düzenle
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">(Arşiv — salt okunur)</span>
+                        )}
                       </>
                     ) : (
                       <span className="text-muted-foreground text-sm">
@@ -405,26 +517,27 @@ export default function ProgramlarimPage() {
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor="plan-select" className="text-sm text-muted-foreground whitespace-nowrap">
+                  <div className="flex min-w-0 w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
+                    <Label htmlFor="plan-select" className="text-xs text-muted-foreground sm:text-sm sm:whitespace-nowrap">
                       Görüntüle:
                     </Label>
                     <select
                       id="plan-select"
-                      className="rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+                      className="min-w-0 w-full max-w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs sm:w-auto sm:max-w-md sm:px-3 sm:text-sm"
                       value={selectedView}
                       onChange={(e) => setSelectedView(e.target.value)}
                     >
                       <option value="today">Mevcut (bugün)</option>
-                      {publishedPlans.map((p) => (
+                      {selectablePlans.map((p) => (
                         <option key={p.id} value={p.id}>
+                          {p.status === 'archived' ? '[Arşiv] ' : ''}
                           {p.name || p.academic_year || 'Plan'} ({fmtDate(p.valid_from)} – {fmtUntil(p.valid_until)})
-                          {p.valid_until && new Date(p.valid_until) < new Date() ? ' · Geçmiş' : ''}
+                          {p.valid_until && new Date(p.valid_until + 'T12:00:00') < new Date(today + 'T12:00:00') ? ' · Geçmiş' : ''}
                         </option>
                       ))}
                     </select>
                   </div>
-                  {(!planInfo || (planInfo.valid_until && new Date(planInfo.valid_until) < new Date())) && (
+                  {(!planInfo || (planInfo.valid_until && new Date(planInfo.valid_until + 'T12:00:00') < new Date(today + 'T12:00:00'))) && (
                     <Link
                       href="/ders-programi/olustur"
                       className="inline-flex items-center gap-1.5 rounded-lg border border-primary bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/20"
@@ -434,12 +547,12 @@ export default function ProgramlarimPage() {
                     </Link>
                   )}
                 </div>
-                {planInfo && planInfo.valid_until && new Date(planInfo.valid_until) < new Date() && (
+                {planInfo && planInfo.valid_until && new Date(planInfo.valid_until + 'T12:00:00') < new Date(today + 'T12:00:00') && (
                   <p className="mt-2 text-xs text-muted-foreground">
-                    Bilgi amaçlı görüntüleme. Bitiş tarihi geçmiş programlar arşivde kalır.
+                    Geçmiş dönem; arşiv veya eski yayın kaydı. Salt okunur görüntüleme.
                   </p>
                 )}
-                {!planInfo && selectedView !== 'today' && selectedDate && new Date(selectedDate) > new Date() && (
+                {!planInfo && selectedView !== 'today' && selectedDate && new Date(selectedDate + 'T12:00:00') > new Date(today + 'T12:00:00') && (
                   <p className="mt-2 text-xs text-muted-foreground">
                     Seçilen tarih için henüz program tanımlı değil. Geçmiş programlardan birini seçebilirsiniz.
                   </p>
@@ -451,7 +564,7 @@ export default function ProgramlarimPage() {
           {/* Geçerlilik tarihi düzenleme modal */}
           <Dialog open={editPlanOpen} onOpenChange={setEditPlanOpen}>
             <DialogContent title="Geçerlilik Tarihlerini Düzenle">
-              <div className="space-y-4 p-6">
+              <div className="space-y-3 p-4 sm:space-y-4 sm:p-6">
                 <div className="space-y-2">
                   <Label htmlFor="edit-valid-from">Başlangıç tarihi</Label>
                   <Input
@@ -498,9 +611,9 @@ export default function ProgramlarimPage() {
           </Dialog>
 
           {/* Admin: Bu tarih için program yok - Yeni yükle önerisi */}
-          {isAdmin && publishedPlans.length > 0 && (!entries || entries.length === 0) && !loading && (
+          {isAdmin && adminSectionTab === 'programs' && selectablePlans.length > 0 && (!entries || entries.length === 0) && !loading && (
             <Card className="border-amber-200/60 dark:border-amber-800/60">
-              <CardContent className="py-8">
+              <CardContent className="px-3 py-6 sm:px-6 sm:py-8">
                 <p className="text-center text-sm text-muted-foreground mb-4">
                   Bu tarih için aktif program bulunmuyor. Bitiş tarihinden sonra yeni program yükleyebilirsiniz.
                 </p>
@@ -601,7 +714,7 @@ export default function ProgramlarimPage() {
                                 >
                                   {entry ? (
                                     <LessonCellCard
-                                      subject={entry.subject}
+                                      subject={resolveSchoolSubjectDisplay(entry.subject, schoolSubjects)}
                                       classSection={entry.class_section}
                                       timeRange={timeRange}
                                       kazanimHref={getKazanimHref(entry.subject, entry.class_section)}
@@ -771,17 +884,17 @@ export default function ProgramlarimPage() {
           )}
 
           {/* Admin: Tüm öğretmenler tablosu (veri varken) */}
-          {isAdmin && entries && entries.length > 0 && (
+          {isAdmin && adminSectionTab === 'programs' && entries && entries.length > 0 && (
             <Card className="border-border shadow-md overflow-hidden rounded-xl">
-              <CardHeader className="pb-4 pt-5 px-5 bg-muted/30 border-b border-border">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-start gap-3">
-                    <div className="flex size-11 items-center justify-center rounded-xl bg-primary/15 shadow-inner">
-                      <Table2 className="size-6 text-primary" />
+              <CardHeader className="border-b border-border bg-muted/30 px-3 pb-3 pt-3 sm:px-5 sm:pb-4 sm:pt-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                  <div className="flex min-w-0 items-start gap-2 sm:gap-3">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 shadow-inner sm:size-11 sm:rounded-xl">
+                      <Table2 className="size-5 text-primary sm:size-6" />
                     </div>
-                    <div>
-                      <CardTitle className="text-lg font-semibold">Tüm Öğretmenler</CardTitle>
-                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                    <div className="min-w-0">
+                      <CardTitle className="text-base font-semibold sm:text-lg">Tüm Öğretmenler</CardTitle>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs sm:mt-1.5 sm:gap-x-3 sm:text-sm">
                         <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 font-medium text-primary">
                           <Users className="size-3.5" />
                           {visibleTeacherIds.length}
@@ -805,7 +918,7 @@ export default function ProgramlarimPage() {
                   <div
                     role="tablist"
                     aria-label="Görünüm modu"
-                    className="flex rounded-lg bg-muted/60 p-1 border border-border shadow-inner"
+                    className="flex gap-1 rounded-xl border-2 border-blue-200/90 bg-blue-50/85 p-1 shadow-sm dark:border-blue-900/55 dark:bg-blue-950/35"
                   >
                     <button
                       type="button"
@@ -813,10 +926,10 @@ export default function ProgramlarimPage() {
                       aria-selected={viewMode === 'teacher'}
                       onClick={() => setViewMode('teacher')}
                       className={cn(
-                        'inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-all',
+                        'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold transition-all',
                         viewMode === 'teacher'
-                          ? 'bg-background shadow-sm text-foreground ring-1 ring-border'
-                          : 'text-muted-foreground hover:text-foreground hover:bg-background/50',
+                          ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-500/40 dark:bg-blue-500 dark:ring-blue-300/30'
+                          : 'border border-transparent bg-white/75 text-blue-900/75 hover:border-blue-300/80 hover:bg-white dark:bg-blue-950/45 dark:text-blue-100/80 dark:hover:border-blue-800',
                       )}
                     >
                       <Users className="size-4" />
@@ -828,10 +941,10 @@ export default function ProgramlarimPage() {
                       aria-selected={viewMode === 'day'}
                       onClick={() => setViewMode('day')}
                       className={cn(
-                        'inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-all',
+                        'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold transition-all',
                         viewMode === 'day'
-                          ? 'bg-background shadow-sm text-foreground ring-1 ring-border'
-                          : 'text-muted-foreground hover:text-foreground hover:bg-background/50',
+                          ? 'bg-teal-600 text-white shadow-md ring-2 ring-teal-500/40 dark:bg-teal-500 dark:ring-teal-300/30'
+                          : 'border border-transparent bg-white/75 text-teal-900/75 hover:border-teal-300/80 hover:bg-white dark:bg-teal-950/45 dark:text-teal-100/80 dark:hover:border-teal-800',
                       )}
                     >
                       <CalendarDays className="size-4" />
@@ -839,7 +952,7 @@ export default function ProgramlarimPage() {
                     </button>
                   </div>
                 </div>
-                <div className="mt-4 flex flex-col gap-2 border-t border-border/60 pt-4 sm:flex-row sm:flex-wrap sm:items-center">
+                <div className="mt-3 flex flex-col gap-2 border-t border-border/60 pt-3 sm:mt-4 sm:flex-row sm:flex-wrap sm:items-center sm:pt-4">
                   <div className="relative min-w-0 flex-1 sm:max-w-xs">
                     <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
@@ -962,7 +1075,7 @@ export default function ProgramlarimPage() {
                                   >
                                     {entry ? (
                                       <div className="rounded bg-primary/15 dark:bg-primary/20 px-1.5 py-1 text-[11px] border border-primary/20">
-                                        {entry.class_section} · {entry.subject}
+                                        {entry.class_section} · {resolveSchoolSubjectDisplay(entry.subject, schoolSubjects)}
                                       </div>
                                     ) : (
                                       <div className="h-7 rounded border border-dashed border-zinc-300 dark:border-zinc-600 flex items-center justify-center bg-zinc-50/50 dark:bg-zinc-800/30">
@@ -1052,7 +1165,7 @@ export default function ProgramlarimPage() {
                                   >
                                     {entry ? (
                                       <div className="rounded bg-primary/15 dark:bg-primary/20 px-1.5 py-1 text-[11px] border border-primary/20">
-                                        {entry.class_section} · {entry.subject}
+                                        {entry.class_section} · {resolveSchoolSubjectDisplay(entry.subject, schoolSubjects)}
                                       </div>
                                     ) : (
                                       <div className="h-7 rounded border border-dashed border-zinc-300 dark:border-zinc-600 flex items-center justify-center bg-zinc-50/50 dark:bg-zinc-800/30">

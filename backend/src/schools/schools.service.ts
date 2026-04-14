@@ -1,8 +1,9 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { School } from './entities/school.entity';
-import { UserRole, SchoolStatus, SchoolType } from '../types/enums';
+import { User } from '../users/entities/user.entity';
+import { UserRole, SchoolStatus, SchoolType, SchoolSegment } from '../types/enums';
 import { CreateSchoolDto } from './dto/create-school.dto';
 import { BulkCreateSchoolDto } from './dto/bulk-create-school.dto';
 import { UpdateSchoolDto } from './dto/update-school.dto';
@@ -12,6 +13,7 @@ import { AuditService } from '../audit/audit.service';
 import { emailDomainFromInstitutional } from '../common/utils/institutional-email.util';
 import { MARKET_MODULE_KEYS } from '../app-config/market-policy.defaults';
 import { SCHOOL_TYPE_GROUP_MEMBERS } from './school-type-group.util';
+import { ReconcileApplyDto, ReconcileSourceSchoolDto } from './dto/reconcile-schools.dto';
 
 @Injectable()
 export class SchoolsService {
@@ -206,6 +208,7 @@ export class SchoolsService {
     if (dto.duty_end_time !== undefined) school.duty_end_time = dto.duty_end_time?.trim() || null;
     if (dto.duty_teblig_duty_template !== undefined) school.duty_teblig_duty_template = dto.duty_teblig_duty_template?.trim() || null;
     if (dto.duty_teblig_coverage_template !== undefined) school.duty_teblig_coverage_template = dto.duty_teblig_coverage_template?.trim() || null;
+    if (dto.merge_teacher_on_name_match !== undefined) school.mergeTeacherOnNameMatch = dto.merge_teacher_on_name_match === true;
     if (!isSchoolAdmin) {
       if (dto.type !== undefined) school.type = dto.type;
       if (dto.segment !== undefined) school.segment = dto.segment;
@@ -316,5 +319,315 @@ export class SchoolsService {
         institutional_domain: emailDomainFromInstitutional(s.institutionalEmail),
       })),
     };
+  }
+
+  async findActiveByInstitutionCode(codeRaw: string): Promise<School | null> {
+    const code = codeRaw?.trim();
+    if (!code) return null;
+    return this.schoolRepo.findOne({
+      where: { institutionCode: code, status: SchoolStatus.aktif },
+    });
+  }
+
+  private normalizeInstitutionCode(raw: string | null | undefined): string | null {
+    const t = raw?.trim();
+    if (!t || !/^\d{4,16}$/.test(t)) return null;
+    return t;
+  }
+
+  private coerceSchoolType(raw: string | null | undefined): SchoolType {
+    const t = String(raw ?? 'lise').toLowerCase().trim();
+    return (Object.values(SchoolType) as string[]).includes(t) ? (t as SchoolType) : SchoolType.lise;
+  }
+
+  private coerceSchoolSegment(raw: string | null | undefined): SchoolSegment {
+    const s = String(raw ?? 'devlet').toLowerCase().trim();
+    return s === SchoolSegment.ozel ? SchoolSegment.ozel : SchoolSegment.devlet;
+  }
+
+  private coerceStatusFromSource(raw: string | null | undefined): SchoolStatus {
+    const s = String(raw ?? '').toLowerCase().trim();
+    if (s === SchoolStatus.aktif || s === SchoolStatus.deneme || s === SchoolStatus.askida) return s as SchoolStatus;
+    return SchoolStatus.deneme;
+  }
+
+  private desiredFromSource(row: ReconcileSourceSchoolDto) {
+    return {
+      name: row.name.trim(),
+      type: this.coerceSchoolType(row.type),
+      segment: this.coerceSchoolSegment(row.segment),
+      city: row.city?.trim() || null,
+      district: row.district?.trim() || null,
+      address: row.address?.trim() || null,
+      website_url: row.website_url?.trim() || null,
+      phone: row.phone?.trim() || null,
+      fax: row.fax?.trim() || null,
+      institutional_email: row.institutional_email?.trim() || null,
+      principal_name: row.principal_name?.trim() || null,
+    };
+  }
+
+  private comparableFromSchool(s: School) {
+    return {
+      name: s.name,
+      type: s.type,
+      segment: s.segment,
+      city: s.city ?? null,
+      district: s.district ?? null,
+      address: s.address ?? null,
+      website_url: s.website_url ?? null,
+      phone: s.phone ?? null,
+      fax: s.fax ?? null,
+      institutional_email: s.institutionalEmail ?? null,
+      principal_name: s.principalName ?? null,
+    };
+  }
+
+  /**
+   * Kurum kodu (MEB) üzerinden kaynak liste ile DB karşılaştırması — yeni / değişen / kaynakta olmayan.
+   */
+  async reconcilePreview(sources: ReconcileSourceSchoolDto[]) {
+    type Change = { field: string; from: string | null; to: string | null };
+    const skipped_no_code: { row_index: number; name: string }[] = [];
+    const codeFirstIndex = new Map<string, number>();
+    const duplicate_source_codes: string[] = [];
+
+    for (let i = 0; i < sources.length; i++) {
+      const code = this.normalizeInstitutionCode(sources[i].institution_code);
+      if (!code) {
+        skipped_no_code.push({ row_index: i, name: sources[i].name?.trim() || '' });
+        continue;
+      }
+      if (codeFirstIndex.has(code)) {
+        if (!duplicate_source_codes.includes(code)) duplicate_source_codes.push(code);
+      } else {
+        codeFirstIndex.set(code, i);
+      }
+    }
+
+    const codes = [...codeFirstIndex.keys()];
+    const dbSchools = codes.length ? await this.schoolRepo.find({ where: { institutionCode: In(codes) } }) : [];
+
+    const byCode = new Map<string, School[]>();
+    for (const s of dbSchools) {
+      const c = s.institutionCode!;
+      if (!byCode.has(c)) byCode.set(c, []);
+      byCode.get(c)!.push(s);
+    }
+
+    const db_duplicate_codes: { code: string; school_ids: string[] }[] = [];
+    for (const [code, list] of byCode) {
+      if (list.length > 1) db_duplicate_codes.push({ code, school_ids: list.map((x) => x.id) });
+    }
+
+    const sourceCodeSet = new Set(codes);
+    let onlyInDbList: School[];
+    if (codes.length === 0) {
+      onlyInDbList = await this.schoolRepo
+        .createQueryBuilder('s')
+        .where('s.institutionCode IS NOT NULL')
+        .andWhere("TRIM(s.institutionCode) <> ''")
+        .getMany();
+    } else {
+      onlyInDbList = await this.schoolRepo
+        .createQueryBuilder('s')
+        .where('s.institutionCode IS NOT NULL')
+        .andWhere('s.institutionCode NOT IN (:...codes)', { codes })
+        .getMany();
+    }
+
+    const only_in_db = onlyInDbList.map((s) => ({
+      school_id: s.id,
+      institution_code: s.institutionCode!,
+      name: s.name,
+      status: s.status,
+    }));
+
+    const syncKeys = [
+      'name',
+      'type',
+      'segment',
+      'city',
+      'district',
+      'address',
+      'website_url',
+      'phone',
+      'fax',
+      'institutional_email',
+      'principal_name',
+    ] as const;
+
+    const to_create: { row_index: number; institution_code: string }[] = [];
+    const to_update: { row_index: number; school_id: string; institution_code: string; changes: Change[] }[] = [];
+    const unchanged: { row_index: number; school_id: string; institution_code: string }[] = [];
+
+    for (const [code, rowIndex] of codeFirstIndex) {
+      const row = sources[rowIndex];
+      const desired = this.desiredFromSource(row);
+      const matches = byCode.get(code) ?? [];
+      if (matches.length === 0) {
+        to_create.push({ row_index: rowIndex, institution_code: code });
+        continue;
+      }
+      const school = matches[0];
+      const cur = this.comparableFromSchool(school);
+      const changes: Change[] = [];
+      for (const k of syncKeys) {
+        const a = cur[k];
+        const b = desired[k];
+        const as = a != null ? String(a) : '';
+        const bs = b != null ? String(b) : '';
+        if (as !== bs) {
+          changes.push({ field: k, from: a != null ? String(a) : null, to: b != null ? String(b) : null });
+        }
+      }
+      if (changes.length) {
+        to_update.push({ row_index: rowIndex, school_id: school.id, institution_code: code, changes });
+      } else {
+        unchanged.push({ row_index: rowIndex, school_id: school.id, institution_code: code });
+      }
+    }
+
+    return {
+      summary: {
+        source_rows: sources.length,
+        source_rows_with_code: codes.length,
+        skipped_no_code: skipped_no_code.length,
+        duplicate_source_codes,
+        db_duplicate_codes,
+        to_create: to_create.length,
+        to_update: to_update.length,
+        unchanged: unchanged.length,
+        only_in_db: only_in_db.length,
+      },
+      to_create,
+      to_update,
+      unchanged,
+      only_in_db,
+      skipped_no_code,
+    };
+  }
+
+  async reconcileApply(dto: ReconcileApplyDto, userId?: string) {
+    const preview = await this.reconcilePreview(dto.schools);
+    let created = 0;
+    let updated = 0;
+    let marked_askida = 0;
+    const errors: string[] = [];
+
+    await this.schoolRepo.manager.transaction(async (em) => {
+      const repo = em.getRepository(School);
+
+      if (dto.options.create_new) {
+        for (const item of preview.to_create) {
+          try {
+            const row = dto.schools[item.row_index];
+            const d = this.desiredFromSource(row);
+            const tl =
+              row.teacher_limit != null && Number.isFinite(Number(row.teacher_limit))
+                ? Math.max(1, Math.floor(Number(row.teacher_limit)))
+                : 100;
+            const ent = repo.create({
+              name: d.name,
+              type: d.type,
+              segment: d.segment,
+              city: d.city,
+              district: d.district,
+              website_url: d.website_url,
+              phone: d.phone,
+              fax: d.fax,
+              institutionCode: item.institution_code,
+              institutionalEmail: d.institutional_email,
+              address: d.address,
+              principalName: d.principal_name,
+              about_description: row.about_description?.trim() || null,
+              status: this.coerceStatusFromSource(row.status),
+              teacher_limit: tl,
+            });
+            const saved = await repo.save(ent);
+            created += 1;
+            await this.auditService.log({
+              action: 'school_created',
+              userId: userId ?? null,
+              schoolId: saved.id,
+              meta: { name: saved.name, reconcile: true, institution_code: item.institution_code },
+            });
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : 'Bilinmeyen hata';
+            errors.push(`Satır ${item.row_index + 1} (yeni): ${msg}`);
+          }
+        }
+      }
+
+      if (dto.options.apply_updates) {
+        for (const u of preview.to_update) {
+          try {
+            const row = dto.schools[u.row_index];
+            const d = this.desiredFromSource(row);
+            const school = await repo.findOne({ where: { id: u.school_id } });
+            if (!school) continue;
+            school.name = d.name;
+            school.type = d.type;
+            school.segment = d.segment;
+            school.city = d.city;
+            school.district = d.district;
+            school.address = d.address;
+            school.website_url = d.website_url;
+            school.phone = d.phone;
+            school.fax = d.fax;
+            school.institutionalEmail = d.institutional_email;
+            school.principalName = d.principal_name;
+            await repo.save(school);
+            updated += 1;
+            await this.auditService.log({
+              action: 'school_updated',
+              userId: userId ?? null,
+              schoolId: school.id,
+              meta: { reconcile: true, fields: u.changes.map((c) => c.field) },
+            });
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : 'Bilinmeyen hata';
+            errors.push(`Satır ${u.row_index + 1} (güncelleme): ${msg}`);
+          }
+        }
+      }
+
+      if (dto.options.mark_missing_in_source_askida) {
+        for (const o of preview.only_in_db) {
+          const school = await repo.findOne({ where: { id: o.school_id } });
+          if (!school || school.status === SchoolStatus.askida) continue;
+          school.status = SchoolStatus.askida;
+          await repo.save(school);
+          marked_askida += 1;
+          await this.auditService.log({
+            action: 'school_updated',
+            userId: userId ?? null,
+            schoolId: school.id,
+            meta: { reconcile: true, mark_missing_askida: true, institution_code: o.institution_code },
+          });
+        }
+      }
+    });
+
+    await this.auditService.log({
+      action: 'school_reconcile_applied',
+      userId: userId ?? null,
+      schoolId: null,
+      meta: {
+        created,
+        updated,
+        marked_askida,
+        options: dto.options,
+        error_count: errors.length,
+      },
+    });
+
+    return { created, updated, marked_askida, errors: errors.length ? errors : undefined };
+  }
+
+  async countSchoolAdmins(schoolId: string): Promise<number> {
+    return this.schoolRepo.manager.getRepository(User).count({
+      where: { school_id: schoolId, role: UserRole.school_admin },
+    });
   }
 }

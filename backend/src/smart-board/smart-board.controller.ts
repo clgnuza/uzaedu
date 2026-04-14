@@ -199,6 +199,19 @@ export class SmartBoardController {
     return { ok: true };
   }
 
+  @Patch('schools/:schoolId/teachers/:userId/usb-pin')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.school_admin, UserRole.superadmin)
+  async setTeacherUsbPin(
+    @Param('schoolId') schoolId: string,
+    @Param('userId') userId: string,
+    @Body() body: { pin?: string | null },
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    const scope = { schoolId: payload.schoolId, role: payload.user.role as UserRole };
+    return this.service.setTeacherUsbPin(schoolId, userId, scope, payload.userId, body?.pin ?? null);
+  }
+
   @Get('schools/:schoolId/sessions/today')
   @UseGuards(RolesGuard)
   @Roles(UserRole.school_admin, UserRole.superadmin)
@@ -208,6 +221,30 @@ export class SmartBoardController {
   ) {
     const scope = { schoolId: payload.schoolId, role: payload.user.role as UserRole };
     return this.service.getSessionsToday(schoolId, scope);
+  }
+
+  @Get('schools/:schoolId/usage-stats')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.school_admin, UserRole.superadmin)
+  async getUsageStats(
+    @Param('schoolId') schoolId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    const scope = { schoolId: payload.schoolId, role: payload.user.role as UserRole };
+    return this.service.getUsageStats(schoolId, scope, from ?? '', to ?? '');
+  }
+
+  @Get('schools/:schoolId/health-alerts')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.school_admin, UserRole.superadmin)
+  async getBoardHealthAlerts(
+    @Param('schoolId') schoolId: string,
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    const scope = { schoolId: payload.schoolId, role: payload.user.role as UserRole };
+    return this.service.getBoardHealthAlerts(schoolId, scope);
   }
 
   @Post('connect')

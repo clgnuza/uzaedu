@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Param, Query, Body, Req, ForbiddenException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  Query,
+  Body,
+  Req,
+  ForbiddenException,
+  UnauthorizedException,
+  BadRequestException,
+} from '@nestjs/common';
 import { Request } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -30,6 +41,11 @@ function isIpAllowed(clientIp: string, allowedIps: string | null | undefined): b
     if (part.endsWith('.') && clientIp.startsWith(part)) return true;
   }
   return false;
+}
+
+function getTvClassroomUsbTokenHeader(req: Request): string | undefined {
+  const h = req.headers['x-tv-classroom-usb-token'];
+  return typeof h === 'string' ? h : h?.[0];
 }
 
 /** Hava durumu (Open-Meteo) – şehir adı ile */
@@ -79,6 +95,40 @@ export class TvPublicController {
     @InjectRepository(School)
     private readonly schoolRepo: Repository<School>,
   ) {}
+
+  private async assertTvSchoolIp(req: Request, schoolId: string): Promise<void> {
+    const school = await this.schoolRepo.findOne({
+      where: { id: schoolId },
+      select: ['tv_allowed_ips'],
+    });
+    if (school?.tv_allowed_ips) {
+      const clientIp = getClientIp(req);
+      if (!isIpAllowed(clientIp, school.tv_allowed_ips)) {
+        throw new ForbiddenException({
+          code: 'TV_ACCESS_RESTRICTED',
+          message: 'TV sayfası sadece okul ağından erişilebilir.',
+        });
+      }
+    }
+  }
+
+  private async requireClassroomUsbUnlockToken(
+    req: Request,
+    schoolId: string,
+    deviceId: string,
+  ): Promise<void> {
+    const ok = await this.smartBoardService.verifyTvClassroomUsbToken(
+      getTvClassroomUsbTokenHeader(req),
+      schoolId,
+      deviceId,
+    );
+    if (!ok) {
+      throw new UnauthorizedException({
+        code: 'TV_CLASSROOM_USB_REQUIRED',
+        message: 'USB kilidi için PIN ile oturum gerekli.',
+      });
+    }
+  }
 
   /** TV yanıtındaki okul bloğu (tv_visible_cards vb. ayarlar anında yansısın diye önbellek isabetinde de yeniden okunur). */
   private async buildTvSchoolPayload(schoolId: string): Promise<
@@ -248,6 +298,7 @@ export class TvPublicController {
     @Query('school_id') schoolId?: string,
     @Query('device_id') deviceId?: string,
     @Query('nocache') nocache?: string,
+    @Query('usb_unlock') usbUnlock?: string,
   ) {
     if (schoolId?.trim()) {
       const school = await this.schoolRepo.findOne({
@@ -265,8 +316,13 @@ export class TvPublicController {
       }
     }
 
+    if (audience === 'classroom' && usbUnlock === '1' && schoolId?.trim() && deviceId?.trim()) {
+      await this.requireClassroomUsbUnlockToken(req, schoolId.trim(), deviceId.trim());
+    }
+
+    const skipTvCache = nocache === '1' || (audience === 'classroom' && usbUnlock === '1');
     const cacheKey = `${audience}|${schoolId?.trim() ?? ''}|${deviceId?.trim() ?? ''}`;
-    if (nocache !== '1') {
+    if (!skipTvCache) {
       pruneTvAnnouncementsCache();
       const hit = getTvAnnouncementsCacheEntry(cacheKey);
       if (hit && hit.expires > Date.now()) {
@@ -305,10 +361,29 @@ export class TvPublicController {
       urgent: urgent ? toTvItem(urgent) : null,
       current_slot,
     };
-    if (nocache !== '1') {
+    if (!skipTvCache) {
       tvAnnouncementsCacheSet(cacheKey, payload as Record<string, unknown>);
     }
     return payload;
+  }
+
+  /**
+   * USB ile açılan sınıf tahtası: öğretmen PIN → kısa ömürlü TV oturum belirteci.
+   * POST /api/tv/classroom-usb-unlock body: { school_id, device_id, pin }
+   */
+  @Post('classroom-usb-unlock')
+  async classroomUsbUnlock(
+    @Req() req: Request,
+    @Body() body: { school_id?: string; device_id?: string; pin?: string },
+  ) {
+    const schoolId = body?.school_id?.trim();
+    const deviceId = body?.device_id?.trim();
+    const pin = body?.pin?.trim();
+    if (!schoolId || !deviceId || !pin) {
+      throw new BadRequestException({ code: 'INVALID_BODY', message: 'school_id, device_id ve pin gerekli.' });
+    }
+    await this.assertTvSchoolIp(req, schoolId);
+    return this.smartBoardService.unlockClassroomWithUsbPin(schoolId, deviceId, pin, getClientIp(req));
   }
 
   /**
@@ -317,7 +392,12 @@ export class TvPublicController {
    * Yanıt: { items: [{ title }] } veya { items: [] } (hata/boş).
    */
   @Get('rss-feed')
-  async getRssFeed(@Req() req: Request, @Query('school_id') schoolId?: string): Promise<{ items: Array<{ title: string }> }> {
+  async getRssFeed(
+    @Req() req: Request,
+    @Query('school_id') schoolId?: string,
+    @Query('device_id') deviceId?: string,
+    @Query('usb_unlock') usbUnlock?: string,
+  ): Promise<{ items: Array<{ title: string }> }> {
     if (!schoolId?.trim()) return { items: [] };
     const schoolForIp = await this.schoolRepo.findOne({
       where: { id: schoolId.trim() },
@@ -331,6 +411,9 @@ export class TvPublicController {
           message: 'TV sayfası sadece okul ağından erişilebilir.',
         });
       }
+    }
+    if (usbUnlock === '1' && deviceId?.trim()) {
+      await this.requireClassroomUsbUnlockToken(req, schoolId.trim(), deviceId.trim());
     }
     const school = await this.schoolRepo.findOne({
       where: { id: schoolId.trim() },
@@ -385,7 +468,12 @@ export class TvPublicController {
    * Yanıt: { items: [{ quote, author? }] } veya { items: [] }.
    */
   @Get('quote-feed')
-  async getQuoteFeed(@Req() req: Request, @Query('school_id') schoolId?: string): Promise<{ items: Array<{ quote: string; author?: string }> }> {
+  async getQuoteFeed(
+    @Req() req: Request,
+    @Query('school_id') schoolId?: string,
+    @Query('device_id') deviceId?: string,
+    @Query('usb_unlock') usbUnlock?: string,
+  ): Promise<{ items: Array<{ quote: string; author?: string }> }> {
     if (!schoolId?.trim()) return { items: [] };
     const schoolForIp = await this.schoolRepo.findOne({
       where: { id: schoolId.trim() },
@@ -399,6 +487,9 @@ export class TvPublicController {
           message: 'TV sayfası sadece okul ağından erişilebilir.',
         });
       }
+    }
+    if (usbUnlock === '1' && deviceId?.trim()) {
+      await this.requireClassroomUsbUnlockToken(req, schoolId.trim(), deviceId.trim());
     }
     const school = await this.schoolRepo.findOne({
       where: { id: schoolId.trim() },

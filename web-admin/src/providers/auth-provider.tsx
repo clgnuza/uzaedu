@@ -17,7 +17,18 @@ import type { WebAdminRole } from '@/config/types';
 
 const TOKEN_KEY = 'ogretmenpro_token';
 const meRequestCache = new Map<string, Promise<Me | null>>();
-const PUBLIC_AUTH_PATHS = new Set(['/login', '/register', '/forgot-password', '/reset-password', '/verify-school-email']);
+const PUBLIC_AUTH_PATHS = new Set([
+  '/login',
+  '/login/okul',
+  '/login/ogretmen',
+  '/register',
+  '/register/ogretmen',
+  '/register/okul',
+  '/register-okul',
+  '/forgot-password',
+  '/reset-password',
+  '/verify-school-email',
+]);
 
 /** Evrak formu varsayılan değerleri (profil ayarlarından) */
 export type EvrakDefaults = {
@@ -52,6 +63,7 @@ export type Me = {
     district?: string | null;
     status?: string;
     teacher_limit?: number;
+    merge_teacher_on_name_match?: boolean;
     enabled_modules?: string[] | null;
   } | null;
   status?: string;
@@ -62,6 +74,7 @@ export type Me = {
   teacher_school_membership?: 'none' | 'pending' | 'approved' | 'rejected';
   school_join_stage?: 'none' | 'email_pending' | 'school_pending' | 'approved' | 'rejected';
   school_join_email_verified_at?: string | null;
+  email_verified?: boolean;
   school_verified?: boolean;
   teacher_public_name_masked?: boolean;
   created_at?: string;

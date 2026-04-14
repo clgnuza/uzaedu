@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, PlusCircle } from 'lucide-react';
+import { PlusCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { DersProgramiSubpageIntro } from '@/components/ders-programi/ders-programi-subpage-intro';
 
 const TERM_OPTIONS = ['Tüm Yıl', '1. Dönem', '2. Dönem'];
 
@@ -57,22 +58,15 @@ export function TeacherProgramCreateForm({ token }: { token: string | null }) {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <Link
-            href="/ders-programi"
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="size-4" />
-            Ders Programı
-          </Link>
-        </div>
-        <h1 className="text-2xl font-semibold text-foreground">Yeni Program Oluştur</h1>
-      </div>
+    <div className="mx-auto w-full max-w-6xl space-y-4 sm:space-y-6">
+      <DersProgramiSubpageIntro
+        title="Yeni program"
+        subtitle="Adım 1: bilgiler · Adım 2: haftalık tabloya ders ekleme"
+        accent="emerald"
+      />
 
       {/* Öğretmen stepper */}
-      <div className="flex items-center gap-2 rounded-lg border border-border bg-emerald-50/50 dark:bg-emerald-950/20 px-4 py-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200/50 bg-emerald-500/[0.06] px-3 py-2.5 text-xs dark:border-emerald-900/50 dark:bg-emerald-950/25 sm:gap-3 sm:px-4 sm:py-3 sm:text-sm">
         <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
           1
         </span>
@@ -84,15 +78,12 @@ export function TeacherProgramCreateForm({ token }: { token: string | null }) {
         <span className="text-muted-foreground">Ders Ekle</span>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <PlusCircle className="size-5" />
-            Program Bilgileri
+      <Card className="overflow-hidden rounded-xl border-border/80 shadow-sm">
+        <CardHeader className="border-b border-border/60 bg-muted/20 pb-3">
+          <CardTitle className="flex items-center gap-2 text-base font-bold">
+            <PlusCircle className="size-5 text-emerald-600 dark:text-emerald-400" />
+            Program bilgileri
           </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Kendi ders programınızı oluşturun. Oluşturduktan sonra haftalık tabloya ders ekleyebilirsiniz.
-          </p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4 max-w-md">
@@ -142,14 +133,11 @@ export function TeacherProgramCreateForm({ token }: { token: string | null }) {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="p-4">
-          <p className="text-sm text-muted-foreground">
-            Okul yöneticisi tarafından yüklenen resmi programınızı &quot;Programlarım&quot; sayfasında da
-            görebilirsiniz. Kendi oluşturduğunuz programlar burada listelenir.
-          </p>
-          <Button variant="outline" size="sm" asChild className="mt-3">
-            <Link href="/ders-programi/programlarim">Programlarımı Görüntüle</Link>
+      <Card className="rounded-xl border-dashed border-border/80 bg-muted/10">
+        <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-muted-foreground sm:text-sm">Resmi okul programı ve listeler için Programlarım.</p>
+          <Button variant="outline" size="sm" asChild className="shrink-0">
+            <Link href="/ders-programi/programlarim">Programlarım</Link>
           </Button>
         </CardContent>
       </Card>

@@ -35,21 +35,17 @@ import {
   type WeekWithItems,
 } from '@/components/academic-calendar/academic-calendar-timeline';
 import { BELIRLI_PALETTE, OGRETMEN_PALETTE } from '@/config/academic-calendar-palette';
+import { SCHOOL_TYPE_LABELS, SCHOOL_TYPE_ORDER } from '@/lib/school-labels';
 import { Calendar, Plus, ArrowLeft, GripVertical, Flag } from 'lucide-react';
 import { toast } from 'sonner';
 
 const TEMPLATE_SCHOOL_OPTIONS: { value: string; label: string }[] = [
-  { value: 'ilkokul', label: 'İlkokul (varsayılan)' },
+  { value: 'ilkokul', label: `${SCHOOL_TYPE_LABELS.ilkokul} (varsayılan)` },
   { value: '__global__', label: 'Ortak (tüm kurumlar)' },
-  { value: 'anaokul', label: 'Anaokul' },
-  { value: 'ortaokul', label: 'Ortaokul' },
-  { value: 'lise', label: 'Lise' },
-  { value: 'meslek_lisesi', label: 'Meslek Lisesi' },
-  { value: 'imam_hatip_ortaokul', label: 'İmam Hatip Ortaokul' },
-  { value: 'imam_hatip_lise', label: 'İmam Hatip Lise' },
-  { value: 'ozel_egitim', label: 'Özel Eğitim' },
-  { value: 'halk_egitim', label: 'Halk Eğitim' },
-  { value: 'bilsem', label: 'BİLSEM' },
+  ...SCHOOL_TYPE_ORDER.filter((k) => k !== 'ilkokul').map((k) => ({
+    value: k,
+    label: SCHOOL_TYPE_LABELS[k] ?? k,
+  })),
 ];
 
 export default function AkademikTakvimSablonuPage() {

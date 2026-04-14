@@ -45,39 +45,43 @@ export function TemplatePickerModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent title="Şablondan Not Oluştur">
         {showCreate ? (
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             <div>
-              <Label>Şablon adı *</Label>
+              <Label className="text-xs sm:text-sm">Şablon adı *</Label>
               <Input
                 value={createTitle}
                 onChange={(e) => setCreateTitle(e.target.value)}
-                placeholder="örn: Toplantı notu"
-                className="mt-1 min-h-[44px]"
+                placeholder="Toplantı notu…"
+                className="mt-1 min-h-10 text-sm sm:min-h-11"
               />
             </div>
             <div>
-              <Label>İçerik (opsiyonel)</Label>
+              <Label className="text-xs sm:text-sm">İçerik (opsiyonel)</Label>
               <textarea
                 value={createBody}
                 onChange={(e) => setCreateBody(e.target.value)}
-                rows={4}
-                className="mt-1 w-full rounded-lg border border-input bg-background px-4 py-3 min-h-[100px]"
-                placeholder="Şablon metni..."
+                rows={3}
+                className="mt-1 min-h-[88px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-[100px] sm:py-2.5"
+                placeholder="Şablon metni…"
               />
             </div>
-            <div className="flex gap-2">
-              <Button onClick={handleCreate} disabled={creating || !createTitle.trim()}>Kaydet</Button>
-              <Button variant="outline" onClick={() => setShowCreate(false)}>İptal</Button>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button variant="outline" onClick={() => setShowCreate(false)} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
+                İptal
+              </Button>
+              <Button onClick={handleCreate} disabled={creating || !createTitle.trim()} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
+                Kaydet
+              </Button>
             </div>
           </div>
         ) : (
           <>
             {loading ? (
-              <p className="text-sm text-muted-foreground">Yükleniyor...</p>
+              <p className="text-xs text-muted-foreground sm:text-sm">Yükleniyor…</p>
             ) : templates.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Henüz şablon yok.</p>
+              <p className="text-xs text-muted-foreground sm:text-sm">Henüz şablon yok.</p>
             ) : (
-              <ul className="space-y-2 max-h-[300px] overflow-y-auto">
+              <ul className="max-h-[min(45dvh,280px)] space-y-1.5 overflow-y-auto sm:max-h-[300px] sm:space-y-2">
                 {templates.map((t) => (
                   <li key={t.id}>
                     <button
@@ -86,7 +90,7 @@ export function TemplatePickerModal({
                         onSelect(t);
                         onOpenChange(false);
                       }}
-                      className="w-full text-left rounded-xl border px-4 py-3 text-sm font-medium hover:bg-muted/40 transition-all"
+                      className="w-full rounded-lg border px-3 py-2.5 text-left text-sm font-semibold transition-all hover:bg-muted/50 sm:rounded-xl sm:px-4 sm:py-3"
                     >
                       {t.title}
                     </button>
@@ -94,13 +98,13 @@ export function TemplatePickerModal({
                 ))}
               </ul>
             )}
-            <div className="flex gap-2 pt-2">
+            <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:flex-wrap">
               {onCreateTemplate && (
-                <Button variant="outline" size="sm" onClick={() => setShowCreate(true)} className="rounded-xl">
+                <Button variant="outline" size="sm" onClick={() => setShowCreate(true)} className="h-9 w-full rounded-xl sm:h-10 sm:w-auto">
                   Yeni şablon
                 </Button>
               )}
-              <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} className="rounded-xl">
+              <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} className="h-9 w-full rounded-xl sm:h-10 sm:w-auto">
                 İptal
               </Button>
             </div>

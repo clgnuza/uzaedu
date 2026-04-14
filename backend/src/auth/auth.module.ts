@@ -10,9 +10,11 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { TeacherInviteModule } from '../teacher-invite/teacher-invite.module';
 import { MailModule } from '../mail/mail.module';
+import { AuthOtpModule } from './auth-otp.module';
 
 @Module({
   imports: [
+    AuthOtpModule,
     PassportModule.register({ defaultStrategy: 'firebase' }),
     TypeOrmModule.forFeature([User, PasswordResetToken]),
     UsersModule,

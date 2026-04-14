@@ -36,7 +36,8 @@ import {
   PaletteDragOverlayContent,
 } from '@/components/academic-calendar/academic-calendar-timeline';
 import { BELIRLI_PALETTE, OGRETMEN_PALETTE } from '@/config/academic-calendar-palette';
-import { ArrowLeft, Calendar, Eye, Filter, GripVertical, Plus, Trash2, UserPlus } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { ArrowLeft, Calendar, CalendarDays, Eye, Filter, GripVertical, LayoutGrid, Plus, Trash2, UserPlus } from 'lucide-react';
 
 const SCHOOL_TYPE_LABEL: Record<string, string> = {
   anaokul: 'Anaokul',
@@ -117,6 +118,8 @@ export default function AkademikTakvimAyarlarPage() {
   const [filterSearch, setFilterSearch] = useState('');
   const [paletteQuery, setPaletteQuery] = useState('');
   const [activePaletteDrag, setActivePaletteDrag] = useState<{ title: string; variant: 'belirli' | 'ogretmen' } | null>(null);
+  /** Mobil / dar ekran: palet vs hafta listesi */
+  const [sectionTab, setSectionTab] = useState<'palet' | 'haftalar'>('haftalar');
   const academicYear = '2025-2026';
 
   const paletteQ = paletteQuery.trim().toLowerCase();
@@ -344,36 +347,83 @@ export default function AkademikTakvimAyarlarPage() {
     );
   }
 
+  const toolbarSummary =
+    schoolTypeLabel
+      ? `Kurum türü (${schoolTypeLabel}) şablonu yüklendi. Öğeleri gizleyin, listeden özel öğe ekleyin veya paletten sürükleyip bırakın. Kaydet ile kaydedilir.`
+      : 'Okulunuzun akademik takviminde hangi öğelerin görüneceğini yönetin. Gizleyebilir veya özel öğe ekleyebilirsiniz.';
+
   return (
-    <div className="space-y-6">
-      <Toolbar>
+    <div className="space-y-4 pb-6 sm:space-y-6 sm:pb-8">
+      <Toolbar className="max-sm:border-0 max-sm:pb-2 sm:pb-5">
+        <div className="min-w-0 flex-1">
         <ToolbarHeading>
-          <ToolbarPageTitle>Akademik Takvim Ayarları</ToolbarPageTitle>
+          <ToolbarPageTitle className="text-base sm:text-xl lg:text-2xl">Akademik takvim ayarları</ToolbarPageTitle>
+          <p className="text-xs leading-snug text-muted-foreground sm:hidden">
+            {toolbarSummary.length > 130 ? `${toolbarSummary.slice(0, 128)}…` : toolbarSummary}
+          </p>
           <ToolbarIconHints
+            showOnMobile
+            compact
             items={[
               { label: 'Görünürlük', icon: Eye },
-              { label: 'Özel öğe ekleme', icon: Plus },
-              { label: 'Akademik takvim', icon: Calendar },
+              { label: 'Özel öğe', icon: Plus },
+              { label: 'Takvim', icon: Calendar },
             ]}
-            summary={
-              schoolTypeLabel
-                ? `Kurum türü (${schoolTypeLabel}) şablonu yüklendi. Öğeleri gizleyin, listeden özel öğe ekleyin veya aşağıdan sürükleyip bırakın. Kaydet ile kaydedilir.`
-                : 'Okulunuzun akademik takviminde hangi öğelerin görüneceğini yönetin. Gizleyebilir veya özel öğe ekleyebilirsiniz.'
-            }
+            summary={toolbarSummary}
           />
         </ToolbarHeading>
+        </div>
         <ToolbarActions>
-          <Button variant="outline" size="sm" asChild>
+          <Button variant="outline" size="sm" asChild className="max-sm:min-h-11">
             <Link href="/akademik-takvim">
-              <ArrowLeft className="mr-2 size-4" aria-hidden />
-              Akademik Takvim
+              <ArrowLeft className="mr-2 size-4 shrink-0" aria-hidden />
+              <span className="max-sm:truncate">Takvime dön</span>
             </Link>
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button onClick={handleSave} disabled={saving} className="max-sm:min-h-11 sm:min-w-22">
             {saving ? 'Kaydediliyor…' : 'Kaydet'}
           </Button>
         </ToolbarActions>
       </Toolbar>
+
+      {weeks.length > 0 && (
+        <div
+          role="tablist"
+          aria-label="Bölüm seçin"
+          className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] sm:hidden [&::-webkit-scrollbar]:hidden"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={sectionTab === 'palet'}
+            onClick={() => setSectionTab('palet')}
+            className={cn(
+              'flex min-h-11 shrink-0 snap-start items-center gap-2 rounded-2xl px-3.5 py-2.5 text-sm font-semibold transition-all sm:min-h-0 sm:px-4',
+              sectionTab === 'palet'
+                ? 'bg-linear-to-br from-amber-500 to-orange-600 text-white shadow-md shadow-amber-500/25 ring-2 ring-amber-400/35'
+                : 'bg-amber-500/14 text-amber-950 dark:bg-amber-500/18 dark:text-amber-50',
+            )}
+          >
+            <LayoutGrid className="size-4 shrink-0 opacity-95" aria-hidden />
+            Paletten sürükle
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={sectionTab === 'haftalar'}
+            onClick={() => setSectionTab('haftalar')}
+            className={cn(
+              'flex min-h-11 shrink-0 snap-start items-center gap-2 rounded-2xl px-3.5 py-2.5 text-sm font-semibold transition-all sm:min-h-0 sm:px-4',
+              sectionTab === 'haftalar'
+                ? 'bg-linear-to-br from-violet-500 to-indigo-600 text-white shadow-md shadow-violet-500/25 ring-2 ring-violet-400/35'
+                : 'bg-violet-500/14 text-violet-950 dark:bg-violet-500/18 dark:text-violet-50',
+            )}
+          >
+            <CalendarDays className="size-4 shrink-0 opacity-95" aria-hidden />
+            Haftalar & öğeler
+          </button>
+        </div>
+      )}
 
       {loading && (
         <div className="flex justify-center py-12">
@@ -391,42 +441,44 @@ export default function AkademikTakvimAyarlarPage() {
             setActivePaletteDrag(null);
           }}
         >
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6">
             {weeks.length > 0 && (
               <div
-                className="sticky top-[var(--header-height)] z-20 my-2 max-h-[min(44vh,340px)] overflow-y-auto overscroll-contain rounded-xl border border-dashed border-primary/40 bg-background/95 p-3 shadow-md backdrop-blur-sm supports-[backdrop-filter]:bg-background/90 dark:border-primary/35"
+                className={cn(
+                  'sticky top-(--header-height) z-20 my-1 max-h-[min(36vh,260px)] overflow-y-auto overscroll-contain rounded-xl border border-dashed border-amber-500/45 bg-background/95 p-2 shadow-md backdrop-blur-sm supports-backdrop-filter:bg-background/90 dark:border-amber-500/30 sm:my-2 sm:max-h-[min(44vh,340px)] sm:border-primary/40 sm:p-3 sm:dark:border-primary/35',
+                  sectionTab !== 'palet' && 'hidden sm:block',
+                )}
               >
-              <div className="space-y-4 rounded-xl border border-dashed border-primary/20 bg-primary/5 p-3 sm:p-4">
+              <div className="space-y-3 rounded-xl border border-dashed border-amber-400/25 bg-linear-to-br from-amber-500/8 via-primary/5 to-sky-500/8 p-2.5 sm:space-y-4 sm:border-primary/20 sm:p-4">
                 {schoolTypeLabel && (
-                  <p className="text-sm text-muted-foreground">
-                    <span className="font-medium text-foreground">Aktif şablon:</span> {schoolTypeLabel}
-                    {me?.school?.name ? ` — ${me.school.name}` : ''}
+                  <p className="text-xs text-muted-foreground sm:text-sm">
+                    <span className="font-medium text-foreground">Şablon:</span> {schoolTypeLabel}
+                    {me?.school?.name ? ` · ${me.school.name}` : ''}
                   </p>
                 )}
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs text-muted-foreground">
-                    <span className="font-medium text-foreground">İpucu:</span> Öğeyi seçip ~8px sürükleyin; hedef hafta kartındaki turuncu veya mavi
-                    alanın üzerine bırakın.
+                  <p className="text-[11px] leading-snug text-muted-foreground sm:text-xs">
+                    <span className="font-medium text-foreground">Sürükle-bırak:</span> ~8 px sürükleyin; hafta kartındaki{' '}
+                    <span className="text-amber-700 dark:text-amber-400">turuncu</span> veya{' '}
+                    <span className="text-sky-700 dark:text-sky-400">mavi</span> alana bırakın.
                   </p>
                   <Input
                     placeholder="Paletten ara…"
                     value={paletteQuery}
                     onChange={(e) => setPaletteQuery(e.target.value)}
-                    className="h-9 max-w-xs text-sm"
+                    className="h-9 w-full text-sm sm:max-w-xs"
                     aria-label="Paletten ara"
                   />
                 </div>
                 <div>
-                  <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
-                    <GripVertical className="size-4 text-muted-foreground" aria-hidden />
-                    Belirli Gün ve Haftalar — turuncu alana bırakın
-                    <span className="ml-auto text-xs font-normal text-muted-foreground">
-                      {belirliPaletteFiltered.length} öğe
-                    </span>
+                  <h3 className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs font-semibold text-foreground sm:mb-2 sm:gap-2 sm:text-sm">
+                    <GripVertical className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400 sm:size-4" aria-hidden />
+                    <span className="text-amber-800 dark:text-amber-200">Belirli gün / hafta</span>
+                    <span className="ml-auto text-[10px] font-normal text-muted-foreground sm:text-xs">{belirliPaletteFiltered.length} öğe</span>
                   </h3>
                   <details open className="text-muted-foreground">
-                    <summary className="cursor-pointer text-xs font-medium">Liste (daralt / genişlet)</summary>
-                    <div className="mt-2 flex max-h-32 flex-wrap gap-2 overflow-y-auto rounded-md border border-border/60 bg-background/50 p-2">
+                    <summary className="cursor-pointer text-[11px] font-medium sm:text-xs">Liste (aç / kapa)</summary>
+                    <div className="mt-2 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-amber-200/60 bg-background/70 p-2 dark:border-amber-900/40 sm:max-h-32 sm:gap-2">
                       {belirliPaletteFiltered.length === 0 ? (
                         <span className="w-full py-4 text-center text-xs text-muted-foreground">Arama sonucu yok.</span>
                       ) : (
@@ -443,14 +495,12 @@ export default function AkademikTakvimAyarlarPage() {
                   </details>
                 </div>
                 <div>
-                  <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
-                    <GripVertical className="size-4 text-muted-foreground" aria-hidden />
-                    Öğretmen İşleri — mavi alana bırakın
-                    <span className="ml-auto text-xs font-normal text-muted-foreground">
-                      {ogretmenPaletteFiltered.length} öğe
-                    </span>
+                  <h3 className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs font-semibold text-foreground sm:mb-2 sm:gap-2 sm:text-sm">
+                    <GripVertical className="size-3.5 shrink-0 text-sky-600 dark:text-sky-400 sm:size-4" aria-hidden />
+                    <span className="text-sky-800 dark:text-sky-200">Öğretmen işleri</span>
+                    <span className="ml-auto text-[10px] font-normal text-muted-foreground sm:text-xs">{ogretmenPaletteFiltered.length} öğe</span>
                   </h3>
-                  <div className="flex max-h-36 flex-wrap gap-2 overflow-y-auto rounded-md border border-border/60 bg-background/50 p-2">
+                  <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-sky-200/60 bg-background/70 p-2 dark:border-sky-900/40 sm:max-h-36 sm:gap-2">
                     {ogretmenPaletteFiltered.length === 0 ? (
                       <span className="w-full py-4 text-center text-xs text-muted-foreground">Arama sonucu yok.</span>
                     ) : (
@@ -469,17 +519,22 @@ export default function AkademikTakvimAyarlarPage() {
               </div>
             )}
 
-            <Card>
-              <CardContent className="pt-6">
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                  <h3 className="font-semibold">Standart Öğeler</h3>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex items-center gap-2 rounded-md border border-input bg-muted/30 px-2 py-1">
-                      <Filter className="size-4 text-muted-foreground" aria-hidden />
+            <Card
+              className={cn(
+                'overflow-hidden border-border/80 shadow-sm',
+                weeks.length > 0 && sectionTab !== 'haftalar' && 'hidden sm:block',
+              )}
+            >
+              <CardContent className="p-4 pt-5 sm:p-6 sm:pt-6">
+                <div className="mb-3 flex flex-col gap-3 sm:mb-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                  <h3 className="text-sm font-bold text-foreground sm:text-base">Haftalık öğeler</h3>
+                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
+                    <div className="flex min-h-10 w-full items-center gap-2 rounded-xl border border-violet-200/70 bg-violet-500/8 px-2.5 py-1 dark:border-violet-500/25 sm:w-auto sm:min-w-0">
+                      <Filter className="size-4 shrink-0 text-violet-600 dark:text-violet-400" aria-hidden />
                       <select
                         value={filterMonth}
                         onChange={(e) => setFilterMonth(e.target.value)}
-                        className="h-8 rounded border-0 bg-transparent text-sm focus:ring-0"
+                        className="h-9 min-w-0 flex-1 rounded-lg border-0 bg-transparent text-sm focus:ring-0"
                         aria-label="Ay filtresi"
                       >
                         <option value="">Tüm aylar</option>
@@ -492,14 +547,14 @@ export default function AkademikTakvimAyarlarPage() {
                       placeholder="Hafta veya öğe ara…"
                       value={filterSearch}
                       onChange={(e) => setFilterSearch(e.target.value)}
-                      className="h-8 w-48 text-sm"
+                      className="h-10 w-full text-sm sm:h-8 sm:w-48"
                     />
                   </div>
                   <Dialog open={customModalOpen} onOpenChange={setCustomModalOpen}>
                     <DialogTrigger asChild>
-                      <Button variant="outline" size="sm">
-                        <Plus className="mr-2 size-4" />
-                        Özel Öğe Ekle
+                      <Button variant="outline" size="sm" className="w-full min-h-10 shrink-0 sm:w-auto">
+                        <Plus className="mr-2 size-4 shrink-0" />
+                        Özel öğe ekle
                       </Button>
                     </DialogTrigger>
                   <DialogContent>
@@ -618,7 +673,7 @@ export default function AkademikTakvimAyarlarPage() {
                       </DialogContent>
                     </Dialog>
               </div>
-              <div className="space-y-8">
+              <div className="space-y-6 sm:space-y-8">
                 {filteredMonths.length === 0 && (
                   <p className="py-8 text-center text-sm text-muted-foreground">
                     {filterSearch.trim() ? 'Arama kriterlerine uygun hafta bulunamadı.' : 'Henüz hafta yok.'}
@@ -627,59 +682,77 @@ export default function AkademikTakvimAyarlarPage() {
                 {filteredMonths.map((monthKey) => {
                   const monthWeeks = filteredWeeksByMonth.get(monthKey) ?? [];
                   return (
-                    <div key={monthKey} className="space-y-4">
-                      <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-4 py-2">
-                        <Calendar className="size-5 text-muted-foreground" aria-hidden />
-                        <h4 className="text-base font-bold uppercase tracking-wide text-foreground">{monthKey}</h4>
-                        <span className="rounded-full bg-muted px-2 py-0.5 text-sm font-medium text-muted-foreground">
+                    <div key={monthKey} className="space-y-3 sm:space-y-4">
+                      <div className="flex items-center gap-2 rounded-xl bg-linear-to-r from-violet-500/15 via-indigo-500/10 to-fuchsia-500/10 px-3 py-2 ring-1 ring-violet-200/50 dark:from-violet-500/20 dark:via-indigo-500/15 dark:ring-violet-500/20 sm:px-4 sm:py-2.5">
+                        <Calendar className="size-4 shrink-0 text-violet-600 dark:text-violet-400 sm:size-5" aria-hidden />
+                        <h4 className="min-w-0 truncate text-sm font-bold uppercase tracking-wide text-violet-950 dark:text-violet-100 sm:text-base">
+                          {monthKey}
+                        </h4>
+                        <span className="ml-auto shrink-0 rounded-full bg-white/80 px-2 py-0.5 text-xs font-semibold text-violet-800 shadow-sm dark:bg-violet-950/60 dark:text-violet-200 sm:text-sm">
                           {monthWeeks.length} hafta
                         </span>
                       </div>
-                      <div className="grid gap-4 sm:grid-cols-1 lg:grid-cols-2">
+                      <div className="grid gap-3 sm:gap-4 lg:grid-cols-2">
                         {monthWeeks.map((week) => {
                           const weekCustomBelirli = (overrides.customItems ?? []).filter((c) => c.weekId === week.id && c.type === 'belirli_gun_hafta');
                           const weekCustomOgretmen = (overrides.customItems ?? []).filter((c) => c.weekId === week.id && c.type === 'ogretmen_isleri');
                           return (
                             <Card
                               key={week.id}
-                              className={`overflow-hidden shadow-md transition-shadow hover:shadow-lg ${
+                              className={cn(
+                                'overflow-hidden shadow-sm transition-shadow hover:shadow-md sm:shadow-md sm:hover:shadow-lg',
                                 week.isTatil
-                                  ? 'border-l-4 border-l-amber-500 bg-amber-50/30 dark:bg-amber-950/20'
-                                  : 'border-l-4 border-l-primary bg-card'
-                              }`}
+                                  ? 'border-l-[3px] border-l-amber-500 bg-amber-50/40 dark:bg-amber-950/25'
+                                  : 'border-l-[3px] border-l-violet-500 bg-card dark:border-l-violet-400',
+                              )}
                             >
-                              <div className="border-b border-border/60 bg-muted/40 px-4 py-3">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className={`text-sm font-bold ${week.isTatil ? 'text-amber-700 dark:text-amber-400' : 'text-foreground'}`}>
+                              <div className="border-b border-border/60 bg-muted/35 px-3 py-2.5 sm:px-4 sm:py-3">
+                                <div className="flex items-start justify-between gap-2">
+                                  <span
+                                    className={cn(
+                                      'text-xs font-bold leading-snug sm:text-sm',
+                                      week.isTatil ? 'text-amber-800 dark:text-amber-300' : 'text-foreground',
+                                    )}
+                                  >
                                     {getWeekDisplayLabel(week)}
                                   </span>
                                   {week.isTatil && (
-                                    <span className="shrink-0 rounded-full bg-amber-200 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-800 dark:text-amber-100">
+                                    <span className="shrink-0 rounded-full bg-amber-200 px-2 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-800 dark:text-amber-100 sm:text-xs">
                                       Tatil
                                     </span>
                                   )}
                                 </div>
                               </div>
-                              <CardContent className="space-y-3 p-4">
+                              <CardContent className="space-y-2.5 p-3 sm:space-y-3 sm:p-4">
                                 {week.belirliGunHafta.length > 0 && (
-                                  <div className="text-xs font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                                    Belirli Gün ve Haftalar
+                                  <div className="text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-400 sm:text-xs">
+                                    Belirli gün / hafta
                                   </div>
                                 )}
                         {week.belirliGunHafta.map((item) => {
                           const itemAssignments = getAssignmentsForItem(item.id);
                           const isTemplateItem = !item.id.startsWith('custom-');
                           return (
-                            <div key={item.id} className="space-y-1 rounded-md border border-border/80 bg-background/50 p-2">
-                              <div className="flex items-center justify-between">
-                                <span className="text-sm text-amber-700 dark:text-amber-400">★ {item.title}</span>
-                                <label className="flex items-center gap-2">
-                                  <span className="text-xs text-muted-foreground">{overrides.hiddenItemIds.includes(item.id) ? 'Gizli' : 'Görünür'}</span>
-                                  <input type="checkbox" checked={!overrides.hiddenItemIds.includes(item.id)} onChange={() => toggleHidden(item.id)} className="size-4 rounded" aria-label={item.title} />
+                            <div key={item.id} className="space-y-1.5 rounded-lg border border-amber-200/50 bg-amber-500/5 p-2 dark:border-amber-900/35 sm:p-2.5">
+                              <div className="flex items-start justify-between gap-2">
+                                <span className="min-w-0 text-xs leading-snug text-amber-900 dark:text-amber-200 sm:text-sm">
+                                  ★ {item.title}
+                                </span>
+                                <label className="flex shrink-0 items-center gap-1.5">
+                                  <span className="text-[10px] text-muted-foreground sm:text-xs">
+                                    {overrides.hiddenItemIds.includes(item.id) ? 'Gizli' : 'Açık'}
+                                  </span>
+                                  <input
+                                    type="checkbox"
+                                    checked={!overrides.hiddenItemIds.includes(item.id)}
+                                    onChange={() => toggleHidden(item.id)}
+                                    className="size-4.5 rounded border-amber-300 sm:size-4"
+                                    aria-label={item.title}
+                                  />
                                 </label>
                               </div>
                               {isTemplateItem && (
-                                <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
+                                <div className="flex flex-wrap items-center gap-1.5 border-t border-amber-200/40 pt-2 dark:border-amber-900/30 sm:gap-2">
                                   {itemAssignments.map((a) => (
                                     <span key={a.id} className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-1 text-xs">
                                       <span>{a.userName} ({a.gorevTipi})</span>
@@ -688,8 +761,8 @@ export default function AkademikTakvimAyarlarPage() {
                                       </button>
                                     </span>
                                   ))}
-                                  <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => openAssignModal(item.id, item.title)}>
-                                    <UserPlus className="size-3" />
+                                  <Button variant="outline" size="sm" className="h-8 gap-1 text-xs sm:h-7" onClick={() => openAssignModal(item.id, item.title)}>
+                                    <UserPlus className="size-3.5 shrink-0 sm:size-3" />
                                     Görevlendir
                                   </Button>
                                 </div>
@@ -712,16 +785,27 @@ export default function AkademikTakvimAyarlarPage() {
                           ) : null}
                         </AcademicCalendarDropZone>
                                 {week.ogretmenIsleri.length > 0 && (
-                                  <div className="text-xs font-medium uppercase tracking-wide text-blue-600 dark:text-blue-400">
-                                    Öğretmen İşleri
+                                  <div className="text-[10px] font-bold uppercase tracking-wide text-sky-700 dark:text-sky-400 sm:text-xs">
+                                    Öğretmen işleri
                                   </div>
                                 )}
                         {week.ogretmenIsleri.map((item) => (
-                          <div key={item.id} className="flex items-center justify-between rounded-md border border-border/80 bg-background/50 px-2 py-1.5">
-                            <span className="text-sm text-blue-700 dark:text-blue-400">{item.title}</span>
-                            <label className="flex items-center gap-2">
-                              <span className="text-xs text-muted-foreground">{overrides.hiddenItemIds.includes(item.id) ? 'Gizli' : 'Görünür'}</span>
-                              <input type="checkbox" checked={!overrides.hiddenItemIds.includes(item.id)} onChange={() => toggleHidden(item.id)} className="size-4 rounded" aria-label={item.title} />
+                          <div
+                            key={item.id}
+                            className="flex items-start justify-between gap-2 rounded-lg border border-sky-200/55 bg-sky-500/5 px-2 py-2 dark:border-sky-900/35 sm:px-2.5 sm:py-1.5"
+                          >
+                            <span className="min-w-0 text-xs leading-snug text-sky-900 dark:text-sky-200 sm:text-sm">{item.title}</span>
+                            <label className="flex shrink-0 items-center gap-1.5">
+                              <span className="text-[10px] text-muted-foreground sm:text-xs">
+                                {overrides.hiddenItemIds.includes(item.id) ? 'Gizli' : 'Açık'}
+                              </span>
+                              <input
+                                type="checkbox"
+                                checked={!overrides.hiddenItemIds.includes(item.id)}
+                                onChange={() => toggleHidden(item.id)}
+                                className="size-4.5 rounded border-sky-300 sm:size-4"
+                                aria-label={item.title}
+                              />
                             </label>
                           </div>
                         ))}
@@ -752,17 +836,38 @@ export default function AkademikTakvimAyarlarPage() {
           </Card>
 
             {(overrides.customItems?.length ?? 0) > 0 && (
-              <Card>
-                <CardContent className="pt-6">
-                  <h3 className="mb-4 font-semibold">Özel Öğeler</h3>
+              <Card
+                className={cn(
+                  'overflow-hidden border-teal-200/60 shadow-sm dark:border-teal-900/30',
+                  weeks.length > 0 && sectionTab !== 'haftalar' && 'hidden sm:block',
+                )}
+              >
+                <CardContent className="p-4 pt-5 sm:p-6 sm:pt-6">
+                  <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-teal-900 dark:text-teal-100 sm:mb-4 sm:text-base">
+                    <span className="rounded-lg bg-teal-500/15 px-2 py-0.5 text-xs font-bold text-teal-800 dark:bg-teal-500/25 dark:text-teal-200">
+                      {overrides.customItems!.length}
+                    </span>
+                    Özel öğeler
+                  </h3>
                   <ul className="space-y-2">
                     {overrides.customItems!.map((c) => (
-                      <li key={c.id} className="flex items-center justify-between rounded-lg border border-border p-3">
-                        <div>
-                          <span className="font-medium">{c.title}</span>
-                          <span className="ml-2 text-sm text-muted-foreground">({getWeekLabel(c.weekId)}, {c.type === 'belirli_gun_hafta' ? 'Belirli Gün' : 'Öğretmen İşleri'})</span>
+                      <li
+                        key={c.id}
+                        className="flex items-start justify-between gap-2 rounded-xl border border-teal-200/50 bg-teal-500/5 p-3 dark:border-teal-900/35"
+                      >
+                        <div className="min-w-0">
+                          <span className="font-semibold text-foreground">{c.title}</span>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {getWeekLabel(c.weekId)} · {c.type === 'belirli_gun_hafta' ? 'Belirli gün' : 'Öğretmen işleri'}
+                          </p>
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => handleRemoveCustom(c.id)} className="text-destructive" aria-label="Kaldır">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleRemoveCustom(c.id)}
+                          className="size-10 shrink-0 text-destructive sm:size-9"
+                          aria-label="Kaldır"
+                        >
                           <Trash2 className="size-4" />
                         </Button>
                       </li>

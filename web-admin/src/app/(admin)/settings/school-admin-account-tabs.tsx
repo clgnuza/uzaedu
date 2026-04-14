@@ -16,7 +16,6 @@ import {
   ChevronRight,
   Shield,
   FileDown,
-  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,6 +26,36 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 type TabId = 'hesap' | 'okul' | 'yedek';
+
+const TAB_STYLE: Record<
+  TabId,
+  { active: string; idle: string; iconActive: string; iconIdle: string }
+> = {
+  hesap: {
+    active:
+      'bg-sky-600 text-white shadow-md ring-2 ring-sky-400/45 dark:bg-sky-500 dark:ring-sky-300/35',
+    idle:
+      'border border-sky-200/80 bg-sky-500/12 text-sky-950 hover:bg-sky-500/22 dark:border-sky-800/60 dark:bg-sky-950/45 dark:text-sky-100 dark:hover:bg-sky-900/55',
+    iconActive: 'text-white',
+    iconIdle: 'text-sky-600 dark:text-sky-400',
+  },
+  okul: {
+    active:
+      'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400/45 dark:bg-emerald-600 dark:ring-emerald-300/35',
+    idle:
+      'border border-emerald-200/80 bg-emerald-500/12 text-emerald-950 hover:bg-emerald-500/22 dark:border-emerald-800/60 dark:bg-emerald-950/45 dark:text-emerald-100 dark:hover:bg-emerald-900/55',
+    iconActive: 'text-white',
+    iconIdle: 'text-emerald-600 dark:text-emerald-400',
+  },
+  yedek: {
+    active:
+      'bg-amber-500 text-amber-950 shadow-md ring-2 ring-amber-400/55 dark:bg-amber-500 dark:text-amber-950 dark:ring-amber-300/40',
+    idle:
+      'border border-amber-200/90 bg-amber-500/15 text-amber-950 hover:bg-amber-500/28 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/50',
+    iconActive: 'text-amber-950 dark:text-amber-950',
+    iconIdle: 'text-amber-700 dark:text-amber-400',
+  },
+};
 
 const TABS: {
   id: TabId;
@@ -114,73 +143,66 @@ export function SchoolAdminAccountTabs() {
   if (!me || me.role !== 'school_admin') return null;
 
   return (
-    <div className="space-y-4 sm:space-y-6">
-      <div className="overflow-hidden rounded-xl border-2 border-border/70 bg-linear-to-br from-muted/30 via-card to-muted/20 p-1 shadow-md ring-1 ring-black/4 dark:from-zinc-900/90 dark:via-zinc-950 dark:to-zinc-900/80 dark:ring-white/6 sm:rounded-2xl">
-        <div className="flex flex-col gap-2 p-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20 dark:bg-primary/15">
-              <Sparkles className="size-5" aria-hidden />
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground">Okul · hesap</p>
-              <p className="text-pretty text-[11px] leading-snug text-muted-foreground sm:text-sm sm:leading-normal">
-                {tab === 'hesap'
-                  ? 'Profil, şifre, hesap kapatma.'
-                  : tab === 'yedek'
-                    ? 'Modül seç, JSON indir.'
-                    : 'Okul sayfalarına kısayollar.'}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="mobile-tab-scroll pb-1">
-          <div className="flex min-w-max gap-1 rounded-lg border border-border/50 bg-linear-to-r from-muted/25 via-muted/35 to-muted/25 p-1 shadow-inner dark:from-zinc-800/70 dark:via-zinc-800/50 dark:to-zinc-800/70 sm:rounded-xl">
+    <div className="space-y-2 sm:space-y-4 md:space-y-5">
+      <div
+        className="rounded-lg border border-border/50 bg-linear-to-r from-sky-500/10 via-violet-500/8 to-amber-500/10 p-0.5 shadow-sm ring-1 ring-black/6 dark:border-zinc-700/80 dark:from-zinc-900/90 dark:via-zinc-900/70 dark:to-zinc-900/90 dark:ring-white/10 sm:rounded-xl sm:p-1 sm:shadow-md"
+        role="tablist"
+        aria-label="Okul yöneticisi profil bölümleri"
+      >
+        <div className="grid grid-cols-3 gap-0.5 sm:gap-1.5">
           {TABS.map((t) => {
             const Icon = t.icon;
-            const active = tab === t.id;
+            const isActive = tab === t.id;
+            const st = TAB_STYLE[t.id];
             return (
               <button
                 key={t.id}
                 type="button"
+                role="tab"
+                aria-selected={isActive}
+                aria-label={`${t.label}. ${t.hint}`}
                 onClick={() => goTab(t.id)}
                 className={cn(
-                  'flex min-w-[140px] shrink-0 flex-col items-stretch gap-0.5 rounded-md px-2.5 py-2 text-left transition-all duration-200 sm:min-w-[150px] sm:rounded-lg sm:px-3 sm:py-2.5',
-                  active
-                    ? 'bg-background/95 text-foreground shadow-md ring-1 ring-primary/30 backdrop-blur-sm dark:bg-zinc-800/95 dark:ring-zinc-600/50'
-                    : 'text-muted-foreground hover:bg-background/50 hover:text-foreground dark:hover:bg-zinc-800/60',
+                  'flex min-h-9 flex-col items-center justify-center gap-0 rounded-md px-1 py-1 text-center transition-[color,box-shadow,background-color,border-color] duration-200 sm:min-h-12 sm:gap-0.5 sm:rounded-xl sm:px-2 sm:py-2.5',
+                  isActive ? st.active : st.idle,
                 )}
               >
-                <span className="flex items-center gap-2">
+                <span className="flex max-w-full items-center justify-center gap-0.5 sm:gap-2">
                   <Icon
-                    className={cn('size-4 shrink-0 transition-colors', active ? 'text-primary' : 'opacity-80')}
+                    className={cn('size-3.5 shrink-0 sm:size-4', isActive ? st.iconActive : st.iconIdle)}
                     aria-hidden
                   />
-                  <span className="text-sm font-semibold">{t.label}</span>
+                  <span className="truncate text-[10px] font-bold tracking-tight sm:text-sm">{t.label}</span>
                 </span>
-                <span className="pl-6 text-[11px] leading-snug text-muted-foreground sm:text-xs">{t.hint}</span>
+                <span
+                  className={cn(
+                    'hidden text-[10px] leading-tight opacity-90 sm:line-clamp-2 sm:block sm:max-w-none',
+                    isActive && 'text-white dark:text-white',
+                  )}
+                >
+                  {t.hint}
+                </span>
               </button>
             );
           })}
-          </div>
         </div>
       </div>
 
       {tab === 'hesap' && (
-        <div className="space-y-4">
-          <Card className="overflow-hidden rounded-xl border-2 border-border/70 bg-card shadow-md ring-1 ring-black/4 backdrop-blur-sm dark:border-border/80 dark:bg-card dark:ring-white/6 sm:rounded-2xl">
-            <CardHeader className="border-b border-border/40 bg-muted/15 pb-3 dark:border-zinc-800 dark:bg-zinc-900/50">
-              <div className="flex items-center gap-2">
-                <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
+        <div className="space-y-2 sm:space-y-3 md:space-y-4">
+          <Card className="overflow-hidden rounded-lg border border-sky-500/20 bg-linear-to-br from-card via-card to-sky-500/6 shadow-sm ring-1 ring-sky-500/10 backdrop-blur-sm dark:border-sky-500/20 dark:from-card dark:via-card dark:to-sky-950/25 sm:rounded-xl sm:border-2 sm:shadow-md">
+            <CardHeader className="border-b border-sky-200/30 bg-linear-to-r from-sky-500/12 via-sky-500/5 to-transparent px-2 py-2 dark:border-sky-900/40 dark:from-sky-950/50 dark:via-sky-950/25 sm:px-5 sm:py-3 md:px-6 md:py-4">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/20 text-[10px] font-bold text-sky-800 dark:text-sky-200 sm:size-8 sm:text-xs">
                   1
                 </span>
-                <div>
-                  <CardTitle className="text-base">Profil</CardTitle>
-                  <CardDescription className="text-xs sm:text-sm">Pano ve bildirimlerde görünen ad.</CardDescription>
+                <div className="min-w-0">
+                  <CardTitle className="text-sm sm:text-lg">Profil</CardTitle>
+                  <CardDescription className="text-[10px] leading-snug sm:text-sm">Pano ve bildirimlerde görünen ad.</CardDescription>
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="p-4 md:p-6">
+            <CardContent className="p-2.5 sm:p-5 md:p-6">
               <EditProfileForm
                 token={token}
                 displayName={me.display_name ?? ''}
@@ -190,44 +212,44 @@ export function SchoolAdminAccountTabs() {
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden rounded-xl border-2 border-border/70 bg-card shadow-md ring-1 ring-black/4 backdrop-blur-sm dark:border-border/80 dark:bg-card dark:ring-white/6 sm:rounded-2xl">
-            <CardHeader className="border-b border-border/40 bg-muted/15 pb-3 dark:border-zinc-800 dark:bg-zinc-900/50">
-              <div className="flex items-center gap-2">
-                <span className="flex size-8 items-center justify-center rounded-lg bg-amber-500/15 text-xs font-bold text-amber-700 dark:text-amber-400">
+          <Card className="overflow-hidden rounded-lg border border-amber-500/25 bg-linear-to-br from-card via-card to-amber-500/5 shadow-sm ring-1 ring-amber-500/10 backdrop-blur-sm dark:border-amber-500/15 dark:to-amber-950/20 sm:rounded-xl sm:border-2 sm:shadow-md">
+            <CardHeader className="border-b border-amber-200/35 bg-linear-to-r from-amber-500/12 via-amber-500/5 to-transparent px-2 py-2 dark:border-amber-900/40 dark:from-amber-950/45 dark:via-amber-950/20 sm:px-5 sm:py-3 md:px-6 md:py-4">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/20 text-[10px] font-bold text-amber-900 dark:text-amber-300 sm:size-8 sm:text-xs">
                   2
                 </span>
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <KeyRound className="size-4 text-muted-foreground" aria-hidden />
-                    Güvenlik — şifre
+                <div className="min-w-0">
+                  <CardTitle className="flex flex-wrap items-center gap-1 text-sm sm:gap-2 sm:text-lg">
+                    <KeyRound className="size-3.5 shrink-0 text-amber-700 dark:text-amber-400 sm:size-4" aria-hidden />
+                    <span>Güvenlik — şifre</span>
                   </CardTitle>
-                  <CardDescription className="text-xs sm:text-sm">Güçlü şifre, kimseyle paylaşmayın.</CardDescription>
+                  <CardDescription className="text-[10px] leading-snug sm:text-sm">Güçlü şifre, kimseyle paylaşmayın.</CardDescription>
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="p-4 md:p-6">
+            <CardContent className="p-2.5 sm:p-5 md:p-6">
               <ChangePasswordForm token={token} />
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden rounded-xl border-2 border-border/70 bg-card shadow-md ring-1 ring-black/4 backdrop-blur-sm dark:border-border/80 dark:bg-card dark:ring-white/6 sm:rounded-2xl">
-            <CardHeader className="border-b border-border/40 bg-muted/15 pb-3 dark:border-zinc-800 dark:bg-zinc-900/50">
-              <div className="flex items-center gap-2">
-                <span className="flex size-8 items-center justify-center rounded-lg bg-emerald-500/15 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+          <Card className="overflow-hidden rounded-lg border border-emerald-500/25 bg-linear-to-br from-card via-card to-emerald-500/5 shadow-sm ring-1 ring-emerald-500/10 backdrop-blur-sm dark:border-emerald-500/15 dark:to-emerald-950/20 sm:rounded-xl sm:border-2 sm:shadow-md">
+            <CardHeader className="border-b border-emerald-200/35 bg-linear-to-r from-emerald-500/12 via-emerald-500/5 to-transparent px-2 py-2 dark:border-emerald-900/40 dark:from-emerald-950/45 dark:via-emerald-950/20 sm:px-5 sm:py-3 md:px-6 md:py-4">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/20 text-[10px] font-bold text-emerald-800 dark:text-emerald-300 sm:size-8 sm:text-xs">
                   3
                 </span>
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Shield className="size-4 text-muted-foreground" aria-hidden />
-                    Hesabı kapat
+                <div className="min-w-0">
+                  <CardTitle className="flex flex-wrap items-center gap-1 text-sm sm:gap-2 sm:text-lg">
+                    <Shield className="size-3.5 shrink-0 text-emerald-700 dark:text-emerald-400 sm:size-4" aria-hidden />
+                    <span>Hesabı kapat</span>
                   </CardTitle>
-                  <CardDescription className="text-xs sm:text-sm">
+                  <CardDescription className="text-[10px] leading-snug sm:text-sm">
                     Önce veri: <strong>Yedek</strong>.
                   </CardDescription>
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="flex flex-col gap-4 p-4 md:p-6">
+            <CardContent className="flex flex-col gap-2 p-2.5 sm:gap-4 sm:p-5 md:p-6">
               <DeleteAccountButton token={token} />
             </CardContent>
           </Card>
@@ -235,31 +257,34 @@ export function SchoolAdminAccountTabs() {
       )}
 
       {tab === 'yedek' && (
-        <Card className="overflow-hidden rounded-xl border-2 border-border/70 bg-card shadow-md ring-1 ring-black/4 backdrop-blur-sm dark:border-border/80 dark:bg-card dark:ring-white/6 sm:rounded-2xl">
-          <CardHeader className="border-b border-border/40 bg-muted/15 pb-3 dark:border-zinc-800 dark:bg-zinc-900/50">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <FileDown className="size-4 text-primary" aria-hidden />
+        <Card className="overflow-hidden rounded-lg border border-amber-500/30 bg-linear-to-br from-amber-500/7 via-card to-violet-500/4 shadow-sm ring-1 ring-amber-500/15 backdrop-blur-sm dark:from-amber-950/30 dark:via-card dark:to-violet-950/20 sm:rounded-xl sm:border-2 sm:shadow-md">
+          <CardHeader className="border-b border-amber-200/40 bg-linear-to-r from-amber-500/15 via-amber-500/8 to-violet-500/10 px-2 py-2 dark:border-amber-900/45 dark:from-amber-950/50 dark:via-amber-950/25 dark:to-violet-950/30 sm:px-5 sm:py-3 md:px-6 md:py-4">
+            <CardTitle className="flex items-center gap-1.5 text-sm sm:gap-2 sm:text-lg">
+              <FileDown className="size-3.5 shrink-0 text-amber-700 dark:text-amber-400 sm:size-4" aria-hidden />
               Yedek indir
             </CardTitle>
-            <CardDescription className="text-xs sm:text-sm">
+            <CardDescription className="text-[10px] leading-snug sm:text-sm">
               Modül seç, JSON indir. Eksik modüller işaretlenir.
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-4 md:p-6">
+          <CardContent className="p-2.5 sm:p-5 md:p-6">
             <BackupExportPanel token={token} enabledModules={me?.school?.enabled_modules ?? null} />
           </CardContent>
         </Card>
       )}
 
       {tab === 'okul' && (
-        <div className="space-y-6">
+        <div className="space-y-2 sm:space-y-4 md:space-y-5">
           {OKUL_GROUPS.map((group) => (
-            <div key={group.title} className="space-y-3">
-              <div className="px-0.5">
-                <h3 className="text-sm font-semibold text-foreground">{group.title}</h3>
-                <p className="text-xs text-muted-foreground">{group.description}</p>
+            <div
+              key={group.title}
+              className="overflow-hidden rounded-xl border border-emerald-500/20 bg-linear-to-br from-emerald-500/6 via-card to-sky-500/5 p-2 shadow-sm ring-1 ring-emerald-500/10 dark:from-emerald-950/25 dark:via-card dark:to-sky-950/20 sm:rounded-2xl sm:border-2 sm:p-3 md:p-4"
+            >
+              <div className="mb-1.5 px-0.5 sm:mb-2">
+                <h3 className="text-xs font-bold text-foreground sm:text-sm">{group.title}</h3>
+                <p className="text-[10px] text-muted-foreground sm:text-xs">{group.description}</p>
               </div>
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-1.5 sm:grid-cols-2 sm:gap-2">
                 {group.items.map((item) => {
                   const ItemIcon = item.icon;
                   return (
@@ -273,20 +298,22 @@ export function SchoolAdminAccountTabs() {
                         })
                       }
                       className={cn(
-                        'group relative flex items-center gap-2.5 rounded-xl border-2 border-border/70 bg-card p-3.5 shadow-md ring-1 ring-black/4',
-                        'transition-all duration-200 hover:z-1 hover:border-primary/35 hover:bg-primary/3 hover:shadow-lg',
-                        'active:scale-[0.99] dark:border-border/80 dark:bg-card dark:ring-white/6 dark:hover:border-primary/40 sm:gap-3 sm:p-4',
+                        'group relative flex items-center gap-2 rounded-lg border border-emerald-500/15 bg-card/90 p-2 shadow-sm ring-1 ring-black/5 backdrop-blur-sm',
+                        'transition-all duration-200 hover:z-1 hover:border-emerald-400/55 hover:bg-emerald-500/8 hover:shadow-md',
+                        'active:scale-[0.99] dark:border-emerald-800/30 dark:bg-card/80 dark:ring-white/5 dark:hover:border-emerald-500/45 sm:gap-2.5 sm:rounded-xl sm:border-2 sm:p-3 sm:shadow-md',
                       )}
                     >
-                      <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted/80 text-foreground ring-1 ring-border/50 transition-colors group-hover:bg-primary/10 group-hover:text-primary dark:bg-zinc-900 dark:ring-zinc-800">
-                        <ItemIcon className="size-5" aria-hidden />
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/12 text-emerald-700 ring-1 ring-emerald-500/25 transition-colors group-hover:bg-emerald-500/20 dark:bg-emerald-950/45 dark:text-emerald-300 dark:ring-emerald-800/50 sm:size-11 sm:rounded-xl">
+                        <ItemIcon className="size-3.5 sm:size-5" aria-hidden />
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-foreground">{item.label}</p>
-                        <p className="truncate text-xs text-muted-foreground">{item.sub}</p>
+                      <div className="min-w-0 flex-1 text-left">
+                        <p className="text-[13px] font-semibold leading-tight text-foreground sm:text-sm">{item.label}</p>
+                        <p className="line-clamp-2 text-[10px] leading-snug text-muted-foreground sm:truncate sm:text-xs">
+                          {item.sub}
+                        </p>
                       </div>
                       <ChevronRight
-                        className="size-5 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-primary"
+                        className="size-4 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 sm:size-5"
                         aria-hidden
                       />
                     </Link>

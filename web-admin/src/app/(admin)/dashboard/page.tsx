@@ -78,7 +78,7 @@ export default function DashboardPage() {
     ]).then(([prefs, swaps, assignments]) => {
       setTeacherPrefs(Array.isArray(prefs) ? prefs.slice(-5) : []);
       setTeacherSwaps(Array.isArray(swaps) ? swaps.slice(0, 5) : []);
-      setBelirliGunAssignments(Array.isArray(assignments) ? assignments.slice(0, 6) : []);
+      setBelirliGunAssignments(Array.isArray(assignments) ? assignments : []);
     });
   }, [token, me?.role, dutyEnabledForTeacher]);
 
@@ -110,15 +110,17 @@ export default function DashboardPage() {
 
   if (me.role === 'school_admin') {
     return (
-      <SchoolAdminHome
-        me={me}
-        displayName={displayName}
-        stats={stats ?? null}
-        statsError={statsError}
-        isLoadingStats={isLoading}
-        adminMessagesUnread={adminMessagesUnread}
-        allNotificationsUnread={allNotificationsUnread}
-      />
+      <div className="max-sm:-mt-2">
+        <SchoolAdminHome
+          me={me}
+          displayName={displayName}
+          stats={stats ?? null}
+          statsError={statsError}
+          isLoadingStats={isLoading}
+          adminMessagesUnread={adminMessagesUnread}
+          allNotificationsUnread={allNotificationsUnread}
+        />
+      </div>
     );
   }
 

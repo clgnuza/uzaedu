@@ -1,3 +1,19 @@
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'ÖğretmenPro | Dijital Okul Yönetim Platformu',
+  description:
+    'Öğretmenler ve okul yöneticileri için ders programı, sınav planlama, akademik takvim, ek ders hesaplama, öğretmen ajandası. MEB uyumlu yerli ve milli yazılım.',
+  keywords: ['öğretmen', 'okul yönetimi', 'ders programı', 'sınav planlama', 'akademik takvim', 'ek ders', 'MEB', 'ÖğretmenPro'],
+  alternates: { canonical: '/' },
+  openGraph: {
+    type: 'website',
+    title: 'ÖğretmenPro | Dijital Okul Yönetim Platformu',
+    description: 'Öğretmenler ve okul yöneticileri için MEB uyumlu dijital platform.',
+    locale: 'tr_TR',
+  },
+};
+
 import Link from 'next/link';
 import { LogIn, UserPlus } from 'lucide-react';
 import { AuthTransitionLink } from '@/components/landing/auth-transition-link';
@@ -79,39 +95,41 @@ export default function HomePage() {
 
         {/* ── Bottom CTA strip ── */}
         <div
-          className="mt-6 flex w-full max-w-2xl flex-col items-center gap-4 sm:mt-10 sm:gap-5"
+          className="mt-4 flex w-full max-w-xl flex-col items-center gap-2.5 sm:mt-10 sm:max-w-2xl sm:gap-5"
           style={{ animation: 'landing-fadein 0.7s ease 0.25s both' }}
         >
-          <div className="flex w-full min-w-0 items-center gap-3 px-1 sm:gap-4">
+          <div className="flex w-full min-w-0 items-center gap-2 px-1 sm:gap-4">
             <div className="h-px flex-1 bg-linear-to-r from-transparent to-zinc-800" />
-            <span className="shrink-0 text-[9px] font-bold uppercase tracking-[0.2em] text-zinc-600 sm:text-[10px] sm:tracking-[0.25em]">
-              Hızlı Erişim
+            <span className="shrink-0 text-[8px] font-bold uppercase tracking-[0.18em] text-zinc-600 sm:text-[10px] sm:tracking-[0.25em]">
+              Mobil uygulama
             </span>
             <div className="h-px flex-1 bg-linear-to-l from-transparent to-zinc-800" />
           </div>
 
-          <div className="flex w-full min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
+          <div className="flex w-full min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-3">
             <button
               type="button"
-              aria-label="App Store bağlantısı yakında"
-              className="group flex min-h-[52px] min-w-0 flex-1 cursor-default items-center justify-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/80 px-4 py-3 text-left transition hover:border-zinc-600 hover:bg-zinc-900 sm:min-h-0 sm:flex-initial sm:justify-start sm:px-5"
+              disabled
+              aria-label="iOS uygulaması yakında"
+              className="group flex min-h-[44px] min-w-0 flex-1 cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-zinc-800/90 bg-zinc-950/70 px-3 py-2 text-left opacity-90 sm:min-h-[52px] sm:flex-initial sm:justify-start sm:gap-3 sm:rounded-2xl sm:px-5 sm:py-3"
             >
-              <AppleIcon className="size-7 shrink-0 text-white" />
-              <div className="min-w-0 text-left">
-                <p className="text-[9px] font-medium uppercase tracking-widest text-zinc-500 group-hover:text-zinc-400">App Store</p>
-                <p className="text-[13px] font-bold text-white">iOS İndir</p>
+              <AppleIcon className="size-5 shrink-0 text-white sm:size-7" />
+              <div className="min-w-0 text-left leading-tight">
+                <p className="text-[8px] font-semibold uppercase tracking-wider text-zinc-500 sm:text-[9px] sm:tracking-widest">App Store</p>
+                <p className="text-[12px] font-bold text-amber-200/95 sm:text-[13px]">Yakında</p>
               </div>
             </button>
 
             <button
               type="button"
-              aria-label="Google Play bağlantısı yakında"
-              className="group flex min-h-[52px] min-w-0 flex-1 cursor-default items-center justify-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/80 px-4 py-3 text-left transition hover:border-zinc-600 hover:bg-zinc-900 sm:min-h-0 sm:flex-initial sm:justify-start sm:px-5"
+              disabled
+              aria-label="Android uygulaması yakında"
+              className="group flex min-h-[44px] min-w-0 flex-1 cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-zinc-800/90 bg-zinc-950/70 px-3 py-2 text-left opacity-90 sm:min-h-[52px] sm:flex-initial sm:justify-start sm:gap-3 sm:rounded-2xl sm:px-5 sm:py-3"
             >
-              <AndroidIcon className="size-7 shrink-0 text-[#78c257]" />
-              <div className="min-w-0 text-left">
-                <p className="text-[9px] font-medium uppercase tracking-widest text-zinc-500 group-hover:text-zinc-400">Google Play</p>
-                <p className="text-[13px] font-bold text-white">Android İndir</p>
+              <AndroidIcon className="size-5 shrink-0 text-[#78c257] sm:size-7" />
+              <div className="min-w-0 text-left leading-tight">
+                <p className="text-[8px] font-semibold uppercase tracking-wider text-zinc-500 sm:text-[9px] sm:tracking-widest">Google Play</p>
+                <p className="text-[12px] font-bold text-amber-200/95 sm:text-[13px]">Yakında</p>
               </div>
             </button>
           </div>

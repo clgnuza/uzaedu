@@ -5,8 +5,16 @@ export const SCHOOL_TYPE_ORDER = [
   'anaokul',
   'ilkokul',
   'ortaokul',
+  'temel_egitim',
   'lise',
+  'anadolu_lisesi',
+  'cok_programli_anadolu_lisesi',
+  'fen_lisesi',
+  'sosyal_bilimler_lisesi',
   'meslek_lisesi',
+  'guzel_sanatlar_lisesi',
+  'spor_lisesi',
+  'acik_ogretim_lisesi',
   'imam_hatip_ortaokul',
   'imam_hatip_lise',
   'ozel_egitim',
@@ -20,14 +28,22 @@ export const SCHOOL_TYPE_LABELS: Record<string, string> = {
   anaokul: 'Anaokulu',
   ilkokul: 'İlkokul',
   ortaokul: 'Ortaokul',
-  lise: 'Lise',
+  temel_egitim: 'Temel Eğitim Okulu (1–8)',
+  lise: 'Lise (genel)',
+  anadolu_lisesi: 'Anadolu Lisesi',
+  cok_programli_anadolu_lisesi: 'Çok Programlı Anadolu Lisesi',
+  fen_lisesi: 'Fen Lisesi',
+  sosyal_bilimler_lisesi: 'Sosyal Bilimler Lisesi',
   meslek_lisesi: 'Meslek Lisesi / MTAL',
+  guzel_sanatlar_lisesi: 'Güzel Sanatlar Lisesi',
+  spor_lisesi: 'Spor Lisesi',
+  acik_ogretim_lisesi: 'Açık Öğretim Lisesi',
   imam_hatip_ortaokul: 'İmam Hatip Ortaokulu',
   imam_hatip_lise: 'İmam Hatip Lisesi',
   ozel_egitim: 'Özel Eğitim Uygulama Okulu',
   halk_egitim: 'Halk Eğitim Merkezi',
   bilsem: 'BİLSEM',
-  /** Evrak / eski kod uyumu (okul kaydında kullanılmayabilir) */
+  /** Evrak şablonu / eski kod uyumu */
   gsl: 'Güzel Sanatlar Lisesi',
   spor_l: 'Spor Lisesi',
   meslek: 'Meslek Lisesi',
@@ -49,8 +65,8 @@ export const SCHOOL_STATUS_LABELS: Record<string, string> = {
 export const SCHOOL_TYPE_GROUP_ORDER = ['ilkogretim', 'lise_kademesi', 'kurum_diger'] as const;
 
 export const SCHOOL_TYPE_GROUP_LABELS: Record<string, string> = {
-  ilkogretim: 'İlköğretim (ilkokul + ortaokul)',
-  lise_kademesi: 'Lise kademesi (lise, meslek, İHL, BİLSEM)',
+  ilkogretim: 'İlköğretim (ilkokul, ortaokul, temel eğitim)',
+  lise_kademesi: 'Lise kademesi (tüm lise türleri, meslek, İHL, BİLSEM)',
   kurum_diger: 'Diğer (anaokul, İH orta, özel eğitim, halk eğitim)',
 };
 

@@ -148,63 +148,65 @@ export function SchoolEventFormModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent title={isEdit ? 'Okul Etkinliğini Düzenle' : 'Okul Etkinliği Ekle'}>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
           <div>
-            <Label>Başlık *</Label>
+            <Label className="text-xs sm:text-sm">Başlık *</Label>
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Etkinlik başlığı"
               required
-              className="mt-1 min-h-[44px]"
+              className="mt-1 min-h-10 text-sm sm:min-h-11"
             />
           </div>
           <div>
-            <Label>Açıklama</Label>
+            <Label className="text-xs sm:text-sm">Açıklama</Label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              className="mt-1 w-full rounded-lg border border-input bg-background px-4 py-3 min-h-[80px]"
+              rows={2}
+              className="mt-1 min-h-[72px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-[80px] sm:py-2.5"
             />
           </div>
           <div>
-            <Label>Tarih ve Saat *</Label>
+            <Label className="text-xs sm:text-sm">Tarih ve saat *</Label>
             <Input
               type="datetime-local"
               value={eventAt}
               onChange={(e) => setEventAt(e.target.value)}
-              className="mt-1 min-h-[44px]"
+              className="mt-1 min-h-10 text-sm sm:min-h-11"
             />
           </div>
           <div>
-            <Label>Etkinlik türü</Label>
+            <Label className="text-xs sm:text-sm">Etkinlik türü</Label>
             <Input
               value={eventType}
               onChange={(e) => setEventType(e.target.value)}
-              placeholder="örn: Zümre toplantısı, Okul gezisi"
-              className="mt-1 min-h-[44px]"
+              placeholder="Zümre, gezi…"
+              className="mt-1 min-h-10 text-sm sm:min-h-11"
             />
           </div>
           <div>
-            <Label className="flex items-center gap-2">
-              <Users className="size-4 text-muted-foreground" />
+            <Label className="flex items-center gap-2 text-xs sm:text-sm">
+              <Users className="size-3.5 shrink-0 text-muted-foreground sm:size-4" />
               Bildirim alacak öğretmenler
             </Label>
-            <p className="mt-1 text-xs text-muted-foreground">Etkinlik bildirimi alacak öğretmenleri seçin. Zümre başlığına tıklayarak tümünü seçebilirsiniz.</p>
+            <p className="mt-1 text-[11px] leading-snug text-muted-foreground sm:text-xs">
+              Zümre başlığına tıklayarak tümünü seçebilirsiniz.
+            </p>
             {!loadingTeachers && selectedTeacherIds.size > 0 && (
-              <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary/15 px-3 py-1 text-sm font-medium text-primary">
-                <Check className="size-4" />
-                {selectedTeacherIds.size} öğretmen seçildi
+              <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-primary/15 px-2.5 py-1 text-xs font-semibold text-primary sm:gap-1.5 sm:px-3 sm:text-sm">
+                <Check className="size-3.5 shrink-0 sm:size-4" />
+                {selectedTeacherIds.size} seçildi
               </div>
             )}
             {loadingTeachers ? (
-              <div className="mt-3 flex items-center gap-2 rounded-xl bg-muted/50 px-4 py-6 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                Öğretmenler yükleniyor...
+              <div className="mt-2 flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-4 text-xs text-muted-foreground sm:mt-3 sm:rounded-xl sm:px-4 sm:py-6 sm:text-sm">
+                <Loader2 className="size-4 shrink-0 animate-spin" />
+                Yükleniyor…
               </div>
             ) : (
-              <div className="mt-3 max-h-52 overflow-y-auto space-y-3 pr-1">
+              <div className="mt-2 max-h-44 space-y-2 overflow-y-auto pr-1 sm:mt-3 sm:max-h-52 sm:space-y-3">
                 {branches.map((b, i) => {
                   const list = byBranch(b);
                   const allSel = list.every((t) => selectedTeacherIds.has(t.id));
@@ -213,7 +215,7 @@ export function SchoolEventFormModal({
                     <div
                       key={b}
                       className={cn(
-                        'rounded-xl border-l-4 p-3 transition-colors',
+                        'rounded-lg border-l-4 p-2 transition-colors sm:rounded-xl sm:p-3',
                         c.bg,
                         c.border,
                       )}
@@ -222,17 +224,17 @@ export function SchoolEventFormModal({
                         type="button"
                         onClick={() => toggleBranch(b)}
                         className={cn(
-                          'flex w-full items-center justify-between rounded-lg px-3 py-2 text-left font-semibold transition-all hover:opacity-90',
+                          'flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm font-semibold transition-all hover:opacity-90 sm:rounded-lg sm:px-3 sm:py-2',
                           c.text,
                         )}
                       >
-                        <span>{b}</span>
-                        <span className="flex items-center gap-1.5 text-xs font-medium">
-                          {list.length} öğretmen
-                          {allSel && <Check className="size-4" strokeWidth={2.5} />}
+                        <span className="min-w-0 truncate">{b}</span>
+                        <span className="flex shrink-0 items-center gap-1 text-[10px] font-medium sm:text-xs">
+                          {list.length}
+                          {allSel && <Check className="size-3.5 sm:size-4" strokeWidth={2.5} />}
                         </span>
                       </button>
-                      <div className="mt-2 flex flex-wrap gap-2">
+                      <div className="mt-1.5 flex flex-wrap gap-1.5 sm:mt-2 sm:gap-2">
                         {list.map((t) => {
                           const sel = selectedTeacherIds.has(t.id);
                           return (
@@ -241,15 +243,15 @@ export function SchoolEventFormModal({
                               type="button"
                               onClick={() => toggleTeacher(t.id)}
                               className={cn(
-                                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-all',
+                                'inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium transition-all sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm',
                                 c.chip,
                                 c.border,
                                 sel && c.chipSel,
                               )}
                             >
-                              {sel && <Check className="size-3.5 shrink-0" strokeWidth={2.5} />}
-                              <User className="size-3.5 shrink-0 opacity-70" />
-                              {t.display_name || t.id.slice(0, 8)}
+                              {sel && <Check className="size-3 shrink-0 sm:size-3.5" strokeWidth={2.5} />}
+                              <User className="size-3 shrink-0 opacity-70 sm:size-3.5" />
+                              <span className="max-w-36 truncate sm:max-w-44">{t.display_name || t.id.slice(0, 8)}</span>
                             </button>
                           );
                         })}
@@ -258,11 +260,11 @@ export function SchoolEventFormModal({
                   );
                 })}
                 {teachers.filter((t) => !(t.teacher_branch ?? '').trim()).length > 0 && (
-                  <div className="rounded-xl border-l-4 border-slate-400/40 bg-slate-500/10 p-3">
-                    <span className="mb-2 block px-3 py-1.5 text-sm font-semibold text-slate-600 dark:text-slate-400">
+                  <div className="rounded-lg border-l-4 border-slate-400/40 bg-slate-500/10 p-2 sm:rounded-xl sm:p-3">
+                    <span className="mb-1.5 block px-2 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400 sm:mb-2 sm:px-3 sm:py-1.5 sm:text-sm">
                       Branşı tanımlanmamış
                     </span>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-1.5 sm:gap-2">
                       {teachers
                         .filter((t) => !(t.teacher_branch ?? '').trim())
                         .map((t) => {
@@ -273,13 +275,13 @@ export function SchoolEventFormModal({
                               type="button"
                               onClick={() => toggleTeacher(t.id)}
                               className={cn(
-                                'inline-flex items-center gap-1.5 rounded-full border border-slate-400/30 bg-slate-500/20 px-3 py-1.5 text-sm font-medium transition-all',
+                                'inline-flex max-w-full items-center gap-1 rounded-full border border-slate-400/30 bg-slate-500/20 px-2 py-1 text-[11px] font-medium transition-all sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm',
                                 sel && 'bg-slate-500/35 ring-1 ring-slate-400/50',
                               )}
                             >
-                              {sel && <Check className="size-3.5 shrink-0" strokeWidth={2.5} />}
-                              <User className="size-3.5 shrink-0 opacity-70" />
-                              {t.display_name || t.id.slice(0, 8)}
+                              {sel && <Check className="size-3 shrink-0 sm:size-3.5" strokeWidth={2.5} />}
+                              <User className="size-3 shrink-0 opacity-70 sm:size-3.5" />
+                              <span className="max-w-36 truncate sm:max-w-44">{t.display_name || t.id.slice(0, 8)}</span>
                             </button>
                           );
                         })}
@@ -294,13 +296,17 @@ export function SchoolEventFormModal({
               </div>
             )}
           </div>
-          <label className="flex items-center gap-2 cursor-pointer">
+          <label className="flex cursor-pointer items-center gap-2">
             <input type="checkbox" checked={important} onChange={(e) => setImportant(e.target.checked)} className="rounded" />
-            <span className="text-sm">Önemli</span>
+            <span className="text-xs sm:text-sm">Önemli</span>
           </label>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>İptal</Button>
-            <Button type="submit" disabled={loading || !title.trim()}>{isEdit ? 'Güncelle' : 'Kaydet'}</Button>
+          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end sm:pt-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
+              İptal
+            </Button>
+            <Button type="submit" disabled={loading || !title.trim()} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
+              {isEdit ? 'Güncelle' : 'Kaydet'}
+            </Button>
           </div>
         </form>
       </DialogContent>

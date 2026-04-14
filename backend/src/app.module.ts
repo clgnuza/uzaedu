@@ -42,6 +42,9 @@ import { MailModule } from './mail/mail.module';
 import { StudentsModule } from './students/students.module';
 import { TeacherAgendaModule } from './teacher-agenda/teacher-agenda.module';
 import { BilsemModule } from './bilsem/bilsem.module';
+import { ButterflyExamModule } from './butterfly-exam/butterfly-exam.module';
+import { SorumlulukExamModule } from './sorumluluk-exam/sorumluluk-exam.module';
+import { MessagingModule } from './messaging/messaging.module';
 import { MarketModule } from './market/market.module';
 import { AdsModule } from './ads/ads.module';
 import { TeacherInviteModule } from './teacher-invite/teacher-invite.module';
@@ -119,6 +122,9 @@ function getTypeOrmConfig(): TypeOrmModuleOptions {
     StudentsModule,
     TeacherAgendaModule,
     BilsemModule,
+    ButterflyExamModule,
+    SorumlulukExamModule,
+    MessagingModule,
     MarketModule,
     AdsModule,
     TeacherInviteModule,

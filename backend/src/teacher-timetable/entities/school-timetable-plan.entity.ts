@@ -11,7 +11,7 @@ import { School } from '../../schools/entities/school.entity';
 import { User } from '../../users/entities/user.entity';
 import { SchoolTimetablePlanEntry } from './school-timetable-plan-entry.entity';
 
-export type SchoolTimetablePlanStatus = 'draft' | 'published';
+export type SchoolTimetablePlanStatus = 'draft' | 'published' | 'archived';
 
 @Entity('school_timetable_plan')
 export class SchoolTimetablePlan {

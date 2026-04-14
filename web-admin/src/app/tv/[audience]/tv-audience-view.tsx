@@ -375,6 +375,79 @@ function TvPairingGate({
   );
 }
 
+function ClassroomUsbPinForm({
+  schoolId,
+  deviceId,
+  onUnlocked,
+}: {
+  schoolId: string;
+  deviceId: string;
+  onUnlocked: (token: string) => void;
+}) {
+  const [pin, setPin] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    const p = pin.replace(/\D/g, '').slice(0, 8);
+    if (p.length < 4) {
+      setErr('PIN en az 4 hane olmalıdır.');
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    void fetch(getApiUrl('/tv/classroom-usb-unlock'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ school_id: schoolId, device_id: deviceId, pin: p }),
+    })
+      .then(async (res) => {
+        const body = (await res.json().catch(() => ({}))) as { message?: string; access_token?: string };
+        if (!res.ok) throw new Error(body.message || 'PIN kabul edilmedi');
+        const tok = body.access_token;
+        if (!tok) throw new Error('Yanıt geçersiz');
+        try {
+          sessionStorage.setItem(`tv_usb_${schoolId}_${deviceId}`, tok);
+        } catch {
+          /* ignore */
+        }
+        onUnlocked(tok);
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : 'Hata'))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-slate-950 px-4 py-10 text-slate-100">
+      <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900/90 p-6 shadow-xl">
+        <h1 className="text-center text-lg font-semibold text-white">Sınıf tahtası (USB)</h1>
+        <p className="mt-2 text-center text-sm text-slate-400">
+          Telefonsuz açılış: idarenin atadığı kişisel PIN&apos;inizi girin. Oturum bu tahta için geçerlidir.
+        </p>
+        <form className="mt-6 space-y-4" onSubmit={onSubmit}>
+          <input
+            type="password"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={8}
+            value={pin}
+            onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+            placeholder="••••"
+            className="w-full rounded-xl border border-slate-600 bg-slate-950 px-4 py-3 text-center font-mono text-2xl tracking-[0.35em] text-slate-100 placeholder:text-slate-600"
+          />
+          {err ? <p className="text-center text-sm text-red-400">{err}</p> : null}
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50"
+          >
+            {busy ? 'Doğrulanıyor…' : 'Tahtayı aç'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function TvAudienceContent() {
   const params = useParams<{ audience?: string }>();
   const searchParams = useSearchParams();
@@ -386,14 +459,26 @@ export default function TvAudienceContent() {
         : 'corridor';
   const schoolId = searchParams?.get('school_id') ?? undefined;
   const deviceId = searchParams?.get('device_id') ?? undefined;
+  const usbMode = searchParams?.get('usb') === '1';
+  const [usbToken, setUsbToken] = useState<string | null>(null);
   const isKiosk = searchParams?.get('kiosk') === '1';
   const isPreview = searchParams?.get('preview') === '1';
+  /** Dijital tabela kilidi (KioWare / signage): yalnızca slayt alanı; yan panel, RSS, hava, alt şeritler ve sürükleyici etkileşim yok. */
+  const announcementsOnlyLock = searchParams?.get('kilit') === '1';
 
   const [pairStorageReady, setPairStorageReady] = useState(false);
   const [storedTvDeviceId, setStoredTvDeviceId] = useState<string | null>(null);
 
   useLayoutEffect(() => {
     if (typeof window === 'undefined') return;
+    if (audience === 'classroom' && usbMode && schoolId && deviceId) {
+      try {
+        const t = sessionStorage.getItem(`tv_usb_${schoolId}_${deviceId}`);
+        if (t) setUsbToken(t);
+      } catch {
+        /* ignore */
+      }
+    }
     if (audience === 'classroom' || isPreview) {
       setPairStorageReady(true);
       return;
@@ -414,7 +499,7 @@ export default function TvAudienceContent() {
       }
     }
     setPairStorageReady(true);
-  }, [audience, schoolId, isPreview]);
+  }, [audience, schoolId, isPreview, usbMode, deviceId]);
 
   const pairedForCache =
     audience === 'corridor' || audience === 'teachers' ? storedTvDeviceId ?? '' : '';
@@ -448,6 +533,16 @@ export default function TvAudienceContent() {
       setError(null);
       return;
     }
+    if (audience === 'classroom' && usbMode && (!schoolId || !deviceId)) {
+      setLoading(false);
+      setError('USB açılışı için URL\'de okul ve tahta kimliği gerekir.');
+      return;
+    }
+    if (audience === 'classroom' && usbMode && !usbToken) {
+      setLoading(false);
+      setError(null);
+      return;
+    }
     setError(null);
     setLoading(true);
     const params = new URLSearchParams();
@@ -456,17 +551,29 @@ export default function TvAudienceContent() {
     else if ((audience === 'corridor' || audience === 'teachers') && storedTvDeviceId) {
       params.set('device_id', storedTvDeviceId);
     }
+    if (audience === 'classroom' && usbMode && schoolId && deviceId) params.set('usb_unlock', '1');
     const qs = params.toString();
     const url = qs ? `/tv/announcements/${audience}?${qs}` : `/tv/announcements/${audience}`;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
 
+    const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (audience === 'classroom' && usbMode && usbToken) hdrs['X-Tv-Classroom-Usb-Token'] = usbToken;
+
     fetch(getApiUrl(url), {
       signal: controller.signal,
-      headers: { 'Content-Type': 'application/json' },
+      headers: hdrs,
     })
       .then((res) => {
+        if (res.status === 401 && audience === 'classroom' && usbMode && schoolId && deviceId) {
+          try {
+            sessionStorage.removeItem(`tv_usb_${schoolId}_${deviceId}`);
+          } catch {
+            /* ignore */
+          }
+          setUsbToken(null);
+        }
         if (!res.ok) return res.json().then((b) => { throw new Error((b as { message?: string }).message || res.statusText); });
         return res.json();
       })
@@ -512,6 +619,8 @@ export default function TvAudienceContent() {
     pairStorageReady,
     storedTvDeviceId,
     isPreview,
+    usbMode,
+    usbToken,
   ]);
 
   useEffect(() => {
@@ -545,16 +654,20 @@ export default function TvAudienceContent() {
     const blockForPair =
       (audience === 'corridor' || audience === 'teachers') && !isPreview && !storedTvDeviceId;
     if (!pairStorageReady || blockForPair) return;
+    if (audience === 'classroom' && usbMode && !usbToken) return;
     const params = new URLSearchParams();
     if (schoolId) params.set('school_id', schoolId);
     if (audience === 'classroom' && deviceId) params.set('device_id', deviceId);
     else if ((audience === 'corridor' || audience === 'teachers') && storedTvDeviceId) {
       params.set('device_id', storedTvDeviceId);
     }
+    if (audience === 'classroom' && usbMode && schoolId && deviceId) params.set('usb_unlock', '1');
     const qs = params.toString();
     const url = qs ? `/tv/announcements/${audience}?${qs}` : `/tv/announcements/${audience}`;
+    const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (audience === 'classroom' && usbMode && usbToken) hdrs['X-Tv-Classroom-Usb-Token'] = usbToken;
     const interval = setInterval(() => {
-      fetch(getApiUrl(url), { headers: { 'Content-Type': 'application/json' } })
+      fetch(getApiUrl(url), { headers: hdrs })
         .then((r) => r.ok ? r.json() : null)
         .then((res: TvResponse | null) => {
           if (res) {
@@ -567,7 +680,7 @@ export default function TvAudienceContent() {
         .catch(() => {});
     }, 60_000);
     return () => clearInterval(interval);
-  }, [audience, schoolId, deviceId, cacheKey, pairStorageReady, storedTvDeviceId, isPreview]);
+  }, [audience, schoolId, deviceId, cacheKey, pairStorageReady, storedTvDeviceId, isPreview, usbMode, usbToken]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -584,8 +697,15 @@ export default function TvAudienceContent() {
 
   const [showKioskPrompt, setShowKioskPrompt] = useState(false);
   useEffect(() => {
-    if (isKiosk && typeof window !== 'undefined') setShowKioskPrompt(true);
-  }, [isKiosk]);
+    if (isKiosk && typeof window !== 'undefined' && !announcementsOnlyLock) setShowKioskPrompt(true);
+  }, [isKiosk, announcementsOnlyLock]);
+
+  useEffect(() => {
+    if (!announcementsOnlyLock || typeof document === 'undefined') return;
+    const block = (e: MouseEvent) => e.preventDefault();
+    document.addEventListener('contextmenu', block);
+    return () => document.removeEventListener('contextmenu', block);
+  }, [announcementsOnlyLock]);
   const requestFullscreenKiosk = () => {
     const el = document.documentElement;
     if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
@@ -595,6 +715,10 @@ export default function TvAudienceContent() {
   const [weather, setWeather] = useState<{ city: string; temp: string } | null>(null);
   const tvWeatherCity = data?.school?.tv_weather_city;
   useEffect(() => {
+    if (announcementsOnlyLock) {
+      setWeather(null);
+      return;
+    }
     if (!tvWeatherCity?.trim()) {
       setWeather(null);
       return;
@@ -607,7 +731,7 @@ export default function TvAudienceContent() {
       })
       .catch(() => setWeather(null));
     return () => { cancelled = true; };
-  }, [tvWeatherCity]);
+  }, [tvWeatherCity, announcementsOnlyLock]);
 
   const [rssItems, setRssItems] = useState<Array<{ title: string }>>([]);
   const [quoteItems, setQuoteItems] = useState<Array<{ quote: string; author?: string }>>([]);
@@ -615,33 +739,53 @@ export default function TvAudienceContent() {
   const tvGununSozuRssUrl = data?.school?.tv_gunun_sozu_rss_url;
   const rssSchoolId = data?.school?.id ?? schoolId;
   useEffect(() => {
+    if (announcementsOnlyLock) {
+      setRssItems([]);
+      return;
+    }
     if (!tvRssUrl?.trim() || !rssSchoolId) {
       setRssItems([]);
       return;
     }
     let cancelled = false;
-    fetch(getApiUrl(`/tv/rss-feed?school_id=${encodeURIComponent(rssSchoolId)}`))
+    const usbQ =
+      audience === 'classroom' && usbMode && deviceId && usbToken
+        ? `&device_id=${encodeURIComponent(deviceId)}&usb_unlock=1`
+        : '';
+    const hdrs: Record<string, string> = {};
+    if (audience === 'classroom' && usbMode && usbToken) hdrs['X-Tv-Classroom-Usb-Token'] = usbToken;
+    fetch(getApiUrl(`/tv/rss-feed?school_id=${encodeURIComponent(rssSchoolId)}${usbQ}`), { headers: hdrs })
       .then((r) => r.json())
       .then((w: { items?: Array<{ title: string }> }) => {
         if (!cancelled && Array.isArray(w?.items)) setRssItems(w.items);
       })
       .catch(() => setRssItems([]));
     return () => { cancelled = true; };
-  }, [tvRssUrl, rssSchoolId]);
+  }, [tvRssUrl, rssSchoolId, audience, usbMode, deviceId, usbToken, announcementsOnlyLock]);
   useEffect(() => {
+    if (announcementsOnlyLock) {
+      setQuoteItems([]);
+      return;
+    }
     if (!tvGununSozuRssUrl?.trim() || !rssSchoolId) {
       setQuoteItems([]);
       return;
     }
     let cancelled = false;
-    fetch(getApiUrl(`/tv/quote-feed?school_id=${encodeURIComponent(rssSchoolId)}`))
+    const usbQ =
+      audience === 'classroom' && usbMode && deviceId && usbToken
+        ? `&device_id=${encodeURIComponent(deviceId)}&usb_unlock=1`
+        : '';
+    const hdrs: Record<string, string> = {};
+    if (audience === 'classroom' && usbMode && usbToken) hdrs['X-Tv-Classroom-Usb-Token'] = usbToken;
+    fetch(getApiUrl(`/tv/quote-feed?school_id=${encodeURIComponent(rssSchoolId)}${usbQ}`), { headers: hdrs })
       .then((r) => r.json())
       .then((w: { items?: Array<{ quote: string; author?: string }> }) => {
         if (!cancelled && Array.isArray(w?.items)) setQuoteItems(w.items);
       })
       .catch(() => setQuoteItems([]));
     return () => { cancelled = true; };
-  }, [tvGununSozuRssUrl, rssSchoolId]);
+  }, [tvGununSozuRssUrl, rssSchoolId, audience, usbMode, deviceId, usbToken, announcementsOnlyLock]);
 
   /* Backend zaten show_on_tv=true olanları döndürüyor; yanıtta show_on_tv eksikse tüm items kullanılır. */
   const tvItems = useMemo(
@@ -1047,9 +1191,19 @@ export default function TvAudienceContent() {
     );
   }
 
+  if (audience === 'classroom' && usbMode && schoolId && deviceId && !usbToken) {
+    return (
+      <ClassroomUsbPinForm
+        schoolId={schoolId}
+        deviceId={deviceId}
+        onUnlocked={(t) => setUsbToken(t)}
+      />
+    );
+  }
+
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center">
+      <div className={`flex flex-1 items-center justify-center${announcementsOnlyLock ? ' select-none' : ''}`}>
         <LoadingSpinner label="Duyuru TV yükleniyor…" />
       </div>
     );
@@ -1057,7 +1211,7 @@ export default function TvAudienceContent() {
 
   if (error) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-6">
+      <div className={`flex flex-1 flex-col items-center justify-center gap-6${announcementsOnlyLock ? ' select-none' : ''}`}>
         <div className="rounded-2xl border border-red-500/40 bg-red-950/30 px-8 py-6">
           <p className="text-xl font-semibold text-red-300">Yükleme hatası</p>
           <p className="mt-2 max-w-lg text-center text-base text-slate-300">{error}</p>
@@ -1151,10 +1305,11 @@ export default function TvAudienceContent() {
 
   return (
     <div
-      className={`tv-main relative flex w-full flex-1 flex-col ${themeClass}`}
+      className={`tv-main relative flex w-full flex-1 flex-col ${themeClass}${announcementsOnlyLock ? ' select-none' : ''}`}
       data-theme={theme}
       data-card-position={cardPosition}
       data-logo-position={logoPosition}
+      data-tahta-kilit={announcementsOnlyLock ? '1' : undefined}
       style={rootStyle}
     >
         {showKioskPrompt && (
@@ -1171,7 +1326,7 @@ export default function TvAudienceContent() {
         )}
         {/* Ana alan + Sidebar – overflow sadece main'de, sidebar tam görünsün */}
         <div className="flex min-h-0 min-w-0 flex-1">
-          {cardPosition === 'left' && (
+          {cardPosition === 'left' && !announcementsOnlyLock && (
             <SidePanel
               cardPosition={cardPosition}
               data={data}
@@ -1197,7 +1352,9 @@ export default function TvAudienceContent() {
             />
           )}
           {/* Ana slider – modern grid layout, içerik odaklı */}
-          <div className="tv-slide-zone relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl bg-[var(--tv-bg-dark)]">
+          <div
+            className={`tv-slide-zone relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--tv-bg-dark)]${announcementsOnlyLock ? '' : ' rounded-2xl'}`}
+          >
             {/* Logo badge – köşede */}
             <div
               className={`absolute top-3 z-20 flex items-center gap-2 ${logoPosition === 'right' ? 'right-3' : 'left-3'}`}
@@ -1235,11 +1392,13 @@ export default function TvAudienceContent() {
                     📺
                   </div>
                   <p className="text-center text-xl font-semibold text-[var(--tv-text)] md:text-3xl">
-                    Duyuru TV için henüz içerik girilmemiş
+                    {announcementsOnlyLock ? 'Yayınlanan duyuru yok' : 'Duyuru TV için henüz içerik girilmemiş'}
                   </p>
-                  <p className="max-w-md text-center text-base text-[var(--tv-text-muted)]">
-                    Admin panelinden duyuru ekleyerek bu ekranda yayınlamaya başlayabilirsiniz.
-                  </p>
+                  {!announcementsOnlyLock && (
+                    <p className="max-w-md text-center text-base text-[var(--tv-text-muted)]">
+                      Admin panelinden duyuru ekleyerek bu ekranda yayınlamaya başlayabilirsiniz.
+                    </p>
+                  )}
                 </div>
               ) : (
                 <>
@@ -1264,19 +1423,29 @@ export default function TvAudienceContent() {
             </div>
             {/* Gösterge + ilerleme – layout içinde, içeriği kesmez */}
             {slides.length > 0 && (
-              <div className="tv-slide-footer shrink-0 border-t border-[var(--tv-border)]/50 bg-[var(--tv-bg-dark)]/95 px-4 py-3">
+              <div
+                className={`tv-slide-footer shrink-0 border-t border-[var(--tv-border)]/50 bg-[var(--tv-bg-dark)]/95 px-4 py-3${announcementsOnlyLock ? ' pointer-events-none' : ''}`}
+              >
                 <div className="flex items-center gap-3">
                   <div className="flex shrink-0 gap-2">
-                    {slides.map((_, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        className={`h-2 rounded-full transition-all duration-300 ${
-                          i === activeIndex ? 'w-6 bg-[var(--tv-accent)]' : 'w-2 bg-white/25 hover:bg-white/40'
-                        }`}
-                        aria-label={`Slayt ${i + 1}`}
-                      />
-                    ))}
+                    {slides.map((_, i) =>
+                      announcementsOnlyLock ? (
+                        <div
+                          key={i}
+                          className={`h-2 rounded-full ${i === activeIndex ? 'w-6 bg-[var(--tv-accent)]' : 'w-2 bg-white/25'}`}
+                          aria-hidden
+                        />
+                      ) : (
+                        <button
+                          key={i}
+                          type="button"
+                          className={`h-2 rounded-full transition-all duration-300 ${
+                            i === activeIndex ? 'w-6 bg-[var(--tv-accent)]' : 'w-2 bg-white/25 hover:bg-white/40'
+                          }`}
+                          aria-label={`Slayt ${i + 1}`}
+                        />
+                      ),
+                    )}
                   </div>
                   <div className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-white/10">
                     <div className="h-full bg-[var(--tv-accent)] tv-slide-progress" key={activeIndex} />
@@ -1292,7 +1461,7 @@ export default function TvAudienceContent() {
             )}
           </div>
 
-          {cardPosition === 'right' && (
+          {cardPosition === 'right' && !announcementsOnlyLock && (
             <SidePanel
               cardPosition={cardPosition}
               data={data}
@@ -1319,7 +1488,8 @@ export default function TvAudienceContent() {
           )}
         </div>
 
-        {/* Alt şeritler */}
+        {/* Alt şeritler — tahta kilit modunda kapalı (yalnız okul duyuru slaytları) */}
+        {!announcementsOnlyLock && (
         <div className="mt-2 flex shrink-0 flex-col gap-0">
           {isCardVisible('now_in_class_bar') && (
           <div className="tv-now-in-class-bar flex min-h-[52px] items-center gap-4 bg-black/98 px-5 py-3.5">
@@ -1491,8 +1661,9 @@ export default function TvAudienceContent() {
             </div>
           )}
         </div>
+        )}
       </div>
-  );
+    );
 }
 
 function TvWeatherCard({ temp, city }: { temp?: string; city?: string }) {

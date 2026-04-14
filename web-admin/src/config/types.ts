@@ -38,6 +38,15 @@ export interface MenuItem {
   disabled?: boolean;
   /** Badge göstermek için key (örn. adminMessagesUnread) */
   badgeKey?: string;
+  /** Bu roller için alt menü gösterme; tek tıkla `sidebarHubPath` (filter `renderAsHubOnly` üretir). */
+  sidebarHubOnlyRoles?: WebAdminRole[];
+  /** Hub hedefi (varsayılan filtrede `/hesaplamalar`). */
+  sidebarHubPath?: string;
+  /** Hub kartında “aktif” sayılacak path önekleri (örn. alt hesap sayfaları). */
+  sidebarHubActivePrefixes?: string[];
+  /** filterMenuTree çıktısı — tek hub kartı */
+  renderAsHubOnly?: boolean;
+  hubOnlyPath?: string;
   /** Sol menü grup kartı rengi (yalnızca alt menülü üst öğede). */
   menuGroup?:
     | 'slate'

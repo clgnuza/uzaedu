@@ -11,6 +11,7 @@ import {
   GraduationCap,
   Sparkles,
   MapPin,
+  Users,
 } from 'lucide-react';
 import { UserAvatarBubble } from '@/components/user-avatar';
 import { cn } from '@/lib/utils';
@@ -441,9 +442,235 @@ function TeacherProfileCard({ me, className, compactMobile }: ProfileSidebarProp
   );
 }
 
+function SchoolAdminProfileCard({ me, className, compactMobile }: ProfileSidebarProps) {
+  const name = me.display_name?.trim() || me.email;
+  const school = me.school;
+  const memberSince = me.created_at
+    ? new Date(me.created_at).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' })
+    : null;
+  const limit = me.school?.teacher_limit;
+
+  return (
+    <aside
+      className={cn(
+        'overflow-hidden rounded-xl border border-sky-200/40 bg-card shadow-lg ring-1 ring-sky-500/15 dark:border-sky-900/40 dark:ring-sky-500/10 sm:rounded-2xl sm:shadow-xl',
+        'lg:sticky lg:top-4 lg:self-start',
+        className,
+      )}
+    >
+      <div className="relative">
+        <div
+          className={cn(
+            'relative overflow-hidden bg-linear-to-br from-sky-400/35 via-violet-500/25 to-indigo-300/25 px-4 pb-14 pt-5 text-center dark:from-sky-950/80 dark:via-violet-950/50 dark:to-indigo-950/35',
+            compactMobile && 'px-3 pb-9 pt-3 sm:px-4 sm:pb-14 sm:pt-5',
+          )}
+        >
+          <div
+            className="pointer-events-none absolute -right-8 -top-12 h-36 w-36 rounded-full bg-sky-400/25 blur-3xl dark:bg-sky-500/15"
+            aria-hidden
+          />
+          <div
+            className="pointer-events-none absolute -bottom-6 -left-10 h-28 w-28 rounded-full bg-indigo-400/20 blur-2xl dark:bg-indigo-600/15"
+            aria-hidden
+          />
+
+          <div
+            className={cn(
+              'relative mb-0 inline-flex items-center gap-1 rounded-full border border-white/40 bg-white/25 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-sky-950 shadow-sm backdrop-blur-sm dark:border-white/10 dark:bg-white/5 dark:text-sky-100 sm:mb-1 sm:gap-1.5 sm:px-2.5 sm:text-[10px] sm:tracking-[0.2em]',
+            )}
+          >
+            <Building2 className="size-2.5 text-violet-700 sm:size-3 dark:text-violet-300" aria-hidden />
+            Okul yöneticisi
+          </div>
+
+          <div
+            className={cn(
+              'relative mx-auto mt-2 flex w-full justify-center sm:mt-3 sm:max-w-[220px]',
+              compactMobile ? 'max-w-[160px]' : 'max-w-[220px]',
+            )}
+          >
+            <UserAvatarBubble
+              avatarKey={me.avatar_key}
+              avatarUrl={me.avatar_url}
+              displayName={name}
+              email={me.email}
+              size="lg"
+              verified={me.school_verified}
+              className={cn(
+                'shadow-2xl ring-4 ring-white/95 dark:ring-zinc-950',
+                compactMobile
+                  ? 'size-14! text-lg! ring-3! sm:size-24! sm:text-3xl! sm:ring-4!'
+                  : 'size-20! text-2xl! sm:size-28! sm:text-3xl!',
+              )}
+            />
+          </div>
+        </div>
+
+        <div
+          className={cn(
+            'relative -mt-10 rounded-t-3xl border-x border-t border-border/60 bg-card px-4 pb-4 pt-9 shadow-[0_-12px_40px_-18px_rgba(14,165,233,0.32)] dark:border-border/50 dark:shadow-[0_-12px_40px_-18px_rgba(0,0,0,0.5)]',
+            compactMobile && '-mt-7 rounded-t-2xl px-3 pb-3 pt-7 sm:-mt-10 sm:rounded-t-3xl sm:px-4 sm:pb-4 sm:pt-9',
+          )}
+        >
+          <div className="text-center">
+            <h1
+              className={cn(
+                'text-balance font-bold leading-tight tracking-tight text-foreground',
+                compactMobile ? 'text-[15px] sm:text-xl' : 'text-lg sm:text-xl',
+              )}
+            >
+              {name}
+            </h1>
+            <a
+              href={`mailto:${me.email}`}
+              className={cn(
+                'mt-0.5 inline-flex max-w-full items-center justify-center gap-1 text-muted-foreground transition-colors hover:text-sky-600 dark:hover:text-sky-400 sm:mt-1',
+                compactMobile ? 'text-[10px] sm:text-xs' : 'text-[11px] sm:text-xs',
+              )}
+            >
+              <Mail className="size-3 shrink-0 opacity-70" />
+              <span className="break-all">{me.email}</span>
+            </a>
+          </div>
+
+          <div
+            className={cn(
+              'flex flex-wrap items-center justify-center gap-1.5 sm:mt-3 sm:gap-2',
+              compactMobile ? 'mt-2' : 'mt-3',
+            )}
+          >
+            <span
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full bg-sky-600 font-bold text-white shadow-md dark:bg-sky-500',
+                compactMobile ? 'px-2 py-0.5 text-[10px] sm:px-2.5 sm:py-1 sm:text-[11px]' : 'px-2.5 py-1 text-[11px]',
+              )}
+            >
+              <Shield className={cn('shrink-0', compactMobile ? 'size-2.5 sm:size-3' : 'size-3')} />
+              {ROLE_LABELS.school_admin}
+            </span>
+            {me.status === 'active' && (
+              <span
+                className={cn(
+                  'rounded-full bg-emerald-500/15 font-semibold text-emerald-800 dark:text-emerald-300',
+                  compactMobile ? 'px-1.5 py-0.5 text-[9px] sm:px-2 sm:text-[10px]' : 'px-2 py-0.5 text-[10px]',
+                )}
+              >
+                Aktif hesap
+              </span>
+            )}
+            {me.school_verified && (
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-full border border-emerald-500/35 bg-emerald-500/10 font-semibold text-emerald-800 dark:text-emerald-200',
+                  compactMobile ? 'px-1.5 py-0.5 text-[9px] sm:px-2 sm:text-[10px]' : 'px-2 py-0.5 text-[10px]',
+                )}
+              >
+                <ShieldCheck className="size-3 shrink-0" />
+                Kurum doğrulandı
+              </span>
+            )}
+          </div>
+
+          {limit != null && (
+            <div
+              className={cn(
+                'rounded-xl border border-sky-200/50 bg-linear-to-r from-sky-500/10 to-transparent dark:border-sky-800/40 dark:from-sky-950/40',
+                compactMobile ? 'mt-2.5 px-2 py-2 sm:mt-4 sm:px-3 sm:py-2.5' : 'mt-4 px-3 py-2.5',
+              )}
+            >
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <div
+                  className={cn(
+                    'flex shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-700 dark:text-sky-300',
+                    compactMobile ? 'size-7 sm:size-9' : 'size-9',
+                  )}
+                >
+                  <Users className={cn(compactMobile ? 'size-3.5 sm:size-4' : 'size-4')} />
+                </div>
+                <div className="min-w-0 text-left">
+                  <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-[10px]">
+                    Öğretmen kotası
+                  </p>
+                  <p
+                    className={cn(
+                      'font-bold text-foreground',
+                      compactMobile ? 'text-xs sm:text-sm' : 'text-sm',
+                    )}
+                  >
+                    {limit} öğretmen
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {school && (
+            <div
+              className={cn(
+                'rounded-xl border border-border/50 bg-muted/30 dark:bg-muted/20',
+                compactMobile ? 'mt-1.5 px-2 py-2 sm:mt-2 sm:px-3 sm:py-2.5' : 'mt-2 px-3 py-2.5',
+              )}
+            >
+              <div className="flex items-start gap-1.5 sm:gap-2">
+                <Building2
+                  className={cn(
+                    'mt-0.5 shrink-0 text-sky-600 dark:text-sky-400',
+                    compactMobile ? 'size-3.5 sm:size-4' : 'size-4',
+                  )}
+                />
+                <div className="min-w-0 text-left">
+                  <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-[10px]">
+                    Okul
+                  </p>
+                  <p
+                    className={cn(
+                      'font-semibold leading-snug text-foreground',
+                      compactMobile ? 'text-xs sm:text-sm' : 'text-sm',
+                    )}
+                  >
+                    {school.name}
+                  </p>
+                  {(school.city || school.district) && (
+                    <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground sm:text-xs">
+                      <MapPin className="size-2.5 shrink-0 opacity-70 sm:size-3" />
+                      {[school.district, school.city].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
+                  {school.type && (
+                    <p className="mt-0.5 text-[10px] text-muted-foreground sm:mt-1 sm:text-[11px]">
+                      {formatSchoolTypeLabel(school.type)}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {memberSince && (
+            <div
+              className={cn(
+                'flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/60 bg-muted/20 text-muted-foreground sm:gap-2 sm:px-3 sm:py-2 sm:text-[11px]',
+                compactMobile ? 'mt-2 px-2 py-1.5 text-[10px]' : 'mt-4 px-3 py-2 text-[11px]',
+              )}
+            >
+              <Calendar className="size-3 shrink-0 opacity-80 sm:size-3.5" />
+              <span>
+                Kayıt: <span className="font-medium text-foreground">{memberSince}</span>
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
 export function ProfileSidebar(props: ProfileSidebarProps) {
   if (props.me.role === 'teacher') {
     return <TeacherProfileCard {...props} />;
+  }
+  if (props.me.role === 'school_admin') {
+    return <SchoolAdminProfileCard {...props} />;
   }
   return <DefaultProfileSidebar {...props} />;
 }

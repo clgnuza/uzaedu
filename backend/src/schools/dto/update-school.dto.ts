@@ -96,6 +96,10 @@ export class UpdateSchoolDto {
   teacher_limit?: number;
 
   @IsOptional()
+  @IsBoolean()
+  merge_teacher_on_name_match?: boolean;
+
+  @IsOptional()
   @IsString()
   @MaxLength(100)
   tv_weather_city?: string | null;

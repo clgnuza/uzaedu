@@ -157,8 +157,12 @@ const DEFAULT_GOSTERGE: Record<string, { d: number; n?: number }> = {
   hizmet_ici: { d: 140 },
   ozel_egitim_25_gunduz: { d: 175, n: 187.5 },
   ozel_egitim_25_gece: { d: 187.5 },
-  ozel_egitim_25_nobet: { d: 187.5 },
+  edygg_25_gunduz: { d: 175 },
+  edygg_25_gece: { d: 187.5 },
+  ozel_egitim_25_nobet: { d: 175 },
   ozel_egitim_25_belleticilik: { d: 175 },
+  edygg_gunduz: { d: 140, n: 150 },
+  edygg_gece: { d: 150 },
   destek_odasi_25: { d: 175 },
   evde_egitim_25: { d: 175 },
   cezaevi_gunduz: { d: 175, n: 187.5 },
@@ -166,6 +170,23 @@ const DEFAULT_GOSTERGE: Record<string, { d: number; n?: number }> = {
   iyep_gunduz: { d: 140 },
   iyep_gece: { d: 150 },
 };
+
+/** Öğrenim ücret farkından yararlanmayan kalemler (MEB / EDUHEP). */
+function isLisansOnlyBaseKey(key: string): boolean {
+  return (
+    key === 'nobet' ||
+    key === 'belleticilik' ||
+    key === 'sinav_gorevi' ||
+    key === 'egzersiz' ||
+    key === 'hizmet_ici' ||
+    key === 'edygg_gunduz' ||
+    key === 'edygg_gece' ||
+    key === 'edygg_25_gunduz' ||
+    key === 'edygg_25_gece' ||
+    key === 'ozel_egitim_25_nobet' ||
+    key === 'ozel_egitim_25_belleticilik'
+  );
+}
 
 function hourlyUnitPrice(
   params: Params,
@@ -196,13 +217,17 @@ function hourlyUnitPrice(
     return round2(refDay + baseDay);
   }
 
-  const scaleDay = refDay > 0 ? baseDay / refDay : 1;
-  const scaleNight = refNight > 0 ? baseNight / refNight : 1;
+  let scaleDay = refDay > 0 ? baseDay / refDay : 1;
+  let scaleNight = refNight > 0 ? baseNight / refNight : 1;
+  if (isLisansOnlyBaseKey(li.key)) {
+    scaleDay = isUcretli ? ucretliScale : 1;
+    scaleNight = isUcretli ? ucretliScale : 1;
+  }
 
   if (li.gosterge_day != null) {
     const g = useNight ? (li.gosterge_night ?? li.gosterge_day) : li.gosterge_day;
     const scale = useNight ? scaleNight : scaleDay;
-    return coeff * g * scale;
+    return round2(coeff * g * scale);
   }
 
   const fb = DEFAULT_GOSTERGE[li.key];
@@ -214,15 +239,15 @@ function hourlyUnitPrice(
     const param = useNight ? (paramNight ?? paramDay) : paramDay;
     const expectedRounded = round2(coeff * g);
     if (param == null || Math.abs(param - expectedRounded) <= 0.02) {
-      return coeff * g * scale;
+      return round2(coeff * g * scale);
     }
   }
 
   const mult = li.multiplier ?? 1;
   const paramDay = li.unit_price_day ?? li.unit_price ?? null;
   const paramNight = li.unit_price_night ?? li.unit_price ?? null;
-  if (useNight) return paramNight != null ? paramNight * scaleNight : baseNight * mult;
-  return paramDay != null ? paramDay * scaleDay : baseDay * mult;
+  if (useNight) return round2(paramNight != null ? paramNight * scaleNight : baseNight * mult);
+  return round2(paramDay != null ? paramDay * scaleDay : baseDay * mult);
 }
 
 /** Tek bir saatlik kalem için brüt önizleme (saat × birim ücret). */

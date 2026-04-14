@@ -119,8 +119,6 @@ function filterMenuTree(
       continue;
     }
     if (item.children?.length) {
-      const kids = filterMenuTree(item.children, role, moderatorModules, schoolEnabledModules, supportEnabled);
-      if (kids.length === 0) continue;
       if (!item.allowedRoles.includes(role)) continue;
       if (role === 'moderator' && item.requiredModule) {
         if (!moderatorModules?.includes(item.requiredModule)) continue;
@@ -128,6 +126,18 @@ function filterMenuTree(
       if ((role === 'teacher' || role === 'school_admin') && item.requiredSchoolModule) {
         if (schoolEnabledModules?.length && !schoolEnabledModules.includes(item.requiredSchoolModule)) continue;
       }
+      const kids = filterMenuTree(item.children, role, moderatorModules, schoolEnabledModules, supportEnabled);
+      const hubOnly = !!(role && item.sidebarHubOnlyRoles?.includes(role));
+      if (hubOnly) {
+        out.push({
+          ...item,
+          children: [],
+          renderAsHubOnly: true,
+          hubOnlyPath: item.sidebarHubPath ?? '/hesaplamalar',
+        });
+        continue;
+      }
+      if (kids.length === 0) continue;
       out.push({ ...item, children: kids });
       continue;
     }
@@ -177,6 +187,34 @@ export function SidebarMenu({ role, moderatorModules }: SidebarMenuProps) {
             <div key={`h-${idx}`} className="px-1 pb-1 pt-4 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/75 first:pt-0">
               {item.heading}
             </div>
+          );
+        }
+        if (item.renderAsHubOnly && item.hubOnlyPath) {
+          const v = item.menuGroup ?? DEFAULT_MENU_GROUP;
+          const s = G[v];
+          const prefixes = item.sidebarHubActivePrefixes ?? [item.hubOnlyPath];
+          const hubActive = prefixes.some(
+            (p) => pathname === p || pathname.startsWith(`${p}/`),
+          );
+          return (
+            <Link
+              key={`hub-${idx}`}
+              href={item.hubOnlyPath}
+              className={cn(
+                'block rounded-2xl no-underline outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                s.box,
+                hubActive ? s.active : cn('text-muted-foreground', s.hover),
+              )}
+            >
+              <div className="flex items-center gap-2 px-1.5 py-2">
+                {item.icon && (
+                  <span className={cn('flex size-8 items-center justify-center rounded-lg', s.icon)}>
+                    <item.icon className="size-4" aria-hidden />
+                  </span>
+                )}
+                <span className="text-[13px] font-semibold leading-tight">{label(item, role, bilsemOkul)}</span>
+              </div>
+            </Link>
           );
         }
         if (item.children?.length) {

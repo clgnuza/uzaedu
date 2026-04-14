@@ -12,7 +12,12 @@ import { fetchWebExtrasPublic } from '@/lib/web-extras-public';
 import { normalizePublicSiteUrl } from '@/lib/site-url';
 import './globals.css';
 
-const inter = Inter({ subsets: ['latin', 'latin-ext'], preload: false });
+const inter = Inter({
+  subsets: ['latin', 'latin-ext'],
+  display: 'swap',
+  adjustFontFallback: true,
+  preload: true,
+});
 
 const SITE_URL = normalizePublicSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
 
@@ -26,22 +31,46 @@ function safeGa4Id(id: string): boolean {
 
 export async function generateMetadata(): Promise<Metadata> {
   const extras = await fetchWebExtrasPublic();
+  const appName   = extras?.pwa_short_name?.trim() || 'ÖğretmenPro';
+  const siteTitle = `${appName} | Dijital Okul Yönetim Platformu`;
+  const desc      = extras?.meta_description?.trim() ||
+    'Öğretmenler ve okul yöneticileri için ders programı, sınav planlama, akademik takvim, ek ders hesaplama ve öğretmen ajandası. MEB uyumlu yerli yazılım.';
+  const ogImage   = extras?.default_og_image_url || null;
+
   const base: Metadata = {
-    metadataBase: new URL(SITE_URL),
-    title: { default: 'Öğretmen Pro – Web Admin', template: '%s | Öğretmen Pro' },
-    description: 'Okul ve kullanıcı yönetimi',
+    metadataBase:    new URL(SITE_URL),
+    title:           { default: siteTitle, template: `%s | ${appName}` },
+    description:     desc,
+    applicationName: appName,
+    keywords:        [
+      'öğretmen', 'okul yönetimi', 'ders programı', 'sınav planlama', 'akademik takvim',
+      'ek ders hesaplama', 'nöbet', 'öğretmen ajandası', 'MEB', 'dijital okul',
+      'ÖğretmenPro', 'UzaMobil', 'yerli yazılım',
+    ],
+    authors:         [{ name: 'UzaMobil Yazılım', url: SITE_URL }],
+    creator:         'UzaMobil',
+    publisher:       'UzaMobil Yazılım',
+    robots:          { index: true, follow: true, googleBot: { index: true, follow: true } },
+    openGraph: {
+      type:        'website',
+      locale:      'tr_TR',
+      url:         SITE_URL,
+      siteName:    appName,
+      title:       siteTitle,
+      description: desc,
+      ...(ogImage ? { images: [{ url: ogImage, width: 1200, height: 630, alt: appName }] } : {}),
+    },
+    twitter: {
+      card:        'summary_large_image',
+      title:       siteTitle,
+      description: desc,
+      site:        '@uzaeduapp',
+      creator:     '@uzaeduapp',
+      ...(ogImage ? { images: [ogImage] } : {}),
+    },
+    alternates:  { canonical: SITE_URL },
+    icons:       extras?.favicon_url ? { icon: extras.favicon_url } : undefined,
   };
-  if (extras?.favicon_url) {
-    base.icons = { icon: extras.favicon_url };
-  }
-  if (extras?.pwa_short_name) {
-    base.applicationName = extras.pwa_short_name;
-  }
-  if (extras?.default_og_image_url) {
-    base.openGraph = {
-      images: [{ url: extras.default_og_image_url, width: 1200, height: 630, alt: extras.pwa_short_name || 'Öğretmen Pro' }],
-    };
-  }
   return base;
 }
 
@@ -103,6 +132,59 @@ export default async function RootLayout({
             />
           </>
         )}
+        <Script
+          id="org-jsonld"
+          type="application/ld+json"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              '@context': 'https://schema.org',
+              '@graph': [
+                {
+                  '@type': 'Organization',
+                  '@id': `${SITE_URL}/#organization`,
+                  name: 'ÖğretmenPro',
+                  alternateName: 'UzaMobil ÖğretmenPro',
+                  url: SITE_URL,
+                  logo: {
+                    '@type': 'ImageObject',
+                    url: `${SITE_URL}/icon-512.png`,
+                    width: 512,
+                    height: 512,
+                  },
+                  sameAs: [
+                    'https://instagram.com/uzaeduapp',
+                    'https://facebook.com/uzaeduapp',
+                    'https://x.com/uzaeduapp',
+                    'https://linkedin.com/company/uzaeduapp',
+                    'https://youtube.com/@uzaeduapp',
+                    'https://tiktok.com/@uzaeduapp',
+                  ],
+                  contactPoint: {
+                    '@type': 'ContactPoint',
+                    email: 'uzaeduapp@gmail.com',
+                    contactType: 'customer support',
+                    availableLanguage: 'Turkish',
+                  },
+                },
+                {
+                  '@type': 'WebSite',
+                  '@id': `${SITE_URL}/#website`,
+                  url: SITE_URL,
+                  name: 'ÖğretmenPro | Dijital Okul Yönetim Platformu',
+                  description: 'Öğretmenler ve okul yöneticileri için ders programı, sınav planlama, akademik takvim ve daha fazlası.',
+                  publisher: { '@id': `${SITE_URL}/#organization` },
+                  inLanguage: 'tr',
+                  potentialAction: {
+                    '@type': 'SearchAction',
+                    target: { '@type': 'EntryPoint', urlTemplate: `${SITE_URL}/haberler?q={search_term_string}` },
+                    'query-input': 'required name=search_term_string',
+                  },
+                },
+              ],
+            }),
+          }}
+        />
         <Script
           id="storage-guard-early"
           strategy="beforeInteractive"

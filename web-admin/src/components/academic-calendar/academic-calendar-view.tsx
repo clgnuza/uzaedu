@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect, useCallback, useId } from 'react';
+import { useState, useMemo, useEffect, useLayoutEffect, useCallback, useId, useRef } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -13,7 +13,7 @@ import {
   Users,
   UserCheck,
 } from 'lucide-react';
-import { format, parseISO, isWithinInterval, differenceInDays, startOfDay, endOfDay } from 'date-fns';
+import { format, parseISO, isWithinInterval, startOfDay, endOfDay, addDays } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import type { AssignedUserView, WeekWithItems } from './academic-calendar-timeline';
 import { BelirliPill, OgretmenPill } from './academic-calendar-timeline';
@@ -74,6 +74,8 @@ interface AcademicCalendarViewProps {
   onViewChange?: (view: 'week' | 'month') => void;
   className?: string;
   currentUserId?: string | null;
+  /** Öğretmen / mobil: daha sıkı boşluk ve üst çubuk */
+  compact?: boolean;
 }
 
 /** Tek satır görevlendirme; yalnızca kişi varsa kullanın */
@@ -132,72 +134,78 @@ function formatDateRangeProminent(startStr: string, endStr: string): string {
 }
 
 function WeekDaysRow({ dateStart, dateEnd, isMain = false }: { dateStart: string; dateEnd: string; isMain?: boolean }) {
-  const start = parseISO(dateStart);
-  const end = parseISO(dateEnd);
-  const dayCount = differenceInDays(end, start) + 1;
+  const rangeStart = startOfDay(parseISO(dateStart));
+  const rangeEnd = startOfDay(parseISO(dateEnd));
   const days: { date: Date; label: string; gun: string; isToday: boolean }[] = [];
   const today = new Date();
-  const d = new Date(start);
-  while (d <= end) {
+  for (let d = new Date(rangeStart); d <= rangeEnd; d = addDays(d, 1)) {
     const dayOfWeek = d.getDay();
     const gun = GUNLER[dayOfWeek === 0 ? 6 : dayOfWeek - 1];
-    const dateCopy = new Date(d);
     days.push({
-      date: dateCopy,
+      date: new Date(d),
       label: format(d, 'd', { locale: tr }),
       gun,
-      isToday: format(dateCopy, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd'),
+      isToday: format(d, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd'),
     });
-    d.setDate(d.getDate() + 1);
   }
 
-  const cols = Math.min(7, Math.max(1, dayCount));
-  const monthLabel = format(start, 'MMMM', { locale: tr });
-  const year = format(start, 'yyyy', { locale: tr });
+  const sameMonth =
+    rangeStart.getMonth() === rangeEnd.getMonth() && rangeStart.getFullYear() === rangeEnd.getFullYear();
+  const monthLabel = sameMonth
+    ? format(rangeStart, 'MMMM', { locale: tr })
+    : `${format(rangeStart, 'MMMM', { locale: tr })} – ${format(rangeEnd, 'MMMM', { locale: tr })}`;
+  const year = format(rangeStart, 'yyyy', { locale: tr });
+  const dayRangeText = sameMonth
+    ? `${rangeStart.getDate()}–${rangeEnd.getDate()}. gün`
+    : `${format(rangeStart, 'd MMM', { locale: tr })} – ${format(rangeEnd, 'd MMM yyyy', { locale: tr })}`;
+  const n = Math.max(1, days.length);
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-        <div className="flex min-w-0 flex-1 items-start gap-2.5">
-          <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-violet-100/90 text-violet-600 dark:bg-violet-950/50 dark:text-violet-300">
-            <CalendarRange className="size-[1.125rem]" strokeWidth={2} aria-hidden />
+    <div className="space-y-1.5 sm:space-y-3 md:space-y-2">
+      <div className="sm:hidden">
+        <div className="flex items-center gap-2 rounded-lg border border-indigo-100/50 bg-white/60 px-2 py-1.5 dark:border-indigo-900/40 dark:bg-indigo-950/30">
+          <CalendarRange className="size-3.5 shrink-0 text-indigo-600 dark:text-indigo-400" strokeWidth={2} aria-hidden />
+          <p className="min-w-0 text-left text-[11px] font-medium leading-tight text-foreground">
+            <span className="capitalize">{monthLabel}</span>{' '}
+            <span className="font-normal text-muted-foreground">{year}</span>
+            <span className="block text-[10px] font-normal text-muted-foreground">{dayRangeText}</span>
+          </p>
+        </div>
+      </div>
+      <div className="hidden flex-col items-center gap-2 text-center sm:flex sm:flex-row sm:items-start sm:justify-between sm:gap-3 sm:text-left md:gap-2">
+        <div className="flex min-w-0 flex-1 items-start gap-2 sm:gap-2.5">
+          <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-100/90 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300 sm:size-9 sm:rounded-xl">
+            <CalendarRange className="size-3.5 sm:size-[1.125rem]" strokeWidth={2} aria-hidden />
           </span>
-          <div className="min-w-0 text-left">
-            <p className={cn('font-semibold capitalize tracking-tight text-foreground', isMain ? 'text-base sm:text-xl' : 'text-sm sm:text-base')}>
+          <div className="min-w-0 sm:text-left">
+            <p className={cn('font-semibold capitalize tracking-tight text-foreground', isMain ? 'text-sm sm:text-xl md:text-lg lg:text-xl' : 'text-sm sm:text-base md:text-sm')}>
               {monthLabel}{' '}
               <span className="font-normal text-muted-foreground">{year}</span>
             </p>
-            <p className="text-sm text-muted-foreground">{start.getDate()}–{end.getDate()}. gün</p>
+            <p className="text-xs text-muted-foreground sm:text-sm md:text-xs">{dayRangeText}</p>
           </div>
         </div>
-        <div className="flex items-center gap-1.5 self-stretch rounded-xl border border-violet-100/80 bg-violet-50/50 px-2.5 py-1.5 text-[11px] text-violet-900/80 dark:border-violet-900/40 dark:bg-violet-950/30 dark:text-violet-200/90 sm:self-auto sm:shrink-0">
-          <svg className="size-4 shrink-0 text-violet-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
-            <rect x="3" y="4" width="18" height="18" rx="2" />
-            <path d="M3 10h18M8 2v4M16 2v4" />
-          </svg>
-          <span className="leading-snug">Haftanın günleri</span>
-        </div>
       </div>
-      <div className="-mx-1 overflow-x-auto overscroll-x-contain pb-1 [-webkit-overflow-scrolling:touch] sm:mx-0 sm:overflow-visible">
+      <div className="-mx-0.5 flex justify-stretch overflow-x-auto overscroll-x-contain pb-0.5 [-webkit-overflow-scrolling:touch] max-sm:px-0 sm:mx-0 sm:justify-start sm:overflow-visible sm:pb-1">
         <div
-          className="inline-grid min-w-max gap-1 rounded-xl border border-violet-100/50 bg-gradient-to-b from-violet-50/35 to-sky-50/15 p-1.5 sm:min-w-0 sm:w-full sm:gap-1.5 sm:p-2 dark:border-violet-900/30 dark:from-violet-950/25 dark:to-slate-950/40"
-          style={{ gridTemplateColumns: `repeat(${cols}, minmax(2.75rem, 1fr))` }}
+          className="grid w-full min-w-0 gap-0.5 rounded-lg border border-indigo-100/45 bg-gradient-to-b from-indigo-50/45 to-cyan-50/15 p-0.5 dark:border-indigo-900/35 dark:from-indigo-950/30 dark:to-slate-950/40 sm:rounded-xl sm:gap-1.5 sm:p-2 md:gap-1 md:p-1.5"
+          style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` }}
         >
           {days.map((day, i) => (
             <div
               key={i}
               className={cn(
-                'flex min-h-12 min-w-10 flex-col items-center justify-center rounded-lg border py-1.5 transition-colors sm:min-h-14 sm:min-w-11',
+                'flex min-h-9 flex-col items-center justify-center rounded border py-0.5 transition-colors sm:min-h-14 sm:min-w-11 sm:rounded-lg sm:py-1.5 md:min-h-10 md:min-w-9 md:py-1',
                 day.isToday
-                  ? 'border-violet-300/70 bg-violet-100/80 shadow-sm ring-2 ring-violet-400/30 dark:border-violet-600/50 dark:bg-violet-950/50 dark:ring-violet-500/25'
-                  : 'border-white/40 bg-white/50 dark:border-white/5 dark:bg-white/5'
+                  ? 'border-indigo-400/60 bg-indigo-50 shadow-sm ring-2 ring-indigo-400/25 dark:border-indigo-500/50 dark:bg-indigo-950/55 dark:ring-indigo-500/20'
+                  : 'border-white/50 bg-white/60 dark:border-white/5 dark:bg-white/5'
               )}
             >
-              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{day.gun}</span>
+              <span className="text-[8px] font-medium uppercase tracking-wide text-muted-foreground sm:text-[10px]">{day.gun}</span>
               <span
                 className={cn(
-                  'mt-0.5 text-sm font-bold tabular-nums sm:text-base',
-                  day.isToday ? 'text-violet-700 dark:text-violet-200' : 'text-foreground'
+                  'mt-0.5 text-[11px] font-bold tabular-nums sm:text-base md:text-sm',
+                  day.isToday ? 'text-indigo-700 dark:text-indigo-200' : 'text-foreground'
                 )}
               >
                 {day.label}
@@ -221,8 +229,8 @@ function WeekCardMain({
   const ogretmen = week.ogretmenIsleri?.length ?? 0;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-violet-100/50 bg-card shadow-sm ring-1 ring-violet-100/30 dark:border-violet-900/25 dark:ring-violet-900/20">
-      <div className="relative overflow-hidden border-b border-violet-100/40 bg-gradient-to-br from-violet-50/50 via-background to-sky-50/30 px-3 py-4 sm:px-5 sm:py-5 dark:border-violet-900/30 dark:from-violet-950/30 dark:via-background dark:to-slate-950/40">
+    <div className="w-full overflow-hidden rounded-lg border border-indigo-100/40 bg-card shadow-sm ring-1 ring-indigo-100/15 dark:border-indigo-900/35 dark:ring-indigo-900/25 md:rounded-2xl md:border-violet-100/50 md:shadow-sm md:ring-violet-100/30 md:dark:border-violet-900/25 md:dark:ring-violet-900/20">
+      <div className="relative overflow-hidden border-b border-indigo-100/35 bg-gradient-to-br from-indigo-50/45 via-background to-cyan-50/20 px-2 py-2 dark:border-indigo-900/30 dark:from-indigo-950/25 dark:via-background dark:to-slate-950/40 max-sm:py-2 sm:border-violet-100/40 sm:from-violet-50/50 sm:to-sky-50/30 sm:px-5 sm:py-5 sm:dark:border-violet-900/30 sm:dark:from-violet-950/30 md:px-4 md:py-3">
         <CardPastelMesh variant="header" className="opacity-90 dark:opacity-60" />
         <div className="relative z-[1]">
           {week.dateStart && week.dateEnd ? (
@@ -232,22 +240,22 @@ function WeekCardMain({
           )}
         </div>
       </div>
-      <div className="space-y-3 p-3 sm:p-4">
+      <div className="space-y-1.5 p-2 sm:space-y-3 sm:p-4 md:space-y-2 md:p-3">
         {belirli > 0 || ogretmen > 0 ? (
           <>
             {belirli > 0 && (
               <section
-                className="relative overflow-hidden rounded-xl border border-orange-200/50 bg-gradient-to-br from-orange-50/80 to-amber-50/30 p-3 dark:border-orange-900/30 dark:from-orange-950/35 dark:to-amber-950/20"
+                className="relative overflow-hidden rounded-lg border border-amber-200/45 bg-gradient-to-br from-amber-50/85 to-rose-50/25 p-2.5 dark:border-amber-900/35 dark:from-amber-950/30 dark:to-rose-950/15 sm:rounded-xl sm:border-orange-200/50 sm:from-orange-50/80 sm:to-amber-50/30 sm:p-3 sm:dark:border-orange-900/30 sm:dark:from-orange-950/35 sm:dark:to-amber-950/20 md:p-2"
                 aria-labelledby="belirli-heading"
               >
                 <CardPastelMesh variant="amber" className="opacity-50 dark:opacity-40" />
                 <div className="relative z-[1]">
-                  <div className="mb-2.5 flex flex-wrap items-center gap-2">
-                    <span className="flex size-8 items-center justify-center rounded-lg bg-orange-100/90 text-orange-600 dark:bg-orange-950/60 dark:text-orange-300">
-                      <Sparkles className="size-4" strokeWidth={2} aria-hidden />
+                  <div className="mb-2 flex flex-wrap items-center gap-1.5 sm:mb-2.5 sm:gap-2 md:mb-1.5">
+                    <span className="flex size-7 items-center justify-center rounded-md bg-amber-100/95 text-amber-700 dark:bg-amber-950/55 dark:text-amber-300 sm:size-8 sm:rounded-lg sm:bg-orange-100/90 sm:text-orange-600 sm:dark:bg-orange-950/60 sm:dark:text-orange-300 md:size-7">
+                      <Sparkles className="size-3.5 sm:size-4" strokeWidth={2} aria-hidden />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <h3 id="belirli-heading" className="text-sm font-semibold text-orange-950 dark:text-orange-50">
+                      <h3 id="belirli-heading" className="text-xs font-semibold text-amber-950 dark:text-amber-50 sm:text-sm sm:text-orange-950 sm:dark:text-orange-50">
                         Belirli gün ve haftalar
                       </h3>
                     </div>
@@ -255,14 +263,14 @@ function WeekCardMain({
                       {belirli}
                     </span>
                   </div>
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-1.5 sm:gap-2 md:gap-1.5">
                     {week.belirliGunHafta?.map((item) => {
                       const assigned = item.assignedUsers ?? [];
                       const isMyTask = !!(currentUserId && assigned.some((a) => a.userId === currentUserId));
                       return (
                         <div
                           key={item.id}
-                          className="rounded-lg border border-orange-200/40 bg-white/70 py-2 pl-2.5 pr-2 dark:border-orange-900/35 dark:bg-orange-950/20"
+                          className="rounded-lg border border-orange-200/40 bg-white/70 py-2 pl-2.5 pr-2 dark:border-orange-900/35 dark:bg-orange-950/20 md:py-1.5 md:pl-2 md:pr-1.5"
                         >
                           <div className="flex flex-wrap items-center gap-1.5 gap-y-1">
                             <BelirliPill
@@ -292,17 +300,17 @@ function WeekCardMain({
             )}
             {ogretmen > 0 && (
               <section
-                className="relative overflow-hidden rounded-xl border border-sky-200/50 bg-gradient-to-br from-sky-50/80 to-blue-50/25 p-3 dark:border-sky-900/30 dark:from-sky-950/35 dark:to-blue-950/20"
+                className="relative overflow-hidden rounded-lg border border-cyan-200/45 bg-gradient-to-br from-cyan-50/80 to-sky-50/30 p-2.5 dark:border-cyan-900/35 dark:from-cyan-950/30 dark:to-sky-950/20 sm:rounded-xl sm:border-sky-200/50 sm:from-sky-50/80 sm:to-blue-50/25 sm:p-3 sm:dark:border-sky-900/30 sm:dark:from-sky-950/35 sm:dark:to-blue-950/20 md:p-2"
                 aria-labelledby="ogretmen-heading"
               >
                 <CardPastelMesh variant="sky" className="opacity-50 dark:opacity-40" />
                 <div className="relative z-[1]">
-                  <div className="mb-2.5 flex flex-wrap items-center gap-2">
-                    <span className="flex size-8 items-center justify-center rounded-lg bg-sky-100/90 text-sky-600 dark:bg-sky-950/60 dark:text-sky-300">
-                      <ClipboardList className="size-4" strokeWidth={2} aria-hidden />
+                  <div className="mb-2 flex flex-wrap items-center gap-1.5 sm:mb-2.5 sm:gap-2 md:mb-1.5">
+                    <span className="flex size-7 items-center justify-center rounded-md bg-cyan-100/95 text-cyan-700 dark:bg-cyan-950/55 dark:text-cyan-300 sm:size-8 sm:rounded-lg sm:bg-sky-100/90 sm:text-sky-600 sm:dark:bg-sky-950/60 sm:dark:text-sky-300 md:size-7">
+                      <ClipboardList className="size-3.5 sm:size-4" strokeWidth={2} aria-hidden />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <h3 id="ogretmen-heading" className="text-sm font-semibold text-sky-950 dark:text-sky-50">
+                      <h3 id="ogretmen-heading" className="text-xs font-semibold text-cyan-950 dark:text-cyan-50 sm:text-sm sm:text-sky-950 sm:dark:text-sky-50">
                         Öğretmen işleri
                       </h3>
                     </div>
@@ -310,14 +318,14 @@ function WeekCardMain({
                       {ogretmen}
                     </span>
                   </div>
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-1.5 sm:gap-2 md:gap-1.5">
                     {week.ogretmenIsleri?.map((item) => {
                       const assigned = item.assignedUsers ?? [];
                       const isMyTask = !!(currentUserId && assigned.some((a) => a.userId === currentUserId));
                       return (
                         <div
                           key={item.id}
-                          className="rounded-lg border border-sky-200/40 bg-white/70 py-2 pl-2.5 pr-2 dark:border-sky-900/35 dark:bg-sky-950/20"
+                          className="rounded-lg border border-sky-200/40 bg-white/70 py-2 pl-2.5 pr-2 dark:border-sky-900/35 dark:bg-sky-950/20 md:py-1.5 md:pl-2 md:pr-1.5"
                         >
                           <div className="flex flex-wrap items-center gap-1.5 gap-y-1">
                             <OgretmenPill
@@ -347,8 +355,8 @@ function WeekCardMain({
             )}
           </>
         ) : (
-          <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-violet-200/60 bg-violet-50/30 py-10 dark:border-violet-900/40 dark:bg-violet-950/20">
-            <svg className="size-12 text-violet-300 dark:text-violet-700" viewBox="0 0 48 48" fill="none" aria-hidden>
+          <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-indigo-200/50 bg-indigo-50/25 py-8 dark:border-indigo-900/45 dark:bg-indigo-950/20 sm:gap-3 sm:rounded-2xl sm:border-violet-200/60 sm:bg-violet-50/30 sm:py-10 sm:dark:border-violet-900/40 sm:dark:bg-violet-950/20 md:py-6">
+            <svg className="size-10 text-indigo-300 dark:text-indigo-700 sm:size-12 sm:text-violet-300 sm:dark:text-violet-700" viewBox="0 0 48 48" fill="none" aria-hidden>
               <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="1.5" opacity="0.5" />
               <path d="M16 22h16M16 26h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
             </svg>
@@ -393,20 +401,20 @@ function WeekCardCompact({
     <Wrapper
       {...props}
       className={cn(
-        'group flex min-h-0 flex-col overflow-hidden rounded-xl border text-left transition-all duration-200 active:scale-[0.99]',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-2',
+        'group flex min-h-0 w-full flex-col overflow-hidden rounded-lg border text-left transition-all duration-200 active:scale-[0.99] md:rounded-xl',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/45 focus-visible:ring-offset-2 sm:focus-visible:ring-violet-400/50',
         isActive
-          ? 'border-violet-300/70 bg-gradient-to-b from-violet-50/90 to-card shadow-md ring-2 ring-violet-300/30 dark:border-violet-700/50 dark:from-violet-950/50'
-          : 'border-violet-100/80 bg-card hover:border-violet-200 hover:shadow-md dark:border-violet-900/40'
+          ? 'border-indigo-300/80 bg-gradient-to-b from-indigo-50/90 to-card shadow-md ring-2 ring-indigo-300/25 dark:border-indigo-600/50 dark:from-indigo-950/45 sm:border-violet-300/70 sm:from-violet-50/90 sm:ring-violet-300/30 sm:dark:border-violet-700/50 sm:dark:from-violet-950/50'
+          : 'border-indigo-100/85 bg-card hover:border-indigo-200/90 hover:shadow-md dark:border-indigo-900/45 sm:border-violet-100/80 sm:hover:border-violet-200 sm:dark:border-violet-900/40'
       )}
     >
-      <div className="relative flex items-start justify-between gap-2 overflow-hidden border-b border-violet-100/50 bg-gradient-to-r from-violet-50/60 to-sky-50/35 px-3 py-2.5 dark:border-violet-900/30 dark:from-violet-950/40 dark:to-sky-950/20">
-        <svg className="pointer-events-none absolute -end-2 -top-4 size-16 text-violet-200/40 dark:text-violet-800/25" viewBox="0 0 96 96" fill="none" aria-hidden>
+      <div className="relative flex items-start justify-between gap-2 overflow-hidden border-b border-indigo-100/50 bg-gradient-to-r from-indigo-50/55 to-teal-50/25 px-2.5 py-2 dark:border-indigo-900/35 dark:from-indigo-950/40 dark:to-teal-950/15 sm:border-violet-100/50 sm:from-violet-50/60 sm:to-sky-50/35 sm:px-3 sm:py-2.5 sm:dark:border-violet-900/30 sm:dark:from-violet-950/40 sm:dark:to-sky-950/20 md:py-1.5 md:leading-tight">
+        <svg className="pointer-events-none absolute -end-2 -top-4 size-14 text-indigo-200/45 dark:text-indigo-900/30 sm:size-16 sm:text-violet-200/40 sm:dark:text-violet-800/25" viewBox="0 0 96 96" fill="none" aria-hidden>
           <circle cx="72" cy="24" r="40" fill="currentColor" opacity="0.35" />
         </svg>
         <div className="relative min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-base font-bold tabular-nums sm:text-lg">{week.weekNumber}. hafta</span>
+            <span className="text-sm font-bold tabular-nums sm:text-lg md:text-base">{week.weekNumber}. hafta</span>
             {isCurrentWeek && (
               <span className="rounded-full bg-emerald-200/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-900 dark:bg-emerald-900/50 dark:text-emerald-100">
                 Bu hafta
@@ -417,11 +425,11 @@ function WeekCardCompact({
             <p className="mt-1 line-clamp-2 text-xs leading-snug text-muted-foreground">{formatDateRangeProminent(week.dateStart, week.dateEnd)}</p>
           )}
         </div>
-        <span className="relative flex size-8 shrink-0 items-center justify-center rounded-lg bg-white/70 text-violet-500 dark:bg-violet-950/50 dark:text-violet-300">
-          <LayoutGrid className="size-4" strokeWidth={2} aria-hidden />
+        <span className="relative flex size-7 shrink-0 items-center justify-center rounded-md bg-white/85 text-indigo-500 dark:bg-indigo-950/45 dark:text-indigo-300 sm:size-8 sm:rounded-lg sm:text-violet-500 sm:dark:bg-violet-950/50 sm:dark:text-violet-300">
+          <LayoutGrid className="size-3.5 sm:size-4" strokeWidth={2} aria-hidden />
         </span>
       </div>
-      <div className="flex flex-1 flex-col gap-2 p-3">
+      <div className="flex flex-1 flex-col gap-1.5 p-2.5 sm:gap-2 sm:p-3 md:gap-1.5 md:p-2">
         <div className="flex flex-wrap gap-1.5 text-[10px] font-semibold">
           <span className="inline-flex items-center gap-1 rounded-md bg-orange-100/80 px-2 py-1 text-orange-900 dark:bg-orange-950/50 dark:text-orange-100">
             <Sparkles className="size-3 shrink-0 opacity-80" strokeWidth={2} aria-hidden />
@@ -489,6 +497,7 @@ export function AcademicCalendarView({
   onViewChange,
   className,
   currentUserId,
+  compact = false,
 }: AcademicCalendarViewProps) {
   const initialWeekIndex = useMemo(() => {
     const target = defaultDate ?? new Date();
@@ -503,8 +512,12 @@ export function AcademicCalendarView({
 
   const [centerIndex, setCenterIndex] = useState(initialWeekIndex);
 
+  const defaultAnchorMs =
+    defaultDate != null && !Number.isNaN(defaultDate.getTime()) ? defaultDate.getTime() : null;
+
   useEffect(() => {
-    const target = defaultDate ?? new Date();
+    if (weeks.length === 0) return;
+    const target = defaultAnchorMs != null ? new Date(defaultAnchorMs) : new Date();
     const idx = weeks.findIndex((w) => {
       if (!w.dateStart || !w.dateEnd) return false;
       const start = startOfDay(parseISO(w.dateStart));
@@ -512,9 +525,9 @@ export function AcademicCalendarView({
       return isWithinInterval(target, { start, end });
     });
     const next = idx >= 0 ? idx : 0;
-    const clamped = weeks.length > 0 ? Math.min(Math.max(0, next), weeks.length - 1) : 0;
+    const clamped = Math.min(Math.max(0, next), weeks.length - 1);
     setCenterIndex(clamped);
-  }, [weeks]);
+  }, [weeks, defaultAnchorMs]);
 
   const centerWeek = weeks[centerIndex];
   const goPrev = () => setCenterIndex((i) => Math.max(0, i - 1));
@@ -534,6 +547,22 @@ export function AcademicCalendarView({
   const goToTodayWeek = useCallback(() => {
     if (currentWeekIndex >= 0) setCenterIndex(currentWeekIndex);
   }, [currentWeekIndex]);
+
+  const prevViewRef = useRef<'week' | 'month' | null>(null);
+  const monthListActiveElRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (view === 'month' && currentWeekIndex >= 0 && prevViewRef.current !== 'month') {
+      setCenterIndex(currentWeekIndex);
+    }
+    prevViewRef.current = view;
+  }, [view, currentWeekIndex]);
+
+  useLayoutEffect(() => {
+    if (weeks.length === 0) return;
+    if (view !== 'month' || currentWeekIndex < 0 || centerIndex !== currentWeekIndex) return;
+    monthListActiveElRef.current?.scrollIntoView({ block: 'center', behavior: 'auto' });
+  }, [weeks.length, view, centerIndex, currentWeekIndex]);
 
   const quickNavWeeks = useMemo(() => {
     const start = Math.max(0, centerIndex - 2);
@@ -555,7 +584,7 @@ export function AcademicCalendarView({
     });
 
   return (
-    <div className={cn('space-y-3 sm:space-y-6', className)}>
+    <div className={cn(compact ? 'space-y-2 sm:space-y-5 md:space-y-3' : 'space-y-3 sm:space-y-6 md:space-y-4', className)}>
       <p className="sr-only" aria-live="polite" aria-atomic>
         {centerWeek
           ? `Seçili ${centerWeek.weekNumber}. hafta, ${centerWeek.dateStart && centerWeek.dateEnd ? formatDateRangeProminent(centerWeek.dateStart, centerWeek.dateEnd) : ''}`
@@ -563,24 +592,37 @@ export function AcademicCalendarView({
       </p>
 
       <div
-        className="sticky z-20 space-y-2 rounded-xl border border-violet-100/80 bg-background/90 p-2 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-background/85 dark:border-violet-900/40 dark:bg-background/90 sm:space-y-3 sm:rounded-2xl sm:p-3"
-        style={{ top: 'var(--header-height)' }}
+        className={cn(
+          'sticky z-20 w-full rounded-lg border border-indigo-100/60 bg-white/95 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-white/90 dark:border-indigo-900/45 dark:bg-zinc-950/95 md:rounded-2xl md:border-violet-100/80 md:bg-background/90 md:shadow-sm md:dark:border-violet-900/40 md:dark:bg-background/90',
+          compact ? 'space-y-1 p-1 max-sm:rounded-md sm:space-y-2.5 sm:p-3 md:space-y-2 md:p-2' : 'space-y-1.5 p-1.5 max-sm:rounded-md sm:space-y-3 sm:p-3 md:space-y-2 md:p-2',
+        )}
+        style={{ top: 'max(var(--header-height, 0px), env(safe-area-inset-top, 0px))' }}
       >
-        <div className="-mx-0.5 flex max-w-full flex-nowrap items-center gap-x-3 gap-y-1 overflow-x-auto px-0.5 pb-0.5 text-[10px] text-muted-foreground sm:flex-wrap sm:text-xs">
-          <span className="shrink-0 font-medium text-foreground">Renk</span>
+        <div
+          className={cn(
+            '-mx-0.5 hidden max-w-full flex-nowrap items-center justify-center gap-x-2 gap-y-0.5 overflow-x-auto px-0.5 pb-0.5 text-[10px] text-muted-foreground sm:flex sm:justify-start sm:flex-wrap sm:gap-x-3 sm:text-xs',
+            compact && 'sm:pb-0',
+          )}
+        >
+          <span className="shrink-0 font-medium text-indigo-950 dark:text-indigo-100 sm:text-foreground">Renk</span>
           <span className="inline-flex shrink-0 items-center gap-1">
-            <span className="size-2 shrink-0 rounded-full bg-orange-300 ring-1 ring-orange-400/30" aria-hidden />
-            Belirli gün
+            <span className="size-2 shrink-0 rounded-full bg-amber-400 ring-1 ring-amber-500/35" aria-hidden />
+            Belirli
           </span>
           <span className="inline-flex shrink-0 items-center gap-1">
-            <span className="size-2 shrink-0 rounded-full bg-sky-300 ring-1 ring-sky-400/30" aria-hidden />
-            Öğretmen işi
+            <span className="size-2 shrink-0 rounded-full bg-cyan-400 ring-1 ring-cyan-500/35" aria-hidden />
+            İş
           </span>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
-          <div className="min-w-0 flex-1 space-y-1 sm:space-y-2">
-            <Label htmlFor={weekJumpId} className="text-[10px] text-muted-foreground sm:text-sm">
+        <div
+          className={cn(
+            'grid max-sm:grid-cols-2 max-sm:items-end max-sm:gap-2 sm:flex sm:flex-row sm:items-end',
+            compact ? 'gap-1.5 sm:gap-2.5' : 'gap-2 sm:gap-3',
+          )}
+        >
+          <div className={cn('min-w-0 flex-1', compact ? 'space-y-0.5 sm:space-y-1.5' : 'space-y-0.5 sm:space-y-2')}>
+            <Label htmlFor={weekJumpId} className="text-[9px] text-muted-foreground sm:text-sm">
               Haftaya git
             </Label>
             <select
@@ -590,7 +632,7 @@ export function AcademicCalendarView({
                 const idx = weeks.findIndex((w) => w.id === e.target.value);
                 if (idx >= 0) setCenterIndex(idx);
               }}
-              className="min-h-9 w-full rounded-lg border border-input bg-background px-2 py-1.5 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/50 sm:min-h-11 sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm"
+              className="min-h-8 w-full rounded-md border border-indigo-100/80 bg-zinc-50/80 px-1.5 py-1 text-[11px] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/45 dark:border-indigo-900/50 dark:bg-zinc-900/50 sm:min-h-11 sm:rounded-xl sm:border-input sm:bg-background sm:px-3 sm:py-2 sm:text-sm sm:focus-visible:ring-violet-400/50 md:min-h-9 md:py-1.5 md:text-xs"
               aria-label="Listeden hafta seçin"
             >
               {weeks.map((w) => (
@@ -602,31 +644,34 @@ export function AcademicCalendarView({
             </select>
           </div>
           {onViewChange && (
-            <div className="space-y-1 sm:min-w-[11rem] sm:space-y-2">
-              <span className="block text-[10px] font-medium text-muted-foreground sm:text-sm">Görünüm</span>
-              <div className="grid grid-cols-2 gap-0.5 rounded-lg border border-border/50 bg-muted/20 p-0.5 dark:bg-muted/10 sm:flex sm:gap-1 sm:rounded-xl sm:border-0 sm:bg-transparent sm:p-0">
+            <div className={cn('min-w-0 sm:min-w-[11rem]', compact ? 'space-y-0.5 sm:space-y-1.5' : 'space-y-0.5 sm:space-y-2')}>
+              <span className="block text-[9px] font-medium text-muted-foreground sm:text-sm">Görünüm</span>
+              <div className="grid grid-cols-2 gap-px rounded-md border border-border/50 bg-muted/20 p-px dark:bg-muted/10 sm:flex sm:gap-1 sm:rounded-xl sm:border-0 sm:bg-transparent sm:p-0">
                 <button
                   type="button"
                   onClick={() => onViewChange('week')}
                   className={cn(
-                    'flex min-h-8 items-center justify-center gap-1 rounded-md border px-1.5 py-1 text-[11px] font-semibold transition-colors sm:min-h-10 sm:flex-1 sm:rounded-lg sm:px-2 sm:text-sm',
+                    'flex min-h-7 items-center justify-center gap-0.5 rounded-[0.2rem] border px-1 py-0.5 text-[10px] font-semibold transition-colors sm:min-h-10 sm:flex-1 sm:rounded-lg sm:px-2 sm:text-sm md:min-h-8 md:py-0.5 md:text-xs',
                     view === 'week' ? BILSEM_VIEW_TAB_STYLES.a.active : BILSEM_VIEW_TAB_STYLES.a.idle,
                   )}
                   aria-pressed={view === 'week'}
                 >
-                  <CalendarDays className="size-3.5 shrink-0 opacity-90 sm:size-4" aria-hidden />
+                  <CalendarDays className="size-3 shrink-0 opacity-90 sm:size-4" aria-hidden />
                   Hafta
                 </button>
                 <button
                   type="button"
-                  onClick={() => onViewChange('month')}
+                  onClick={() => {
+                    if (currentWeekIndex >= 0) setCenterIndex(currentWeekIndex);
+                    onViewChange('month');
+                  }}
                   className={cn(
-                    'flex min-h-8 items-center justify-center gap-1 rounded-md border px-1.5 py-1 text-[11px] font-semibold transition-colors sm:min-h-10 sm:flex-1 sm:rounded-lg sm:px-2 sm:text-sm',
+                    'flex min-h-7 items-center justify-center gap-0.5 rounded-[0.2rem] border px-1 py-0.5 text-[10px] font-semibold transition-colors sm:min-h-10 sm:flex-1 sm:rounded-lg sm:px-2 sm:text-sm md:min-h-8 md:py-0.5 md:text-xs',
                     view === 'month' ? BILSEM_VIEW_TAB_STYLES.b.active : BILSEM_VIEW_TAB_STYLES.b.idle,
                   )}
                   aria-pressed={view === 'month'}
                 >
-                  <LayoutList className="size-3.5 shrink-0 opacity-90 sm:size-4" aria-hidden />
+                  <LayoutList className="size-3 shrink-0 opacity-90 sm:size-4" aria-hidden />
                   Liste
                 </button>
               </div>
@@ -634,15 +679,15 @@ export function AcademicCalendarView({
           )}
         </div>
 
-        <div>
-          <div className="mb-1.5 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>Yıl içindeki konum</span>
-            <span className="tabular-nums">
+        <div className="max-sm:pt-0.5">
+          <div className="mb-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground sm:mb-1.5 sm:text-xs">
+            <span className="max-sm:truncate">Konum</span>
+            <span className="shrink-0 tabular-nums">
               {centerIndex + 1}/{weeks.length} · %{progressPct}
             </span>
           </div>
           <div
-            className="h-2 w-full overflow-hidden rounded-full bg-muted"
+            className="h-1.5 w-full overflow-hidden rounded-full bg-muted sm:h-2"
             role="progressbar"
             aria-valuemin={1}
             aria-valuemax={weeks.length}
@@ -650,24 +695,50 @@ export function AcademicCalendarView({
             aria-label="Çalışma haftaları içindeki sıra"
           >
             <div
-              className="h-full rounded-full bg-gradient-to-r from-violet-400 to-sky-400 transition-[width] duration-300 ease-out dark:from-violet-500 dark:to-sky-500"
+              className="h-full rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-teal-400 transition-[width] duration-300 ease-out dark:from-indigo-500 dark:via-violet-500 dark:to-teal-500 sm:from-violet-400 sm:to-sky-400 sm:dark:from-violet-500 sm:dark:to-sky-500"
               style={{ width: `${progressPct}%` }}
             />
           </div>
         </div>
       </div>
 
-      <div className="flex flex-col gap-2.5 rounded-xl border border-violet-100/70 bg-gradient-to-br from-violet-50/40 via-background to-sky-50/30 p-2.5 shadow-sm dark:border-violet-900/35 dark:from-violet-950/25 dark:to-slate-950/30 sm:gap-4 sm:rounded-2xl sm:p-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex w-full flex-wrap items-center justify-center gap-1.5 sm:w-auto sm:justify-start sm:gap-2">
+      <div
+        className={cn(
+          'flex w-full flex-col rounded-lg border border-indigo-100/50 bg-gradient-to-br from-indigo-50/30 via-background to-teal-50/15 shadow-sm dark:border-indigo-900/40 dark:from-indigo-950/20 dark:to-slate-950/30 md:flex-row md:items-center md:justify-between md:rounded-2xl md:border-violet-100/70 md:from-violet-50/40 md:to-sky-50/30 md:shadow-sm md:dark:border-violet-900/35 md:dark:from-violet-950/25',
+          compact ? 'gap-1.5 p-1.5 max-sm:rounded-md sm:gap-4 sm:p-4 md:gap-3 md:p-3' : 'gap-2 p-2 max-sm:rounded-md sm:gap-4 sm:p-5 md:gap-3 md:p-3',
+        )}
+      >
+        <div className="order-1 flex min-w-0 flex-1 flex-col items-center gap-0.5 px-0 text-center max-sm:gap-1 md:order-2 md:gap-1.5 md:px-1">
+          <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-2">
+            <span className="inline-flex items-center rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 px-2 py-px text-[10px] font-bold tabular-nums text-white shadow-sm dark:from-indigo-500 dark:to-violet-600 sm:px-4 sm:py-2 sm:text-sm md:px-3 md:py-1 md:text-xs">
+              {centerWeek?.weekNumber ?? centerIndex + 1}. hafta
+            </span>
+            {isCenterCurrentWeek && (
+              <span className="rounded-full bg-emerald-200/80 px-1.5 py-px text-[9px] font-semibold text-emerald-900 dark:bg-emerald-900/50 dark:text-emerald-100 sm:px-2.5 sm:py-1 sm:text-xs md:px-2 md:py-0.5">
+                Şu an
+              </span>
+            )}
+          </div>
+          <p className="hidden text-pretty text-[11px] font-medium leading-snug text-foreground sm:block sm:text-sm md:hidden">
+            {centerWeek?.dateStart && centerWeek?.dateEnd
+              ? formatDateRangeProminent(centerWeek.dateStart, centerWeek.dateEnd)
+              : centerWeek?.title ?? '—'}
+          </p>
+          <p className="text-[9px] leading-tight text-muted-foreground max-sm:max-w-[14rem] sm:hidden">
+            Üst satır: hafta. Ok veya şerit.
+          </p>
+          <p className="hidden text-[10px] text-muted-foreground sm:block md:hidden">İleri / geri veya listeden hafta.</p>
+        </div>
+        <div className="order-2 flex w-full flex-wrap items-center justify-center gap-1 max-sm:pt-0.5 md:order-1 md:w-auto md:justify-start md:gap-2">
           <Button
             variant="outline"
             size="icon"
             onClick={goPrev}
             disabled={centerIndex <= 0}
             aria-label="Önceki hafta"
-            className="size-10 min-h-10 min-w-10 shrink-0 rounded-lg border-violet-200/80 bg-white/80 dark:border-violet-800/50 dark:bg-violet-950/40 sm:size-11 sm:min-h-11 sm:min-w-11 sm:rounded-xl"
+            className="size-9 min-h-9 min-w-9 shrink-0 rounded-lg border-indigo-200/90 bg-white/90 dark:border-indigo-800/45 dark:bg-indigo-950/35 sm:size-11 sm:min-h-11 sm:min-w-11 sm:rounded-xl sm:border-violet-200/80 sm:dark:border-violet-800/50 sm:dark:bg-violet-950/40 md:size-9 md:min-h-9 md:min-w-9"
           >
-            <ChevronLeft className="size-4 sm:size-5" />
+            <ChevronLeft className="size-4 sm:size-5 md:size-4" />
           </Button>
           <Button
             variant="outline"
@@ -675,50 +746,35 @@ export function AcademicCalendarView({
             onClick={goNext}
             disabled={centerIndex >= weeks.length - 1}
             aria-label="Sonraki hafta"
-            className="size-10 min-h-10 min-w-10 shrink-0 rounded-lg border-violet-200/80 bg-white/80 dark:border-violet-800/50 dark:bg-violet-950/40 sm:size-11 sm:min-h-11 sm:min-w-11 sm:rounded-xl"
+            className="size-9 min-h-9 min-w-9 shrink-0 rounded-lg border-indigo-200/90 bg-white/90 dark:border-indigo-800/45 dark:bg-indigo-950/35 sm:size-11 sm:min-h-11 sm:min-w-11 sm:rounded-xl sm:border-violet-200/80 sm:dark:border-violet-800/50 sm:dark:bg-violet-950/40 md:size-9 md:min-h-9 md:min-w-9"
           >
-            <ChevronRight className="size-4 sm:size-5" />
+            <ChevronRight className="size-4 sm:size-5 md:size-4" />
           </Button>
           {currentWeekIndex >= 0 && !isCenterCurrentWeek && (
             <Button
               variant="secondary"
               size="default"
               onClick={goToTodayWeek}
-              className="min-h-9 flex-1 rounded-lg text-xs sm:min-h-11 sm:flex-none sm:rounded-xl sm:px-4 sm:text-sm"
+              className="min-h-9 flex-1 rounded-lg text-xs sm:min-h-11 sm:flex-none sm:rounded-xl sm:px-4 sm:text-sm md:min-h-8 md:px-3 md:text-xs"
             >
               Bugünün haftası
             </Button>
           )}
         </div>
-        <div className="flex min-w-0 flex-1 flex-col items-center gap-1 px-0.5 text-center sm:gap-1.5 sm:px-1">
-          <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
-            <span className="inline-flex items-center rounded-full bg-violet-500/90 px-3 py-1 text-xs font-bold tabular-nums text-white shadow-sm dark:bg-violet-600/90 sm:px-4 sm:py-2 sm:text-sm">
-              {centerWeek?.weekNumber ?? centerIndex + 1}. hafta
-            </span>
-            {isCenterCurrentWeek && (
-              <span className="rounded-full bg-emerald-200/80 px-2 py-0.5 text-[10px] font-semibold text-emerald-900 dark:bg-emerald-900/50 dark:text-emerald-100 sm:px-2.5 sm:py-1 sm:text-xs">
-                Şu an
-              </span>
-            )}
-          </div>
-          <p className="text-pretty text-xs font-medium leading-snug text-foreground sm:text-sm">
-            {centerWeek?.dateStart && centerWeek?.dateEnd
-              ? formatDateRangeProminent(centerWeek.dateStart, centerWeek.dateEnd)
-              : centerWeek?.title ?? '—'}
-          </p>
-          <p className="hidden text-xs text-muted-foreground sm:block">İleri / geri veya yukarıdan hafta seçin</p>
-        </div>
       </div>
 
       {view === 'week' && centerWeek && (
-        <div className="space-y-3 sm:space-y-6">
+        <div className="w-full space-y-2 md:space-y-4 lg:space-y-5">
           <WeekCardMain week={centerWeek} currentUserId={currentUserId} />
-          <div className="rounded-xl border border-violet-100/60 bg-violet-50/25 p-2 dark:border-violet-900/35 dark:bg-violet-950/20 sm:rounded-2xl sm:p-5">
-            <p className="mb-2 hidden text-center text-sm text-muted-foreground sm:mb-3 sm:block">
+          <div className="rounded-lg border border-indigo-100/55 bg-indigo-50/20 p-1 dark:border-indigo-900/40 dark:bg-indigo-950/25 max-sm:py-1 sm:rounded-2xl sm:border-violet-100/60 sm:bg-violet-50/25 sm:p-5 sm:dark:border-violet-900/35 sm:dark:bg-violet-950/20 md:p-3">
+            <p className="mb-1 text-center text-[9px] text-muted-foreground sm:mb-3 sm:hidden">
+              Şeridi <span className="font-medium text-foreground">kaydır</span>
+            </p>
+            <p className="mb-2 hidden text-center text-sm text-muted-foreground sm:mb-3 sm:block md:mb-2 md:text-xs">
               Yakın haftalar — <span className="font-medium text-foreground">dokun</span> veya mobilde{' '}
               <span className="font-medium text-foreground">yana kaydır</span>
             </p>
-            <div className="-mx-0.5 flex max-w-full snap-x snap-mandatory flex-nowrap justify-start gap-1.5 overflow-x-auto px-0.5 pb-0.5 [-webkit-overflow-scrolling:touch] sm:-mx-1 sm:gap-2 sm:px-1 sm:pb-1 sm:flex-wrap sm:justify-center sm:overflow-visible">
+            <div className="-mx-0.5 flex max-w-full snap-x snap-mandatory flex-nowrap justify-center gap-0.5 overflow-x-auto px-0.5 pb-0 [-webkit-overflow-scrolling:touch] sm:-mx-1 sm:gap-2 sm:px-1 sm:pb-1 sm:flex-wrap sm:justify-center sm:overflow-visible">
               {quickNavWeeks.map((w) => {
                 const isSelected = w.id === centerWeek.id;
                 const isCurrent =
@@ -734,14 +790,15 @@ export function AcademicCalendarView({
                     type="button"
                     onClick={() => setCenterIndex(weeks.findIndex((x) => x.id === w.id))}
                     className={cn(
-                      'min-h-9 min-w-[4.75rem] shrink-0 snap-center rounded-lg border px-2 py-1.5 text-xs font-semibold tabular-nums transition-colors active:scale-[0.98] sm:min-h-11 sm:min-w-[5.5rem] sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm',
-                      isSelected && 'border-violet-500 bg-violet-500 text-white shadow-sm dark:border-violet-400 dark:bg-violet-600',
+                      'min-h-7 min-w-16 shrink-0 snap-center rounded-md border px-1 py-0.5 text-[10px] font-semibold tabular-nums transition-colors active:scale-[0.98] sm:min-h-11 sm:min-w-[5.5rem] sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm md:min-h-8 md:min-w-20 md:px-2 md:py-1 md:text-xs',
+                      isSelected &&
+                        'border-indigo-600 bg-gradient-to-b from-indigo-600 to-violet-600 text-white shadow-md dark:border-indigo-500 sm:shadow-sm',
                       !isSelected &&
                         isCurrent &&
-                        'border-emerald-200 bg-emerald-100/80 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-100',
+                        'border-teal-300/80 bg-teal-50 text-teal-900 dark:border-teal-700 dark:bg-teal-950/45 dark:text-teal-100 sm:border-emerald-200 sm:bg-emerald-100/80 sm:text-emerald-900 sm:dark:border-emerald-800 sm:dark:bg-emerald-950/50 sm:dark:text-emerald-100',
                       !isSelected &&
                         !isCurrent &&
-                        'border-violet-100 bg-white/90 text-muted-foreground hover:border-violet-200 hover:bg-violet-50 dark:border-violet-900 dark:bg-violet-950/40 dark:hover:bg-violet-900/40'
+                        'border-indigo-100/90 bg-white/95 text-muted-foreground hover:border-indigo-200 hover:bg-indigo-50/60 dark:border-indigo-900/50 dark:bg-zinc-900/40 dark:hover:bg-indigo-950/40 sm:border-violet-100 sm:hover:border-violet-200 sm:hover:bg-violet-50 sm:dark:border-violet-900 sm:dark:bg-violet-950/40 sm:dark:hover:bg-violet-900/40'
                     )}
                   >
                     {w.weekNumber}. hafta
@@ -754,8 +811,8 @@ export function AcademicCalendarView({
       )}
 
       {view === 'month' && (
-        <div className="space-y-2 sm:space-y-4">
-          <div className="relative overflow-hidden rounded-xl border border-violet-100/70 bg-gradient-to-br from-violet-50/50 to-sky-50/30 p-3 dark:border-violet-900/35 dark:from-violet-950/30 dark:to-slate-950/40 sm:rounded-2xl sm:p-5">
+        <div className="w-full space-y-2 md:space-y-3">
+          <div className="relative overflow-hidden rounded-xl border border-indigo-100/65 bg-gradient-to-br from-indigo-50/45 to-teal-50/20 p-2.5 dark:border-indigo-900/40 dark:from-indigo-950/30 dark:to-slate-950/40 sm:rounded-2xl sm:border-violet-100/70 sm:from-violet-50/50 sm:to-sky-50/30 sm:p-5 sm:dark:border-violet-900/35 md:p-3">
             <svg className="pointer-events-none absolute -bottom-8 end-0 size-32 text-violet-200/40 dark:text-violet-900/40" viewBox="0 0 128 128" fill="none" aria-hidden>
               <circle cx="100" cy="100" r="56" fill="currentColor" opacity="0.4" />
             </svg>
@@ -775,21 +832,26 @@ export function AcademicCalendarView({
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 md:gap-3 lg:grid-cols-3 xl:grid-cols-4">
             {weeks.map((w) => {
               const isActive = w.id === centerWeek?.id;
               return (
-                <WeekCardCompact
+                <div
                   key={w.id}
-                  week={w}
-                  isActive={!!isActive}
-                  currentUserId={currentUserId}
-                  onClick={() => {
-                    const idx = weeks.findIndex((x) => x.id === w.id);
-                    if (idx >= 0) setCenterIndex(idx);
-                    onViewChange?.('week');
-                  }}
-                />
+                  ref={isActive ? monthListActiveElRef : undefined}
+                  className="min-h-0 scroll-mt-[max(6rem,var(--header-height,0px))]"
+                >
+                  <WeekCardCompact
+                    week={w}
+                    isActive={!!isActive}
+                    currentUserId={currentUserId}
+                    onClick={() => {
+                      const idx = weeks.findIndex((x) => x.id === w.id);
+                      if (idx >= 0) setCenterIndex(idx);
+                      onViewChange?.('week');
+                    }}
+                  />
+                </div>
               );
             })}
           </div>

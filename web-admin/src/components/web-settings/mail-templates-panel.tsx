@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 
 type MailTemplateId =
   | 'password_reset'
+  | 'verification_code'
   | 'school_join_verify'
   | 'teacher_school_pending'
   | 'teacher_school_approved'
@@ -25,6 +26,12 @@ const TABS: { id: MailTemplateId; label: string; hint: string; keys: string[] }[
     label: 'Şifre sıfırlama',
     hint: 'Şifremi unuttum akışı.',
     keys: ['app_name', 'from_name', 'preheader', 'reset_url'],
+  },
+  {
+    id: 'verification_code',
+    label: 'Doğrulama kodu',
+    hint: 'Giriş, kayıt, şifre sıfırlama OTP.',
+    keys: ['app_name', 'from_name', 'preheader', 'purpose_line', 'code', 'ttl_minutes'],
   },
   {
     id: 'school_join_verify',

@@ -39,9 +39,9 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   {
     path: '/ders-programi',
-    label: 'Ders Programı',
+    label: 'Haftalık tablo',
     labelAdmin: 'Okul Programı',
-    hint: 'Haftalık okul programı',
+    hint: 'Haftalık ızgara; içeride kişisel veya okul seçimi',
     hintAdmin: 'Tüm öğretmenlerin haftalık planı',
     icon: CalendarDays,
     theme: {
@@ -69,7 +69,7 @@ const NAV_ITEMS: NavItem[] = [
     path: '/ders-programi/programlarim',
     label: 'Programlarım',
     labelAdmin: 'Öğretmen Programları',
-    hint: 'Kişisel programlarınız',
+    hint: 'Tüm kişisel programlar (liste)',
     hintAdmin: 'Öğretmenlere göre planlar',
     icon: FolderKanban,
     theme: {
@@ -109,8 +109,8 @@ export function DersProgramiNav() {
   const activeItem = visibleItems.find((i) => isActive(i.path));
 
   return (
-    <div className="mb-4 print:hidden">
-      <div className="relative overflow-hidden rounded-xl border border-border/70 bg-linear-to-br from-sky-500/6 via-background to-violet-500/5 px-3 py-2.5 sm:px-4">
+    <div className="mb-2 print:hidden sm:mb-4">
+      <div className="relative overflow-hidden rounded-xl border border-border/60 bg-linear-to-br from-sky-500/[0.08] via-background to-violet-500/[0.06] px-2.5 py-2 shadow-sm ring-1 ring-sky-500/10 dark:border-border dark:from-sky-950/35 dark:to-violet-950/20 dark:ring-sky-900/25 sm:rounded-2xl sm:px-4 sm:py-3">
         <div
           className="pointer-events-none absolute -right-8 -top-10 size-32 rounded-full bg-sky-400/10 blur-2xl dark:bg-sky-500/15"
           aria-hidden
@@ -119,23 +119,23 @@ export function DersProgramiNav() {
           className="pointer-events-none absolute -bottom-12 -left-6 size-28 rounded-full bg-violet-400/10 blur-2xl dark:bg-violet-500/12"
           aria-hidden
         />
-        <div className="relative flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/15 text-sky-600 shadow-inner ring-1 ring-sky-500/20 dark:bg-sky-400/10 dark:text-sky-300 dark:ring-sky-400/25">
-              <CalendarDays className="size-[20px]" aria-hidden />
+        <div className="relative flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-600 shadow-inner ring-1 ring-sky-500/20 dark:bg-sky-400/10 dark:text-sky-300 dark:ring-sky-400/25 sm:size-10 sm:rounded-xl">
+              <CalendarDays className="size-4 sm:size-5" aria-hidden />
             </div>
             <div className="min-w-0">
-              <h2 className="text-sm font-semibold leading-tight tracking-tight text-foreground sm:text-base">
-                {isAdmin ? 'Okul Ders Programı' : 'Ders Programı'}
+              <h2 className="text-[13px] font-bold leading-tight tracking-tight text-foreground sm:text-base">
+                {isAdmin ? 'Okul Ders Programı' : 'Ders programı'}
               </h2>
-              <p className="text-[11px] leading-snug text-muted-foreground sm:text-xs">
-                {isAdmin ? 'Plan yükleme, öğretmen programları ve ders saatleri' : 'Haftalık plan ve kişisel programlar'}
+              <p className="hidden text-xs text-muted-foreground sm:block">
+                {isAdmin ? 'Excel, programlar, ders saatleri' : 'Haftalık tablo ve işlemler'}
               </p>
             </div>
           </div>
           <span
             className={cn(
-              'shrink-0 rounded-lg border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide',
+              'shrink-0 rounded-lg border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide sm:px-2.5 sm:py-1 sm:text-[10px]',
               isAdmin
                 ? 'border-amber-300/80 bg-amber-100/90 text-amber-900 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-200'
                 : 'border-emerald-200/90 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/45 dark:text-emerald-200',
@@ -146,76 +146,81 @@ export function DersProgramiNav() {
         </div>
       </div>
 
-      <nav className="-mx-1 mt-3 flex overflow-x-auto scrollbar-none pb-0.5" aria-label="Ders programı sekmeleri">
-        <ul className="flex min-w-0 flex-1 gap-1.5 border-b border-border/60 pb-px sm:gap-2">
-          {visibleItems.map((item) => {
-            const active = isActive(item.path);
-            const Icon = item.icon;
-            const label = isAdmin && item.labelAdmin ? item.labelAdmin : item.label;
-            const hint = isAdmin && item.hintAdmin ? item.hintAdmin : item.hint;
-            const t = item.theme;
-            return (
-              <li key={item.path} className="shrink-0">
-                <Link
-                  href={item.path}
-                  title={hint}
-                  className={cn(
-                    'group relative flex items-center gap-2 rounded-t-lg px-2.5 py-2.5 text-[13px] font-medium transition-colors sm:px-3.5',
-                    active
-                      ? cn('-mb-px border-b-2 bg-background/80', t.active)
-                      : 'border-b-2 border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-                  )}
-                >
-                  <span
+      {isAdmin ? (
+        <nav
+          className="mt-1.5 rounded-lg border border-border/50 bg-muted/25 p-0.5 shadow-inner dark:bg-muted/15 sm:mt-3 sm:rounded-xl sm:p-1.5"
+          aria-label="Ders programı bölümleri"
+        >
+          <ul className="flex snap-x snap-mandatory gap-0.5 overflow-x-auto pb-0.5 [-webkit-overflow-scrolling:touch] scrollbar-none sm:flex-wrap sm:gap-1.5 sm:overflow-visible sm:pb-0">
+            {visibleItems.map((item) => {
+              const active = isActive(item.path);
+              const Icon = item.icon;
+              const label = item.labelAdmin ? item.labelAdmin : item.label;
+              const hint = item.hintAdmin ? item.hintAdmin : item.hint;
+              const t = item.theme;
+              return (
+                <li key={item.path} className="min-w-[calc(50%-2px)] shrink-0 snap-start sm:min-w-0 sm:flex-1 sm:snap-none">
+                  <Link
+                    href={item.path}
+                    title={hint}
                     className={cn(
-                      'flex size-8 shrink-0 items-center justify-center rounded-lg transition-all',
-                      active ? t.iconActive : cn(t.iconIdle, 'group-hover:opacity-100'),
+                      'flex h-full min-h-[40px] items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] font-semibold leading-tight transition-all sm:min-h-0 sm:gap-2.5 sm:rounded-lg sm:px-3 sm:py-2.5 sm:text-[13px]',
+                      active
+                        ? cn('bg-background text-foreground shadow-sm ring-1 ring-black/5 dark:ring-white/10', t.active)
+                        : cn('text-muted-foreground hover:bg-background/70 hover:text-foreground', t.labelIdle),
                     )}
-                    aria-hidden
                   >
-                    <Icon className="size-[18px]" />
-                  </span>
-                  <span className={cn('flex min-w-0 flex-col items-start gap-0', !active && t.labelIdle)}>
-                    <span className="leading-tight">{label}</span>
                     <span
                       className={cn(
-                        'hidden max-w-44 truncate text-[10px] font-normal leading-none sm:block',
-                        active ? 'text-current/70' : 'text-muted-foreground group-hover:text-foreground/70',
+                        'flex size-7 shrink-0 items-center justify-center rounded-md transition-all sm:size-8 sm:rounded-lg',
+                        active ? t.iconActive : cn(t.iconIdle, 'opacity-90'),
                       )}
+                      aria-hidden
                     >
-                      {hint}
+                      <Icon className="size-4 sm:size-[18px]" />
                     </span>
-                  </span>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
+                    <span className="flex min-w-0 flex-1 flex-col gap-0 sm:gap-0.5">
+                      <span className="line-clamp-2 leading-tight">{label}</span>
+                      <span className="hidden truncate text-[10px] font-normal leading-none text-muted-foreground sm:block sm:max-w-36">
+                        {hint}
+                      </span>
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+      ) : null}
 
-      <nav className="mt-2 flex flex-wrap items-center gap-0.5 text-[11px] text-muted-foreground" aria-label="Breadcrumb">
-        <Link href="/dashboard" className="rounded px-0.5 hover:text-foreground">
-          Anasayfa
-        </Link>
-        <ChevronRight className="size-3 shrink-0 opacity-40" aria-hidden />
-        <Link
-          href="/ders-programi"
-          className={cn(
-            'rounded px-0.5 hover:text-foreground',
-            activeItem?.path === '/ders-programi' ? 'font-medium text-foreground' : '',
-          )}
+      {isAdmin ? (
+        <nav
+          className="mt-2 hidden flex-wrap items-center gap-0.5 text-[11px] text-muted-foreground sm:flex"
+          aria-label="Breadcrumb"
         >
-          {isAdmin ? 'Okul Programı' : 'Ders Programı'}
-        </Link>
-        {activeItem && activeItem.path !== '/ders-programi' && (
-          <>
-            <ChevronRight className="size-3 shrink-0 opacity-40" aria-hidden />
-            <Link href={activeItem.path} className="font-medium text-foreground">
-              {isAdmin && activeItem.labelAdmin ? activeItem.labelAdmin : activeItem.label}
-            </Link>
-          </>
-        )}
-      </nav>
+          <Link href="/dashboard" className="rounded px-0.5 hover:text-foreground">
+            Anasayfa
+          </Link>
+          <ChevronRight className="size-3 shrink-0 opacity-40" aria-hidden />
+          <Link
+            href="/ders-programi"
+            className={cn(
+              'rounded px-0.5 hover:text-foreground',
+              activeItem?.path === '/ders-programi' ? 'font-medium text-foreground' : '',
+            )}
+          >
+            Okul Programı
+          </Link>
+          {activeItem && activeItem.path !== '/ders-programi' && (
+            <>
+              <ChevronRight className="size-3 shrink-0 opacity-40" aria-hidden />
+              <Link href={activeItem.path} className="font-medium text-foreground">
+                {activeItem.labelAdmin ? activeItem.labelAdmin : activeItem.label}
+              </Link>
+            </>
+          )}
+        </nav>
+      ) : null}
     </div>
   );
 }

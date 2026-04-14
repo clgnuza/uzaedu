@@ -1,10 +1,10 @@
 import type { WebExtrasPublic } from '@/lib/web-extras-public';
+import { resolveDefaultApiBase } from '@/lib/resolve-api-base';
 
-const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000/api';
 const STORAGE_KEY = 'ogretmenpro_web_extras_support_enabled';
 
 function webExtrasUrl(): string {
-  return `${baseUrl.replace(/\/$/, '')}/content/web-extras`;
+  return `${resolveDefaultApiBase().replace(/\/$/, '')}/content/web-extras`;
 }
 
 function readStoredSupport(): boolean | null {

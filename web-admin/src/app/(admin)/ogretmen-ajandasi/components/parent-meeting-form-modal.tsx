@@ -62,69 +62,67 @@ export function ParentMeetingFormModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent title="Veli Toplantısı Ekle">
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
           <div>
-            <Label>Öğrenci *</Label>
+            <Label className="text-xs sm:text-sm">Öğrenci *</Label>
             <select
               value={studentId}
               onChange={(e) => setStudentId(e.target.value)}
               required
-              className="mt-1 w-full rounded-lg border border-input bg-background px-4 py-3 min-h-[44px]"
+              className="mt-1 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-11"
             >
               <option value="">Seçin</option>
               {students.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
               ))}
             </select>
           </div>
-          <div>
-            <Label>Tarih *</Label>
-            <Input
-              type="date"
-              value={meetingDate}
-              onChange={(e) => setMeetingDate(e.target.value)}
-              className="mt-1 min-h-[44px]"
-            />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+            <div>
+              <Label className="text-xs sm:text-sm">Tarih *</Label>
+              <Input type="date" value={meetingDate} onChange={(e) => setMeetingDate(e.target.value)} className="mt-1 min-h-10 sm:min-h-11" />
+            </div>
+            <div>
+              <Label className="text-xs sm:text-sm">Takip tarihi</Label>
+              <Input type="date" value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} className="mt-1 min-h-10 sm:min-h-11" />
+            </div>
           </div>
           <div>
-            <Label>Toplantı Türü</Label>
+            <Label className="text-xs sm:text-sm">Toplantı türü</Label>
             <Input
               value={meetingType}
               onChange={(e) => setMeetingType(e.target.value)}
-              placeholder="örn: bireysel, genel"
-              className="mt-1 min-h-[44px]"
+              placeholder="Bireysel, genel…"
+              className="mt-1 min-h-10 sm:min-h-11"
             />
           </div>
           <div>
-            <Label>Konu</Label>
+            <Label className="text-xs sm:text-sm">Konu</Label>
             <Input
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               placeholder="Toplantı konusu"
-              className="mt-1 min-h-[44px]"
+              className="mt-1 min-h-10 sm:min-h-11"
             />
           </div>
           <div>
-            <Label>Açıklama</Label>
+            <Label className="text-xs sm:text-sm">Açıklama</Label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              className="mt-1 w-full rounded-lg border border-input bg-background px-4 py-3 min-h-[80px]"
+              rows={2}
+              className="mt-1 min-h-[72px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-[80px] sm:py-2.5"
             />
           </div>
-          <div>
-            <Label>Takip Tarihi</Label>
-            <Input
-              type="date"
-              value={followUpDate}
-              onChange={(e) => setFollowUpDate(e.target.value)}
-              className="mt-1 min-h-[44px]"
-            />
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>İptal</Button>
-            <Button type="submit" disabled={loading || !studentId || !meetingDate}>Kaydet</Button>
+          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end sm:pt-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
+              İptal
+            </Button>
+            <Button type="submit" disabled={loading || !studentId || !meetingDate} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
+              Kaydet
+            </Button>
           </div>
         </form>
       </DialogContent>

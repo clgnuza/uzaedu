@@ -1,4 +1,16 @@
-import { Controller, Post, Get, Body, HttpCode, HttpStatus, BadRequestException, Req, Query, Res } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  HttpCode,
+  HttpStatus,
+  BadRequestException,
+  Req,
+  Query,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import { Request, Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
@@ -7,6 +19,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ResetPasswordCodeDto } from './dto/reset-password-code.dto';
 import { FirebaseTokenDto } from './dto/firebase-token.dto';
 import { SchoolsService } from '../schools/schools.service';
 import { User } from '../users/entities/user.entity';
@@ -15,6 +28,12 @@ import { effectiveTeacherSchoolMembership } from '../common/utils/teacher-school
 import { schoolJoinStage } from '../common/utils/school-join-stage';
 import { clearSessionCookie, setSessionCookie } from './auth-cookie';
 import { VerifySchoolEmailDto } from './dto/verify-school-email.dto';
+import { EmailCodeDto } from './dto/email-code.dto';
+import { ResendOtpDto } from './dto/resend-otp.dto';
+import { RegisterSchoolDto } from './dto/register-school.dto';
+import { VerifySchoolJoinBodyDto } from './dto/verify-school-join-body.dto';
+import { JwtAuthGuard } from './guards/auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 function toUserResponse(user: User) {
   const eff = effectiveTeacherSchoolMembership(user);
@@ -30,6 +49,7 @@ function toUserResponse(user: User) {
     teacher_public_name_masked: user.teacherPublicNameMasked,
     school_join_stage: schoolJoinStage(user),
     school_join_email_verified_at: user.schoolJoinEmailVerifiedAt?.toISOString() ?? null,
+    email_verified: !!user.emailVerifiedAt,
   };
 }
 
@@ -48,19 +68,23 @@ export class AuthController {
     private readonly schoolsService: SchoolsService,
   ) {}
 
+  /** Öğretmen / süperadmin / moderatör — şifre sonrası OTP (demo ortamında tek adım). */
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     try {
-      const { token, user } = await this.authService.login(dto.email, dto.password);
-      setSessionCookie(res, token);
-      await this.auditService.log({
-        action: 'login',
-        userId: user.id,
-        schoolId: user.school_id,
-        ip: getClientIp(req),
-      });
-      return { token, user: toUserResponse(user) };
+      const step = await this.authService.teacherLoginStep(dto.email, dto.password);
+      if ('token' in step) {
+        setSessionCookie(res, step.token);
+        await this.auditService.log({
+          action: 'login',
+          userId: step.user.id,
+          schoolId: step.user.school_id,
+          ip: getClientIp(req),
+        });
+        return { token: step.token, user: toUserResponse(step.user) };
+      }
+      return { needs_verification_code: true, email: step.email, otp_purpose: step.otp_purpose };
     } catch (e: unknown) {
       if (e && typeof e === 'object' && 'status' in e && (e as { status: number }).status === 401) {
         const schoolId = await this.authService.getSchoolIdForAudit(dto.email);
@@ -75,36 +99,166 @@ export class AuthController {
     }
   }
 
-  @Post('register')
-  @Throttle({ auth: { limit: 15, ttl: 60000 } })
+  @Post('teacher/login-verify')
+  @HttpCode(HttpStatus.OK)
+  async teacherLoginVerify(@Body() dto: EmailCodeDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const { token, user } = await this.authService.teacherLoginVerify(dto.email, dto.code);
+    setSessionCookie(res, token);
+    await this.auditService.log({
+      action: 'login',
+      userId: user.id,
+      schoolId: user.school_id,
+      ip: getClientIp(req),
+      meta: { step: 'otp' },
+    });
+    return { token, user: toUserResponse(user) };
+  }
+
+  @Post('school/login')
+  @HttpCode(HttpStatus.OK)
+  async schoolLogin(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    try {
+      const step = await this.authService.schoolLoginStep(dto.email, dto.password);
+      if ('token' in step) {
+        setSessionCookie(res, step.token);
+        await this.auditService.log({
+          action: 'login',
+          userId: step.user.id,
+          schoolId: step.user.school_id,
+          ip: getClientIp(req),
+          meta: { portal: 'school' },
+        });
+        return { token: step.token, user: toUserResponse(step.user) };
+      }
+      return { needs_verification_code: true, email: step.email, otp_purpose: step.otp_purpose };
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'status' in e && (e as { status: number }).status === 401) {
+        const schoolId = await this.authService.getSchoolIdForAudit(dto.email);
+        await this.auditService.log({
+          action: 'failed_login',
+          schoolId,
+          ip: getClientIp(req),
+          meta: { reason: 'wrong_password', portal: 'school' },
+        });
+      }
+      throw e;
+    }
+  }
+
+  @Post('school/login-verify')
+  @HttpCode(HttpStatus.OK)
+  async schoolLoginVerify(@Body() dto: EmailCodeDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const { token, user } = await this.authService.schoolLoginVerify(dto.email, dto.code);
+    setSessionCookie(res, token);
+    await this.auditService.log({
+      action: 'login',
+      userId: user.id,
+      schoolId: user.school_id,
+      ip: getClientIp(req),
+      meta: { portal: 'school', step: 'otp' },
+    });
+    return { token, user: toUserResponse(user) };
+  }
+
+  @Get('school/lookup')
+  @Throttle({ public: { limit: 60, ttl: 60000 } })
+  async schoolLookup(@Query('institution_code') code: string) {
+    if (!code?.trim()) {
+      throw new BadRequestException({ code: 'INVALID', message: 'Kurum kodu gerekli.' });
+    }
+    return this.authService.lookupSchoolByInstitutionCode(code.trim());
+  }
+
+  @Post('school/register')
+  @Throttle({ auth: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.CREATED)
-  async register(@Body() dto: RegisterDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async schoolRegister(@Body() dto: RegisterSchoolDto) {
     if (!dto.consent_terms) {
       throw new BadRequestException({
         code: 'CONSENT_REQUIRED',
         message: 'Gizlilik politikası ve kullanım şartlarını kabul etmelisiniz.',
       });
     }
-    const { token, user, schoolVerifyEmailSent } = await this.authService.register(
+    return this.authService.registerSchoolAdmin(
+      dto.institution_code,
       dto.email,
       dto.password,
       dto.display_name,
-      dto.school_id ?? null,
-      dto.invite_code ?? null,
     );
+  }
+
+  @Post('school/register-verify')
+  @HttpCode(HttpStatus.OK)
+  async schoolRegisterVerify(@Body() dto: EmailCodeDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const { token, user } = await this.authService.completeSchoolRegister(dto.email, dto.code);
     setSessionCookie(res, token);
     void this.auditService.log({
       action: 'register',
       userId: user.id,
       schoolId: user.school_id,
       ip: getClientIp(req),
-      meta: { with_school: !!dto.school_id?.trim() },
+      meta: { portal: 'school_admin' },
+    });
+    return { token, user: toUserResponse(user) };
+  }
+
+  @Post('register')
+  @Throttle({ auth: { limit: 15, ttl: 60000 } })
+  @HttpCode(HttpStatus.CREATED)
+  async register(@Body() dto: RegisterDto, @Req() req: Request) {
+    if (!dto.consent_terms) {
+      throw new BadRequestException({
+        code: 'CONSENT_REQUIRED',
+        message: 'Gizlilik politikası ve kullanım şartlarını kabul etmelisiniz.',
+      });
+    }
+    const out = await this.authService.register(
+      dto.email,
+      dto.password,
+      dto.display_name,
+      dto.school_id ?? null,
+      dto.invite_code ?? null,
+    );
+    void this.auditService.log({
+      action: 'register_started',
+      schoolId: null,
+      ip: getClientIp(req),
+      meta: { email: out.email, with_school: !!dto.school_id?.trim() },
+    });
+    return out;
+  }
+
+  @Post('register-verify')
+  @HttpCode(HttpStatus.OK)
+  async registerVerify(@Body() dto: EmailCodeDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const { token, user, school_verify_email_sent } = await this.authService.completeTeacherRegister(dto.email, dto.code);
+    setSessionCookie(res, token);
+    void this.auditService.log({
+      action: 'register',
+      userId: user.id,
+      schoolId: user.school_id,
+      ip: getClientIp(req),
+      meta: { with_school: !!user.school_id },
     });
     return {
       token,
       user: toUserResponse(user),
-      ...(schoolVerifyEmailSent !== undefined && { school_verify_email_sent: schoolVerifyEmailSent }),
+      ...(school_verify_email_sent !== undefined && { school_verify_email_sent }),
     };
+  }
+
+  @Post('resend-otp')
+  @Throttle({ auth: { limit: 8, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  async resendOtp(@Body() dto: ResendOtpDto) {
+    return this.authService.resendOtp(dto.email, dto.purpose);
+  }
+
+  @Post('verify-school-join')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async verifySchoolJoin(@CurrentUser('userId') userId: string, @Body() dto: VerifySchoolJoinBodyDto) {
+    return this.authService.verifySchoolJoinCode(userId, dto.code);
   }
 
   @Get('register-schools')
@@ -143,6 +297,12 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto.token, dto.new_password);
+  }
+
+  @Post('reset-password-code')
+  @HttpCode(HttpStatus.OK)
+  async resetPasswordCode(@Body() dto: ResetPasswordCodeDto) {
+    return this.authService.resetPasswordWithCode(dto.email, dto.code, dto.new_password);
   }
 
   @Post('firebase-token')

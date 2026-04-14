@@ -17,6 +17,13 @@ function normSubject(s: string): string {
   return (m ? m[1] : s).trim().toLowerCase();
 }
 
+/** "Matematik (MAT)" → kazanım planı eşlemesi için önce temel ad */
+function normSubjectForPlanMatch(s: string): string {
+  const trimmed = (s || '').trim();
+  const withoutParen = trimmed.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  return normSubject(withoutParen || trimmed);
+}
+
 function parseClassSection(cs: string): { grade: number; section: string } {
   const s = (cs || '').trim();
   const dash = s.indexOf('-');
@@ -58,7 +65,7 @@ export function useKazanimPlanMap(token: string | null, isTeacher: boolean) {
     return (subject: string, classSection: string): string | undefined => {
       const { grade, section } = parseClassSection(classSection);
       if (!grade || grade < 1 || grade > 12) return undefined;
-      const subj = normSubject(subject);
+      const subj = normSubjectForPlanMatch(subject);
       const sec = section.toLowerCase().trim();
       let id = m.get(`${subj}:${grade}:${sec}`);
       if (!id && sec) id = m.get(`${subj}:${grade}:`);

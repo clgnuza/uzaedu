@@ -6,8 +6,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const data = await fetchLegalPagesPublic();
   const block = data?.terms;
   return {
-    title: block ? `${block.title} | Öğretmen Pro` : 'Kullanım Şartları | Öğretmen Pro',
-    description: block?.meta_description ?? 'Öğretmen Pro kullanım şartları ve hizmet sözleşmesi',
+    title: block ? `${block.title} | ÖğretmenPro` : 'Kullanım Şartları | ÖğretmenPro',
+    description: block?.meta_description ?? 'ÖğretmenPro kullanım şartları ve hizmet sözleşmesi. Platform kuralları ve koşulları.',
   };
 }
 

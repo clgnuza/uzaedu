@@ -1,4 +1,18 @@
-import { Controller, Get, Patch, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Patch,
+  Post,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
+} from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -74,6 +88,38 @@ export class UsersController {
   async create(@Body() dto: CreateUserDto, @CurrentUser() payload: CurrentUserPayload) {
     const scopeSchoolId = payload.user.role === UserRole.school_admin ? payload.schoolId : null;
     return this.usersService.create(dto, scopeSchoolId);
+  }
+
+  @Post('import/mebbis-personnel')
+  @Throttle({ default: { limit: 8, ttl: 60000 } })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.school_admin)
+  @RequireModule('users')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 8 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        const ok =
+          file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+          file.mimetype === 'application/vnd.ms-excel' ||
+          file.mimetype === 'application/octet-stream' ||
+          file.originalname?.toLowerCase().endsWith('.xlsx') ||
+          file.originalname?.toLowerCase().endsWith('.xls');
+        cb(null, !!ok);
+      },
+    }),
+  )
+  async importMebbisPersonnel(
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException({ code: 'NO_FILE', message: '.xls veya .xlsx dosyası yükleyin.' });
+    }
+    return this.usersService.importMebbisPersonnelXls(file.buffer, {
+      role: payload.user.role as UserRole,
+      schoolId: payload.schoolId,
+    });
   }
 
   @Get(':id')

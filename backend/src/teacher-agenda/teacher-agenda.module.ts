@@ -16,6 +16,7 @@ import { TeacherStudentList } from './entities/teacher-student-list.entity';
 import { TeacherEvaluationScore } from './entities/teacher-evaluation-score.entity';
 import { TeacherAgendaService } from './teacher-agenda.service';
 import { TeacherAgendaImportService } from './teacher-agenda-import.service';
+import { TeacherAgendaReminderSchedulerService } from './teacher-agenda-reminder.scheduler';
 import { TeacherAgendaController } from './teacher-agenda.controller';
 import { Student } from '../students/entities/student.entity';
 import { StudentsModule } from '../students/students.module';
@@ -59,7 +60,12 @@ import { MarketModule } from '../market/market.module';
     MarketModule,
   ],
   controllers: [TeacherAgendaController],
-  providers: [TeacherAgendaService, TeacherAgendaImportService, RequireSchoolModuleGuard],
+  providers: [
+    TeacherAgendaService,
+    TeacherAgendaImportService,
+    TeacherAgendaReminderSchedulerService,
+    RequireSchoolModuleGuard,
+  ],
   exports: [TeacherAgendaService, TeacherAgendaImportService, TypeOrmModule],
 })
 export class TeacherAgendaModule {}

@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Alert } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import Link from 'next/link';
+import { cn } from '@/lib/utils';
 import {
   FileText,
   FileEdit,
@@ -43,6 +44,8 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { getYillikPlanEvrakStorage, type YillikPlanEvrakVariant } from '@/config/yillik-plan-evrak-variants';
 import { filterBilsemCatalogSubjects } from '@/lib/bilsem-catalog-subjects';
 import { BILSEM_ALT_GRUPLAR, BILSEM_ANA_GRUPLAR } from '@/lib/bilsem-groups';
+import { BilsemYillikPlanHeroCard } from '@/components/bilsem/bilsem-yillik-plan-hero-card';
+import { EvrakWizardHero } from '@/components/evrak/evrak-wizard-hero';
 
 type FormSchemaField = { key: string; label: string; type: string; required?: boolean };
 
@@ -100,6 +103,32 @@ type PreviewResponse =
   | { format: 'xlsx'; sheet_name: string; sheet_html: string; preview_url?: string }
   | { format: 'docx'; sheet_name?: string; sheet_html?: string; preview_available: true }
   | { format: 'docx'; preview_available: false; message: string; sheet_name?: string; sheet_html?: string };
+
+/** /evrak — kart üst şeritleri (mobil / masaüstü) */
+const EVRAK_UI_PANEL = {
+  settings: {
+    card: 'border-sky-200/50 dark:border-sky-900/42 border-l-4 border-l-sky-500/55',
+    head: 'border-b border-sky-200/40 bg-sky-500/[0.07] dark:border-sky-900/38',
+  },
+  plan: {
+    card: 'border-sky-200/45 dark:border-sky-900/40',
+    head: 'border-sky-200/40 bg-sky-500/6 dark:border-sky-900/40',
+    iconWrap: 'bg-sky-500/15',
+    iconClass: 'text-sky-800 dark:text-sky-300',
+  },
+  templates: {
+    card: 'border-emerald-200/45 dark:border-emerald-900/40',
+    head: 'border-emerald-200/40 bg-emerald-500/6 dark:border-emerald-900/40',
+    iconWrap: 'bg-emerald-500/15',
+    iconClass: 'text-emerald-800 dark:text-emerald-300',
+  },
+  archive: {
+    card: 'border-amber-200/45 dark:border-amber-900/40',
+    head: 'border-amber-200/40 bg-amber-500/6 dark:border-amber-900/40',
+    iconWrap: 'bg-amber-500/15',
+    iconClass: 'text-amber-900 dark:text-amber-200',
+  },
+} as const;
 
 type YillikPlanWizardFilters = {
   grade: string;
@@ -202,9 +231,10 @@ function ArchivePlanCards({
       {items.map((item) => (
         <li
           key={item.id}
-          className={
-            'flex flex-col gap-2 px-2.5 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:py-1.5 sm:pl-3 sm:pr-2'
-          }
+          className={cn(
+            'flex flex-col gap-2 px-2.5 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:py-1.5 sm:pl-3 sm:pr-2',
+            bilsem && 'gap-1.5 px-2 py-1.5 max-sm:text-[11px] sm:gap-3 sm:px-2.5 sm:py-2',
+          )}
         >
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -1110,8 +1140,8 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
     evrakEntitlement <= 0;
 
   const shellClass = isBilsemYillikPlan
-    ? 'relative isolate space-y-10 overflow-hidden rounded-2xl border border-violet-300/35 bg-gradient-to-br from-violet-500/[0.09] via-background to-fuchsia-500/[0.06] p-5 shadow-[0_24px_60px_-16px_rgba(109,40,217,0.18)] dark:border-violet-500/25 dark:from-violet-950/50 dark:via-background dark:to-fuchsia-950/30 md:p-8'
-    : 'relative isolate space-y-10 overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-b from-sky-500/[0.05] via-background to-muted/25 p-5 shadow-[0_20px_50px_-20px_rgba(14,116,144,0.15)] md:p-8';
+    ? 'relative isolate space-y-3 overflow-hidden rounded-xl border border-violet-300/35 bg-gradient-to-br from-violet-500/[0.09] via-background to-fuchsia-500/[0.06] p-3 shadow-[0_24px_60px_-16px_rgba(109,40,217,0.18)] dark:border-violet-500/25 dark:from-violet-950/50 dark:via-background dark:to-fuchsia-950/30 sm:space-y-7 sm:rounded-2xl sm:p-5 md:space-y-9 md:p-8'
+    : 'relative isolate space-y-3 overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-b from-sky-500/[0.06] via-background to-muted/25 p-3 shadow-[0_16px_40px_-18px_rgba(14,116,144,0.14)] sm:space-y-4 sm:p-4 md:space-y-5 md:p-6';
 
   return (
     <div className={shellClass}>
@@ -1128,103 +1158,31 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
         />
       )}
       {hideHeader && isBilsemYillikPlan && (
-        <div className="relative overflow-hidden rounded-2xl border border-violet-400/35 bg-gradient-to-br from-violet-500/[0.07] via-background to-fuchsia-500/[0.04] p-4 shadow-sm ring-1 ring-violet-500/10 dark:border-violet-500/35 dark:from-violet-950/50 dark:to-fuchsia-950/20 dark:ring-violet-500/15 sm:p-5">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -right-12 -top-12 size-40 rounded-full bg-violet-500/15 blur-3xl dark:bg-violet-600/20"
-          />
-          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 gap-3 sm:gap-4">
-              <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-violet-500/15 text-violet-700 shadow-inner dark:bg-violet-500/25 dark:text-violet-200">
-                <Sparkles className="size-5" />
-              </div>
-              <div className="min-w-0 space-y-2">
-                <p className="text-sm font-semibold leading-tight text-foreground">Nasıl kullanılır?</p>
-                {me?.role === 'teacher' ? (
-                  <ul className="space-y-1.5 text-xs leading-relaxed text-muted-foreground">
-                    <li className="flex gap-2">
-                      <span className="mt-1.5 size-1 shrink-0 rounded-full bg-violet-500/80" aria-hidden />
-                      <span>Yıl → grup → ders → kazanımlar; en sonda şablon seçip Word indirirsiniz.</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="mt-1.5 size-1 shrink-0 rounded-full bg-violet-500/80" aria-hidden />
-                      <span>Önizleme ve onay alanları hazırsa ayarlardan otomatik dolar.</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="mt-1.5 size-1 shrink-0 rounded-full bg-violet-500/80" aria-hidden />
-                      <span>İndirdikleriniz Arşiv sekmesinde saklanır; tekrar indirebilirsiniz.</span>
-                    </li>
-                  </ul>
-                ) : (
-                  <p className="text-xs leading-relaxed text-muted-foreground">
-                    Öğretim yılı, ana/alt grup, ders ve kazanım seçimleri şablon listesini belirler. Ayrıntılar için rehbere bakın.
-                  </p>
-                )}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowGuideModal(true)}
-              className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-xl border border-violet-500/35 bg-background/90 px-4 py-2.5 text-sm font-medium text-violet-800 shadow-sm transition-colors hover:bg-violet-500/10 dark:border-violet-500/45 dark:bg-violet-950/50 dark:text-violet-100 dark:hover:bg-violet-950/80 sm:w-auto sm:self-center"
-              aria-label="Adım adım rehberi aç"
-            >
-              <HelpCircle className="size-4 shrink-0" />
-              Rehberi aç
-            </button>
-          </div>
-        </div>
+        <BilsemYillikPlanHeroCard
+          onOpenGuide={() => setShowGuideModal(true)}
+          role={me?.role === 'teacher' ? 'teacher' : 'admin'}
+        />
       )}
-      {!hideHeader && (
+      {!hideHeader && isBilsemYillikPlan && (
         <div className="relative flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
           <div className="max-w-3xl space-y-4">
-            <span
-              className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wider ${
-                isBilsemYillikPlan
-                  ? 'bg-violet-500/15 text-violet-800 ring-1 ring-violet-500/25 dark:bg-violet-500/20 dark:text-violet-200'
-                  : 'bg-primary/10 text-primary ring-1 ring-primary/20'
-              }`}
-            >
-              {isBilsemYillikPlan ? (
-                <>
-                  <Sparkles className="size-3.5" />
-                  {me?.role === 'teacher' ? 'Plan' : 'BİLSEM Word'}
-                </>
-              ) : (
-                <>
-                  <Layers className="size-3.5" />
-                  Yıllık plan
-                </>
-              )}
+            <span className="inline-flex items-center gap-2 rounded-full bg-violet-500/15 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-violet-800 ring-1 ring-violet-500/25 dark:bg-violet-500/20 dark:text-violet-200">
+              <Sparkles className="size-3.5" />
+              {me?.role === 'teacher' ? 'Plan' : 'BİLSEM Word'}
             </span>
-            <h1
-              className={`text-3xl font-bold tracking-tight md:text-4xl ${
-                isBilsemYillikPlan
-                  ? 'bg-gradient-to-r from-violet-700 via-fuchsia-600 to-violet-600 bg-clip-text text-transparent dark:from-violet-300 dark:via-fuchsia-400 dark:to-violet-300'
-                  : 'text-foreground'
-              }`}
-            >
-              {isBilsemYillikPlan
-                ? me?.role === 'teacher'
-                  ? 'Yıllık plan'
-                  : 'BİLSEM yıllık plan'
-                : 'Yıllık plan iste'}
+            <h1 className="bg-gradient-to-r from-violet-700 via-fuchsia-600 to-violet-600 bg-clip-text text-3xl font-bold tracking-tight text-transparent dark:from-violet-300 dark:via-fuchsia-400 dark:to-violet-300 md:text-4xl">
+              {me?.role === 'teacher' ? 'Yıllık plan' : 'BİLSEM yıllık plan'}
             </h1>
             <p className="text-sm leading-relaxed text-muted-foreground md:text-base">
-              {isBilsemYillikPlan
-                ? me?.role === 'teacher'
-                  ? 'Adımları izleyerek Word dosyanızı oluşturun.'
-                  : 'BİLSEM Word şablonları ve içerikler tanımlandıkça listelenir; formu doldurup indirirsiniz.'
-                : 'Hazır şablonlardan yıllık planınızı oluşturup indirebilirsiniz.'}
+              {me?.role === 'teacher'
+                ? 'Adımları izleyerek Word dosyanızı oluşturun.'
+                : 'BİLSEM Word şablonları ve içerikler tanımlandıkça listelenir; formu doldurup indirirsiniz.'}
             </p>
           </div>
           <button
             type="button"
             onClick={() => setShowGuideModal(true)}
-            className={`inline-flex items-center gap-2 self-start rounded-xl border px-4 py-2.5 text-sm font-medium shadow-sm transition-colors sm:self-start ${
-              isBilsemYillikPlan
-                ? 'border-violet-400/40 bg-background/90 text-violet-800 hover:bg-violet-500/10 dark:border-violet-500/40 dark:text-violet-200 dark:hover:bg-violet-950/50'
-                : 'border-border bg-background/80 text-muted-foreground hover:bg-muted hover:text-foreground'
-            }`}
+            className="inline-flex items-center gap-2 self-start rounded-xl border border-violet-400/40 bg-background/90 px-4 py-2.5 text-sm font-medium text-violet-800 shadow-sm transition-colors hover:bg-violet-500/10 dark:border-violet-500/40 dark:text-violet-200 dark:hover:bg-violet-950/50 sm:self-start"
             aria-label="Adım adım rehberi aç"
           >
             <HelpCircle className="size-4" />
@@ -1232,14 +1190,25 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
           </button>
         </div>
       )}
+      {!hideHeader && !isBilsemYillikPlan && (
+        <EvrakWizardHero
+          onOpenGuide={() => setShowGuideModal(true)}
+          archiveCount={archiveItems.length}
+          templatesTotal={templates?.total ?? null}
+          showQuota={me?.role === 'teacher'}
+          evrakEntitlement={evrakEntitlement}
+          noEvrakQuota={noEvrakQuota}
+          defaultsIncomplete={defaultsIncomplete}
+        />
+      )}
 
       <Dialog open={showGuideModal} onOpenChange={(open) => { setShowGuideModal(open); if (!open) dismissGuide(); }}>
         <DialogContent
-          title="Yıllık plan rehberi"
+          title={isBilsemYillikPlan ? 'Yıllık plan rehberi' : 'Evrak rehberi'}
           className={
             isBilsemYillikPlan
               ? 'max-w-xl border-violet-500/20 shadow-2xl shadow-violet-500/10 dark:border-violet-500/25'
-              : 'max-w-xl border-border/80 shadow-xl'
+              : 'max-w-xl border-sky-500/15 shadow-xl shadow-sky-500/5 dark:border-sky-900/35'
           }
         >
           <p className="-mt-1 text-xs leading-relaxed text-muted-foreground">
@@ -1404,61 +1373,79 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
         </DialogContent>
       </Dialog>
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div
-          role="tablist"
-          aria-label="Plan oluşturma ve arşiv"
-          className={`inline-flex w-full rounded-xl border p-1 sm:w-auto sm:max-w-md ${
-            isBilsemYillikPlan
-              ? 'border-violet-400/35 bg-violet-500/[0.06] dark:border-violet-500/30'
-              : 'border-border bg-muted/50'
-          }`}
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mainTab === 'plan'}
-            onClick={() => setMainTab('plan')}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors sm:flex-initial ${
-              mainTab === 'plan'
-                ? isBilsemYillikPlan
-                  ? 'bg-violet-600 text-white shadow-sm dark:bg-violet-600'
-                  : 'bg-primary text-primary-foreground shadow-sm'
-                : 'text-muted-foreground hover:bg-background/80 hover:text-foreground'
-            }`}
-          >
-            <FileEdit className="size-4 shrink-0" />
-            Plan oluştur
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mainTab === 'archive'}
-            onClick={() => setMainTab('archive')}
-            className={`relative flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors sm:flex-initial ${
-              mainTab === 'archive'
-                ? isBilsemYillikPlan
-                  ? 'bg-violet-600 text-white shadow-sm dark:bg-violet-600'
-                  : 'bg-primary text-primary-foreground shadow-sm'
-                : 'text-muted-foreground hover:bg-background/80 hover:text-foreground'
-            }`}
-          >
-            <Archive className="size-4 shrink-0" />
-            Arşiv
-            {archiveItems.length > 0 && (
-              <span
-                className={`min-w-[1.25rem] rounded-full px-1.5 py-0.5 text-center text-xs font-bold ${
-                  mainTab === 'archive'
-                    ? 'bg-white/25 text-white'
-                    : isBilsemYillikPlan
-                      ? 'bg-violet-500/20 text-violet-800 dark:text-violet-200'
-                      : 'bg-primary/15 text-primary'
-                }`}
-              >
-                {archiveItems.length}
-              </span>
+      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+        <div className="mobile-tab-scroll akilli-tahta-tabnav w-full min-w-0 snap-x snap-mandatory sm:w-auto">
+          <div
+            role="tablist"
+            aria-label="Plan oluşturma ve arşiv"
+            className={cn(
+              'flex w-max max-w-full shadow-sm sm:w-full sm:flex-wrap sm:justify-start sm:overflow-visible',
+              isBilsemYillikPlan
+                ? 'gap-0.5 rounded-xl border border-violet-400/45 bg-gradient-to-r from-violet-500/12 via-fuchsia-500/10 to-violet-500/12 p-0.5 shadow-inner shadow-violet-500/10 dark:border-violet-500/40 dark:from-violet-950/50 dark:via-fuchsia-950/40 dark:to-violet-950/50 sm:gap-1.5 sm:rounded-2xl sm:p-1.5'
+                : 'gap-1 rounded-2xl border border-border/70 bg-muted/40 p-1 sm:gap-1.5 sm:p-1.5',
             )}
-          </button>
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mainTab === 'plan'}
+              onClick={() => setMainTab('plan')}
+              className={cn(
+                isBilsemYillikPlan
+                  ? 'flex min-w-0 shrink-0 snap-start items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-all sm:min-h-[44px] sm:flex-1 sm:gap-1.5 sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm'
+                  : 'flex min-w-0 shrink-0 snap-start items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-semibold transition-all sm:min-h-[44px] sm:flex-1 sm:py-2.5 sm:text-sm',
+                mainTab === 'plan'
+                  ? isBilsemYillikPlan
+                    ? 'border-transparent bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-md shadow-violet-500/25 ring-1 ring-white/20 dark:from-violet-600 dark:to-fuchsia-600'
+                    : cn('border-sky-500/35 bg-sky-500/12 text-sky-950 ring-2 ring-sky-500/30 shadow-sm dark:text-sky-100')
+                  : isBilsemYillikPlan
+                    ? 'border-transparent bg-transparent text-violet-900/80 hover:bg-white/50 dark:text-violet-100/90 dark:hover:bg-violet-950/40'
+                    : 'border-transparent bg-muted/30 text-muted-foreground hover:bg-background/90 hover:text-foreground',
+              )}
+            >
+              <FileEdit className="size-4 shrink-0" />
+              <span className="max-sm:hidden">Plan oluştur</span>
+              <span className="sm:hidden">Plan</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mainTab === 'archive'}
+              onClick={() => setMainTab('archive')}
+              className={cn(
+                isBilsemYillikPlan
+                  ? 'relative flex min-w-0 shrink-0 snap-start items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-all sm:min-h-[44px] sm:flex-1 sm:gap-1.5 sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm'
+                  : 'relative flex min-w-0 shrink-0 snap-start items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-semibold transition-all sm:min-h-[44px] sm:flex-1 sm:py-2.5 sm:text-sm',
+                mainTab === 'archive'
+                  ? isBilsemYillikPlan
+                    ? 'border-transparent bg-gradient-to-r from-fuchsia-600 to-violet-600 text-white shadow-md shadow-fuchsia-500/20 ring-1 ring-white/20 dark:from-fuchsia-600 dark:to-violet-600'
+                    : cn('border-amber-500/35 bg-amber-500/12 text-amber-950 ring-2 ring-amber-500/30 shadow-sm dark:text-amber-100')
+                  : isBilsemYillikPlan
+                    ? 'border-transparent bg-transparent text-violet-900/80 hover:bg-white/50 dark:text-violet-100/90 dark:hover:bg-violet-950/40'
+                    : 'border-transparent bg-muted/30 text-muted-foreground hover:bg-background/90 hover:text-foreground',
+              )}
+            >
+              <Archive className="size-4 shrink-0" />
+              <span className="max-sm:hidden">Arşiv</span>
+              <span className="sm:hidden">Arşiv</span>
+              {archiveItems.length > 0 && (
+                <span
+                  className={cn(
+                    'min-w-[1.35rem] rounded-full px-1.5 py-0.5 text-center text-[10px] font-bold tabular-nums sm:text-xs',
+                    mainTab === 'archive'
+                      ? isBilsemYillikPlan
+                        ? 'bg-white/25 text-white'
+                        : 'bg-amber-800/20 text-amber-950 dark:bg-amber-400/25 dark:text-amber-50'
+                      : isBilsemYillikPlan
+                        ? 'bg-fuchsia-500/25 text-fuchsia-900 dark:bg-fuchsia-400/20 dark:text-fuchsia-100'
+                        : 'bg-amber-500/20 text-amber-900 dark:bg-amber-300/90',
+                  )}
+                >
+                  {archiveItems.length}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1466,21 +1453,58 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
         <>
       {/* Öğretmen: Evrak kotası ve varsayılanları */}
       {me?.role === 'teacher' && (
-        <Card className="relative overflow-hidden border-border/80 border-l-4 border-l-primary/50 bg-gradient-to-r from-primary/[0.07] to-transparent shadow-md">
-          <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm text-foreground">
+        <Card
+          className={cn(
+            'relative overflow-hidden shadow-md',
+            isBilsemYillikPlan
+              ? 'border-violet-400/35 border-l-4 border-l-violet-500 bg-gradient-to-r from-violet-500/[0.08] via-transparent to-fuchsia-500/[0.04] dark:border-violet-500/30 dark:from-violet-950/40'
+              : cn(
+                  EVRAK_UI_PANEL.settings.card,
+                  'bg-gradient-to-r from-sky-500/[0.06] via-transparent to-transparent dark:from-sky-950/25',
+                ),
+          )}
+        >
+          {!isBilsemYillikPlan && (
+            <CardHeader className={cn('flex flex-row items-center gap-3 space-y-0 border-0 py-3 sm:py-3.5', EVRAK_UI_PANEL.settings.head)}>
+              <span className="flex size-8 items-center justify-center rounded-lg bg-sky-500/15">
+                <Settings className="size-4 text-sky-800 dark:text-sky-300" />
+              </span>
+              <CardTitle className="text-sm font-semibold leading-tight sm:text-base">Varsayılanlar ve kota</CardTitle>
+            </CardHeader>
+          )}
+          <CardContent
+            className={cn(
+              'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between',
+              !isBilsemYillikPlan ? 'pt-0 pb-4 sm:px-6' : 'px-3 py-3 sm:px-6 sm:py-4',
+            )}
+          >
+            <div className="min-w-0">
+              <p className={cn('text-foreground', isBilsemYillikPlan ? 'text-xs sm:text-sm' : 'text-sm')}>
                 Plan üretirken okul adı, müdür ve zümre öğretmenleri otomatik doldurulur.
                 <span className="ml-1 text-muted-foreground">Ayarlardan düzenleyebilirsiniz.</span>
               </p>
               {evrakEntitlement !== null && (
-                <p className="mt-2 text-sm">
+                <p className={cn('mt-2', isBilsemYillikPlan ? 'text-xs sm:text-sm' : 'text-sm')}>
                   <span className="font-medium text-foreground">Evrak kotanız:</span>{' '}
-                  <span className={evrakEntitlement > 0 ? 'text-primary' : 'text-amber-600 dark:text-amber-500'}>
+                  <span
+                    className={
+                      evrakEntitlement > 0
+                        ? isBilsemYillikPlan
+                          ? 'font-semibold text-violet-700 dark:text-violet-300'
+                          : 'text-primary'
+                        : 'text-amber-600 dark:text-amber-500'
+                    }
+                  >
                     {evrakEntitlement} adet
                   </span>
                   {evrakEntitlement <= 0 && (
-                    <Link href="/market" className="ml-2 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
+                    <Link
+                      href="/market"
+                      className={cn(
+                        'ml-2 inline-flex items-center gap-1 text-sm font-medium hover:underline',
+                        isBilsemYillikPlan ? 'text-violet-700 dark:text-violet-300' : 'text-primary',
+                      )}
+                    >
                       <ShoppingBag className="size-4" />
                       Marketten hak al
                     </Link>
@@ -1495,7 +1519,12 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
             </div>
             <Link
               href="/settings"
-              className="inline-flex items-center gap-2 self-start rounded-xl border border-primary/40 bg-primary/10 px-4 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/20 sm:self-center"
+              className={cn(
+                'inline-flex shrink-0 items-center gap-2 self-start rounded-xl border font-medium transition-colors sm:self-center',
+                isBilsemYillikPlan
+                  ? 'border-violet-500/40 bg-violet-500/10 px-3 py-2 text-xs text-violet-900 hover:bg-violet-500/15 dark:border-violet-400/35 dark:bg-violet-950/50 dark:text-violet-100 dark:hover:bg-violet-950/70 sm:px-4 sm:py-2.5 sm:text-sm'
+                  : 'border-primary/40 bg-primary/10 px-4 py-2.5 text-sm text-primary hover:bg-primary/20',
+              )}
             >
               <Settings className="size-4" />
               Varsayılanlara git
@@ -1505,79 +1534,127 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
         </Card>
       )}
 
-      <Card className="relative overflow-hidden border-border/80 bg-card/95 shadow-xl ring-1 ring-black/5 dark:ring-white/10">
-        <CardHeader className="space-y-4 border-b border-border/70 bg-gradient-to-r from-muted/30 via-transparent to-transparent pb-4">
-          <div className="flex items-center justify-between gap-4">
+      <Card
+        className={cn(
+          'relative overflow-hidden bg-card/95 shadow-xl ring-1 ring-black/5 dark:ring-white/10',
+          isBilsemYillikPlan
+            ? 'border-violet-400/30 dark:border-violet-500/25 [&_select]:focus:border-violet-600 [&_select]:focus:ring-2 [&_select]:focus:ring-violet-500/25'
+            : cn(EVRAK_UI_PANEL.plan.card, '[&_select]:focus:border-sky-600 [&_select]:focus:ring-2 [&_select]:focus:ring-sky-500/25'),
+        )}
+      >
+        <CardHeader
+          className={cn(
+            'border-b',
+            isBilsemYillikPlan
+              ? 'space-y-3 border-violet-400/25 bg-gradient-to-r from-violet-500/[0.07] via-transparent to-fuchsia-500/[0.05] px-3 pb-3 pt-3 dark:border-violet-500/20 sm:space-y-4 sm:px-6 sm:pb-4 sm:pt-4'
+              : cn('space-y-4 px-3 pb-4 sm:px-6', EVRAK_UI_PANEL.plan.head),
+          )}
+        >
+          <div className={cn('flex flex-col sm:flex-row sm:items-center sm:justify-between', isBilsemYillikPlan ? 'gap-2 sm:gap-4' : 'gap-3 sm:gap-4')}>
             <button
               type="button"
               onClick={goBack}
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className={cn(
+                'flex w-fit items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm transition-colors',
+                isBilsemYillikPlan
+                  ? 'text-violet-900/80 hover:bg-violet-500/10 dark:text-violet-100/90 dark:hover:bg-violet-950/50'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+              )}
             >
               <ChevronLeft className="size-4" />
               Geri
             </button>
-            <nav className="flex flex-1 items-center justify-center gap-1 sm:gap-2" aria-label="Plan seçim adımları">
+            <nav
+              className="-mx-1 flex max-w-full flex-1 items-center gap-0.5 overflow-x-auto px-1 pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] sm:mx-0 sm:justify-center sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden"
+              aria-label="Plan seçim adımları"
+            >
               {wizardSteps.map((s, i) => (
-                <div key={s.label} className="flex items-center">
+                <div key={s.label} className="flex shrink-0 items-center">
                   <div
                     aria-current={i === step ? 'step' : undefined}
                     aria-label={`${i + 1}. adım: ${s.label}${i < step ? ' (tamamlandı)' : ''}`}
-                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all duration-200 sm:px-3 sm:text-sm ${
+                    className={cn(
+                      isBilsemYillikPlan
+                        ? 'flex snap-start items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-semibold transition-all duration-200 sm:rounded-xl sm:px-3 sm:py-1.5 sm:text-sm'
+                        : 'flex snap-start items-center gap-1.5 rounded-xl px-2.5 py-2 text-xs font-semibold transition-all duration-200 sm:px-3 sm:py-1.5 sm:text-sm',
                       i < step
-                        ? 'bg-primary/10 text-primary'
+                        ? isBilsemYillikPlan
+                          ? 'bg-violet-500/15 text-violet-800 dark:bg-violet-500/25 dark:text-violet-100'
+                          : 'bg-primary/10 text-primary'
                         : i === step
-                          ? 'bg-primary text-primary-foreground ring-2 ring-primary/30 ring-offset-2'
-                          : 'bg-muted/50 text-muted-foreground'
-                    }`}
+                          ? isBilsemYillikPlan
+                            ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-md shadow-violet-500/20 ring-2 ring-violet-400/30 ring-offset-2 ring-offset-background dark:ring-violet-500/40'
+                            : 'bg-primary text-primary-foreground ring-2 ring-primary/30 ring-offset-2'
+                          : 'bg-muted/60 text-muted-foreground',
+                    )}
                   >
                     {i < step ? <Check className="size-3.5 shrink-0 sm:size-4" /> : <span>{i + 1}</span>}
-                    <span className="hidden sm:inline">{s.label}</span>
+                    <span className="whitespace-nowrap">{s.label}</span>
                   </div>
                   {i < wizardSteps.length - 1 && (
-                    <ChevronRight className="mx-0.5 size-4 shrink-0 text-muted-foreground/50 sm:mx-1" />
+                    <ChevronRight
+                      className={cn(
+                        'mx-0.5 size-4 shrink-0 sm:mx-1',
+                        isBilsemYillikPlan ? 'text-violet-400/50 dark:text-violet-500/40' : 'text-muted-foreground/50',
+                      )}
+                    />
                   )}
                 </div>
               ))}
             </nav>
           </div>
-          <CardTitle className="text-lg">
-            {isBilsemYillikPlan ? (
-              <>
-                {step === 0 && (me?.role === 'teacher' ? 'Öğretim yılı' : 'Öğretim yılı seçin')}
-                {step === 1 && (me?.role === 'teacher' ? 'Grup seçimi' : 'Ana ve alt grup seçin')}
-                {step === bilsemSubjectStep && 'Ders seçin'}
-                {step === bilsemOutcomesStep && (me?.role === 'teacher' ? 'Kazanımlar' : 'Kazanımlar ve plan kapsamı')}
-              </>
-            ) : (
-              <>
-                {step === 0 && 'Sınıf Seçin'}
-                {step === 1 && (needsSection ? 'Bölüm Seçin' : 'Ders Seçin')}
-                {step === 2 && (needsSection ? 'Ders Seçin' : 'Öğretim Yılı Seçin')}
-                {step === 3 && 'Öğretim Yılı Seçin'}
-              </>
-            )}
-          </CardTitle>
+          {isBilsemYillikPlan ? (
+            <CardTitle className="text-base sm:text-lg">
+              {step === 0 && (me?.role === 'teacher' ? 'Öğretim yılı' : 'Öğretim yılı seçin')}
+              {step === 1 && (me?.role === 'teacher' ? 'Grup seçimi' : 'Ana ve alt grup seçin')}
+              {step === bilsemSubjectStep && 'Ders seçin'}
+              {step === bilsemOutcomesStep && (me?.role === 'teacher' ? 'Kazanımlar' : 'Kazanımlar ve plan kapsamı')}
+            </CardTitle>
+          ) : (
+            <div className="flex items-start gap-3">
+              <span className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg', EVRAK_UI_PANEL.plan.iconWrap)}>
+                <FileEdit className={cn('size-4 shrink-0', EVRAK_UI_PANEL.plan.iconClass)} />
+              </span>
+              <CardTitle className="text-base font-semibold leading-snug sm:text-lg">
+                {step === 0 && 'Sınıf seçin'}
+                {step === 1 && (needsSection ? 'Bölüm seçin' : 'Ders seçin')}
+                {step === 2 && (needsSection ? 'Ders seçin' : 'Öğretim yılı')}
+                {step === 3 && 'Öğretim yılı'}
+              </CardTitle>
+            </div>
+          )}
         </CardHeader>
-        <CardContent className="space-y-6 pt-6">
+        <CardContent
+          className={cn(
+            isBilsemYillikPlan ? 'space-y-3 px-3 pb-4 pt-4 sm:space-y-6 sm:px-6 sm:pb-6 sm:pt-6' : 'space-y-4 pt-4 sm:space-y-6 sm:pt-6',
+          )}
+        >
           {selectionSummaryLine ? (
-            <div className="rounded-2xl border border-border/60 bg-gradient-to-r from-muted/50 to-muted/20 px-4 py-3 text-sm shadow-inner">
+            <div
+              className={cn(
+                'rounded-2xl border px-3 py-2.5 text-xs shadow-inner sm:px-4 sm:py-3 sm:text-sm',
+                isBilsemYillikPlan
+                  ? 'max-sm:rounded-xl max-sm:py-2 max-sm:text-[11px] max-sm:leading-snug border-violet-400/35 bg-gradient-to-r from-violet-500/[0.08] to-fuchsia-500/[0.05] dark:border-violet-500/30 dark:from-violet-950/40 dark:to-fuchsia-950/25'
+                  : 'border-sky-200/50 bg-gradient-to-r from-sky-500/[0.08] to-cyan-500/[0.04] dark:border-sky-900/35 dark:from-sky-950/30 dark:to-cyan-950/20',
+              )}
+            >
               <span className="font-semibold text-foreground">Seçimleriniz:</span>{' '}
               <span className="text-muted-foreground">{selectionSummaryLine}</span>
             </div>
           ) : null}
 
           {isBilsemYillikPlan && step === 0 && (
-            <div className="space-y-3">
+            <div className="space-y-2 sm:space-y-3">
               <div>
-                <label className="block text-sm font-medium">Öğretim yılı</label>
-                <p className="mt-0.5 text-xs text-muted-foreground">
+                <label className="block text-xs font-medium sm:text-sm">Öğretim yılı</label>
+                <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground sm:text-xs">
                   {me?.role === 'teacher' ? 'Listeden seçin.' : 'Örn: 2024-2025 — kazanım şablonları ve liste bu yıla göre filtrelenir.'}
                 </p>
               </div>
               <select
                 value={filters.academic_year}
                 onChange={(e) => setFilters((f) => ({ ...f, academic_year: e.target.value }))}
-                className="h-11 w-full max-w-md rounded-xl border border-input bg-background px-4 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="h-9 w-full max-w-full rounded-lg border border-input bg-background px-3 text-xs transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 sm:h-11 sm:max-w-md sm:rounded-xl sm:px-4 sm:text-sm"
               >
                 <option value="">Seçiniz</option>
                 {options?.academic_years?.map((y) => (
@@ -1590,10 +1667,10 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
           )}
 
           {isBilsemYillikPlan && step === 1 && (
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-4">
               <div>
-                <label className="block text-sm font-medium">Ana grup (yetenek alanı)</label>
-                <p className="mt-0.5 text-xs text-muted-foreground">
+                <label className="block text-xs font-medium sm:text-sm">Ana grup (yetenek alanı)</label>
+                <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground sm:text-xs">
                   {me?.role === 'teacher'
                     ? 'Branşınıza uygun alanı seçin; ders listesi buna göre değişir.'
                     : 'Katalogdaki BİLSEM dersleri ana gruba göre listelenir (Yıllık plan içerikleri ile aynı sözlük).'}
@@ -1601,7 +1678,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                 <select
                   value={filters.ana_grup}
                   onChange={(e) => setFilters((f) => ({ ...f, ana_grup: e.target.value, subject_code: '' }))}
-                  className="mt-2 h-11 w-full max-w-md rounded-xl border border-input bg-background px-4 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="mt-1.5 h-9 w-full max-w-full rounded-lg border border-input bg-background px-3 text-xs transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 sm:mt-2 sm:h-11 sm:max-w-md sm:rounded-xl sm:px-4 sm:text-sm"
                 >
                   <option value="">Seçiniz</option>
                   {BILSEM_ANA_GRUPLAR.map((g) => (
@@ -1612,14 +1689,14 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium">Alt grup (program aşaması)</label>
-                <p className="mt-0.5 text-xs text-muted-foreground">
+                <label className="block text-xs font-medium sm:text-sm">Alt grup (program aşaması)</label>
+                <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground sm:text-xs">
                   {me?.role === 'teacher' ? 'İsteğe bağlı.' : 'İsteğe bağlı — plan içeriği ve birleştirme için Ek-1 aşamaları.'}
                 </p>
                 <select
                   value={filters.alt_grup}
                   onChange={(e) => setFilters((f) => ({ ...f, alt_grup: e.target.value }))}
-                  className="mt-2 h-11 w-full max-w-md rounded-xl border border-input bg-background px-4 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="mt-1.5 h-9 w-full max-w-full rounded-lg border border-input bg-background px-3 text-xs transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 sm:mt-2 sm:h-11 sm:max-w-md sm:rounded-xl sm:px-4 sm:text-sm"
                 >
                   <option value="">Tümü / belirtmeyin</option>
                   {BILSEM_ALT_GRUPLAR.map((g) => (
@@ -1701,10 +1778,15 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
           {((!isBilsemYillikPlan && step === 1 && !needsSection) ||
             (!isBilsemYillikPlan && step === 2 && needsSection) ||
             (isBilsemYillikPlan && step === bilsemSubjectStep)) && (
-            <div className="space-y-3">
+            <div className={cn('space-y-3', isBilsemYillikPlan && 'space-y-2 sm:space-y-3')}>
               <div>
-                <label className="block text-sm font-medium">Ders</label>
-                <p className="mt-0.5 text-xs text-muted-foreground">
+                <label className={cn('block font-medium', isBilsemYillikPlan ? 'text-xs sm:text-sm' : 'text-sm')}>Ders</label>
+                <p
+                  className={cn(
+                    'mt-0.5 text-muted-foreground',
+                    isBilsemYillikPlan ? 'text-[11px] leading-snug sm:text-xs' : 'text-xs',
+                  )}
+                >
                   {isBilsemYillikPlan && me?.role === 'teacher' ? (
                     'Hazır içeriği olan dersler listelenir. Dersiniz yoksa okul yöneticinize danışın.'
                   ) : (
@@ -1718,7 +1800,12 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
               <select
                 value={filters.subject_code}
                 onChange={(e) => setFilters((f) => ({ ...f, subject_code: e.target.value }))}
-                className="h-11 w-full max-w-md rounded-xl border border-input bg-background px-4 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className={cn(
+                  'w-full border border-input bg-background transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20',
+                  isBilsemYillikPlan
+                    ? 'h-9 max-w-full rounded-lg px-3 text-xs sm:h-11 sm:max-w-md sm:rounded-xl sm:px-4 sm:text-sm'
+                    : 'h-11 max-w-md rounded-xl px-4 py-2.5 text-sm',
+                )}
               >
                 <option value="">Seçiniz</option>
                 {(isBilsemYillikPlan ? bilsemSubjectItems : subjects?.items)?.map((s, i) => (
@@ -1731,14 +1818,14 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
           )}
 
           {isBilsemYillikPlan && step === bilsemOutcomesStep && (
-            <div className="space-y-3 rounded-xl border border-violet-500/15 bg-gradient-to-br from-violet-500/[0.04] to-transparent p-4 dark:border-violet-500/20 dark:from-violet-950/25">
-              <div className="flex items-start gap-2">
-                <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-violet-500/12 text-violet-700 dark:text-violet-200">
-                  <Layers className="size-3.5" />
+            <div className="space-y-2.5 rounded-xl border border-violet-500/15 bg-gradient-to-br from-violet-500/[0.04] to-transparent p-3 dark:border-violet-500/20 dark:from-violet-950/25 sm:space-y-3 sm:p-4">
+              <div className="flex items-start gap-1.5 sm:gap-2">
+                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-violet-500/12 text-violet-700 sm:size-7 sm:rounded-lg dark:text-violet-200">
+                  <Layers className="size-3 sm:size-3.5" />
                 </span>
                 <div>
-                  <p className="text-sm font-medium text-foreground">Kazanım şablonu</p>
-                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                  <p className="text-xs font-medium text-foreground sm:text-sm">Kazanım şablonu</p>
+                  <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground sm:text-[11px] sm:leading-relaxed">
                     İşaretlediğiniz maddeler haftalara yayılır; tatil haftaları ayrı kalır.
                   </p>
                 </div>
@@ -1756,14 +1843,14 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                 />
               ) : (
                 <>
-                  <label className="block text-sm font-medium">Şablon</label>
+                  <label className="block text-xs font-medium sm:text-sm">Şablon</label>
                   <select
                     value={bilsemSelectedSetId}
                     onChange={(e) => {
                       setBilsemSelectedSetId(e.target.value);
                       setBilsemSelectedItemIds(new Set());
                     }}
-                    className="h-11 w-full max-w-lg rounded-xl border border-input bg-background px-3 text-sm"
+                    className="h-9 w-full max-w-full rounded-lg border border-input bg-background px-2.5 text-xs sm:h-11 sm:max-w-lg sm:rounded-xl sm:px-3 sm:text-sm"
                   >
                     <option value="">Seçiniz</option>
                     {bilsemOutcomeSets.map((s) => (
@@ -1790,14 +1877,14 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                           Temizle
                         </button>
                       </div>
-                      <div className="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-border/60 p-2">
+                      <div className="max-h-[min(12rem,38dvh)] space-y-1 overflow-y-auto overscroll-y-contain rounded-lg border border-border/60 p-1.5 sm:max-h-56 sm:space-y-2 sm:p-2">
                         {bilsemSetDetail.items.map((it) => {
                           const checked = bilsemSelectedItemIds.has(it.id);
                           const label = [it.code, it.unite, it.description?.slice(0, 140)].filter(Boolean).join(' — ');
                           return (
                             <label
                               key={it.id}
-                              className="flex cursor-pointer gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50"
+                              className="flex cursor-pointer gap-1.5 rounded-md px-1.5 py-1 text-[11px] leading-snug hover:bg-muted/50 sm:gap-2 sm:px-2 sm:py-1.5 sm:text-sm"
                             >
                               <input
                                 type="checkbox"
@@ -1820,7 +1907,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                   ) : bilsemSelectedSetId ? (
                     <p className="text-sm text-muted-foreground">Kazanımlar yükleniyor…</p>
                   ) : null}
-                  <div className="flex flex-wrap gap-4 pt-2">
+                  <div className="flex flex-wrap gap-2 pt-1.5 sm:gap-4 sm:pt-2">
                     {(
                       [
                         ['yillik', 'Tüm yıl'],
@@ -1828,7 +1915,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                         ['donem_2', '2. dönem'],
                       ] as const
                     ).map(([v, lab]) => (
-                      <label key={v} className="flex cursor-pointer items-center gap-2 text-sm">
+                      <label key={v} className="flex cursor-pointer items-center gap-1.5 text-[11px] sm:gap-2 sm:text-sm">
                         <input
                           type="radio"
                           name="bilsem-scope-wizard"
@@ -1840,14 +1927,14 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                     ))}
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium">Haftalık ders saati</label>
+                    <label className="mb-0.5 block text-xs font-medium sm:mb-1 sm:text-sm">Haftalık ders saati</label>
                     <input
                       type="number"
                       min={1}
                       max={20}
                       value={bilsemWeeklyHours}
                       onChange={(e) => setBilsemWeeklyHours(e.target.value)}
-                      className="h-10 w-24 rounded-lg border border-input px-2 text-sm"
+                      className="h-8 w-20 rounded-md border border-input px-2 text-xs sm:h-10 sm:w-24 sm:rounded-lg sm:text-sm"
                     />
                   </div>
                 </>
@@ -1876,12 +1963,17 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
             </div>
           )}
 
-          <div className="pt-2">
+          <div className={cn('pt-1.5 sm:pt-2', isBilsemYillikPlan && 'max-sm:pt-1')}>
             <button
               type="button"
               onClick={nextStep}
               disabled={!canProceed()}
-              className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+              className={cn(
+                'flex items-center gap-2 rounded-xl bg-primary font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50',
+                isBilsemYillikPlan
+                  ? 'w-full justify-center px-4 py-2.5 text-xs sm:w-auto sm:justify-start sm:px-5 sm:py-2.5 sm:text-sm'
+                  : 'px-5 py-2.5 text-sm',
+              )}
             >
               {step >= lastStep
                 ? isBilsemYillikPlan && me?.role === 'teacher'
@@ -1895,19 +1987,48 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
       </Card>
 
       {templates !== null && (
-        <Card className="overflow-hidden border-border shadow-sm">
-          <CardHeader className="border-b border-border/50">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <FileText className="size-5 text-primary" />
+        <Card
+          className={cn(
+            'overflow-hidden shadow-sm',
+            isBilsemYillikPlan ? 'border-border' : cn(EVRAK_UI_PANEL.templates.card, 'rounded-2xl'),
+          )}
+        >
+          <CardHeader
+            className={cn(
+              'border-b',
+              isBilsemYillikPlan
+                ? 'border-border/50 px-3 py-2.5 sm:px-6 sm:py-4'
+                : cn('px-3 py-3 sm:px-6 sm:py-4', EVRAK_UI_PANEL.templates.head),
+            )}
+          >
+            <CardTitle
+              className={cn(
+                'flex items-center gap-2 font-semibold',
+                isBilsemYillikPlan ? 'text-sm sm:text-lg' : 'text-base sm:text-lg',
+              )}
+            >
+              <span
+                className={cn(
+                  'flex size-8 items-center justify-center rounded-lg',
+                  isBilsemYillikPlan ? '' : EVRAK_UI_PANEL.templates.iconWrap,
+                )}
+              >
+                <FileText
+                  className={cn(
+                    'size-4 shrink-0 sm:size-5',
+                    isBilsemYillikPlan ? 'text-primary' : EVRAK_UI_PANEL.templates.iconClass,
+                  )}
+                />
+              </span>
               {isBilsemYillikPlan
                 ? me?.role === 'teacher'
                   ? 'Şablonlar'
                   : 'BİLSEM Word şablonları'
-                : 'Yıllık Plan Şablonları'}{' '}
+                : 'Şablonlar'}{' '}
               ({templates.total})
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-4 sm:p-6">
+          <CardContent className={cn(isBilsemYillikPlan ? 'p-3 sm:p-6' : 'p-4 sm:p-6')}>
             {loading ? (
               <div className="space-y-3">
                 {[1, 2, 3, 4].map((i) => (
@@ -1935,16 +2056,26 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                 }
               />
             ) : (
-              <div className="space-y-3">
+              <div className={cn('space-y-3', isBilsemYillikPlan && 'space-y-2 sm:space-y-3')}>
                 {templates.items.map((t) => (
                   <div
                     key={t.id}
-                    className="group flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-4 shadow-sm transition-all hover:border-primary/30 hover:shadow-md"
+                    className={cn(
+                      'group flex rounded-xl border border-border bg-card shadow-sm transition-all hover:border-primary/30 hover:shadow-md',
+                      isBilsemYillikPlan
+                        ? 'flex-col items-stretch gap-2 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-4'
+                        : 'items-center justify-between gap-4 p-4',
+                    )}
                   >
                     <div className="min-w-0 flex-1">
-                      <span className="block font-medium text-foreground">{templateDisplayName(t)}</span>
+                      <span className="block text-sm font-medium text-foreground sm:text-base">{templateDisplayName(t)}</span>
                       {t.grade != null && (
-                        <span className="mt-0.5 block text-sm text-muted-foreground">
+                        <span
+                          className={cn(
+                            'mt-0.5 block text-muted-foreground',
+                            isBilsemYillikPlan ? 'text-xs sm:text-sm' : 'text-sm',
+                          )}
+                        >
                           {formatYillikPlanGradeLabel(t.grade, isBilsemYillikPlan)}
                         </span>
                       )}
@@ -1952,7 +2083,12 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                     <button
                       type="button"
                       onClick={() => handleGenerateClick(t)}
-                      className="shrink-0 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90 hover:shadow"
+                      className={cn(
+                        'shrink-0 rounded-xl bg-primary font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90 hover:shadow',
+                        isBilsemYillikPlan
+                          ? 'w-full px-3 py-2 text-xs sm:w-auto sm:px-4 sm:py-2.5 sm:text-sm'
+                          : 'px-4 py-2.5 text-sm',
+                      )}
                     >
                       <span className="flex items-center gap-2">
                         <FileEdit className="size-4" />
@@ -1970,12 +2106,41 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
       )}
 
       {mainTab === 'archive' && (
-        <div className="max-h-[min(72vh,820px)] overflow-y-auto overscroll-contain pr-1">
+        <div
+          className={cn(
+            'overflow-y-auto overscroll-contain pr-1',
+            isBilsemYillikPlan ? 'max-h-[min(68dvh,480px)] sm:max-h-[min(72vh,820px)]' : 'max-h-[min(72vh,820px)]',
+          )}
+        >
           {archiveLoading ? (
-            <Card className="relative overflow-hidden border-border/70 bg-card/80 shadow-md backdrop-blur-sm">
-              <CardHeader className="space-y-0.5 border-b border-border/60 bg-muted/20 pb-3">
+            <Card
+              className={cn(
+                'relative overflow-hidden shadow-md backdrop-blur-sm',
+                isBilsemYillikPlan
+                  ? 'border-border/70 bg-card/80'
+                  : cn(EVRAK_UI_PANEL.archive.card, 'rounded-2xl bg-card/95'),
+              )}
+            >
+              <CardHeader
+                className={cn(
+                  'space-y-0.5 border-b pb-3',
+                  isBilsemYillikPlan ? 'border-border/60 bg-muted/20' : cn('px-3 sm:px-6', EVRAK_UI_PANEL.archive.head),
+                )}
+              >
                 <div className="flex items-center gap-2">
-                  <Layers className="size-4 text-muted-foreground" />
+                  <span
+                    className={cn(
+                      'flex size-8 items-center justify-center rounded-lg',
+                      isBilsemYillikPlan ? '' : EVRAK_UI_PANEL.archive.iconWrap,
+                    )}
+                  >
+                    <Layers
+                      className={cn(
+                        'size-4',
+                        isBilsemYillikPlan ? 'text-muted-foreground' : EVRAK_UI_PANEL.archive.iconClass,
+                      )}
+                    />
+                  </span>
                   <CardTitle className="text-base font-semibold tracking-tight">Plan arşivi</CardTitle>
                 </div>
                 <p className="text-xs text-muted-foreground">Yükleniyor…</p>
@@ -1997,10 +2162,36 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
           ) : archiveItems.length > 0 ? (
             <div className="space-y-4">
               {archiveOther.length > 0 && (
-                <Card className="relative overflow-hidden border-border/70 bg-card/90 shadow-md backdrop-blur-sm">
-                  <CardHeader className="space-y-1 border-b border-border/60 bg-gradient-to-r from-muted/40 to-transparent pb-3">
+                <Card
+                  className={cn(
+                    'relative overflow-hidden shadow-md backdrop-blur-sm',
+                    isBilsemYillikPlan
+                      ? 'border-border/70 bg-card/90'
+                      : cn(EVRAK_UI_PANEL.archive.card, 'rounded-2xl bg-card/95'),
+                  )}
+                >
+                  <CardHeader
+                    className={cn(
+                      'space-y-1 border-b pb-3',
+                      isBilsemYillikPlan
+                        ? 'border-border/60 bg-gradient-to-r from-muted/40 to-transparent'
+                        : cn('px-3 sm:px-6', EVRAK_UI_PANEL.archive.head),
+                    )}
+                  >
                     <div className="flex items-center gap-2">
-                      <Layers className="size-4 text-primary" />
+                      <span
+                        className={cn(
+                          'flex size-8 items-center justify-center rounded-lg',
+                          isBilsemYillikPlan ? '' : EVRAK_UI_PANEL.archive.iconWrap,
+                        )}
+                      >
+                        <Layers
+                          className={cn(
+                            'size-4',
+                            isBilsemYillikPlan ? 'text-primary' : EVRAK_UI_PANEL.archive.iconClass,
+                          )}
+                        />
+                      </span>
                       <CardTitle className="text-base font-semibold tracking-tight">
                         {me?.role === 'teacher' ? 'Arşiv' : 'Yıllık plan arşivi'}
                       </CardTitle>
@@ -2026,7 +2217,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
               )}
               {archiveBilsem.length > 0 && (
                 <Card className="relative overflow-hidden border-violet-400/35 bg-gradient-to-br from-violet-500/[0.08] via-card/95 to-fuchsia-500/[0.05] shadow-md backdrop-blur-sm dark:border-violet-500/30 dark:from-violet-950/40">
-                  <CardHeader className="space-y-1 border-b border-violet-400/25 bg-violet-500/[0.06] pb-3 dark:border-violet-500/25 dark:bg-violet-950/30">
+                  <CardHeader className="space-y-0.5 border-b border-violet-400/25 bg-violet-500/[0.06] px-3 pb-2.5 pt-3 dark:border-violet-500/25 dark:bg-violet-950/30 sm:space-y-1 sm:px-5 sm:pb-3 sm:pt-5">
                     <div className="flex items-center gap-2">
                       <Sparkles className="size-4 text-violet-600 dark:text-violet-400" />
                       <CardTitle className="text-base font-semibold tracking-tight text-violet-900 dark:text-violet-100">
@@ -2053,12 +2244,22 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
               )}
             </div>
           ) : (
-            <Card className="overflow-hidden border-2 border-dashed border-border/70 bg-gradient-to-br from-muted/30 to-transparent">
-              <CardContent className="flex flex-col items-center justify-center py-14 text-center">
+            <Card
+              className={cn(
+                'overflow-hidden border-2 border-dashed bg-gradient-to-br from-muted/30 to-transparent',
+                isBilsemYillikPlan
+                  ? 'border-border/70'
+                  : 'rounded-2xl border-amber-300/50 dark:border-amber-800/45',
+              )}
+            >
+              <CardContent className="flex flex-col items-center justify-center py-10 text-center sm:py-14">
                 <div
-                  className={`mb-4 rounded-2xl p-4 ${
-                    isBilsemYillikPlan ? 'bg-violet-500/15 text-violet-700 dark:text-violet-300' : 'bg-primary/10 text-primary'
-                  }`}
+                  className={cn(
+                    'mb-4 rounded-2xl p-4',
+                    isBilsemYillikPlan
+                      ? 'bg-violet-500/15 text-violet-700 dark:text-violet-300'
+                      : 'bg-amber-500/12 text-amber-800 dark:text-amber-200',
+                  )}
                 >
                   <FileText className="size-10" />
                 </div>
@@ -2071,9 +2272,12 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                 <button
                   type="button"
                   onClick={() => setMainTab('plan')}
-                  className={`mt-6 rounded-xl px-4 py-2.5 text-sm font-medium text-primary-foreground ${
-                    isBilsemYillikPlan ? 'bg-violet-600 hover:bg-violet-700' : 'bg-primary hover:bg-primary/90'
-                  }`}
+                  className={cn(
+                    'mt-6 rounded-xl px-4 py-2.5 text-sm font-medium text-white shadow-sm',
+                    isBilsemYillikPlan
+                      ? 'bg-violet-600 hover:bg-violet-700'
+                      : 'bg-sky-600 hover:bg-sky-700 dark:bg-sky-600 dark:hover:bg-sky-500',
+                  )}
                 >
                   Plan oluştur
                 </button>

@@ -252,28 +252,70 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { title: 'Okul', value: stats?.schools, color: 'from-teal-500/15 to-teal-500/5' },
-          { title: 'Kullanıcı', value: stats?.users, color: 'from-indigo-500/15 to-indigo-500/5' },
-          { title: 'Öğretmen (onay bekleyen)', value: sa?.teachers_pending_approval, color: 'from-amber-500/15 to-amber-500/5' },
-          { title: 'Duyuru', value: stats?.announcements, color: 'from-violet-500/15 to-violet-500/5' },
+          {
+            title: 'Okul',
+            sub: 'Toplam kurum',
+            value: stats?.schools,
+            color: 'from-teal-500/15 to-teal-500/5',
+            Icon: School,
+            iconWrap:
+              'bg-teal-500/15 text-teal-600 ring-teal-500/20 dark:bg-teal-500/10 dark:text-teal-400 dark:ring-teal-500/25',
+          },
+          {
+            title: 'Kullanıcı',
+            sub: 'Kayıtlı kullanıcı',
+            value: stats?.users,
+            color: 'from-indigo-500/15 to-indigo-500/5',
+            Icon: Users,
+            iconWrap:
+              'bg-indigo-500/15 text-indigo-600 ring-indigo-500/20 dark:bg-indigo-500/10 dark:text-indigo-400 dark:ring-indigo-500/25',
+          },
+          {
+            title: 'Öğretmen',
+            sub: 'Onay bekleyen',
+            value: sa?.teachers_pending_approval,
+            color: 'from-amber-500/15 to-amber-500/5',
+            Icon: UserPlus,
+            iconWrap:
+              'bg-amber-500/15 text-amber-600 ring-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/25',
+          },
+          {
+            title: 'Duyuru',
+            sub: 'Toplam kayıt',
+            value: stats?.announcements,
+            color: 'from-violet-500/15 to-violet-500/5',
+            Icon: Megaphone,
+            iconWrap:
+              'bg-violet-500/15 text-violet-600 ring-violet-500/20 dark:bg-violet-500/10 dark:text-violet-400 dark:ring-violet-500/25',
+          },
         ].map((k) => (
           <Card
             key={k.title}
             className={`border-border/60 bg-gradient-to-br ${k.color} shadow-sm`}
           >
-            <CardHeader className="pb-1">
-              <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {k.title}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              {isLoading ? (
-                <Skeleton className="h-9 w-20" />
-              ) : (
-                <p className="text-3xl font-semibold tabular-nums text-foreground">
-                  {statsError ? '—' : k.value ?? '—'}
-                </p>
-              )}
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex items-start gap-3">
+                <div
+                  className={`flex size-9 shrink-0 items-center justify-center rounded-xl shadow-sm ring-1 sm:size-10 ${k.iconWrap}`}
+                >
+                  <k.Icon className="size-4 sm:size-5" strokeWidth={2} />
+                </div>
+                <div className="min-w-0 flex-1 pt-0.5">
+                  <p className="text-sm font-bold leading-tight text-foreground">{k.title}</p>
+                  <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-[11px]">
+                    {k.sub}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3">
+                {isLoading ? (
+                  <Skeleton className="h-9 w-20" />
+                ) : (
+                  <p className="text-3xl font-semibold tabular-nums text-foreground">
+                    {statsError ? '—' : k.value ?? '—'}
+                  </p>
+                )}
+              </div>
             </CardContent>
           </Card>
         ))}

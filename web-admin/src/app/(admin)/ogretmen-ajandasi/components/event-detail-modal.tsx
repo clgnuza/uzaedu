@@ -7,6 +7,7 @@ import { tr } from 'date-fns/locale';
 import { User, Calendar, Tag, CheckCircle2, Circle, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CalendarEvent } from './agenda-calendar-grid';
+import { AGENDA_SOURCE_KEYS, AGENDA_SOURCE_THEME, AGENDA_TYPE_MODAL_THEME } from './agenda-source-theme';
 
 const TYPE_LABELS: Record<string, string> = {
   note: 'Not',
@@ -21,17 +22,13 @@ const TYPE_LABELS: Record<string, string> = {
   timetable: 'Ders Programı',
 };
 
-const SOURCE_STYLES: Record<string, { card: string; badge: string }> = {
-  PERSONAL: { card: 'bg-primary/10 border-l-4 border-l-primary', badge: 'bg-primary/20 text-primary' },
-  SCHOOL: { card: 'bg-blue-500/10 border-l-4 border-l-blue-500', badge: 'bg-blue-500/20 text-blue-600' },
-  PLATFORM: { card: 'bg-amber-500/10 border-l-4 border-l-amber-500', badge: 'bg-amber-500/20 text-amber-600' },
-};
+const SOURCE_STYLES: Record<string, { card: string; badge: string }> = Object.fromEntries(
+  AGENDA_SOURCE_KEYS.map((k) => [k, { card: AGENDA_SOURCE_THEME[k].modalCard, badge: AGENDA_SOURCE_THEME[k].modalBadge }]),
+) as Record<string, { card: string; badge: string }>;
 
-const SOURCE_LABELS: Record<string, string> = {
-  PERSONAL: 'Kişisel',
-  SCHOOL: 'Okul',
-  PLATFORM: 'Platform',
-};
+const SOURCE_LABELS: Record<string, string> = Object.fromEntries(
+  AGENDA_SOURCE_KEYS.map((k) => [k, AGENDA_SOURCE_THEME[k].label]),
+) as Record<string, string>;
 
 const PRIORITY_STYLES: Record<string, string> = {
   low: 'bg-slate-500/15 text-slate-600',
@@ -50,6 +47,13 @@ const PRIORITY_LABELS: Record<string, string> = {
   medium: 'Orta',
   high: 'Yüksek',
 };
+
+const DUTY_SHIFT_LABELS: Record<string, string> = {
+  morning: 'Sabah',
+  afternoon: 'Öğleden sonra',
+};
+
+type TimetableLessonRow = { lesson_num: number; class_section: string; subject: string };
 
 export function EventDetailModal({
   event,
@@ -72,16 +76,34 @@ export function EventDetailModal({
   const [deleting, setDeleting] = useState(false);
   if (!event) return null;
   const isSchoolEvent = event.type === 'school_event';
-  const canEditDelete = isSchoolAdmin && isSchoolEvent && !event.id.startsWith('demo-');
+  const canEditDelete = isSchoolAdmin && isSchoolEvent;
   const hasTime = event.start.includes('T');
   const dateStr = hasTime
     ? format(new Date(event.start), 'd MMMM yyyy, HH:mm', { locale: tr })
     : format(new Date(event.start), 'd MMMM yyyy', { locale: tr });
-  const src = SOURCE_STYLES[event.source] ?? { card: 'bg-muted/30 border-l-4 border-l-muted-foreground', badge: 'bg-muted text-muted-foreground' };
+  const dateStrMobile = (() => {
+    if (!hasTime && event.start.length >= 10) {
+      const p = event.start.slice(0, 10).split('-');
+      if (p.length === 3) return `${p[2]}/${p[1]}/${p[0]}`;
+    }
+    return hasTime
+      ? format(new Date(event.start), 'dd/MM/yyyy, HH:mm')
+      : format(new Date(event.start), 'dd/MM/yyyy');
+  })();
+  const srcBase = SOURCE_STYLES[event.source] ?? { card: 'bg-muted/30 border-l-4 border-l-muted-foreground', badge: 'bg-muted text-muted-foreground' };
+  const typeTheme = AGENDA_TYPE_MODAL_THEME[event.type];
+  const src = typeTheme ?? srcBase;
+  const meta = event.metadata ?? {};
+  const isDuty = event.type === 'duty';
+  const isTimetable = event.type === 'timetable';
+  const timetableLessons = (meta.lessons as TimetableLessonRow[] | undefined)?.filter(
+    (l) => l && typeof l.lesson_num === 'number',
+  );
   const priority = event.metadata?.priority as string | undefined;
   const isTask = event.type === 'task';
   const isCompleted = event.metadata?.status === 'completed';
-  const canToggle = isTask && onTaskStatusChange && !event.id.startsWith('demo-');
+  const isRecurringVirtual = meta.recurringVirtual === true;
+  const canToggle = isTask && onTaskStatusChange && !isRecurringVirtual;
 
   const handleToggle = async () => {
     if (!canToggle || toggling) return;
@@ -109,7 +131,8 @@ export function EventDetailModal({
             </div>
             <div className="flex items-center gap-3 rounded-lg bg-background/60 py-2.5 px-3">
               <Calendar className="size-5 shrink-0 opacity-70" />
-              <span className="font-medium">{dateStr}</span>
+              <span className="font-medium tabular-nums sm:hidden">{dateStrMobile}</span>
+              <span className="font-medium hidden sm:inline">{dateStr}</span>
             </div>
             {event.createdBy && (
               <div className="flex items-center gap-3 rounded-lg bg-background/60 py-2.5 px-3">
@@ -118,7 +141,81 @@ export function EventDetailModal({
               </div>
             )}
           </div>
-          {event.metadata && Object.keys(event.metadata).length > 0 && (
+          {isDuty && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                <Tag className="size-3.5" />
+                Nöbet bilgisi
+              </div>
+              <div className="rounded-xl border border-border/50 bg-muted/30 p-3 space-y-2 sm:p-4">
+                {meta.shift != null && (
+                  <p className="text-sm">
+                    <span className="text-muted-foreground">Vardiya:</span>{' '}
+                    {DUTY_SHIFT_LABELS[String(meta.shift)] ?? String(meta.shift)}
+                  </p>
+                )}
+                {meta.area != null && String(meta.area).trim() !== '' && (
+                  <p className="text-sm">
+                    <span className="text-muted-foreground">Alan:</span> {String(meta.area)}
+                  </p>
+                )}
+                {meta.slotName != null && String(meta.slotName).trim() !== '' && (
+                  <p className="text-sm">
+                    <span className="text-muted-foreground">Slot:</span> {String(meta.slotName)}
+                  </p>
+                )}
+                {(meta.slotStartTime != null || meta.slotEndTime != null) && (
+                  <p className="text-sm">
+                    <span className="text-muted-foreground">Saat:</span>{' '}
+                    {[meta.slotStartTime, meta.slotEndTime].filter(Boolean).join(' – ') || '—'}
+                  </p>
+                )}
+                {typeof meta.lessonNum === 'number' && (
+                  <p className="text-sm">
+                    <span className="text-muted-foreground">Ders saati:</span> {meta.lessonNum}. ders
+                  </p>
+                )}
+                {meta.note != null && String(meta.note).trim() !== '' && (
+                  <p className="text-sm">
+                    <span className="text-muted-foreground">Not:</span> {String(meta.note)}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+          {isTimetable && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                <Tag className="size-3.5" />
+                Dersler
+              </div>
+              <div className="rounded-xl border border-border/50 bg-muted/30 p-2 sm:p-4">
+                {timetableLessons && timetableLessons.length > 0 ? (
+                  <ul className="max-h-[min(50vh,320px)] space-y-1.5 overflow-y-auto text-sm">
+                    {timetableLessons.map((l) => (
+                      <li
+                        key={l.lesson_num}
+                        className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-lg bg-background/70 px-2.5 py-2 ring-1 ring-border/60"
+                      >
+                        <span className="font-bold tabular-nums text-emerald-700 dark:text-emerald-400">{l.lesson_num}. saat</span>
+                        <span className="min-w-0 font-medium text-foreground">{l.subject || 'Ders'}</span>
+                        {l.class_section ? (
+                          <span className="text-xs text-muted-foreground">({l.class_section})</span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {meta.lessonCount != null
+                      ? `Bu gün toplam ${String(meta.lessonCount)} ders kayıtlı; saatlik liste yüklenemedi.`
+                      : 'Ders listesi bulunamadı.'}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+          {event.metadata && Object.keys(event.metadata).length > 0 && !isDuty && !isTimetable && (
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 <Tag className="size-3.5" />
@@ -150,8 +247,25 @@ export function EventDetailModal({
                     <span className="text-muted-foreground">Ders sayısı:</span> {String(event.metadata.lessonCount)}
                   </p>
                 )}
+                {meta.repeat != null && String(meta.repeat) !== 'none' && (
+                  <p className="text-sm">
+                    <span className="text-muted-foreground">Tekrar:</span>{' '}
+                    {String(meta.repeat) === 'daily'
+                      ? 'Günlük'
+                      : String(meta.repeat) === 'weekly'
+                        ? 'Haftalık'
+                        : String(meta.repeat) === 'monthly'
+                          ? 'Aylık'
+                          : String(meta.repeat)}
+                  </p>
+                )}
               </div>
             </div>
+          )}
+          {isTask && isRecurringVirtual && (
+            <p className="rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              Bu gün yalnızca planlı tekrar görünümüdür. Tamamlamak için takvimde <strong className="text-foreground">son tarihi bugün olan</strong> aynı göreve tıklayın.
+            </p>
           )}
           {isTask && (
             <div className="flex items-center gap-3 rounded-xl bg-muted/30 p-4 border border-border/50">

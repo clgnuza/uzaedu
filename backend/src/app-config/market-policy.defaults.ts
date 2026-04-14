@@ -13,6 +13,9 @@ export const MARKET_MODULE_KEYS = [
   'bilsem',
   'school_profile',
   'school_reviews',
+  'butterfly_exam',
+  'sorumluluk_sinav',
+  'messaging',
 ] as const;
 
 export type MarketModuleKey = (typeof MARKET_MODULE_KEYS)[number];
@@ -192,6 +195,18 @@ const MODULE_ENTRY_NOTICES: Record<MarketModuleKey, { tr: string; en: string }> 
   school_reviews: {
     tr: 'Okul değerlendirme ve raporlarda kullanım başına jeton veya ek ders düşebilir.',
     en: 'School reviews and reports may charge jeton or extra lesson credits per use.',
+  },
+  butterfly_exam: {
+    tr: 'Kertenkele Sınav salon yerleştirme ve raporlarda kullanım ücretleri tarifeye göre alınabilir.',
+    en: 'Butterfly exam seating and reports may incur usage fees per the tariff.',
+  },
+  sorumluluk_sinav: {
+    tr: 'Sorumluluk / Beceri Sınavı otomatik programlama ve raporlarda kullanım ücretleri tarifeye göre alınabilir.',
+    en: 'Responsibility/Skill exam scheduling and reports may incur usage fees per the tariff.',
+  },
+  messaging: {
+    tr: 'WhatsApp Mesaj Gönderme Modülü: veli/öğretmen bilgilendirme, ek ders, maaş, devamsızlık ve karne dağıtımı.',
+    en: 'WhatsApp messaging module for parent/teacher notifications, payslips, attendance and report cards.',
   },
 };
 
