@@ -90,6 +90,11 @@ export class UpdateMeDto {
   @IsBoolean()
   teacher_public_name_masked?: boolean;
 
+  /** E-posta+şifre girişinde e-posta OTP (öğretmen / okul yöneticisi / süperadmin / moderatör) */
+  @IsOptional()
+  @IsBoolean()
+  login_otp_required?: boolean;
+
   /** Hazır profil görseli (null = sıfırla) */
   @IsOptional()
   @Transform(({ value }) => {

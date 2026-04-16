@@ -23,15 +23,15 @@ export class YillikPlanIcerik {
   @Column({ name: 'subject_label', type: 'varchar', length: 128 })
   subjectLabel: string;
 
-  /** Sınıf (1-12) – MEB için zorunlu; BİLSEM için null (ana_grup/alt_grup kullanılır) */
+  /** Sınıf (1-12) – MEB için zorunlu; Bilsem için null (ana_grup/alt_grup kullanılır) */
   @Column({ type: 'int', nullable: true })
   grade: number | null;
 
-  /** BİLSEM ana grup – Program aşaması: UYUM, DESTEK-1, DESTEK-2, BYF-1, BYF-2, ÖYG, PROJE */
+  /** Bilsem ana grup – Program aşaması: UYUM, DESTEK-1, DESTEK-2, BYF-1, BYF-2, ÖYG, PROJE */
   @Column({ name: 'ana_grup', type: 'varchar', length: 64, nullable: true })
   anaGrup: string | null;
 
-  /** BİLSEM alt grup – opsiyonel (A, B, Grup 1 vb.) */
+  /** Bilsem alt grup – opsiyonel (A, B, Grup 1 vb.) */
   @Column({ name: 'alt_grup', type: 'varchar', length: 64, nullable: true })
   altGrup: string | null;
 
@@ -98,7 +98,7 @@ export class YillikPlanIcerik {
   @Column({ name: 'sort_order', type: 'int', nullable: true })
   sortOrder: number | null;
 
-  /** null = MEB / kazanım; bilsem = BİLSEM yıllık plan içerikleri */
+  /** null = MEB / kazanım; bilsem = Bilsem yıllık plan içerikleri */
   @Column({ name: 'curriculum_model', type: 'varchar', length: 32, nullable: true })
   curriculumModel: string | null;
 

@@ -121,7 +121,7 @@ export default function DocumentTemplatesPage() {
               </p>
               {isSuperadmin && (
                 <p className="text-xs text-muted-foreground">
-                  BİLSEM yetenek alanı şablonları ve iş planı{' '}
+                  Bilsem yetenek alanı şablonları ve iş planı{' '}
                   <span className="font-medium text-foreground">ayrı sayfada</span> yönetilir — karışmaması için.
                 </p>
               )}
@@ -132,7 +132,7 @@ export default function DocumentTemplatesPage() {
               href="/bilsem-sablon"
               className="inline-flex shrink-0 items-center gap-2 self-start rounded-xl border border-violet-500/25 bg-violet-500/8 px-4 py-2.5 text-sm font-medium text-violet-800 shadow-sm transition hover:border-violet-500/40 hover:bg-violet-500/12 dark:text-violet-200"
             >
-              <span>BİLSEM altyapısı</span>
+              <span>Bilsem altyapısı</span>
               <ExternalLink className="size-4 opacity-80" aria-hidden />
             </Link>
           )}

@@ -24,6 +24,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ListUsersDto } from './dto/list-users.dto';
 import { TeacherSchoolMembershipActionDto } from './dto/teacher-school-membership-action.dto';
+import { MergeTeacherRegistrationDto } from './dto/merge-teacher-registration.dto';
 import { User } from './entities/user.entity';
 import { effectiveTeacherSchoolMembership } from '../common/utils/teacher-school-membership';
 import { schoolJoinStage } from '../common/utils/school-join-stage';
@@ -78,7 +79,11 @@ export class UsersController {
     const result = await this.usersService.list(dto, scope);
     return {
       ...result,
-      items: result.items.map(toUserResponse),
+      items: result.items.map((u) => ({
+        ...toUserResponse(u),
+        is_passwordless_stub:
+          u.role === UserRole.teacher && !u.passwordHash && !u.firebaseUid,
+      })),
     };
   }
 
@@ -88,6 +93,21 @@ export class UsersController {
   async create(@Body() dto: CreateUserDto, @CurrentUser() payload: CurrentUserPayload) {
     const scopeSchoolId = payload.user.role === UserRole.school_admin ? payload.schoolId : null;
     return this.usersService.create(dto, scopeSchoolId);
+  }
+
+  @Post('teachers/merge-by-registration')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.school_admin)
+  @RequireModule('users')
+  async mergeTeacherByRegistration(
+    @Body() dto: MergeTeacherRegistrationDto,
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    const user = await this.usersService.mergeTeacherRegistration(dto.stub_user_id, dto.registered_email, {
+      role: payload.user.role as UserRole,
+      schoolId: payload.schoolId,
+    });
+    return toUserResponse(user);
   }
 
   @Post('import/mebbis-personnel')

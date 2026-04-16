@@ -1,7 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import type { LucideIcon } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { apiFetch, getApiUrl } from '@/lib/api';
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
@@ -20,7 +19,7 @@ import {
 import { toast } from 'sonner';
 import { FOOTER_CONSENT_HREF } from '@/lib/footer-consent-href';
 import { cn } from '@/lib/utils';
-import { WebSettingsField, WebSettingsPanel, WEB_SETTINGS_INPUT } from './web-settings-shell';
+import { WebSettingsField, WebSettingsPanel, WebSettingsSection, WEB_SETTINGS_INPUT } from './web-settings-shell';
 
 export type WebPublicFooterNavItem = {
   label: string;
@@ -92,40 +91,6 @@ function newNavItem(): WebPublicFooterNavItem {
   return { label: '', href: '/' };
 }
 
-function SiteSection({
-  icon: Icon,
-  title,
-  description,
-  children,
-  className,
-}: {
-  icon: LucideIcon;
-  title: string;
-  description: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        'overflow-hidden rounded-2xl border border-border/45 bg-card/40 shadow-sm ring-1 ring-border/15 dark:bg-card/25',
-        className,
-      )}
-    >
-      <div className="flex gap-3 border-b border-border/35 bg-muted/25 px-4 py-3.5 sm:px-5 dark:bg-muted/15">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-background/80 text-primary shadow-sm ring-1 ring-border/40 dark:bg-background/50">
-          <Icon className="size-[18px]" strokeWidth={2} aria-hidden />
-        </span>
-        <div className="min-w-0 pt-0.5">
-          <h3 className="text-sm font-semibold leading-tight tracking-tight text-foreground">{title}</h3>
-          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{description}</p>
-        </div>
-      </div>
-      <div className="space-y-4 p-4 sm:p-5">{children}</div>
-    </div>
-  );
-}
-
 export function WebPublicPanel() {
   const { token } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -191,7 +156,7 @@ export function WebPublicPanel() {
         </div>
       ) : (
         <div className="space-y-6">
-          <SiteSection
+          <WebSettingsSection
             icon={LayoutPanelTop}
             title="1 · Üst şerit (header)"
             description="Pano ve misafir sayfalarındaki sabit üst çubuk. Görünüm ve yoğunluk tüm siteye uygulanır."
@@ -288,9 +253,9 @@ export function WebPublicPanel() {
                 maxLength={120}
               />
             </WebSettingsField>
-          </SiteSection>
+          </WebSettingsSection>
 
-          <SiteSection
+          <WebSettingsSection
             icon={Mail}
             title="2 · İletişim ve slogan"
             description="E-posta ve telefon iletişim alanlarında kullanılabilir. Slogan isteğe bağlı kısa metindir."
@@ -326,9 +291,9 @@ export function WebPublicPanel() {
                 placeholder="Öğretmenler için dijital işler"
               />
             </WebSettingsField>
-          </SiteSection>
+          </WebSettingsSection>
 
-          <SiteSection
+          <WebSettingsSection
             icon={Link2}
             title="3 · Alt bilgi (footer)"
             description="Sayfa sonundaki şerit: solda yıl + telif, sağda bağlantılar. Çerez tercihi için URL alanına özel değer kullanın."
@@ -412,9 +377,9 @@ export function WebPublicPanel() {
                 </Button>
               </div>
             </div>
-          </SiteSection>
+          </WebSettingsSection>
 
-          <SiteSection
+          <WebSettingsSection
             icon={Share2}
             title="4 · Sosyal ağlar"
             description="Harici profil veya sayfa adresleri. Boş bırakılanlar gösterilmez."
@@ -461,9 +426,9 @@ export function WebPublicPanel() {
                 />
               </WebSettingsField>
             </div>
-          </SiteSection>
+          </WebSettingsSection>
 
-          <SiteSection
+          <WebSettingsSection
             icon={Scale}
             title="5 · Yasal (harici URL)"
             description="Gizlilik ve kullanım şartları için tam adres. Uygulama içi yasal sayfalar yerine harici site kullanıyorsanız doldurun."
@@ -490,7 +455,7 @@ export function WebPublicPanel() {
                 />
               </WebSettingsField>
             </div>
-          </SiteSection>
+          </WebSettingsSection>
 
           <div className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-muted/15 px-4 py-4 sm:flex-row sm:items-center sm:justify-between dark:bg-muted/10">
             <p className="text-[12px] text-muted-foreground">

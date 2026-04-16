@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { Upload, Plus, Trash2, RefreshCw, FileText, Info, Eye } from 'lucide-react';
 import CampaignPreviewTable from './CampaignPreviewTable';
 import SendPanel from './SendPanel';
+import { applyWaTemplateSamples } from '@/lib/messaging-template-samples';
 
 type RecipRow = { name: string; phone: string; studentName: string; studentNumber: string; className: string };
 
@@ -105,21 +106,16 @@ export default function PdfSplitFlow({
                   <Eye className="size-3" />{showPreview ? 'Gizle' : 'Önizle'}
                 </button>
               </div>
-              <textarea rows={4} value={template} onChange={(e) => setTemplate(e.target.value)}
-                className="w-full rounded-lg border border-input bg-white px-3 py-2 text-sm dark:bg-zinc-900 resize-y font-mono" />
+              <textarea rows={8} value={template} onChange={(e) => setTemplate(e.target.value)}
+                className="w-full rounded-lg border border-input bg-white px-3 py-2 text-sm dark:bg-zinc-900 resize-y font-mono leading-relaxed" />
               <p className="mt-1 text-[10px] text-muted-foreground">
                 {'{AD}'} = veli &nbsp;|&nbsp; {'{OGRENCI}'} = öğrenci &nbsp;|&nbsp; {'{SINIF}'} = sınıf
               </p>
               {showPreview && (
                 <div className="mt-2 flex justify-start">
                   <div className="relative max-w-[280px] sm:max-w-xs">
-                    <div className="rounded-2xl rounded-tl-none bg-[#d9fdd3] shadow px-3.5 py-2.5 text-[12px] leading-[1.55] text-slate-800 whitespace-pre-line border border-green-100 dark:bg-[#1a3a2a] dark:text-slate-100 dark:border-green-900/30">
-                      {template
-                        .replace(/{AD}/g, 'AHMET YILMAZ')
-                        .replace(/{OGRENCI}/g, 'Ali YILMAZ')
-                        .replace(/{SINIF}/g, '10. Sınıf / A Şubesi')
-                        .replace(/{OKUL}/g, 'Okulunuzun Adı')
-                      }
+                    <div className="rounded-2xl rounded-tl-none bg-[#d9fdd3] shadow px-3.5 py-2.5 text-[12px] leading-[1.65] text-slate-800 whitespace-pre-line border border-green-100 dark:bg-[#1a3a2a] dark:text-slate-100 dark:border-green-900/30">
+                      {applyWaTemplateSamples(template)}
                     </div>
                     <div className="absolute -left-1.5 top-0 size-0 border-t-[10px] border-t-[#d9fdd3] dark:border-t-[#1a3a2a] border-r-[8px] border-r-transparent" />
                     <p className="mt-0.5 text-right text-[9px] text-muted-foreground">📎 ogrenci_belgesi.pdf &nbsp; 17:25 ✓✓</p>

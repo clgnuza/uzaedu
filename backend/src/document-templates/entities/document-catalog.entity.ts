@@ -49,7 +49,7 @@ export class DocumentCatalog {
   @Column({ name: 'section_filter', type: 'varchar', length: 16, nullable: true })
   sectionFilter: string | null;
 
-  /** BİLSEM subject için: GENEL_YETENEK, RESIM, MUZIK, DIGERLERI */
+  /** Bilsem subject için: GENEL_YETENEK, RESIM, MUZIK, DIGERLERI */
   @Column({ name: 'ana_grup', type: 'varchar', length: 32, nullable: true })
   anaGrup: string | null;
 

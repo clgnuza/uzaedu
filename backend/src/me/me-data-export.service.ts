@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { MARKET_MODULE_KEYS } from '../app-config/market-policy.defaults';
+import { MARKET_MODULE_KEYS, type MarketModuleKey } from '../app-config/market-policy.defaults';
 import { UsersService } from '../users/users.service';
 import { TeacherAgendaService } from '../teacher-agenda/teacher-agenda.service';
+import { MeUserModuleSnapshotsService } from './me-user-module-snapshots.service';
 
 const EXPORT_MODULE_IDS = ['account', ...MARKET_MODULE_KEYS] as const;
 type ExportModuleId = (typeof EXPORT_MODULE_IDS)[number];
@@ -13,6 +14,7 @@ export class MeDataExportService {
   constructor(
     private readonly usersService: UsersService,
     private readonly teacherAgendaService: TeacherAgendaService,
+    private readonly userModuleSnapshots: MeUserModuleSnapshotsService,
   ) {}
 
   parseModulesQuery(raw: string | undefined): 'legacy' | ExportModuleId[] {
@@ -57,6 +59,8 @@ export class MeDataExportService {
         out.account = await this.usersService.exportUserData(userId);
       } else if (key === 'teacher_agenda') {
         out.teacher_agenda = await this.teacherAgendaService.exportFullDataSnapshot(userId);
+      } else if (this.userModuleSnapshots.isExportableModule(key)) {
+        out[key] = await this.userModuleSnapshots.snapshot(userId, key as MarketModuleKey);
       } else {
         out[key] = { unavailable: true };
       }

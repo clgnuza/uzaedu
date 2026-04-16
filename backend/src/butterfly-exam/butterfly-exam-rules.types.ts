@@ -26,6 +26,11 @@ export interface ButterflyExamRules {
   fillDirection?: 'ltr' | 'rtl' | 'alternating';
   /** Sabit öğrenciler önce yerleştirilir */
   prioritizePinned?: boolean;
+  /**
+   * Sabit öğrenciler yerleştirme sonrası kilitli kaydedilir (yeniden dağıtımda yer değiştirmez; taşıma için API ile kilit kaldırılır).
+   * `pinnedSeats` ile verilen koltuklar zaten kilit kabul edilir.
+   */
+  lockPinnedAssignments?: boolean;
   /** İhtiyaç sahibi öğrenciler ön sıraya */
   specialNeedsInFront?: boolean;
   /** Gözetmen modu */
@@ -136,6 +141,7 @@ export function mergeButterflyRules(raw: Record<string, unknown> | null | undefi
     fillDirection: ['ltr','rtl','alternating'].includes(r.fillDirection as string)
       ? r.fillDirection as ButterflyExamRules['fillDirection'] : 'ltr',
     prioritizePinned: r.prioritizePinned === true,
+    lockPinnedAssignments: r.lockPinnedAssignments === true,
     specialNeedsInFront: r.specialNeedsInFront === true,
     proctorMode: r.proctorMode === 'manual' ? 'manual' : 'auto',
     proctorsPerRoom: typeof r.proctorsPerRoom === 'number' ? r.proctorsPerRoom : 2,

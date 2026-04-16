@@ -26,6 +26,16 @@ import { normalizeTeacherDisplayName } from '../common/utils/teacher-display-nam
 
 const OTP_TTL_MIN = 12;
 
+/** Yanlış giriş kartı (okul vs öğretmen) — web yönlendirmesi için kod */
+const WRONG_PORTAL_USE_TEACHER_LOGIN = {
+  code: 'WRONG_PORTAL_USE_TEACHER_LOGIN' as const,
+  message: 'Bu hesap öğretmen hesabı. Öğretmen giriş sayfasından giriş yapın.',
+};
+const WRONG_PORTAL_USE_SCHOOL_LOGIN = {
+  code: 'WRONG_PORTAL_USE_SCHOOL_LOGIN' as const,
+  message: 'Bu hesap okul yöneticisi. Okul yöneticisi giriş sayfasından giriş yapın.',
+};
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -76,7 +86,11 @@ export class AuthService {
     const demoMatch = this.matchesDemoCredential(email, password);
     if (!user.passwordHash) {
       if (!demoMatch) {
-        throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'E-posta veya şifre hatalı.' });
+        throw new UnauthorizedException({
+          code: 'SOCIAL_AUTH_ONLY',
+          message:
+            'Bu e-posta şifre ile kayıtlı değil (ör. Google / Apple ile açılmış olabilir). Şifre ile giriş yapılamaz; giriş sayfasında sosyal giriş veya kayıt olurken kullandığınız yöntemi kullanın.',
+        });
       }
       user.passwordHash = await bcrypt.hash(password, 10);
       await this.userRepo.save(user);
@@ -148,7 +162,13 @@ export class AuthService {
       where: { email: normalized, status: UserStatus.active },
       relations: ['school'],
     });
-    if (!user || !this.teacherRoles().includes(user.role as UserRole)) {
+    if (!user) {
+      throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'E-posta veya şifre hatalı.' });
+    }
+    if (!this.teacherRoles().includes(user.role as UserRole)) {
+      if (user.role === UserRole.school_admin) {
+        throw new UnauthorizedException(WRONG_PORTAL_USE_SCHOOL_LOGIN);
+      }
       throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'E-posta veya şifre hatalı.' });
     }
     await this.assertPassword(user, password, normalized);
@@ -168,6 +188,9 @@ export class AuthService {
       await this.sendOtpMail(normalized, 'register_teacher', code);
       return { needs_verification_code: true, email: normalized, otp_purpose: 'register_teacher' };
     }
+    if (user.loginOtpRequired === false) {
+      return { token: user.id, user };
+    }
     const code = await this.authOtp.issue(normalized, 'login_teacher');
     const sent = await this.sendOtpMail(normalized, 'login_teacher', code);
     if (!sent) {
@@ -182,7 +205,13 @@ export class AuthService {
       where: { email: normalized, status: UserStatus.active },
       relations: ['school'],
     });
-    if (!user || !this.teacherRoles().includes(user.role as UserRole)) {
+    if (!user) {
+      throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'Oturum açılamadı.' });
+    }
+    if (!this.teacherRoles().includes(user.role as UserRole)) {
+      if (user.role === UserRole.school_admin) {
+        throw new UnauthorizedException(WRONG_PORTAL_USE_SCHOOL_LOGIN);
+      }
       throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'Oturum açılamadı.' });
     }
     if (!user.emailVerifiedAt) {
@@ -220,7 +249,13 @@ export class AuthService {
       where: { email: normalized, status: UserStatus.active },
       relations: ['school'],
     });
-    if (!user || user.role !== UserRole.school_admin) {
+    if (!user) {
+      throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'E-posta veya şifre hatalı.' });
+    }
+    if (user.role !== UserRole.school_admin) {
+      if (user.role === UserRole.teacher) {
+        throw new UnauthorizedException(WRONG_PORTAL_USE_TEACHER_LOGIN);
+      }
       throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'E-posta veya şifre hatalı.' });
     }
     await this.assertPassword(user, password, normalized);
@@ -239,6 +274,9 @@ export class AuthService {
       await this.sendOtpMail(normalized, 'register_school', code);
       return { needs_verification_code: true, email: normalized, otp_purpose: 'register_school' };
     }
+    if (user.loginOtpRequired === false) {
+      return { token: user.id, user };
+    }
     const code = await this.authOtp.issue(normalized, 'login_school');
     const sent = await this.sendOtpMail(normalized, 'login_school', code);
     if (!sent) {
@@ -253,7 +291,13 @@ export class AuthService {
       where: { email: normalized, status: UserStatus.active },
       relations: ['school'],
     });
-    if (!user || user.role !== UserRole.school_admin) {
+    if (!user) {
+      throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'Oturum açılamadı.' });
+    }
+    if (user.role !== UserRole.school_admin) {
+      if (user.role === UserRole.teacher) {
+        throw new UnauthorizedException(WRONG_PORTAL_USE_TEACHER_LOGIN);
+      }
       throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'Oturum açılamadı.' });
     }
     if (!user.emailVerifiedAt) {
@@ -282,7 +326,8 @@ export class AuthService {
     let school_id: string | null = null;
     let membership = TeacherSchoolMembershipStatus.none;
     const sid = schoolId?.trim();
-    let mergeSchool: { id: string; status: SchoolStatus; mergeTeacherOnNameMatch: boolean } | null = null;
+    let mergeSchool: { id: string; status: SchoolStatus; teacherNameMergeMode: 'none' | 'automatic' | 'manual' } | null =
+      null;
     if (sid) {
       const school = await this.schoolsService.findById(sid);
       if (school.status !== SchoolStatus.aktif) {
@@ -298,7 +343,7 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const mergeWithAdminStub = async (): Promise<User | null> => {
-      if (!school_id || !mergeSchool?.mergeTeacherOnNameMatch || !displayName?.trim()) return null;
+      if (!school_id || mergeSchool?.teacherNameMergeMode !== 'automatic' || !displayName?.trim()) return null;
       const targetNorm = normalizeTeacherDisplayName(displayName);
       if (!targetNorm) return null;
       const candidates = await this.userRepo.find({
@@ -552,7 +597,9 @@ export class AuthService {
     return { ok: true };
   }
 
-  async forgotPassword(email: string): Promise<{ ok: boolean; message: string }> {
+  async forgotPassword(
+    email: string,
+  ): Promise<{ ok: boolean; message: string; code?: 'SOCIAL_AUTH_ONLY' }> {
     const normalized = email.trim().toLowerCase();
     const user = await this.userRepo.findOne({ where: { email: normalized } });
     if (!user) {
@@ -560,8 +607,10 @@ export class AuthService {
     }
     if (!user.passwordHash) {
       return {
-        ok: true,
-        message: 'Bu hesap sosyal giriş ile oluşturulmuş; şifre sıfırlama uygulanamaz.',
+        ok: false,
+        code: 'SOCIAL_AUTH_ONLY',
+        message:
+          'Bu hesap sosyal giriş (Google / Apple vb.) ile oluşturulmuş; şifre sıfırlanmaz. Aynı yöntemle giriş yapın.',
       };
     }
     const code = await this.authOtp.issue(normalized, 'forgot_password');

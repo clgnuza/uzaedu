@@ -609,6 +609,11 @@ export default function AkilliTahtaPage() {
               ? `Akıllı Tahta – ${schools.find((s) => s.id === effectiveSchoolId)?.name ?? 'Okul'}`
               : 'Akıllı Tahta'}
           </ToolbarPageTitle>
+          {isSchoolAdmin && me?.school?.name && (
+            <p className="max-w-[min(100%,22rem)] truncate text-[11px] font-semibold text-teal-700 dark:text-teal-300/95 lg:hidden">
+              {me.school.name}
+            </p>
+          )}
           {!isTeacher ? (
             <div className="hidden min-w-0 lg:block">
               <ToolbarIconHints
@@ -697,7 +702,14 @@ export default function AkilliTahtaPage() {
           )}
           {isSchoolAdmin && effectiveSchoolId && (
             <Link href="/tv" className="inline-flex min-w-0">
-              <Button variant="outline" size="sm" className="h-8 shrink-0 gap-1 px-2 text-xs sm:h-9 sm:gap-2 sm:px-3 sm:text-sm">
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn(
+                  'h-8 shrink-0 gap-1 px-2 text-xs sm:h-9 sm:gap-2 sm:px-3 sm:text-sm',
+                  'max-sm:border-teal-500/45 max-sm:bg-teal-500/8 max-sm:text-teal-900 hover:max-sm:bg-teal-500/14 dark:max-sm:border-teal-600/40 dark:max-sm:bg-teal-950/35 dark:max-sm:text-teal-100',
+                )}
+              >
                 <Tv className="size-3.5 shrink-0 sm:mr-0 sm:size-4" />
                 <span className="max-sm:hidden">Duyuru TV</span>
                 <span className="sm:hidden">TV</span>
@@ -758,7 +770,7 @@ export default function AkilliTahtaPage() {
       )}
 
       {isTeacher && status?.mySession && (
-        <div className="mb-4 sticky top-0 z-10 flex flex-col gap-3 rounded-xl border-2 border-emerald-500/45 bg-emerald-500/10 px-3 py-3 shadow-md sm:mb-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-4">
+        <div className="mb-3 sticky top-0 z-10 flex flex-col gap-2 rounded-xl border-2 border-emerald-500/45 bg-emerald-500/10 px-2.5 py-2 shadow-md sm:mb-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-4 sm:py-3">
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/25 sm:size-10">
               <Monitor className="size-4 text-emerald-700 sm:size-5 dark:text-emerald-300" />
@@ -783,8 +795,8 @@ export default function AkilliTahtaPage() {
       )}
 
       {isTeacher && status?.authorized && (
-        <Card className="mb-3 overflow-hidden border-teal-200/45 shadow-sm dark:border-teal-900/35 sm:mb-6">
-          <CardHeader className="space-y-2 border-b border-teal-200/40 bg-teal-500/6 px-3 py-2.5 dark:border-teal-900/40 sm:space-y-0 sm:px-6 sm:py-4">
+        <Card className="mb-2 overflow-hidden border-teal-200/45 shadow-sm dark:border-teal-900/35 sm:mb-6">
+          <CardHeader className="space-y-2 border-b border-teal-200/40 bg-teal-500/6 px-2.5 py-2 dark:border-teal-900/40 sm:space-y-0 sm:px-6 sm:py-4">
             <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
               <span className="flex size-7 items-center justify-center rounded-lg bg-teal-500/15 sm:size-8">
                 <Monitor className="size-3.5 text-teal-700 dark:text-teal-400 sm:size-4" />
@@ -843,7 +855,7 @@ export default function AkilliTahtaPage() {
               </div>
             )}
           </CardHeader>
-          <CardContent className="px-3 py-2 sm:px-6 sm:py-6">
+          <CardContent className="px-2.5 py-2 sm:px-6 sm:py-6">
             {devices.length === 0 ? (
               <EmptyState
                 icon={<Monitor className="size-10 text-muted-foreground" />}
@@ -923,53 +935,65 @@ export default function AkilliTahtaPage() {
             </Alert>
           )}
 
-          <div className="akilli-tahta-admin-scope min-w-0 max-w-full overflow-x-hidden">
-            <nav
-              className="akilli-tahta-tabnav -mx-1 mb-2 flex min-w-0 snap-x snap-mandatory gap-1 overflow-x-auto overscroll-x-contain px-1 pb-1 pt-0.5 [scrollbar-width:none] sm:mx-0 sm:mb-6 sm:flex-wrap sm:overflow-visible sm:rounded-2xl sm:border sm:border-border/70 sm:bg-muted/40 sm:p-1.5 sm:pb-1.5 sm:pt-1.5 sm:shadow-sm sm:snap-none [&::-webkit-scrollbar]:hidden"
-              aria-label="Akıllı Tahta sekmeleri"
-            >
-              {ADMIN_TABS.map((t) => {
-                const Icon = t.icon;
-                const isActive = adminTab === t.id;
-                const idleTint =
-                  t.accent === 'primary'
-                    ? 'border-primary/15 bg-primary/5'
-                    : t.accent === 'teal'
-                      ? 'border-teal-500/20 bg-teal-500/8'
-                      : t.accent === 'amber'
-                        ? 'border-amber-500/20 bg-amber-500/8'
-                        : t.accent === 'violet'
-                          ? 'border-violet-500/20 bg-violet-500/8'
-                          : t.accent === 'emerald'
-                            ? 'border-emerald-500/20 bg-emerald-500/8'
-                            : t.accent === 'rose'
-                              ? 'border-rose-500/20 bg-rose-500/8'
-                              : 'border-slate-400/20 bg-slate-500/8';
-                return (
-                  <Link
-                    key={t.id}
-                    href={`/akilli-tahta?tab=${t.id}`}
-                    title={t.label}
-                    aria-current={isActive ? 'page' : undefined}
-                    className={cn(
-                      'flex min-h-0 shrink-0 snap-start flex-col items-center justify-center gap-0.5 rounded-lg border px-2 py-1.5 text-center text-[9px] font-semibold leading-tight transition-all duration-200 max-sm:min-w-[4.25rem] sm:min-h-0 sm:flex-initial sm:flex-row sm:gap-2 sm:rounded-xl sm:border-2 sm:px-3 sm:py-2.5 sm:text-left sm:text-sm',
-                      isActive
-                        ? getTabActiveStyles(t.accent)
-                        : cn('text-muted-foreground active:opacity-90', idleTint, 'sm:border-transparent sm:bg-transparent sm:hover:bg-background/90'),
-                    )}
-                  >
-                    <Icon className="size-3.5 shrink-0 sm:size-4" />
-                    <span className="line-clamp-2 max-sm:leading-[1.15] sm:hidden">{t.shortLabel}</span>
-                    <span className="hidden sm:inline">{t.label}</span>
-                  </Link>
-                );
-              })}
-            </nav>
+          <div
+            className={cn(
+              'akilli-tahta-admin-scope min-w-0 max-w-full overflow-x-hidden',
+              isSchoolAdmin && 'akilli-tahta-school-admin',
+            )}
+          >
+            <div className="mobile-tab-scroll akilli-tahta-tabnav -mx-0.5 mb-1.5 min-w-0 px-0.5 pb-0.5 sm:mx-0 sm:mb-6 sm:px-0 sm:pb-0">
+              <nav
+                className={cn(
+                  'flex w-full min-w-0 snap-x snap-mandatory gap-0.5 overflow-x-auto overscroll-x-contain p-0.5 [scrollbar-width:none] sm:flex-wrap sm:gap-1 sm:overflow-visible sm:rounded-2xl sm:border sm:border-border/70 sm:bg-muted/40 sm:p-1.5 sm:shadow-sm sm:snap-none [&::-webkit-scrollbar]:hidden',
+                  isSchoolAdmin
+                    ? 'max-sm:rounded-xl max-sm:border max-sm:border-teal-500/45 max-sm:bg-linear-to-br max-sm:from-teal-500/15 max-sm:via-sky-500/8 max-sm:to-muted/40 max-sm:shadow-md max-sm:ring-1 max-sm:ring-teal-500/20 dark:max-sm:border-teal-500/30 dark:max-sm:from-teal-950/40 dark:max-sm:via-sky-950/20 dark:max-sm:to-background/90 dark:max-sm:ring-teal-900/30'
+                    : 'max-sm:rounded-xl max-sm:border max-sm:border-border/70 max-sm:bg-linear-to-b max-sm:from-muted/50 max-sm:to-muted/30 max-sm:shadow-sm dark:max-sm:border-border/80',
+                )}
+                aria-label="Akıllı Tahta sekmeleri"
+              >
+                {ADMIN_TABS.map((t) => {
+                  const Icon = t.icon;
+                  const isActive = adminTab === t.id;
+                  const idleTint =
+                    t.accent === 'primary'
+                      ? 'border-primary/15 bg-primary/5'
+                      : t.accent === 'teal'
+                        ? 'border-teal-500/20 bg-teal-500/8'
+                        : t.accent === 'amber'
+                          ? 'border-amber-500/20 bg-amber-500/8'
+                          : t.accent === 'violet'
+                            ? 'border-violet-500/20 bg-violet-500/8'
+                            : t.accent === 'emerald'
+                              ? 'border-emerald-500/20 bg-emerald-500/8'
+                              : t.accent === 'rose'
+                                ? 'border-rose-500/20 bg-rose-500/8'
+                                : 'border-slate-400/20 bg-slate-500/8';
+                  return (
+                    <Link
+                      key={t.id}
+                      href={`/akilli-tahta?tab=${t.id}`}
+                      title={t.label}
+                      aria-current={isActive ? 'page' : undefined}
+                      className={cn(
+                        'flex min-h-0 shrink-0 snap-start flex-col items-center justify-center gap-0 rounded-md border px-1.5 py-1 text-center text-[8px] font-semibold leading-none transition-all duration-200 max-sm:min-w-14 sm:min-h-0 sm:flex-initial sm:flex-row sm:gap-2 sm:rounded-xl sm:border-2 sm:px-3 sm:py-2.5 sm:text-left sm:text-sm sm:leading-tight',
+                        isActive
+                          ? cn(getTabActiveStyles(t.accent), 'max-sm:ring-1 max-sm:ring-offset-0 max-sm:shadow-sm')
+                          : cn('text-muted-foreground active:opacity-90', idleTint, 'sm:border-transparent sm:bg-transparent sm:hover:bg-background/90'),
+                      )}
+                    >
+                      <Icon className="size-3 shrink-0 sm:size-4" />
+                      <span className="line-clamp-2 max-sm:leading-[1.1] sm:hidden">{t.shortLabel}</span>
+                      <span className="hidden sm:inline">{t.label}</span>
+                    </Link>
+                  );
+                })}
+              </nav>
+            </div>
 
           {adminTab === 'genel-bakis' && (
-            <div className="space-y-2 sm:space-y-6">
-              <div className="grid grid-cols-2 gap-1.5 lg:grid-cols-4 sm:gap-4">
-                <Card className="overflow-hidden border-teal-200/50 bg-teal-500/[0.06] shadow-sm transition-all dark:border-teal-900/40 sm:border-border/80 sm:bg-card sm:dark:border-border/80">
+            <div className="space-y-1.5 sm:space-y-6">
+              <div className="grid grid-cols-2 gap-1 lg:grid-cols-4 sm:gap-4">
+                <Card className="overflow-hidden border-teal-200/50 bg-teal-500/6 shadow-sm transition-all dark:border-teal-900/40 sm:border-border/80 sm:bg-card sm:dark:border-border/80">
                   <CardHeader className="flex flex-row items-center justify-between gap-1 px-2 py-1.5 pb-0 sm:px-3 sm:py-2 sm:pb-1">
                     <CardTitle className="text-[10px] font-semibold leading-tight text-muted-foreground sm:text-sm sm:font-medium">
                       Kayıtlı tahta
@@ -983,7 +1007,7 @@ export default function AkilliTahtaPage() {
                     <p className="mt-0.5 text-[9px] text-muted-foreground sm:mt-1 sm:text-xs">Toplam cihaz</p>
                   </CardContent>
                 </Card>
-                <Card className="overflow-hidden border-emerald-200/50 bg-emerald-500/[0.06] shadow-sm transition-all dark:border-emerald-900/40 sm:border-border/80 sm:bg-card sm:dark:border-border/80">
+                <Card className="overflow-hidden border-emerald-200/50 bg-emerald-500/6 shadow-sm transition-all dark:border-emerald-900/40 sm:border-border/80 sm:bg-card sm:dark:border-border/80">
                   <CardHeader className="flex flex-row items-center justify-between gap-1 px-2 py-1.5 pb-0 sm:px-3 sm:py-2 sm:pb-1">
                     <CardTitle className="text-[10px] font-semibold leading-tight text-muted-foreground sm:text-sm sm:font-medium">
                       Çevrimiçi
@@ -999,7 +1023,7 @@ export default function AkilliTahtaPage() {
                     <p className="mt-0.5 text-[9px] text-muted-foreground sm:mt-1 sm:text-xs">Şu an aktif</p>
                   </CardContent>
                 </Card>
-                <Card className="overflow-hidden border-violet-200/50 bg-violet-500/[0.06] shadow-sm transition-all dark:border-violet-900/40 sm:border-border/80 sm:bg-card sm:dark:border-border/80">
+                <Card className="overflow-hidden border-violet-200/50 bg-violet-500/6 shadow-sm transition-all dark:border-violet-900/40 sm:border-border/80 sm:bg-card sm:dark:border-border/80">
                   <CardHeader className="flex flex-row items-center justify-between gap-1 px-2 py-1.5 pb-0 sm:px-3 sm:py-2 sm:pb-1">
                     <CardTitle className="text-[10px] font-semibold leading-tight text-muted-foreground sm:text-sm sm:font-medium">
                       Yetkili öğretmen
@@ -1013,7 +1037,7 @@ export default function AkilliTahtaPage() {
                     <p className="mt-0.5 text-[9px] text-muted-foreground sm:mt-1 sm:text-xs">Bağlanabilir</p>
                   </CardContent>
                 </Card>
-                <Card className="overflow-hidden border-amber-200/50 bg-amber-500/[0.06] shadow-sm transition-all dark:border-amber-900/40 sm:border-border/80 sm:bg-card sm:dark:border-border/80">
+                <Card className="overflow-hidden border-amber-200/50 bg-amber-500/6 shadow-sm transition-all dark:border-amber-900/40 sm:border-border/80 sm:bg-card sm:dark:border-border/80">
                   <CardHeader className="flex flex-row items-center justify-between gap-1 px-2 py-1.5 pb-0 sm:px-3 sm:py-2 sm:pb-1">
                     <CardTitle className="text-[10px] font-semibold leading-tight text-muted-foreground sm:text-sm sm:font-medium">
                       Bugün bağlanan
@@ -1029,14 +1053,14 @@ export default function AkilliTahtaPage() {
                 </Card>
               </div>
               <Card className="border-border/80">
-                <CardHeader className="space-y-1 px-3 py-2 sm:px-6 sm:py-6">
+                <CardHeader className="space-y-1 px-2.5 py-2 sm:px-6 sm:py-6">
                   <CardTitle className="text-xs sm:text-base">Hızlı erişim</CardTitle>
                   <p className="line-clamp-3 text-[11px] leading-snug text-muted-foreground sm:line-clamp-none sm:text-sm">
                     Sekmeler veya aşağıdaki kısayollar. Ders bilgisi: Ders Programı.
                   </p>
                 </CardHeader>
-                <CardContent className="px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
-                  <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
+                <CardContent className="px-2.5 pb-2.5 pt-0 sm:px-6 sm:pb-6">
+                  <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-3">
                     <Link href="/ders-programi" className="min-w-0">
                       <Button variant="secondary" size="sm" className="h-9 w-full justify-center gap-1 px-2 text-[11px] sm:h-10 sm:w-auto sm:text-sm">
                         Ders prog.
@@ -1079,8 +1103,8 @@ export default function AkilliTahtaPage() {
           )}
 
           {adminTab === 'cihazlar' && (
-            <Card className="mb-4 overflow-hidden border-teal-200/40 dark:border-teal-900/35 sm:mb-6">
-              <CardHeader className="flex flex-col gap-2 border-b border-teal-200/40 bg-teal-500/6 px-3 py-2.5 dark:border-teal-900/40 sm:flex-row sm:items-center sm:justify-between sm:py-4">
+            <Card className="mb-3 overflow-hidden border-teal-200/40 dark:border-teal-900/35 sm:mb-6">
+              <CardHeader className="flex flex-col gap-2 border-b border-teal-200/40 bg-teal-500/6 px-2.5 py-2 dark:border-teal-900/40 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
                 <CardTitle className="flex min-w-0 items-center gap-2 text-sm sm:text-base">
                   <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-teal-500/15 sm:size-8">
                     <Monitor className="size-3.5 text-teal-700 dark:text-teal-400 sm:size-4" />
@@ -1105,8 +1129,8 @@ export default function AkilliTahtaPage() {
                   />
                 )}
               </CardHeader>
-              <CardContent className="space-y-3 px-3 sm:space-y-4 sm:px-6">
-                <div className="flex gap-2 rounded-lg border border-sky-200/80 bg-sky-50/70 px-2 py-1.5 text-sky-950 dark:border-sky-800/60 dark:bg-sky-950/35 dark:text-sky-100 sm:gap-3 sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm">
+              <CardContent className="space-y-3 px-2.5 sm:space-y-4 sm:px-6">
+                <div className="flex gap-1.5 rounded-lg border border-sky-200/80 bg-sky-50/70 px-2 py-1.5 text-sky-950 dark:border-sky-800/60 dark:bg-sky-950/35 dark:text-sky-100 sm:gap-3 sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm">
                   <Tv className="mt-0.5 size-3.5 shrink-0 text-sky-600 dark:text-sky-400 sm:size-5" aria-hidden />
                   <div className="max-h-38 min-w-0 space-y-0.5 overflow-y-auto pr-0.5 sm:max-h-none sm:space-y-1 sm:overflow-visible">
                     <p className="text-[11px] font-semibold leading-tight text-foreground sm:text-sm">Duyuru TV · sınıf ekranı</p>
@@ -1179,9 +1203,9 @@ export default function AkilliTahtaPage() {
           )}
 
           {adminTab === 'yetkiler' && (
-            <div className="space-y-3 sm:space-y-4">
+            <div className="space-y-2.5 sm:space-y-4">
               <Card className="overflow-hidden border-violet-200/45 dark:border-violet-900/40">
-                <CardHeader className="flex flex-col gap-2 border-b border-violet-200/40 bg-violet-500/6 px-3 py-2.5 dark:border-violet-900/40 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6 sm:py-4">
+                <CardHeader className="flex flex-col gap-2 border-b border-violet-200/40 bg-violet-500/6 px-2.5 py-2 dark:border-violet-900/40 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6 sm:py-4">
                   <div className="min-w-0 space-y-1">
                     <CardTitle className="flex flex-wrap items-center gap-1.5 text-sm sm:gap-2 sm:text-base">
                       <span className="flex size-7 items-center justify-center rounded-lg bg-violet-500/15 sm:size-8">

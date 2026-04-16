@@ -1037,7 +1037,7 @@ export class DocumentGenerateService {
     };
   }
 
-  /** Görüntüleme etiketi: MEB "9. Sınıf · …"; BİLSEM "ana/alt grup · …" (sınıf değil grup). */
+  /** Görüntüleme etiketi: MEB "9. Sınıf · …"; Bilsem "ana/alt grup · …" (sınıf değil grup). */
   private buildDisplayLabel(
     template: DocumentTemplate,
     mergeData: Record<string, string>,

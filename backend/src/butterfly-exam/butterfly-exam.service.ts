@@ -65,7 +65,12 @@ export class ButterflyExamService {
     } else {
       base = await this.studentRepo.find({ where: { schoolId } });
     }
-    const pinIds = [...new Set((rules.pinnedSeats ?? []).map((p) => p.studentId))];
+    const pinIds = [
+      ...new Set([
+        ...(rules.pinnedSeats ?? []).map((p) => p.studentId),
+        ...(rules.pinnedStudentIds ?? []),
+      ]),
+    ];
     if (!pinIds.length) return base;
     const extra = await this.studentRepo.find({ where: { schoolId, id: In(pinIds) } });
     const m = new Map(base.map((s) => [s.id, s]));
@@ -257,8 +262,16 @@ export class ButterflyExamService {
       preset.set(butterflySlotKey(pin.roomId, pin.seatIndex), pin.studentId);
     }
 
-    const seatingStudents = students.map((s) => ({ id: s.id, classId: s.classId ?? null }));
+    const seatingStudents = students.map((s) => ({
+      id: s.id,
+      classId: s.classId ?? null,
+      name: s.name,
+      studentNumber: s.studentNumber,
+    }));
     const result = computeSeating(roomCaps, seatingStudents, rules, new Map(), preset);
+
+    const pinLockSet = new Set(rules.pinnedStudentIds ?? []);
+    const lockPinned = rules.lockPinnedAssignments === true;
 
     await this.seatRepo.manager.transaction(async (em) => {
       await em.delete(ButterflySeatAssignment, { planId: plan.id, locked: false });
@@ -273,7 +286,7 @@ export class ButterflyExamService {
           studentId,
           roomId,
           seatIndex,
-          locked: false,
+          locked: lockPinned && pinLockSet.has(studentId),
           isManual: false,
         });
         await em.save(ButterflySeatAssignment, row);
@@ -587,6 +600,50 @@ export class ButterflyExamService {
     return previewEokulStyleSheet(buffer);
   }
 
+  /** Tek sınav oturumu için veli/öğrenci sorgu satırı (public API). */
+  private async buildPublicPlacementRow(
+    schoolId: string,
+    schoolName: string,
+    student: Student,
+    seat: ButterflySeatAssignment,
+    plan: ButterflyExamPlan,
+  ) {
+    const room = await this.roomRepo.findOne({ where: { id: seat.roomId, schoolId } });
+    const building = room
+      ? await this.buildingRepo.findOne({ where: { id: room.buildingId, schoolId } })
+      : null;
+    const c = student.classId ? await this.classRepo.findOne({ where: { id: student.classId } }) : null;
+    const classLabel = c?.name ?? '';
+    return {
+      planId: plan.id,
+      schoolName,
+      planTitle: plan.title,
+      examStartsAt: plan.examStartsAt.toISOString(),
+      examEndsAt: plan.examEndsAt ? plan.examEndsAt.toISOString() : null,
+      studentName: student.name,
+      studentNumber: student.studentNumber,
+      classLabel,
+      buildingName: building?.name ?? '',
+      roomName: room?.name ?? '',
+      seatLabel: String(seat.seatIndex + 1),
+    };
+  }
+
+  /** En yakın gelecek sınav önce; yoksa en son geçmiş sınav önce. */
+  private sortPublicPlacementsByRelevance<T extends { examStartsAt: string }>(rows: T[]): T[] {
+    const now = Date.now();
+    return [...rows].sort((a, b) => {
+      const ta = new Date(a.examStartsAt).getTime();
+      const tb = new Date(b.examStartsAt).getTime();
+      const aUp = ta >= now;
+      const bUp = tb >= now;
+      if (aUp && !bUp) return -1;
+      if (!aUp && bUp) return 1;
+      if (aUp && bUp) return ta - tb;
+      return tb - ta;
+    });
+  }
+
   async publicLookup(institutionCode: string, studentNumber: string, planId?: string) {
     const code = institutionCode.trim();
     const num = studentNumber.trim();
@@ -607,49 +664,54 @@ export class ButterflyExamService {
       throw new NotFoundException({ code: 'STUDENT_NOT_FOUND', message: 'Öğrenci bulunamadı.' });
     }
 
-    let plan: ButterflyExamPlan | null = null;
-    if (planId) {
-      plan = await this.planRepo.findOne({ where: { id: planId, schoolId: school.id, status: 'published' } });
-    } else {
-      plan = await this.planRepo.findOne({
-        where: { schoolId: school.id, status: 'published' },
-        order: { examStartsAt: 'DESC' },
-      });
-    }
-    if (!plan) {
+    const publishedPlans = await this.planRepo.find({
+      where: { schoolId: school.id, status: 'published' },
+    });
+    if (!publishedPlans.length) {
       throw new NotFoundException({ code: 'NO_PLAN', message: 'Yayınlanmış sınav oturumu yok.' });
     }
+    const publishedById = new Map(publishedPlans.map((p) => [p.id, p]));
 
-    const seat = await this.seatRepo.findOne({ where: { planId: plan.id, studentId: student.id } });
-    if (!seat) {
+    let allowedPlanIds: string[];
+    if (planId?.trim()) {
+      const p = publishedById.get(planId.trim());
+      if (!p) {
+        throw new NotFoundException({ code: 'NO_PLAN', message: 'Sınav bulunamadı veya yayında değil.' });
+      }
+      allowedPlanIds = [p.id];
+    } else {
+      allowedPlanIds = publishedPlans.map((p) => p.id);
+    }
+
+    const allSeats = await this.seatRepo.find({ where: { studentId: student.id } });
+    const seatsInScope = allSeats.filter((s) => allowedPlanIds.includes(s.planId));
+
+    if (!seatsInScope.length) {
       return {
         found: false as const,
         schoolName: school.name,
         studentName: student.name,
-        message: 'Bu oturum için henüz koltuk atanmadı.',
+        message: planId?.trim()
+          ? 'Bu sınav için henüz koltuk atanmadı.'
+          : 'Yayınlanmış sınavlarda koltuk kaydı bulunamadı.',
       };
     }
 
-    const room = await this.roomRepo.findOne({ where: { id: seat.roomId, schoolId: school.id } });
-    const building = room
-      ? await this.buildingRepo.findOne({ where: { id: room.buildingId, schoolId: school.id } })
-      : null;
-    const c = student.classId ? await this.classRepo.findOne({ where: { id: student.classId } }) : null;
-    const classLabel = c?.name ?? '';
+    const rows = await Promise.all(
+      seatsInScope.map((seat) => {
+        const plan = publishedById.get(seat.planId)!;
+        return this.buildPublicPlacementRow(school.id, school.name, student, seat, plan);
+      }),
+    );
+    const sorted = this.sortPublicPlacementsByRelevance(rows);
+    const primary = sorted[0];
 
-    return {
+    const base = {
       found: true as const,
-      schoolName: school.name,
-      planTitle: plan.title,
-      examStartsAt: plan.examStartsAt.toISOString(),
-      examEndsAt: plan.examEndsAt ? plan.examEndsAt.toISOString() : null,
-      studentName: student.name,
-      studentNumber: student.studentNumber,
-      classLabel,
-      buildingName: building?.name ?? '',
-      roomName: room?.name ?? '',
-      seatLabel: String(seat.seatIndex + 1),
+      ...primary,
     };
+    if (sorted.length <= 1) return base;
+    return { ...base, placements: sorted };
   }
 
   assertSchoolAccess(role: string, schoolId: string | null, targetSchoolId: string) {

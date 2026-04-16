@@ -5,6 +5,7 @@ import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { Alert } from '@/components/ui/alert';
 import { AvatarPickerField } from '@/components/account/avatar-picker';
+import { UserAvatarBubble } from '@/components/user-avatar';
 import { cn } from '@/lib/utils';
 
 const profileInput = cn(
@@ -18,12 +19,17 @@ export function EditProfileForm({
   token,
   displayName: initialDisplayName,
   avatarKey: initialAvatarKey,
+  avatarUrl,
   onSuccess,
+  compact,
 }: {
   token: string | null;
   displayName: string;
   avatarKey?: string | null;
+  avatarUrl?: string | null;
   onSuccess: () => void;
+  /** Öğretmen hesap sekmesi ile aynı: mobilde daha küçük ikon ızgarası */
+  compact?: boolean;
 }) {
   const [displayName, setDisplayName] = useState(initialDisplayName);
   const [avatarKey, setAvatarKey] = useState<string | null>(initialAvatarKey ?? null);
@@ -64,9 +70,41 @@ export function EditProfileForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
+    <form onSubmit={handleSubmit} className={cn('space-y-3 sm:space-y-4', compact && 'max-sm:space-y-2')}>
       {error && <Alert message={error} />}
-      <AvatarPickerField value={avatarKey} onChange={setAvatarKey} disabled={submitting} idPrefix="profile-av" />
+      <div
+        className={cn(
+          'w-full min-w-0 max-w-full border border-border/50 bg-muted/10',
+          compact ? 'rounded-lg p-2.5 sm:rounded-xl sm:p-4' : 'rounded-xl p-3 sm:p-4',
+        )}
+      >
+        <div
+          className={cn(
+            'flex flex-col items-stretch lg:flex-row lg:items-start',
+            compact ? 'gap-2.5 lg:gap-4' : 'gap-3 lg:gap-5',
+          )}
+        >
+          <div className={cn('flex flex-col items-center gap-1 lg:shrink-0', compact ? 'lg:w-[100px]' : 'lg:w-[104px]')}>
+            <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Önizleme</span>
+            <UserAvatarBubble
+              avatarKey={avatarKey}
+              avatarUrl={avatarUrl ?? null}
+              displayName={displayName}
+              email=""
+              size="lg"
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <AvatarPickerField
+              value={avatarKey}
+              onChange={setAvatarKey}
+              disabled={submitting}
+              idPrefix="profile-av"
+              compact={compact}
+            />
+          </div>
+        </div>
+      </div>
       <div className="space-y-0.5 sm:space-y-1">
         <label htmlFor="profile-display-name" className={profileLabel}>
           Görünen ad

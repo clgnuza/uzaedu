@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, AUTH_WRONG_PORTAL_SCHOOL_LOGIN, isApiErrorCode } from '@/lib/api';
 import { Alert } from '@/components/ui/alert';
 import { useAuth } from '@/hooks/use-auth';
 import {
@@ -20,6 +20,7 @@ import { CardContent, CardHeader } from '@/components/ui/card';
 import { LoadingDots } from '@/components/ui/loading-spinner';
 import { AuthCard } from '@/components/auth/auth-card';
 import { AuthCompactDetails } from '@/components/auth/auth-compact-details';
+import { ForgotPasswordGateDialog } from '@/components/auth/forgot-password-gate-dialog';
 import { cn } from '@/lib/utils';
 
 const RECAPTCHA_ID = 'recaptcha-phone';
@@ -39,8 +40,19 @@ export function TeacherLoginForm() {
   const redirectTo = searchParams?.get('redirect') || '/dashboard';
   const regQuery = searchParams?.toString();
   const registerHref = regQuery ? `/register/ogretmen?${regQuery}` : '/register/ogretmen';
-  const forgotHref = regQuery ? `/forgot-password?${regQuery}` : '/forgot-password';
+  const forgotHref = regQuery ? `/forgot-password/ogretmen?${regQuery}` : '/forgot-password/ogretmen';
+  const schoolLoginHref = regQuery ? `/login/okul?${regQuery}` : '/login/okul';
   const { setToken } = useAuth();
+  const [fromSchoolBanner, setFromSchoolBanner] = useState(false);
+
+  useEffect(() => {
+    if (searchParams?.get('wrong_portal') !== 'from_school') return;
+    setFromSchoolBanner(true);
+    const p = new URLSearchParams(searchParams.toString());
+    p.delete('wrong_portal');
+    const q = p.toString();
+    router.replace(q ? `/login/ogretmen?${q}` : '/login/ogretmen', { scroll: false });
+  }, [searchParams, router]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -51,6 +63,7 @@ export function TeacherLoginForm() {
   const [phoneCode, setPhoneCode] = useState('');
   const [phoneConfirm, setPhoneConfirm] = useState<{ confirm: (code: string) => Promise<string> } | null>(null);
   const [expandedAlt, setExpandedAlt] = useState(false);
+  const [forgotGateOpen, setForgotGateOpen] = useState(false);
   const [otpPhase, setOtpPhase] = useState(false);
   const [otpCode, setOtpCode] = useState('');
   const [pendingEmail, setPendingEmail] = useState('');
@@ -107,6 +120,15 @@ export function TeacherLoginForm() {
         await setTokenAndRedirect(res.token);
       }
     } catch (err) {
+      if (isApiErrorCode(err, AUTH_WRONG_PORTAL_SCHOOL_LOGIN)) {
+        const msg = err instanceof Error ? err.message : 'Yönlendiriliyorsunuz.';
+        toast.error(msg);
+        const next = schoolLoginHref.includes('?')
+          ? `${schoolLoginHref}&wrong_portal=from_teacher`
+          : `${schoolLoginHref}?wrong_portal=from_teacher`;
+        router.replace(next);
+        return;
+      }
       const msg = err instanceof Error ? err.message : 'Giriş yapılamadı.';
       setError(msg);
       toast.error(msg);
@@ -131,6 +153,15 @@ export function TeacherLoginForm() {
       });
       await setTokenAndRedirect(res.token);
     } catch (err) {
+      if (isApiErrorCode(err, AUTH_WRONG_PORTAL_SCHOOL_LOGIN)) {
+        const msg = err instanceof Error ? err.message : 'Yönlendiriliyorsunuz.';
+        toast.error(msg);
+        const next = schoolLoginHref.includes('?')
+          ? `${schoolLoginHref}&wrong_portal=from_teacher`
+          : `${schoolLoginHref}?wrong_portal=from_teacher`;
+        router.replace(next);
+        return;
+      }
       const msg = err instanceof Error ? err.message : 'Kod doğrulanamadı.';
       setError(msg);
       toast.error(msg);
@@ -250,6 +281,12 @@ export function TeacherLoginForm() {
               </p>
             </CardHeader>
             <CardContent className="space-y-4 px-4 pb-5 pt-4 sm:space-y-5 sm:px-6 sm:pb-6 sm:pt-5">
+              {fromSchoolBanner && (
+                <Alert
+                  message="Okul yöneticisi giriş sayfasından yönlendirildiniz. Öğretmen hesabınızla bu sayfada giriş yapın."
+                  className="px-2.5 py-2 text-[11px] leading-snug [&_svg]:size-4"
+                />
+              )}
               {otpPhase ? (
                 <form onSubmit={submitOtp} className="space-y-3 sm:space-y-4">
                   <div>
@@ -340,13 +377,20 @@ export function TeacherLoginForm() {
                     </button>
                   </div>
                   <div className="flex items-center justify-end">
-                    <Link
-                      href={forgotHref}
+                    <button
+                      type="button"
+                      onClick={() => setForgotGateOpen(true)}
                       className="text-sm font-medium text-violet-600 hover:underline dark:text-violet-400"
                     >
                       Şifremi unuttum
-                    </Link>
+                    </button>
                   </div>
+                  <ForgotPasswordGateDialog
+                    open={forgotGateOpen}
+                    onOpenChange={setForgotGateOpen}
+                    continueHref={forgotHref}
+                    role="teacher"
+                  />
                   {error && <Alert message={error} className="px-2.5 py-2 text-[11px] leading-snug [&_svg]:size-4" />}
                   <button
                     type="submit"

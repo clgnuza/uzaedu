@@ -86,7 +86,7 @@ function ResetPasswordForm() {
           className="px-2 py-1.5 text-[10px] leading-snug sm:text-[11px]"
         />
         <Link
-          href="/forgot-password"
+          href="/forgot-password/ogretmen"
           className="block text-center text-[10px] font-semibold text-primary hover:underline sm:text-[11px]"
         >
           Şifre unuttum

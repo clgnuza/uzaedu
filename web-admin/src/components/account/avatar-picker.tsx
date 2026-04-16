@@ -18,12 +18,12 @@ export function AvatarPickerField({
   compact?: boolean;
 }) {
   return (
-    <div className={cn('space-y-1 sm:space-y-2', compact && 'max-sm:space-y-0.5')}>
+    <div className={cn('w-full min-w-0 space-y-1 sm:space-y-2', compact && 'max-sm:space-y-0.5')}>
       <p className={cn('font-medium text-foreground', compact ? 'text-xs sm:text-sm' : 'text-sm')}>Profil görseli</p>
       <p className={cn('text-muted-foreground', compact ? 'text-[11px] leading-snug sm:text-xs' : 'text-xs')}>
         Hazır ikonlar; ayrı dosya yüklenmez.
       </p>
-      <div className={cn('flex flex-wrap', compact ? 'gap-1.5 sm:gap-2' : 'gap-2')}>
+      <div className={cn('flex w-full min-w-0 flex-wrap', compact ? 'gap-1.5 sm:gap-2' : 'gap-2')}>
         <button
           type="button"
           disabled={disabled}

@@ -1,7 +1,9 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MENU_SIDEBAR } from '@/config/menu';
 import type { MenuItem, WebAdminRole } from '@/config/types';
@@ -118,6 +120,8 @@ function filterMenuTree(
       out.push(item);
       continue;
     }
+    if (role && item.hiddenInSidebarForRoles?.includes(role)) continue;
+
     if (item.children?.length) {
       if (!item.allowedRoles.includes(role)) continue;
       if (role === 'moderator' && item.requiredModule) {
@@ -159,6 +163,53 @@ function label(item: MenuItem, role: WebAdminRole | null, bilsemOkul?: boolean):
   return (role && item.titleByRole?.[role]) ?? item.title ?? '';
 }
 
+function itemMatchesQuery(
+  item: MenuItem,
+  needle: string,
+  role: WebAdminRole | null,
+  bilsemOkul: boolean,
+): boolean {
+  const t = label(item, role, bilsemOkul).toLocaleLowerCase('tr-TR');
+  if (t.includes(needle)) return true;
+  if (item.path && item.path.toLowerCase().includes(needle)) return true;
+  return false;
+}
+
+/** Arama varken bölüm başlıkları gizlenir; eşleşen grup ve linkler kalır. */
+function filterMenuBySearch(
+  items: MenuItem[],
+  rawQuery: string,
+  role: WebAdminRole | null,
+  bilsemOkul: boolean,
+): MenuItem[] {
+  const needle = rawQuery.trim().toLocaleLowerCase('tr-TR');
+  if (!needle) return items;
+
+  const out: MenuItem[] = [];
+  for (const item of items) {
+    if (item.heading) continue;
+
+    if (item.renderAsHubOnly && item.hubOnlyPath) {
+      if (itemMatchesQuery(item, needle, role, bilsemOkul)) out.push(item);
+      continue;
+    }
+
+    if (item.children?.length) {
+      const parentMatch = itemMatchesQuery(item, needle, role, bilsemOkul);
+      const kids = parentMatch
+        ? item.children
+        : item.children.filter((c) => c.path && itemMatchesQuery(c, needle, role, bilsemOkul));
+      if (kids.length > 0) out.push({ ...item, children: kids });
+      continue;
+    }
+
+    if (item.path && itemMatchesQuery(item, needle, role, bilsemOkul)) {
+      out.push(item);
+    }
+  }
+  return out;
+}
+
 export function SidebarMenu({ role, moderatorModules }: SidebarMenuProps) {
   const pathname = usePathname();
   const { me } = useAuth();
@@ -172,6 +223,14 @@ export function SidebarMenu({ role, moderatorModules }: SidebarMenuProps) {
     supportEnabledValue,
   );
   const bilsemOkul = me?.school?.enabled_modules?.includes('bilsem');
+  const [search, setSearch] = useState('');
+
+  const displayItems = useMemo(() => {
+    const withoutHeadingsWhenSearch = search.trim()
+      ? items.filter((i) => !i.heading)
+      : items;
+    return filterMenuBySearch(withoutHeadingsWhenSearch, search, role, !!bilsemOkul);
+  }, [items, search, role, bilsemOkul]);
 
   const isActive = (path?: string) => {
     if (!path) return false;
@@ -180,8 +239,29 @@ export function SidebarMenu({ role, moderatorModules }: SidebarMenuProps) {
   };
 
   return (
-    <nav className="flex flex-col gap-1.5 px-3 py-5">
-      {items.map((item, idx) => {
+    <>
+      <div className="sticky top-0 z-10 border-b border-border/70 bg-background px-3 pb-3 pt-4">
+        <label htmlFor="sidebar-menu-search" className="sr-only">
+          Menüde ara
+        </label>
+        <div className="relative">
+          <Search
+            className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <input
+            id="sidebar-menu-search"
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Menüde ara…"
+            autoComplete="off"
+            className="h-9 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+          />
+        </div>
+      </div>
+      <nav className="flex flex-col gap-1.5 px-3 py-4">
+      {displayItems.map((item, idx) => {
         if (item.heading) {
           return (
             <div key={`h-${idx}`} className="px-1 pb-1 pt-4 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/75 first:pt-0">
@@ -277,6 +357,10 @@ export function SidebarMenu({ role, moderatorModules }: SidebarMenuProps) {
           </Link>
         );
       })}
+      {search.trim() && displayItems.length === 0 && (
+        <p className="px-1 py-6 text-center text-sm text-muted-foreground">Eşleşen menü yok.</p>
+      )}
     </nav>
+    </>
   );
 }

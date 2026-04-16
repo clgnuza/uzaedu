@@ -235,7 +235,7 @@ function RegisterOkulContent() {
 
   return (
     <AuthPageShell>
-      <AuthFlowSubnav flow="register" role="school" redirectQuery={q} />
+      <AuthFlowSubnav flow="register" role="school" redirectQuery={q} gateForgot />
       <AuthCard className="shadow-[0_20px_50px_-12px_rgba(245,158,11,0.2)] ring-2 ring-amber-500/15 dark:shadow-[0_24px_64px_-16px_rgba(0,0,0,0.45)]">
         <CardHeader className="space-y-1.5 border-b border-amber-500/15 bg-linear-to-br from-amber-500/12 to-transparent px-3 pb-3 pt-3 sm:space-y-2 sm:px-5 sm:pb-4 sm:pt-4">
           <div className="flex items-center gap-2">

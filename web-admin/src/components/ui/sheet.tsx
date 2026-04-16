@@ -93,7 +93,7 @@ export function SheetContent({ side = 'left', className, children }: SheetConten
         role="dialog"
         aria-modal="true"
         className={cn(
-          'fixed inset-y-0 z-50 flex w-full max-w-[280px] flex-col bg-background shadow-lg transition-transform duration-300 ease-in-out',
+          'fixed inset-y-0 z-50 flex h-[100dvh] max-h-[100dvh] min-h-0 w-full max-w-[280px] flex-col overflow-hidden bg-background shadow-lg transition-transform duration-300 ease-in-out',
           side === 'left' && 'left-0 data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left',
           side === 'right' && 'right-0 data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right',
           !open && (side === 'left' ? '-translate-x-full' : 'translate-x-full'),
@@ -115,7 +115,15 @@ export function SheetHeader({ className, ...props }: React.HTMLAttributes<HTMLDi
 }
 
 export function SheetBody({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('flex-1 overflow-y-auto p-4', className)} {...props} />;
+  return (
+    <div
+      className={cn(
+        'flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-4 [-webkit-overflow-scrolling:touch] touch-pan-y',
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
 export function SheetClose({ className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) {

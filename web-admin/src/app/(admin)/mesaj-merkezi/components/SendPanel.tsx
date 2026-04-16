@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
-import { Campaign, executeCampaign, STATUS_COLORS, STATUS_LABELS } from '@/lib/messaging-api';
+import { useEffect, useState } from 'react';
+import { Campaign, executeCampaign, getDeliveryHint, STATUS_COLORS, STATUS_LABELS } from '@/lib/messaging-api';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { toast } from 'sonner';
 import { Send, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import ManualWhatsappSendPanel from './ManualWhatsappSendPanel';
 
 interface Props {
   campaign: Campaign;
@@ -17,6 +18,14 @@ interface Props {
 
 export default function SendPanel({ campaign, token, q, onSent }: Props) {
   const [sending, setSending] = useState(false);
+  const [linkMode, setLinkMode] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    void getDeliveryHint(token, q)
+      .then((h) => setLinkMode(h.whatsappLinkMode))
+      .catch(() => setLinkMode(false));
+  }, [token, q]);
 
   const send = async () => {
     if (!confirm(`"${campaign.title}" kampanyasındaki ${campaign.totalCount} kişiye mesaj gönderilecek. Devam?`)) return;
@@ -25,11 +34,16 @@ export default function SendPanel({ campaign, token, q, onSent }: Props) {
       const res = await executeCampaign(token ?? '', campaign.id, q);
       toast.success(`Gönderim başladı — ${res.total} alıcı`);
       onSent?.();
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Hata'); }
-    finally { setSending(false); }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setSending(false);
+    }
   };
 
   const pct = campaign.totalCount > 0 ? Math.round((campaign.sentCount / campaign.totalCount) * 100) : 0;
+  const showManual =
+    linkMode && (campaign.status === 'preview' || campaign.status === 'failed' || campaign.status === 'sending');
 
   return (
     <div className="rounded-2xl border border-white/50 bg-white/80 p-4 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 space-y-3">
@@ -41,12 +55,22 @@ export default function SendPanel({ campaign, token, q, onSent }: Props) {
           </span>
         </div>
         {(campaign.status === 'preview' || campaign.status === 'failed') && (
-          <Button size="sm" className="gap-1.5 bg-green-600 hover:bg-green-700" disabled={sending} onClick={send}>
-            {sending ? <LoadingSpinner className="size-4" /> : <Send className="size-4" />}
-            Gönder
-          </Button>
+          <>
+            {linkMode === null ? (
+              <LoadingSpinner className="size-6" />
+            ) : linkMode === false ? (
+              <Button size="sm" className="gap-1.5 bg-green-600 hover:bg-green-700" disabled={sending} onClick={send}>
+                {sending ? <LoadingSpinner className="size-4" /> : <Send className="size-4" />}
+                Gönder
+              </Button>
+            ) : null}
+          </>
         )}
       </div>
+
+      {showManual ? (
+        <ManualWhatsappSendPanel campaign={campaign} token={token} q={q} onUpdate={onSent} />
+      ) : null}
 
       <div className="grid grid-cols-3 gap-2 text-center text-xs">
         <div className="rounded-xl bg-slate-50 py-2 dark:bg-zinc-800/50">
@@ -69,7 +93,8 @@ export default function SendPanel({ campaign, token, q, onSent }: Props) {
       {campaign.status === 'completed' && (
         <div className="rounded-xl bg-green-50 dark:bg-green-950/20 p-2">
           <div className="mb-1 flex justify-between text-xs font-semibold text-green-700">
-            <span>İlerleme</span><span>{pct}%</span>
+            <span>İlerleme</span>
+            <span>{pct}%</span>
           </div>
           <div className="h-2 rounded-full bg-green-100 dark:bg-green-900/40">
             <div className="h-2 rounded-full bg-green-500 transition-all" style={{ width: `${pct}%` }} />

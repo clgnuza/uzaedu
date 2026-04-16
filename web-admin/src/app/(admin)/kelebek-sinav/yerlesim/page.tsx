@@ -102,24 +102,24 @@ function ClassLayoutModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="relative flex h-[90vh] max-h-[680px] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-zinc-900">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
+      <div className="relative flex max-h-[100dvh] h-[100dvh] w-full max-w-4xl flex-col overflow-hidden rounded-none rounded-t-2xl bg-white shadow-2xl sm:h-[90vh] sm:max-h-[680px] sm:rounded-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5 dark:border-zinc-800">
-          <div>
-            <p className="font-semibold">Sınıf Düzeni Yönetimi</p>
-            <p className="text-xs text-muted-foreground">
+        <div className="flex shrink-0 items-start justify-between gap-2 border-b border-slate-200 px-3 py-3 dark:border-zinc-800 sm:px-5 sm:py-3.5">
+          <div className="min-w-0 pr-2">
+            <p className="font-semibold leading-tight">Sınıf Düzeni Yönetimi</p>
+            <p className="mt-0.5 break-words text-xs text-muted-foreground">
               {room.buildingName ? `${room.buildingName} · ` : ''}{room.name} · {totalCapacity} öğrenci · {totalCapacity} kapasite
             </p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800">
+          <button type="button" onClick={onClose} className="shrink-0 rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800">
             <X className="size-5" />
           </button>
         </div>
 
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
           {/* Left: Grup Ayarları */}
-          <div className="flex w-64 shrink-0 flex-col overflow-hidden border-r border-slate-200 dark:border-zinc-800">
+          <div className="flex max-h-[42vh] w-full shrink-0 flex-col overflow-hidden border-b border-slate-200 dark:border-zinc-800 lg:max-h-none lg:w-64 lg:border-b-0 lg:border-r">
             <div className="flex items-center justify-between px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Grup Ayarları
               <button type="button" onClick={addGroup}
@@ -188,7 +188,7 @@ function ClassLayoutModal({
             </div>
 
             {/* Seat canvas */}
-            <div className="flex flex-1 gap-2 overflow-auto p-4">
+            <div className="flex min-h-0 flex-1 gap-2 overflow-auto p-2 sm:p-4">
               {groups.map((g, gi) => {
                 const startNo = groupOffsets[gi];
                 const isPair = g.rowType === 'pair';
@@ -412,7 +412,7 @@ export default function KelebekYerlesimPage() {
   if (loading) return <div className="flex justify-center py-16"><LoadingSpinner /></div>;
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       {/* Stats row */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[
@@ -448,18 +448,20 @@ export default function KelebekYerlesimPage() {
       {tab === 'buildings' && (
         <div className="space-y-4">
           {isAdmin && (
-            <div className="flex items-center gap-2 rounded-xl border border-sky-300/40 bg-sky-500/5 px-4 py-3">
-              <Building2 className="size-5 text-sky-600 shrink-0" />
-              <Input
-                placeholder="Bina adı (örn. Ana Bina, Ek Bina)"
-                value={bName}
-                onChange={(e) => setBName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && void addBuilding()}
-                className="flex-1 bg-white/80 dark:bg-zinc-950/50"
-              />
-              <Button type="button" onClick={() => void addBuilding()} disabled={!bName.trim()} className="shrink-0 gap-1">
-                <Plus className="size-4" /> Bina Ekle
-              </Button>
+            <div className="flex items-start gap-2 rounded-xl border border-sky-300/40 bg-sky-500/5 p-3 sm:items-center sm:px-4">
+              <Building2 className="mt-0.5 size-5 shrink-0 text-sky-600 sm:mt-0" />
+              <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+                <Input
+                  placeholder="Bina adı (örn. Ana Bina, Ek Bina)"
+                  value={bName}
+                  onChange={(e) => setBName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && void addBuilding()}
+                  className="min-w-0 flex-1 bg-white/80 dark:bg-zinc-950/50"
+                />
+                <Button type="button" onClick={() => void addBuilding()} disabled={!bName.trim()} className="w-full shrink-0 gap-1 sm:w-auto">
+                  <Plus className="size-4" /> Bina Ekle
+                </Button>
+              </div>
             </div>
           )}
 

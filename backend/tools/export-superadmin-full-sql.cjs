@@ -50,6 +50,16 @@ const CONFLICT_OVERRIDES = {
   extra_lesson_params: ['semester_code'],
 };
 
+/** Dışa aktarımda yetim satırları at (yerelde silinmiş parent kalmış child) */
+const SORUM_VALID_GROUP = `group_id IN (SELECT id FROM sorumluluk_groups)`;
+
+const EXPORT_TABLE_EXTRA_WHERE = {
+  sorumluluk_session_students: `session_id IN (SELECT id FROM sorumluluk_sessions WHERE ${SORUM_VALID_GROUP}) AND student_id IN (SELECT id FROM sorumluluk_students WHERE ${SORUM_VALID_GROUP})`,
+  sorumluluk_session_proctors: `session_id IN (SELECT id FROM sorumluluk_sessions WHERE ${SORUM_VALID_GROUP}) AND user_id IN (SELECT id FROM users)`,
+  sorumluluk_sessions: SORUM_VALID_GROUP,
+  sorumluluk_students: SORUM_VALID_GROUP,
+};
+
 /** UPSERT: PK yerine iş anahtarı (key, slug, semester_code) varsa çakışmayı ona göre çöz */
 async function getConflictColumnsForUpsert(client, tableName, pkCols) {
   if (CONFLICT_OVERRIDES[tableName]) return CONFLICT_OVERRIDES[tableName];
@@ -258,11 +268,12 @@ function litJson(val, col) {
 /**
  * self-FK: kökten derinliğe sıra (site_map_item vb.)
  */
-async function selectRowsOrdered(client, table, colMap, pkCols) {
+async function selectRowsOrdered(client, table, colMap, pkCols, extraWhere = null) {
   const selfFk = await hasSelfFk(client, table);
   if (!selfFk) {
     const ob = pkCols.length ? pkCols.map((c) => `"${c}"`).join(', ') : '1';
-    return client.query(`SELECT row_to_json(t) AS j FROM "${table}" AS t ORDER BY ${ob}`);
+    const w = extraWhere ? ` WHERE (${extraWhere})` : '';
+    return client.query(`SELECT row_to_json(t) AS j FROM "${table}" AS t${w} ORDER BY ${ob}`);
   }
   const { rows: fkcol } = await client.query(
     `
@@ -279,7 +290,8 @@ async function selectRowsOrdered(client, table, colMap, pkCols) {
   );
   if (!fkcol.length) {
     const ob = pkCols.length ? pkCols.map((c) => `"${c}"`).join(', ') : '1';
-    return client.query(`SELECT row_to_json(t) AS j FROM "${table}" AS t ORDER BY ${ob}`);
+    const w = extraWhere ? ` WHERE (${extraWhere})` : '';
+    return client.query(`SELECT row_to_json(t) AS j FROM "${table}" AS t${w} ORDER BY ${ob}`);
   }
   const { child_col } = fkcol[0];
   const pk0 = pkCols[0] || 'id';
@@ -292,12 +304,14 @@ async function selectRowsOrdered(client, table, colMap, pkCols) {
     )
     SELECT row_to_json(x) AS j FROM "${table}" x
     INNER JOIN tree ON tree.tid = x."${pk0}"
+    ${extraWhere ? `WHERE (${extraWhere})` : ''}
     ORDER BY tree.depth, x."${pk0}"`;
   try {
     return await client.query(sql);
   } catch {
     const ob = pkCols.length ? pkCols.map((c) => `"${c}"`).join(', ') : '1';
-    return client.query(`SELECT row_to_json(t) AS j FROM "${table}" AS t ORDER BY ${ob}`);
+    const w = extraWhere ? ` WHERE (${extraWhere})` : '';
+    return client.query(`SELECT row_to_json(t) AS j FROM "${table}" AS t${w} ORDER BY ${ob}`);
   }
 }
 
@@ -305,7 +319,8 @@ async function appendTableJson(client, lines, table, pkCols, colMap, patchRow) {
   const cols = await getColumns(client, table);
   const colNames = cols.map((c) => c.column_name);
   const cmap = Object.fromEntries(cols.map((c) => [c.column_name, c]));
-  const { rows } = await selectRowsOrdered(client, table, colMap, pkCols);
+  const extraWhere = EXPORT_TABLE_EXTRA_WHERE[table] || null;
+  const { rows } = await selectRowsOrdered(client, table, colMap, pkCols, extraWhere);
   const conflictCols = await getConflictColumnsForUpsert(client, table, pkCols);
   lines.push(`-- ${table}; rows: ${rows.length}`);
   if (!pkCols.length) {

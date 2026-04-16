@@ -22,4 +22,8 @@ export class CreateCriterionDto {
   @IsOptional()
   @IsUUID()
   subjectId?: string | null;
+
+  @IsOptional()
+  @IsIn(['lesson', 'behavior'])
+  criterionCategory?: 'lesson' | 'behavior';
 }

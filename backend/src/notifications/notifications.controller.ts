@@ -16,17 +16,19 @@ export class NotificationsController {
   @Get()
   async list(
     @CurrentUser('userId') userId: string,
-    @Query() dto: PaginationDto & { event_type?: string },
+    @Query() dto: PaginationDto & { event_type?: string; event_group?: string },
+    @Query('event_group') eventGroup?: string,
   ) {
-    return this.notificationsService.list(userId, dto);
+    return this.notificationsService.list(userId, { ...dto, event_group: eventGroup ?? dto.event_group });
   }
 
   @Get('unread-count')
   async unreadCount(
     @CurrentUser('userId') userId: string,
     @Query('event_type') eventType?: string,
+    @Query('event_group') eventGroup?: string,
   ) {
-    const count = await this.notificationsService.getUnreadCount(userId, eventType);
+    const count = await this.notificationsService.getUnreadCount(userId, eventType, eventGroup);
     return { count };
   }
 

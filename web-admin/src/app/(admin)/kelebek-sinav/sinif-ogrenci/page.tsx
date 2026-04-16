@@ -43,6 +43,10 @@ export default function KelebekSinifOgrenciPage() {
   const [pinnedSearch, setPinnedSearch] = useState('');
   const [pinnedSaving, setPinnedSaving] = useState(false);
   const [pinnedLoading, setPinnedLoading] = useState(false);
+  /** Sabit öğrenciler round-robin sıradaki ilk koltukları alsın */
+  const [prioritizePinned, setPrioritizePinned] = useState(true);
+  /** Yerleştirmeden sonra sabit öğrenci koltukları kilitlensin */
+  const [lockPinnedAssignments, setLockPinnedAssignments] = useState(true);
 
   // E-Okul paste modal
   const [pasteModal, setPasteModal] = useState(false);
@@ -147,7 +151,10 @@ export default function KelebekSinifOgrenciPage() {
       if (firstPlan) {
         setPinnedPlanId(firstPlan.id);
         const ids = firstPlan.rules?.pinnedStudentIds;
-        setPinnedIds(new Set(Array.isArray(ids) ? ids as string[] : []));
+        setPinnedIds(new Set(Array.isArray(ids) ? (ids as string[]) : []));
+        const r = firstPlan.rules as Record<string, unknown> | undefined;
+        setPrioritizePinned(r?.prioritizePinned !== false);
+        setLockPinnedAssignments(r?.lockPinnedAssignments !== false);
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Yüklenemedi');
@@ -160,7 +167,10 @@ export default function KelebekSinifOgrenciPage() {
     setPinnedPlanId(planId);
     const plan = plans.find((p) => p.id === planId);
     const ids = plan?.rules?.pinnedStudentIds;
-    setPinnedIds(new Set(Array.isArray(ids) ? ids as string[] : []));
+    setPinnedIds(new Set(Array.isArray(ids) ? (ids as string[]) : []));
+    const r = plan?.rules as Record<string, unknown> | undefined;
+    setPrioritizePinned(r?.prioritizePinned !== false);
+    setLockPinnedAssignments(r?.lockPinnedAssignments !== false);
   };
 
   const savePinned = async () => {
@@ -168,13 +178,32 @@ export default function KelebekSinifOgrenciPage() {
     setPinnedSaving(true);
     try {
       await apiFetch(`/butterfly-exam/plans/${pinnedPlanId}${schoolQ}`, {
-        method: 'PATCH', token,
-        body: JSON.stringify({ rules: { pinnedStudentIds: [...pinnedIds] } }),
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({
+          rules: {
+            pinnedStudentIds: [...pinnedIds],
+            prioritizePinned,
+            lockPinnedAssignments,
+          },
+        }),
       });
       // Update local plan rules
-      setPlans((ps) => ps.map((p) => p.id === pinnedPlanId
-        ? { ...p, rules: { ...(p.rules ?? {}), pinnedStudentIds: [...pinnedIds] } }
-        : p));
+      setPlans((ps) =>
+        ps.map((p) =>
+          p.id === pinnedPlanId
+            ? {
+                ...p,
+                rules: {
+                  ...(p.rules ?? {}),
+                  pinnedStudentIds: [...pinnedIds],
+                  prioritizePinned,
+                  lockPinnedAssignments,
+                },
+              }
+            : p,
+        ),
+      );
       toast.success('Sabit öğrenciler kaydedildi');
       setPinnedModal(false);
     } catch (e) {
@@ -210,23 +239,21 @@ export default function KelebekSinifOgrenciPage() {
   if (loading) return <div className="flex justify-center py-12"><LoadingSpinner /></div>;
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
-          <div>
-            <p className="text-xs text-muted-foreground">
-              {classes.length} sınıf · {totalStudents} öğrenci
-            </p>
-          </div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs text-muted-foreground">
+            {classes.length} sınıf · {totalStudents} öğrenci
+          </p>
         </div>
         {isAdmin && (
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" className="gap-1.5 border-rose-400/60 bg-rose-500/5 text-rose-700 dark:text-rose-300"
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            <Button size="sm" variant="outline" className="w-full justify-center gap-1.5 border-rose-400/60 bg-rose-500/5 text-rose-700 sm:w-auto dark:text-rose-300"
               onClick={() => void openPinnedModal()}>
               <Lock className="size-4" /> Sabit Öğrenci
             </Button>
-            <Button size="sm" variant="outline" className="gap-1.5 border-emerald-400/60 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300"
+            <Button size="sm" variant="outline" className="w-full justify-center gap-1.5 border-emerald-400/60 bg-emerald-500/5 text-emerald-700 sm:w-auto dark:text-emerald-300"
               onClick={() => setPasteModal(true)}>
               <ClipboardPaste className="size-4" /> E-Okul Öğrenci Aktar
             </Button>
@@ -327,8 +354,8 @@ export default function KelebekSinifOgrenciPage() {
 
       {/* Student Modal */}
       {studentModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="flex h-[90vh] w-full max-w-2xl flex-col rounded-2xl border border-white/60 bg-white shadow-2xl dark:border-zinc-700/60 dark:bg-zinc-900">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+          <div className="flex h-[min(100dvh,90vh)] w-full max-h-[100dvh] max-w-2xl flex-col rounded-t-2xl border border-white/60 bg-white shadow-2xl sm:h-[90vh] sm:rounded-2xl dark:border-zinc-700/60 dark:bg-zinc-900">
             {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-zinc-800">
               <div className="flex items-center gap-2">
@@ -354,11 +381,11 @@ export default function KelebekSinifOgrenciPage() {
             </div>
 
             {/* Table */}
-            <div className="flex-1 overflow-auto">
+            <div className="min-h-0 flex-1 overflow-auto">
               {studentsLoading ? (
                 <div className="flex justify-center py-8"><LoadingSpinner /></div>
               ) : (
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[280px] text-sm">
                   <thead className="sticky top-0 bg-slate-50 text-xs uppercase tracking-wide text-muted-foreground dark:bg-zinc-800/80">
                     <tr>
                       <th className="px-4 py-2.5 text-left">Öğrenci No</th>
@@ -397,15 +424,15 @@ export default function KelebekSinifOgrenciPage() {
             {isAdmin && (
               <div className="border-t border-slate-100 px-5 py-3 dark:border-zinc-800">
                 <p className="mb-2 text-xs font-semibold text-muted-foreground">Yeni Öğrenci Ekle</p>
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <Input placeholder="Öğrenci No" value={newStudentNo}
                     onChange={(e) => setNewStudentNo(e.target.value)}
-                    className="w-28 text-sm" />
+                    className="w-full text-sm sm:w-28" />
                   <Input placeholder="Ad Soyad" value={newStudentName}
                     onChange={(e) => setNewStudentName(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && void addStudent()}
-                    className="flex-1 text-sm" />
-                  <Button size="sm" onClick={() => void addStudent()} disabled={!newStudentName.trim()} className="gap-1">
+                    className="min-w-0 flex-1 text-sm" />
+                  <Button size="sm" onClick={() => void addStudent()} disabled={!newStudentName.trim()} className="w-full shrink-0 gap-1 sm:w-auto">
                     <Plus className="size-3.5" /> Ekle
                   </Button>
                 </div>
@@ -447,17 +474,51 @@ export default function KelebekSinifOgrenciPage() {
             </div>
 
             {/* Plan selector */}
-            <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-2.5 dark:border-zinc-800">
-              <span className="text-xs text-muted-foreground">Sınav:</span>
-              <select
-                className="h-7 rounded-lg border border-input bg-white px-2 text-xs dark:bg-zinc-800"
-                value={pinnedPlanId}
-                onChange={(e) => onPinnedPlanChange(e.target.value)}>
-                {plans.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
-              </select>
-              <span className="ml-auto text-xs text-muted-foreground">
-                {pinnedIds.size} sabit öğrenci seçildi
-              </span>
+            <div className="flex flex-col gap-2 border-b border-slate-100 px-4 py-2.5 dark:border-zinc-800 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3 sm:px-5">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <span className="shrink-0 text-xs text-muted-foreground">Sınav:</span>
+                <select
+                  className="h-8 min-w-0 flex-1 rounded-lg border border-input bg-white px-2 text-xs dark:bg-zinc-800"
+                  value={pinnedPlanId}
+                  onChange={(e) => onPinnedPlanChange(e.target.value)}>
+                  {plans.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <span className="text-xs text-muted-foreground">{pinnedIds.size} sabit seçildi</span>
+            </div>
+            <div className="space-y-2 border-b border-slate-100 px-4 py-3 dark:border-zinc-800 sm:px-5">
+              <label className="flex cursor-pointer items-start gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 rounded border-input"
+                  checked={prioritizePinned}
+                  onChange={(e) => setPrioritizePinned(e.target.checked)}
+                />
+                <span>
+                  <span className="font-medium text-foreground">Önce yerleştir</span>
+                  <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                    Sabit öğrenciler, round-robin sıradaki ilk uygun koltukları alır (listedeki sıra korunur). Kapalıysa tüm öğrenciler aynı sıralama kuralına girer.
+                  </span>
+                </span>
+              </label>
+              <label className="flex cursor-pointer items-start gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 rounded border-input"
+                  checked={lockPinnedAssignments}
+                  onChange={(e) => setLockPinnedAssignments(e.target.checked)}
+                />
+                <span>
+                  <span className="font-medium text-foreground">Yerleştirmeden sonra kilitle</span>
+                  <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                    «Yerleştir» sonrası sabit öğrencilerin koltukları kilitlenir; taşımak için önce kilit kaldırılır. Manuel `pinnedSeats` zaten korumalıdır.
+                  </span>
+                </span>
+              </label>
             </div>
 
             {pinnedLoading ? (
@@ -536,9 +597,9 @@ export default function KelebekSinifOgrenciPage() {
             )}
 
             {/* Footer */}
-            <div className="flex items-center justify-between border-t border-slate-200 px-5 py-3 dark:border-zinc-800">
-              <p className="text-xs text-muted-foreground">
-                Sabit öğrenciler sınav yerleştirmesinde öncelikli işlenir.
+            <div className="flex flex-col gap-2 border-t border-slate-200 px-4 py-3 dark:border-zinc-800 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                Katılımcı listesine eklenirler; «Önce yerleştir» ile ilk koltuk sırası, «kilitle» ile dağıtım sonrası koruma. Kesin koltuk için plan kurallarında `pinnedSeats` kullanılır.
               </p>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={() => setPinnedModal(false)}>İptal</Button>

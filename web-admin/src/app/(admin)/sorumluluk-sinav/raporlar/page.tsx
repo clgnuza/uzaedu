@@ -106,27 +106,27 @@ export default function RaporlarPage() {
   if (!groupId) return <p className="text-sm text-muted-foreground text-center py-8">Önce bir grup seçin.</p>;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Grup raporları — gruplandırılmış */}
       {REPORT_GROUPS.map((group) => {
         const visibleItems = group.items.filter((r) => !r.adminOnly || isAdmin);
         if (!visibleItems.length) return null;
         return (
           <div key={group.label}>
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 mb-2">{group.label}</p>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 sm:mb-2 sm:text-xs">{group.label}</p>
+            <div className="grid gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
               {visibleItems.map((r) => {
                 const Icon = r.icon;
                 const busy = downloading === `${r.key}.pdf`;
                 return (
-                  <div key={r.key} className="rounded-2xl border border-white/50 bg-white/80 p-4 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60">
-                    <div className="mb-2 flex items-center gap-2.5">
-                      <div className={`rounded-xl p-2.5 ${COLOR_MAP[r.color]}`}>
-                        <Icon className="size-4" />
+                  <div key={r.key} className="rounded-xl border border-white/50 bg-white/80 p-3 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 sm:rounded-2xl sm:p-4">
+                    <div className="mb-1.5 flex items-start gap-2 sm:mb-2 sm:items-center sm:gap-2.5">
+                      <div className={`rounded-lg p-2 sm:rounded-xl sm:p-2.5 ${COLOR_MAP[r.color]}`}>
+                        <Icon className="size-3.5 sm:size-4" />
                       </div>
-                      <p className="font-semibold text-sm leading-tight">{r.label}</p>
+                      <p className="text-xs font-semibold leading-tight sm:text-sm">{r.label}</p>
                     </div>
-                    <p className="text-xs text-muted-foreground mb-3 leading-relaxed">{r.desc}</p>
+                    <p className="mb-2 text-[11px] leading-snug text-muted-foreground sm:mb-3 sm:text-xs sm:leading-relaxed">{r.desc}</p>
                     <Button size="sm" variant="outline" className="w-full gap-1.5" disabled={busy} onClick={() => dl(r.key)}>
                       {busy ? <LoadingSpinner className="size-4" /> : <FileDown className="size-4" />}
                       PDF İndir
@@ -141,12 +141,12 @@ export default function RaporlarPage() {
 
       {/* Yoklama listeleri */}
       <div>
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1.5">
+        <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 sm:text-xs">
             <ClipboardList className="size-3.5" /> Yoklama Listeleri
           </p>
           {sessions.length > 1 && (
-            <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={dlAllYoklama} disabled={!!downloading}>
+            <Button size="sm" variant="outline" className="h-8 w-full gap-1.5 text-[11px] sm:h-9 sm:w-auto sm:text-xs" onClick={dlAllYoklama} disabled={!!downloading}>
               <FileDown className="size-3.5" /> Tümünü İndir
             </Button>
           )}
@@ -166,18 +166,18 @@ export default function RaporlarPage() {
             const key = `yoklama-${s.subjectName}-${s.sessionDate}.pdf`;
             const busy = downloading === key;
             return (
-              <div key={s.id} className="flex items-center gap-3 rounded-xl border border-white/50 bg-white/70 px-4 py-3 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/50">
-                <div className={`rounded-lg p-2 shrink-0 ${COLOR_MAP['amber']}`}>
+              <div key={s.id} className="flex flex-col gap-2 rounded-lg border border-white/50 bg-white/70 px-3 py-2.5 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/50 sm:flex-row sm:items-center sm:gap-3 sm:rounded-xl sm:px-4 sm:py-3">
+                <div className={`shrink-0 rounded-lg p-1.5 sm:p-2 ${COLOR_MAP['amber']}`}>
                   <ClipboardList className="size-3.5" />
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm leading-tight">{s.subjectName}</p>
-                  <p className="text-xs text-muted-foreground">{dateLabel(s)} · {s.startTime?.substring(0,5)}–{s.endTime?.substring(0,5)}{s.roomName ? ` · ${s.roomName}` : ''}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold leading-tight sm:text-sm">{s.subjectName}</p>
+                  <p className="mt-0.5 break-words text-[10px] text-muted-foreground sm:text-xs">{dateLabel(s)} · {s.startTime?.substring(0,5)}–{s.endTime?.substring(0,5)}{s.roomName ? ` · ${s.roomName}` : ''}</p>
                   {(s.studentCount !== undefined) && (
                     <p className="text-[10px] text-muted-foreground mt-0.5"><Users className="inline size-3 mr-0.5" />{s.studentCount} öğrenci</p>
                   )}
                 </div>
-                <Button size="sm" variant="outline" className="gap-1.5 shrink-0" disabled={busy} onClick={() => dlYoklama(s.id, s.subjectName, s.sessionDate)}>
+                <Button size="sm" variant="outline" className="h-8 w-full shrink-0 gap-1.5 text-xs sm:h-9 sm:w-auto" disabled={busy} onClick={() => dlYoklama(s.id, s.subjectName, s.sessionDate)}>
                   {busy ? <LoadingSpinner className="size-4" /> : <FileDown className="size-4" />}
                   Yoklama
                 </Button>

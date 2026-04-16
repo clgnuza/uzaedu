@@ -64,11 +64,6 @@ function maskTc(tc: string | undefined): string {
   return `${head}${mid}${tail}`;
 }
 
-/** Okul adı + iletişim notu ile standart footer üretir */
-function footer(schoolName: string, footerNote: string): string {
-  return `${footerNote ? footerNote + '\n' : ''}İyi Çalışmalar...\n${schoolName ? schoolName : 'OgretmenPro'}`;
-}
-
 // ── MEBBİS Puantaj ────────────────────────────────────────────────────────────
 
 export function parseMebbisPuantaj(buf: Buffer, donemLabel: string, schoolName = '', footerNote = ''): BordroTeacher[] {
@@ -102,15 +97,19 @@ export function parseMebbisPuantaj(buf: Buffer, donemLabel: string, schoolName =
     const brans  = bransCol  ? fmt(first[bransCol])  : '';
 
     const lines = [
-      `👤 Sayın ${toTitleCase(name)},`,
+      '📋 MEBBİS Puantaj',
       '',
-      `- T.C. Kimlik No: ${maskTc(g.tc)}`,
-      brans  ? `- Branş: ${brans}` : '',
-      `- Dönem: ${donemLabel}`,
-      toplam ? `- Toplam Saat: ${toplam} saat` : '',
+      `Sayın ${toTitleCase(name)},`,
+      '',
+      `• T.C. Kimlik No: ${maskTc(g.tc)}`,
+      brans  ? `• Branş: ${brans}` : '',
+      `• Dönem: ${donemLabel}`,
+      toplam ? `• Toplam saat: ${toplam} saat` : '',
       '',
       defaultNote,
-      footer(schoolName, ''),
+      '────────',
+      'İyi çalışmalar.',
+      schoolName ? schoolName : 'OgretmenPro',
     ].filter((l, i, arr) => l !== '' || (arr[i - 1] !== '' && i > 0));
 
     return { name, tc: g.tc, phone: g.phone, messageText: lines.join('\n').trim(), rawRows: g.rows };
@@ -153,15 +152,19 @@ export function parseEkDersBordro(buf: Buffer, donemLabel: string, schoolName = 
     const netStr = netToplam > 0 ? currency(netToplam) : (netCol ? fmt(g.rows[0][netCol]) : '');
 
     const lines = [
-      `👤 Sayın ${toTitleCase(name)},`,
+      '📋 Ek ders bordrosu',
       '',
-      `- T.C. Kimlik No: ${maskTc(g.tc)}`,
-      `- Bordro Türü: Ek Ders`,
-      `- Dönem: ${donemLabel}`,
-      netStr ? `- Net Ödenecek Tutar: ${netStr}` : '',
+      `Sayın ${toTitleCase(name)},`,
+      '',
+      `• T.C. Kimlik No: ${maskTc(g.tc)}`,
+      '• Bordro türü: Ek ders',
+      `• Dönem: ${donemLabel}`,
+      netStr ? `• Net ödenecek tutar: ${netStr}` : '',
       '',
       defaultNote,
-      footer(schoolName, ''),
+      '────────',
+      'İyi çalışmalar.',
+      schoolName ? schoolName : 'OgretmenPro',
     ].filter((l, i, arr) => l !== '' || (arr[i - 1] !== '' && i > 0));
 
     return { name, tc: g.tc, phone: g.phone, messageText: lines.join('\n').trim(), rawRows: g.rows };
@@ -200,15 +203,19 @@ export function parseMaasBordro(buf: Buffer, donemLabel: string, schoolName = ''
     const netStr = netRaw ? currency(netRaw) : '';
 
     const lines = [
-      `👤 Sayın ${toTitleCase(name)},`,
+      '📋 Maaş bordrosu',
       '',
-      `- T.C. Kimlik No: ${maskTc(g.tc)}`,
-      `- Bordro Türü: Maaş`,
-      `- Dönem: ${donemLabel}`,
-      netStr ? `- Net Ödenecek Tutar: ${netStr}` : '',
+      `Sayın ${toTitleCase(name)},`,
+      '',
+      `• T.C. Kimlik No: ${maskTc(g.tc)}`,
+      '• Bordro türü: Maaş',
+      `• Dönem: ${donemLabel}`,
+      netStr ? `• Net ödenecek tutar: ${netStr}` : '',
       '',
       defaultNote,
-      footer(schoolName, ''),
+      '────────',
+      'İyi çalışmalar.',
+      schoolName ? schoolName : 'OgretmenPro',
     ].filter((l, i, arr) => l !== '' || (arr[i - 1] !== '' && i > 0));
 
     return { name, tc: g.tc, phone: g.phone, messageText: lines.join('\n').trim(), rawRows: g.rows };

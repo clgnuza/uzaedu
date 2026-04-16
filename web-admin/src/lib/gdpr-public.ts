@@ -13,6 +13,8 @@ export type GdprPublic = {
   dpo_email: string | null;
   cookie_policy_path: string;
   reject_button_visible: boolean;
+  /** Kamu çerez şeridi görünümü */
+  cookie_banner_visual: 'gradient' | 'minimal' | 'brand';
   cache_ttl_gdpr: number;
 };
 

@@ -1,6 +1,6 @@
 /**
- * BİLSEM çalışma takvimi şablonu – 2025-2026
- * Kaynak: BİLSEM yıllık çalışma planı Excel şablonu
+ * Bilsem çalışma takvimi şablonu – 2025-2026
+ * Kaynak: Bilsem yıllık çalışma planı Excel şablonu
  * Hafta tarihleri ACADEMIC_CALENDAR_2025_2026 ile aynı (work_calendar eşleşmesi)
  */
 
@@ -12,7 +12,7 @@ export interface BilsemSeedItem {
   path?: string | null;
 }
 
-/** Hafta bazlı BİLSEM öğeleri – ACADEMIC_CALENDAR_2025_2026 start/end ile eşleşir */
+/** Hafta bazlı Bilsem öğeleri – ACADEMIC_CALENDAR_2025_2026 start/end ile eşleşir */
 export const BILSEM_CALENDAR_2025_2026: Array<{
   start: string;
   end: string;

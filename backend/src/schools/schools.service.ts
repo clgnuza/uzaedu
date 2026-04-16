@@ -208,7 +208,10 @@ export class SchoolsService {
     if (dto.duty_end_time !== undefined) school.duty_end_time = dto.duty_end_time?.trim() || null;
     if (dto.duty_teblig_duty_template !== undefined) school.duty_teblig_duty_template = dto.duty_teblig_duty_template?.trim() || null;
     if (dto.duty_teblig_coverage_template !== undefined) school.duty_teblig_coverage_template = dto.duty_teblig_coverage_template?.trim() || null;
-    if (dto.merge_teacher_on_name_match !== undefined) school.mergeTeacherOnNameMatch = dto.merge_teacher_on_name_match === true;
+    if (dto.teacher_name_merge_mode !== undefined) {
+      const m = dto.teacher_name_merge_mode;
+      if (m === 'none' || m === 'automatic' || m === 'manual') school.teacherNameMergeMode = m;
+    }
     if (!isSchoolAdmin) {
       if (dto.type !== undefined) school.type = dto.type;
       if (dto.segment !== undefined) school.segment = dto.segment;
@@ -330,7 +333,9 @@ export class SchoolsService {
   }
 
   private normalizeInstitutionCode(raw: string | null | undefined): string | null {
-    const t = raw?.trim();
+    const t = String(raw ?? '')
+      .trim()
+      .replace(/\D/g, '');
     if (!t || !/^\d{4,16}$/.test(t)) return null;
     return t;
   }
@@ -351,6 +356,31 @@ export class SchoolsService {
     return SchoolStatus.deneme;
   }
 
+  /** Kaynakta teacher_limit yoksa DB güncellenmez */
+  private teacherLimitFromSource(row: ReconcileSourceSchoolDto): number | undefined {
+    if (row.teacher_limit == null) return undefined;
+    const n = Number(row.teacher_limit);
+    if (!Number.isFinite(n)) return undefined;
+    return Math.max(1, Math.floor(n));
+  }
+
+  /** Kaynakta status boş/eksikse DB güncellenmez */
+  private statusFromSourceIfProvided(row: ReconcileSourceSchoolDto): SchoolStatus | undefined {
+    const raw = row.status;
+    if (raw == null || String(raw).trim() === '') return undefined;
+    const s = String(raw).toLowerCase().trim();
+    if (s === SchoolStatus.aktif || s === SchoolStatus.deneme || s === SchoolStatus.askida) return s as SchoolStatus;
+    return undefined;
+  }
+
+  private normalizeWebsiteUrl(raw: string | null | undefined): string | null {
+    const t = raw?.trim();
+    if (!t) return null;
+    if (/^https?:\/\//i.test(t)) return t;
+    if (!/\s/.test(t) && !t.includes('@') && t.includes('.') && t.length >= 4) return `https://${t}`;
+    return t;
+  }
+
   private desiredFromSource(row: ReconcileSourceSchoolDto) {
     return {
       name: row.name.trim(),
@@ -359,11 +389,14 @@ export class SchoolsService {
       city: row.city?.trim() || null,
       district: row.district?.trim() || null,
       address: row.address?.trim() || null,
-      website_url: row.website_url?.trim() || null,
+      map_url: row.map_url?.trim() || null,
+      school_image_url: row.school_image_url?.trim() || null,
+      website_url: this.normalizeWebsiteUrl(row.website_url),
       phone: row.phone?.trim() || null,
       fax: row.fax?.trim() || null,
       institutional_email: row.institutional_email?.trim() || null,
       principal_name: row.principal_name?.trim() || null,
+      about_description: row.about_description?.trim() || null,
     };
   }
 
@@ -375,11 +408,16 @@ export class SchoolsService {
       city: s.city ?? null,
       district: s.district ?? null,
       address: s.address ?? null,
+      map_url: s.mapUrl ?? null,
+      school_image_url: s.schoolImageUrl ?? null,
       website_url: s.website_url ?? null,
       phone: s.phone ?? null,
       fax: s.fax ?? null,
       institutional_email: s.institutionalEmail ?? null,
       principal_name: s.principalName ?? null,
+      about_description: s.about_description ?? null,
+      teacher_limit: s.teacher_limit,
+      status: s.status,
     };
   }
 
@@ -450,11 +488,14 @@ export class SchoolsService {
       'city',
       'district',
       'address',
+      'map_url',
+      'school_image_url',
       'website_url',
       'phone',
       'fax',
       'institutional_email',
       'principal_name',
+      'about_description',
     ] as const;
 
     const to_create: { row_index: number; institution_code: string }[] = [];
@@ -474,12 +515,24 @@ export class SchoolsService {
       const changes: Change[] = [];
       for (const k of syncKeys) {
         const a = cur[k];
-        const b = desired[k];
+        const b = desired[k as keyof typeof desired];
         const as = a != null ? String(a) : '';
         const bs = b != null ? String(b) : '';
         if (as !== bs) {
           changes.push({ field: k, from: a != null ? String(a) : null, to: b != null ? String(b) : null });
         }
+      }
+      const tl = this.teacherLimitFromSource(row);
+      if (tl !== undefined && school.teacher_limit !== tl) {
+        changes.push({
+          field: 'teacher_limit',
+          from: String(school.teacher_limit),
+          to: String(tl),
+        });
+      }
+      const st = this.statusFromSourceIfProvided(row);
+      if (st !== undefined && school.status !== st) {
+        changes.push({ field: 'status', from: school.status, to: st });
       }
       if (changes.length) {
         to_update.push({ row_index: rowIndex, school_id: school.id, institution_code: code, changes });
@@ -536,6 +589,8 @@ export class SchoolsService {
               website_url: d.website_url,
               phone: d.phone,
               fax: d.fax,
+              mapUrl: d.map_url,
+              schoolImageUrl: d.school_image_url,
               institutionCode: item.institution_code,
               institutionalEmail: d.institutional_email,
               address: d.address,
@@ -572,11 +627,18 @@ export class SchoolsService {
             school.city = d.city;
             school.district = d.district;
             school.address = d.address;
+            school.mapUrl = d.map_url;
+            school.schoolImageUrl = d.school_image_url;
             school.website_url = d.website_url;
             school.phone = d.phone;
             school.fax = d.fax;
             school.institutionalEmail = d.institutional_email;
             school.principalName = d.principal_name;
+            school.about_description = d.about_description;
+            const tl = this.teacherLimitFromSource(row);
+            if (tl !== undefined) school.teacher_limit = tl;
+            const st = this.statusFromSourceIfProvided(row);
+            if (st !== undefined) school.status = st;
             await repo.save(school);
             updated += 1;
             await this.auditService.log({

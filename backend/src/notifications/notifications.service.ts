@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Brackets, Repository } from 'typeorm';
 import { Notification } from './entities/notification.entity';
 import { NotificationPreference } from './entities/notification-preference.entity';
 import { User } from '../users/entities/user.entity';
@@ -10,6 +10,14 @@ import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class NotificationsService {
+  /** Liste / okunmamış sayısı: birden fazla event önekini OR ile filtreler */
+  private static readonly EVENT_GROUPS: Record<string, string[]> = {
+    /** Kertenkele + sorumluluk sınav (sınav modülleri) */
+    exam_school_modules: ['butterfly_exam', 'sorumluluk_exam'],
+    /** Mesaj Gönderme Merkezi (WhatsApp) + merkez sistem mesajı */
+    message_center_modules: ['messaging', 'admin_message'],
+  };
+
   constructor(
     @InjectRepository(Notification)
     private readonly notificationRepo: Repository<Notification>,
@@ -20,7 +28,7 @@ export class NotificationsService {
     private readonly mailService: MailService,
   ) {}
 
-  async list(userId: string, dto: PaginationDto & { event_type?: string }) {
+  async list(userId: string, dto: PaginationDto & { event_type?: string; event_group?: string }) {
     const page = dto.page ?? 1;
     const limit = dto.limit ?? 20;
     const qb = this.notificationRepo
@@ -29,7 +37,16 @@ export class NotificationsService {
       .orderBy('n.created_at', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
-    if (dto.event_type) {
+    const groupKeys = dto.event_group ? NotificationsService.EVENT_GROUPS[dto.event_group] : null;
+    if (groupKeys?.length) {
+      qb.andWhere(
+        new Brackets((qbs) => {
+          groupKeys.forEach((p, i) => {
+            qbs.orWhere(`n.event_type LIKE :_eg${i}`, { [`_eg${i}`]: `${p}.%` });
+          });
+        }),
+      );
+    } else if (dto.event_type) {
       if (dto.event_type.includes('.')) {
         qb.andWhere('n.event_type = :event_type', { event_type: dto.event_type });
       } else {
@@ -129,12 +146,21 @@ export class NotificationsService {
   }
 
   /** Okunmamış bildirim sayısı (event_type filtresi opsiyonel, 'duty' = duty.*) */
-  async getUnreadCount(userId: string, eventType?: string): Promise<number> {
+  async getUnreadCount(userId: string, eventType?: string, eventGroup?: string): Promise<number> {
     const qb = this.notificationRepo
       .createQueryBuilder('n')
       .where('n.user_id = :userId', { userId })
       .andWhere('n.read_at IS NULL');
-    if (eventType) {
+    const groupKeys = eventGroup ? NotificationsService.EVENT_GROUPS[eventGroup] : null;
+    if (groupKeys?.length) {
+      qb.andWhere(
+        new Brackets((qbs) => {
+          groupKeys.forEach((p, i) => {
+            qbs.orWhere(`n.event_type LIKE :_ug${i}`, { [`_ug${i}`]: `${p}.%` });
+          });
+        }),
+      );
+    } else if (eventType) {
       const prefix = eventType.endsWith('.*') ? eventType.slice(0, -2) : eventType;
       qb.andWhere('n.event_type LIKE :pattern', { pattern: prefix + '.%' });
     }

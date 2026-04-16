@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { UzaEduLogo } from '@/components/auth/uza-edu-logo';
+import { BrandSeal } from '@/components/brand/admin-shell-logo';
 import { AuthLegalFooter } from '@/components/auth/auth-legal-footer';
 import { cn } from '@/lib/utils';
 
@@ -108,16 +108,11 @@ export function AuthPageShell({ children, eyebrow = 'Web Admin', compact = false
               />
               <div
                 className={cn(
-                  'relative rounded-2xl bg-background/40 px-3 py-2 backdrop-blur-md dark:bg-zinc-950/50',
+                  'relative flex items-center justify-center rounded-2xl bg-background/40 px-3 py-2 backdrop-blur-md dark:bg-zinc-950/50',
                   compact ? 'px-2.5 py-1.5 sm:px-4 sm:py-2.5' : 'px-3 py-2 sm:px-5 sm:py-3',
                 )}
               >
-                <UzaEduLogo
-                  className={cn(
-                    'relative w-auto drop-shadow-[0_0_12px_rgba(99,102,241,0.35)] dark:drop-shadow-[0_0_16px_rgba(167,139,250,0.45)] dark:[&_text:first-of-type]:fill-white/90',
-                    compact ? 'h-7 sm:h-9' : 'h-7 sm:h-10',
-                  )}
-                />
+                <BrandSeal size={compact ? 'md' : 'lg'} />
               </div>
             </div>
 

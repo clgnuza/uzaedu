@@ -1,13 +1,12 @@
 /**
- * Örnek çerez bildirimi metni (HTML).
- * AB GDPR (2016/679), ePrivacy çerçevesi ve KVKK aydınlatma ilkelerine uygun örnek şablon —
- * yayına almadan kurumunuzun hukuk birimiyle doğrulayın.
+ * Örnek çerez bildirimi metni (HTML, küçük punto üst bileşende).
+ * KVKK (6698) aydınlatma / açık rıza ve GDPR (2016/679) m.6(1)(a), ePrivacy çerçevesiyle uyumlu özet —
+ * yayına almadan kurum hukukundan onay alın; çerez türleri ve amaçları envanterinize göre güncelleyin.
  */
 const COOKIE_POLICY_PLACEHOLDER = '__COOKIE_POLICY_PATH__';
 
-export const GDPR_COOKIE_BANNER_EXAMPLE_HTML = `<p><strong>Çerezler ve benzeri teknolojiler.</strong> Bu siteyi sunmak, güvenliği sağlamak, tercihlerinizi hatırlamak ve yalnızca açık rızanız olduğunda istatistik veya pazarlama amaçlı çerezleri kullanmak için veri işliyoruz.</p>
-<p>Kişisel verileriniz; <a href="/gizlilik">Aydınlatma Metni</a> ve <a href="${COOKIE_POLICY_PLACEHOLDER}">Çerez Politikası</a> kapsamında işlenir. Zorunlu olmayan çerezler için hukuki dayanak açık rızanızdır (GDPR m.6(1)(a)). Rızanızı dilediğiniz zaman geri çekebilir; tarayıcı ayarlarınızdan çerezleri silebilir veya engelleyebilirsiniz.</p>
-<p><em>Bu metin örnektir; nihai metin ve kategoriler veri envanterinize göre güncellenmelidir.</em></p>`;
+export const GDPR_COOKIE_BANNER_EXAMPLE_HTML = `<p>Zorunlu çerez ve benzeri teknolojilerle sitenin güvenli çalışması, oturum ve dil tercihleri sağlanır. <strong>Analitik ve pazarlama</strong> amaçlı işlemler için kişisel veri, yalnızca <strong>açık rızanız</strong> varsa işlenir (KVKK m.5/2-ç; GDPR m.6(1)(a)).</p>
+<p>İşlenme amaçları, saklama süreleri ve KVKK kapsamındaki haklarınız (bilgi, düzeltme, silme, itiraz vb.) <a href="/gizlilik">Aydınlatma Metni</a>’nde; çerez türleri ve yönetim <a href="${COOKIE_POLICY_PLACEHOLDER}">Çerez Politikası</a>’ndadır. Rızanızı dilediğiniz an geri çekebilir; tarayıcı ayarlarından çerezleri silebilir veya engelleyebilirsiniz.</p>`;
 
 function normalizePolicyPath(cookiePolicyPath: string): string {
   const p = cookiePolicyPath.trim().replace(/\s/g, '') || '/cerez';

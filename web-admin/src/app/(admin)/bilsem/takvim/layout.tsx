@@ -32,7 +32,7 @@ const TABS = [
     label: 'Yıllık çalışma planı',
     shortLabel: 'Yıllık plan',
     icon: ClipboardList,
-    title: 'BİLSEM yıllık çalışma planı',
+    title: 'Bilsem yıllık çalışma planı',
     adminOnly: false,
     activeClass: 'from-violet-600 to-fuchsia-600 shadow-violet-500/30 ring-fuchsia-400/25',
     idleClass: 'text-violet-900/90 hover:bg-violet-500/10 dark:text-violet-100/90 dark:hover:bg-violet-950/45',
@@ -51,7 +51,7 @@ export default function BilsemTakvimLayout({ children }: { children: React.React
         <nav
           className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] sm:flex-wrap sm:gap-2 sm:overflow-visible [&::-webkit-scrollbar]:hidden"
           role="tablist"
-          aria-label="BİLSEM takvim bölümleri"
+          aria-label="Bilsem takvim bölümleri"
         >
           {visibleTabs.map((tab) => {
             const active = pathname === tab.path || (tab.path !== '/bilsem/takvim' && pathname.startsWith(tab.path));

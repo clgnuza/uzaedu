@@ -571,15 +571,20 @@ function UtcPeriodCard(props: {
   return (
     <div
       className={cn(
-        'group relative flex flex-col overflow-hidden rounded-xl border bg-linear-to-br shadow-md ring-1 transition',
-        m
-          ? 'border-violet-500/30 from-violet-500/14 via-card to-card ring-violet-500/15 dark:from-violet-950/35'
-          : 'border-amber-500/30 from-amber-500/14 via-card to-card ring-amber-500/15 dark:from-amber-950/30',
+        'group relative flex flex-col overflow-hidden rounded-xl border bg-linear-to-br transition',
         props.compact
-          ? 'p-2.5 sm:p-3 hover:shadow-lg'
+          ? cn(
+              'border-2 p-2.5 shadow-md hover:shadow-lg sm:p-3',
+              m
+                ? 'border-violet-500/55 from-violet-500/14 via-card to-card ring-2 ring-violet-500/30 dark:from-violet-950/35 dark:ring-violet-400/25'
+                : 'border-amber-500/55 from-amber-500/14 via-card to-card ring-2 ring-amber-500/30 dark:from-amber-950/30 dark:ring-amber-400/25',
+            )
           : cn(
+              'border-2 shadow-md ring-1 ring-offset-0',
+              m
+                ? 'border-violet-500/50 from-violet-500/14 via-card to-card ring-violet-500/25 dark:from-violet-950/35'
+                : 'border-amber-500/50 from-amber-500/14 via-card to-card ring-amber-500/25 dark:from-amber-950/30',
               'p-4 shadow-lg hover:shadow-xl sm:p-6',
-              m ? 'ring-violet-500/10 dark:ring-violet-400/10' : 'ring-amber-500/10 dark:ring-amber-400/10',
             ),
       )}
     >
@@ -682,55 +687,70 @@ function UtcPeriodCard(props: {
 function LedgerTable({
   rows,
   showTarget,
+  compact,
 }: {
   rows: LedgerRow[];
   showTarget?: boolean;
+  /** Okul market alt tabloları — mobilde sıkı */
+  compact?: boolean;
 }) {
+  const cell = compact ? 'px-1.5 py-1 sm:px-3 sm:py-2.5' : 'px-2 py-2 sm:px-4 sm:py-3';
+  const thRow = compact
+    ? 'border-b border-border/80 bg-muted/50 text-left text-[9px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs'
+    : 'border-b border-border/80 bg-muted/50 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs';
   return (
     <div className="overflow-hidden rounded-lg border border-border/80 bg-muted/20 sm:rounded-xl">
       <div className="table-x-scroll">
-        <table className="w-full min-w-[480px] text-sm sm:min-w-[540px]">
+        <table
+          className={cn(
+            'w-full text-[11px] sm:text-sm',
+            compact ? 'min-w-[300px] sm:min-w-[460px]' : 'min-w-[480px] sm:min-w-[540px]',
+          )}
+        >
           <thead>
-            <tr className="border-b border-border/80 bg-muted/50 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">
-              <th className="px-2 py-2 sm:px-4 sm:py-3">Tarih</th>
-              <th className="px-2 py-2 sm:px-4 sm:py-3">Mağaza</th>
-              <th className="px-2 py-2 sm:px-4 sm:py-3">Ürün</th>
-              <th className="px-2 py-2 sm:px-4 sm:py-3">Durum</th>
-              {showTarget && <th className="px-2 py-2 sm:px-4 sm:py-3">Hedef</th>}
-              <th className="px-2 py-2 text-right sm:px-4 sm:py-3">Yüklenen</th>
+            <tr className={thRow}>
+              <th className={cell}>Tarih</th>
+              <th className={cell}>Mağaza</th>
+              <th className={cell}>Ürün</th>
+              <th className={cell}>Durum</th>
+              {showTarget && <th className={cell}>Hedef</th>}
+              <th className={cn(cell, 'text-right')}>Yüklenen</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/60 bg-card">
             {rows.map((r) => (
               <tr key={r.id} className="transition-colors hover:bg-muted/40">
-                <td className="whitespace-nowrap px-2 py-2 text-muted-foreground sm:px-4 sm:py-3">{fmtDate(r.createdAt)}</td>
-                <td className="px-2 py-2 sm:px-4 sm:py-3">
+                <td className={cn('whitespace-nowrap text-muted-foreground', cell)}>{fmtDate(r.createdAt)}</td>
+                <td className={cell}>
                   <PlatformBadge platform={r.platform} />
                 </td>
-                <td className="max-w-[200px] px-2 py-2 sm:px-4 sm:py-3">
-                  <span className="font-mono text-[11px] text-foreground sm:text-xs" title={r.productId}>
+                <td className={cn('max-w-[200px]', cell)}>
+                  <span
+                    className={cn('font-mono text-foreground', compact ? 'text-[10px] sm:text-xs' : 'text-[11px] sm:text-xs')}
+                    title={r.productId}
+                  >
                     {r.productId}
                   </span>
                 </td>
-                <td className="px-2 py-2 sm:px-4 sm:py-3">
+                <td className={cell}>
                   <StatusBadge status={r.status} />
                 </td>
                 {showTarget && (
-                  <td className="px-2 py-2 sm:px-4 sm:py-3">
+                  <td className={cell}>
                     {r.creditTarget === 'school' ? (
-                      <span className="inline-flex items-center gap-1 rounded-md bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-900 dark:bg-blue-950/60 dark:text-blue-200">
+                      <span className="inline-flex items-center gap-1 rounded-md bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-900 sm:px-2 sm:text-xs dark:bg-blue-950/60 dark:text-blue-200">
                         <Building2 className="size-3" />
                         Okul
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
+                      <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium sm:px-2 sm:text-xs">
                         <UserRound className="size-3" />
                         Bireysel
                       </span>
                     )}
                   </td>
                 )}
-                <td className="px-2 py-2 text-right tabular-nums text-foreground sm:px-4 sm:py-3">
+                <td className={cn('text-right tabular-nums text-foreground', cell)}>
                   {r.creditsApplied && r.amountCredited ? (
                     <span>
                       {fmtNum(parseFloat(r.amountCredited))}{' '}
@@ -838,6 +858,8 @@ export default function MarketPage() {
   const isSuperadmin = me?.role === 'superadmin';
   const isSuperOrMod = me?.role === 'superadmin' || me?.role === 'moderator';
   const showSchoolTariffs = isSchoolAdmin || isSuperOrMod;
+  /** Okul yöneticisi yalnızca okul tarifesi; öğretmen sütunu teacher / yönetici için */
+  const showTeacherTariffs = isTeacher || isSuperOrMod;
 
   const activationByModule = useMemo(() => {
     const map = new Map<string, { months: Set<string>; hasYear: boolean }>();
@@ -867,87 +889,95 @@ export default function MarketPage() {
     setError(null);
     setLoading(true);
     setUsageLoading(true);
-    try {
-      const [ent, w, m, s, pol, actSt, actLed] = await Promise.all([
-        apiFetch<EntitlementItem[]>('/entitlements', { token }),
-        apiFetch<WalletRes>('/market/wallet', { token }),
-        apiFetch<{ items: LedgerRow[]; total: number }>(
-          `/market/purchases/mine?page=${pageMine}&limit=${PAGE_SIZE}`,
-          { token },
-        ),
-        isSchoolAdmin
-          ? apiFetch<{ items: LedgerRow[]; total: number }>(
-              `/market/purchases/school?page=${pageSchool}&limit=${PAGE_SIZE}`,
-              { token },
-            )
-          : Promise.resolve(null),
-        apiFetch<MarketPolicyLite>('content/market-policy').catch(() => null),
-        apiFetch<ActivationStatusRes>('/market/modules/activation-status', { token }).catch(() => null),
-        apiFetch<{ items: ActivationLedgerRow[] }>('/market/modules/activation-ledger?limit=40', { token }).catch(
-          () => null,
-        ),
-      ]);
-      setEntitlements(Array.isArray(ent) ? ent : []);
-      setWallet(w);
-      setMine(m);
-      setSchool(s);
-      setPolicy(pol && pol.module_prices ? pol : null);
-      setActivationStatus(actSt && actSt.modules ? actSt : null);
-      setActivationLedger(Array.isArray(actLed?.items) ? actLed.items : []);
-      if (isTeacher) {
-        const rad = await apiFetch<{ total: number; items: RewardedAdCreditRow[] }>(
-          '/market/wallet/rewarded-ad-credits?limit=30',
-          { token },
-        ).catch(() => null);
-        setRewardedAdCredits(rad ? { total: rad.total, items: Array.isArray(rad.items) ? rad.items : [] } : null);
-        setTeacherInviteLoading(true);
-        try {
-          const [inv, red] = await Promise.all([
-            apiFetch<TeacherInviteSummary>('/teacher-invite/me', { token }).catch(() => null),
-            apiFetch<{ total: number; items: TeacherInviteRedemptionRow[] }>(
-              '/teacher-invite/redemptions?limit=25',
-              { token },
-            ).catch(() => null),
-          ]);
-          setTeacherInvite(inv);
-          setTeacherInviteRedemptions(
-            red ? { total: red.total, items: Array.isArray(red.items) ? red.items : [] } : null,
-          );
-        } finally {
-          setTeacherInviteLoading(false);
-        }
-      } else {
-        setRewardedAdCredits(null);
-        setTeacherInvite(null);
-        setTeacherInviteRedemptions(null);
+
+    const loadUsageSlice = async () => {
+      try {
+        const [bd, lu, ls] = await Promise.all([
+          apiFetch<UsageBreakdownRes>('/market/usage/breakdown', { token }),
+          apiFetch<{ items: UsageLedgerItem[] }>(`/market/usage/ledger?page=1&limit=8`, { token }),
+          isSchoolAdmin
+            ? apiFetch<{ items: UsageLedgerItem[] }>(`/market/usage/ledger?scope=school&page=1&limit=8`, { token })
+            : Promise.resolve({ items: [] }),
+        ]);
+        setBreakdown(bd);
+        setLedgerUser(Array.isArray(lu.items) ? lu.items : []);
+        setLedgerSchool(Array.isArray(ls.items) ? ls.items : []);
+      } catch {
+        setBreakdown(null);
+        setLedgerUser([]);
+        setLedgerSchool([]);
+      } finally {
+        setUsageLoading(false);
       }
-    } catch {
-      setError('Veriler yüklenemedi');
-      setPolicy(null);
-      setActivationStatus(null);
-      setActivationLedger([]);
-      setRewardedAdCredits(null);
-    } finally {
-      setLoading(false);
-    }
-    try {
-      const [bd, lu, ls] = await Promise.all([
-        apiFetch<UsageBreakdownRes>('/market/usage/breakdown', { token }),
-        apiFetch<{ items: UsageLedgerItem[] }>(`/market/usage/ledger?page=1&limit=8`, { token }),
-        isSchoolAdmin
-          ? apiFetch<{ items: UsageLedgerItem[] }>(`/market/usage/ledger?scope=school&page=1&limit=8`, { token })
-          : Promise.resolve({ items: [] }),
-      ]);
-      setBreakdown(bd);
-      setLedgerUser(Array.isArray(lu.items) ? lu.items : []);
-      setLedgerSchool(Array.isArray(ls.items) ? ls.items : []);
-    } catch {
-      setBreakdown(null);
-      setLedgerUser([]);
-      setLedgerSchool([]);
-    } finally {
-      setUsageLoading(false);
-    }
+    };
+
+    const loadMainSlice = async () => {
+      try {
+        const [ent, w, m, s, pol, actSt, actLed] = await Promise.all([
+          apiFetch<EntitlementItem[]>('/entitlements', { token }),
+          apiFetch<WalletRes>('/market/wallet', { token }),
+          apiFetch<{ items: LedgerRow[]; total: number }>(
+            `/market/purchases/mine?page=${pageMine}&limit=${PAGE_SIZE}`,
+            { token },
+          ),
+          isSchoolAdmin
+            ? apiFetch<{ items: LedgerRow[]; total: number }>(
+                `/market/purchases/school?page=${pageSchool}&limit=${PAGE_SIZE}`,
+                { token },
+              )
+            : Promise.resolve(null),
+          apiFetch<MarketPolicyLite>('content/market-policy').catch(() => null),
+          apiFetch<ActivationStatusRes>('/market/modules/activation-status', { token }).catch(() => null),
+          apiFetch<{ items: ActivationLedgerRow[] }>('/market/modules/activation-ledger?limit=40', { token }).catch(
+            () => null,
+          ),
+        ]);
+        setEntitlements(Array.isArray(ent) ? ent : []);
+        setWallet(w);
+        setMine(m);
+        setSchool(s);
+        setPolicy(pol && pol.module_prices ? pol : null);
+        setActivationStatus(actSt && actSt.modules ? actSt : null);
+        setActivationLedger(Array.isArray(actLed?.items) ? actLed.items : []);
+        if (isTeacher) {
+          setTeacherInviteLoading(true);
+          try {
+            const [rad, inv, red] = await Promise.all([
+              apiFetch<{ total: number; items: RewardedAdCreditRow[] }>(
+                '/market/wallet/rewarded-ad-credits?limit=30',
+                { token },
+              ).catch(() => null),
+              apiFetch<TeacherInviteSummary>('/teacher-invite/me', { token }).catch(() => null),
+              apiFetch<{ total: number; items: TeacherInviteRedemptionRow[] }>(
+                '/teacher-invite/redemptions?limit=25',
+                { token },
+              ).catch(() => null),
+            ]);
+            setRewardedAdCredits(rad ? { total: rad.total, items: Array.isArray(rad.items) ? rad.items : [] } : null);
+            setTeacherInvite(inv);
+            setTeacherInviteRedemptions(
+              red ? { total: red.total, items: Array.isArray(red.items) ? red.items : [] } : null,
+            );
+          } finally {
+            setTeacherInviteLoading(false);
+          }
+        } else {
+          setRewardedAdCredits(null);
+          setTeacherInvite(null);
+          setTeacherInviteRedemptions(null);
+        }
+      } catch {
+        setError('Veriler yüklenemedi');
+        setPolicy(null);
+        setActivationStatus(null);
+        setActivationLedger([]);
+        setRewardedAdCredits(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    await Promise.all([loadUsageSlice(), loadMainSlice()]);
   }, [token, pageMine, pageSchool, isSchoolAdmin, isTeacher]);
 
   const activateModulePeriod = useCallback(
@@ -1256,7 +1286,7 @@ export default function MarketPage() {
                   label: 'Jeton ve ek ders',
                   Icon: Coins,
                   box: 'border-amber-400/40 bg-amber-500/20 text-amber-800 dark:text-amber-200',
-                  targetIds: ['market-bireysel-ozet', 'market-module-activation'] as const,
+                  targetIds: ['market-bakiye-ozet', 'market-module-activation'] as const,
                 },
                 {
                   label: 'Mağaza',
@@ -1338,10 +1368,78 @@ export default function MarketPage() {
         </div>
       ) : null}
       {!usageLoading && breakdown ? (
-        wallet ? (
+        isSchoolAdmin ? (
           <section
-            id="market-bireysel-ozet"
-            className="scroll-mt-4 relative overflow-hidden rounded-2xl border border-violet-400/25 bg-linear-to-br from-violet-500/8 via-card to-amber-500/6 p-3 shadow-xl ring-1 ring-border/50 sm:p-4"
+            id="market-bakiye-ozet"
+            className="scroll-mt-4 relative overflow-hidden rounded-2xl border-2 border-blue-400/45 bg-linear-to-br from-blue-500/8 via-card to-cyan-500/6 p-3 shadow-xl ring-2 ring-blue-500/15 ring-offset-0 sm:p-4 dark:border-blue-500/35"
+          >
+            <div className="pointer-events-none absolute -right-16 -top-20 size-48 rounded-full bg-cyan-500/10 blur-3xl" aria-hidden />
+            <div className="relative mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-border/50 pb-2.5">
+              <h3 className="flex items-center gap-2 text-sm font-bold tracking-tight text-foreground sm:text-base">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-blue-600 to-cyan-600 text-white shadow-md ring-2 ring-white/20">
+                  <Building2 className="size-4" aria-hidden />
+                </span>
+                Okul özeti
+              </h3>
+              <span className="rounded-full border border-border/60 bg-background/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                Bakiye · dönem
+              </span>
+            </div>
+            <div className="relative grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4 lg:gap-4">
+              <BalanceCard
+                compact
+                label="Okul jeton"
+                value={fmtNum(wallet?.school?.jeton ?? 0)}
+                icon={<Building2 className="size-20" />}
+                accent="blue"
+                sub="Okul cüzdanı"
+              />
+              <BalanceCard
+                compact
+                label="Okul ek ders"
+                value={fmtNum(wallet?.school?.ekders ?? 0)}
+                icon={<Building2 className="size-20" />}
+                accent="blue"
+                sub="Okul cüzdanı"
+              />
+              <UtcPeriodCard
+                compact
+                variant="month"
+                remaining={formatRemainingTr(breakdown.periods.month.ends_at, nowTick)}
+                progressPct={periodProgress(
+                  nowTick,
+                  breakdown.periods.month.ends_at,
+                  'month',
+                  breakdown.periods.month.starts_at,
+                )}
+                jeton={breakdown.school?.month.jeton ?? 0}
+                ekders={breakdown.school?.month.ekders ?? 0}
+                startsAt={breakdown.periods.month.starts_at}
+                endsAt={breakdown.periods.month.ends_at}
+                periodLabel={breakdown.periods.month.label}
+              />
+              <UtcPeriodCard
+                compact
+                variant="year"
+                remaining={formatRemainingTr(breakdown.periods.year.ends_at, nowTick)}
+                progressPct={periodProgress(
+                  nowTick,
+                  breakdown.periods.year.ends_at,
+                  'year',
+                  breakdown.periods.year.starts_at,
+                )}
+                jeton={breakdown.school?.year.jeton ?? 0}
+                ekders={breakdown.school?.year.ekders ?? 0}
+                startsAt={breakdown.periods.year.starts_at}
+                endsAt={breakdown.periods.year.ends_at}
+                periodLabel={breakdown.periods.year.label}
+              />
+            </div>
+          </section>
+        ) : wallet ? (
+          <section
+            id="market-bakiye-ozet"
+            className="scroll-mt-4 relative overflow-hidden rounded-2xl border-2 border-violet-400/45 bg-linear-to-br from-violet-500/8 via-card to-amber-500/6 p-3 shadow-xl ring-2 ring-violet-500/15 ring-offset-0 sm:p-4 dark:border-violet-500/35"
           >
             <div className="pointer-events-none absolute -right-16 -top-20 size-48 rounded-full bg-fuchsia-500/10 blur-3xl" aria-hidden />
             <div className="relative mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-border/50 pb-2.5">
@@ -1407,7 +1505,7 @@ export default function MarketPage() {
             </div>
           </section>
         ) : (
-          <div id="market-bireysel-ozet" className="scroll-mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+          <div id="market-bakiye-ozet" className="scroll-mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
             <UtcPeriodCard
               variant="month"
               remaining={formatRemainingTr(breakdown.periods.month.ends_at, nowTick)}
@@ -1446,7 +1544,7 @@ export default function MarketPage() {
         <>
         <Card
           id="market-module-activation"
-          className="overflow-hidden border-teal-500/35 bg-teal-50/15 shadow-md ring-1 ring-teal-500/15 dark:border-teal-900/40 dark:bg-teal-950/25">
+          className="overflow-hidden border-2 border-teal-500/50 bg-teal-50/15 shadow-md ring-2 ring-teal-500/20 dark:border-teal-700/60 dark:bg-teal-950/25 dark:ring-teal-500/25">
           <CardHeader className="border-b border-teal-500/25 bg-teal-100/50 px-3 py-3 pb-2.5 dark:border-teal-900/40 dark:bg-teal-950/50 sm:px-6 sm:py-4 sm:pb-3">
             <div className="flex items-start gap-2 sm:gap-3">
               <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-teal-600/20 text-teal-900 sm:size-10 dark:text-teal-100">
@@ -2094,7 +2192,7 @@ export default function MarketPage() {
       )}
 
       {isTeacher && (
-        <Card className="overflow-hidden border-teal-500/30 bg-linear-to-br from-teal-500/10 via-card to-card shadow-sm ring-1 ring-teal-500/10">
+        <Card className="overflow-hidden border-2 border-teal-500/45 bg-linear-to-br from-teal-500/10 via-card to-card shadow-md ring-2 ring-teal-500/20 dark:border-teal-700/50">
           <CardHeader className="border-b border-border/50 pb-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex min-w-0 items-start gap-3">
@@ -2308,7 +2406,7 @@ export default function MarketPage() {
       )}
 
       {isTeacher && (
-        <Card className="overflow-hidden border-violet-500/30 bg-linear-to-br from-violet-500/12 via-card to-card shadow-sm ring-1 ring-violet-500/10">
+        <Card className="overflow-hidden border-2 border-violet-500/45 bg-linear-to-br from-violet-500/12 via-card to-card shadow-md ring-2 ring-violet-500/20 dark:border-violet-600/45">
           <CardHeader className="border-b border-border/50 pb-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex items-start gap-3">
@@ -2386,8 +2484,13 @@ export default function MarketPage() {
         </Card>
       )}
 
-      {policy && (
-        <section aria-labelledby="policy-tariff-teacher-heading" className="space-y-2">
+      {policy && (showTeacherTariffs || showSchoolTariffs) && (
+        <section
+          aria-labelledby={
+            showTeacherTariffs ? 'policy-tariff-teacher-heading' : 'policy-tariff-school-heading'
+          }
+          className="space-y-2"
+        >
           <div className="flex items-center gap-1 px-0.5">
             <span className="text-xs font-medium text-muted-foreground">Birim fiyatlar</span>
             <InfoHintDialog label="Tarife tablosu" title="Birim fiyatlar (tarife)">
@@ -2396,7 +2499,8 @@ export default function MarketPage() {
               </p>
             </InfoHintDialog>
           </div>
-          <div className={cn('grid gap-6', showSchoolTariffs ? 'lg:grid-cols-2' : '')}>
+          <div className={cn('grid gap-6', showTeacherTariffs && showSchoolTariffs ? 'lg:grid-cols-2' : '')}>
+            {showTeacherTariffs ? (
             <Card className="overflow-hidden border-2 border-emerald-500/35 bg-emerald-50/20 shadow-md ring-1 ring-emerald-500/15 dark:border-emerald-800/50 dark:bg-emerald-950/25">
               <CardHeader className="border-b border-emerald-500/25 bg-emerald-100/40 pb-3 dark:border-emerald-800/40 dark:bg-emerald-950/50">
                 <div className="flex items-start gap-3">
@@ -2462,8 +2566,9 @@ export default function MarketPage() {
                 </div>
               </CardContent>
             </Card>
+            ) : null}
 
-          {showSchoolTariffs && (
+          {showSchoolTariffs ? (
             <Card className="overflow-hidden border-2 border-blue-400/35 bg-blue-50/15 shadow-md ring-1 ring-blue-500/15 dark:border-blue-800/50 dark:bg-blue-950/20">
               <CardHeader className="border-b border-blue-500/25 bg-blue-100/40 pb-3 dark:border-blue-800/40 dark:bg-blue-950/40">
                 <div className="flex items-start gap-3">
@@ -2472,7 +2577,7 @@ export default function MarketPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2 gap-y-1">
-                      <CardTitle className="text-base text-blue-950 dark:text-blue-50">
+                      <CardTitle id="policy-tariff-school-heading" className="text-base text-blue-950 dark:text-blue-50">
                         Okul tarifeleri
                       </CardTitle>
                       <span className="inline-flex shrink-0 rounded-full border border-blue-600/30 bg-blue-600/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-900 dark:text-blue-100">
@@ -2527,7 +2632,7 @@ export default function MarketPage() {
                 </div>
               </CardContent>
             </Card>
-          )}
+          ) : null}
           </div>
         </section>
       )}
@@ -2541,8 +2646,14 @@ export default function MarketPage() {
                 <p>Tarife tablosundan ayrıdır; bu ay ve bu yıl için toplanan gerçek düşümler.</p>
               </InfoHintDialog>
             </div>
-            <div className={cn('grid gap-6', breakdown.school ? 'lg:grid-cols-2' : '')}>
-            <Card className="overflow-hidden border-violet-500/30 shadow-lg ring-1 ring-violet-500/15 dark:border-violet-900/40 dark:bg-card">
+            <div
+              className={cn(
+                'grid gap-6',
+                !isSchoolAdmin && breakdown.school ? 'lg:grid-cols-2' : '',
+              )}
+            >
+            {!isSchoolAdmin ? (
+            <Card className="overflow-hidden border-2 border-violet-500/45 shadow-lg ring-2 ring-violet-500/25 dark:border-violet-700/55 dark:bg-card dark:ring-violet-500/20">
               <CardHeader className="border-b border-violet-500/20 bg-linear-to-r from-violet-500/12 to-transparent pb-4 dark:from-violet-950/40">
                 <div className="flex flex-wrap items-center gap-2 gap-y-1">
                   <CardTitle className="flex items-center gap-2 text-lg">
@@ -2606,9 +2717,10 @@ export default function MarketPage() {
                 </div>
               </CardContent>
             </Card>
+            ) : null}
 
             {breakdown.school && (
-              <Card className="overflow-hidden border-blue-500/25 shadow-lg ring-1 ring-blue-500/15 dark:border-blue-900/50 dark:bg-card">
+              <Card className="overflow-hidden border-2 border-blue-500/45 shadow-lg ring-2 ring-blue-500/25 dark:border-blue-700/55 dark:bg-card dark:ring-blue-500/20">
                 <CardHeader className="border-b border-border/60 bg-linear-to-r from-blue-500/15 to-transparent pb-4 dark:from-blue-950/40">
                   <div className="flex flex-wrap items-center gap-2">
                     <CardTitle className="flex items-center gap-2 text-lg text-blue-950 dark:text-blue-50">
@@ -2671,13 +2783,17 @@ export default function MarketPage() {
         </div>
       ) : null}
 
-      {!usageLoading && (ledgerUser.length > 0 || ledgerSchool.length > 0) && (
+      {!usageLoading &&
+        ((!isSchoolAdmin && ledgerUser.length > 0) || ledgerSchool.length > 0) && (
         <div
           id="market-son-dusumler"
-          className={cn('scroll-mt-4 grid gap-6', ledgerSchool.length > 0 && isSchoolAdmin ? 'lg:grid-cols-2' : '')}
+          className={cn(
+            'scroll-mt-4 grid gap-6',
+            ledgerSchool.length > 0 && ledgerUser.length > 0 && !isSchoolAdmin ? 'lg:grid-cols-2' : '',
+          )}
         >
-          {ledgerUser.length > 0 && (
-            <Card className="overflow-hidden border border-border/80 shadow-sm ring-1 ring-amber-500/10">
+          {!isSchoolAdmin && ledgerUser.length > 0 ? (
+            <Card className="overflow-hidden border-2 border-amber-500/35 shadow-md ring-2 ring-amber-500/15 dark:border-amber-800/50">
               <CardHeader className="border-b border-border/60 bg-amber-50/30 pb-3 dark:bg-amber-950/15">
                 <div className="flex items-start gap-3">
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-900 dark:text-amber-200">
@@ -2731,9 +2847,9 @@ export default function MarketPage() {
                 </div>
               </CardContent>
             </Card>
-          )}
+          ) : null}
           {isSchoolAdmin && ledgerSchool.length > 0 && (
-            <Card className="overflow-hidden border-blue-200/50 shadow-sm dark:border-blue-900/40">
+            <Card className="overflow-hidden border-2 border-blue-400/45 shadow-md ring-2 ring-blue-500/15 dark:border-blue-700/55 dark:ring-blue-500/20">
               <CardHeader className="border-b border-border/60 bg-blue-50/40 pb-3 dark:bg-blue-950/20">
                 <div className="flex items-start gap-3">
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white dark:bg-blue-500">
@@ -3160,7 +3276,7 @@ export default function MarketPage() {
       ) : (
         <>
           <section className="space-y-3">
-            {!(breakdown && wallet) && (
+            {!(breakdown && wallet) && !isSchoolAdmin && (
               <>
                 <div className="flex items-center gap-2 px-1">
                   <UserRound className="size-4 text-muted-foreground" />
@@ -3352,12 +3468,13 @@ export default function MarketPage() {
                 />
               </div>
 
-              <Card className="overflow-hidden border-blue-200/60 shadow-sm dark:border-blue-900/50">
-                <CardHeader className="border-b border-border/60 bg-blue-50/40 pb-3 dark:bg-blue-950/25">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="grid gap-3 lg:grid-cols-2 lg:items-stretch lg:gap-4">
+              <Card className="flex min-h-0 flex-col overflow-hidden border-blue-200/60 shadow-sm dark:border-blue-900/50">
+                <CardHeader className="border-b border-border/60 bg-blue-50/40 px-3 pb-2 pt-3 sm:px-6 sm:pb-3 dark:bg-blue-950/25">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                     <div>
                       <div className="flex flex-wrap items-center gap-1">
-                        <CardTitle className="text-base">Kurumsal manuel yüklemler</CardTitle>
+                        <CardTitle className="text-sm sm:text-base">Kurumsal manuel yüklemler</CardTitle>
                         <InfoHintDialog label="Kurumsal manuel" title="Kurumsal manuel yüklemler">
                           <p>
                             Yöneticinin okul cüzdanınıza eklediği <strong>jeton</strong> ve <strong>ek ders</strong>. Ekleyen ve
@@ -3370,17 +3487,17 @@ export default function MarketPage() {
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="shrink-0"
+                      className="h-8 shrink-0 px-2 text-xs sm:h-9 sm:px-3"
                       onClick={() => void fetchSchoolAdminManualCredits()}
                       disabled={saManualLoading}
                     >
-                      <RefreshCw className={cn('mr-2 size-4', saManualLoading && 'animate-spin')} />
+                      <RefreshCw className={cn('mr-1 size-3.5 sm:mr-2 sm:size-4', saManualLoading && 'animate-spin')} />
                       Yenile
                     </Button>
                   </div>
-                  <div className="mt-3 flex flex-wrap items-end gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-muted-foreground">Başlangıç</label>
+                  <div className="mt-2 flex flex-wrap items-end gap-2 sm:mt-3 sm:gap-3">
+                    <div className="min-w-0 flex-1 sm:min-w-[140px] sm:flex-none">
+                      <label className="block text-[10px] font-medium text-muted-foreground sm:text-xs">Başlangıç</label>
                       <input
                         type="date"
                         value={saManualFrom}
@@ -3388,11 +3505,11 @@ export default function MarketPage() {
                           setSaManualFrom(e.target.value);
                           setSaManualPage(1);
                         }}
-                        className="mt-1 rounded-lg border border-input bg-background px-2 py-2 text-sm"
+                        className="mt-0.5 w-full max-w-44 rounded-md border border-input bg-background px-1.5 py-1 text-xs sm:mt-1 sm:rounded-lg sm:px-2 sm:py-2 sm:text-sm"
                       />
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-muted-foreground">Bitiş</label>
+                    <div className="min-w-0 flex-1 sm:min-w-[140px] sm:flex-none">
+                      <label className="block text-[10px] font-medium text-muted-foreground sm:text-xs">Bitiş</label>
                       <input
                         type="date"
                         value={saManualTo}
@@ -3400,55 +3517,55 @@ export default function MarketPage() {
                           setSaManualTo(e.target.value);
                           setSaManualPage(1);
                         }}
-                        className="mt-1 rounded-lg border border-input bg-background px-2 py-2 text-sm"
+                        className="mt-0.5 w-full max-w-44 rounded-md border border-input bg-background px-1.5 py-1 text-xs sm:mt-1 sm:rounded-lg sm:px-2 sm:py-2 sm:text-sm"
                       />
                     </div>
-                    <Button type="button" size="sm" className="mb-0.5" onClick={() => void fetchSchoolAdminManualCredits()} disabled={saManualLoading}>
+                    <Button type="button" size="sm" className="mb-0.5 h-8 px-2 text-xs sm:h-9 sm:px-3" onClick={() => void fetchSchoolAdminManualCredits()} disabled={saManualLoading}>
                       Filtrele
                     </Button>
                   </div>
                 </CardHeader>
-                <CardContent className="p-0">
+                <CardContent className="min-h-0 flex-1 p-0">
                   {saManualLoading && !saManual ? (
-                    <div className="flex justify-center py-10">
+                    <div className="flex justify-center py-8 sm:py-10">
                       <LoadingSpinner label="Yüklemeler yükleniyor…" />
                     </div>
                   ) : !saManual?.items.length ? (
-                    <p className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    <p className="px-3 py-8 text-center text-xs text-muted-foreground sm:px-4 sm:py-10 sm:text-sm">
                       Henüz kayıt yok veya seçilen tarihlerde manuel yükleme bulunmuyor.
                     </p>
                   ) : (
                     <>
                       <div className="table-x-scroll">
-                        <table className="w-full min-w-[320px] sm:min-w-[640px] text-sm">
+                        <table className="w-full min-w-[260px] text-[11px] sm:min-w-[520px] sm:text-sm">
                           <thead>
-                            <tr className="border-b border-border bg-muted/35 text-left text-xs font-semibold text-muted-foreground">
-                              <th className="px-4 py-2.5">Tarih / saat</th>
-                              <th className="px-4 py-2.5 text-right">Eklenen jeton</th>
-                              <th className="px-4 py-2.5 text-right">Eklenen ek ders</th>
-                              <th className="px-4 py-2.5">Ekleyen</th>
-                              <th className="px-4 py-2.5">Not</th>
+                            <tr className="border-b border-border bg-muted/35 text-left text-[10px] font-semibold text-muted-foreground sm:text-xs">
+                              <th className="px-2 py-1.5 sm:px-3 sm:py-2">Tarih</th>
+                              <th className="px-1.5 py-1.5 text-right sm:px-2 sm:py-2">Jeton</th>
+                              <th className="px-1.5 py-1.5 text-right sm:px-2 sm:py-2">Ek ders</th>
+                              <th className="hidden px-2 py-1.5 sm:table-cell sm:px-3 sm:py-2">Ekleyen</th>
+                              <th className="px-2 py-1.5 sm:px-3 sm:py-2">Not</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border/80">
                             {saManual.items.map((row) => (
                               <tr key={row.id} className="hover:bg-muted/25">
-                                <td className="whitespace-nowrap px-4 py-2.5 text-muted-foreground">
+                                <td className="whitespace-nowrap px-2 py-1.5 text-muted-foreground sm:px-3 sm:py-2">
                                   {row.created_at ? fmtDate(row.created_at) : '—'}
                                 </td>
-                                <td className="px-4 py-2.5 text-right tabular-nums font-medium text-amber-900 dark:text-amber-100">
+                                <td className="px-1.5 py-1.5 text-right tabular-nums font-medium text-amber-900 sm:px-2 sm:py-2 dark:text-amber-100">
                                   +{fmtNum(row.jeton_credit)}
                                 </td>
-                                <td className="px-4 py-2.5 text-right tabular-nums font-medium text-sky-900 dark:text-sky-100">
+                                <td className="px-1.5 py-1.5 text-right tabular-nums font-medium text-sky-900 sm:px-2 sm:py-2 dark:text-sky-100">
                                   +{fmtNum(row.ekders_credit)}
                                 </td>
-                                <td className="max-w-[200px] px-4 py-2.5 text-foreground">
-                                  <span className="line-clamp-2">
+                                <td className="hidden max-w-[140px] px-2 py-1.5 text-foreground sm:table-cell sm:max-w-[200px] sm:px-3 sm:py-2">
+                                  <span className="line-clamp-2 text-[10px] sm:text-xs">
                                     {row.creator_display_name || row.creator_email || '—'}
                                   </span>
                                 </td>
-                                <td className="max-w-[220px] px-4 py-2.5 text-muted-foreground">
-                                  <span className="line-clamp-2" title={row.note ?? ''}>
+                                <td className="max-w-[min(40vw,8rem)] px-2 py-1.5 text-muted-foreground sm:max-w-[220px] sm:px-3 sm:py-2">
+                                  <span className="line-clamp-2 text-[10px] sm:text-sm" title={row.note ?? ''}>
                                     {row.note || '—'}
                                   </span>
                                 </td>
@@ -3458,33 +3575,35 @@ export default function MarketPage() {
                         </table>
                       </div>
                       {saManual.total > SCHOOL_ADMIN_MANUAL_PAGE && (
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-3">
-                          <p className="text-xs text-muted-foreground">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-2 py-2 sm:px-4 sm:py-3">
+                          <p className="text-[10px] text-muted-foreground sm:text-xs">
                             Toplam {saManual.total} kayıt · Sayfa {saManualPage} /{' '}
                             {Math.max(1, Math.ceil(saManual.total / SCHOOL_ADMIN_MANUAL_PAGE))}
                           </p>
-                          <div className="flex gap-2">
+                          <div className="flex gap-1.5 sm:gap-2">
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
+                              className="h-8 px-2 text-xs sm:h-9"
                               disabled={saManualPage <= 1 || saManualLoading}
                               onClick={() => setSaManualPage((p) => p - 1)}
                             >
-                              <ChevronLeft className="mr-1 size-4" />
+                              <ChevronLeft className="mr-0.5 size-4 sm:mr-1" />
                               Önceki
                             </Button>
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
+                              className="h-8 px-2 text-xs sm:h-9"
                               disabled={
                                 saManualPage * SCHOOL_ADMIN_MANUAL_PAGE >= saManual.total || saManualLoading
                               }
                               onClick={() => setSaManualPage((p) => p + 1)}
                             >
                               Sonraki
-                              <ChevronRight className="ml-1 size-4" />
+                              <ChevronRight className="ml-0.5 size-4 sm:ml-1" />
                             </Button>
                           </div>
                         </div>
@@ -3493,11 +3612,80 @@ export default function MarketPage() {
                   )}
                 </CardContent>
               </Card>
+
+              <Card
+                id="market-satin-alma-gecmisi"
+                className="flex min-h-0 flex-col overflow-hidden border-2 border-blue-400/45 shadow-md ring-2 ring-blue-500/15 dark:border-blue-700/55 dark:ring-blue-500/20"
+              >
+                <CardHeader className="border-b border-border/60 bg-blue-50/50 px-3 pb-3 pt-3 dark:bg-blue-950/20 sm:px-6 sm:pb-4">
+                  <div className="flex items-start gap-2 sm:gap-3">
+                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white sm:size-10 dark:bg-blue-500">
+                      <Wallet className="size-4 sm:size-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1">
+                        <CardTitle className="text-sm text-blue-950 sm:text-lg dark:text-blue-50">Okul cüzdanı işlemleri</CardTitle>
+                        <InfoHintDialog label="Okul satın alma" title="Okul cüzdanı işlemleri">
+                          <p>Okul adına yüklenen jeton / ek ders (satın almada okul cüzdanı seçildiğinde).</p>
+                        </InfoHintDialog>
+                      </div>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="min-h-0 flex-1 space-y-2 px-3 pt-3 sm:space-y-3 sm:px-6 sm:pt-6">
+                  {!school?.items.length ? (
+                    <EmptyLedger
+                      title="Henüz okul işlemi yok"
+                      hint="Okul cüzdanına yapılan ilk satın alma doğrulaması burada görünür."
+                    />
+                  ) : (
+                    <>
+                      <LedgerTable rows={school.items} showTarget={false} compact />
+                      {school.total > PAGE_SIZE && (
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3 sm:gap-3 sm:pt-4">
+                          <p className="text-[10px] text-muted-foreground sm:text-xs">
+                            Sayfa {pageSchool} / {totalPagesSchool} · Toplam {school.total} kayıt
+                          </p>
+                          <div className="flex gap-1.5 sm:gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 px-2 text-xs sm:h-9"
+                              disabled={pageSchool <= 1}
+                              onClick={() => setPageSchool((p) => Math.max(1, p - 1))}
+                            >
+                              <ChevronLeft className="mr-0.5 size-4 sm:mr-1" />
+                              Önceki
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 px-2 text-xs sm:h-9"
+                              disabled={pageSchool >= totalPagesSchool}
+                              onClick={() => setPageSchool((p) => p + 1)}
+                            >
+                              Sonraki
+                              <ChevronRight className="ml-0.5 size-4 sm:ml-1" />
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+              </div>
             </section>
           )}
 
-          <div className={cn('grid gap-5 sm:gap-8', isSchoolAdmin ? 'lg:grid-cols-2' : 'max-w-4xl')}>
-            <Card id="market-satin-alma-gecmisi" className="scroll-mt-4 overflow-hidden border-border/80 shadow-sm">
+          {!isSchoolAdmin ? (
+          <div className="grid max-w-4xl gap-5 sm:gap-8">
+            <Card
+              id="market-satin-alma-gecmisi"
+              className="scroll-mt-4 overflow-hidden border-2 border-violet-400/35 shadow-md ring-2 ring-violet-500/10 dark:border-violet-700/40"
+            >
               <CardHeader className="border-b border-border/60 bg-muted/20 pb-4">
                 <div className="flex items-start gap-3">
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -3555,68 +3743,8 @@ export default function MarketPage() {
                 )}
               </CardContent>
             </Card>
-
-            {isSchoolAdmin && (
-              <Card className="overflow-hidden border-blue-200/50 shadow-sm dark:border-blue-900/40">
-                <CardHeader className="border-b border-border/60 bg-blue-50/50 pb-4 dark:bg-blue-950/20">
-                  <div className="flex items-start gap-3">
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white dark:bg-blue-500">
-                      <Wallet className="size-5" />
-                    </div>
-                    <div>
-                      <div className="flex flex-wrap items-center gap-1">
-                        <CardTitle className="text-lg text-blue-950 dark:text-blue-50">Okul cüzdanı işlemleri</CardTitle>
-                        <InfoHintDialog label="Okul satın alma" title="Okul cüzdanı işlemleri">
-                          <p>Okul adına yüklenen jeton / ek ders (satın almada okul cüzdanı seçildiğinde).</p>
-                        </InfoHintDialog>
-                      </div>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3 pt-4 sm:space-y-4 sm:pt-6">
-                  {!school?.items.length ? (
-                    <EmptyLedger
-                      title="Henüz okul işlemi yok"
-                      hint="Okul cüzdanına yapılan ilk satın alma doğrulaması burada görünür."
-                    />
-                  ) : (
-                    <>
-                      <LedgerTable rows={school.items} showTarget={false} />
-                      {school.total > PAGE_SIZE && (
-                        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-4">
-                          <p className="text-xs text-muted-foreground">
-                            Sayfa {pageSchool} / {totalPagesSchool} · Toplam {school.total} kayıt
-                          </p>
-                          <div className="flex gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              disabled={pageSchool <= 1}
-                              onClick={() => setPageSchool((p) => Math.max(1, p - 1))}
-                            >
-                              <ChevronLeft className="mr-1 size-4" />
-                              Önceki
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              disabled={pageSchool >= totalPagesSchool}
-                              onClick={() => setPageSchool((p) => p + 1)}
-                            >
-                              Sonraki
-                              <ChevronRight className="ml-1 size-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-            )}
           </div>
+          ) : null}
 
           <Card className="overflow-hidden border-border/80 shadow-sm">
             <CardHeader className="border-b border-border/60 bg-muted/15">

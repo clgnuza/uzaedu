@@ -27,7 +27,7 @@ export class SeedController {
     return this.seedService.seedAcademicCalendarOnly(body.academic_year?.trim() ?? '2025-2026');
   }
 
-  /** BİLSEM takvim şablonunu doldur (2025-2026) */
+  /** Bilsem takvim şablonunu doldur (2025-2026) */
   @Post('bilsem-calendar')
   @HttpCode(HttpStatus.OK)
   async seedBilsemCalendar(@Body() body: { academic_year?: string }) {

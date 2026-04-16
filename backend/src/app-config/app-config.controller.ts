@@ -542,6 +542,10 @@ class UpdateGdprDto {
   reject_button_visible?: boolean;
 
   @IsOptional()
+  @IsIn(['gradient', 'minimal', 'brand'])
+  cookie_banner_visual?: 'gradient' | 'minimal' | 'brand';
+
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   cache_ttl_gdpr?: number;

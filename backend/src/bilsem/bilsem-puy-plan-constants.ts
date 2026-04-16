@@ -1,5 +1,5 @@
 /**
- * BİLSEM Coğrafya PÜY yıllık plan — yardımcı sütun varsayılanları (UTF-8).
+ * Bilsem Coğrafya PÜY yıllık plan — yardımcı sütun varsayılanları (UTF-8).
  * Farklılaştırma / okul temelli: isteğe bağlı bağlam (ünite, konu, kazanım) ile kısa ve haftaya özel üretilir.
  */
 

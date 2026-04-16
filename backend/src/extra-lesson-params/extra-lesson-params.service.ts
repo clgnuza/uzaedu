@@ -514,7 +514,7 @@ export class ExtraLessonParamsService implements OnModuleInit {
    */
   private getDefaultCentralExamRoles() {
     return [
-      // Merkezi Sınav (Açık Okul, BİLSEM, Protokol, MTSAS)
+      // Merkezi Sınav (Açık Okul, Bilsem, Protokol, MTSAS)
       { key: 'bina_sinav_sorumlusu', label: 'Bina Sınav Sorumlusu', indicator: 2000 },
       { key: 'komisyon_baskani', label: 'SG (Bina Yön.)', indicator: 1900 },
       { key: 'komisyon_uyesi', label: 'SG (Bin. Yön. Yrd.)', indicator: 1700 },

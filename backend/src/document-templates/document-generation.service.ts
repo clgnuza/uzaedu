@@ -15,7 +15,7 @@ export type GenerationListItem = {
   academicYear: string | null;
   fileFormat: string;
   createdAt: string;
-  /** Şablon müfredatı — BİLSEM arşiv kartı için */
+  /** Şablon müfredatı — Bilsem arşiv kartı için */
   curriculumModel: string | null;
 };
 

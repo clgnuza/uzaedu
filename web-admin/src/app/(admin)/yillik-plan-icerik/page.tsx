@@ -1344,11 +1344,11 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-2">
               <h1 className="text-2xl font-semibold text-foreground md:text-3xl">
-                {isBilsem ? 'BİLSEM — Yıllık Plan İçerikleri' : 'Yıllık Plan İçerikleri'}
+                {isBilsem ? 'Bilsem — Yıllık Plan İçerikleri' : 'Yıllık Plan İçerikleri'}
               </h1>
               <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
                 {isBilsem
-                  ? 'BİLSEM için haftalık plan satırlarını tek ekrandan yönetin; grup, ders ve yıl bazında hızlıca filtreleyin.'
+                  ? 'Bilsem için haftalık plan satırlarını tek ekrandan yönetin; grup, ders ve yıl bazında hızlıca filtreleyin.'
                   : 'Sınıf, ders ve öğretim yılına göre planları seçin; taslak oluşturun, eksik dersleri görün ve kayıtları tek ekrandan yönetin.'}
               </p>
             </div>

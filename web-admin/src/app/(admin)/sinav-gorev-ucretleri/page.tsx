@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch, isAbortError } from '@/lib/api';
@@ -12,6 +11,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { captureResultCardAsPng } from '@/lib/capture-result-card-png';
+import { ShareCardPngFiligran } from '@/components/share/share-card-png-filigran';
+import { MobileShareSheetGlass } from '@/components/share/mobile-share-sheet-glass';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
 import {
@@ -63,36 +65,6 @@ function DotPattern({ excludeFromScreenshot }: { excludeFromScreenshot?: boolean
       />
     </div>
   );
-}
-
-/** Mobil iç genişliğe yakın kart — WhatsApp vb. için oranlı PNG */
-async function captureExamDutyCardAsPng(
-  primary: HTMLElement | null,
-  fallback: HTMLElement | null
-): Promise<Blob | null> {
-  const el = primary ?? fallback;
-  if (!el || typeof window === 'undefined') return null;
-  try {
-    const html2canvas = (await import('html2canvas')).default;
-    const dpr = window.devicePixelRatio || 2;
-    const canvas = await html2canvas(el, {
-      backgroundColor: '#ffffff',
-      scale: Math.min(3, Math.max(2, dpr)),
-      useCORS: true,
-      logging: false,
-      scrollX: 0,
-      scrollY: 0,
-      ignoreElements: (node) =>
-        node instanceof HTMLElement && node.hasAttribute('data-html2canvas-ignore'),
-      onclone: (clonedDoc) => {
-        clonedDoc.documentElement.classList.remove('dark');
-        clonedDoc.documentElement.style.colorScheme = 'light';
-      },
-    });
-    return await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/png', 0.96));
-  } catch {
-    return null;
-  }
 }
 
 function CalcSkeleton() {
@@ -503,7 +475,7 @@ export default function SinavGorevUcretleriPage() {
     let cancelled = false;
     const t = window.setTimeout(() => {
       void (async () => {
-        const blob = await captureExamDutyCardAsPng(resultCardRef.current, shareSnapshotRef.current);
+        const blob = await captureResultCardAsPng(resultCardRef.current, shareSnapshotRef.current);
         if (cancelled || !blob) return;
         const url = URL.createObjectURL(blob);
         setSharePreviewUrl((prev) => {
@@ -534,7 +506,7 @@ export default function SinavGorevUcretleriPage() {
     const short = buildShareShort();
     let blob: Blob | null = null;
     if (typeof window !== 'undefined') {
-      blob = await captureExamDutyCardAsPng(resultCardRef.current, shareSnapshotRef.current);
+      blob = await captureResultCardAsPng(resultCardRef.current, shareSnapshotRef.current);
     }
 
     const tryCopyImage = async (): Promise<boolean> => {
@@ -595,7 +567,7 @@ export default function SinavGorevUcretleriPage() {
   }, [buildShareText, buildShareShort]);
 
   const copyShareImageOnly = useCallback(async () => {
-    const blob = await captureExamDutyCardAsPng(resultCardRef.current, shareSnapshotRef.current);
+    const blob = await captureResultCardAsPng(resultCardRef.current, shareSnapshotRef.current);
     if (!blob) {
       toast.error('Sonuç kartı görseli oluşturulamadı');
       return;
@@ -1323,7 +1295,7 @@ export default function SinavGorevUcretleriPage() {
       {hasSelection && catalog && selectedCategory && selectedRole ? (
         <div
           ref={shareSnapshotRef}
-          className="pointer-events-none fixed left-[-9999px] top-0 z-0 box-border overflow-hidden rounded-2xl border-2 border-violet-300 bg-white p-4 text-zinc-900 shadow-2xl"
+          className="pointer-events-none fixed left-[-9999px] top-0 z-0 box-border overflow-hidden rounded-2xl border-2 border-violet-300 bg-white p-4 pb-14 text-zinc-900 shadow-2xl relative"
           style={{ fontFamily: 'system-ui, "Segoe UI", sans-serif', width: shareExportWidth }}
           aria-hidden
         >
@@ -1386,6 +1358,7 @@ export default function SinavGorevUcretleriPage() {
           <p className="mt-3 text-[8px] leading-snug text-zinc-400">
             Tahminidir; maaş matrahı ve kurum uygulamasına göre farklılık olabilir.
           </p>
+          <ShareCardPngFiligran variant="violet" />
         </div>
       ) : null}
 
@@ -1394,81 +1367,42 @@ export default function SinavGorevUcretleriPage() {
       catalog &&
       selectedCategory &&
       selectedRole &&
-      shareSheetOpen
-        ? createPortal(
-            <div className="fixed inset-0 z-[100] sm:hidden">
-              <button
-                type="button"
-                className="absolute inset-0 bg-zinc-900/50 backdrop-blur-[2px]"
-                aria-label="Kapat"
-                onClick={() => setShareSheetOpen(false)}
-              />
-              <div
-                className="absolute bottom-0 left-0 right-0 max-h-[90vh] overflow-y-auto rounded-t-3xl border border-zinc-200/90 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950"
-                style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="sg-share-sheet-title"
-              >
-                <div className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-zinc-200 dark:bg-zinc-700" />
-                <div className="px-5 pt-2 pb-4">
-                  <h2 id="sg-share-sheet-title" className="text-lg font-bold text-zinc-900 dark:text-zinc-50">
-                    Paylaş
-                  </h2>
-                  <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                    Aşağıdaki görsel, ekrandaki sonuç kartının PNG kopyasıdır (genişlik cihazınıza göre ayarlanır).
-                  </p>
-                  {sharePreviewUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={sharePreviewUrl}
-                      alt="Sınav görev ücreti sonuç kartı önizlemesi"
-                      className="mt-4 w-full rounded-2xl border border-zinc-200 object-top shadow-md dark:border-zinc-600"
-                    />
-                  ) : (
-                    <div className="mt-4 flex min-h-[200px] items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 text-xs text-zinc-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
-                      Önizleme hazırlanıyor…
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    className="mt-5 flex w-full min-h-12 items-center justify-center gap-2 rounded-xl bg-violet-600 py-3.5 text-base font-semibold text-white shadow-lg active:scale-[0.99] dark:bg-violet-600"
-                    onClick={() => {
-                      void performShare().finally(() => setShareSheetOpen(false));
-                    }}
-                  >
-                    <Share2 className="size-5" strokeWidth={2} />
-                    Paylaşımı aç
-                  </button>
-                  <button
-                    type="button"
-                    className="mt-2 flex w-full min-h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 py-3 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
-                    onClick={() => void copyShareImageOnly()}
-                  >
-                    <ImageIcon className="size-4" strokeWidth={2} />
-                    Sadece kart görselini kopyala
-                  </button>
-                  <button
-                    type="button"
-                    className="mt-2 flex w-full min-h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 py-3 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
-                    onClick={() => void copyShareText()}
-                  >
-                    <Copy className="size-4" strokeWidth={2} />
-                    Tüm metni kopyala
-                  </button>
-                  <button
-                    type="button"
-                    className="mt-1 w-full py-3 text-sm text-zinc-500 dark:text-zinc-400"
-                    onClick={() => setShareSheetOpen(false)}
-                  >
-                    Vazgeç
-                  </button>
-                </div>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+      shareSheetOpen ? (
+        <MobileShareSheetGlass
+          titleId="sg-share-sheet-title"
+          previewUrl={sharePreviewUrl}
+          previewAlt="Sınav görev ücreti sonuç kartı önizlemesi"
+          variant="violet"
+          description={
+            <>
+              Aşağıdaki görsel, ekrandaki sonuç kartının PNG kopyasıdır; genişlik cihazınıza göre ayarlanır. Metin paylaşımında özet ve tam döküm için ipuçlarına bakın.
+            </>
+          }
+          hints={[
+            {
+              icon: ImageIcon,
+              title: 'Görsel kart',
+              text: 'PNG önizlemesi paylaşılır; kartı yalnız panoya almak için aşağıdaki düğmeyi kullanın.',
+            },
+            {
+              icon: Share2,
+              title: 'Paylaşım menüsü',
+              text: 'Kısa özet ve görsel çoğu uygulamada birlikte sunulur (cihaza göre değişebilir).',
+            },
+            {
+              icon: Copy,
+              title: 'Tam döküm',
+              text: 'Tüm hesap satırları için “Tüm metni kopyala”yı kullanın.',
+            },
+          ]}
+          onShare={() => {
+            void performShare().finally(() => setShareSheetOpen(false));
+          }}
+          onCopyImage={copyShareImageOnly}
+          onCopyText={copyShareText}
+          onClose={() => setShareSheetOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

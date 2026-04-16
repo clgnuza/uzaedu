@@ -44,6 +44,7 @@ import {
   normalizeContentTypeFilterParam,
 } from '@/lib/haber-news-overlay';
 import { HaberOverlayBands } from '@/components/haber/haber-overlay-bands';
+import { Sheet, SheetBody, SheetClose, SheetContent, SheetHeader } from '@/components/ui/sheet';
 
 type Channel = { id: string; key: string; label: string; sortOrder: number; itemCount?: number };
 type ContentItem = {
@@ -420,6 +421,7 @@ export default function HaberlerPage() {
   const [page, setPage] = useState(1);
   const [refreshKey, setRefreshKey] = useState(0);
   const [syncing, setSyncing] = useState(false);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const isSuperAdmin = me?.role === 'superadmin';
   const pageLimit = isSuperAdmin ? 72 : 36;
   const isAdmin = isSuperAdmin;
@@ -662,6 +664,119 @@ export default function HaberlerPage() {
     return CHANNEL_ICON[shortKey] ?? <Rss className="size-3.5 shrink-0" />;
   };
 
+  const afterFilterNavigate = () => setFilterSheetOpen(false);
+  const renderFilterPanels = (closeOnSelect: boolean) => {
+    const done = closeOnSelect ? afterFilterNavigate : undefined;
+    return (
+      <>
+        {channels.length > 0 && (
+          <div className="pb-2.5">
+            <div className="mb-1.5 flex items-center gap-1.5">
+              <Layers className="size-3 text-blue-300/70" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-white/40">Kanal</span>
+              {isAdmin && <span className="text-[10px] text-white/25">· {channels.length}</span>}
+            </div>
+            <div className="flex snap-x flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  handleChannelChange('');
+                  done?.();
+                }}
+                className={cn(
+                  'flex shrink-0 snap-start items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-150',
+                  !selectedChannel
+                    ? 'bg-white text-slate-900 shadow-md ring-1 ring-white/40'
+                    : 'bg-white/10 text-white/70 ring-1 ring-white/10 hover:bg-white/18 hover:text-white',
+                )}
+              >
+                <Globe className="size-3.5 shrink-0" />
+                Tümü
+              </button>
+              {channels.map((ch) => {
+                const isActive = selectedChannel === ch.key;
+                const shortKey = ch.key.split('_')[0] ?? ch.key;
+                const colorMap: Record<string, string> = {
+                  meb:     isActive ? 'bg-blue-500 text-white shadow ring-1 ring-blue-300/40'       : 'bg-blue-500/15 text-blue-200 ring-1 ring-blue-400/20 hover:bg-blue-500/25',
+                  haber:   isActive ? 'bg-emerald-500 text-white shadow ring-1 ring-emerald-300/40' : 'bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/20 hover:bg-emerald-500/25',
+                  yarisma: isActive ? 'bg-amber-500 text-white shadow ring-1 ring-amber-300/40'     : 'bg-amber-500/15 text-amber-200 ring-1 ring-amber-400/20 hover:bg-amber-500/25',
+                  il:      isActive ? 'bg-violet-500 text-white shadow ring-1 ring-violet-300/40'   : 'bg-violet-500/15 text-violet-200 ring-1 ring-violet-400/20 hover:bg-violet-500/25',
+                  egitim:  isActive ? 'bg-rose-500 text-white shadow ring-1 ring-rose-300/40'       : 'bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/20 hover:bg-rose-500/25',
+                };
+                const cls = colorMap[shortKey] ?? (isActive ? 'bg-sky-500 text-white' : 'bg-white/10 text-white/70 hover:bg-white/18 hover:text-white ring-1 ring-white/10');
+                return (
+                  <button
+                    type="button"
+                    key={ch.id}
+                    onClick={() => {
+                      handleChannelChange(ch.key);
+                      done?.();
+                    }}
+                    className={cn('flex shrink-0 snap-start items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-150', cls)}
+                  >
+                    {getChannelIcon(ch.key)}
+                    <span className="line-clamp-1 max-w-40">{ch.label}</span>
+                    {typeof ch.itemCount === 'number' && ch.itemCount > 0 && (
+                      <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold tabular-nums leading-none', isActive ? 'bg-white/25' : 'bg-white/10')}>
+                        {ch.itemCount > 999 ? `${(ch.itemCount / 1000).toFixed(0)}k` : ch.itemCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className={channels.length > 0 ? 'pt-2.5' : ''}>
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <ListFilter className="size-3 text-violet-300/70" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-white/40">İçerik türü</span>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {CONTENT_TYPE_FILTER_OPTIONS.map((o) => (
+              <button
+                key={o.value || '_all'}
+                type="button"
+                onClick={() => {
+                  handleContentTypeChange(o.value);
+                  done?.();
+                }}
+                className={cn(
+                  'flex shrink-0 snap-start items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-150',
+                  contentTypeFilter === o.value
+                    ? 'bg-violet-500 text-white shadow ring-1 ring-violet-300/40'
+                    : 'bg-violet-500/12 text-violet-200 ring-1 ring-violet-400/18 hover:bg-violet-500/22 hover:text-white',
+                )}
+              >
+                {CONTENT_TYPE_ICON[o.value] ?? <Globe className="size-3 shrink-0" />}
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {selectedSourceKey && selectedSourceLabel && (
+          <div className="flex items-center justify-between gap-2 pt-2.5">
+            <span className="text-[10px] text-white/40">Kaynak:</span>
+            <button
+              type="button"
+              onClick={(e) => {
+                clearSourceFilter(e);
+                done?.();
+              }}
+              className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white ring-1 ring-white/15 hover:bg-white/18"
+            >
+              <Tag className="size-3 shrink-0" />
+              <span className="truncate max-w-[140px]">{selectedSourceLabel}</span>
+              <X className="size-3 shrink-0 opacity-60" />
+            </button>
+          </div>
+        )}
+      </>
+    );
+  };
+
   return (
     <div className="space-y-3 sm:space-y-4">
       {/* ── Tek kombine kart: başlık (sol) + filtreler (sağ) ── */}
@@ -679,14 +794,24 @@ export default function HaberlerPage() {
 
           {/* ── SOL: başlık + aksiyon butonları ── */}
           <div className="flex flex-col justify-between gap-3 px-3 py-3 sm:px-5 sm:py-4 lg:min-w-[220px] lg:max-w-[260px] lg:border-r lg:border-white/10">
-            <div className="flex items-center gap-2.5">
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/20">
-                <Newspaper className="size-4 text-white" />
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/20">
+                  <Newspaper className="size-4 text-white" />
+                </div>
+                <div className="min-w-0">
+                  <h1 className="text-base font-bold text-white sm:text-lg">Haberler</h1>
+                  <p className="text-[10px] text-white/45 leading-snug">MEB ve il millî eğitim kaynakları</p>
+                </div>
               </div>
-              <div className="min-w-0">
-                <h1 className="text-base font-bold text-white sm:text-lg">Haberler</h1>
-                <p className="text-[10px] text-white/45 leading-snug">MEB ve il millî eğitim kaynakları</p>
-              </div>
+              <button
+                type="button"
+                onClick={() => setFilterSheetOpen(true)}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-white/10 px-2.5 py-1.5 text-[11px] font-bold text-white ring-1 ring-white/15 transition hover:bg-white/18 lg:hidden"
+              >
+                <ListFilter className="size-3.5" />
+                Filtre
+              </button>
             </div>
             <div className="flex flex-wrap items-center gap-1">
               <a href="/haberler/yayin"
@@ -713,98 +838,41 @@ export default function HaberlerPage() {
                 </>
               )}
             </div>
-          </div>
-
-          {/* Yatay ayırıcı (mobil) */}
-          <div className="h-px bg-white/8 lg:hidden" />
-
-          {/* ── SAĞ: Kanal + İçerik türü ── */}
-          <div className="flex min-w-0 flex-1 flex-col gap-0 divide-y divide-white/8 px-3 py-2.5 sm:px-4 sm:py-3">
-
-            {/* Kanal */}
-            {channels.length > 0 && (
-              <div className="pb-2.5">
-                <div className="mb-1.5 flex items-center gap-1.5">
-                  <Layers className="size-3 text-blue-300/70" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-white/40">Kanal</span>
-                  {isAdmin && <span className="text-[10px] text-white/25">· {channels.length}</span>}
-                </div>
-                <div className="flex snap-x flex-wrap gap-1.5">
-                  <button type="button" onClick={() => handleChannelChange('')}
-                    className={cn(
-                      'flex shrink-0 snap-start items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-150',
-                      !selectedChannel
-                        ? 'bg-white text-slate-900 shadow-md ring-1 ring-white/40'
-                        : 'bg-white/10 text-white/70 ring-1 ring-white/10 hover:bg-white/18 hover:text-white',
-                    )}>
-                    <Globe className="size-3.5 shrink-0" />
-                    Tümü
-                  </button>
-                  {channels.map((ch) => {
-                    const isActive = selectedChannel === ch.key;
-                    const shortKey = ch.key.split('_')[0] ?? ch.key;
-                    const colorMap: Record<string, string> = {
-                      meb:     isActive ? 'bg-blue-500 text-white shadow ring-1 ring-blue-300/40'       : 'bg-blue-500/15 text-blue-200 ring-1 ring-blue-400/20 hover:bg-blue-500/25',
-                      haber:   isActive ? 'bg-emerald-500 text-white shadow ring-1 ring-emerald-300/40' : 'bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/20 hover:bg-emerald-500/25',
-                      yarisma: isActive ? 'bg-amber-500 text-white shadow ring-1 ring-amber-300/40'     : 'bg-amber-500/15 text-amber-200 ring-1 ring-amber-400/20 hover:bg-amber-500/25',
-                      il:      isActive ? 'bg-violet-500 text-white shadow ring-1 ring-violet-300/40'   : 'bg-violet-500/15 text-violet-200 ring-1 ring-violet-400/20 hover:bg-violet-500/25',
-                      egitim:  isActive ? 'bg-rose-500 text-white shadow ring-1 ring-rose-300/40'       : 'bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/20 hover:bg-rose-500/25',
-                    };
-                    const cls = colorMap[shortKey] ?? (isActive ? 'bg-sky-500 text-white' : 'bg-white/10 text-white/70 hover:bg-white/18 hover:text-white ring-1 ring-white/10');
-                    return (
-                      <button type="button" key={ch.id} onClick={() => handleChannelChange(ch.key)}
-                        className={cn('flex shrink-0 snap-start items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-150', cls)}>
-                        {getChannelIcon(ch.key)}
-                        <span className="line-clamp-1 max-w-40">{ch.label}</span>
-                        {typeof ch.itemCount === 'number' && ch.itemCount > 0 && (
-                          <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold tabular-nums leading-none', isActive ? 'bg-white/25' : 'bg-white/10')}>
-                            {ch.itemCount > 999 ? `${(ch.itemCount / 1000).toFixed(0)}k` : ch.itemCount}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* İçerik türü */}
-            <div className={channels.length > 0 ? 'pt-2.5' : ''}>
-              <div className="mb-1.5 flex items-center gap-1.5">
-                <ListFilter className="size-3 text-violet-300/70" />
-                <span className="text-[10px] font-bold uppercase tracking-wider text-white/40">İçerik türü</span>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {CONTENT_TYPE_FILTER_OPTIONS.map((o) => (
-                  <button key={o.value || '_all'} type="button" onClick={() => handleContentTypeChange(o.value)}
-                    className={cn(
-                      'flex shrink-0 snap-start items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-150',
-                      contentTypeFilter === o.value
-                        ? 'bg-violet-500 text-white shadow ring-1 ring-violet-300/40'
-                        : 'bg-violet-500/12 text-violet-200 ring-1 ring-violet-400/18 hover:bg-violet-500/22 hover:text-white',
-                    )}>
-                    {CONTENT_TYPE_ICON[o.value] ?? <Globe className="size-3 shrink-0" />}
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Kaynak filtresi aktifse alt bant */}
             {selectedSourceKey && selectedSourceLabel && (
-              <div className="flex items-center justify-between gap-2 pt-2.5">
-                <span className="text-[10px] text-white/40">Kaynak:</span>
-                <button type="button" onClick={clearSourceFilter}
-                  className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white ring-1 ring-white/15 hover:bg-white/18">
+              <div className="flex items-center justify-between gap-2 rounded-xl bg-white/8 px-2.5 py-1.5 ring-1 ring-white/12 lg:hidden">
+                <span className="text-[10px] text-white/45">Kaynak</span>
+                <button
+                  type="button"
+                  onClick={clearSourceFilter}
+                  className="inline-flex min-w-0 flex-1 items-center justify-end gap-1 text-[11px] font-semibold text-white"
+                >
                   <Tag className="size-3 shrink-0" />
-                  <span className="truncate max-w-[140px]">{selectedSourceLabel}</span>
+                  <span className="truncate">{selectedSourceLabel}</span>
                   <X className="size-3 shrink-0 opacity-60" />
                 </button>
               </div>
             )}
           </div>
+
+          {/* ── SAĞ: Kanal + İçerik türü (masaüstü) ── */}
+          <div className="hidden min-w-0 flex-1 flex-col gap-0 divide-y divide-white/8 px-3 py-2.5 sm:px-4 sm:py-3 lg:flex">
+            {renderFilterPanels(false)}
+          </div>
         </div>
       </div>
+
+      <Sheet open={filterSheetOpen} onOpenChange={setFilterSheetOpen}>
+        <SheetContent
+          side="right"
+          className="w-[min(100vw,22rem)] max-w-none border-l border-white/10 bg-[linear-gradient(180deg,#0d1e3f_0%,#0b2244_100%)] p-0 text-white shadow-2xl"
+        >
+          <SheetHeader className="shrink-0 justify-between gap-2 border-white/10 bg-white/5 px-4 py-3">
+            <span className="text-sm font-bold">Filtreler</span>
+            <SheetClose className="text-white hover:bg-white/10" />
+          </SheetHeader>
+          <SheetBody className="divide-y divide-white/8 px-3 py-3">{renderFilterPanels(true)}</SheetBody>
+        </SheetContent>
+      </Sheet>
 
       {loading ? (
         <HaberListSkeleton dense={isSuperAdmin} />

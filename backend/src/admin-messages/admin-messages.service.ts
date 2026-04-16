@@ -5,7 +5,9 @@ import { In, Repository } from 'typeorm';
 import { AdminMessage } from './entities/admin-message.entity';
 import { AdminMessageRead } from './entities/admin-message-read.entity';
 import { School } from '../schools/entities/school.entity';
+import { User } from '../users/entities/user.entity';
 import { UserRole } from '../types/enums';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateAdminMessageDto } from './dto/create-admin-message.dto';
 import { ListAdminMessagesDto } from './dto/list-admin-messages.dto';
 import { PaginationDto, paginate } from '../common/dtos/pagination.dto';
@@ -19,6 +21,9 @@ export class AdminMessagesService {
     private readonly readRepo: Repository<AdminMessageRead>,
     @InjectRepository(School)
     private readonly schoolRepo: Repository<School>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(
@@ -40,12 +45,39 @@ export class AdminMessagesService {
       });
       await this.messageRepo.save(msg);
       messages.push(msg);
+      await this.notifyTeachersForSchoolMessage(msg);
     }
     return {
       created: messages.length,
       ids: messages.map((m) => m.id),
       send_batch_id: sendBatchId,
     };
+  }
+
+  /** Okuldaki öğretmenlere gelen kutusu bildirimi (tam metin yalnız okul yöneticisi Sistem Mesajları’nda). */
+  private async notifyTeachersForSchoolMessage(msg: AdminMessage): Promise<void> {
+    const school = await this.schoolRepo.findOne({ where: { id: msg.school_id } });
+    const schoolName = school?.name?.trim() || 'Okulunuz';
+    const teachers = await this.userRepo.find({
+      where: { school_id: msg.school_id, role: UserRole.teacher },
+      select: ['id'],
+    });
+    const preview = msg.body?.trim()
+      ? msg.body.trim().slice(0, 180) + (msg.body.trim().length > 180 ? '…' : '')
+      : undefined;
+    for (const t of teachers) {
+      await this.notificationsService.createInboxEntry({
+        user_id: t.id,
+        event_type: 'admin_message.sent',
+        entity_id: msg.id,
+        target_screen: 'dashboard',
+        title: 'Yeni sistem mesajı',
+        body: preview
+          ? `${schoolName}: ${msg.title}\n${preview}`
+          : `${schoolName}: ${msg.title}`,
+        metadata: { message_id: msg.id, school_id: msg.school_id },
+      });
+    }
   }
 
   /** Superadmin: gönderim özetleri (batch başına bir satır). */

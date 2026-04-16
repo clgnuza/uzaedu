@@ -35,6 +35,10 @@ export class TeacherEvaluationCriterion {
   @Column({ name: 'subject_id', type: 'uuid', nullable: true })
   subjectId: string | null;
 
+  /** lesson = ders kriteri, behavior = davranış */
+  @Column({ name: 'criterion_category', type: 'varchar', length: 16, default: 'lesson' })
+  criterionCategory: 'lesson' | 'behavior';
+
   @Column({ name: 'sort_order', type: 'int', default: 0 })
   sortOrder: number;
 

@@ -26,9 +26,12 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { EvrakDefaults } from '@/components/evrak-defaults-form';
 import { DeleteAccountButton } from '@/components/account/data-privacy-actions';
+import { LoginOtpPreference } from '@/components/account/login-otp-preference';
 import { BackupExportPanel } from '@/components/account/backup-export-panel';
 import { AvatarPickerField } from '@/components/account/avatar-picker';
+import { UserAvatarBubble } from '@/components/user-avatar';
 import { formatSchoolTypeLabel } from '@/lib/school-labels';
+import { TEACHER_BRANCH_OPTIONS } from '@/lib/teacher-branch-options';
 
 const fieldIn = cn(
   'h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm text-foreground shadow-sm',
@@ -39,33 +42,6 @@ const fieldInEye = cn(fieldIn, 'pr-9 sm:pr-10');
 const lblB = 'mb-0.5 block text-xs font-medium text-foreground sm:mb-1 sm:text-sm';
 const lblRow = 'mb-0 flex items-center gap-1.5 text-xs font-medium text-foreground sm:gap-2 sm:text-sm';
 const iconBox = 'flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/10 sm:size-7';
-
-/** Branş seçenekleri (MEB ders kataloğundan) */
-const BRANCH_OPTIONS = [
-  'Türk Dili ve Edebiyatı',
-  'Türkçe',
-  'Matematik',
-  'Fizik',
-  'Kimya',
-  'Biyoloji',
-  'Tarih',
-  'Coğrafya',
-  'Felsefe',
-  'Din Kültürü ve Ahlak Bilgisi',
-  'İngilizce',
-  'Almanca',
-  'Fransızca',
-  'Arapça',
-  'Rehberlik',
-  'Beden Eğitimi ve Spor',
-  'Görsel Sanatlar',
-  'Müzik',
-  'Bilgisayar Bilimi',
-  'Fen Bilimleri',
-  'Sosyal Bilgiler',
-  'Teknoloji ve Tasarım',
-  'Birleştirilmiş Sınıf (1-2, 3-4)',
-];
 
 type TabId = 'hesap' | 'okul' | 'zumre' | 'yedek';
 
@@ -313,14 +289,28 @@ export function TeacherAccountTabs() {
             <CardDescription className="text-[11px] sm:text-sm">Ad, şifre ve hesap.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2.5 p-2.5 sm:space-y-5 sm:p-5">
-            <section className="space-y-1.5 sm:space-y-2">
-              <AvatarPickerField
-                value={avatarKey}
-                onChange={setAvatarKey}
-                disabled={savingProfile}
-                idPrefix="hesap-av"
-                compact
-              />
+            <section className="w-full min-w-0 max-w-full rounded-lg border border-border/50 bg-muted/10 p-2.5 sm:rounded-xl sm:p-4">
+              <div className="flex flex-col items-stretch gap-2.5 lg:flex-row lg:items-start lg:gap-4">
+                <div className="flex flex-col items-center gap-1 lg:w-[100px] lg:shrink-0">
+                  <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Önizleme</span>
+                  <UserAvatarBubble
+                    avatarKey={avatarKey}
+                    avatarUrl={me?.avatar_url ?? null}
+                    displayName={displayName}
+                    email={me?.email ?? ''}
+                    size="lg"
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <AvatarPickerField
+                    value={avatarKey}
+                    onChange={setAvatarKey}
+                    disabled={savingProfile}
+                    idPrefix="hesap-av"
+                    compact
+                  />
+                </div>
+              </div>
             </section>
 
             {/* Görünen ad */}
@@ -466,6 +456,12 @@ export function TeacherAccountTabs() {
               </form>
             </section>
 
+            <LoginOtpPreference
+              token={token}
+              initialRequired={me?.login_otp_required !== false}
+              onSaved={() => void refetchMe()}
+            />
+
             {/* Hesap kapatma */}
             <section className="space-y-1.5 rounded-lg border border-border/60 bg-linear-to-br from-muted/20 via-muted/10 to-muted/20 p-2.5 transition-all duration-300 dark:border-zinc-700/60 dark:from-zinc-800/40 dark:via-zinc-800/20 dark:to-zinc-800/40 sm:space-y-2 sm:rounded-xl sm:p-4">
               <h3 className="text-xs font-semibold text-foreground sm:text-sm">Hesap kapatma</h3>
@@ -510,10 +506,10 @@ export function TeacherAccountTabs() {
                     className={cn(fieldIn, 'cursor-pointer')}
                   >
                     <option value="">Branş seçin</option>
-                    {branchSelect && !BRANCH_OPTIONS.includes(branchSelect) && (
+                    {branchSelect && !TEACHER_BRANCH_OPTIONS.includes(branchSelect) && (
                       <option value={branchSelect}>{branchSelect}</option>
                     )}
-                    {BRANCH_OPTIONS.map((b) => (
+                    {TEACHER_BRANCH_OPTIONS.map((b) => (
                       <option key={b} value={b}>{b}</option>
                     ))}
                   </select>
@@ -592,20 +588,27 @@ export function TeacherAccountTabs() {
       )}
 
       {tab === 'yedek' && (
-        <Card className="overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm ring-1 ring-black/5 backdrop-blur-sm dark:border-border/80 dark:bg-card dark:ring-white/6 sm:rounded-xl sm:border-2 sm:shadow-md sm:ring-black/4">
-          <CardHeader className="border-b border-border/50 bg-muted/25 px-2.5 py-2 dark:border-zinc-800 sm:px-6 sm:py-4">
-            <CardTitle className="flex items-center gap-2 text-[15px] sm:text-lg">
-              <FileDown className="size-4 shrink-0 text-primary sm:size-5" />
-              Yedek indir
-            </CardTitle>
-            <CardDescription className="text-[11px] sm:text-sm">
-              Modül seç, JSON indir. KVKK özeti ve ajanda dahil.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-2.5 sm:p-5">
-            <BackupExportPanel token={token} enabledModules={me?.school?.enabled_modules ?? null} />
-          </CardContent>
-        </Card>
+        <div className="w-full min-w-0 max-w-none">
+          <Card className="overflow-hidden rounded-xl border-2 border-border/80 bg-card shadow-md ring-1 ring-black/5 backdrop-blur-sm dark:border-border/80 dark:bg-card dark:ring-white/6 sm:rounded-2xl">
+            <CardHeader className="border-b border-border/50 bg-muted/25 px-3 py-3 dark:border-zinc-800 sm:px-8 sm:py-5">
+              <CardTitle className="flex items-center gap-2 text-base sm:text-xl">
+                <FileDown className="size-5 shrink-0 text-primary sm:size-6" />
+                Veri yedeği
+              </CardTitle>
+              <CardDescription className="text-xs sm:text-sm">
+                Tüm modülleri seçip JSON indirin veya sunucuya geri yükleyin (hesap, ajanda, mesaj tercihleri).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-3 sm:p-6 md:p-8">
+              <BackupExportPanel
+                token={token}
+                enabledModules={me?.school?.enabled_modules ?? null}
+                role={me?.role ?? null}
+                layout="full"
+              />
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   );

@@ -185,8 +185,8 @@ const MODULE_ENTRY_NOTICES: Record<MarketModuleKey, { tr: string; en: string }> 
     en: 'Teacher agenda and evaluation features may charge fees per the tariff.',
   },
   bilsem: {
-    tr: 'BİLSEM takvim ve yıllık plan özelliklerinde jeton veya ek ders düşümü olabilir.',
-    en: 'BİLSEM calendar and yearly plan features may debit jeton or extra lesson credits.',
+    tr: 'Bilsem takvim ve yıllık plan özelliklerinde jeton veya ek ders düşümü olabilir.',
+    en: 'Bilsem calendar and yearly plan features may debit jeton or extra lesson credits.',
   },
   school_profile: {
     tr: 'Okul tanıtım ve vitrin içeriğinde bazı işlemler ücretli olabilir; bakiyenizi Market’ten takip edin.',

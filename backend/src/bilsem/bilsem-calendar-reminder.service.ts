@@ -71,13 +71,13 @@ export class BilsemCalendarReminderService {
 
     for (const g of gorevler) {
       if (!g.userId || sentSet.has(g.userId)) continue;
-      const itemTitle = g.bilsemCalendarItem?.title ?? 'BİLSEM etkinliği';
+      const itemTitle = g.bilsemCalendarItem?.title ?? 'Bilsem etkinliği';
       await this.notificationsService.createInboxEntry({
         user_id: g.userId,
         event_type: 'bilsem_calendar.reminder',
         entity_id: g.id,
         target_screen: 'bilsem/takvim',
-        title: 'BİLSEM görevi hatırlatması',
+        title: 'Bilsem görevi hatırlatması',
         body: `"${itemTitle}" için göreviniz ${REMINDER_DAYS_BEFORE} gün sonra. Takvimi kontrol edin.`,
         metadata: { itemId: g.bilsemCalendarItemId, itemTitle },
       });

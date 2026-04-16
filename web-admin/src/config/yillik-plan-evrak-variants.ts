@@ -1,7 +1,7 @@
 /**
  * Evrak tabanlı "yıllık plan" akışı iki URL’de kullanılır:
  * - /evrak — standart (MEB / okul) şablonları
- * - /bilsem/yillik-plan — BİLSEM (curriculum_model=bilsem) şablonları
+ * - /bilsem/yillik-plan — Bilsem (curriculum_model=bilsem) şablonları
  *
  * Aynı UI bileşenini paylaşırız; backend ayrıdır (/documents vs /bilsem/...).
  * localStorage anahtarlarını ayırarak bir taraftaki filtre değişiminin diğerini etkilemesini engelleriz.

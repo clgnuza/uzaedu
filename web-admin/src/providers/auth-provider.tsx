@@ -26,6 +26,8 @@ const PUBLIC_AUTH_PATHS = new Set([
   '/register/okul',
   '/register-okul',
   '/forgot-password',
+  '/forgot-password/ogretmen',
+  '/forgot-password/okul',
   '/reset-password',
   '/verify-school-email',
 ]);
@@ -63,7 +65,7 @@ export type Me = {
     district?: string | null;
     status?: string;
     teacher_limit?: number;
-    merge_teacher_on_name_match?: boolean;
+    teacher_name_merge_mode?: 'none' | 'automatic' | 'manual';
     enabled_modules?: string[] | null;
   } | null;
   status?: string;
@@ -75,6 +77,8 @@ export type Me = {
   school_join_stage?: 'none' | 'email_pending' | 'school_pending' | 'approved' | 'rejected';
   school_join_email_verified_at?: string | null;
   email_verified?: boolean;
+  /** E-posta+şifre girişinde OTP (varsayılan true) */
+  login_otp_required?: boolean;
   school_verified?: boolean;
   teacher_public_name_masked?: boolean;
   created_at?: string;

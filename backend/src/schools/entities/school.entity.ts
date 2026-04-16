@@ -76,11 +76,11 @@ export class School {
   teacher_limit: number;
 
   /**
-   * Yönetimin eklediği şifresiz öğretmen kaydı ile, aynı okul + aynı görünen ad ile
-   * web üzerinden yapılan ilk kaydı tek hesapta birleştir.
+   * none: birleştirme yok · automatic: web kaydında ada göre şifresiz kayıtla birleştir ·
+   * manual: kayıtta birleştirme yok; panelden manuel birleştirme
    */
-  @Column({ name: 'merge_teacher_on_name_match', type: 'boolean', default: false })
-  mergeTeacherOnNameMatch: boolean;
+  @Column({ name: 'teacher_name_merge_mode', type: 'varchar', length: 16, default: 'none' })
+  teacherNameMergeMode: 'none' | 'automatic' | 'manual';
 
   /** Okul Değerlendirme: detay sayfası görüntülenme sayısı */
   @Column({ type: 'int', default: 0 })
@@ -405,7 +405,7 @@ export class School {
     customItems?: { id: string; weekId: string; type: 'belirli_gun_hafta' | 'ogretmen_isleri'; title: string; path?: string; sortOrder: number }[];
   } | null;
 
-  /** BİLSEM takvim okul özelleştirmesi: { hiddenItemIds: uuid[], customItems: [{ weekId, type, title, path?, sortOrder }] } */
+  /** Bilsem takvim okul özelleştirmesi: { hiddenItemIds: uuid[], customItems: [{ weekId, type, title, path?, sortOrder }] } */
   @Column({ name: 'bilsem_calendar_overrides', type: 'jsonb', nullable: true })
   bilsem_calendar_overrides: {
     hiddenItemIds?: string[];

@@ -45,6 +45,14 @@ function dateLabel(date: string) {
   } catch { return date; }
 }
 
+function dateLabelShort(date: string) {
+  try {
+    return new Date(date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch {
+    return date;
+  }
+}
+
 function groupByDate(sessions: Session[]) {
   const map = new Map<string, Session[]>();
   for (const s of sessions) {
@@ -56,7 +64,7 @@ function groupByDate(sessions: Session[]) {
 }
 
 const NO_GROUP = (
-  <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-indigo-300/60 bg-indigo-50/40 py-16 text-center dark:border-indigo-800/40 dark:bg-indigo-950/20">
+  <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-indigo-300/60 bg-indigo-50/40 px-3 py-10 text-center dark:border-indigo-800/40 dark:bg-indigo-950/20 sm:gap-3 sm:rounded-2xl sm:py-16">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="size-10 text-indigo-400" aria-hidden>
       <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
     </svg>
@@ -138,21 +146,21 @@ export default function OturumlarPage() {
   const totalStudents = sessions.reduce((a, s) => a + (s.studentCount ?? 0), 0);
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2 justify-between">
-        <div className="text-sm text-muted-foreground">
+    <div className="space-y-3 sm:space-y-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="text-[11px] text-muted-foreground sm:text-sm">
           {sessions.length} oturum &nbsp;·&nbsp; {totalStudents} ö?renci atand?
         </div>
         {isAdmin && (
-          <Button size="sm" className="gap-1.5" onClick={() => { setEditId(null); setForm(EMPTY_FORM); setShowForm(true); }}>
+          <Button size="sm" className="h-8 w-full gap-1.5 text-xs sm:h-9 sm:w-auto sm:text-sm" onClick={() => { setEditId(null); setForm(EMPTY_FORM); setShowForm(true); }}>
             <Plus className="size-4" /> Oturum Ekle
           </Button>
         )}
       </div>
 
       {showForm && isAdmin && (
-        <div className="rounded-2xl border bg-white/80 p-4 shadow-sm dark:bg-zinc-900/60 space-y-3">
-          <p className="font-semibold text-sm">{editId ? 'Oturum Düzenle' : 'Yeni Oturum'}</p>
+        <div className="rounded-xl border bg-white/80 p-3 shadow-sm dark:bg-zinc-900/60 space-y-2.5 sm:rounded-2xl sm:p-4 sm:space-y-3">
+          <p className="text-xs font-semibold sm:text-sm">{editId ? 'Oturum Düzenle' : 'Yeni Oturum'}</p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Input placeholder="Ders Ad? *  (örn: Matematik)" value={form.subjectName} onChange={(e) => setForm((f) => ({ ...f, subjectName: e.target.value }))} />
             <div>
@@ -193,9 +201,9 @@ export default function OturumlarPage() {
       )}
 
       {sessions.length === 0 && !showForm && (
-        <div className="rounded-2xl border bg-white/60 p-10 text-center text-muted-foreground dark:bg-zinc-900/40">
-          <p className="text-sm font-medium">Henüz oturum yok</p>
-          <p className="text-xs mt-1 opacity-70">Her s?nav dersine ait bir oturum olu?turun (tarih, saat, salon, kapasite).</p>
+        <div className="rounded-xl border bg-white/60 p-6 text-center text-muted-foreground dark:bg-zinc-900/40 sm:rounded-2xl sm:p-10">
+          <p className="text-xs font-medium sm:text-sm">Henüz oturum yok</p>
+          <p className="mt-1 text-[11px] opacity-70 sm:text-xs">Her s?nav dersine ait bir oturum olu?turun (tarih, saat, salon, kapasite).</p>
         </div>
       )}
 
@@ -206,10 +214,13 @@ export default function OturumlarPage() {
             <div key={date}>
               <button
                 onClick={() => toggleDate(date)}
-                className="flex w-full items-center gap-2 rounded-xl border border-white/50 bg-white/60 px-4 py-2.5 text-left shadow-sm hover:bg-white/80 dark:border-zinc-800/40 dark:bg-zinc-900/40 dark:hover:bg-zinc-900/60 transition-colors">
+                className="flex w-full items-center gap-2 rounded-lg border border-white/50 bg-white/60 px-3 py-2 text-left shadow-sm transition-colors hover:bg-white/80 dark:border-zinc-800/40 dark:bg-zinc-900/40 dark:hover:bg-zinc-900/60 sm:rounded-xl sm:px-4 sm:py-2.5">
                 {isCollapsed ? <ChevronRight className="size-4 text-muted-foreground shrink-0" /> : <ChevronDown className="size-4 text-muted-foreground shrink-0" />}
-                <div className="flex-1">
-                  <span className="font-semibold text-sm">{dateLabel(date)}</span>
+                <div className="min-w-0 flex-1">
+                  <span className="text-xs font-semibold leading-snug sm:text-sm">
+                    <span className="sm:hidden">{dateLabelShort(date)}</span>
+                    <span className="hidden sm:inline">{dateLabel(date)}</span>
+                  </span>
                 </div>
                 <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
                   {daySessions.length} oturum
@@ -222,7 +233,7 @@ export default function OturumlarPage() {
                     const pct  = Math.min(100, Math.round(((s.studentCount ?? 0) / Math.max(s.capacity, 1)) * 100));
                     const full = (s.studentCount ?? 0) >= s.capacity;
                     return (
-                      <div key={s.id} className="rounded-2xl border border-white/50 bg-white/80 p-4 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60">
+                      <div key={s.id} className="rounded-xl border border-white/50 bg-white/80 p-3 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 sm:rounded-2xl sm:p-4">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap gap-1 mb-1.5">
@@ -236,7 +247,7 @@ export default function OturumlarPage() {
                               )}
                               {full && <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold bg-red-100 text-red-600 dark:bg-red-950/30 dark:text-red-400">Dolu</span>}
                             </div>
-                            <p className="font-bold text-sm leading-tight">{s.subjectName}</p>
+                            <p className="text-xs font-bold leading-tight sm:text-sm">{s.subjectName}</p>
                           </div>
                           {isAdmin && (
                             <div className="flex gap-1 shrink-0">
@@ -247,7 +258,7 @@ export default function OturumlarPage() {
                         </div>
 
                         <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1"><Clock className="size-3" />{s.startTime}?{s.endTime}</span>
+                          <span className="flex items-center gap-1"><Clock className="size-3" />{s.startTime}–{s.endTime}</span>
                           {s.roomName && <span className="flex items-center gap-1"><MapPin className="size-3" />{s.roomName}</span>}
                           <span className="flex items-center gap-1"><Users className="size-3" />{s.studentCount ?? 0}/{s.capacity}</span>
                         </div>

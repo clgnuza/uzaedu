@@ -42,7 +42,7 @@ export const SCHOOL_TYPE_LABELS: Record<string, string> = {
   imam_hatip_lise: 'İmam Hatip Lisesi',
   ozel_egitim: 'Özel Eğitim Uygulama Okulu',
   halk_egitim: 'Halk Eğitim Merkezi',
-  bilsem: 'BİLSEM',
+  bilsem: 'Bilsem',
   /** Evrak şablonu / eski kod uyumu */
   gsl: 'Güzel Sanatlar Lisesi',
   spor_l: 'Spor Lisesi',
@@ -66,7 +66,7 @@ export const SCHOOL_TYPE_GROUP_ORDER = ['ilkogretim', 'lise_kademesi', 'kurum_di
 
 export const SCHOOL_TYPE_GROUP_LABELS: Record<string, string> = {
   ilkogretim: 'İlköğretim (ilkokul, ortaokul, temel eğitim)',
-  lise_kademesi: 'Lise kademesi (tüm lise türleri, meslek, İHL, BİLSEM)',
+  lise_kademesi: 'Lise kademesi (tüm lise türleri, meslek, İHL, Bilsem)',
   kurum_diger: 'Diğer (anaokul, İH orta, özel eğitim, halk eğitim)',
 };
 

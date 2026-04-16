@@ -19,13 +19,13 @@ export function Sidebar({ role, moderatorModules, schoolEnabledModules }: Sideba
   return (
     <div
       className={cn(
-        'sidebar bg-background lg:border-e lg:border-border lg:fixed lg:top-0 lg:bottom-0 lg:z-40 flex flex-col items-stretch shrink-0 print:hidden',
+        'sidebar bg-background lg:border-e lg:border-border lg:fixed lg:top-0 lg:bottom-0 lg:z-40 flex min-h-0 flex-col items-stretch print:hidden lg:max-h-dvh lg:shrink-0',
         sidebarTheme === 'dark' && 'dark',
       )}
     >
       <SidebarHeader />
-      <div className="overflow-hidden">
-        <div className="sidebar-inner w-full min-w-0">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="sidebar-inner flex min-h-0 min-w-0 flex-1 flex-col">
           <Suspense fallback={<div className="px-3 py-4 text-xs text-muted-foreground">Menü yükleniyor…</div>}>
             <SidebarMenu role={role} moderatorModules={moderatorModules} schoolEnabledModules={schoolEnabledModules} />
           </Suspense>

@@ -397,7 +397,7 @@ export function Header({
                 side="left"
                 className="!w-[min(78vw,188px)] !max-w-[188px] gap-0 border-r p-0"
               >
-                <SheetBody className="overflow-y-auto p-0">
+                <SheetBody className="min-h-0 p-0">
                   <SidebarMenu
                     role={role}
                     moderatorModules={moderatorModules}

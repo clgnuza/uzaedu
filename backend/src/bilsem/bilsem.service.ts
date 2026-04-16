@@ -218,7 +218,7 @@ export class BilsemService {
     }
   }
 
-  /** 2025-2026 BİLSEM şablonunu doldur (work_calendar haftaları ile eşleşir) */
+  /** 2025-2026 Bilsem şablonunu doldur (work_calendar haftaları ile eşleşir) */
   async seedBilsemCalendar(academicYear: string = '2025-2026'): Promise<{ seeded: number }> {
     const year = academicYear.trim();
     let workWeeks = await this.workCalendarService.findAll(year);
@@ -386,8 +386,8 @@ export class BilsemService {
       event_type: 'bilsem_calendar.assigned',
       entity_id: assignment.id,
       target_screen: 'bilsem/takvim',
-      title: 'BİLSEM görevlendirmesi',
-      body: `"${item.title}" etkinliği için görevlendirildiniz. BİLSEM takvimine giderek detayları görüntüleyebilirsiniz.`,
+      title: 'Bilsem görevlendirmesi',
+      body: `"${item.title}" etkinliği için görevlendirildiniz. Bilsem takvimine giderek detayları görüntüleyebilirsiniz.`,
       metadata: { itemId: item.id, itemTitle: item.title },
     });
 
@@ -420,7 +420,7 @@ export class BilsemService {
     return users.map((u) => ({ id: u.id, display_name: u.display_name }));
   }
 
-  /** Öğretmenin tarih aralığındaki BİLSEM görevlendirmeleri (ajanda takvimi için) */
+  /** Öğretmenin tarih aralığındaki Bilsem görevlendirmeleri (ajanda takvimi için) */
   async getTeacherAssignmentsForDateRange(
     schoolId: string,
     userId: string,
@@ -447,7 +447,7 @@ export class BilsemService {
       const dateStart = wc?.weekStart ?? '';
       return {
         id: g.id,
-        title: item?.title ?? 'BİLSEM',
+        title: item?.title ?? 'Bilsem',
         dateStart,
         gorevTipi: g.gorevTipi ?? 'sorumlu',
       };

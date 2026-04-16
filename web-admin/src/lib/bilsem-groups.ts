@@ -1,4 +1,4 @@
-/** BİLSEM yetenek alanları – ana grup */
+/** Bilsem yetenek alanları – ana grup */
 export const BILSEM_ANA_GRUPLAR = [
   { value: 'GENEL_YETENEK', label: 'Genel Yetenek' },
   { value: 'RESIM', label: 'Resim' },
@@ -6,7 +6,7 @@ export const BILSEM_ANA_GRUPLAR = [
   { value: 'DIGERLERI', label: 'Diğerleri' },
 ] as const;
 
-/** BİLSEM Ek-1 Program aşamaları – alt grup */
+/** Bilsem Ek-1 Program aşamaları – alt grup */
 export const BILSEM_ALT_GRUPLAR = [
   { value: 'UYUM', label: 'Uyum' },
   { value: 'DESTEK-1', label: 'Destek-1' },

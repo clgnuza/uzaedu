@@ -46,6 +46,7 @@ export class MeController {
       school_join_stage: schoolJoinStage(user),
       school_join_email_verified_at: user.schoolJoinEmailVerifiedAt?.toISOString() ?? null,
       email_verified: !!user.emailVerifiedAt,
+      login_otp_required: user.loginOtpRequired !== false,
       teacher_public_name_masked: user.teacherPublicNameMasked,
       teacher_branch: user.teacherBranch ?? null,
       school: user.school
@@ -59,7 +60,7 @@ export class MeController {
             district: user.school.district ?? null,
             status: user.school.status,
             teacher_limit: user.school.teacher_limit ?? 100,
-            merge_teacher_on_name_match: user.school.mergeTeacherOnNameMatch === true,
+            teacher_name_merge_mode: user.school.teacherNameMergeMode ?? 'none',
             enabled_modules: user.school.enabled_modules ?? null,
           }
         : null,
@@ -97,6 +98,7 @@ export class MeController {
       school_join_stage: schoolJoinStage(user),
       school_join_email_verified_at: user.schoolJoinEmailVerifiedAt?.toISOString() ?? null,
       email_verified: !!user.emailVerifiedAt,
+      login_otp_required: user.loginOtpRequired !== false,
       teacher_public_name_masked: user.teacherPublicNameMasked,
       status: user.status,
       evrak_defaults: user.evrakDefaults ?? null,

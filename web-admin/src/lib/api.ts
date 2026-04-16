@@ -64,6 +64,10 @@ export function isApiErrorCode(e: unknown, code: string): boolean {
   return !!e && typeof e === 'object' && 'code' in e && (e as ApiError).code === code;
 }
 
+/** Okul girişinde öğretmen hesabı; öğretmen girişinde okul yöneticisi (auth.service) */
+export const AUTH_WRONG_PORTAL_TEACHER_LOGIN = 'WRONG_PORTAL_USE_TEACHER_LOGIN';
+export const AUTH_WRONG_PORTAL_SCHOOL_LOGIN = 'WRONG_PORTAL_USE_SCHOOL_LOGIN';
+
 export function isModuleActivationRequiredError(e: unknown): boolean {
   return isApiErrorCode(e, 'MODULE_ACTIVATION_REQUIRED');
 }

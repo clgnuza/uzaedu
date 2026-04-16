@@ -1,9 +1,9 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, AUTH_WRONG_PORTAL_TEACHER_LOGIN, isApiErrorCode } from '@/lib/api';
 import { Alert } from '@/components/ui/alert';
 import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
@@ -41,6 +41,17 @@ function SchoolLoginForm() {
   const navQ = searchParams?.toString() || undefined;
   const regHref = navQ ? `/register/okul?${navQ}` : '/register/okul';
   const teacherLoginHref = navQ ? `/login/ogretmen?${navQ}` : '/login/ogretmen';
+  const [fromTeacherBanner, setFromTeacherBanner] = useState(false);
+
+  useEffect(() => {
+    const wp = searchParams?.get('wrong_portal');
+    if (wp !== 'from_teacher') return;
+    setFromTeacherBanner(true);
+    const p = new URLSearchParams(searchParams!.toString());
+    p.delete('wrong_portal');
+    const q = p.toString();
+    router.replace(q ? `/login/okul?${q}` : '/login/okul', { scroll: false });
+  }, [searchParams, router]);
 
   const setTokenAndRedirect = async (token: string) => {
     await setToken(token);
@@ -75,6 +86,16 @@ function SchoolLoginForm() {
         await setTokenAndRedirect(res.token);
       }
     } catch (err) {
+      if (isApiErrorCode(err, AUTH_WRONG_PORTAL_TEACHER_LOGIN)) {
+        const msg = err instanceof Error ? err.message : 'Yönlendiriliyorsunuz.';
+        toast.error(msg);
+        const next = teacherLoginHref.includes('?')
+          ? `${teacherLoginHref}&wrong_portal=from_school`
+          : `${teacherLoginHref}?wrong_portal=from_school`;
+        router.replace(next);
+        setLoading(false);
+        return;
+      }
       const msg = err instanceof Error ? err.message : 'Giriş yapılamadı.';
       setError(msg);
       toast.error(msg);
@@ -99,6 +120,16 @@ function SchoolLoginForm() {
       });
       await setTokenAndRedirect(res.token);
     } catch (err) {
+      if (isApiErrorCode(err, AUTH_WRONG_PORTAL_TEACHER_LOGIN)) {
+        const msg = err instanceof Error ? err.message : 'Yönlendiriliyorsunuz.';
+        toast.error(msg);
+        const next = teacherLoginHref.includes('?')
+          ? `${teacherLoginHref}&wrong_portal=from_school`
+          : `${teacherLoginHref}?wrong_portal=from_school`;
+        router.replace(next);
+        setLoading(false);
+        return;
+      }
       const msg = err instanceof Error ? err.message : 'Kod doğrulanamadı.';
       setError(msg);
       toast.error(msg);
@@ -126,7 +157,7 @@ function SchoolLoginForm() {
 
   return (
     <AuthPageShell>
-      <AuthFlowSubnav flow="login" role="school" redirectQuery={navQ} />
+      <AuthFlowSubnav flow="login" role="school" redirectQuery={navQ} gateForgot />
       <div className="mx-auto w-full max-w-md px-0">
         <AuthCard className="shadow-[0_24px_64px_-16px_rgba(245,158,11,0.12)] ring-amber-500/15 dark:shadow-[0_24px_64px_-16px_rgba(0,0,0,0.45)]">
           <CardHeader className="space-y-2 border-b border-border/50 bg-linear-to-br from-amber-500/8 to-transparent px-4 pb-4 pt-4 sm:px-6 sm:pb-5 sm:pt-5">
@@ -146,6 +177,12 @@ function SchoolLoginForm() {
             )}
           </CardHeader>
           <CardContent className="space-y-4 px-4 pb-5 pt-4 sm:px-6 sm:pb-6 sm:pt-5">
+            {fromTeacherBanner && (
+              <Alert
+                message="Öğretmen giriş sayfasından yönlendirildiniz. Bu hesap okul yöneticisi — kurumsal e-posta ve şifre ile buradan giriş yapın."
+                className="text-[11px] leading-snug"
+              />
+            )}
             <div className="flex items-center gap-2 rounded-xl border border-amber-200/80 bg-amber-50/50 p-3 text-sm dark:border-amber-900/50 dark:bg-amber-950/25">
               <Building2 className="size-4 shrink-0 text-amber-700 dark:text-amber-300" strokeWidth={2} />
               <p className="text-muted-foreground">

@@ -118,9 +118,9 @@ export function SmartBoardUsagePanel({ token, schoolId }: { token: string | null
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 sm:space-y-4">
       <Card className="overflow-hidden border-rose-200/45 dark:border-rose-900/35">
-        <CardHeader className="flex flex-col gap-3 border-b border-border/60 px-3 py-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:px-6 sm:py-4">
+        <CardHeader className="flex flex-col gap-2 border-b border-border/60 px-2.5 py-2.5 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-3 sm:px-6 sm:py-4">
           <div>
             <CardTitle className="text-sm sm:text-base">Kullanım istatistikleri</CardTitle>
             <p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">
@@ -154,7 +154,7 @@ export function SmartBoardUsagePanel({ token, schoolId }: { token: string | null
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4 px-3 py-4 sm:px-6">
+        <CardContent className="space-y-3 px-2.5 py-3 sm:space-y-4 sm:px-6 sm:py-4">
           {err && <Alert variant="error">{err}</Alert>}
 
           {health && health.alerts.length > 0 && (

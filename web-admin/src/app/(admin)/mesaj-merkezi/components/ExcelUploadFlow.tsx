@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { Upload, RefreshCw, Eye } from 'lucide-react';
 import CampaignPreviewTable from './CampaignPreviewTable';
 import SendPanel from './SendPanel';
+import { applyWaTemplateSamples } from '@/lib/messaging-template-samples';
 
 interface Props {
   endpoint: string;       // e.g. /messaging/campaigns/ek-ders/excel
@@ -68,10 +69,10 @@ export default function ExcelUploadFlow({ endpoint, pageTitle, description, defa
   };
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-2xl border border-white/50 bg-white/80 p-5 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60">
-        <p className="font-bold text-base">{pageTitle}</p>
-        <p className="text-xs text-muted-foreground mt-0.5 mb-4">{description}</p>
+    <div className="space-y-3 sm:space-y-4">
+      <div className="rounded-xl border border-white/50 bg-white/80 p-3 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 sm:rounded-2xl sm:p-5">
+        <p className="text-sm font-bold sm:text-base">{pageTitle}</p>
+        <p className="mt-0.5 mb-3 text-[11px] leading-snug text-muted-foreground sm:mb-4 sm:text-xs">{description}</p>
 
         {step === 'upload' && (
           <div className="space-y-3">
@@ -87,26 +88,14 @@ export default function ExcelUploadFlow({ endpoint, pageTitle, description, defa
                     <Eye className="size-3" />{showPrev ? 'Gizle' : 'Önizle'}
                   </button>
                 </div>
-                <textarea rows={4} value={template} onChange={(e) => setTemplate(e.target.value)}
-                  className="w-full rounded-lg border border-input bg-white px-3 py-2 text-sm dark:bg-zinc-900 resize-y font-mono" />
+                <textarea rows={6} value={template} onChange={(e) => setTemplate(e.target.value)}
+                  className="min-h-[140px] w-full resize-y rounded-lg border border-input bg-white px-2.5 py-1.5 font-mono text-xs leading-relaxed dark:bg-zinc-900 sm:min-h-[200px] sm:px-3 sm:py-2 sm:text-sm" />
                 <p className="mt-1 text-[10px] text-muted-foreground">Değişkenler: {templateHelp}</p>
                 {showPrev && (
                   <div className="mt-2 flex justify-start">
                     <div className="relative max-w-[280px] sm:max-w-xs">
-                      <div className="rounded-2xl rounded-tl-none bg-[#d9fdd3] shadow px-3.5 py-2.5 text-[12px] leading-[1.55] text-slate-800 whitespace-pre-line border border-green-100 dark:bg-[#1a3a2a] dark:text-slate-100 dark:border-green-900/30">
-                        {template
-                          .replace(/{AD}/g, 'AHMET YILMAZ')
-                          .replace(/{OGRENCI}/g, 'Ali YILMAZ')
-                          .replace(/{SINIF}/g, '10. Sınıf / A Şubesi')
-                          .replace(/{TARIH}/g, new Date().toLocaleDateString('tr-TR'))
-                          .replace(/{GUN}/g, '1 gün (Tam Gün)')
-                          .replace(/{TUR}/g, 'Özürsüz')
-                          .replace(/{CIKIS}/g, '31.10.2025')
-                          .replace(/{DONUS}/g, '03.11.2025')
-                          .replace(/{DERSLER_INLINE}/g, '[1.Ders, 2.Ders, 3.Ders]')
-                          .replace(/{DERSLER}/g, '• Matematik (1. saat)\n• Fizik (2. saat)')
-                          .replace(/{OKUL}/g, 'Okulunuzun Adı')
-                        }
+                      <div className="rounded-2xl rounded-tl-none bg-[#d9fdd3] shadow px-3.5 py-2.5 text-[12px] leading-[1.65] text-slate-800 whitespace-pre-line border border-green-100 dark:bg-[#1a3a2a] dark:text-slate-100 dark:border-green-900/30">
+                        {applyWaTemplateSamples(template)}
                       </div>
                       <div className="absolute -left-1.5 top-0 size-0 border-t-[10px] border-t-[#d9fdd3] dark:border-t-[#1a3a2a] border-r-[8px] border-r-transparent" />
                       <p className="mt-0.5 text-right text-[9px] text-muted-foreground">17:25 ✓✓</p>

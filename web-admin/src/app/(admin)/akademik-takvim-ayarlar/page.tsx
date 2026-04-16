@@ -49,7 +49,7 @@ const SCHOOL_TYPE_LABEL: Record<string, string> = {
   imam_hatip_lise: 'İmam Hatip lise',
   ozel_egitim: 'Özel eğitim',
   halk_egitim: 'Halk eğitim',
-  bilsem: 'BİLSEM',
+  bilsem: 'Bilsem',
 };
 import { toast } from 'sonner';
 

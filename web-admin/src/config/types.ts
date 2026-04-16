@@ -26,6 +26,8 @@ export interface MenuItem {
   icon?: LucideIcon;
   /** AUTHORITY_MATRIX – bu sayfaya erişebilecek roller. */
   allowedRoles: WebAdminRole[];
+  /** Bu roller sol menüde bu satırı göstermez (rota erişimi `allowedRoles` ile kalır). */
+  hiddenInSidebarForRoles?: WebAdminRole[];
   /** true: giriş yokken de sol menüde göster (ör. /haberler). */
   publicAccess?: boolean;
   /** Moderator için gerekli modül (role=moderator ise moderator_modules içinde olmalı). */

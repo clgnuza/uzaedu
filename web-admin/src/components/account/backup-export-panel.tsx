@@ -5,6 +5,7 @@ import { CloudDownload, CloudUpload, Download, FileUp, RefreshCw } from 'lucide-
 import { apiFetch, type ApiError } from '@/lib/api';
 import { toast } from 'sonner';
 import { SCHOOL_MODULE_KEYS, SCHOOL_MODULE_LABELS, type SchoolModuleKey } from '@/config/school-modules';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { useAuth } from '@/hooks/use-auth';
@@ -22,8 +23,8 @@ const ACCOUNT_KEY = 'account' as const;
 
 const ALL_KEYS = [ACCOUNT_KEY, ...SCHOOL_MODULE_KEYS] as const;
 
-/** Sunucu `POST /me/data-import` ile geri yüklenebilen modüller (diğerleri yedekte yer alır; içe aktarım henüz yok). */
-const SERVER_IMPORT_KEYS = new Set<string>([ACCOUNT_KEY, 'teacher_agenda']);
+/** Sunucu `POST /me/data-import` ile geri yüklenebilen modüller (diğerleri yedekte arşiv; içe aktarım henüz yok). */
+const SERVER_IMPORT_KEYS = new Set<string>([ACCOUNT_KEY, 'teacher_agenda', 'messaging']);
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message;
@@ -59,25 +60,29 @@ function triggerJsonDownload(data: Record<string, unknown>, filename: string): v
   URL.revokeObjectURL(url);
 }
 
-function defaultSelection(enabled: string[] | null | undefined): Set<string> {
-  const s = new Set<string>([ACCOUNT_KEY]);
-  if (enabled?.length) {
-    for (const k of enabled) {
-      if (SCHOOL_MODULE_KEYS.includes(k as SchoolModuleKey)) s.add(k);
-    }
-  } else {
-    ALL_KEYS.forEach((k) => s.add(k));
-  }
-  return s;
+function defaultSelection(_enabled: string[] | null | undefined): Set<string> {
+  return new Set(ALL_KEYS);
 }
 
 type Props = {
   token: string | null;
-  /** Okulda açık modüller — yoksa tümü seçili başlar */
+  /** Okulda açık modüller — bilgi amaçlı; varsayılan seçim her zaman tüm modüller */
   enabledModules?: string[] | null;
+  role?: string | null;
+  /** `full`: profil yedek sekmesi — tam genişlik ve rol bandı */
+  layout?: 'default' | 'full';
+  /** Okul yöneticisi vb. mobilde daha sıkı boşluk ve küçük tipografi */
+  compactMobile?: boolean;
 };
 
-export function BackupExportPanel({ token, enabledModules }: Props) {
+const ROLE_LABELS: Record<string, string> = {
+  teacher: 'Öğretmen',
+  school_admin: 'Okul yöneticisi',
+  moderator: 'Moderatör',
+  superadmin: 'Süper yönetici',
+};
+
+export function BackupExportPanel({ token, enabledModules, role, layout = 'default', compactMobile }: Props) {
   const { refetchMe } = useAuth();
   const [selected, setSelected] = useState(() => defaultSelection(enabledModules));
   const [loading, setLoading] = useState(false);
@@ -106,6 +111,8 @@ export function BackupExportPanel({ token, enabledModules }: Props) {
     const ev = parsedBackup.export_version;
     const ta = parsedBackup.teacher_agenda as Record<string, unknown> | undefined;
     const agendaUnavailable = !!(ta && typeof ta === 'object' && ta.unavailable === true);
+    const msg = parsedBackup.messaging as Record<string, unknown> | undefined;
+    const messagingUnavailable = !!(msg && typeof msg === 'object' && msg.unavailable === true);
     const hasAccountBlock =
       parsedBackup.export_version === 2
         ? parsedBackup.account != null && typeof parsedBackup.account === 'object'
@@ -113,6 +120,7 @@ export function BackupExportPanel({ token, enabledModules }: Props) {
     return {
       exportVersion: typeof ev === 'number' ? ev : null,
       agendaUnavailable,
+      messagingUnavailable,
       hasAccountBlock,
     };
   }, [parsedBackup]);
@@ -312,85 +320,183 @@ export function BackupExportPanel({ token, enabledModules }: Props) {
     }
   };
 
+  const isFull = layout === 'full';
+  const roleLine = role ? (ROLE_LABELS[role] ?? role) : null;
+  const enabledHint =
+    enabledModules && enabledModules.length > 0
+      ? `Okulda etkin modüller: ${enabledModules.map((k) => labels[k] ?? k).join(', ')}.`
+      : null;
+
+  const cm = !!compactMobile;
+
   return (
-    <div className="space-y-4">
-      <Alert variant="info" className="text-sm leading-relaxed [&_div]:text-foreground/90">
+    <div
+      className={cn(
+        'w-full min-w-0 space-y-4',
+        isFull && !cm && 'sm:space-y-6',
+        isFull && cm && 'max-sm:space-y-2.5 sm:space-y-5',
+        !isFull && cm && 'max-sm:space-y-2.5',
+      )}
+    >
+      {isFull && (
+        <div
+          className={cn(
+            'rounded-xl border border-primary/20 bg-linear-to-r from-primary/10 via-muted/30 to-transparent px-4 py-3 sm:px-5 sm:py-4',
+            cm && 'max-sm:rounded-lg max-sm:px-2.5 max-sm:py-2',
+          )}
+        >
+          <p className={cn('font-semibold text-foreground', cm ? 'max-sm:text-xs sm:text-sm' : 'text-sm')}>
+            Tam yedek (JSON)
+          </p>
+          <p
+            className={cn(
+              'mt-1 leading-relaxed text-muted-foreground',
+              cm ? 'max-sm:text-[11px] sm:text-sm' : 'text-xs sm:text-sm',
+            )}
+          >
+            {roleLine ? (
+              <>
+                Oturum: <span className="font-medium text-foreground">{roleLine}</span>. Tüm modül anahtarları listede;
+                dışa aktarımda size ait satırlar toplanır; okul paylaşımlı modüllerde dosyada{' '}
+                <span className="font-medium">unavailable</span> açıklaması olabilir.
+              </>
+            ) : (
+              <>
+                Tüm modül anahtarları listede; dışa aktarımda size ait satırlar toplanır; okul paylaşımlı modüllerde{' '}
+                <span className="font-medium">unavailable</span> açıklaması olabilir.
+              </>
+            )}
+          </p>
+          {enabledHint && (
+            <p className={cn('mt-2 text-muted-foreground', cm ? 'max-sm:text-[10px] sm:text-xs' : 'text-[11px] sm:text-xs')}>
+              {enabledHint}
+            </p>
+          )}
+        </div>
+      )}
+      <Alert
+        variant="info"
+        className={cn(
+          'leading-relaxed [&_div]:text-foreground/90',
+          cm ? 'max-sm:p-2.5 max-sm:text-[11px] sm:text-sm' : 'text-sm',
+        )}
+      >
         <p>
           <strong className="font-semibold text-foreground">Modül seçimi</strong> hem yerel indirme hem Drive yüklemesi hem de
           sunucuya geri yükleme için kullanılır. Dışa aktarımda henüz veri üretilmeyen modüller dosyada{' '}
-          <span className="font-medium">unavailable</span> olarak işaretlenir.
+          <span className="font-medium">unavailable</span> veya kısa <span className="font-medium">hint_tr</span> ile
+          işaretlenebilir.
         </p>
         <p className="mt-2 border-t border-border/50 pt-2">
-          <strong className="font-semibold text-foreground">Sunucuya içe aktarma:</strong> Şu an yalnızca{' '}
-          <span className="font-medium">Hesap ve profil</span> ile <span className="font-medium">Öğretmen Ajandası</span>{' '}
-          sunucuda güncellenir. Diğer modüller seçili olsa bile yedekte veri yoksa veya içe aktarım henüz yoksa bu adım
-          etkilenmez veya işlem reddedilebilir.
+          <strong className="font-semibold text-foreground">Sunucuya içe aktarma:</strong>{' '}
+          <span className="font-medium">Hesap ve profil</span>, <span className="font-medium">Öğretmen Ajandası</span> ve{' '}
+          <span className="font-medium">Mesaj Gönderme Merkezi</span> (okul başına mesaj tercihleri) sunucuda güncellenir.
+          Diğer modüller yedek dosyasında arşivlenir; geri yükleme için önce yeni yedek alın.
         </p>
         <p className="mt-2 border-t border-border/50 pt-2 text-muted-foreground">
           <strong className="font-semibold text-foreground">KVKK:</strong> Yedek dosyası kişisel veri içerir. Yerel
           saklama ve Google Drive kullanımında veri güvenliği ve sağlayıcı koşulları size aittir.
         </p>
       </Alert>
-      <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="outline" size="sm" className="rounded-lg" onClick={selectAll}>
+      <div className={cn('flex flex-wrap gap-2', cm && 'max-sm:gap-1.5')}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={cn('rounded-lg', cm && 'max-sm:h-8 max-sm:px-2 max-sm:text-xs')}
+          onClick={selectAll}
+        >
           Tümünü seç
         </Button>
-        <Button type="button" variant="outline" size="sm" className="rounded-lg" onClick={selectNone}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={cn('rounded-lg', cm && 'max-sm:h-8 max-sm:px-2 max-sm:text-xs')}
+          onClick={selectNone}
+        >
           Yalnızca hesap
         </Button>
       </div>
-      <ul className="grid gap-2 sm:grid-cols-2">
+      <ul
+        className={cn(
+          'grid gap-2',
+          isFull ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'sm:grid-cols-2',
+          cm && 'max-sm:gap-1.5',
+        )}
+      >
         {ALL_KEYS.map((key) => {
           const disabled = key === ACCOUNT_KEY;
           const checked = selected.has(key);
+          const canImport = SERVER_IMPORT_KEYS.has(key);
           return (
             <li key={key}>
               <label
-                className={`flex cursor-pointer items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-sm ${
-                  disabled ? 'opacity-80' : 'hover:bg-muted/40'
-                }`}
+                className={cn(
+                  'flex cursor-pointer flex-col gap-1 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5 text-sm sm:flex-row sm:items-center sm:gap-2',
+                  cm ? 'max-sm:min-h-0 max-sm:px-2 max-sm:py-1.5 max-sm:text-xs sm:min-h-12' : 'min-h-12',
+                  disabled ? 'opacity-80' : 'hover:bg-muted/40',
+                )}
               >
-                <input
-                  type="checkbox"
-                  className="size-4 rounded border-input"
-                  checked={checked}
-                  disabled={disabled}
-                  onChange={() => toggle(key)}
-                />
-                <span>{labels[key] ?? key}</span>
+                <div className={cn('flex items-center gap-2', cm && 'max-sm:gap-1.5')}>
+                  <input
+                    type="checkbox"
+                    className={cn('size-4 shrink-0 rounded border-input', cm && 'max-sm:size-3.5')}
+                    checked={checked}
+                    disabled={disabled}
+                    onChange={() => toggle(key)}
+                  />
+                  <span className="font-medium">{labels[key] ?? key}</span>
+                </div>
+                <span
+                  className={cn(
+                    'ml-6 shrink-0 font-medium uppercase tracking-wide sm:ml-auto',
+                    cm ? 'max-sm:ml-5 max-sm:text-[9px] sm:text-[11px]' : 'text-[10px] sm:text-[11px]',
+                    canImport ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground',
+                  )}
+                >
+                  {canImport ? 'Sunucuya yazılır' : 'Yalnızca dosya'}
+                </span>
               </label>
             </li>
           );
         })}
       </ul>
 
-      <div className="flex flex-col gap-2 border-t border-border/60 pt-4">
-        <p className="text-xs font-medium text-foreground">Bilgisayara indir</p>
-        <p className="text-xs text-muted-foreground leading-relaxed">
+      <div className={cn('flex flex-col gap-2 border-t border-border/60 pt-4', cm && 'max-sm:gap-1 max-sm:pt-2')}>
+        <p className={cn('font-medium text-foreground', cm ? 'max-sm:text-[11px] sm:text-xs' : 'text-xs')}>
+          Bilgisayara indir
+        </p>
+        <p className={cn('text-muted-foreground leading-relaxed', cm ? 'max-sm:text-[10px] sm:text-xs' : 'text-xs')}>
           Dosya tarayıcınızın indirme klasörüne kaydedilir. İsterseniz aynı dosyayı aşağıdan sunucuya da uygulayabilirsiniz.
         </p>
         <Button
           type="button"
           disabled={!token || loading}
           onClick={download}
-          className="gap-2 rounded-lg w-fit"
+          className={cn('gap-2 rounded-lg w-fit', cm && 'max-sm:h-8 max-sm:px-2.5 max-sm:text-xs')}
           aria-busy={loading}
         >
-          <Download className="size-4 shrink-0" aria-hidden />
+          <Download className={cn('size-4 shrink-0', cm && 'max-sm:size-3.5')} aria-hidden />
           {loading ? 'İndiriliyor…' : 'Seçilenleri indir (yerel)'}
         </Button>
       </div>
 
-      <div className="flex flex-col gap-2 border-t border-border/60 pt-4">
-        <p className="text-xs font-medium text-foreground">Google Drive</p>
+      <div className={cn('flex flex-col gap-2 border-t border-border/60 pt-4', cm && 'max-sm:gap-1 max-sm:pt-2')}>
+        <p className={cn('font-medium text-foreground', cm ? 'max-sm:text-[11px] sm:text-xs' : 'text-xs')}>
+          Google Drive
+        </p>
         {driveConfigured ? (
-          <p className="text-xs text-muted-foreground leading-relaxed">
+          <p className={cn('text-muted-foreground leading-relaxed', cm ? 'max-sm:text-[10px] sm:text-xs' : 'text-xs')}>
             İlk seferde Google hesabı ve Drive izni istenir. Listede yalnızca bu uygulama ile yüklenen veya adında
             “ogretmenpro-yedek” geçen .json dosyaları görünür; başka kullanıcıların dosyalarına erişilmez. Drive’dan indirdiğiniz
             dosyayı sunucuya uygulamak için sayfadaki “.json seç” adımını kullanın.
           </p>
         ) : (
-          <Alert variant="warning" className="text-xs leading-relaxed [&_div]:text-foreground/90">
+          <Alert
+            variant="warning"
+            className={cn('leading-relaxed [&_div]:text-foreground/90', cm ? 'max-sm:p-2.5 max-sm:text-[10px] sm:text-xs' : 'text-xs')}
+          >
             <p>
               Google Drive yedekleme bu ortamda kapalı. Açılması için yönetici{' '}
               <code className="rounded bg-muted px-1 py-0.5 text-[11px]">NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID</code> ve Google
@@ -398,35 +504,40 @@ export function BackupExportPanel({ token, enabledModules }: Props) {
             </p>
           </Alert>
         )}
-        <div className="flex flex-wrap gap-2">
+        <div className={cn('flex flex-wrap gap-2', cm && 'max-sm:gap-1.5')}>
           <Button
             type="button"
             variant="secondary"
             size="sm"
-            className="gap-2 rounded-lg"
+            className={cn('gap-2 rounded-lg', cm && 'max-sm:h-8 max-sm:px-2 max-sm:text-xs')}
             disabled={!token || driveUploading || !driveConfigured}
             onClick={uploadToGoogleDrive}
           >
-            <CloudUpload className="size-4 shrink-0" aria-hidden />
+            <CloudUpload className={cn('size-4 shrink-0', cm && 'max-sm:size-3.5')} aria-hidden />
             {driveUploading ? 'Yükleniyor…' : 'Drive’a yükle'}
           </Button>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="gap-2 rounded-lg"
+            className={cn('gap-2 rounded-lg', cm && 'max-sm:h-8 max-sm:px-2 max-sm:text-xs')}
             disabled={driveListing || !driveConfigured}
             onClick={openDriveList}
           >
-            <CloudDownload className="size-4 shrink-0" aria-hidden />
+            <CloudDownload className={cn('size-4 shrink-0', cm && 'max-sm:size-3.5')} aria-hidden />
             {driveListing ? 'Açılıyor…' : 'Drive’dan indir (listele)'}
           </Button>
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 border-t border-border/60 pt-4">
-        <p className="text-xs font-medium text-foreground">Elinizdeki yedek dosyası</p>
-        <Alert variant="warning" className="text-xs leading-relaxed [&_div]:text-foreground/90">
+      <div className={cn('flex flex-col gap-2 border-t border-border/60 pt-4', cm && 'max-sm:gap-1 max-sm:pt-2')}>
+        <p className={cn('font-medium text-foreground', cm ? 'max-sm:text-[11px] sm:text-xs' : 'text-xs')}>
+          Elinizdeki yedek dosyası
+        </p>
+        <Alert
+          variant="warning"
+          className={cn('leading-relaxed [&_div]:text-foreground/90', cm ? 'max-sm:p-2.5 max-sm:text-[10px] sm:text-xs' : 'text-xs')}
+        >
           <p>
             <strong className="font-semibold text-foreground">Geri yükleme riski:</strong> Sunucuya uygulama, yalnızca sizin
             hesabınıza ait yedeklerle çalışır; başka kullanıcının dosyası reddedilir. <strong className="font-semibold">Öğretmen
@@ -434,9 +545,9 @@ export function BackupExportPanel({ token, enabledModules }: Props) {
             sayılır; önce yeni bir yedek alın).
           </p>
           <p className="mt-2 border-t border-border/50 pt-2">
-            Diğer modül kutuları dışa aktarım için seçilebilir; sunucuya yazılanlar şu an{' '}
-            <span className="font-medium">hesap</span> ve <span className="font-medium">öğretmen ajandası</span> ile
-            sınırlıdır.
+            Diğer modüller yedek dosyasında kalır; sunucuya doğrudan yazılanlar:{' '}
+            <span className="font-medium">hesap</span>, <span className="font-medium">öğretmen ajandası</span>,{' '}
+            <span className="font-medium">mesaj tercihleri</span>.
           </p>
         </Alert>
         <input ref={fileInputRef} type="file" accept=".json,application/json" className="hidden" onChange={onLocalFile} />
@@ -444,10 +555,10 @@ export function BackupExportPanel({ token, enabledModules }: Props) {
           type="button"
           variant="outline"
           size="sm"
-          className="gap-2 rounded-lg w-fit"
+          className={cn('gap-2 rounded-lg w-fit', cm && 'max-sm:h-8 max-sm:px-2 max-sm:text-[11px]')}
           onClick={() => fileInputRef.current?.click()}
         >
-          <FileUp className="size-4 shrink-0" aria-hidden />
+          <FileUp className={cn('size-4 shrink-0', cm && 'max-sm:size-3.5')} aria-hidden />
           Yedek .json seç ve sunucuya uygula
         </Button>
       </div>
@@ -477,6 +588,11 @@ export function BackupExportPanel({ token, enabledModules }: Props) {
               {importPreview.agendaUnavailable && selected.has('teacher_agenda') && (
                 <li className="text-amber-800 dark:text-amber-200">
                   Bu dosyada Öğretmen Ajandası verisi yok veya dışa aktarımda kullanılamıyor; ajanda içe aktarılmayabilir.
+                </li>
+              )}
+              {importPreview.messagingUnavailable && selected.has('messaging') && (
+                <li className="text-amber-800 dark:text-amber-200">
+                  Bu dosyada mesajlaşma tercihleri yok; bu modül atlanabilir.
                 </li>
               )}
               {!importPreview.hasAccountBlock && selected.has(ACCOUNT_KEY) && (

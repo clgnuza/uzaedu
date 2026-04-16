@@ -8,7 +8,7 @@ export type SchoolClass = { id: string; name: string; grade: number | null; sect
 export type SchoolSubject = { id: string; name: string; code: string | null };
 
 /**
- * Merkezi sınıf/grup ve ders verisi. BİLSEM modülünde arayüzde «grup» terimi kullanılır.
+ * Merkezi sınıf/grup ve ders verisi. Bilsem modülünde arayüzde «grup» terimi kullanılır.
  * Ders programı, nöbet, kazanım takip, evrak gibi modüller bu veriyi tek kaynak olarak kullanabilir.
  * school_admin ve teacher rollerinde school_id varsa veri çekilir.
  */

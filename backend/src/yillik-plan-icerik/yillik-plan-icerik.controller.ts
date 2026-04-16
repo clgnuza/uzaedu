@@ -497,7 +497,7 @@ export class YillikPlanIcerikController {
       if (!ana_grup?.trim()) {
         throw new BadRequestException({
           code: 'ANA_GRUP_REQUIRED',
-          message: 'BİLSEM için ana_grup zorunludur.',
+          message: 'Bilsem için ana_grup zorunludur.',
         });
       }
       await this.service.upsertMeta(

@@ -8,7 +8,7 @@ test.describe('Auth sayfaları', () => {
   });
 
   test('Şifre unuttum sayfası açılıyor', async ({ page }) => {
-    await page.goto('/forgot-password');
+    await page.goto('/forgot-password/ogretmen');
     await expect(page.getByRole('heading', { name: /şifre unuttum/i })).toBeVisible();
     await expect(page.getByPlaceholder(/ornek@posta|e-posta|email/i)).toBeVisible();
     await expect(page.getByRole('button', { name: /kod gönder/i })).toBeVisible();

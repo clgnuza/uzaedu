@@ -29,6 +29,7 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { EditProfileForm, ChangePasswordForm } from '@/components/account/profile-account-forms';
+import { LoginOtpPreference } from '@/components/account/login-otp-preference';
 import { DataExportButton, DeleteAccountButton } from '@/components/account/data-privacy-actions';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -59,7 +60,7 @@ const PLATFORM_GROUPS: {
     items: [
       { href: '/support/platform', label: 'Platform desteği', sub: 'Talepler', icon: BookOpen },
       { href: '/extra-lesson-params', label: 'Hesaplama parametreleri', sub: 'Ek ders bütçe kuralları', icon: Calculator },
-      { href: '/bilsem-sablon', label: 'BİLSEM altyapı', sub: 'Takvim ve şablon', icon: BookOpen },
+      { href: '/bilsem-sablon', label: 'Bilsem altyapı', sub: 'Takvim ve şablon', icon: BookOpen },
     ],
   },
   {
@@ -202,6 +203,7 @@ export function SuperadminAccountTabs() {
                 token={token}
                 displayName={me.display_name ?? ''}
                 avatarKey={me.avatar_key ?? null}
+                avatarUrl={me.avatar_url ?? null}
                 onSuccess={refetchMe}
               />
             </CardContent>
@@ -222,8 +224,13 @@ export function SuperadminAccountTabs() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="p-4 md:p-6">
+            <CardContent className="space-y-4 p-4 md:p-6">
               <ChangePasswordForm token={token} />
+              <LoginOtpPreference
+                token={token}
+                initialRequired={me.login_otp_required !== false}
+                onSaved={() => void refetchMe()}
+              />
             </CardContent>
           </Card>
 

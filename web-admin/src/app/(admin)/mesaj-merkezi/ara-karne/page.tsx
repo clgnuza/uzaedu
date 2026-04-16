@@ -2,6 +2,7 @@
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { msgQ } from '@/lib/messaging-api';
+import { TPL_ARA_KARNE } from '@/lib/messaging-default-templates';
 import PdfSplitFlow from '../components/PdfSplitFlow';
 
 export default function AraKarnePage() {
@@ -14,7 +15,7 @@ export default function AraKarnePage() {
       icon="📊"
       title="Ara Karne Dağıtımı"
       description="E-Okul'dan alınan ara karne PDF'ini yükleyin. Her öğrencinin ara karnesi otomatik ayrıştırılır ve velisine WhatsApp üzerinden gönderilir."
-      defaultTemplate={`📣 Sayın {AD},\n\n- Öğr. Adı Soyadı: {OGRENCI}\n- Sınıfı: {SINIF}\n\n- Açıklama: Öğrencimize ait Ara Karne belgesi tarafınıza iletilmiştir. Belgede ders notları ve devamsızlık bilgileri yer almaktadır.\n\n📚 {OKUL}`}
+      defaultTemplate={TPL_ARA_KARNE}
       token={token}
       q={q}
     />

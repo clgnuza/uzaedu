@@ -10,6 +10,11 @@ import {
   Microscope,
   Award,
   Globe,
+  Laptop,
+  Lightbulb,
+  Music2,
+  Brain,
+  Palette,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -22,6 +27,11 @@ export const AVATAR_PRESET_IDS = [
   'violet',
   'amber',
   'mint',
+  'laptop',
+  'bulb',
+  'note',
+  'mind',
+  'palette',
 ] as const;
 
 export type AvatarPresetId = (typeof AVATAR_PRESET_IDS)[number];
@@ -43,6 +53,11 @@ const PRESET: Record<
   violet: { label: 'Deney', Icon: Microscope, gradient: 'from-violet-600 to-violet-900' },
   amber: { label: 'Başarı', Icon: Award, gradient: 'from-amber-500 to-amber-900' },
   mint: { label: 'Dünya', Icon: Globe, gradient: 'from-teal-600 to-teal-900' },
+  laptop: { label: 'Bilişim', Icon: Laptop, gradient: 'from-indigo-600 to-indigo-950' },
+  bulb: { label: 'Fikir', Icon: Lightbulb, gradient: 'from-yellow-500 to-amber-900' },
+  note: { label: 'Nota', Icon: Music2, gradient: 'from-fuchsia-600 to-fuchsia-950' },
+  mind: { label: 'Zeka', Icon: Brain, gradient: 'from-sky-600 to-indigo-950' },
+  palette: { label: 'Palet', Icon: Palette, gradient: 'from-orange-600 to-rose-900' },
 };
 
 export const AVATAR_PRESETS: { id: AvatarPresetId; label: string }[] = AVATAR_PRESET_IDS.map((id) => ({
@@ -56,13 +71,13 @@ export function AvatarPresetSvg({ id, className }: { id: AvatarPresetId; classNa
   return (
     <span
       className={cn(
-        'relative inline-flex size-full items-center justify-center overflow-hidden rounded-full bg-gradient-to-br shadow-inner',
+        'relative inline-flex size-full items-center justify-center overflow-hidden rounded-full bg-linear-to-br shadow-inner',
         gradient,
         className,
       )}
       aria-hidden
     >
-      <Icon className="relative z-[1] size-[58%] text-white opacity-[0.97] drop-shadow-sm" strokeWidth={2} />
+      <Icon className="relative z-1 size-[58%] text-white opacity-[0.97] drop-shadow-sm" strokeWidth={2} />
     </span>
   );
 }

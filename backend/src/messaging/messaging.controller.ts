@@ -16,7 +16,19 @@ import { MessagingService } from './messaging.service';
 import {
   SaveSettingsDto, TestConnectionDto, CreateManualCampaignDto,
   CreateExcelCampaignDto, CreatePdfSplitCampaignDto,
+  PatchTeacherMessagingPreferencesDto,
 } from './dto/messaging.dto';
+import {
+  TPL_ARA_KARNE,
+  TPL_DEVAMSIZLIK,
+  TPL_DEVAMSIZLIK_MEKTUP,
+  TPL_DERS_DEVAMSIZLIK,
+  TPL_EK_DERS,
+  TPL_IZIN,
+  TPL_KARNE,
+  TPL_MAAS,
+  TPL_VELI_ILETISIM,
+} from './default-message-templates';
 
 @Controller('messaging')
 @UseGuards(JwtAuthGuard, RolesGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
@@ -53,6 +65,29 @@ export class MessagingController {
     return this.svc.testConnection(this.sid(p, q), dto.testPhone);
   }
 
+  @Get('delivery-hint')
+  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  deliveryHint(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q?: string) {
+    return this.svc.getDeliveryHint(this.sid(p, q));
+  }
+
+  /** Kişisel gönderim tercihleri (imza, wa.me sekme) — okul başına */
+  @Get('me/preferences')
+  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  getMyMessagingPreferences(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q?: string) {
+    return this.svc.getTeacherMessagingPreferences(p.userId, this.sid(p, q));
+  }
+
+  @Patch('me/preferences')
+  @Roles(UserRole.teacher)
+  patchMyMessagingPreferences(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q: string | undefined,
+    @Body() dto: PatchTeacherMessagingPreferencesDto,
+  ) {
+    return this.svc.saveTeacherMessagingPreferences(p.userId, this.sid(p, q), dto);
+  }
+
   // ── Kampanyalar listesi ────────────────────────────────────────────────────
 
   @Get('campaigns')
@@ -79,6 +114,23 @@ export class MessagingController {
     return this.svc.listRecipients(this.sid(p, q), id);
   }
 
+  /** API anahtarı olmadan wa.me bağlantıları (WhatsApp Web / uygulama) */
+  @Get('campaigns/:id/wa-manual-links')
+  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  waManualLinks(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') q?: string) {
+    return this.svc.getWaManualLinks(this.sid(p, q), id, p.userId);
+  }
+
+  @Post('recipients/:recipientId/mark-manual-sent')
+  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  markManualSent(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('recipientId') recipientId: string,
+    @Query('school_id') q?: string,
+  ) {
+    return this.svc.markRecipientManualSent(this.sid(p, q), p.userId, p.role, recipientId);
+  }
+
   @Patch('recipients/:id')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   updateRecipient(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') q: string | undefined, @Body() body: { phone?: string; messageText?: string; recipientName?: string }) {
@@ -87,9 +139,9 @@ export class MessagingController {
   }
 
   @Post('campaigns/:id/execute')
-  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
   execute(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') q?: string) {
-    return this.svc.executeCampaign(this.sid(p, q), id);
+    return this.svc.executeCampaign(this.sid(p, q), id, { userId: p.userId, role: p.role });
   }
 
   // ── Manuel / Toplu ────────────────────────────────────────────────────────
@@ -105,7 +157,7 @@ export class MessagingController {
   @UseInterceptors(FileInterceptor('file'))
   topluExcel(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q: string | undefined, @Body() body: CreateExcelCampaignDto, @UploadedFile() file: Express.Multer.File | undefined) {
     if (!file?.buffer?.length) throw new BadRequestException('Excel dosyası gerekli');
-    return this.svc.createTopluMesajCampaign(this.sid(p, q), p.userId, body.title, body.template ?? '{AD}, iyi günler.', file.buffer, file.originalname);
+    return this.svc.createTopluMesajCampaign(this.sid(p, q), p.userId, body.title, body.template ?? TPL_VELI_ILETISIM, file.buffer, file.originalname);
   }
 
   // ── Ek Ders ───────────────────────────────────────────────────────────────
@@ -115,7 +167,7 @@ export class MessagingController {
   @UseInterceptors(FileInterceptor('file'))
   ekDers(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q: string | undefined, @Body() body: CreateExcelCampaignDto, @UploadedFile() file: Express.Multer.File | undefined) {
     if (!file?.buffer?.length) throw new BadRequestException('Excel dosyası gerekli');
-    const tpl = body.template ?? 'Sayın {AD}, {AY} ayına ait ek ders bilginiz: Ders {SAAT} saat, Tutar {TUTAR} TL. — OgretmenPro';
+    const tpl = body.template ?? TPL_EK_DERS;
     return this.svc.createEkDersCampaign(this.sid(p, q), p.userId, body.title, tpl, file.buffer, file.originalname);
   }
 
@@ -126,7 +178,7 @@ export class MessagingController {
   @UseInterceptors(FileInterceptor('file'))
   maas(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q: string | undefined, @Body() body: CreateExcelCampaignDto, @UploadedFile() file: Express.Multer.File | undefined) {
     if (!file?.buffer?.length) throw new BadRequestException('Excel dosyası gerekli');
-    const tpl = body.template ?? 'Sayın {AD}, {AY} ayı maaş bilginiz: Brüt {BRUT} TL / Net {NET} TL. — OgretmenPro';
+    const tpl = body.template ?? TPL_MAAS;
     return this.svc.createMaasCampaign(this.sid(p, q), p.userId, body.title, tpl, file.buffer, file.originalname);
   }
 
@@ -137,7 +189,7 @@ export class MessagingController {
   @UseInterceptors(FileInterceptor('file'))
   devamsizlik(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q: string | undefined, @Body() body: CreateExcelCampaignDto, @UploadedFile() file: Express.Multer.File | undefined) {
     if (!file?.buffer?.length) throw new BadRequestException('Excel dosyası gerekli');
-    const tpl = body.template ?? `📣 Sayın {AD},\n\n- Öğr. Adı Soyadı: {OGRENCI}\n- Sınıfı: {SINIF}\n- Tarih: {TARIH}\n- Gün: {GUN}\n- Türü: {TUR} olarak devamsızlık yapmıştır.\n\n📚 {OKUL}`;
+    const tpl = body.template ?? TPL_DEVAMSIZLIK;
     return this.svc.createDevamsizlikCampaign(this.sid(p, q), p.userId, body.title, tpl, body.tarih ?? new Date().toLocaleDateString('tr-TR'), file.buffer, file.originalname);
   }
 
@@ -148,7 +200,7 @@ export class MessagingController {
   @UseInterceptors(FileInterceptor('file'))
   devamsizlikMektup(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q: string | undefined, @Body() body: CreatePdfSplitCampaignDto, @UploadedFile() file: Express.Multer.File | undefined) {
     if (!file?.buffer?.length) throw new BadRequestException('PDF dosyası gerekli');
-    const tpl = body.template ?? `📣 Sayın {AD},\n\n- Öğr. Adı Soyadı: {OGRENCI}\n- Sınıfı: {SINIF}\n\n- Açıklama: Öğrencimize ait devamsızlık mektubu ektedir. İncelemenizi rica ederiz.\n\n📚 {OKUL}`;
+    const tpl = body.template ?? TPL_DEVAMSIZLIK_MEKTUP;
     return this.svc.createPdfSplitCampaign(this.sid(p, q), p.userId, 'devamsizlik_mektup', body.title, tpl, file.buffer, file.originalname, body.recipients, body.pagesPerStudent);
   }
 
@@ -157,7 +209,7 @@ export class MessagingController {
   @UseInterceptors(FileInterceptor('file'))
   karne(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q: string | undefined, @Body() body: CreatePdfSplitCampaignDto, @UploadedFile() file: Express.Multer.File | undefined) {
     if (!file?.buffer?.length) throw new BadRequestException('PDF dosyası gerekli');
-    const tpl = body.template ?? `📣 Sayın {AD},\n\n- Öğr. Adı Soyadı: {OGRENCI}\n- Sınıfı: {SINIF}\n\n- Açıklama: Öğrencimize ait karnesi ekte sunulmuştur. İyi tatiller dileriz.\n\n📚 {OKUL}`;
+    const tpl = body.template ?? TPL_KARNE;
     return this.svc.createPdfSplitCampaign(this.sid(p, q), p.userId, 'karne', body.title, tpl, file.buffer, file.originalname, body.recipients, body.pagesPerStudent);
   }
 
@@ -166,7 +218,7 @@ export class MessagingController {
   @UseInterceptors(FileInterceptor('file'))
   araKarne(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q: string | undefined, @Body() body: CreatePdfSplitCampaignDto, @UploadedFile() file: Express.Multer.File | undefined) {
     if (!file?.buffer?.length) throw new BadRequestException('PDF dosyası gerekli');
-    const tpl = body.template ?? `📣 Sayın {AD},\n\n- Öğr. Adı Soyadı: {OGRENCI}\n- Sınıfı: {SINIF}\n\n- Açıklama: Öğrencimize ait Ara Karne belgesi tarafınıza iletilmiştir. Belgede ders notları ve devamsızlık bilgileri yer almaktadır.\n\n📚 {OKUL}`;
+    const tpl = body.template ?? TPL_ARA_KARNE;
     return this.svc.createPdfSplitCampaign(this.sid(p, q), p.userId, 'ara_karne', body.title, tpl, file.buffer, file.originalname, body.recipients, body.pagesPerStudent);
   }
 
@@ -177,7 +229,7 @@ export class MessagingController {
   @UseInterceptors(FileInterceptor('file'))
   dersDevamsizlik(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q: string | undefined, @Body() body: CreateExcelCampaignDto, @UploadedFile() file: Express.Multer.File | undefined) {
     if (!file?.buffer?.length) throw new BadRequestException('Excel dosyası gerekli');
-    const tpl = body.template ?? `📣 Sayın {AD},\n\n- Öğr. Adı Soyadı: {OGRENCI}\n- Sınıfı: {SINIF}\n- Tarih: {TARIH}\n\n- Açıklama: Öğrencimiz, belirtilen tarihte {DERSLER_INLINE} ders saatlerinde devamsızlık yapmıştır.\n\n📚 {OKUL}`;
+    const tpl = body.template ?? TPL_DERS_DEVAMSIZLIK;
     return this.svc.createDersDevamsizlikCampaign(this.sid(p, q), p.userId, body.title, tpl, body.tarih ?? new Date().toLocaleDateString('tr-TR'), file.buffer, file.originalname);
   }
 
@@ -188,7 +240,7 @@ export class MessagingController {
   @UseInterceptors(FileInterceptor('file'))
   izin(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q: string | undefined, @Body() body: CreateExcelCampaignDto, @UploadedFile() file: Express.Multer.File | undefined) {
     if (!file?.buffer?.length) throw new BadRequestException('Excel dosyası gerekli');
-    const tpl = body.template ?? `📣 Sayın {AD},\n\n- Öğr. Adı Soyadı: {OGRENCI}\n- Sınıfı: {SINIF}\n\nİzin Türü: {TUR}\nİzinli Çıkış: {CIKIS}\nPansiyona Dönüş: {DONUS}\n\nAçıklama: Öğrencimize ait evci-çarşı izin bilgileri tarafınıza sunulmuştur.\n\n📚 {OKUL}`;
+    const tpl = body.template ?? TPL_IZIN;
     return this.svc.createIzinCampaign(this.sid(p, q), p.userId, body.title, tpl, body.tarih ?? new Date().toLocaleDateString('tr-TR'), file.buffer, file.originalname);
   }
 

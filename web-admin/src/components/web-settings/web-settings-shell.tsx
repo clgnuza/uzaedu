@@ -1,6 +1,7 @@
 'use client';
 
 import type { LucideIcon } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 /** Ortak input — minimal, yumuşak köşe */
@@ -36,6 +37,41 @@ export function WebSettingsPanel({
       </header>
       <div className="space-y-5">{children}</div>
     </section>
+  );
+}
+
+/** Site / GDPR gibi alt panellerde ortak kart başlığı (Kamuya açık site ile aynı dil). */
+export function WebSettingsSection({
+  icon: Icon,
+  title,
+  description,
+  children,
+  className,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        'overflow-hidden rounded-2xl border border-border/45 bg-card/40 shadow-sm ring-1 ring-border/15 dark:bg-card/25',
+        className,
+      )}
+    >
+      <div className="flex gap-3 border-b border-border/35 bg-muted/25 px-4 py-3.5 sm:px-5 dark:bg-muted/15">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-background/80 text-primary shadow-sm ring-1 ring-border/40 dark:bg-background/50">
+          <Icon className="size-[18px]" strokeWidth={2} aria-hidden />
+        </span>
+        <div className="min-w-0 pt-0.5">
+          <h3 className="text-sm font-semibold leading-tight tracking-tight text-foreground">{title}</h3>
+          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{description}</p>
+        </div>
+      </div>
+      <div className="space-y-4 p-4 sm:p-5">{children}</div>
+    </div>
   );
 }
 

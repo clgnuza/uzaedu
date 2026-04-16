@@ -317,14 +317,14 @@ export function AyarlarTab({ variant }: { variant?: 'default' | 'bilsem' } = {})
       {variant === 'bilsem' && (
         <Card className="border-violet-200/60 bg-violet-50/40 dark:border-violet-900/40 dark:bg-violet-950/25">
           <CardContent className="py-4 text-sm text-muted-foreground">
-            <strong className="text-foreground">BİLSEM:</strong> Kılavuza göre yetenek alanları <strong className="text-foreground">Genel Yetenek</strong>, <strong className="text-foreground">Resim</strong>, <strong className="text-foreground">Müzik</strong>, <strong className="text-foreground">Diğerleri</strong>. Yıllık plan içeriklerinde sınıf yerine ana grup (yetenek alanı) ve alt grup (Uyum, Destek-1/2, BYF-1/2, ÖYG-1…7, Proje) kullanılır. Ders eklerken yetenek alanı atayın.
+            <strong className="text-foreground">Bilsem:</strong> Kılavuza göre yetenek alanları <strong className="text-foreground">Genel Yetenek</strong>, <strong className="text-foreground">Resim</strong>, <strong className="text-foreground">Müzik</strong>, <strong className="text-foreground">Diğerleri</strong>. Yıllık plan içeriklerinde sınıf yerine ana grup (yetenek alanı) ve alt grup (Uyum, Destek-1/2, BYF-1/2, ÖYG-1…7, Proje) kullanılır. Ders eklerken yetenek alanı atayın.
           </CardContent>
         </Card>
       )}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">
-            {variant === 'bilsem' ? 'BİLSEM — Ders ayarları' : 'Ders Ayarları'}
+            {variant === 'bilsem' ? 'Bilsem — Ders ayarları' : 'Ders Ayarları'}
           </h1>
           <p className="text-sm text-muted-foreground">
             {variant === 'bilsem'
@@ -509,7 +509,7 @@ export function AyarlarTab({ variant }: { variant?: 'default' | 'bilsem' } = {})
                     onChange={(e) => setForm((f) => ({ ...f, ana_grup: e.target.value }))}
                     className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
                   >
-                    <option value="">Seçin (BİLSEM için)</option>
+                    <option value="">Seçin (Bilsem için)</option>
                     {BILSEM_ANA_GRUPLAR.map((g) => (
                       <option key={g.value} value={g.value}>
                         {g.label}
@@ -562,7 +562,7 @@ export function AyarlarTab({ variant }: { variant?: 'default' | 'bilsem' } = {})
               </p>
               <p className="mb-3 text-xs text-muted-foreground">
                 {variant === 'bilsem'
-                  ? 'BİLSEM program uygulama tablosundaki alanlar için örgün sınıf düzeyine göre planlanır. MEB varsayılanları otomatik doldurulur.'
+                  ? 'Bilsem program uygulama tablosundaki alanlar için örgün sınıf düzeyine göre planlanır. MEB varsayılanları otomatik doldurulur.'
                   : 'Yıllık plan ve GPT taslak üretiminde kullanılır. MEB varsayılanları otomatik doldurulur; gerektiğinde düzenleyin.'}
               </p>
               <div className="flex flex-wrap items-center gap-2">

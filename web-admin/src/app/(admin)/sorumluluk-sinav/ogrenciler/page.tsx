@@ -30,7 +30,7 @@ function groupByClass(students: Student[]) {
 }
 
 const NO_GROUP = (
-  <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-indigo-300/60 bg-indigo-50/40 py-16 text-center dark:border-indigo-800/40 dark:bg-indigo-950/20">
+  <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-indigo-300/60 bg-indigo-50/40 px-3 py-10 text-center dark:border-indigo-800/40 dark:bg-indigo-950/20 sm:gap-3 sm:rounded-2xl sm:py-16">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="size-10 text-indigo-400" aria-hidden>
       <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
     </svg>
@@ -147,8 +147,8 @@ export default function OgrencilerPage() {
       {/* MEB Import Dialog */}
       {mebDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setMebDialog(false)}>
-          <div className="w-full max-w-lg rounded-2xl border bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b px-5 py-4 dark:border-zinc-800">
+          <div className="w-full max-w-lg rounded-xl border bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900 sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b px-3 py-3 dark:border-zinc-800 sm:px-5 sm:py-4">
               <div className="flex items-center gap-2.5">
                 <FileSpreadsheet className="size-5 text-indigo-600" />
                 <div>
@@ -161,7 +161,7 @@ export default function OgrencilerPage() {
               </button>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div className="space-y-3 p-3 sm:space-y-4 sm:p-5">
               <div className="rounded-xl border border-indigo-200/60 bg-indigo-50/60 p-3 dark:border-indigo-900/40 dark:bg-indigo-950/20">
                 <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 mb-1">Desteklenen MEB e-okul sütunlar?</p>
                 <p className="font-mono text-[10px] bg-white/70 dark:bg-zinc-900/60 rounded px-2 py-1 text-indigo-800 dark:text-indigo-200">
@@ -173,7 +173,7 @@ export default function OgrencilerPage() {
               </div>
 
               <div
-                className={cn('rounded-xl border-2 border-dashed p-6 text-center transition-colors cursor-pointer',
+                className={cn('rounded-xl border-2 border-dashed p-4 text-center transition-colors cursor-pointer sm:p-6',
                   mebFile ? 'border-green-400 bg-green-50/50 dark:border-green-700 dark:bg-green-950/10' : 'border-slate-300 hover:border-indigo-400 dark:border-zinc-700 dark:hover:border-indigo-600')}
                 onClick={() => mebFileRef.current?.click()}>
                 {mebFile ? (
@@ -238,7 +238,7 @@ export default function OgrencilerPage() {
                       { label: 'Çak??ma',  value: mebResult.conflicts,        color: mebResult.conflicts > 0 ? 'text-red-600' : 'text-slate-400' },
                     ].map((item) => (
                       <div key={item.label} className="text-center rounded-lg bg-white/70 dark:bg-zinc-900/60 py-1.5">
-                        <p className={cn('text-lg font-bold', item.color)}>{item.value}</p>
+                        <p className={cn('text-base font-bold tabular-nums sm:text-lg', item.color)}>{item.value}</p>
                         <p className="text-[10px] text-muted-foreground">{item.label}</p>
                       </div>
                     ))}
@@ -267,15 +267,15 @@ export default function OgrencilerPage() {
 
       {/* Stats */}
       {students.length > 0 && (
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
           {[
             { label: 'Ö?renci',   value: students.length,  color: 'text-sky-600 dark:text-sky-400' },
             { label: 'Ders Kayd?', value: totalSubjects,   color: 'text-indigo-600 dark:text-indigo-400' },
             { label: 'Atanan',     value: assigned,         color: assigned === students.length && students.length > 0 ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400' },
           ].map((s) => (
-            <div key={s.label} className="rounded-2xl border border-white/50 bg-white/80 p-3 text-center shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60">
-              <p className={cn('text-2xl font-bold', s.color)}>{s.value}</p>
-              <p className="text-[10px] text-muted-foreground">{s.label}</p>
+            <div key={s.label} className="rounded-xl border border-white/50 bg-white/80 p-2 text-center shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 sm:rounded-2xl sm:p-3">
+              <p className={cn('text-lg font-bold tabular-nums sm:text-2xl', s.color)}>{s.value}</p>
+              <p className="text-[9px] text-muted-foreground sm:text-[10px]">{s.label}</p>
             </div>
           ))}
         </div>

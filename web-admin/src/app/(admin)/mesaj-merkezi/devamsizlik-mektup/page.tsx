@@ -2,6 +2,7 @@
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { msgQ } from '@/lib/messaging-api';
+import { TPL_DEVAMSIZLIK_MEKTUP } from '@/lib/messaging-default-templates';
 import PdfSplitFlow from '../components/PdfSplitFlow';
 
 export default function DevamsizlikMektupPage() {
@@ -14,7 +15,7 @@ export default function DevamsizlikMektupPage() {
       icon="✉️"
       title="Devamsızlık Mektubu Dağıtımı"
       description="E-Okul'dan çıktı alınan devamsızlık mektubu PDF'ini yükleyin. PDF otomatik olarak öğrenci başına ayrıştırılır ve her veliye yalnızca kendi çocuğuna ait mektup WhatsApp üzerinden iletilir."
-      defaultTemplate={`📣 Sayın {AD},\n\n- Öğr. Adı Soyadı: {OGRENCI}\n- Sınıfı: {SINIF}\n\n- Açıklama: Öğrencimize ait devamsızlık mektubu ektedir. İncelemenizi rica ederiz.\n\n📚 {OKUL}`}
+      defaultTemplate={TPL_DEVAMSIZLIK_MEKTUP}
       token={token}
       q={q}
     />

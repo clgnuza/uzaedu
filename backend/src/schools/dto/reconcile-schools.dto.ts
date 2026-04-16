@@ -40,7 +40,11 @@ export class ReconcileSourceSchoolDto {
   district?: string | null;
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' || value === null ? undefined : value))
+  @Transform(({ value }) => {
+    if (value === '' || value === null || value === undefined) return undefined;
+    const digits = String(value).trim().replace(/\D/g, '');
+    return /^\d{4,16}$/.test(digits) ? digits : undefined;
+  })
   @ValidateIf((_, v) => v != null && String(v).trim() !== '')
   @IsString()
   @Matches(/^\d{4,16}$/, { message: 'Kurum kodu 4–16 hane rakam olmalıdır.' })
@@ -50,6 +54,16 @@ export class ReconcileSourceSchoolDto {
   @IsString()
   @MaxLength(512)
   address?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1024)
+  map_url?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  school_image_url?: string | null;
 
   @IsOptional()
   @IsString()

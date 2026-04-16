@@ -132,6 +132,10 @@ export class User {
   @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
   emailVerifiedAt: Date | null;
 
+  /** E-posta+şifre girişinde doğrulama kodu (varsayılan açık; profilden kapatılabilir) */
+  @Column({ name: 'login_otp_required', type: 'boolean', default: true })
+  loginOtpRequired: boolean;
+
   /** USB / tahta: sınıf TV ekranı için öğretmene özel PIN (bcrypt); idare atar. */
   @Column({ name: 'smart_board_usb_pin_hash', type: 'varchar', length: 255, nullable: true })
   smartBoardUsbPinHash: string | null;

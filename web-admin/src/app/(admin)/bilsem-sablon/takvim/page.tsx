@@ -103,7 +103,7 @@ export default function BilsemSablonTakvimPage(props?: { embedded?: boolean }) {
         token,
         body: JSON.stringify({ academic_year: academicYear }),
       });
-      toast.success(`${res.seeded ?? 0} BİLSEM öğesi eklendi.`);
+      toast.success(`${res.seeded ?? 0} Bilsem öğesi eklendi.`);
       fetchData();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Doldurulamadı');
@@ -271,7 +271,7 @@ export default function BilsemSablonTakvimPage(props?: { embedded?: boolean }) {
               </Link>
             </Button>
           )}
-          <ToolbarPageTitle>{embedded ? 'BİLSEM İş Planı' : 'BİLSEM Takvim Şablonu'}</ToolbarPageTitle>
+          <ToolbarPageTitle>{embedded ? 'Bilsem İş Planı' : 'Bilsem Takvim Şablonu'}</ToolbarPageTitle>
           {embedded ? (
             <ToolbarIconHints
               compact
@@ -281,7 +281,7 @@ export default function BilsemSablonTakvimPage(props?: { embedded?: boolean }) {
                 { label: 'Okul hizalama', icon: Building2 },
                 { label: 'Sürükle-bırak', icon: GripVertical },
               ]}
-              summary="Ülke şablonu: haftalık iş planı satırları ve etkinlikler. Okul BİLSEM takvimleri bununla hizalanır."
+              summary="Ülke şablonu: haftalık iş planı satırları ve etkinlikler. Okul Bilsem takvimleri bununla hizalanır."
             />
           ) : (
             <ToolbarIconHints
@@ -291,7 +291,7 @@ export default function BilsemSablonTakvimPage(props?: { embedded?: boolean }) {
                 { label: 'Öğe ekle', icon: Plus },
                 { label: 'Şablon doldur', icon: Database },
               ]}
-              summary="Hafta bazlı BİLSEM çalışma takvimi şablonunu yönetin. Paletten sürükleyip bırakın veya Öğe Ekle ile ekleyin."
+              summary="Hafta bazlı Bilsem çalışma takvimi şablonunu yönetin. Paletten sürükleyip bırakın veya Öğe Ekle ile ekleyin."
             />
           )}
         </ToolbarHeading>

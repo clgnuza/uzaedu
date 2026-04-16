@@ -3,6 +3,7 @@
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { msgQ } from '@/lib/messaging-api';
+import { TPL_MAAS } from '@/lib/messaging-default-templates';
 import ExcelUploadFlow from '../components/ExcelUploadFlow';
 
 export default function MaasPage() {
@@ -18,7 +19,7 @@ export default function MaasPage() {
         endpoint="/messaging/campaigns/maas/excel"
         pageTitle="Maaş Mesaj Gönderimi"
         description="KBS'den indirilen maaş Excel dosyasını yükleyin. Her personele kişiye özel maaş dökümü WhatsApp ile iletilir."
-        defaultTemplate="Sayın {AD}, {AY} ayı maaş bilginiz: Brüt {BRUT} TL / Net {NET} TL. Sağlıklı günler. — OgretmenPro"
+        defaultTemplate={TPL_MAAS}
         templateHelp="{AD}, {AY}, {BRUT}, {NET}"
         token={token} q={q}
       />

@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   BadRequestException,
   UnauthorizedException,
+  HttpException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, In } from 'typeorm';
@@ -14,6 +15,8 @@ import { SmartBoardDeviceSchedule } from './entities/smart-board-device-schedule
 import { SmartBoardAuthorizedTeacher } from './entities/smart-board-authorized-teacher.entity';
 import { SmartBoardSession } from './entities/smart-board-session.entity';
 import { TvClassroomUsbToken } from './entities/tv-classroom-usb-token.entity';
+import { TvRemoteSession } from './entities/tv-remote-session.entity';
+import { TvRemoteCommand } from './entities/tv-remote-command.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole, UserStatus } from '../types/enums';
 import { SchoolsService } from '../schools/schools.service';
@@ -23,11 +26,14 @@ import { NotificationsService } from '../notifications/notifications.service';
 
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 dakika
 const TV_USB_TOKEN_TTL_MS = 10 * 60 * 60 * 1000; // 10 saat (okul günü)
+const TV_REMOTE_SESSION_TTL_MS = 4 * 60 * 60 * 1000; // 4 saat
+const TV_REMOTE_CMD_PER_MIN = 90;
 const USB_PIN_PATTERN = /^\d{4,8}$/;
 
 @Injectable()
 export class SmartBoardService {
   private readonly usbUnlockFailTs = new Map<string, number[]>();
+  private readonly tvRemoteCmdRate = new Map<string, number[]>();
 
   constructor(
     @InjectRepository(SmartBoardDevice)
@@ -40,6 +46,10 @@ export class SmartBoardService {
     private readonly sessionRepo: Repository<SmartBoardSession>,
     @InjectRepository(TvClassroomUsbToken)
     private readonly tvUsbTokenRepo: Repository<TvClassroomUsbToken>,
+    @InjectRepository(TvRemoteSession)
+    private readonly tvRemoteSessionRepo: Repository<TvRemoteSession>,
+    @InjectRepository(TvRemoteCommand)
+    private readonly tvRemoteCommandRepo: Repository<TvRemoteCommand>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly schoolsService: SchoolsService,
@@ -491,6 +501,100 @@ export class SmartBoardService {
     if (!row) return false;
     if (row.expires_at.getTime() < Date.now()) return false;
     return row.school_id === schoolId && row.device_id === deviceId;
+  }
+
+  private assertTvRemoteCommandRate(clientIp: string): void {
+    const now = Date.now();
+    const windowMs = 60_000;
+    const arr = (this.tvRemoteCmdRate.get(clientIp) ?? []).filter((t) => now - t < windowMs);
+    if (arr.length >= TV_REMOTE_CMD_PER_MIN) {
+      throw new HttpException(
+        { code: 'TV_REMOTE_RATE_LIMIT', message: 'Çok sık komut; bir dakika bekleyin.' },
+        429,
+      );
+    }
+    arr.push(now);
+    this.tvRemoteCmdRate.set(clientIp, arr);
+  }
+
+  /** USB TV oturumu: telefon kumandası için oturum (gizli anahtar yalnızca yanıtta bir kez). */
+  async createTvRemoteSession(
+    rawUsbToken: string | undefined,
+    schoolId: string,
+    deviceId: string,
+  ): Promise<{ sessionId: string; pairingSecret: string; expiresAt: string }> {
+    const ok = await this.verifyTvClassroomUsbToken(rawUsbToken, schoolId, deviceId);
+    if (!ok) {
+      throw new UnauthorizedException({ code: 'TV_CLASSROOM_USB_REQUIRED', message: 'PIN oturumu gerekli.' });
+    }
+    const now = Date.now();
+    await this.tvRemoteSessionRepo.delete({ school_id: schoolId, device_id: deviceId });
+    const secret = randomBytes(32).toString('base64url');
+    const secret_hash = createHash('sha256').update(secret).digest('hex');
+    const expires_at = new Date(now + TV_REMOTE_SESSION_TTL_MS);
+    const row = await this.tvRemoteSessionRepo.save(
+      this.tvRemoteSessionRepo.create({
+        school_id: schoolId,
+        device_id: deviceId,
+        secret_hash,
+        expires_at,
+      }),
+    );
+    return { sessionId: row.id, pairingSecret: secret, expiresAt: expires_at.toISOString() };
+  }
+
+  async pollTvRemoteCommands(
+    rawUsbToken: string | undefined,
+    schoolId: string,
+    deviceId: string,
+    sessionId: string,
+    afterId: string,
+  ): Promise<{ commands: Array<{ id: string; action: string }>; expired: boolean }> {
+    const ok = await this.verifyTvClassroomUsbToken(rawUsbToken, schoolId, deviceId);
+    if (!ok) {
+      throw new UnauthorizedException({ code: 'TV_CLASSROOM_USB_REQUIRED', message: 'PIN oturumu gerekli.' });
+    }
+    const sess = await this.tvRemoteSessionRepo.findOne({
+      where: { id: sessionId, school_id: schoolId, device_id: deviceId },
+    });
+    if (!sess) return { commands: [], expired: true };
+    if (sess.expires_at.getTime() < Date.now()) return { commands: [], expired: true };
+    const after = /^\d+$/.test(afterId) ? afterId : '0';
+    const cmds = await this.tvRemoteCommandRepo
+      .createQueryBuilder('c')
+      .where('c.session_id = :sid', { sid: sessionId })
+      .andWhere('c.id > :after', { after })
+      .orderBy('c.id', 'ASC')
+      .take(80)
+      .getMany();
+    return { commands: cmds.map((c) => ({ id: String(c.id), action: c.action })), expired: false };
+  }
+
+  async appendTvRemoteCommand(
+    clientIp: string,
+    schoolId: string,
+    sessionId: string,
+    secret: string | undefined,
+    action: string,
+  ): Promise<{ ok: true }> {
+    const a = String(action || '').trim();
+    if (!['next', 'prev', 'first', 'last'].includes(a)) {
+      throw new BadRequestException({ code: 'TV_REMOTE_BAD_ACTION', message: 'Geçersiz komut.' });
+    }
+    if (!secret?.trim()) {
+      throw new UnauthorizedException({ code: 'TV_REMOTE_SECRET_REQUIRED', message: 'Eşleştirme gerekli.' });
+    }
+    this.assertTvRemoteCommandRate(clientIp);
+    const sess = await this.tvRemoteSessionRepo.findOne({ where: { id: sessionId, school_id: schoolId } });
+    if (!sess || sess.expires_at.getTime() < Date.now()) {
+      throw new UnauthorizedException({ code: 'TV_REMOTE_SESSION_INVALID', message: 'Oturum yok veya süresi doldu.' });
+    }
+    const h = createHash('sha256').update(secret.trim()).digest('hex');
+    if (h !== sess.secret_hash) {
+      throw new UnauthorizedException({ code: 'TV_REMOTE_SECRET_INVALID', message: 'Eşleştirme geçersiz.' });
+    }
+    await this.tvRemoteCommandRepo.insert({ session_id: sessionId, action: a });
+    return { ok: true };
   }
 
   async addAuthorizedTeacher(

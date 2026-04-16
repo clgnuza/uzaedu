@@ -6,14 +6,20 @@ import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Shield, ToggleLeft, Mail, FileText, Gauge, Eye } from 'lucide-react';
+import { Eye, ToggleLeft, Mail, FileText, Gauge, ShieldCheck, Palette } from 'lucide-react';
 import { GdprBannerPreview } from './gdpr-banner-preview';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { GdprPublic } from '@/lib/gdpr-public';
 import { buildGdprBannerExampleHtml } from '@/lib/gdpr-banner-example';
-import { WebSettingsField, WebSettingsPanel, WEB_SETTINGS_INPUT, WEB_SETTINGS_TEXTAREA } from './web-settings-shell';
+import { GDPR_BANNER_VISUALS, normalizeGdprBannerVisual } from '@/lib/gdpr-banner-visual';
+import {
+  WebSettingsField,
+  WebSettingsPanel,
+  WebSettingsSection,
+  WEB_SETTINGS_INPUT,
+  WEB_SETTINGS_TEXTAREA,
+} from './web-settings-shell';
 
 const empty: GdprPublic = {
   cookie_banner_enabled: true,
@@ -26,6 +32,7 @@ const empty: GdprPublic = {
   dpo_email: null,
   cookie_policy_path: '/cerez',
   reject_button_visible: true,
+  cookie_banner_visual: 'gradient',
   cache_ttl_gdpr: 120,
 };
 
@@ -46,20 +53,20 @@ function ToggleRow({
     <label
       htmlFor={id}
       className={cn(
-        'flex cursor-pointer items-start gap-3 rounded-xl border border-border/60 bg-muted/20 p-4 transition-colors hover:bg-muted/35 sm:items-center sm:justify-between sm:gap-4',
-        'dark:bg-zinc-900/40 dark:hover:bg-zinc-900/60',
+        'flex cursor-pointer items-start gap-3 rounded-xl border border-border/50 bg-muted/20 p-3.5 transition-colors hover:bg-muted/35 sm:items-center sm:justify-between sm:gap-4 sm:p-4',
+        'dark:bg-muted/10 dark:hover:bg-muted/20',
       )}
     >
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium text-foreground">{title}</span>
-        <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">{description}</span>
+        <span className="block text-[13px] font-medium text-foreground">{title}</span>
+        <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">{description}</span>
       </span>
       <input
         id={id}
         type="checkbox"
         role="switch"
         aria-checked={checked}
-        className="mt-0.5 size-5 shrink-0 rounded-md border-border text-primary accent-primary sm:mt-0"
+        className="mt-0.5 size-4 shrink-0 rounded-md border-border text-primary accent-primary sm:mt-0 sm:size-5"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
       />
@@ -78,7 +85,11 @@ export function GdprPanel() {
     setLoading(true);
     try {
       const data = await apiFetch<GdprPublic>('/app-config/gdpr', { token });
-      setForm({ ...empty, ...data });
+      setForm({
+        ...empty,
+        ...data,
+        cookie_banner_visual: normalizeGdprBannerVisual(data.cookie_banner_visual),
+      });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'GDPR ayarları yüklenemedi.');
       setForm(empty);
@@ -111,48 +122,55 @@ export function GdprPanel() {
 
   return (
     <WebSettingsPanel
-      icon={Shield}
-      title="GDPR / çerez"
-      description="Çerez bildirimi ve iletişim. Kamu: GET /content/gdpr"
+      icon={ShieldCheck}
+      title="Çerez ve rıza (KVKK / GDPR)"
+      description="Kamuya açık site ile aynı kart düzeni. Görünüm şablonu canlı şeritte kullanılır; API: GET /content/gdpr."
     >
       {loading ? (
         <div className="flex justify-center py-12">
           <LoadingSpinner />
         </div>
       ) : (
-        <div className="space-y-6 sm:space-y-8">
-          <Card variant="indigo" soft className="border-border/50 shadow-sm">
-            <CardHeader className="pb-3 sm:flex-row sm:items-center sm:gap-3 sm:pb-2">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-700 dark:text-indigo-300">
-                <Eye className="size-4" strokeWidth={2} />
-              </div>
-              <div>
-                <CardTitle>Canlı önizleme</CardTitle>
-                <CardDescription className="mt-1">
-                  Formdaki değişiklikler anında yansır; kaydetmeden önce kontrol edin.
-                </CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <GdprBannerPreview form={form} />
-            </CardContent>
-          </Card>
+        <div className="space-y-6">
+          <WebSettingsSection
+            icon={Palette}
+            title="1 · Görünüm şablonu"
+            description="Kamu sitesindeki çerez şeridinin çerçeve ve üst şerit stili. Kaydet ile yayınlanır."
+          >
+            <div className="grid gap-2 sm:grid-cols-3">
+              {GDPR_BANNER_VISUALS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, cookie_banner_visual: opt.id }))}
+                  className={cn(
+                    'rounded-xl border px-3 py-2.5 text-left transition-colors',
+                    form.cookie_banner_visual === opt.id
+                      ? 'border-primary bg-primary/10 ring-1 ring-primary/25'
+                      : 'border-border/55 bg-muted/15 hover:bg-muted/28',
+                  )}
+                >
+                  <span className="block text-[13px] font-medium text-foreground">{opt.label}</span>
+                  <span className="mt-1 block text-[11px] leading-snug text-muted-foreground">{opt.hint}</span>
+                </button>
+              ))}
+            </div>
+          </WebSettingsSection>
 
-          <Card variant="sky" soft className="overflow-hidden border-border/50 shadow-sm">
-            <CardHeader className="space-y-1 pb-3 sm:flex-row sm:items-center sm:justify-between sm:pb-2">
-              <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <ToggleLeft className="size-4" strokeWidth={2} />
-                </div>
-                <div>
-                  <CardTitle>Görünürlük</CardTitle>
-                  <CardDescription className="mt-1 max-w-xl">
-                    Kamu sitesinde çerez çubuğunun davranışı
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="grid gap-3 pt-0 sm:grid-cols-2 sm:gap-4">
+          <WebSettingsSection
+            icon={Eye}
+            title="2 · Canlı önizleme"
+            description="Şablon ve metin anında yansır; kaydetmeden önce kontrol edin."
+          >
+            <GdprBannerPreview form={form} />
+          </WebSettingsSection>
+
+          <WebSettingsSection
+            icon={ToggleLeft}
+            title="3 · Görünürlük"
+            description="Kamu sitesinde çerez şeridinin açılıp kapanması ve ret düğmesi."
+          >
+            <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
               <ToggleRow
                 id="gdpr-banner-on"
                 title="Çerez bildirimi"
@@ -167,20 +185,15 @@ export function GdprPanel() {
                 checked={form.reject_button_visible}
                 onChange={(v) => setForm((f) => ({ ...f, reject_button_visible: v }))}
               />
-            </CardContent>
-          </Card>
+            </div>
+          </WebSettingsSection>
 
-          <Card variant="lavender" soft className="border-border/50 shadow-sm">
-            <CardHeader className="space-y-1 pb-3 sm:flex-row sm:items-center sm:gap-3 sm:pb-2">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-700 dark:text-violet-300">
-                <Mail className="size-4" strokeWidth={2} />
-              </div>
-              <div className="min-w-0">
-                <CardTitle>İletişim ve kimlik</CardTitle>
-                <CardDescription className="mt-1">Banner üzerinde gösterilebilir alanlar</CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent className="grid gap-4 pt-0 sm:grid-cols-2">
+          <WebSettingsSection
+            icon={Mail}
+            title="4 · İletişim ve kimlik"
+            description="Bannerda görünebilecek veri sorumlusu ve başvuru adresi."
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
               <WebSettingsField
                 label="Onay sürümü"
                 hint="Artırıldığında kullanıcıdan yeniden onay istenir."
@@ -213,141 +226,127 @@ export function GdprPanel() {
                   />
                 </WebSettingsField>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </WebSettingsSection>
 
-          <Card variant="mint" soft className="border-border/50 shadow-sm">
-            <CardHeader className="pb-3 sm:flex-row sm:items-center sm:gap-3 sm:pb-2">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-600/10 text-emerald-800 dark:text-emerald-300">
-                <FileText className="size-4" strokeWidth={2} />
-              </div>
-              <div>
-                <CardTitle>İçerik ve bağlantı</CardTitle>
-                <CardDescription className="mt-1">Metin ve çerez sayfası yolu</CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-0">
-              <div className="grid gap-4 sm:grid-cols-3">
-                <WebSettingsField
-                  label="Banner başlığı"
-                  hint="Mobil üst satır ve iletişim kutusu adı. Boş: Çerez tercihleri"
-                  htmlFor="gdpr-banner-title"
-                >
-                  <Input
-                    id="gdpr-banner-title"
-                    className={WEB_SETTINGS_INPUT}
-                    value={form.cookie_banner_title ?? ''}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, cookie_banner_title: e.target.value.trim() || null }))
-                    }
-                    placeholder="Çerez tercihleri"
-                    maxLength={120}
-                  />
-                </WebSettingsField>
-                <WebSettingsField label="Kabul düğmesi" hint="Boş: Kabul et" htmlFor="gdpr-accept-lbl">
-                  <Input
-                    id="gdpr-accept-lbl"
-                    className={WEB_SETTINGS_INPUT}
-                    value={form.accept_button_label ?? ''}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, accept_button_label: e.target.value.trim() || null }))
-                    }
-                    placeholder="Kabul et"
-                    maxLength={64}
-                  />
-                </WebSettingsField>
-                <WebSettingsField label="Reddet düğmesi" hint="Boş: Reddet" htmlFor="gdpr-reject-lbl">
-                  <Input
-                    id="gdpr-reject-lbl"
-                    className={WEB_SETTINGS_INPUT}
-                    value={form.reject_button_label ?? ''}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, reject_button_label: e.target.value.trim() || null }))
-                    }
-                    placeholder="Reddet"
-                    maxLength={64}
-                  />
-                </WebSettingsField>
-              </div>
-              <WebSettingsField label="Çerez politikası path" hint="Örn. /cerez" htmlFor="gdpr-cookie-path">
-                <Input
-                  id="gdpr-cookie-path"
-                  className={WEB_SETTINGS_INPUT}
-                  value={form.cookie_policy_path}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      cookie_policy_path: e.target.value.trim().replace(/\s/g, '') || '/cerez',
-                    }))
-                  }
-                />
-              </WebSettingsField>
+          <WebSettingsSection
+            icon={FileText}
+            title="5 · İçerik ve bağlantı"
+            description="Başlık, düğme etiketleri, çerez politikası yolu ve isteğe bağlı HTML gövde."
+          >
+            <div className="grid gap-4 sm:grid-cols-3">
               <WebSettingsField
-                label="Banner metni (HTML, isteğe bağlı)"
-                hint={
-                  <>
-                    Boşsa sitede GDPR/KVKK uyumlu varsayılan metin gösterilir. Aşağıdaki örnek şablondur; yayın öncesi hukuk
-                    onayı önerilir.
-                  </>
-                }
-                htmlFor="gdpr-body"
+                label="Banner başlığı"
+                hint="Mobil üst satır. Boş: Çerez tercihleri"
+                htmlFor="gdpr-banner-title"
               >
-                <div className="mb-2 flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-lg text-xs"
-                    onClick={() =>
-                      setForm((f) => ({
-                        ...f,
-                        cookie_banner_body_html: buildGdprBannerExampleHtml(f.cookie_policy_path),
-                      }))
-                    }
-                  >
-                    Örnek GDPR metnini yükle
-                  </Button>
-                </div>
-                <textarea
-                  id="gdpr-body"
-                  className={cn(WEB_SETTINGS_TEXTAREA, 'min-h-[120px] sm:min-h-[100px]')}
-                  value={form.cookie_banner_body_html ?? ''}
-                  onChange={(e) => setForm((f) => ({ ...f, cookie_banner_body_html: e.target.value || null }))}
-                  placeholder='<p><strong>Çerezler…</strong> <a href="/cerez">Çerez Politikası</a></p>'
+                <Input
+                  id="gdpr-banner-title"
+                  className={WEB_SETTINGS_INPUT}
+                  value={form.cookie_banner_title ?? ''}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, cookie_banner_title: e.target.value.trim() || null }))
+                  }
+                  placeholder="Çerez tercihleri"
+                  maxLength={120}
                 />
               </WebSettingsField>
-            </CardContent>
-          </Card>
-
-          <Card variant="amber" soft className="border-border/50 shadow-sm">
-            <CardHeader className="pb-3 sm:flex-row sm:items-center sm:gap-3 sm:pb-2">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-600/10 text-amber-900 dark:text-amber-200">
-                <Gauge className="size-4" strokeWidth={2} />
-              </div>
-              <div>
-                <CardTitle>Teknik</CardTitle>
-                <CardDescription className="mt-1">Kamu API önbelleği</CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-0 sm:max-w-xs">
-              <WebSettingsField label="GET /content/gdpr önbellek (sn)" htmlFor="gdpr-ttl">
+              <WebSettingsField label="Kabul düğmesi" hint="Boş: Kabul et" htmlFor="gdpr-accept-lbl">
                 <Input
-                  id="gdpr-ttl"
-                  type="number"
-                  min={10}
-                  max={86400}
+                  id="gdpr-accept-lbl"
                   className={WEB_SETTINGS_INPUT}
-                  value={form.cache_ttl_gdpr}
+                  value={form.accept_button_label ?? ''}
                   onChange={(e) =>
+                    setForm((f) => ({ ...f, accept_button_label: e.target.value.trim() || null }))
+                  }
+                  placeholder="Kabul et"
+                  maxLength={64}
+                />
+              </WebSettingsField>
+              <WebSettingsField label="Reddet düğmesi" hint="Boş: Reddet" htmlFor="gdpr-reject-lbl">
+                <Input
+                  id="gdpr-reject-lbl"
+                  className={WEB_SETTINGS_INPUT}
+                  value={form.reject_button_label ?? ''}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, reject_button_label: e.target.value.trim() || null }))
+                  }
+                  placeholder="Reddet"
+                  maxLength={64}
+                />
+              </WebSettingsField>
+            </div>
+            <WebSettingsField label="Çerez politikası path" hint="Örn. /cerez" htmlFor="gdpr-cookie-path">
+              <Input
+                id="gdpr-cookie-path"
+                className={WEB_SETTINGS_INPUT}
+                value={form.cookie_policy_path}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    cookie_policy_path: e.target.value.trim().replace(/\s/g, '') || '/cerez',
+                  }))
+                }
+              />
+            </WebSettingsField>
+            <WebSettingsField
+              label="Banner metni (HTML, isteğe bağlı)"
+              hint={
+                <>
+                  Boşsa sitede politikalara uyumlu küçük punto varsayılan metin kullanılır. Yayın öncesi hukuk onayı
+                  önerilir.
+                </>
+              }
+              htmlFor="gdpr-body"
+            >
+              <div className="mb-2 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="rounded-lg text-xs"
+                  onClick={() =>
                     setForm((f) => ({
                       ...f,
-                      cache_ttl_gdpr: Math.min(86400, Math.max(10, parseInt(e.target.value, 10) || f.cache_ttl_gdpr)),
+                      cookie_banner_body_html: buildGdprBannerExampleHtml(f.cookie_policy_path),
                     }))
                   }
-                />
-              </WebSettingsField>
-            </CardContent>
-          </Card>
+                >
+                  Örnek metni yükle
+                </Button>
+              </div>
+              <textarea
+                id="gdpr-body"
+                className={cn(WEB_SETTINGS_TEXTAREA, 'min-h-[100px] font-mono text-[12px] leading-relaxed')}
+                value={form.cookie_banner_body_html ?? ''}
+                onChange={(e) => setForm((f) => ({ ...f, cookie_banner_body_html: e.target.value || null }))}
+                placeholder='<p>…</p>'
+              />
+            </WebSettingsField>
+          </WebSettingsSection>
+
+          <WebSettingsSection
+            icon={Gauge}
+            title="6 · Teknik"
+            description="Kamu uç noktası önbelleği (saniye)."
+          >
+            <WebSettingsField label="GET /content/gdpr önbellek (sn)" htmlFor="gdpr-ttl">
+              <Input
+                id="gdpr-ttl"
+                type="number"
+                min={10}
+                max={86400}
+                className={cn(WEB_SETTINGS_INPUT, 'sm:max-w-xs')}
+                value={form.cache_ttl_gdpr}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    cache_ttl_gdpr: Math.min(86400, Math.max(10, parseInt(e.target.value, 10) || f.cache_ttl_gdpr)),
+                  }))
+                }
+              />
+            </WebSettingsField>
+          </WebSettingsSection>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
             <Button type="button" size="lg" className="w-full rounded-xl sm:w-auto" onClick={save} disabled={saving}>

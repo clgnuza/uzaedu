@@ -235,7 +235,7 @@ export class DocumentTemplatesService implements OnModuleInit {
   }
 
   /**
-   * BİLSEM yıllık plan Word şablonu — MEB yıllık plan ile aynı yerel/R2 gövde (merge: yillik_plan tablosu + PÜY).
+   * Bilsem yıllık plan Word şablonu — MEB yıllık plan ile aynı yerel/R2 gövde (merge: yillik_plan tablosu + PÜY).
    * subject_code NULL: öğretmen sihirbazında seçilen tüm bilsem_* dersleriyle eşleşir.
    */
   private async ensureBilsemYillikPlanTemplate(): Promise<void> {
@@ -316,7 +316,7 @@ export class DocumentTemplatesService implements OnModuleInit {
         grade: null,
         section: null,
         subjectCode: null,
-        subjectLabel: 'BİLSEM yıllık plan (genel şablon)',
+        subjectLabel: 'Bilsem yıllık plan (genel şablon)',
         curriculumModel: 'bilsem',
         academicYear: null,
         version: '1',
@@ -329,7 +329,7 @@ export class DocumentTemplatesService implements OnModuleInit {
         sortOrder: 12,
       }),
     );
-    this.logger.log('BİLSEM yıllık plan şablonu (genel) oluşturuldu veya güncellendi.');
+    this.logger.log('Bilsem yıllık plan şablonu (genel) oluşturuldu veya güncellendi.');
   }
 
   async getSubjects(

@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { msgQ, Campaign, loadRecipients, Recipient } from '@/lib/messaging-api';
+import { TPL_VELI_TOPLANTISI } from '@/lib/messaging-default-templates';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -25,7 +26,7 @@ export default function VeliToplantisiPage() {
   const [groups, setGroups]       = useState<Group[]>([]);
   const [title, setTitle]         = useState('');
   const [selectedGroup, setSelGroup] = useState('');
-  const [message, setMessage]     = useState('Sayın {AD} Veli, \n\nOkul veli toplantımız aşağıdaki bilgiler dahilinde gerçekleştirilecektir:\n\n📅 Tarih: \n🕐 Saat: \n📍 Yer: \n\nKatılımınızı bekliyoruz. — OgretmenPro');
+  const [message, setMessage]     = useState(TPL_VELI_TOPLANTISI);
   const [campaign, setCampaign]   = useState<Campaign | null>(null);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -112,8 +113,8 @@ export default function VeliToplantisiPage() {
 
             <div>
               <label className="mb-1 block text-xs font-semibold text-muted-foreground">Mesaj Şablonu</label>
-              <textarea rows={5} value={message} onChange={(e) => setMessage(e.target.value)}
-                className="w-full rounded-lg border border-input bg-white px-3 py-2 text-sm dark:bg-zinc-900 resize-y" />
+              <textarea rows={10} value={message} onChange={(e) => setMessage(e.target.value)}
+                className="w-full rounded-lg border border-input bg-white px-3 py-2 text-sm dark:bg-zinc-900 resize-y font-mono leading-relaxed" />
               <p className="mt-1 text-[10px] text-muted-foreground">Değişkenler: {'{AD}'} = veli adı</p>
             </div>
 

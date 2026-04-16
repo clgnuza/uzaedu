@@ -187,7 +187,7 @@ function RegisterOgretmenContent() {
 
   return (
     <AuthPageShell>
-      <AuthFlowSubnav flow="register" role="teacher" redirectQuery={q} />
+      <AuthFlowSubnav flow="register" role="teacher" redirectQuery={q} gateForgot />
       <AuthCard className="shadow-[0_24px_64px_-16px_rgba(99,102,241,0.1)] ring-violet-500/10 dark:shadow-[0_24px_64px_-16px_rgba(0,0,0,0.45)]">
         <CardHeader className="space-y-1.5 border-b border-violet-500/15 bg-linear-to-br from-violet-500/10 to-transparent px-3 pb-3 pt-3 sm:space-y-2 sm:px-5 sm:pb-4 sm:pt-4">
           <h2 className="text-left text-base font-extrabold tracking-tight text-foreground sm:text-lg">

@@ -626,7 +626,7 @@ export class TeacherAgendaService {
             title: a.title,
             start: `${a.dateStart}T09:00:00`,
             source: 'SCHOOL',
-            createdBy: 'BİLSEM Takvim',
+            createdBy: 'Bilsem Takvim',
             metadata: { gorevTipi: a.gorevTipi },
           });
         }
@@ -1167,8 +1167,20 @@ export class TeacherAgendaService {
     });
   }
 
-  async createCriterion(teacherId: string, schoolId: string | null, dto: { name: string; description?: string; maxScore?: number; scoreType?: 'numeric' | 'sign'; subjectId?: string }) {
+  async createCriterion(
+    teacherId: string,
+    schoolId: string | null,
+    dto: {
+      name: string;
+      description?: string;
+      maxScore?: number;
+      scoreType?: 'numeric' | 'sign';
+      subjectId?: string;
+      criterionCategory?: 'lesson' | 'behavior';
+    },
+  ) {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Okul gerekli.' });
+    const cat = dto.criterionCategory === 'behavior' ? 'behavior' : 'lesson';
     const c = this.criterionRepo.create({
       teacherId,
       schoolId,
@@ -1176,7 +1188,8 @@ export class TeacherAgendaService {
       description: dto.description ?? null,
       maxScore: dto.maxScore ?? 5,
       scoreType: dto.scoreType ?? 'numeric',
-      subjectId: dto.subjectId ?? null,
+      subjectId: cat === 'behavior' ? null : dto.subjectId ?? null,
+      criterionCategory: cat,
     });
     return this.criterionRepo.save(c);
   }
@@ -1184,7 +1197,15 @@ export class TeacherAgendaService {
   async updateCriterion(
     id: string,
     teacherId: string,
-    dto: { name?: string; description?: string | null; maxScore?: number; scoreType?: 'numeric' | 'sign'; subjectId?: string | null; sortOrder?: number },
+    dto: {
+      name?: string;
+      description?: string | null;
+      maxScore?: number;
+      scoreType?: 'numeric' | 'sign';
+      subjectId?: string | null;
+      sortOrder?: number;
+      criterionCategory?: 'lesson' | 'behavior';
+    },
   ) {
     const c = await this.criterionRepo.findOne({ where: { id, teacherId } });
     if (!c) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Kriter bulunamadı.' });
@@ -1194,6 +1215,10 @@ export class TeacherAgendaService {
     if (dto.scoreType !== undefined) c.scoreType = dto.scoreType;
     if (dto.sortOrder !== undefined) c.sortOrder = dto.sortOrder;
     if (dto.subjectId !== undefined) c.subjectId = dto.subjectId;
+    if (dto.criterionCategory !== undefined) {
+      c.criterionCategory = dto.criterionCategory;
+      if (dto.criterionCategory === 'behavior') c.subjectId = null;
+    }
     return this.criterionRepo.save(c);
   }
 
@@ -1283,7 +1308,7 @@ export class TeacherAgendaService {
               noteType: In(['positive', 'negative']),
             },
             order: { noteDate: 'DESC', createdAt: 'DESC' },
-            select: ['id', 'studentId', 'noteType', 'noteDate', 'description', 'createdAt'],
+            select: ['id', 'studentId', 'noteType', 'noteDate', 'description', 'createdAt', 'tags'],
           })
         : [],
     ]);

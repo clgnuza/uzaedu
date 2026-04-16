@@ -18,8 +18,8 @@ export function SessionTable({
   canDisconnect?: boolean;
 }) {
   return (
-    <Card className="mb-4 overflow-hidden border-emerald-200/45 dark:border-emerald-900/35 sm:mb-6">
-      <CardHeader className="flex flex-row items-center justify-between gap-2 border-b border-emerald-200/40 bg-emerald-500/6 px-3 py-2.5 dark:border-emerald-900/40 sm:px-6 sm:py-4">
+    <Card className="mb-3 overflow-hidden border-emerald-200/45 dark:border-emerald-900/35 sm:mb-6">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 border-b border-emerald-200/40 bg-emerald-500/6 px-2.5 py-2 dark:border-emerald-900/40 sm:px-6 sm:py-4">
         <CardTitle className="flex min-w-0 items-center gap-2 text-sm sm:text-base">
           <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 sm:size-8">
             <Activity className="size-3.5 text-emerald-800 dark:text-emerald-300 sm:size-4" />

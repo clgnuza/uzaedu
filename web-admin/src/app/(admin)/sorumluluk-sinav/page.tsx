@@ -105,35 +105,35 @@ export default function SorumlulukGroupsPage() {
   const activeGroups  = groups.filter((g) => g.status === 'active').length;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 sm:space-y-4">
       {/* Stats */}
       {groups.length > 0 && (
-        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
           {[
             { label: 'Toplam Grup', value: groups.length, color: 'text-indigo-600 dark:text-indigo-400' },
             { label: 'Aktif Grup',  value: activeGroups,  color: 'text-green-600 dark:text-green-400' },
             { label: 'Öğrenci',     value: totalStudents, color: 'text-sky-600 dark:text-sky-400' },
           ].map((s) => (
-            <div key={s.label} className="rounded-2xl border border-white/50 bg-white/80 p-3 text-center shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60">
-              <p className={cn('text-2xl font-bold', s.color)}>{s.value}</p>
-              <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">{s.label}</p>
+            <div key={s.label} className="rounded-xl border border-white/50 bg-white/80 p-2 text-center shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 sm:rounded-2xl sm:p-3">
+              <p className={cn('text-lg font-bold tabular-nums sm:text-2xl', s.color)}>{s.value}</p>
+              <p className="mt-0.5 text-[9px] leading-tight text-muted-foreground sm:text-[10px]">{s.label}</p>
             </div>
           ))}
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{totalSessions} oturum planlandı</p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs text-muted-foreground sm:text-sm">{totalSessions} oturum planlandı</p>
         {isAdmin && (
-          <Button size="sm" className="gap-1.5" onClick={() => { setEditId(null); setShowForm(!showForm); }}>
+          <Button size="sm" className="h-8 w-full gap-1.5 text-xs sm:h-9 sm:w-auto sm:text-sm" onClick={() => { setEditId(null); setShowForm(!showForm); }}>
             <Plus className="size-4" /> Yeni Grup
           </Button>
         )}
       </div>
 
       {showForm && isAdmin && (
-        <div className="rounded-2xl border bg-white/80 p-4 shadow-sm dark:bg-zinc-900/60 space-y-3">
-          <p className="font-semibold text-sm">{editId ? 'Grubu Düzenle' : 'Yeni Grup'}</p>
+        <div className="rounded-xl border bg-white/80 p-3 shadow-sm dark:bg-zinc-900/60 space-y-2.5 sm:rounded-2xl sm:p-4 sm:space-y-3">
+          <p className="text-xs font-semibold sm:text-sm">{editId ? 'Grubu Düzenle' : 'Yeni Grup'}</p>
           <Input placeholder="Başlık *  (örn: 2024-2025 I. Dönem Sorumluluk Sınavı)" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} />
           <div className="grid gap-3 sm:grid-cols-2">
             <Input placeholder="Eğitim Yılı (örn: 2024-2025)" value={form.academicYear} onChange={(e) => setForm((f) => ({ ...f, academicYear: e.target.value }))} />
@@ -153,11 +153,11 @@ export default function SorumlulukGroupsPage() {
       )}
 
       {groups.length === 0 && (
-        <div className="rounded-2xl border bg-white/60 p-10 text-center text-muted-foreground dark:bg-zinc-900/40">
-          <GraduationCap className="mx-auto mb-3 size-8 opacity-40" />
-          <p className="text-sm font-medium">Henüz grup yok</p>
-          <p className="text-xs mt-1 opacity-70">Sorumluluk veya beceri sınavı grubu oluşturarak başlayın.</p>
-          {isAdmin && <Button size="sm" className="mt-4 gap-1.5" onClick={() => setShowForm(true)}><Plus className="size-4" /> Yeni Grup</Button>}
+        <div className="rounded-xl border bg-white/60 p-6 text-center text-muted-foreground dark:bg-zinc-900/40 sm:rounded-2xl sm:p-10">
+          <GraduationCap className="mx-auto mb-2 size-7 opacity-40 sm:mb-3 sm:size-8" />
+          <p className="text-xs font-medium sm:text-sm">Henüz grup yok</p>
+          <p className="mt-1 text-[11px] opacity-70 sm:text-xs">Sorumluluk veya beceri sınavı grubu oluşturarak başlayın.</p>
+          {isAdmin && <Button size="sm" className="mt-3 h-8 gap-1.5 text-xs sm:mt-4 sm:h-9 sm:text-sm" onClick={() => setShowForm(true)}><Plus className="size-4" /> Yeni Grup</Button>}
         </div>
       )}
 
@@ -165,7 +165,7 @@ export default function SorumlulukGroupsPage() {
         {groups.map((g) => {
           const fillPct = g.sessionCount ? Math.min(100, Math.round((g.studentCount ?? 0) / Math.max(g.sessionCount, 1) * 10)) : 0;
           return (
-            <div key={g.id} className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 flex flex-col gap-3">
+            <div key={g.id} className="flex flex-col gap-2.5 rounded-xl border border-white/60 bg-white/80 p-3 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 sm:gap-3 sm:rounded-2xl sm:p-4">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex flex-wrap gap-1.5">
@@ -176,7 +176,7 @@ export default function SorumlulukGroupsPage() {
                       {STATUS_LABELS[g.status] ?? g.status}
                     </span>
                   </div>
-                  <p className="font-bold text-sm leading-tight">{g.title}</p>
+                  <p className="text-xs font-bold leading-tight sm:text-sm">{g.title}</p>
                   {g.academicYear && <p className="text-xs text-muted-foreground">{g.academicYear}</p>}
                 </div>
                 {isAdmin && (
@@ -187,7 +187,7 @@ export default function SorumlulukGroupsPage() {
                 )}
               </div>
 
-              <div className="flex gap-4 text-xs text-muted-foreground">
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground sm:gap-4 sm:text-xs">
                 <span className="flex items-center gap-1"><Users className="size-3" />{g.studentCount ?? 0} öğrenci</span>
                 <span className="flex items-center gap-1"><CalendarRange className="size-3" />{g.sessionCount ?? 0} oturum</span>
                 <span className="flex items-center gap-1"><BookOpen className="size-3" />{TYPE_LABELS[g.examType]?.split(' ')[0]}</span>
@@ -206,13 +206,13 @@ export default function SorumlulukGroupsPage() {
                 </div>
               )}
 
-              <div className="flex gap-2 mt-auto">
-                <Link href={groupLink(g.id)} className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors">
+              <div className="mt-auto flex flex-wrap gap-1.5 sm:gap-2">
+                <Link href={groupLink(g.id)} className="inline-flex min-h-9 flex-1 basis-[40%] items-center justify-center gap-1 rounded-lg bg-indigo-600 px-2 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-indigo-700 sm:rounded-xl sm:px-3 sm:py-2 sm:text-xs">
                   Aç <ChevronRight className="size-3" />
                 </Link>
                 {isAdmin && STATUS_NEXT[g.status] && (
                   <button onClick={() => advanceStatus(g)}
-                    className={cn('rounded-xl border px-3 py-2 text-xs font-semibold transition-colors',
+                    className={cn('min-h-9 rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-colors sm:rounded-xl sm:px-3 sm:py-2 sm:text-xs',
                       g.status === 'draft'
                         ? 'border-green-300 text-green-700 hover:bg-green-50 dark:border-green-800 dark:text-green-400 dark:hover:bg-green-950/30'
                         : 'border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:text-slate-400 dark:hover:bg-zinc-800')}>
@@ -220,7 +220,7 @@ export default function SorumlulukGroupsPage() {
                   </button>
                 )}
                 <Link href={`/sorumluluk-sinav/raporlar${schoolQ ? schoolQ + '&' : '?'}group_id=${g.id}`}
-                  className="rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-slate-50 dark:border-zinc-700 dark:hover:bg-zinc-800 transition-colors">
+                  className="inline-flex min-h-9 items-center justify-center rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-colors hover:bg-slate-50 dark:border-zinc-700 dark:hover:bg-zinc-800 sm:rounded-xl sm:px-3 sm:py-2 sm:text-xs">
                   Raporlar
                 </Link>
               </div>

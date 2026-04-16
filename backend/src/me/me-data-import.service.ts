@@ -1,7 +1,10 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { MARKET_MODULE_KEYS } from '../app-config/market-policy.defaults';
 import { UsersService } from '../users/users.service';
 import { TeacherAgendaImportService } from '../teacher-agenda/teacher-agenda-import.service';
+import { MessagingUserPreference } from '../messaging/entities/messaging-user-preference.entity';
 
 const IMPORT_MODULE_IDS = ['account', ...MARKET_MODULE_KEYS] as const;
 const IMPORT_SET = new Set<string>(IMPORT_MODULE_IDS);
@@ -11,6 +14,8 @@ export class MeDataImportService {
   constructor(
     private readonly usersService: UsersService,
     private readonly teacherAgendaImportService: TeacherAgendaImportService,
+    @InjectRepository(MessagingUserPreference)
+    private readonly messagingUserPrefRepo: Repository<MessagingUserPreference>,
   ) {}
 
   async importBackup(
@@ -44,6 +49,12 @@ export class MeDataImportService {
           await this.teacherAgendaImportService.importFromSnapshot(userId, user.school_id ?? null, ta);
           imported.push('teacher_agenda');
         }
+      } else if (mod === 'messaging') {
+        const block = data.messaging as Record<string, unknown> | undefined;
+        if (block && typeof block === 'object' && !this.isUnavailable(block)) {
+          const n = await this.importMessagingPreferences(userId, block);
+          if (n > 0) imported.push('messaging');
+        }
       }
     }
 
@@ -59,6 +70,47 @@ export class MeDataImportService {
 
   private isUnavailable(obj: Record<string, unknown>): boolean {
     return obj.unavailable === true;
+  }
+
+  /** Yazılan satır sayısı (0 ise sunucu değişmedi). */
+  private async importMessagingPreferences(userId: string, block: Record<string, unknown>): Promise<number> {
+    const snap = block.snapshot_user_id ?? block.user_id;
+    if (typeof snap === 'string' && snap !== userId) {
+      throw new ForbiddenException({
+        code: 'BACKUP_USER_MISMATCH',
+        message: 'Mesajlaşma tercihleri yedeği başka kullanıcıya ait.',
+      });
+    }
+    const raw = block.messaging_user_preferences;
+    if (!Array.isArray(raw) || raw.length === 0) return 0;
+    const rows = raw.filter((r) => r && typeof r === 'object') as Record<string, unknown>[];
+    if (rows.length === 0) return 0;
+    for (const r of rows) {
+      const uid = typeof r.userId === 'string' ? r.userId : typeof r.user_id === 'string' ? r.user_id : null;
+      if (uid && uid !== userId) {
+        throw new ForbiddenException({
+          code: 'BACKUP_USER_MISMATCH',
+          message: 'Mesajlaşma tercihleri satırı başka kullanıcıya ait.',
+        });
+      }
+    }
+    await this.messagingUserPrefRepo.delete({ userId });
+    let written = 0;
+    for (const r of rows) {
+      const schoolId = typeof r.schoolId === 'string' ? r.schoolId : typeof r.school_id === 'string' ? r.school_id : null;
+      if (!schoolId) continue;
+      const prefs =
+        r.preferences && typeof r.preferences === 'object' ? (r.preferences as Record<string, unknown>) : {};
+      await this.messagingUserPrefRepo.save(
+        this.messagingUserPrefRepo.create({
+          userId,
+          schoolId,
+          preferences: JSON.parse(JSON.stringify(prefs)) as Record<string, unknown>,
+        }),
+      );
+      written++;
+    }
+    return written;
   }
 
   private accountIdFromBackup(data: Record<string, unknown>): string | null {
@@ -91,6 +143,19 @@ export class MeDataImportService {
           message:
             'Bu dosya tanınan bir ÖğretmenPro hesap yedeği değil veya hesap bilgisi oturumunuzla eşleşmiyor. Yalnızca kendi dışa aktardığınız JSON’u kullanın.',
         });
+      }
+    }
+
+    if (requested.includes('messaging')) {
+      const msg = data.messaging as Record<string, unknown> | undefined;
+      if (msg && typeof msg === 'object' && !this.isUnavailable(msg)) {
+        const snap = msg.snapshot_user_id ?? msg.user_id;
+        if (typeof snap === 'string' && snap !== userId) {
+          throw new ForbiddenException({
+            code: 'BACKUP_USER_MISMATCH',
+            message: 'Mesajlaşma yedeği başka kullanıcıya ait.',
+          });
+        }
       }
     }
 

@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { msgQ, Campaign, loadRecipients, Recipient } from '@/lib/messaging-api';
+import { TPL_DERS_DEVAMSIZLIK } from '@/lib/messaging-default-templates';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -13,15 +14,7 @@ import { Upload, RefreshCw, BookOpen } from 'lucide-react';
 import CampaignPreviewTable from '../components/CampaignPreviewTable';
 import SendPanel from '../components/SendPanel';
 
-const DEFAULT_TEMPLATE = `📣 Sayın {AD},
-
-- Öğr. Adı Soyadı: {OGRENCI}
-- Sınıfı: {SINIF}
-- Tarih: {TARIH}
-
-- Açıklama: Öğrencimiz, belirtilen tarihte {DERSLER_INLINE} ders saatlerinde devamsızlık yapmıştır.
-
-📚 {OKUL}`;
+const DEFAULT_TEMPLATE = TPL_DERS_DEVAMSIZLIK;
 
 export default function DersDevamsizlikPage() {
   const searchParams = useSearchParams();
@@ -97,8 +90,8 @@ export default function DersDevamsizlikPage() {
 
             <div>
               <label className="mb-1 block text-xs font-semibold text-muted-foreground">Mesaj Şablonu</label>
-              <textarea rows={7} value={template} onChange={(e) => setTemplate(e.target.value)}
-                className="w-full rounded-lg border border-input bg-white px-3 py-2 text-sm dark:bg-zinc-900 resize-y font-mono" />
+              <textarea rows={10} value={template} onChange={(e) => setTemplate(e.target.value)}
+                className="w-full rounded-lg border border-input bg-white px-3 py-2 text-sm dark:bg-zinc-900 resize-y font-mono leading-relaxed" />
               <p className="mt-1 text-[10px] text-muted-foreground">
                 Değişkenler: {'{AD}'} {'{OGRENCI}'} {'{SINIF}'} {'{TARIH}'} {'{DERSLER_INLINE}'} = [1.Ders, 2.Ders] {'{DERSLER}'} = liste {'{OKUL}'}
               </p>

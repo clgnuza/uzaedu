@@ -14,6 +14,7 @@ import { SorumlulukExamPdfService } from './sorumluluk-exam-pdf.service';
 import { SorumlulukExamController } from './sorumluluk-exam.controller';
 import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
 import { MarketModule } from '../market/market.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { MarketModule } from '../market/market.module';
       SchoolTimetablePlan,
     ]),
     MarketModule,
+    NotificationsModule,
   ],
   controllers: [SorumlulukExamController],
   providers: [SorumlulukExamService, SorumlulukExamPdfService, RequireSchoolModuleGuard],

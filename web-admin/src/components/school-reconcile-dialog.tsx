@@ -5,18 +5,14 @@ import { Upload, Download, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { Alert } from '@/components/ui/alert';
-import {
-  SCHOOL_TYPE_ORDER,
-  SCHOOL_STATUS_LABELS,
-  SCHOOL_SEGMENT_LABELS,
-  formatSchoolTypeLabel,
-} from '@/lib/school-labels';
+import { SCHOOL_TYPE_ORDER, SCHOOL_STATUS_LABELS, SCHOOL_SEGMENT_LABELS, formatSchoolTypeLabel } from '@/lib/school-labels';
 import {
   downloadSchoolExcelTemplate,
   parseExcelToSchoolRows,
   mapRowsToReconcileSchools,
   type ParsedSchoolRow,
 } from '@/lib/school-excel-import';
+import { getDistrictsForCity } from '@/lib/turkey-addresses';
 
 const FIELD_LABELS: Record<string, string> = {
   name: 'Okul adı',
@@ -25,12 +21,29 @@ const FIELD_LABELS: Record<string, string> = {
   city: 'İl',
   district: 'İlçe',
   address: 'Adres',
+  map_url: 'Harita',
+  school_image_url: 'Okul görseli',
   website_url: 'Web',
   phone: 'Telefon',
   fax: 'Faks',
   institutional_email: 'Kurumsal e-posta',
   principal_name: 'Müdür',
+  about_description: 'Okulumuz hakkında',
+  teacher_limit: 'Öğretmen limiti',
+  status: 'Durum',
 };
+
+const LAST_RUN_STORAGE_KEY = 'ogp:school-reconcile-last-run';
+
+type ReconcileLastRun = {
+  at: string;
+  created: number;
+  updated: number;
+  marked_askida: number;
+  errorCount: number;
+};
+
+type MebbisOwner = '' | '1' | '2' | '3';
 
 type PreviewRes = {
   summary: {
@@ -73,22 +86,43 @@ export function SchoolReconcilePanel({
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<'ozet' | 'yeni' | 'degisen' | 'kaynaksiz' | 'kodsuz'>('ozet');
   const [sourceMode, setSourceMode] = useState<'excel' | 'mebbis'>('excel');
-  const [mebbisOwner, setMebbisOwner] = useState<'1' | '2' | '3'>('1');
+  const [mebbisOwner, setMebbisOwner] = useState<MebbisOwner>('');
   const [mebbisIlKodu, setMebbisIlKodu] = useState('');
   const [mebbisIlce, setMebbisIlce] = useState('');
   const [mebbisTurFilter, setMebbisTurFilter] = useState('');
   const [ilOptions, setIlOptions] = useState<{ value: string; label: string }[]>([]);
   const [ilceOptions, setIlceOptions] = useState<{ label: string }[]>([]);
+  const [turOptions, setTurOptions] = useState<{ value: string; label: string }[]>([]);
   const [mebbisLoadingIlce, setMebbisLoadingIlce] = useState(false);
+  const [mebbisLoadingTur, setMebbisLoadingTur] = useState(false);
   const [mebbisFetching, setMebbisFetching] = useState(false);
   const [optCreate, setOptCreate] = useState(true);
   const [optUpdate, setOptUpdate] = useState(true);
   const [optAskida, setOptAskida] = useState(false);
+  const [phase, setPhase] = useState<'source' | 'result'>('source');
+  const [applyResult, setApplyResult] = useState<{
+    created: number;
+    updated: number;
+    marked_askida: number;
+    errors?: string[];
+  } | null>(null);
+  const [lastRun, setLastRun] = useState<ReconcileLastRun | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LAST_RUN_STORAGE_KEY);
+      if (raw) setLastRun(JSON.parse(raw) as ReconcileLastRun);
+    } catch {
+      setLastRun(null);
+    }
+  }, []);
 
   const rowName = useCallback(
     (i: number) => String(rows[i]?.name ?? (payload[i]?.name as string | undefined) ?? '—'),
     [rows, payload],
   );
+  const selectedIlLabel = ilOptions.find((x) => x.value === mebbisIlKodu)?.label ?? '';
+  const districtSuggestions = getDistrictsForCity(selectedIlLabel, ilceOptions.map((x) => x.label));
 
   useEffect(() => {
     if (!token || sourceMode !== 'mebbis') return;
@@ -109,9 +143,13 @@ export function SchoolReconcilePanel({
   }, [token, sourceMode]);
 
   useEffect(() => {
-    if (!token || sourceMode !== 'mebbis' || !mebbisIlKodu) {
+    if (!token || sourceMode !== 'mebbis' || !mebbisOwner || !mebbisIlKodu) {
+      setMebbisLoadingIlce(false);
       setIlceOptions([]);
-      setMebbisIlce('');
+      setTurOptions([]);
+      setMebbisLoadingTur(false);
+      setMebbisTurFilter('');
+      if (!mebbisIlKodu || !mebbisOwner) setMebbisIlce('');
       return;
     }
     let cancelled = false;
@@ -121,7 +159,7 @@ export function SchoolReconcilePanel({
         const res = await apiFetch<{ items: { label: string }[] }>('/schools/mebbis/ilce-options', {
           method: 'POST',
           token,
-          body: JSON.stringify({ il_kodu: mebbisIlKodu }),
+          body: JSON.stringify({ owner: mebbisOwner, il_kodu: mebbisIlKodu }),
         });
         if (!cancelled) {
           setIlceOptions(res.items ?? []);
@@ -139,11 +177,43 @@ export function SchoolReconcilePanel({
     return () => {
       cancelled = true;
     };
-  }, [token, sourceMode, mebbisIlKodu]);
+  }, [token, sourceMode, mebbisIlKodu, mebbisOwner]);
+
+  useEffect(() => {
+    if (!token || sourceMode !== 'mebbis' || !mebbisOwner || !mebbisIlKodu || !mebbisIlce) {
+      setMebbisLoadingTur(false);
+      setTurOptions([]);
+      setMebbisTurFilter('');
+      return;
+    }
+    let cancelled = false;
+    setMebbisLoadingTur(true);
+    setMebbisTurFilter('');
+    void (async () => {
+      try {
+        const res = await apiFetch<{ items: { label: string; value: string }[] }>('/schools/mebbis/type-options', {
+          method: 'POST',
+          token,
+          body: JSON.stringify({ owner: mebbisOwner, il_kodu: mebbisIlKodu, ilce_label: mebbisIlce }),
+        });
+        if (!cancelled) setTurOptions(res.items ?? []);
+      } catch {
+        if (!cancelled) {
+          setTurOptions([]);
+          toast.error('Kurum türleri alınamadı');
+        }
+      } finally {
+        if (!cancelled) setMebbisLoadingTur(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, sourceMode, mebbisOwner, mebbisIlKodu, mebbisIlce]);
 
   const runPreview = useCallback(
-    async (body: Record<string, unknown>[]) => {
-      if (!token || body.length === 0) return;
+    async (body: Record<string, unknown>[]): Promise<PreviewRes | null> => {
+      if (!token || body.length === 0) return null;
       setLoadingPreview(true);
       setError(null);
       try {
@@ -154,11 +224,12 @@ export function SchoolReconcilePanel({
         });
         setPreview(res);
         setTab('ozet');
-        toast.success('Önizleme hazır');
+        return res;
       } catch (e) {
         setPreview(null);
         setError(e instanceof Error ? e.message : 'Önizleme alınamadı');
         toast.error('Önizleme alınamadı');
+        return null;
       } finally {
         setLoadingPreview(false);
       }
@@ -182,8 +253,8 @@ export function SchoolReconcilePanel({
         if (parsed.length === 0) {
           toast.warning('Dosyada satır yok');
         } else {
-          toast.success(`${parsed.length} satır okundu`);
-          await runPreview(p);
+          const pv = await runPreview(p);
+          if (pv) toast.success(`${parsed.length} satır okundu; önizleme hazır`);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Excel okunamadı');
@@ -196,8 +267,8 @@ export function SchoolReconcilePanel({
   );
 
   const handleMebbisFetch = async () => {
-    if (!token || !mebbisIlKodu || !mebbisIlce.trim()) {
-      toast.warning('İl ve ilçe seçin');
+    if (!token || !mebbisOwner || !mebbisIlKodu || !mebbisIlce.trim()) {
+      toast.warning('Kurum sahibi, il ve ilçe seçin');
       return;
     }
     setMebbisFetching(true);
@@ -210,7 +281,7 @@ export function SchoolReconcilePanel({
           method: 'POST',
           token,
           body: JSON.stringify({
-            owner: mebbisOwner,
+            owner: mebbisOwner as '1' | '2' | '3',
             il_kodu: mebbisIlKodu,
             ilce_label: mebbisIlce.trim(),
             kurum_turu_contains: mebbisTurFilter.trim() || undefined,
@@ -221,14 +292,29 @@ export function SchoolReconcilePanel({
       setRows([]);
       setPayload(p);
       if (p.length === 0) {
-        toast.warning('MEBBİS listesi boş');
+        toast.warning('MEB okul dizini listesi boş');
       } else {
-        toast.success(`MEBBİS: ${p.length} kurum`);
-        await runPreview(p);
+        const pv = await runPreview(p);
+        if (pv) {
+          if (pv.summary.to_create > 0) {
+            setTab('yeni');
+            toast.success(
+              `MEB: ${p.length} kurum; sistemde kaydı olmayan ${pv.summary.to_create} kurum`,
+            );
+          } else if (pv.summary.skipped_no_code > 0) {
+            setTab('kodsuz');
+            toast.warning(
+              `MEB: ${p.length} satır; kod okunamayan ${pv.summary.skipped_no_code} satır — «Kodsuz satır» sekmesine bakın`,
+            );
+          } else {
+            setTab('ozet');
+            toast.success(`MEB: ${p.length} kurum; yeni eklenecek kayıt yok (hepsi sistemde veya kod eşleşti)`);
+          }
+        }
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'MEBBİS indirilemedi');
-      toast.error('MEBBİS indirilemedi');
+      setError(e instanceof Error ? e.message : 'MEB okul dizini okunamadı');
+      toast.error('MEB okul dizini okunamadı');
     } finally {
       setMebbisFetching(false);
     }
@@ -258,15 +344,34 @@ export function SchoolReconcilePanel({
           }),
         },
       );
+      const errCount = res.errors?.length ?? 0;
+      const snapshot: ReconcileLastRun = {
+        at: new Date().toISOString(),
+        created: res.created,
+        updated: res.updated,
+        marked_askida: res.marked_askida,
+        errorCount: errCount,
+      };
+      try {
+        localStorage.setItem(LAST_RUN_STORAGE_KEY, JSON.stringify(snapshot));
+      } catch {
+        /* ignore */
+      }
+      setLastRun(snapshot);
+      setApplyResult({
+        created: res.created,
+        updated: res.updated,
+        marked_askida: res.marked_askida,
+        errors: res.errors,
+      });
+      setPhase('result');
       if (res.errors?.length) {
         toast.warning(`Kısmen tamamlandı: ${res.errors.length} hata`);
-        setError(res.errors.join('\n'));
       } else {
         toast.success(
           `Tamam: +${res.created} yeni, ${res.updated} güncellendi, ${res.marked_askida} askıya alındı`,
         );
       }
-      onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Uygulanamadı');
       toast.error('Uygulanamadı');
@@ -275,19 +380,95 @@ export function SchoolReconcilePanel({
     }
   };
 
+  const finishAndClose = () => {
+    onDone();
+  };
+
+  const resetToNewReconcile = () => {
+    setPhase('source');
+    setApplyResult(null);
+    setPreview(null);
+    setPayload([]);
+    setRows([]);
+    setError(null);
+    setTab('ozet');
+  };
+
+  if (phase === 'result' && applyResult) {
+    const hasErr = (applyResult.errors?.length ?? 0) > 0;
+    return (
+      <div className="space-y-4">
+        <div className="rounded-xl border border-border bg-muted/20 p-4">
+          <p className="text-sm font-semibold text-foreground">Eşitleme sonucu</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Kaynakla karşılaştırılan okul kayıtları (profil, iletişim, tanıtım metni, limit ve kaynakta belirtilen durum)
+            güncellendi.
+          </p>
+          <ul className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+            <li className="rounded-lg border border-border bg-background px-3 py-2">
+              <span className="text-xs text-muted-foreground">Yeni kurum</span>
+              <span className="block text-lg font-semibold tabular-nums text-foreground">+{applyResult.created}</span>
+            </li>
+            <li className="rounded-lg border border-border bg-background px-3 py-2">
+              <span className="text-xs text-muted-foreground">Güncellenen</span>
+              <span className="block text-lg font-semibold tabular-nums text-foreground">{applyResult.updated}</span>
+            </li>
+            <li className="rounded-lg border border-border bg-background px-3 py-2">
+              <span className="text-xs text-muted-foreground">Askıya alınan</span>
+              <span className="block text-lg font-semibold tabular-nums text-foreground">{applyResult.marked_askida}</span>
+            </li>
+          </ul>
+          {hasErr && (
+            <div className="mt-3">
+              <p className="text-xs font-medium text-amber-800 dark:text-amber-200">Kısmi hatalar</p>
+              <pre className="mt-1 max-h-40 overflow-auto rounded border border-amber-500/30 bg-amber-500/5 p-2 text-xs whitespace-pre-wrap">
+                {applyResult.errors!.join('\n')}
+              </pre>
+            </div>
+          )}
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={resetToNewReconcile}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
+          >
+            Yeni eşitleme
+          </button>
+          <button
+            type="button"
+            onClick={finishAndClose}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+          >
+            Kapat ve listeyi yenile
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
+      {lastRun && (
+        <div className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">Son işlem: </span>
+          {new Date(lastRun.at).toLocaleString('tr-TR')} — +{lastRun.created} yeni, {lastRun.updated} güncelleme,{' '}
+          {lastRun.marked_askida} askı
+          {lastRun.errorCount > 0 ? `, ${lastRun.errorCount} hata satırı` : ''}
+        </div>
+      )}
       {error && <Alert message={error} />}
-      <p className="text-sm text-muted-foreground">
-        <strong>Kurum kodu (MEB)</strong> eşleştirme anahtarıdır. Kaynak dosyada kodu olmayan satırlar yok sayılır.
-        Aynı kod kaynakta tekrarlanırsa yalnızca ilk satır kullanılır. Sistemde olup kaynakta olmayan kurumlar için isteğe
-        bağlı <strong>askıda</strong> işareti kullanılabilir.
+      <p className="text-sm leading-6 text-muted-foreground">
+        <strong>MEB kurum kodu</strong> (4–16 rakam) eşleştirme anahtarıdır. Public MEB okul dizininde bu kod çoğunlukla
+        kurumun `okulumuz_hakkinda` / alan adı bilgisinden çıkarılır. Kaynakta kodu okunamayan satırlar yok sayılır.
+        Aynı kod kaynakta birden fazla kez geçerse yalnızca ilk satır kullanılır. Sistemde olup kaynakta bulunmayan
+        kurumlar için isteğe bağlı olarak <strong>askıya alma</strong> işlemi uygulanabilir.
       </p>
       <div className="flex flex-wrap gap-1 border-b border-border pb-2">
         {(
           [
             ['excel', 'Excel'],
-            ['mebbis', 'MEBBİS (mebbis.meb.gov.tr)'],
+            ['mebbis', 'MEB okul dizini (meb.gov.tr)'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -299,6 +480,13 @@ export function SchoolReconcilePanel({
               setPayload([]);
               setRows([]);
               setError(null);
+              if (id === 'mebbis') {
+                setMebbisOwner('');
+                setMebbisIlKodu('');
+                setMebbisIlce('');
+                setMebbisTurFilter('');
+                setIlceOptions([]);
+              }
             }}
             className={`rounded-md px-2.5 py-1 text-xs font-medium ${
               sourceMode === id ? 'bg-primary text-primary-foreground' : 'bg-muted/60 hover:bg-muted'
@@ -335,7 +523,12 @@ export function SchoolReconcilePanel({
               <button
                 type="button"
                 disabled={loadingPreview}
-                onClick={() => void runPreview(payload)}
+                onClick={() => {
+                  void (async () => {
+                    const pv = await runPreview(payload);
+                    if (pv) toast.success('Önizleme yenilendi');
+                  })();
+                }}
                 className="rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"
               >
                 Önizlemeyi yenile
@@ -344,38 +537,52 @@ export function SchoolReconcilePanel({
           </div>
           <p className="text-xs text-muted-foreground">
             Sütunlar: name, institution_code (kurum_kodu / meb_kodu), type ({SCHOOL_TYPE_ORDER.slice(0, 4).join(', ')}…),
-            segment, city, district, …
+            segment, city, district, about_description, status (aktif / deneme / askıda), teacher_limit (opsiyonel), …
           </p>
         </>
       )}
 
       {sourceMode === 'mebbis' && (
         <div className="space-y-3 rounded-lg border border-border bg-muted/10 p-3 text-sm">
-          <p className="text-xs text-muted-foreground">
-            Sunucu MEBBİS sayfasını otomatik doldurur ve Excel indirir. İlk kurulum: backend’de{' '}
-            <code className="rounded bg-muted px-1">npx playwright install chromium</code>
+          <p className="text-xs leading-5 text-muted-foreground">
+            Sunucu public <strong>MEB okul dizini</strong> sayfasını tarar; kurum listesi ve kurum sayfasından adres /
+            telefon / web verilerini toplar. <strong>Yeni okul</strong> yalnızca satırda okunan <strong>kurum kodu</strong>
+            ile oluşur (Özet → Yeni). İlk kurulum: backend’de{' '}
+            <code className="rounded bg-muted px-1">npx playwright install chromium</code>. Liste boş veya hep kodsuzsa
+            public sayfa taraması veya kurum kodu çıkarımı başarısız demektir.
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex max-w-md flex-col gap-3">
             <label className="flex flex-col gap-0.5 text-xs">
-              <span>Kurum sahibi</span>
+              <span className="font-medium text-foreground">1 · Kurum sahibi</span>
               <select
                 value={mebbisOwner}
-                onChange={(e) => setMebbisOwner(e.target.value as '1' | '2' | '3')}
-                className="rounded border border-border bg-background px-2 py-1.5 text-sm"
-              >
-                <option value="1">Resmi</option>
-                <option value="2">Özel</option>
-                <option value="3">MEB dışı</option>
-              </select>
-            </label>
-            <label className="flex min-w-[10rem] flex-col gap-0.5 text-xs">
-              <span>İl</span>
-              <select
-                value={mebbisIlKodu}
-                onChange={(e) => setMebbisIlKodu(e.target.value)}
-                className="rounded border border-border bg-background px-2 py-1.5 text-sm"
+                onChange={(e) => {
+                  const v = e.target.value as MebbisOwner;
+                  setMebbisOwner(v);
+                  setMebbisIlKodu('');
+                  setMebbisIlce('');
+                  setIlceOptions([]);
+                }}
+                className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
               >
                 <option value="">Seçiniz</option>
+                <option value="1">Resmi Kurumlar</option>
+                <option value="2">Özel Kurumlar</option>
+                <option value="3">MEB dışı kurumlar</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-0.5 text-xs">
+              <span className="font-medium text-foreground">2 · İl</span>
+              <select
+                value={mebbisIlKodu}
+                onChange={(e) => {
+                  setMebbisIlKodu(e.target.value);
+                  setMebbisIlce('');
+                }}
+                disabled={!mebbisOwner}
+                className="rounded-lg border border-border bg-background px-3 py-2 text-sm disabled:opacity-50"
+              >
+                <option value="">{mebbisOwner ? 'Seçiniz' : 'Önce kurum sahibi seçin'}</option>
                 {ilOptions.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
@@ -383,35 +590,60 @@ export function SchoolReconcilePanel({
                 ))}
               </select>
             </label>
-            <label className="flex min-w-[10rem] flex-col gap-0.5 text-xs">
-              <span>İlçe</span>
+            <label className="flex flex-col gap-0.5 text-xs">
+              <span className="font-medium text-foreground">3 · İlçe</span>
               <select
                 value={mebbisIlce}
                 onChange={(e) => setMebbisIlce(e.target.value)}
-                disabled={!mebbisIlKodu || mebbisLoadingIlce}
-                className="rounded border border-border bg-background px-2 py-1.5 text-sm disabled:opacity-50"
+                disabled={!mebbisOwner || !mebbisIlKodu || mebbisLoadingIlce}
+                className="rounded-lg border border-border bg-background px-3 py-2 text-sm disabled:opacity-50"
               >
-                <option value="">{mebbisLoadingIlce ? 'Yükleniyor…' : 'Seçiniz'}</option>
-                {ilceOptions.map((o) => (
-                  <option key={o.label} value={o.label}>
-                    {o.label}
+                <option value="">
+                  {!mebbisOwner
+                    ? 'Önce kurum sahibi seçin'
+                    : !mebbisIlKodu
+                      ? 'Önce il seçin'
+                      : mebbisLoadingIlce
+                        ? 'Yükleniyor…'
+                        : 'Seçiniz'}
+                </option>
+                {districtSuggestions.map((label) => (
+                  <option key={label} value={label}>
+                    {label}
                   </option>
                 ))}
               </select>
+              <span className="text-[11px] text-muted-foreground">
+                {mebbisLoadingIlce ? 'İlçeler public MEB okul dizininden yükleniyor.' : 'İl seçimine göre ilçe listesinden seçim yapılır.'}
+              </span>
             </label>
-            <label className="flex min-w-[12rem] flex-col gap-0.5 text-xs">
-              <span>Kurum türü (opsiyonel, içerir)</span>
-              <input
+            <label className="flex flex-col gap-0.5 text-xs">
+              <span className="font-medium text-foreground">4 · Kurum türü (opsiyonel, içerir)</span>
+              <select
                 value={mebbisTurFilter}
                 onChange={(e) => setMebbisTurFilter(e.target.value)}
-                placeholder="örn. İlkokul"
-                className="rounded border border-border bg-background px-2 py-1.5 text-sm"
-              />
+                disabled={!mebbisOwner || !mebbisIlKodu || !mebbisIlce || mebbisLoadingTur}
+                className="rounded-lg border border-border bg-background px-3 py-2 text-sm disabled:opacity-50"
+              >
+                <option value="">Tümü</option>
+                {turOptions.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+              <span className="text-[11px] text-muted-foreground">
+                {!mebbisIlce
+                  ? 'İlçe seçilince kurum türleri public MEB okul dizininden yüklenir.'
+                  : mebbisLoadingTur
+                    ? 'Kurum türleri public MEB okul dizininden yükleniyor.'
+                    : 'İsterseniz kurum türünü de listeden seçip sonucu daraltabilirsiniz.'}
+              </span>
             </label>
           </div>
           <button
             type="button"
-            disabled={mebbisFetching || loadingPreview || !mebbisIlKodu || !mebbisIlce}
+            disabled={mebbisFetching || loadingPreview || !mebbisOwner || !mebbisIlKodu || !mebbisIlce}
             onClick={() => void handleMebbisFetch()}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
@@ -421,19 +653,23 @@ export function SchoolReconcilePanel({
         </div>
       )}
 
-      <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
-        <p className="text-xs font-semibold text-foreground">Uygulama seçenekleri</p>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={optCreate} onChange={(e) => setOptCreate(e.target.checked)} />
-          Yeni kurumları oluştur (kod sistemde yoksa)
+      <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+        <p className="text-xs font-semibold text-foreground">Uygulama ayarları</p>
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          Güncelleme sırasında kaynakta yer alan okul alanları veritabanına işlenir: ad, tür, segment, il, ilçe, adres,
+          web sitesi, telefon, faks, kurumsal e-posta, müdür, &quot;okulumuz hakkında&quot; metni, varsa öğretmen limiti ve durum.
+        </p>
+        <label className="flex items-start gap-2 text-sm leading-5">
+          <input className="mt-1" type="checkbox" checked={optCreate} onChange={(e) => setOptCreate(e.target.checked)} />
+          <span>Yeni kurumları oluştur (kurum kodu sistemde yoksa)</span>
         </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={optUpdate} onChange={(e) => setOptUpdate(e.target.checked)} />
-          İsim / tür / il / iletişim vb. farkları kaynağa göre güncelle
+        <label className="flex items-start gap-2 text-sm leading-5">
+          <input className="mt-1" type="checkbox" checked={optUpdate} onChange={(e) => setOptUpdate(e.target.checked)} />
+          <span>Ad, tür, il, ilçe ve iletişim gibi alan farklarını kaynağa göre güncelle</span>
         </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={optAskida} onChange={(e) => setOptAskida(e.target.checked)} />
-          Kaynak dosyada kurum kodu bulunmayan mevcut okulları <strong>askıda</strong> yap
+        <label className="flex items-start gap-2 text-sm leading-5">
+          <input className="mt-1" type="checkbox" checked={optAskida} onChange={(e) => setOptAskida(e.target.checked)} />
+          <span>Kaynak listede bulunmayan mevcut okulları <strong>askıya al</strong></span>
         </label>
       </div>
 
@@ -446,11 +682,21 @@ export function SchoolReconcilePanel({
 
       {preview && (
         <>
+          {preview.summary.source_rows > 0 && preview.summary.source_rows_with_code === 0 && (
+            <Alert
+              variant="warning"
+              message={
+                'Hiçbir satırda geçerli MEB kurum kodu (4–16 hane) okunamadı; bu yüzden yeni okul oluşturulamaz. ' +
+                '«Kodsuz satır» sekmesinde hangi kurumların kod çıkmadığını görün. Public MEB okul dizininden kurum kodu çıkarılamadıysa yeni okul oluşturulamaz. ' +
+                'Sunucuda public MEB taraması için `npx playwright install chromium` gerekir.'
+              }
+            />
+          )}
           <div className="flex flex-wrap gap-1 border-b border-border pb-2">
             {(
               [
                 ['ozet', `Özet (${preview.summary.source_rows})`],
-                ['yeni', `Yeni (${preview.summary.to_create})`],
+                ['yeni', `Sistemde yok (${preview.summary.to_create})`],
                 ['degisen', `Değişen (${preview.summary.to_update})`],
                 ['kaynaksiz', `Kaynakta yok (${preview.summary.only_in_db})`],
                 ['kodsuz', `Kodsuz satır (${preview.summary.skipped_no_code})`],
@@ -473,7 +719,7 @@ export function SchoolReconcilePanel({
             <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
               <li>Kaynak satır: {preview.summary.source_rows}</li>
               <li>Kurum kodlu satır (benzersiz kod): {preview.summary.source_rows_with_code}</li>
-              <li>Yeni oluşturulacak: {preview.summary.to_create}</li>
+              <li>Sistemde olmayan (yeni oluşturulacak): {preview.summary.to_create}</li>
               <li>Güncellenecek: {preview.summary.to_update}</li>
               <li>Değişmeyen: {preview.summary.unchanged}</li>
               <li>Kaynakta olmayan (sistemde kod var): {preview.summary.only_in_db}</li>
@@ -531,7 +777,11 @@ export function SchoolReconcilePanel({
                             ? formatSchoolTypeLabel(c.from ?? '')
                             : c.field === 'segment'
                               ? SCHOOL_SEGMENT_LABELS[c.from ?? ''] ?? c.from ?? '—'
-                              : (c.from ?? '—')}
+                              : c.field === 'status'
+                                ? SCHOOL_STATUS_LABELS[c.from ?? ''] ?? c.from ?? '—'
+                                : c.field === 'about_description' && (c.from?.length ?? 0) > 120
+                                  ? `${(c.from ?? '').slice(0, 120)}…`
+                                  : (c.from ?? '—')}
                         </span>
                         {' → '}
                         <span className="text-foreground">
@@ -539,7 +789,11 @@ export function SchoolReconcilePanel({
                             ? formatSchoolTypeLabel(c.to ?? '')
                             : c.field === 'segment'
                               ? SCHOOL_SEGMENT_LABELS[c.to ?? ''] ?? c.to ?? '—'
-                              : (c.to ?? '—')}
+                              : c.field === 'status'
+                                ? SCHOOL_STATUS_LABELS[c.to ?? ''] ?? c.to ?? '—'
+                                : c.field === 'about_description' && (c.to?.length ?? 0) > 120
+                                  ? `${(c.to ?? '').slice(0, 120)}…`
+                                  : (c.to ?? '—')}
                         </span>
                       </li>
                     ))}

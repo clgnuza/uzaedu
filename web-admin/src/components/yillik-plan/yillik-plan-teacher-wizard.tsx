@@ -250,7 +250,7 @@ function ArchivePlanCards({
               </span>
               {bilsem && (
                 <span className="rounded bg-violet-600 px-1.5 py-0 text-[9px] font-bold uppercase tracking-wide text-white dark:bg-violet-500">
-                  BİLSEM
+                  Bilsem
                 </span>
               )}
               <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
@@ -330,7 +330,7 @@ function formatArchiveDate(iso: string): string {
   return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-/** Öğretmen arayüzü: BİLSEM Word akışında «sınıf» yerine düzey; form alanı `sinif` değişmez */
+/** Öğretmen arayüzü: Bilsem Word akışında «sınıf» yerine düzey; form alanı `sinif` değişmez */
 function formatYillikPlanGradeLabel(grade: string | number | null | undefined, bilsem: boolean): string {
   if (grade === null || grade === undefined || grade === '') return '';
   const g = typeof grade === 'number' ? String(grade) : String(grade).trim();
@@ -361,7 +361,7 @@ function labelBilsemOutcomeSetOption(
   return 'Kazanım şablonu';
 }
 
-/** BİLSEM: sonner toast — minimal, küçük, violet ton */
+/** Bilsem: sonner toast — minimal, küçük, violet ton */
 const bilsemToastOk = {
   className:
     '!gap-1 !rounded-xl !border !border-violet-500/20 !bg-violet-50/95 !py-2.5 !text-[13px] !shadow-md !shadow-violet-500/10 dark:!border-violet-500/35 dark:!bg-violet-950/50 dark:!text-violet-50',
@@ -391,7 +391,7 @@ function getInitialFilters(searchParams: URLSearchParams | null, scope: YillikPl
 }
 
 export type YillikPlanTeacherWizardProps = {
-  /** evrak: /evrak — bilsem: BİLSEM Word şablonu (curriculum_model=bilsem), normal yıllık plandan ayrı depolama */
+  /** evrak: /evrak — bilsem: Bilsem Word şablonu (curriculum_model=bilsem), normal yıllık plandan ayrı depolama */
   scope: YillikPlanEvrakVariant;
   /** Sekmeli sayfada dış başlık varken içteki H1’i gizle */
   hideHeader?: boolean;
@@ -551,7 +551,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
     refetchMe();
   }, [canAccess, router, fetchOptions, refetchMe]);
 
-  // İlk ziyarette rehber modalını göster (Evrak / BİLSEM ayrı anahtar)
+  // İlk ziyarette rehber modalını göster (Evrak / Bilsem ayrı anahtar)
   useEffect(() => {
     if (!canAccess) return;
     const { guideSeenKey } = getYillikPlanEvrakStorage(scope);
@@ -1168,15 +1168,15 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
           <div className="max-w-3xl space-y-4">
             <span className="inline-flex items-center gap-2 rounded-full bg-violet-500/15 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-violet-800 ring-1 ring-violet-500/25 dark:bg-violet-500/20 dark:text-violet-200">
               <Sparkles className="size-3.5" />
-              {me?.role === 'teacher' ? 'Plan' : 'BİLSEM Word'}
+              {me?.role === 'teacher' ? 'Plan' : 'Bilsem Word'}
             </span>
             <h1 className="bg-gradient-to-r from-violet-700 via-fuchsia-600 to-violet-600 bg-clip-text text-3xl font-bold tracking-tight text-transparent dark:from-violet-300 dark:via-fuchsia-400 dark:to-violet-300 md:text-4xl">
-              {me?.role === 'teacher' ? 'Yıllık plan' : 'BİLSEM yıllık plan'}
+              {me?.role === 'teacher' ? 'Yıllık plan' : 'Bilsem yıllık plan'}
             </h1>
             <p className="text-sm leading-relaxed text-muted-foreground md:text-base">
               {me?.role === 'teacher'
                 ? 'Adımları izleyerek Word dosyanızı oluşturun.'
-                : 'BİLSEM Word şablonları ve içerikler tanımlandıkça listelenir; formu doldurup indirirsiniz.'}
+                : 'Bilsem Word şablonları ve içerikler tanımlandıkça listelenir; formu doldurup indirirsiniz.'}
             </p>
           </div>
           <button
@@ -1215,7 +1215,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
             {isBilsemYillikPlan
               ? me?.role === 'teacher'
                 ? 'Aşağıdaki sırayı izleyerek Word dosyanızı oluşturun.'
-                : 'BİLSEM yıllık plan akışında izlenen adımlar.'
+                : 'Bilsem yıllık plan akışında izlenen adımlar.'
               : 'Sınıf ve ders seçimlerinden şablon indirmeye kadar izlenen yol.'}
           </p>
 
@@ -1673,7 +1673,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                 <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground sm:text-xs">
                   {me?.role === 'teacher'
                     ? 'Branşınıza uygun alanı seçin; ders listesi buna göre değişir.'
-                    : 'Katalogdaki BİLSEM dersleri ana gruba göre listelenir (Yıllık plan içerikleri ile aynı sözlük).'}
+                    : 'Katalogdaki Bilsem dersleri ana gruba göre listelenir (Yıllık plan içerikleri ile aynı sözlük).'}
                 </p>
                 <select
                   value={filters.ana_grup}
@@ -1837,7 +1837,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                   message={
                     me?.role === 'teacher'
                       ? 'Bu ders ve yıl için kazanım listesi henüz yok. Okul yöneticinize danışın.'
-                      : 'Bu ders ve yıl için kazanım şablonu tanımlı değil. BİLSEM kazanım şablonları üzerinden eklenebilir.'
+                      : 'Bu ders ve yıl için kazanım şablonu tanımlı değil. Bilsem kazanım şablonları üzerinden eklenebilir.'
                   }
                   variant="warning"
                 />
@@ -2023,7 +2023,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
               {isBilsemYillikPlan
                 ? me?.role === 'teacher'
                   ? 'Şablonlar'
-                  : 'BİLSEM Word şablonları'
+                  : 'Bilsem Word şablonları'
                 : 'Şablonlar'}{' '}
               ({templates.total})
             </CardTitle>
@@ -2049,7 +2049,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                   isBilsemYillikPlan
                     ? me?.role === 'teacher'
                       ? 'Bu seçimlere uygun şablon yok. Yıl, grup veya dersi değiştirmeyi deneyin.'
-                      : 'Seçtiğiniz kriterlere uygun BİLSEM şablonu yok. Şablon ekleyin veya farklı düzey, bölüm, ders, yıl deneyin.'
+                      : 'Seçtiğiniz kriterlere uygun Bilsem şablonu yok. Şablon ekleyin veya farklı düzey, bölüm, ders, yıl deneyin.'
                     : me?.role === 'teacher'
                       ? 'Bu seçimlere uygun plan yok. Farklı sınıf, ders veya yıl deneyin.'
                       : 'Seçtiğiniz kriterlere uygun plan henüz eklenmemiş. Takvim ve plan içeriği tanımlı olmalı. Farklı sınıf/ders/yıl deneyin.'
@@ -2221,11 +2221,11 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                     <div className="flex items-center gap-2">
                       <Sparkles className="size-4 text-violet-600 dark:text-violet-400" />
                       <CardTitle className="text-base font-semibold tracking-tight text-violet-900 dark:text-violet-100">
-                        {me?.role === 'teacher' ? 'Arşiv' : 'BİLSEM plan arşivi'}
+                        {me?.role === 'teacher' ? 'Arşiv' : 'Bilsem plan arşivi'}
                       </CardTitle>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {me?.role === 'teacher' ? 'Daha önce indirdiğiniz dosyalar.' : 'BİLSEM Word kayıtları.'}
+                      {me?.role === 'teacher' ? 'Daha önce indirdiğiniz dosyalar.' : 'Bilsem Word kayıtları.'}
                     </p>
                   </CardHeader>
                   <CardContent className="p-3 sm:p-4">

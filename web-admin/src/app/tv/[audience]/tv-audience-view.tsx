@@ -5,7 +5,7 @@ import type { FormEvent, ReactNode } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { getApiUrl } from '@/lib/api';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { BookOpen, Megaphone, Rss, Users } from 'lucide-react';
+import { BookOpen, ChevronLeft, ChevronRight, Megaphone, Rss, Smartphone, Users, X } from 'lucide-react';
 
 type TvAudience = 'corridor' | 'teachers' | 'classroom';
 
@@ -1068,6 +1068,142 @@ export default function TvAudienceContent() {
     setActiveIndex((prev) => (prev + 1) % slidesLengthRef.current);
   }, []);
 
+  /** USB sunum kumandası / klavye: PageDown, oklar, Space — odak tarayıcıda ve TV sayfası açıkken. */
+  useEffect(() => {
+    if (slides.length === 0 || data?.urgent) return;
+    const n = slides.length;
+    const goNext = () => setActiveIndex((prev) => (prev + 1) % n);
+    const goPrev = () => setActiveIndex((prev) => (prev - 1 + n) % n);
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        goNext();
+        return;
+      }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
+        e.preventDefault();
+        goPrev();
+        return;
+      }
+      if (e.key === 'Home') {
+        e.preventDefault();
+        setActiveIndex(0);
+        return;
+      }
+      if (e.key === 'End') {
+        e.preventDefault();
+        setActiveIndex(n - 1);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [slides.length, data?.urgent]);
+
+  const [phoneRemoteOpen, setPhoneRemoteOpen] = useState(false);
+  const [phoneRemotePair, setPhoneRemotePair] = useState<{ sessionId: string; secret: string } | null>(null);
+  const [phoneRemoteBusy, setPhoneRemoteBusy] = useState(false);
+  const [phoneRemoteErr, setPhoneRemoteErr] = useState<string | null>(null);
+  const remotePollAfterRef = useRef('0');
+
+  useEffect(() => {
+    remotePollAfterRef.current = '0';
+  }, [phoneRemotePair?.sessionId]);
+
+  useEffect(() => {
+    if (!phoneRemoteOpen || phoneRemotePair || !usbToken || !schoolId || !deviceId || audience !== 'classroom' || !usbMode) return;
+    let cancel = false;
+    setPhoneRemoteBusy(true);
+    setPhoneRemoteErr(null);
+    void (async () => {
+      try {
+        const res = await fetch(getApiUrl('/tv/remote/session'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Tv-Classroom-Usb-Token': usbToken },
+          body: JSON.stringify({ school_id: schoolId, device_id: deviceId }),
+        });
+        const j = (await res.json().catch(() => ({}))) as {
+          sessionId?: string;
+          pairingSecret?: string;
+          message?: string | string[];
+        };
+        if (cancel) return;
+        if (!res.ok) {
+          const msg = Array.isArray(j.message) ? j.message[0] : j.message;
+          setPhoneRemoteErr(typeof msg === 'string' && msg.trim() ? msg : `HTTP ${res.status}`);
+          return;
+        }
+        if (j.sessionId && j.pairingSecret) setPhoneRemotePair({ sessionId: j.sessionId, secret: j.pairingSecret });
+        else setPhoneRemoteErr('Yanıt eksik (migration / API kontrolü).');
+      } finally {
+        if (!cancel) setPhoneRemoteBusy(false);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [phoneRemoteOpen, phoneRemotePair, usbToken, schoolId, deviceId, audience, usbMode]);
+
+  useEffect(() => {
+    if (
+      !usbToken ||
+      !schoolId ||
+      !deviceId ||
+      audience !== 'classroom' ||
+      !usbMode ||
+      !phoneRemotePair ||
+      slides.length === 0 ||
+      data?.urgent
+    )
+      return;
+    const id = setInterval(() => {
+      void (async () => {
+        try {
+          const url = getApiUrl(
+            `/tv/remote/session/${encodeURIComponent(phoneRemotePair.sessionId)}/poll?after=${encodeURIComponent(remotePollAfterRef.current)}&school_id=${encodeURIComponent(schoolId)}&device_id=${encodeURIComponent(deviceId)}`,
+          );
+          const res = await fetch(url, { headers: { 'X-Tv-Classroom-Usb-Token': usbToken } });
+          if (!res.ok) return;
+          const j = (await res.json()) as { commands?: { id: string; action: string }[]; expired?: boolean };
+          if (j.expired) {
+            setPhoneRemotePair(null);
+            return;
+          }
+          const cmds = j.commands ?? [];
+          if (cmds.length === 0) return;
+          setActiveIndex((prev) => {
+            let cur = prev;
+            const n = slidesLengthRef.current;
+            for (const c of cmds) {
+              remotePollAfterRef.current = c.id;
+              switch (c.action) {
+                case 'next':
+                  cur = (cur + 1) % n;
+                  break;
+                case 'prev':
+                  cur = (cur - 1 + n) % n;
+                  break;
+                case 'first':
+                  cur = 0;
+                  break;
+                case 'last':
+                  cur = Math.max(0, n - 1);
+                  break;
+                default:
+                  break;
+              }
+            }
+            return cur;
+          });
+        } catch {
+          /* ignore */
+        }
+      })();
+    }, 400);
+    return () => clearInterval(id);
+  }, [usbToken, schoolId, deviceId, audience, usbMode, phoneRemotePair, slides.length, data?.urgent]);
+
   const mealItems = useMemo(() => {
     const scheduleRaw = data?.school?.tv_meal_schedule?.trim();
     const announcementMeals = byCategory.meal ?? [];
@@ -1324,6 +1460,108 @@ export default function TvAudienceContent() {
             </span>
           </button>
         )}
+        {audience === 'classroom' && usbMode && usbToken && schoolId && deviceId && slides.length > 0 && !data?.urgent ? (
+          <>
+            <button
+              type="button"
+              className="fixed bottom-24 right-4 z-[140] flex items-center gap-2 rounded-2xl border-2 border-white/35 bg-violet-600/92 px-4 py-3 text-sm font-bold text-white shadow-xl backdrop-blur-sm transition hover:bg-violet-500 active:scale-[0.98] sm:bottom-28 sm:right-6"
+              onClick={() => setPhoneRemoteOpen(true)}
+            >
+              <Smartphone className="size-5 shrink-0" aria-hidden />
+              Telefon kumandası
+            </button>
+            {phoneRemoteOpen ? (
+              <div
+                className="fixed inset-0 z-[160] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Telefon sunum kumandası"
+              >
+                <div className="relative flex max-h-[min(92vh,40rem)] w-full max-w-md flex-col gap-4 overflow-y-auto rounded-3xl border border-white/15 bg-zinc-900 p-6 shadow-2xl">
+                  <button
+                    type="button"
+                    className="absolute right-3 top-3 flex size-10 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20"
+                    onClick={() => {
+                      setPhoneRemoteOpen(false);
+                      setPhoneRemoteErr(null);
+                    }}
+                    aria-label="Kapat"
+                  >
+                    <X className="size-5" />
+                  </button>
+                  <h2 className="pr-12 text-xl font-bold tracking-tight text-white">Telefon ile kumanda</h2>
+                  <p className="text-sm leading-relaxed text-zinc-400">
+                    Aşağıdaki QR veya linki telefonda açın. Bağlantıyı paylaşmayın; yalnızca bu sınıf TV oturumu için geçerlidir.
+                  </p>
+                  {phoneRemoteErr ? (
+                    <p className="rounded-xl border border-amber-500/35 bg-amber-950/40 px-3 py-3 text-sm text-amber-100/95">
+                      {phoneRemoteErr}
+                    </p>
+                  ) : null}
+                  {phoneRemoteBusy ? (
+                    <p className="py-6 text-center text-sm text-zinc-400">Oturum oluşturuluyor…</p>
+                  ) : phoneRemotePair && schoolId ? (
+                    <>
+                      {(() => {
+                        const href = `${typeof window !== 'undefined' ? window.location.origin : ''}/sunum-kumandasi?school_id=${encodeURIComponent(schoolId)}&s=${encodeURIComponent(phoneRemotePair.sessionId)}#p=${encodeURIComponent(phoneRemotePair.secret)}`;
+                        return (
+                          <>
+                            <div className="flex justify-center rounded-2xl bg-white p-3">
+                              <img
+                                src={`https://quickchart.io/qr?size=220x220&text=${encodeURIComponent(href)}`}
+                                alt=""
+                                className="size-[220px] max-w-full"
+                                width={220}
+                                height={220}
+                              />
+                            </div>
+                            <p className="wrap-break-word rounded-xl bg-black/40 p-3 font-mono text-[10px] leading-snug text-zinc-300">{href}</p>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                className="flex-1 rounded-xl bg-violet-600 px-4 py-3 text-sm font-bold text-white hover:bg-violet-500"
+                                onClick={() => void navigator.clipboard.writeText(href).catch(() => undefined)}
+                              >
+                                Linki kopyala
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-xl border border-white/20 px-4 py-3 text-sm font-semibold text-white hover:bg-white/10"
+                                onClick={() => {
+                                  remotePollAfterRef.current = '0';
+                                  setPhoneRemoteErr(null);
+                                  setPhoneRemotePair(null);
+                                }}
+                              >
+                                Yeni QR
+                              </button>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </>
+                  ) : !phoneRemoteErr ? (
+                    <p className="py-4 text-center text-sm text-amber-200/90">
+                      Oturum oluşturulamadı; ağı ve PIN oturumunu kontrol edin.
+                    </p>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="rounded-xl border border-red-400/40 py-3 text-sm font-semibold text-red-200 hover:bg-red-950/40"
+                    onClick={() => {
+                      remotePollAfterRef.current = '0';
+                      setPhoneRemotePair(null);
+                      setPhoneRemoteErr(null);
+                      setPhoneRemoteOpen(false);
+                    }}
+                  >
+                    Bağlantıyı kes ve kapat
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </>
+        ) : null}
         {/* Ana alan + Sidebar – overflow sadece main'de, sidebar tam görünsün */}
         <div className="flex min-h-0 min-w-0 flex-1">
           {cardPosition === 'left' && !announcementsOnlyLock && (
@@ -1420,6 +1658,26 @@ export default function TvAudienceContent() {
                   ))}
                 </>
               )}
+              {slides.length > 1 && (announcementsOnlyLock || audience === 'classroom') ? (
+                <div className="pointer-events-none absolute inset-x-0 bottom-18 z-30 flex justify-between gap-3 px-2 sm:bottom-21 sm:px-4">
+                  <button
+                    type="button"
+                    className="pointer-events-auto flex h-14 min-w-14 items-center justify-center rounded-2xl border-2 border-white/25 bg-black/55 px-4 text-sm font-bold text-white shadow-lg backdrop-blur-sm transition hover:bg-black/70 active:scale-95 sm:h-16 sm:min-w-16 sm:text-base"
+                    aria-label="Önceki slayt"
+                    onClick={() => setActiveIndex((prev) => (prev - 1 + slides.length) % slides.length)}
+                  >
+                    <ChevronLeft className="size-7 sm:size-8" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    className="pointer-events-auto flex h-14 min-w-14 items-center justify-center rounded-2xl border-2 border-white/25 bg-black/55 px-4 text-sm font-bold text-white shadow-lg backdrop-blur-sm transition hover:bg-black/70 active:scale-95 sm:h-16 sm:min-w-16 sm:text-base"
+                    aria-label="Sonraki slayt"
+                    onClick={() => setActiveIndex((prev) => (prev + 1) % slides.length)}
+                  >
+                    <ChevronRight className="size-7 sm:size-8" aria-hidden />
+                  </button>
+                </div>
+              ) : null}
             </div>
             {/* Gösterge + ilerleme – layout içinde, içeriği kesmez */}
             {slides.length > 0 && (

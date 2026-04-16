@@ -361,7 +361,7 @@ function AkademikTakvimPageInner() {
                   Halk eğitim
                 </option>
                 <option value="bilsem" className="bg-slate-800 text-white">
-                  BİLSEM
+                  Bilsem
                 </option>
               </select>
             )}

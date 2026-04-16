@@ -33,7 +33,7 @@ export class ListDocumentTemplatesDto {
   @IsString()
   academic_year?: string;
 
-  /** Örn. bilsem — BİLSEM yıllık plan şablonları */
+  /** Örn. bilsem — Bilsem yıllık plan şablonları */
   @IsOptional()
   @IsString()
   curriculum_model?: string;

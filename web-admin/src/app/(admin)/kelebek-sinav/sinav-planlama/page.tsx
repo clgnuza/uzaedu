@@ -200,14 +200,14 @@ export default function SinavTakvimPage() {
   if (loading) return <div className="flex justify-center py-16"><LoadingSpinner /></div>;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <h2 className="text-base font-semibold">Sınav Takvimi</h2>
+    <div className="min-w-0 space-y-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold sm:text-base">Sınav Takvimi</h2>
           <p className="text-xs text-muted-foreground">Sınav takviminizi oluşturun, yönetin ve gerçek sınavlara dönüştürün.</p>
         </div>
         {isAdmin && (
-          <Button size="sm" className="gap-1.5" onClick={() => setShowCreate(true)}>
+          <Button size="sm" className="w-full gap-1.5 sm:w-auto" onClick={() => setShowCreate(true)}>
             <Plus className="size-4" /> Yeni Plan
           </Button>
         )}
@@ -233,11 +233,12 @@ export default function SinavTakvimPage() {
             return (
               <div key={p.id}
                 className="rounded-2xl border border-white/60 bg-white/80 shadow-sm dark:border-indigo-900/40 dark:bg-zinc-900/60">
-                <div className="flex items-start gap-3 px-4 py-4">
+                <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-start sm:gap-3 sm:px-4 sm:py-4">
+                  <div className="flex min-w-0 flex-1 gap-3">
                   <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-indigo-100 dark:bg-indigo-950/50">
                     <ClipboardList className="size-4 text-indigo-600" />
                   </div>
-                  <div className="flex-1 min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="font-semibold">{p.title}</p>
                     {bullets.length > 0 && (
                       <ul className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
@@ -258,16 +259,17 @@ export default function SinavTakvimPage() {
                       </span>
                     </div>
                   </div>
+                  </div>
 
                   {/* Menu */}
                   {isAdmin && (
-                    <div className="relative shrink-0">
+                    <div className="relative flex w-full shrink-0 justify-end sm:ml-auto sm:w-auto">
                       <Button variant="ghost" size="icon" className="size-8"
                         onClick={() => setMenuOpenId(menuOpenId === p.id ? null : p.id)}>
                         <MoreVertical className="size-4" />
                       </Button>
                       {menuOpenId === p.id && (
-                        <div className="absolute right-0 top-9 z-50 min-w-[200px] rounded-xl border border-white/60 bg-white/95 py-1 shadow-lg dark:border-zinc-700/60 dark:bg-zinc-900/95">
+                        <div className="absolute left-0 right-0 top-9 z-50 min-w-0 rounded-xl border border-white/60 bg-white/95 py-1 shadow-lg dark:border-zinc-700/60 dark:bg-zinc-900/95 sm:left-auto sm:right-0 sm:min-w-[200px]">
                           <MenuBtn icon={<Edit2 className="size-3.5" />} label="Plan Düzenle" onClick={() => openEdit(p)} />
                           <MenuBtn icon={<BookOpen className="size-3.5" />} label="Sınav Takvimini Görüntüle"
                             href={`/kelebek-sinav/sinav-islemleri${schoolQ}`} onClick={() => setMenuOpenId(null)} />
@@ -289,9 +291,11 @@ export default function SinavTakvimPage() {
                     </div>
                   )}
                   {!isAdmin && (
-                    <Button asChild variant="ghost" size="icon" className="size-8">
-                      <Link href={`/kelebek-sinav/sinav-islemleri${schoolQ}`}><Eye className="size-4" /></Link>
-                    </Button>
+                    <div className="flex justify-end sm:contents">
+                      <Button asChild variant="ghost" size="icon" className="size-8">
+                        <Link href={`/kelebek-sinav/sinav-islemleri${schoolQ}`}><Eye className="size-4" /></Link>
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>

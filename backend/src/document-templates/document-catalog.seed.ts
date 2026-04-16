@@ -17,7 +17,7 @@ export interface CatalogSeedItem {
   sortOrder: number;
 }
 
-/** BİLSEM Ek-1 Program Uygulama Tablosu – Genel Zihinsel Yetenek alanına göre tanılanan öğrencilerin alabileceği alanlar */
+/** Bilsem Ek-1 Program Uygulama Tablosu – Genel Zihinsel Yetenek alanına göre tanılanan öğrencilerin alabileceği alanlar */
 export const BILSEM_SUBJECTS_SEED: (CatalogSeedItem & { anaGrup: string })[] = [
   { category: 'subject', code: 'bilsem_sinif_ogretmenligi', label: 'Sınıf Öğretmenliği', anaGrup: 'GENEL_YETENEK', sortOrder: 3001 },
   { category: 'subject', code: 'bilsem_fen_teknik', label: 'Fen ve Teknoloji', anaGrup: 'GENEL_YETENEK', sortOrder: 3002 },

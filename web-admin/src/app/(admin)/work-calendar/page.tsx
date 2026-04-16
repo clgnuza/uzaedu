@@ -324,7 +324,7 @@ export default function WorkCalendarPage(props?: { embedded?: boolean }) {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           {embedded ? (
-            <h2 className="text-lg font-semibold text-foreground">BİLSEM — MEB çalışma takvimi (referans)</h2>
+            <h2 className="text-lg font-semibold text-foreground">Bilsem — MEB çalışma takvimi (referans)</h2>
           ) : (
             <h1 className="text-2xl font-semibold text-foreground">Çalışma Takvimi</h1>
           )}

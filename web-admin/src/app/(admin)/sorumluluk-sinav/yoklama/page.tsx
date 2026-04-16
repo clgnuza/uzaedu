@@ -32,7 +32,7 @@ function getStatusOpt(status: string | null) {
 }
 
 const NO_GROUP = (
-  <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-indigo-300/60 bg-indigo-50/40 py-16 text-center dark:border-indigo-800/40 dark:bg-indigo-950/20">
+  <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-indigo-300/60 bg-indigo-50/40 px-3 py-10 text-center dark:border-indigo-800/40 dark:bg-indigo-950/20 sm:gap-3 sm:rounded-2xl sm:py-16">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="size-10 text-indigo-400" aria-hidden>
       <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
     </svg>
@@ -113,38 +113,38 @@ export default function YoklamaPage() {
   const backLink = `/sorumluluk-sinav/oturumlar${schoolQ ? schoolQ + '&' : '?'}group_id=${groupId}`;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
-      <Link href={backLink} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-slate-700 dark:hover:text-slate-200">
+    <div className="mx-auto max-w-2xl space-y-3 sm:space-y-4">
+      <Link href={backLink} className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-slate-700 dark:hover:text-slate-200 sm:text-xs">
         <ArrowLeft className="size-3.5" /> Oturumlara Dön
       </Link>
 
       {session && (
-        <div className="rounded-2xl border border-indigo-200/60 bg-linear-to-r from-indigo-50 to-violet-50/50 p-4 shadow-sm dark:border-indigo-900/40 dark:from-indigo-950/40 dark:to-violet-950/20">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <p className="font-bold text-base text-indigo-900 dark:text-indigo-100">{session.subjectName}</p>
-              <p className="text-sm text-indigo-700 dark:text-indigo-400">
-                {session.sessionDate} · {session.startTime}?{session.endTime}
+        <div className="rounded-xl border border-indigo-200/60 bg-linear-to-r from-indigo-50 to-violet-50/50 p-3 shadow-sm dark:border-indigo-900/40 dark:from-indigo-950/40 dark:to-violet-950/20 sm:rounded-2xl sm:p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-indigo-900 dark:text-indigo-100 sm:text-base">{session.subjectName}</p>
+              <p className="mt-0.5 break-words text-[11px] text-indigo-700 dark:text-indigo-400 sm:text-sm">
+                {session.sessionDate} · {session.startTime}–{session.endTime}
                 {session.roomName ? ` · ${session.roomName}` : ''}
               </p>
             </div>
-            <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={downloadPdf}>
+            <Button size="sm" variant="outline" className="h-9 w-full shrink-0 gap-1.5 text-xs sm:h-8 sm:w-auto" onClick={downloadPdf}>
               <FileDown className="size-4" /> PDF
             </Button>
           </div>
         </div>
       )}
 
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 sm:gap-2">
         {[
           { label: 'Kat?ld?',   value: presentCount, color: 'text-green-600 dark:text-green-400' },
           { label: 'Gelmedi',   value: absentCount,  color: 'text-red-600 dark:text-red-400' },
           { label: 'Mazeretli', value: excusedCount,  color: 'text-amber-600 dark:text-amber-400' },
           { label: 'Belirsiz',  value: unknownCount,  color: 'text-slate-400' },
         ].map((s) => (
-          <div key={s.label} className="rounded-2xl border border-white/50 bg-white/80 p-3 text-center shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60">
-            <p className={cn('text-2xl font-bold', s.color)}>{s.value}</p>
-            <p className="text-[10px] text-muted-foreground leading-tight">{s.label}</p>
+          <div key={s.label} className="rounded-xl border border-white/50 bg-white/80 p-2 text-center shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 sm:rounded-2xl sm:p-3">
+            <p className={cn('text-lg font-bold tabular-nums sm:text-2xl', s.color)}>{s.value}</p>
+            <p className="text-[9px] leading-tight text-muted-foreground sm:text-[10px]">{s.label}</p>
           </div>
         ))}
       </div>
@@ -162,9 +162,9 @@ export default function YoklamaPage() {
       )}
 
       {rows.length === 0 && (
-        <div className="rounded-2xl border bg-white/60 p-10 text-center text-muted-foreground dark:bg-zinc-900/40">
-          <Users className="mx-auto mb-2 size-8 opacity-30" />
-          <p className="text-sm">Bu oturuma atanm?? ö?renci yok.</p>
+        <div className="rounded-xl border bg-white/60 p-6 text-center text-muted-foreground dark:bg-zinc-900/40 sm:rounded-2xl sm:p-10">
+          <Users className="mx-auto mb-2 size-7 opacity-30 sm:size-8" />
+          <p className="text-xs sm:text-sm">Bu oturuma atanm?? ö?renci yok.</p>
         </div>
       )}
 
@@ -174,20 +174,22 @@ export default function YoklamaPage() {
           const StatusIcon = statusOpt.icon;
           const busy       = updating === r.studentId;
           return (
-            <div key={r.id} className={cn('rounded-xl border bg-white/80 p-3 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60', busy && 'opacity-60')}>
-              <div className="flex items-center gap-3">
-                <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">{idx + 1}</span>
+            <div key={r.id} className={cn('rounded-lg border bg-white/80 p-2.5 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 sm:rounded-xl sm:p-3', busy && 'opacity-60')}>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+                <span className="w-5 shrink-0 text-center text-[10px] text-muted-foreground sm:w-6 sm:text-xs">{idx + 1}</span>
                 <div className={cn('rounded-full border p-1.5 shrink-0', statusOpt.bg)}>
                   {busy ? <LoadingSpinner className="size-3.5" /> : <StatusIcon className={cn('size-3.5', statusOpt.color)} />}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm leading-tight">{r.student?.studentName ?? '?'}</p>
-                  <div className="flex gap-2 mt-0.5 text-[10px] text-muted-foreground">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold leading-tight sm:text-sm">{r.student?.studentName ?? '?'}</p>
+                  <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] text-muted-foreground sm:text-[10px]">
                     {r.student?.studentNumber && <span>No: {r.student.studentNumber}</span>}
                     {r.student?.className && <span>{r.student.className}</span>}
                   </div>
                 </div>
-                <div className="flex gap-1 shrink-0">
+                </div>
+                <div className="flex shrink-0 justify-end gap-1 sm:justify-start">
                   {STATUS_OPTIONS.slice(0, 3).map((opt) => {
                     const Icon   = opt.icon;
                     const active = r.attendanceStatus === opt.value;

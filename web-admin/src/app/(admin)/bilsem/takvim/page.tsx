@@ -165,7 +165,7 @@ export default function BilsemTakvimPage() {
         </div>
         <div className="min-w-0 flex-1 basis-[min(100%,12rem)]">
           <h1 className="text-xs font-bold leading-tight text-foreground sm:text-base">
-            BİLSEM takvim
+            Bilsem takvim
             {isSchoolAdmin && me?.school?.name && (
               <span className="font-normal text-muted-foreground sm:ml-1"> — {me.school.name}</span>
             )}
@@ -230,7 +230,7 @@ export default function BilsemTakvimPage() {
         <EmptyState
           icon={<Calendar className="size-10 text-muted-foreground" />}
           title="Henüz içerik yok"
-          description={`${academicYear} için BİLSEM takvimi henüz yüklenmemiş. Farklı yıl seçin veya okul yöneticisi ile iletişin.`}
+          description={`${academicYear} için Bilsem takvimi henüz yüklenmemiş. Farklı yıl seçin veya okul yöneticisi ile iletişin.`}
         />
       )}
       {!loading && !error && weeks.length > 0 && (

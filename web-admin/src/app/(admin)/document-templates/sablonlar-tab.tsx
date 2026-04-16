@@ -393,11 +393,11 @@ export function SablonlarTab({ fixedCurriculumModel, excludeCurriculumModel }: S
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">
-            {fixedCurriculumModel === 'bilsem' ? 'BİLSEM Word şablonları' : 'Evrak Şablonları'}
+            {fixedCurriculumModel === 'bilsem' ? 'Bilsem Word şablonları' : 'Evrak Şablonları'}
           </h1>
           <p className="text-sm text-muted-foreground">
             {fixedCurriculumModel === 'bilsem'
-              ? 'curriculum_model = bilsem ile okul yöneticisinin yüklediği BİLSEM yıllık plan Word şablonları.'
+              ? 'curriculum_model = bilsem ile okul yöneticisinin yüklediği Bilsem yıllık plan Word şablonları.'
               : 'Yıllık plan, günlük plan, zümre vb. evrak şablonlarını yönetin.'}
           </p>
         </div>
@@ -627,7 +627,7 @@ export function SablonlarTab({ fixedCurriculumModel, excludeCurriculumModel }: S
                 (fixedCurriculumModel === 'bilsem' || form.grade || form.section) && (
                 <p className="mt-1 text-xs text-muted-foreground">
                   {fixedCurriculumModel === 'bilsem'
-                    ? 'BİLSEM ders kataloğu boş; önce BİLSEM Ayarlar’dan Ek-1 derslerini yükleyin veya elle girin.'
+                    ? 'Bilsem ders kataloğu boş; önce Bilsem Ayarlar’dan Ek-1 derslerini yükleyin veya elle girin.'
                     : 'Bu sınıf/bölüm için katalogda ders yok; elle girebilirsiniz.'}
                 </p>
               )}

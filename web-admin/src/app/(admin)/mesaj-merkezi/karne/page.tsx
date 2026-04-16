@@ -2,6 +2,7 @@
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { msgQ } from '@/lib/messaging-api';
+import { TPL_KARNE } from '@/lib/messaging-default-templates';
 import PdfSplitFlow from '../components/PdfSplitFlow';
 
 export default function KarnePage() {
@@ -14,7 +15,7 @@ export default function KarnePage() {
       icon="🎓"
       title="Karne Dağıtımı"
       description="E-Okul'dan alınan karne PDF'ini yükleyin. Her öğrencinin karnesi otomatik ayrıştırılır ve velisine WhatsApp üzerinden gönderilir. Her veliye yalnızca kendi öğrencisinin bilgileri iletilir."
-      defaultTemplate={`📣 Sayın {AD},\n\n- Öğr. Adı Soyadı: {OGRENCI}\n- Sınıfı: {SINIF}\n\n- Açıklama: Öğrencimize ait karnesi ekte sunulmuştur. İyi tatiller dileriz.\n\n📚 {OKUL}`}
+      defaultTemplate={TPL_KARNE}
       token={token}
       q={q}
     />

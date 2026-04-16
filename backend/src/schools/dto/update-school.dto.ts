@@ -96,8 +96,8 @@ export class UpdateSchoolDto {
   teacher_limit?: number;
 
   @IsOptional()
-  @IsBoolean()
-  merge_teacher_on_name_match?: boolean;
+  @IsIn(['none', 'automatic', 'manual'])
+  teacher_name_merge_mode?: 'none' | 'automatic' | 'manual';
 
   @IsOptional()
   @IsString()

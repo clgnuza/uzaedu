@@ -453,7 +453,7 @@ function SchoolAdminProfileCard({ me, className, compactMobile }: ProfileSidebar
   return (
     <aside
       className={cn(
-        'overflow-hidden rounded-xl border border-sky-200/40 bg-card shadow-lg ring-1 ring-sky-500/15 dark:border-sky-900/40 dark:ring-sky-500/10 sm:rounded-2xl sm:shadow-xl',
+        'overflow-hidden rounded-lg border border-sky-200/40 bg-card shadow-md ring-1 ring-sky-500/15 dark:border-sky-900/40 dark:ring-sky-500/10 sm:rounded-2xl sm:shadow-xl',
         'lg:sticky lg:top-4 lg:self-start',
         className,
       )}

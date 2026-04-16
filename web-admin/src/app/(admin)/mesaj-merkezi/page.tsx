@@ -4,10 +4,11 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { Campaign, TYPE_LABELS, STATUS_COLORS, STATUS_LABELS, loadCampaigns, deleteCampaign, msgQ } from '@/lib/messaging-api';
+import TeacherWaQuickSend from './components/TeacherWaQuickSend';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { Trash2, Send, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { Trash2, Send, Clock, CheckCircle2, XCircle, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 
@@ -32,6 +33,7 @@ export default function MesajMerkeziPage() {
   const { me, token } = useAuth();
   const q      = msgQ(me?.role, searchParams.get('school_id'));
   const isAdmin = me?.role !== 'teacher';
+  const isTeacher = me?.role === 'teacher';
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading]     = useState(true);
@@ -58,19 +60,40 @@ export default function MesajMerkeziPage() {
 
   return (
     <div className="space-y-5">
+      {isTeacher ? (
+        <Link
+          href={`/mesaj-merkezi/ogretmen-ayarlar${q}`}
+          className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-200/80 bg-emerald-50/70 px-4 py-3 text-sm shadow-sm transition hover:bg-emerald-100/80 dark:border-emerald-900/40 dark:bg-emerald-950/25 dark:hover:bg-emerald-950/40"
+        >
+          <span>
+            <span className="font-semibold text-emerald-900 dark:text-emerald-100 block">Ayarlarım — gönderim tercihleri</span>
+            <span className="mt-0.5 block text-[11px] font-normal text-emerald-800/85 dark:text-emerald-200/80">
+              İmza, wa.me nasıl açılsın; yalnızca sizin hesabınıza kaydedilir.
+            </span>
+          </span>
+          <Settings className="size-5 shrink-0 text-emerald-700 dark:text-emerald-300" />
+        </Link>
+      ) : null}
+
+      {isTeacher ? (
+        <TeacherWaQuickSend token={token} q={q} onCampaignCreated={load} />
+      ) : null}
+
       {/* Hızlı erişim */}
-      <div>
-        <p className="mb-2 text-sm font-semibold text-muted-foreground">Yeni Kampanya</p>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {QUICK_LINKS.filter((l) => !l.adminOnly || isAdmin).map((l) => (
-            <Link key={l.href} href={`${l.href}${q}`}
-              className={`rounded-2xl bg-gradient-to-br ${l.color} p-3 text-white shadow hover:opacity-90 transition-opacity`}>
-              <p className="font-bold text-sm leading-tight">{l.label}</p>
-              <p className="text-xs opacity-85 mt-0.5">{l.desc}</p>
-            </Link>
-          ))}
+      {!isTeacher ? (
+        <div>
+          <p className="mb-2 text-sm font-semibold text-muted-foreground">Yeni Kampanya</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {QUICK_LINKS.filter((l) => !l.adminOnly || isAdmin).map((l) => (
+              <Link key={l.href} href={`${l.href}${q}`}
+                className={`rounded-2xl bg-gradient-to-br ${l.color} p-3 text-white shadow hover:opacity-90 transition-opacity`}>
+                <p className="font-bold text-sm leading-tight">{l.label}</p>
+                <p className="text-xs opacity-85 mt-0.5">{l.desc}</p>
+              </Link>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {/* İstatistik */}
       <div className="grid grid-cols-3 gap-3">

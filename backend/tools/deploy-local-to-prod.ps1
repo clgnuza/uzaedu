@@ -43,8 +43,32 @@ $sshTarget = "${user}@${hostAddr}"
 Write-Host "SCP -> ${sshTarget}:${remoteSql}"
 & scp -i $key -o BatchMode=yes -o StrictHostKeyChecking=accept-new $OutFile "${sshTarget}:${remoteSql}"
 
-$remoteCmd = "cd $remoteRoot && set -a && . backend/.env && set +a && cat $remoteSql | docker exec -i ogretmenpro-db psql -v ON_ERROR_STOP=1 -U `$DB_USERNAME -d `$DB_DATABASE && rm -f $remoteSql && pm2 restart uzaedu-api --update-env && pm2 save"
+# BOM / CRLF güvenli: .env kaynaklamak yerine utf-8-sig ile oku
+$importPy = @"
+import shlex, subprocess
+_SQL = r'$remoteSql'
+_ROOT = r'$remoteRoot'
+env = {}
+with open(_ROOT + '/backend/.env', 'r', encoding='utf-8-sig') as f:
+    for raw in f:
+        line = raw.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        k, v = line.split('=', 1)
+        env[k.strip()] = v.strip()
+user = env.get('DB_USERNAME')
+db = env.get('DB_DATABASE')
+if not user or not db:
+    raise SystemExit('DB_USERNAME/DB_DATABASE missing in ' + _ROOT + '/backend/.env')
+cmd = 'cat ' + shlex.quote(_SQL) + ' | docker exec -i ogretmenpro-db psql -v ON_ERROR_STOP=1 -U ' + shlex.quote(user) + ' -d ' + shlex.quote(db)
+subprocess.check_call(cmd, shell=True)
+subprocess.check_call('rm -f ' + shlex.quote(_SQL), shell=True)
+subprocess.check_call('pm2 restart uzaedu-api --update-env', shell=True)
+subprocess.check_call('pm2 save', shell=True)
+print('IMPORT_OK')
+"@
+$b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($importPy))
 
 Write-Host "Import + pm2 restart..."
-& ssh -i $key -o BatchMode=yes $sshTarget $remoteCmd
+& ssh -i $key -o BatchMode=yes $sshTarget "echo $b64 | base64 -d | python3"
 Write-Host "Tamam."

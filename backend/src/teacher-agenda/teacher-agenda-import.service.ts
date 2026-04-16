@@ -272,6 +272,8 @@ export class TeacherAgendaImportService {
       if (!row.id) continue;
       const sch = String(row.schoolId ?? userSchoolId ?? '');
       if (!sch) continue;
+      const catRaw = (row as { criterionCategory?: string; criterion_category?: string }).criterionCategory ?? (row as { criterion_category?: string }).criterion_category;
+      const criterionCategory = catRaw === 'behavior' ? 'behavior' : 'lesson';
       const c = m.getRepository(TeacherEvaluationCriterion).create({
         id: String(row.id),
         teacherId: userId,
@@ -281,6 +283,7 @@ export class TeacherAgendaImportService {
         maxScore: Number(row.maxScore ?? 5),
         scoreType: (row.scoreType as 'numeric' | 'sign') ?? 'numeric',
         subjectId: (row.subjectId as string | null) ?? null,
+        criterionCategory,
         sortOrder: Number(row.sortOrder ?? row.sort_order ?? 0),
         createdAt: parseDate(row.createdAt) ?? now,
       });

@@ -168,7 +168,7 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
       {sa && (sa.schools_lise_unspecified_count ?? 0) > 0 && (
         <Alert variant="warning" className="border-amber-500/35 bg-amber-500/[0.07]">
           <strong className="font-semibold text-foreground">{sa.schools_lise_unspecified_count ?? 0} okul</strong> yalnızca genel
-          &quot;Lise&quot; türünde kayıtlı. Meslek lisesi, İHL veya BİLSEM ise{' '}
+          &quot;Lise&quot; türünde kayıtlı. Meslek lisesi, İHL veya Bilsem ise{' '}
           <Link href="/schools" className="font-medium text-primary hover:underline">
             okul listesinden
           </Link>{' '}
@@ -227,7 +227,7 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
           { href: '/modules', label: 'Modüller', sub: 'Okul politikaları', icon: Puzzle, accent: 'violet' },
           { href: '/announcements', label: 'Duyurular', sub: 'İçerik yönetimi', icon: Megaphone, accent: 'rose' },
           { href: '/hesaplamalar', label: 'Hesaplamalar', sub: 'Ek ders ve sınav ücreti', icon: Calculator, accent: 'sky' },
-          { href: '/bilsem-sablon', label: 'BİLSEM altyapı', sub: 'Takvim & kazanım', icon: FileText, accent: 'emerald' },
+          { href: '/bilsem-sablon', label: 'Bilsem altyapı', sub: 'Takvim & kazanım', icon: FileText, accent: 'emerald' },
           { href: '/support/platform', label: 'Destek', sub: 'Platform talepleri', icon: Building2, accent: 'amber' },
           { href: '/profile', label: 'Profil', sub: 'Hesap & özet', icon: LayoutDashboard, accent: 'slate' },
         ].map((item) => (

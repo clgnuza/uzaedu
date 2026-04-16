@@ -67,7 +67,7 @@ export function BilsemYillikPlanHeroCard({ onOpenGuide, role, className }: Bilse
         <div className="min-w-0 flex-1 space-y-1 text-center sm:space-y-2 sm:text-left">
           <div className="flex flex-col items-center gap-0.5 sm:items-start sm:gap-1">
             <span className="inline-flex items-center rounded-full bg-violet-600/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-800 ring-1 ring-violet-500/20 dark:bg-violet-500/20 dark:text-violet-100 sm:px-2.5 sm:text-[10px]">
-              BİLSEM · Word yıllık plan
+              Bilsem · Word yıllık plan
             </span>
             <h2 className="text-sm font-semibold leading-tight text-foreground sm:text-lg">Hızlı akış</h2>
           </div>

@@ -83,7 +83,7 @@ export default function KelebekSinavOverviewPage() {
   }, [load]);
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       {needSchool ? (
         <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:border-amber-500/35 dark:bg-amber-950/40 dark:text-amber-100">
           Süper yönetici olarak okul verisini görmek için URL&apos;ye{' '}
@@ -99,7 +99,7 @@ export default function KelebekSinavOverviewPage() {
           <LoadingSpinner />
         </div>
       ) : stats ? (
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           <Card className="border-indigo-200/40 bg-white/80 dark:bg-zinc-900/50">
             <CardHeader className="pb-1">
               <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -139,24 +139,22 @@ export default function KelebekSinavOverviewPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Card className="border-indigo-300/40 bg-gradient-to-br from-indigo-500/15 to-violet-600/10 dark:border-indigo-800/50">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base text-indigo-950 dark:text-indigo-50">
-              <Sparkles className="size-5 text-amber-500" />
-              Hızlı başlangıç
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-wrap gap-2 text-sm text-muted-foreground">
-            <Button asChild size="sm" variant="secondary">
-              <Link href={`/kelebek-sinav/sinav-olustur${schoolQ}`}>Yeni sınav sihirbazı</Link>
-            </Button>
-            <Button asChild size="sm" variant="outline">
-              <Link href={`/kelebek-sinav/sinav-islemleri${schoolQ}`}>Oturum listesi</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="border-indigo-300/40 bg-gradient-to-br from-indigo-500/15 to-violet-600/10 dark:border-indigo-800/50">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-sm text-indigo-950 sm:text-base dark:text-indigo-50">
+            <Sparkles className="size-4 shrink-0 text-amber-500 sm:size-5" />
+            Hızlı başlangıç
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:flex-wrap">
+          <Button asChild size="sm" variant="secondary" className="w-full sm:w-auto">
+            <Link href={`/kelebek-sinav/sinav-olustur${schoolQ}`}>Yeni sınav sihirbazı</Link>
+          </Button>
+          <Button asChild size="sm" variant="outline" className="w-full sm:w-auto">
+            <Link href={`/kelebek-sinav/sinav-islemleri${schoolQ}`}>Oturum listesi</Link>
+          </Button>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {STEPS.filter((s) => !s.adminOnly || canSalon).map((step) => {
@@ -170,15 +168,15 @@ export default function KelebekSinavOverviewPage() {
               )}
             >
               <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <span className="flex size-9 items-center justify-center rounded-xl bg-white/70 dark:bg-zinc-900/60">
-                    <Icon className="size-5 text-indigo-600 dark:text-indigo-300" />
+                <CardTitle className="flex items-start gap-2 text-sm sm:items-center sm:text-base">
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-white/70 sm:size-9 dark:bg-zinc-900/60">
+                    <Icon className="size-4 text-indigo-600 sm:size-5 dark:text-indigo-300" />
                   </span>
-                  {step.title}
+                  <span className="min-w-0 break-words leading-snug">{step.title}</span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm text-muted-foreground">
-                <p>{step.desc}</p>
+                <p className="text-[13px] leading-relaxed sm:text-sm">{step.desc}</p>
                 <Button asChild size="sm" className="w-full sm:w-auto">
                   <Link href={`${step.href}${schoolQ}`}>{step.cta}</Link>
                 </Button>

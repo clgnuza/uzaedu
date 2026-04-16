@@ -41,45 +41,64 @@ function maskTc(tc?: string): string {
   return tc.slice(0, 3) + '*'.repeat(tc.length - 6) + tc.slice(-3);
 }
 
-/** Örnek mesaj önizleme */
+/** Örnek mesaj önizleme (backend bordro parser ile aynı yapı) */
 function buildPreview(type: BordroType, okulAdi: string, iletisimNotu: string, donem: string): string {
-  const footer = `${iletisimNotu}\nİyi Çalışmalar...\n${okulAdi || 'OgretmenPro'}`;
+  const okul = okulAdi || 'OgretmenPro';
+  const mebbisDefault = `Ek ders kontrol amaçlı puantaj ekte sunulmuştur. Hata olması durumunda${okulAdi ? ' ' + okulAdi + ' yönetimi' : ' okul yönetimi'} ile iletişime geçiniz.`;
+  const ekDefault = `Ek ders bordro detayları ekte sunulmuştur. Hata olması durumunda${okulAdi ? ' ' + okulAdi + ' yönetimi' : ' okul yönetimi'} ile iletişime geçiniz.`;
+  const maasDefault = `Maaş bordro detayları ekte sunulmuştur. Hata olması durumunda${okulAdi ? ' ' + okulAdi + ' yönetimi' : ' okul yönetimi'} ile iletişime geçiniz.`;
 
   if (type === 'mebbis_puantaj') {
+    const note = iletisimNotu.trim() || mebbisDefault;
     return [
-      '👤 Sayın Ahmet Yılmaz,',
+      '📋 MEBBİS Puantaj',
       '',
-      '- T.C. Kimlik No: 123***901',
+      'Sayın Adı SOYADI,',
+      '',
+      '• T.C. Kimlik No: 123***901',
+      '• Branş: Örnek Branş',
       `- Dönem: ${donem || 'Kasım 2025'}`,
-      '- Toplam Saat: 126 saat',
+      '• Toplam saat: 126 saat',
       '',
-      `Ek ders kontrol amaçlı puantaj ekte sunulmuştur. Hata olması durumunda${okulAdi ? ' ' + okulAdi + ' yönetimi' : ' okul yönetimi'} ile iletişime geçiniz.`,
-      footer,
+      note,
+      '────────',
+      'İyi çalışmalar.',
+      okul,
     ].join('\n');
   }
   if (type === 'ek_ders_bordro') {
+    const note = iletisimNotu.trim() || ekDefault;
     return [
-      '👤 Sayın Ahmet Yılmaz,',
+      '📋 Ek ders bordrosu',
       '',
-      '- T.C. Kimlik No: 123***901',
-      '- Bordro Türü: Ek Ders',
+      'Sayın Adı SOYADI,',
+      '',
+      '• T.C. Kimlik No: 123***901',
+      '• Bordro türü: Ek ders',
       `- Dönem: ${donem || 'Eylül 2025'}`,
-      '- Net Ödenecek Tutar: 25.261,48 ₺',
+      '• Net ödenecek tutar: 25.261,48 ₺',
       '',
-      `Ek ders bordro detayları ekte sunulmuştur. Hata olması durumunda${okulAdi ? ' ' + okulAdi + ' yönetimi' : ' okul yönetimi'} ile iletişime geçiniz.`,
-      footer,
+      note,
+      '────────',
+      'İyi çalışmalar.',
+      okul,
     ].join('\n');
   }
+  const note = iletisimNotu.trim() || maasDefault;
   return [
-    '👤 Sayın Ahmet Yılmaz,',
+    '📋 Maaş bordrosu',
     '',
-    '- T.C. Kimlik No: 123***901',
-    '- Bordro Türü: Maaş',
+    'Sayın Adı SOYADI,',
+    '',
+    '• T.C. Kimlik No: 123***901',
+    '• Bordro türü: Maaş',
     `- Dönem: ${donem || 'Eylül 2025'}`,
-    '- Net Ödenecek Tutar: 42.752,13 ₺',
+    '• Net ödenecek tutar: 42.752,13 ₺',
     '',
-    `Maaş bordro detayları ekte sunulmuştur. Hata olması durumunda${okulAdi ? ' ' + okulAdi + ' yönetimi' : ' okul yönetimi'} ile iletişime geçiniz.`,
-    footer,
+    note,
+    '────────',
+    'İyi çalışmalar.',
+    okul,
   ].join('\n');
 }
 

@@ -20,6 +20,7 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { EditProfileForm, ChangePasswordForm } from '@/components/account/profile-account-forms';
+import { LoginOtpPreference } from '@/components/account/login-otp-preference';
 import { DeleteAccountButton } from '@/components/account/data-privacy-actions';
 import { BackupExportPanel } from '@/components/account/backup-export-panel';
 import { cn } from '@/lib/utils';
@@ -143,13 +144,13 @@ export function SchoolAdminAccountTabs() {
   if (!me || me.role !== 'school_admin') return null;
 
   return (
-    <div className="space-y-2 sm:space-y-4 md:space-y-5">
+    <div className="space-y-1.5 sm:space-y-4 md:space-y-5">
       <div
-        className="rounded-lg border border-border/50 bg-linear-to-r from-sky-500/10 via-violet-500/8 to-amber-500/10 p-0.5 shadow-sm ring-1 ring-black/6 dark:border-zinc-700/80 dark:from-zinc-900/90 dark:via-zinc-900/70 dark:to-zinc-900/90 dark:ring-white/10 sm:rounded-xl sm:p-1 sm:shadow-md"
+        className="rounded-md border border-border/50 bg-linear-to-r from-sky-500/10 via-violet-500/8 to-amber-500/10 p-0.5 shadow-sm ring-1 ring-black/6 dark:border-zinc-700/80 dark:from-zinc-900/90 dark:via-zinc-900/70 dark:to-zinc-900/90 dark:ring-white/10 sm:rounded-xl sm:p-1 sm:shadow-md"
         role="tablist"
         aria-label="Okul yöneticisi profil bölümleri"
       >
-        <div className="grid grid-cols-3 gap-0.5 sm:gap-1.5">
+        <div className="grid grid-cols-3 gap-0 max-sm:gap-px sm:gap-1.5">
           {TABS.map((t) => {
             const Icon = t.icon;
             const isActive = tab === t.id;
@@ -163,16 +164,16 @@ export function SchoolAdminAccountTabs() {
                 aria-label={`${t.label}. ${t.hint}`}
                 onClick={() => goTab(t.id)}
                 className={cn(
-                  'flex min-h-9 flex-col items-center justify-center gap-0 rounded-md px-1 py-1 text-center transition-[color,box-shadow,background-color,border-color] duration-200 sm:min-h-12 sm:gap-0.5 sm:rounded-xl sm:px-2 sm:py-2.5',
+                  'flex min-h-8 flex-col items-center justify-center gap-0 rounded-sm px-0.5 py-0.5 text-center transition-[color,box-shadow,background-color,border-color] duration-200 sm:min-h-12 sm:gap-0.5 sm:rounded-xl sm:px-2 sm:py-2.5',
                   isActive ? st.active : st.idle,
                 )}
               >
                 <span className="flex max-w-full items-center justify-center gap-0.5 sm:gap-2">
                   <Icon
-                    className={cn('size-3.5 shrink-0 sm:size-4', isActive ? st.iconActive : st.iconIdle)}
+                    className={cn('size-3 shrink-0 sm:size-4', isActive ? st.iconActive : st.iconIdle)}
                     aria-hidden
                   />
-                  <span className="truncate text-[10px] font-bold tracking-tight sm:text-sm">{t.label}</span>
+                  <span className="truncate text-[9px] font-bold tracking-tight sm:text-sm">{t.label}</span>
                 </span>
                 <span
                   className={cn(
@@ -189,67 +190,74 @@ export function SchoolAdminAccountTabs() {
       </div>
 
       {tab === 'hesap' && (
-        <div className="space-y-2 sm:space-y-3 md:space-y-4">
-          <Card className="overflow-hidden rounded-lg border border-sky-500/20 bg-linear-to-br from-card via-card to-sky-500/6 shadow-sm ring-1 ring-sky-500/10 backdrop-blur-sm dark:border-sky-500/20 dark:from-card dark:via-card dark:to-sky-950/25 sm:rounded-xl sm:border-2 sm:shadow-md">
-            <CardHeader className="border-b border-sky-200/30 bg-linear-to-r from-sky-500/12 via-sky-500/5 to-transparent px-2 py-2 dark:border-sky-900/40 dark:from-sky-950/50 dark:via-sky-950/25 sm:px-5 sm:py-3 md:px-6 md:py-4">
+        <div className="space-y-1.5 sm:space-y-3 md:space-y-4">
+          <Card className="overflow-hidden rounded-md border border-sky-500/20 bg-linear-to-br from-card via-card to-sky-500/6 shadow-sm ring-1 ring-sky-500/10 backdrop-blur-sm dark:border-sky-500/20 dark:from-card dark:via-card dark:to-sky-950/25 sm:rounded-xl sm:border-2 sm:shadow-md">
+            <CardHeader className="border-b border-sky-200/30 bg-linear-to-r from-sky-500/12 via-sky-500/5 to-transparent px-2 py-1.5 dark:border-sky-900/40 dark:from-sky-950/50 dark:via-sky-950/25 sm:px-5 sm:py-3 md:px-6 md:py-4">
               <div className="flex items-center gap-1.5 sm:gap-2">
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/20 text-[10px] font-bold text-sky-800 dark:text-sky-200 sm:size-8 sm:text-xs">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-sky-500/20 text-[9px] font-bold text-sky-800 dark:text-sky-200 sm:size-8 sm:rounded-lg sm:text-xs">
                   1
                 </span>
                 <div className="min-w-0">
-                  <CardTitle className="text-sm sm:text-lg">Profil</CardTitle>
-                  <CardDescription className="text-[10px] leading-snug sm:text-sm">Pano ve bildirimlerde görünen ad.</CardDescription>
+                  <CardTitle className="text-xs sm:text-lg">Profil</CardTitle>
+                  <CardDescription className="text-[9px] leading-snug sm:text-sm">Pano ve bildirimlerde görünen ad.</CardDescription>
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="p-2.5 sm:p-5 md:p-6">
+            <CardContent className="p-2 sm:p-5 md:p-6">
               <EditProfileForm
                 token={token}
                 displayName={me.display_name ?? ''}
                 avatarKey={me.avatar_key ?? null}
+                avatarUrl={me.avatar_url ?? null}
                 onSuccess={refetchMe}
+                compact
               />
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden rounded-lg border border-amber-500/25 bg-linear-to-br from-card via-card to-amber-500/5 shadow-sm ring-1 ring-amber-500/10 backdrop-blur-sm dark:border-amber-500/15 dark:to-amber-950/20 sm:rounded-xl sm:border-2 sm:shadow-md">
-            <CardHeader className="border-b border-amber-200/35 bg-linear-to-r from-amber-500/12 via-amber-500/5 to-transparent px-2 py-2 dark:border-amber-900/40 dark:from-amber-950/45 dark:via-amber-950/20 sm:px-5 sm:py-3 md:px-6 md:py-4">
+          <Card className="overflow-hidden rounded-md border border-amber-500/25 bg-linear-to-br from-card via-card to-amber-500/5 shadow-sm ring-1 ring-amber-500/10 backdrop-blur-sm dark:border-amber-500/15 dark:to-amber-950/20 sm:rounded-xl sm:border-2 sm:shadow-md">
+            <CardHeader className="border-b border-amber-200/35 bg-linear-to-r from-amber-500/12 via-amber-500/5 to-transparent px-2 py-1.5 dark:border-amber-900/40 dark:from-amber-950/45 dark:via-amber-950/20 sm:px-5 sm:py-3 md:px-6 md:py-4">
               <div className="flex items-center gap-1.5 sm:gap-2">
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/20 text-[10px] font-bold text-amber-900 dark:text-amber-300 sm:size-8 sm:text-xs">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-amber-500/20 text-[9px] font-bold text-amber-900 dark:text-amber-300 sm:size-8 sm:rounded-lg sm:text-xs">
                   2
                 </span>
                 <div className="min-w-0">
-                  <CardTitle className="flex flex-wrap items-center gap-1 text-sm sm:gap-2 sm:text-lg">
-                    <KeyRound className="size-3.5 shrink-0 text-amber-700 dark:text-amber-400 sm:size-4" aria-hidden />
+                  <CardTitle className="flex flex-wrap items-center gap-1 text-xs sm:gap-2 sm:text-lg">
+                    <KeyRound className="size-3 shrink-0 text-amber-700 dark:text-amber-400 sm:size-4" aria-hidden />
                     <span>Güvenlik — şifre</span>
                   </CardTitle>
-                  <CardDescription className="text-[10px] leading-snug sm:text-sm">Güçlü şifre, kimseyle paylaşmayın.</CardDescription>
+                  <CardDescription className="text-[9px] leading-snug sm:text-sm">Güçlü şifre, kimseyle paylaşmayın.</CardDescription>
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="p-2.5 sm:p-5 md:p-6">
+            <CardContent className="space-y-3 p-2 sm:space-y-4 sm:p-5 md:p-6">
               <ChangePasswordForm token={token} />
+              <LoginOtpPreference
+                token={token}
+                initialRequired={me.login_otp_required !== false}
+                onSaved={() => void refetchMe()}
+              />
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden rounded-lg border border-emerald-500/25 bg-linear-to-br from-card via-card to-emerald-500/5 shadow-sm ring-1 ring-emerald-500/10 backdrop-blur-sm dark:border-emerald-500/15 dark:to-emerald-950/20 sm:rounded-xl sm:border-2 sm:shadow-md">
-            <CardHeader className="border-b border-emerald-200/35 bg-linear-to-r from-emerald-500/12 via-emerald-500/5 to-transparent px-2 py-2 dark:border-emerald-900/40 dark:from-emerald-950/45 dark:via-emerald-950/20 sm:px-5 sm:py-3 md:px-6 md:py-4">
+          <Card className="overflow-hidden rounded-md border border-emerald-500/25 bg-linear-to-br from-card via-card to-emerald-500/5 shadow-sm ring-1 ring-emerald-500/10 backdrop-blur-sm dark:border-emerald-500/15 dark:to-emerald-950/20 sm:rounded-xl sm:border-2 sm:shadow-md">
+            <CardHeader className="border-b border-emerald-200/35 bg-linear-to-r from-emerald-500/12 via-emerald-500/5 to-transparent px-2 py-1.5 dark:border-emerald-900/40 dark:from-emerald-950/45 dark:via-emerald-950/20 sm:px-5 sm:py-3 md:px-6 md:py-4">
               <div className="flex items-center gap-1.5 sm:gap-2">
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/20 text-[10px] font-bold text-emerald-800 dark:text-emerald-300 sm:size-8 sm:text-xs">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-emerald-500/20 text-[9px] font-bold text-emerald-800 dark:text-emerald-300 sm:size-8 sm:rounded-lg sm:text-xs">
                   3
                 </span>
                 <div className="min-w-0">
-                  <CardTitle className="flex flex-wrap items-center gap-1 text-sm sm:gap-2 sm:text-lg">
-                    <Shield className="size-3.5 shrink-0 text-emerald-700 dark:text-emerald-400 sm:size-4" aria-hidden />
+                  <CardTitle className="flex flex-wrap items-center gap-1 text-xs sm:gap-2 sm:text-lg">
+                    <Shield className="size-3 shrink-0 text-emerald-700 dark:text-emerald-400 sm:size-4" aria-hidden />
                     <span>Hesabı kapat</span>
                   </CardTitle>
-                  <CardDescription className="text-[10px] leading-snug sm:text-sm">
+                  <CardDescription className="text-[9px] leading-snug sm:text-sm">
                     Önce veri: <strong>Yedek</strong>.
                   </CardDescription>
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="flex flex-col gap-2 p-2.5 sm:gap-4 sm:p-5 md:p-6">
+            <CardContent className="flex flex-col gap-1.5 p-2 sm:gap-4 sm:p-5 md:p-6">
               <DeleteAccountButton token={token} />
             </CardContent>
           </Card>
@@ -257,34 +265,42 @@ export function SchoolAdminAccountTabs() {
       )}
 
       {tab === 'yedek' && (
-        <Card className="overflow-hidden rounded-lg border border-amber-500/30 bg-linear-to-br from-amber-500/7 via-card to-violet-500/4 shadow-sm ring-1 ring-amber-500/15 backdrop-blur-sm dark:from-amber-950/30 dark:via-card dark:to-violet-950/20 sm:rounded-xl sm:border-2 sm:shadow-md">
-          <CardHeader className="border-b border-amber-200/40 bg-linear-to-r from-amber-500/15 via-amber-500/8 to-violet-500/10 px-2 py-2 dark:border-amber-900/45 dark:from-amber-950/50 dark:via-amber-950/25 dark:to-violet-950/30 sm:px-5 sm:py-3 md:px-6 md:py-4">
-            <CardTitle className="flex items-center gap-1.5 text-sm sm:gap-2 sm:text-lg">
-              <FileDown className="size-3.5 shrink-0 text-amber-700 dark:text-amber-400 sm:size-4" aria-hidden />
-              Yedek indir
-            </CardTitle>
-            <CardDescription className="text-[10px] leading-snug sm:text-sm">
-              Modül seç, JSON indir. Eksik modüller işaretlenir.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-2.5 sm:p-5 md:p-6">
-            <BackupExportPanel token={token} enabledModules={me?.school?.enabled_modules ?? null} />
-          </CardContent>
-        </Card>
+        <div className="w-full min-w-0 max-w-none">
+          <Card className="overflow-hidden rounded-md border border-amber-500/30 bg-linear-to-br from-amber-500/6 via-card to-violet-500/4 shadow-sm ring-1 ring-amber-500/12 backdrop-blur-sm dark:from-amber-950/30 dark:via-card dark:to-violet-950/22 sm:rounded-2xl sm:border-2 sm:border-amber-500/35 sm:shadow-md sm:ring-amber-500/15">
+            <CardHeader className="border-b border-amber-200/40 bg-linear-to-r from-amber-500/15 via-amber-500/8 to-violet-500/10 px-2 py-2 dark:border-amber-900/45 dark:from-amber-950/50 dark:via-amber-950/25 dark:to-violet-950/30 sm:px-8 sm:py-5">
+              <CardTitle className="flex items-center gap-1.5 text-sm sm:gap-2 sm:text-xl">
+                <FileDown className="size-4 shrink-0 text-amber-700 dark:text-amber-400 sm:size-6" aria-hidden />
+                Veri yedeği
+              </CardTitle>
+              <CardDescription className="text-[10px] leading-snug sm:text-sm">
+                Tüm modülleri seçip JSON indirin veya sunucuya geri yükleyin (hesap, ajanda, mesaj tercihleri).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-2 sm:p-6 md:p-8">
+              <BackupExportPanel
+                token={token}
+                enabledModules={me?.school?.enabled_modules ?? null}
+                role={me?.role ?? null}
+                layout="full"
+                compactMobile
+              />
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {tab === 'okul' && (
-        <div className="space-y-2 sm:space-y-4 md:space-y-5">
+        <div className="space-y-1.5 sm:space-y-4 md:space-y-5">
           {OKUL_GROUPS.map((group) => (
             <div
               key={group.title}
-              className="overflow-hidden rounded-xl border border-emerald-500/20 bg-linear-to-br from-emerald-500/6 via-card to-sky-500/5 p-2 shadow-sm ring-1 ring-emerald-500/10 dark:from-emerald-950/25 dark:via-card dark:to-sky-950/20 sm:rounded-2xl sm:border-2 sm:p-3 md:p-4"
+              className="overflow-hidden rounded-lg border border-emerald-500/20 bg-linear-to-br from-emerald-500/5 via-card to-sky-500/4 p-1.5 shadow-sm ring-1 ring-emerald-500/8 dark:from-emerald-950/22 dark:via-card dark:to-sky-950/18 sm:rounded-2xl sm:border-2 sm:p-3 sm:ring-emerald-500/10 md:p-4"
             >
-              <div className="mb-1.5 px-0.5 sm:mb-2">
-                <h3 className="text-xs font-bold text-foreground sm:text-sm">{group.title}</h3>
-                <p className="text-[10px] text-muted-foreground sm:text-xs">{group.description}</p>
+              <div className="mb-1 px-0.5 sm:mb-2">
+                <h3 className="text-[11px] font-bold text-foreground sm:text-sm">{group.title}</h3>
+                <p className="text-[9px] text-muted-foreground sm:text-xs">{group.description}</p>
               </div>
-              <div className="grid gap-1.5 sm:grid-cols-2 sm:gap-2">
+              <div className="grid gap-1 sm:grid-cols-2 sm:gap-2">
                 {group.items.map((item) => {
                   const ItemIcon = item.icon;
                   return (
@@ -298,17 +314,17 @@ export function SchoolAdminAccountTabs() {
                         })
                       }
                       className={cn(
-                        'group relative flex items-center gap-2 rounded-lg border border-emerald-500/15 bg-card/90 p-2 shadow-sm ring-1 ring-black/5 backdrop-blur-sm',
+                        'group relative flex items-center gap-1.5 rounded-md border border-emerald-500/15 bg-card/90 p-1.5 shadow-sm ring-1 ring-black/5 backdrop-blur-sm',
                         'transition-all duration-200 hover:z-1 hover:border-emerald-400/55 hover:bg-emerald-500/8 hover:shadow-md',
                         'active:scale-[0.99] dark:border-emerald-800/30 dark:bg-card/80 dark:ring-white/5 dark:hover:border-emerald-500/45 sm:gap-2.5 sm:rounded-xl sm:border-2 sm:p-3 sm:shadow-md',
                       )}
                     >
-                      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/12 text-emerald-700 ring-1 ring-emerald-500/25 transition-colors group-hover:bg-emerald-500/20 dark:bg-emerald-950/45 dark:text-emerald-300 dark:ring-emerald-800/50 sm:size-11 sm:rounded-xl">
-                        <ItemIcon className="size-3.5 sm:size-5" aria-hidden />
+                      <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-emerald-500/12 text-emerald-700 ring-1 ring-emerald-500/25 transition-colors group-hover:bg-emerald-500/20 dark:bg-emerald-950/45 dark:text-emerald-300 dark:ring-emerald-800/50 sm:size-11 sm:rounded-xl">
+                        <ItemIcon className="size-3 sm:size-5" aria-hidden />
                       </div>
                       <div className="min-w-0 flex-1 text-left">
-                        <p className="text-[13px] font-semibold leading-tight text-foreground sm:text-sm">{item.label}</p>
-                        <p className="line-clamp-2 text-[10px] leading-snug text-muted-foreground sm:truncate sm:text-xs">
+                        <p className="text-xs font-semibold leading-tight text-foreground sm:text-sm">{item.label}</p>
+                        <p className="line-clamp-2 text-[9px] leading-snug text-muted-foreground sm:truncate sm:text-xs">
                           {item.sub}
                         </p>
                       </div>

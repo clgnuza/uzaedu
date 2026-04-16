@@ -13,7 +13,7 @@ import { ListSchoolsDto } from './dto/list-schools.dto';
 import { BulkSchoolModuleDto } from './dto/bulk-school-module.dto';
 import { ReconcilePreviewDto, ReconcileApplyDto } from './dto/reconcile-schools.dto';
 import { MebbisKurumlistesiService } from './mebbis-kurumlistesi.service';
-import { MebbisFetchDto, MebbisIlceQueryDto } from './dto/mebbis-fetch.dto';
+import { MebbisFetchDto, MebbisIlceQueryDto, MebbisTypeQueryDto } from './dto/mebbis-fetch.dto';
 
 @Controller('schools')
 @UseGuards(JwtAuthGuard)
@@ -44,6 +44,13 @@ export class SchoolsController {
   @Roles(UserRole.superadmin)
   mebbisIlceOptions(@Body() dto: MebbisIlceQueryDto) {
     return this.mebbisKurumlistesi.getIlceOptions(dto);
+  }
+
+  @Post('mebbis/type-options')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin)
+  mebbisTypeOptions(@Body() dto: MebbisTypeQueryDto) {
+    return this.mebbisKurumlistesi.getTypeOptions(dto);
   }
 
   @Post('mebbis/fetch-rows')

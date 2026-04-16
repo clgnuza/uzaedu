@@ -1,4 +1,4 @@
-/** BİLSEM takvim / ayarlar — ortak sekme stilleri (pastel) */
+/** Bilsem takvim / ayarlar — ortak sekme stilleri (pastel) */
 export const BILSEM_VIEW_TAB_STYLES = {
   a: {
     active:

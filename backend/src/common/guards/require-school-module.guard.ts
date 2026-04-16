@@ -59,7 +59,7 @@ export class RequireSchoolModuleGuard implements CanActivate {
       if (anyModuleKeys.some((k) => mods.includes(k))) return true;
       throw new ForbiddenException({
         code: 'MODULE_DISABLED',
-        message: 'Bu işlem için okulda Evrak & Plan veya BİLSEM modülünden en az biri açık olmalıdır.',
+        message: 'Bu işlem için okulda Evrak & Plan veya Bilsem modülünden en az biri açık olmalıdır.',
       });
     }
     if (moduleKey && mods.includes(moduleKey)) return true;
@@ -73,7 +73,7 @@ export class RequireSchoolModuleGuard implements CanActivate {
       optical: 'Bu okulda Optik Okuma modülü kapalı.',
       smart_board: 'Bu okulda Akıllı Tahta modülü kapalı.',
       teacher_agenda: 'Bu okulda Öğretmen Ajandası modülü kapalı.',
-      bilsem: 'Bu okulda BİLSEM modülü kapalı.',
+      bilsem: 'Bu okulda Bilsem modülü kapalı.',
       extra_lesson: 'Bu okulda Ek Ders modülü kapalı.',
       school_profile: 'Bu okulda Okul Tanıtım modülü kapalı.',
       butterfly_exam: 'Bu okulda Kertenkele Sınav modülü kapalı.',

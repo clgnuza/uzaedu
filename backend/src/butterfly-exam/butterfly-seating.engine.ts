@@ -22,7 +22,67 @@ function classKey(classId: string | null | undefined): string {
   return classId ?? '__none__';
 }
 
-export type SeatingStudent = { id: string; classId: string | null };
+export type SeatingStudent = {
+  id: string;
+  classId: string | null;
+  /** Yerleştirme sırası (öğrenci numarası / alfabetik) */
+  name?: string | null;
+  studentNumber?: string | null;
+};
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/** Sabit öğrenci sırası → listedeki sıra; diğerleri studentSortOrder ile */
+export function buildPlacementPool(pool: SeatingStudent[], rules: ButterflyExamRules): SeatingStudent[] {
+  const pinOrder = rules.pinnedStudentIds ?? [];
+  const pinSet = new Set(pinOrder);
+  const sortOrd = rules.studentSortOrder ?? 'student_number';
+
+  const sortUnpinned = (list: SeatingStudent[]): SeatingStudent[] => {
+    const x = [...list];
+    if (sortOrd === 'random') return shuffle(x);
+    if (sortOrd === 'alphabetical') {
+      return x.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'tr', { sensitivity: 'base' }));
+    }
+    return x.sort((a, b) => {
+      const sa = String(a.studentNumber ?? '').replace(/\s/g, '');
+      const sb = String(b.studentNumber ?? '').replace(/\s/g, '');
+      const na = parseInt(sa.replace(/\D/g, ''), 10);
+      const nb = parseInt(sb.replace(/\D/g, ''), 10);
+      if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb;
+      return sa.localeCompare(sb, 'tr', { numeric: true });
+    });
+  };
+
+  const pinnedOrdered = pinOrder.map((id) => pool.find((s) => s.id === id)).filter((s): s is SeatingStudent => s != null);
+  const unpinned = pool.filter((s) => !pinSet.has(s.id));
+
+  if (rules.prioritizePinned && pinOrder.length > 0) {
+    return [...pinnedOrdered, ...sortUnpinned(unpinned)];
+  }
+
+  return sortUnpinned(pool);
+}
+
+/** Greedy modda: rastgele ise sabitler korunup yalnız diğerleri karıştırılır */
+function prepareGreedyPoolList(ordered: SeatingStudent[], rules: ButterflyExamRules): SeatingStudent[] {
+  const pinOrder = rules.pinnedStudentIds ?? [];
+  const pinSet = new Set(pinOrder);
+  if (rules.studentSortOrder !== 'random') return ordered;
+  if (rules.prioritizePinned && pinOrder.length > 0) {
+    const pinned = ordered.filter((s) => pinSet.has(s.id));
+    const rest = shuffle(ordered.filter((s) => !pinSet.has(s.id)));
+    return [...pinned, ...rest];
+  }
+  return shuffle(ordered);
+}
 
 export function computeSeating(
   rooms: { id: string; capacity: number }[],
@@ -39,7 +99,6 @@ export function computeSeating(
   for (const [k, v] of preset) assignment.set(k, v);
 
   const pool = students.filter((s) => !Array.from(preset.values()).includes(s.id));
-  let poolIdx = 0;
 
   const tryPlace = (slot: Slot, studentId: string) => {
     assignment.set(butterflySlotKey(slot.roomId, slot.seatIndex), studentId);
@@ -73,15 +132,6 @@ export function computeSeating(
     return { adjacent, skipOne };
   };
 
-  const shuffle = <T>(arr: T[]): T[] => {
-    const a = [...arr];
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-  };
-
   /** Boş slotlar (preset + occupied hariç) */
   const freeSlotsAll = slotOrder.filter((s) => {
     const k = butterflySlotKey(s.roomId, s.seatIndex);
@@ -89,16 +139,18 @@ export function computeSeating(
   });
   const useSlots = freeSlotsAll.slice(0, pool.length);
 
+  const placementPool = buildPlacementPool(pool, rules);
   const mode = rules.distributionMode ?? 'constraint_greedy';
 
   if (mode === 'round_robin') {
+    let idx = 0;
     for (const slot of useSlots) {
-      if (poolIdx >= pool.length) break;
-      tryPlace(slot, pool[poolIdx++]!.id);
+      if (idx >= placementPool.length) break;
+      tryPlace(slot, placementPool[idx++]!.id);
     }
   } else {
     /** Greedy: mümkünse kural ihlali olmayan öğrenci */
-    let poolList = shuffle(pool);
+    let poolList = prepareGreedyPoolList(placementPool, rules);
     for (const slot of useSlots) {
       if (poolList.length === 0) break;
       let chosen = -1;
@@ -117,6 +169,8 @@ export function computeSeating(
     }
   }
 
+  const pinSwapBlock = new Set(rules.pinnedStudentIds ?? []);
+
   if (mode === 'swap_optimize' || mode === 'constraint_greedy') {
     const keys = [...assignment.keys()];
     let best = countViolations().adjacent + countViolations().skipOne;
@@ -131,6 +185,7 @@ export function computeSeating(
       if (preset.has(ki) || preset.has(kj)) continue;
       const si = assignment.get(ki)!;
       const sj = assignment.get(kj)!;
+      if (pinSwapBlock.has(si) || pinSwapBlock.has(sj)) continue;
       assignment.set(ki, sj);
       assignment.set(kj, si);
       const sc = countViolations().adjacent + countViolations().skipOne;

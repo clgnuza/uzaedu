@@ -234,11 +234,11 @@ function buildTeacherQuickSections(enabledModules: string[] | null | undefined):
       ],
     },
     {
-      label: 'BİLSEM',
+      label: 'Bilsem',
       items: [
         {
           href: '/bilsem/takvim',
-          title: 'BİLSEM takvimi',
+          title: 'Bilsem takvimi',
           desc: 'Haftalık plan ve etkinlikler',
           icon: Calendar,
           accent: 'from-violet-500/20 to-fuchsia-500/10 text-violet-800 dark:text-violet-300',
@@ -246,7 +246,7 @@ function buildTeacherQuickSections(enabledModules: string[] | null | undefined):
         },
         {
           href: '/bilsem/yillik-plan',
-          title: 'BİLSEM yıllık plan',
+          title: 'Bilsem yıllık plan',
           desc: 'Word plan çıktısı',
           icon: Layers,
           accent: 'from-fuchsia-500/20 to-purple-500/10 text-fuchsia-800 dark:text-fuchsia-300',
@@ -335,8 +335,8 @@ function buildTeacherQuickSections(enabledModules: string[] | null | undefined):
         },
         {
           href: '/market/rewarded-ad',
-          title: 'Reklamla jeton',
-          desc: 'Ödüllü reklam (mobil)',
+          title: 'Reklam izle · Jeton kazan',
+          desc: 'Mobilde izle, anında jeton',
           icon: Coins,
           accent: 'from-violet-500/20 to-purple-500/10 text-violet-800 dark:text-violet-300',
         },
@@ -519,7 +519,7 @@ export function TeacherHome({
       if (isSchoolModuleEnabled(enabledModules, 'bilsem')) {
         items.splice(items.length - 1, 0, {
           href: '/bilsem/takvim',
-          label: 'BİLSEM',
+          label: 'Bilsem',
           icon: Layers,
           ring: 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-100',
         });

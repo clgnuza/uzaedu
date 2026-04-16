@@ -26,8 +26,13 @@ function dateLabel(date: string) {
   catch { return date; }
 }
 
+function dateLabelShort(date: string) {
+  try { return new Date(date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' }); }
+  catch { return date; }
+}
+
 const NO_GROUP = (
-  <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-indigo-300/60 bg-indigo-50/40 py-16 text-center dark:border-indigo-800/40 dark:bg-indigo-950/20">
+  <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-indigo-300/60 bg-indigo-50/40 px-3 py-10 text-center dark:border-indigo-800/40 dark:bg-indigo-950/20 sm:gap-3 sm:rounded-2xl sm:py-16">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="size-10 text-indigo-400" aria-hidden>
       <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
     </svg>
@@ -155,25 +160,25 @@ export default function GorevlendirmePage() {
   const noProctorSessions = sessions.filter((s) => !s.proctors?.length).length;
 
   return (
-    <div className="space-y-4">
-      <div className="flex gap-2.5 rounded-xl border border-sky-200 bg-sky-50/70 px-4 py-3 dark:border-sky-900/40 dark:bg-sky-950/20">
-        <Info className="size-4 text-sky-600 shrink-0 mt-0.5 dark:text-sky-400" />
-        <div className="text-xs text-sky-800 dark:text-sky-300">
+    <div className="space-y-3 sm:space-y-4">
+      <div className="flex gap-2 rounded-lg border border-sky-200 bg-sky-50/70 px-3 py-2 dark:border-sky-900/40 dark:bg-sky-950/20 sm:gap-2.5 sm:rounded-xl sm:px-4 sm:py-3">
+        <Info className="mt-0.5 size-3.5 shrink-0 text-sky-600 dark:text-sky-400 sm:size-4" />
+        <div className="min-w-0 text-[10px] leading-snug text-sky-800 dark:text-sky-300 sm:text-xs">
           <span className="font-semibold">Nas?l çal???r?</span> Sol taraftan oturumu seçin, sa? taraftan ö?retmeni komisyon üyesi veya gözcü olarak atay?n.
           {isSchoolAdmin && <span> Ders program?n?zdaki çak??malar otomatik kontrol edilir.</span>}
         </div>
       </div>
 
       {sessions.length > 0 && (
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
           {[
             { label: 'Toplam Oturum', value: sessions.length,              color: 'text-indigo-600 dark:text-indigo-400' },
             { label: 'Görevli Atand?', value: sessions.length - noProctorSessions, color: 'text-teal-600 dark:text-teal-400' },
             { label: 'Atama Bekliyor', value: noProctorSessions,           color: noProctorSessions ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400' },
           ].map((s) => (
-            <div key={s.label} className="rounded-2xl border border-white/50 bg-white/80 p-3 text-center shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60">
-              <p className={cn('text-2xl font-bold', s.color)}>{s.value}</p>
-              <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">{s.label}</p>
+            <div key={s.label} className="rounded-xl border border-white/50 bg-white/80 p-2 text-center shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 sm:rounded-2xl sm:p-3">
+              <p className={cn('text-lg font-bold tabular-nums sm:text-2xl', s.color)}>{s.value}</p>
+              <p className="mt-0.5 text-[8px] leading-tight text-muted-foreground sm:text-[10px]">{s.label}</p>
             </div>
           ))}
         </div>
@@ -278,7 +283,7 @@ export default function GorevlendirmePage() {
                     : 'border-white/50 bg-white/70 hover:bg-white/90 hover:border-teal-200 dark:border-zinc-800/40 dark:bg-zinc-900/50')}>
                 <p className="font-semibold text-sm">{s.subjectName}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {dateLabel(s.sessionDate)} · {s.startTime}?{s.endTime}
+                  {dateLabel(s.sessionDate)} · {s.startTime}–{s.endTime}
                   {s.roomName ? ` · ${s.roomName}` : ''}
                 </p>
                 <div className="mt-1.5 flex gap-1.5 flex-wrap">
@@ -315,10 +320,13 @@ export default function GorevlendirmePage() {
             <>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">2 ? Görevli Ata</p>
 
-              <div className="rounded-xl border border-teal-300/60 bg-teal-50/60 px-4 py-3 dark:border-teal-800/30 dark:bg-teal-950/20">
-                <p className="font-bold text-sm text-teal-900 dark:text-teal-100">{selectedSes.subjectName}</p>
-                <p className="text-xs text-teal-700 dark:text-teal-400">
-                  {dateLabel(selectedSes.sessionDate)} · {selectedSes.startTime}?{selectedSes.endTime}
+              <div className="rounded-lg border border-teal-300/60 bg-teal-50/60 px-3 py-2 dark:border-teal-800/30 dark:bg-teal-950/20 sm:rounded-xl sm:px-4 sm:py-3">
+                <p className="text-xs font-bold text-teal-900 dark:text-teal-100 sm:text-sm">{selectedSes.subjectName}</p>
+                <p className="mt-0.5 break-words text-[10px] text-teal-700 dark:text-teal-400 sm:text-xs">
+                  <span className="sm:hidden">{dateLabelShort(selectedSes.sessionDate)}</span>
+                  <span className="hidden sm:inline">{dateLabel(selectedSes.sessionDate)}</span>
+                  {' · '}
+                  {selectedSes.startTime}–{selectedSes.endTime}
                 </p>
                 {isSchoolAdmin && timetableLoading && (
                   <div className="text-[10px] text-teal-600 mt-1 flex items-center gap-1">
@@ -332,14 +340,14 @@ export default function GorevlendirmePage() {
                 )}
               </div>
 
-              <div className="flex gap-2">
-                <div className="flex-1 rounded-xl border border-indigo-200/60 bg-indigo-50/60 px-3 py-2.5 text-center dark:border-indigo-900/30 dark:bg-indigo-950/20">
-                  <p className="text-xl font-bold text-indigo-700 dark:text-indigo-300">{komisyonCount}</p>
-                  <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">Komisyon Üyesi</p>
+              <div className="flex gap-1.5 sm:gap-2">
+                <div className="flex-1 rounded-lg border border-indigo-200/60 bg-indigo-50/60 px-2 py-2 text-center dark:border-indigo-900/30 dark:bg-indigo-950/20 sm:rounded-xl sm:px-3 sm:py-2.5">
+                  <p className="text-lg font-bold text-indigo-700 dark:text-indigo-300 sm:text-xl">{komisyonCount}</p>
+                  <p className="text-[9px] font-medium text-indigo-600 dark:text-indigo-400 sm:text-[10px]">Komisyon Üyesi</p>
                 </div>
-                <div className="flex-1 rounded-xl border border-amber-200/60 bg-amber-50/60 px-3 py-2.5 text-center dark:border-amber-900/30 dark:bg-amber-950/20">
-                  <p className="text-xl font-bold text-amber-700 dark:text-amber-300">{gozcuCount}</p>
-                  <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">Gözcü</p>
+                <div className="flex-1 rounded-lg border border-amber-200/60 bg-amber-50/60 px-2 py-2 text-center dark:border-amber-900/30 dark:bg-amber-950/20 sm:rounded-xl sm:px-3 sm:py-2.5">
+                  <p className="text-lg font-bold text-amber-700 dark:text-amber-300 sm:text-xl">{gozcuCount}</p>
+                  <p className="text-[9px] font-medium text-amber-600 dark:text-amber-400 sm:text-[10px]">Gözcü</p>
                 </div>
               </div>
 

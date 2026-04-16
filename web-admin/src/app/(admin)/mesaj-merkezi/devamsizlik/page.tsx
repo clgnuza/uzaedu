@@ -3,6 +3,7 @@
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { msgQ } from '@/lib/messaging-api';
+import { TPL_DEVAMSIZLIK } from '@/lib/messaging-default-templates';
 import ExcelUploadFlow from '../components/ExcelUploadFlow';
 
 export default function DevamsizlikPage() {
@@ -14,7 +15,7 @@ export default function DevamsizlikPage() {
       endpoint="/messaging/campaigns/devamsizlik/excel"
       pageTitle="Günlük Devamsızlık Bildirimi"
       description="E-Okul uyumlu devamsızlık Excel dosyasını yükleyin. Her veliye yalnızca kendi çocuğunun bilgisi WhatsApp ile iletilir."
-      defaultTemplate={`📣 Sayın {AD},\n\n- Öğr. Adı Soyadı: {OGRENCI}\n- Sınıfı: {SINIF}\n- Tarih: {TARIH}\n- Gün: {GUN}\n- Türü: {TUR} olarak devamsızlık yapmıştır.\n\n📚 {OKUL}`}
+      defaultTemplate={TPL_DEVAMSIZLIK}
       templateHelp="{AD} {OGRENCI} {SINIF} {TARIH} {GUN} {TUR} {OKUL}"
       showTarih
       token={token} q={q}

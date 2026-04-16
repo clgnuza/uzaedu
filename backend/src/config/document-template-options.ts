@@ -36,7 +36,7 @@ export const SCHOOL_TYPES: OptionEntry[] = [
   { value: 'imam_hatip_lise', label: 'İmam Hatip Lisesi' },
   { value: 'ozel_egitim', label: 'Özel Eğitim Uygulama Okulu' },
   { value: 'halk_egitim', label: 'Halk Eğitim Merkezi' },
-  { value: 'bilsem', label: 'BİLSEM' },
+  { value: 'bilsem', label: 'Bilsem' },
   { value: 'okul_oncesi', label: 'Okul Öncesi (evrak)' },
   { value: 'mesem', label: 'Mesem' },
   { value: 'ortaokul_secmeli', label: 'Ortaokul Seçmeli' },

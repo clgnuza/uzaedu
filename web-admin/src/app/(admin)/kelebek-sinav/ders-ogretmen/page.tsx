@@ -140,23 +140,23 @@ export default function KelebekDersOgretmenPage() {
   if (loading) return <div className="flex justify-center py-12"><LoadingSpinner /></div>;
 
   return (
-    <div>
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">Ders - Öğretmen İşlemleri</h1>
+    <div className="min-w-0">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-lg font-bold sm:text-xl">Ders - Öğretmen İşlemleri</h1>
           <p className="text-sm text-muted-foreground">Sınav derslerini ve modül öğretmenlerini yönetin</p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1.5 rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white">
-            <BookOpen className="size-3" /> {subjects.length} Ders
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white">
+            <BookOpen className="size-3 shrink-0" /> {subjects.length} Ders
           </span>
-          <span className="flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white">
-            <GraduationCap className="size-3" /> {moduleTeachers.length} Öğretmen
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white">
+            <GraduationCap className="size-3 shrink-0" /> {moduleTeachers.length} Öğretmen
           </span>
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
         {/* ─── Dersler Panel ─── */}
         <div className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900" style={{ minHeight: 480 }}>
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-zinc-800">

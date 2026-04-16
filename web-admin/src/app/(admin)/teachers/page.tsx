@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Users as UsersIcon, UserPlus, UserCheck, LayoutGrid, List, Search, Pencil, Mail, Calendar, Phone, Briefcase, BookOpen, ClipboardList, Tv, ChevronLeft, ChevronRight, Megaphone, BarChart3, MailPlus, Download, ArrowRight, ShieldCheck, Clock, AlertTriangle, Undo2, GraduationCap, FileSpreadsheet } from 'lucide-react';
+import { Users as UsersIcon, UserPlus, UserCheck, LayoutGrid, List, Search, Pencil, Mail, Calendar, Phone, Briefcase, BookOpen, ClipboardList, Tv, ChevronLeft, ChevronRight, Megaphone, BarChart3, MailPlus, Download, ArrowRight, ShieldCheck, Clock, AlertTriangle, Undo2, GraduationCap, FileSpreadsheet, Link2 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
@@ -15,6 +15,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { useAdminMessagesUnread } from '@/hooks/use-admin-messages-unread';
 import { cn } from '@/lib/utils';
+import { TEACHER_BRANCH_OPTIONS } from '@/lib/teacher-branch-options';
 import { UserAvatarBubble } from '@/components/user-avatar';
 import { MebbisBulkImportDialog } from './components/MebbisBulkImportDialog';
 
@@ -35,6 +36,8 @@ type UserItem = {
   school_verified?: boolean;
   school_join_stage?: string;
   created_at: string;
+  /** API: şifre/Firebase yok — okul ön kaydı */
+  is_passwordless_stub?: boolean;
 };
 
 type SchoolSubject = { id: string; name: string; code: string | null };
@@ -79,6 +82,11 @@ function formatDate(dateStr: string) {
     year: 'numeric',
   });
 }
+
+const fieldClass =
+  'mt-1.5 flex min-h-11 w-full rounded-xl border border-input bg-background px-3 py-2 text-base text-foreground shadow-sm transition-[border-color,box-shadow] placeholder:text-muted-foreground focus-visible:border-emerald-500/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20 sm:min-h-10 sm:px-3.5 sm:text-sm';
+
+const labelClass = 'text-xs font-medium text-muted-foreground sm:text-sm sm:text-foreground';
 
 function teacherNeedsSchoolAttention(user: UserItem): boolean {
   return !user.school_verified;
@@ -126,6 +134,9 @@ export default function TeachersPage() {
   const editId = searchParams?.get('edit');
   const { token, me, refetchMe } = useAuth();
   const [mergeSaving, setMergeSaving] = useState(false);
+  const [mergeModalUser, setMergeModalUser] = useState<UserItem | null>(null);
+  const [mergeEmail, setMergeEmail] = useState('');
+  const [mergeBusy, setMergeBusy] = useState(false);
   const adminMessagesUnread = useAdminMessagesUnread(token, me?.role ?? null);
   const [data, setData] = useState<ListResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -243,6 +254,35 @@ export default function TeachersPage() {
       refreshAll();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'İşlem yapılamadı');
+    }
+  };
+
+  const submitMergeRegistration = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token || !mergeModalUser) return;
+    const email = mergeEmail.trim().toLowerCase();
+    if (!email) {
+      toast.error('Web kaydı e-postası gerekli');
+      return;
+    }
+    setMergeBusy(true);
+    try {
+      await apiFetch('/users/teachers/merge-by-registration', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({
+          stub_user_id: mergeModalUser.id,
+          registered_email: email,
+        }),
+      });
+      toast.success('Hesaplar birleştirildi');
+      setMergeModalUser(null);
+      setMergeEmail('');
+      refreshAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Birleştirilemedi');
+    } finally {
+      setMergeBusy(false);
     }
   };
 
@@ -491,38 +531,55 @@ export default function TeachersPage() {
       )}
 
       {me?.role === 'school_admin' && me.school?.id && (
-        <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-border/60 bg-card/90 px-3 py-2.5 text-xs sm:text-sm">
-          <input
-            type="checkbox"
-            className="mt-0.5 rounded border-input"
-            checked={me.school.merge_teacher_on_name_match === true}
-            disabled={mergeSaving}
-            onChange={async (e) => {
-              if (!token) return;
-              const v = e.target.checked;
-              setMergeSaving(true);
-              try {
-                await apiFetch(`/schools/${me.school!.id}`, {
-                  method: 'PATCH',
-                  token,
-                  body: JSON.stringify({ merge_teacher_on_name_match: v }),
-                });
-                await refetchMe();
-                toast.success(v ? 'Ada göre birleştirme açık' : 'Ada göre birleştirme kapalı');
-              } catch (err) {
-                toast.error(err instanceof Error ? err.message : 'Ayar kaydedilemedi');
-              } finally {
-                setMergeSaving(false);
-              }
-            }}
-          />
-          <span>
-            <span className="font-medium text-foreground">Kayıtta ada göre birleştir</span>
-            <span className="mt-0.5 block text-muted-foreground">
-              Okul tarafından eklenen (şifresiz) öğretmen ile aynı ad-soyadla web kaydı tek hesapta birleşir; aynı adda birden fazla ön kayıt varsa kayıt engellenir.
-            </span>
-          </span>
-        </label>
+        <fieldset className="space-y-2 rounded-lg border border-border/60 bg-card/90 px-3 py-2.5 text-xs sm:text-sm">
+          <legend className="px-0.5 font-medium text-foreground">Öğretmen hesabı birleştirme</legend>
+          <p className="text-muted-foreground">
+            Okul tarafından eklenen (şifresiz) öğretmen ile aynı ad-soyadla web kaydı tek hesapta birleşir; aynı adda birden fazla ön kayıt varsa kayıt engellenir.
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-4">
+            {(
+              [
+                { value: 'none' as const, label: 'Kapalı', hint: 'Kayıtta birleştirme yok.' },
+                { value: 'automatic' as const, label: 'Otomatik', hint: 'Web kaydında ada göre tek hesapta birleşir.' },
+                { value: 'manual' as const, label: 'Manuel', hint: 'Kayıtta birleştirme yok; listeden «Web hesabı ile birleştir» kullanın.' },
+              ] as const
+            ).map((opt) => (
+              <label
+                key={opt.value}
+                className="flex cursor-pointer items-start gap-2 rounded-md border border-transparent px-1 py-0.5 has-[:checked]:border-primary/30 has-[:checked]:bg-primary/5"
+              >
+                <input
+                  type="radio"
+                  name="teacher_name_merge_mode"
+                  className="mt-1"
+                  checked={(me.school?.teacher_name_merge_mode ?? 'none') === opt.value}
+                  disabled={mergeSaving}
+                  onChange={async () => {
+                    if (!token) return;
+                    setMergeSaving(true);
+                    try {
+                      await apiFetch(`/schools/${me.school!.id}`, {
+                        method: 'PATCH',
+                        token,
+                        body: JSON.stringify({ teacher_name_merge_mode: opt.value }),
+                      });
+                      await refetchMe();
+                      toast.success('Ayar kaydedildi');
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : 'Ayar kaydedilemedi');
+                    } finally {
+                      setMergeSaving(false);
+                    }
+                  }}
+                />
+                <span>
+                  <span className="font-medium text-foreground">{opt.label}</span>
+                  <span className="mt-0.5 block text-[11px] text-muted-foreground">{opt.hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
       )}
 
       <Card className="overflow-hidden rounded-xl border border-sky-500/15 bg-card/95 shadow-sm ring-1 ring-sky-500/10 dark:ring-sky-500/15 sm:rounded-2xl">
@@ -660,6 +717,14 @@ export default function TeachersPage() {
                       onStatusChange={refreshAll}
                       isSchoolAdmin={me?.role === 'school_admin'}
                       onRevoke={revokeMembership}
+                      onOpenMerge={
+                        me?.role === 'school_admin'
+                          ? () => {
+                              setMergeModalUser(u);
+                              setMergeEmail('');
+                            }
+                          : undefined
+                      }
                     />
                   ))}
                 </div>
@@ -771,7 +836,21 @@ export default function TeachersPage() {
                             </span>
                           </td>
                           <td className="px-4 py-2.5">
-                            <div className="flex items-center gap-1">
+                            <div className="flex flex-wrap items-center gap-1">
+                              {me?.role === 'school_admin' && u.is_passwordless_stub && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMergeModalUser(u);
+                                    setMergeEmail('');
+                                  }}
+                                  className="inline-flex items-center gap-0.5 rounded-md border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-800 hover:bg-sky-100 dark:border-sky-700 dark:bg-sky-950/50 dark:text-sky-200"
+                                  title="Web hesabı ile birleştir"
+                                >
+                                  <Link2 className="size-3" />
+                                  Birleştir
+                                </button>
+                              )}
                               <button type="button" onClick={() => setEditModalOpen(u)} className="rounded p-1.5 text-muted-foreground hover:bg-slate-100 hover:text-foreground dark:hover:bg-slate-800" title="Düzenle">
                                 <Pencil className="size-3.5" />
                               </button>
@@ -846,6 +925,65 @@ export default function TeachersPage() {
         onSuccess={refreshAll}
       />
 
+      <Dialog
+        open={!!mergeModalUser}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMergeModalUser(null);
+            setMergeEmail('');
+          }
+        }}
+      >
+        <DialogContent
+          title="Web hesabı ile birleştir"
+          className="max-w-[min(100%,28rem)]"
+          descriptionId="merge-stub-desc"
+        >
+          {mergeModalUser && (
+            <form onSubmit={submitMergeRegistration} className="space-y-3">
+              <p id="merge-stub-desc" className="text-sm text-muted-foreground">
+                Ön kayıt: <span className="font-medium text-foreground">{mergeModalUser.display_name ?? '—'}</span>. Aynı ad-soyadla web’e kayıtlı öğretmenin e-postasını girin; hesap tek kullanıcıda birleşir.
+              </p>
+              <div>
+                <label htmlFor="merge-reg-email" className={labelClass}>
+                  Web kaydı e-postası
+                </label>
+                <input
+                  id="merge-reg-email"
+                  type="email"
+                  autoComplete="email"
+                  value={mergeEmail}
+                  onChange={(e) => setMergeEmail(e.target.value)}
+                  className={fieldClass}
+                  required
+                  placeholder="ornek@mail.com"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-muted"
+                  onClick={() => {
+                    setMergeModalUser(null);
+                    setMergeEmail('');
+                  }}
+                  disabled={mergeBusy}
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  disabled={mergeBusy || !token}
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                >
+                  {mergeBusy ? 'Birleştiriliyor…' : 'Birleştir'}
+                </button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {editModalOpen && (
         <EditTeacherModal
           user={editModalOpen}
@@ -881,6 +1019,7 @@ function TeacherCard({
   onStatusChange,
   isSchoolAdmin,
   onRevoke,
+  onOpenMerge,
 }: {
   user: UserItem;
   index?: number;
@@ -892,6 +1031,7 @@ function TeacherCard({
   onStatusChange: () => void;
   isSchoolAdmin?: boolean;
   onRevoke?: (id: string) => void;
+  onOpenMerge?: () => void;
 }) {
   const subjectNames = (user.teacher_subject_ids ?? [])
     .map((id) => subjects.find((s) => s.id === id)?.name)
@@ -1004,6 +1144,16 @@ function TeacherCard({
           {STATUS_LABELS[user.status] ?? user.status}
         </span>
         <div className="flex items-center gap-0.5">
+          {isSchoolAdmin && user.is_passwordless_stub && onOpenMerge && (
+            <button
+              type="button"
+              onClick={onOpenMerge}
+              className="rounded-lg p-1.5 text-sky-600 hover:bg-sky-50 hover:text-sky-800 dark:hover:bg-sky-950/50 dark:hover:text-sky-200 transition-colors"
+              title="Web hesabı ile birleştir"
+            >
+              <Link2 className="size-3.5" />
+            </button>
+          )}
           {isSchoolAdmin && user.school_verified && onRevoke && (
             <button
               type="button"
@@ -1080,10 +1230,15 @@ const TITLE_OPTIONS = [
   { value: 'Maaş karşılığı', label: 'Maaş karşılığı' },
 ];
 
-const fieldClass =
-  'mt-1.5 flex min-h-11 w-full rounded-xl border border-input bg-background px-3 py-2 text-base text-foreground shadow-sm transition-[border-color,box-shadow] placeholder:text-muted-foreground focus-visible:border-emerald-500/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20 sm:min-h-10 sm:px-3.5 sm:text-sm';
-
-const labelClass = 'text-xs font-medium text-muted-foreground sm:text-sm sm:text-foreground';
+function TeacherBranchDatalist({ id }: { id: string }) {
+  return (
+    <datalist id={id}>
+      {TEACHER_BRANCH_OPTIONS.map((b) => (
+        <option key={b} value={b} />
+      ))}
+    </datalist>
+  );
+}
 
 function AddTeacherModal({
   open,
@@ -1212,6 +1367,7 @@ function AddTeacherModal({
                   <label htmlFor="teacher-branch" className={labelClass}>
                     Branş
                   </label>
+                  <TeacherBranchDatalist id="teacher-branch-datalist-add" />
                   <input
                     id="teacher-branch"
                     type="text"
@@ -1220,6 +1376,7 @@ function AddTeacherModal({
                     maxLength={100}
                     placeholder="Örn. Matematik öğretmeni"
                     className={fieldClass}
+                    list="teacher-branch-datalist-add"
                   />
                 </div>
                 <div>
@@ -1548,7 +1705,17 @@ function EditTeacherModal({
                 <label htmlFor="edit-branch" className="block text-sm font-medium text-foreground mb-1.5">Branş</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><SvgBook /></span>
-                  <input id="edit-branch" type="text" value={teacherBranch} onChange={(e) => setTeacherBranch(e.target.value)} maxLength={100} placeholder="Matematik Öğretmeni vb." className={inputBase} />
+                  <TeacherBranchDatalist id="teacher-branch-datalist-edit" />
+                  <input
+                    id="edit-branch"
+                    type="text"
+                    value={teacherBranch}
+                    onChange={(e) => setTeacherBranch(e.target.value)}
+                    maxLength={100}
+                    placeholder="Matematik Öğretmeni vb."
+                    className={inputBase}
+                    list="teacher-branch-datalist-edit"
+                  />
                 </div>
               </div>
               <div>

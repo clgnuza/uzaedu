@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { useExtraLessonParams, useAvailableSemesters } from '@/hooks/use-extra-lesson-params';
@@ -38,6 +37,9 @@ import {
 import { toast } from 'sonner';
 import { apiFetch, isAbortError } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { captureResultCardAsPng } from '@/lib/capture-result-card-png';
+import { ShareCardPngFiligran } from '@/components/share/share-card-png-filigran';
+import { MobileShareSheetGlass } from '@/components/share/mobile-share-sheet-glass';
 
 const UNVAN_OPTIONS = [
   { value: 'meb_kadrolu', label: 'Kadrolu' },
@@ -75,35 +77,6 @@ function DotPattern({ excludeFromScreenshot }: { excludeFromScreenshot?: boolean
       />
     </div>
   );
-}
-
-async function captureEkDersCardAsPng(
-  primary: HTMLElement | null,
-  fallback: HTMLElement | null
-): Promise<Blob | null> {
-  const el = primary ?? fallback;
-  if (!el || typeof window === 'undefined') return null;
-  try {
-    const html2canvas = (await import('html2canvas')).default;
-    const dpr = window.devicePixelRatio || 2;
-    const canvas = await html2canvas(el, {
-      backgroundColor: '#ffffff',
-      scale: Math.min(3, Math.max(2, dpr)),
-      useCORS: true,
-      logging: false,
-      scrollX: 0,
-      scrollY: 0,
-      ignoreElements: (node) =>
-        node instanceof HTMLElement && node.hasAttribute('data-html2canvas-ignore'),
-      onclone: (clonedDoc) => {
-        clonedDoc.documentElement.classList.remove('dark');
-        clonedDoc.documentElement.style.colorScheme = 'light';
-      },
-    });
-    return await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/png', 0.96));
-  } catch {
-    return null;
-  }
 }
 
 function CalcSkeleton() {
@@ -708,7 +681,7 @@ export default function ExtraLessonCalcPage() {
     let cancelled = false;
     const t = window.setTimeout(() => {
       void (async () => {
-        const blob = await captureEkDersCardAsPng(resultCardRef.current, shareSnapshotRef.current);
+        const blob = await captureResultCardAsPng(resultCardRef.current, shareSnapshotRef.current);
         if (cancelled || !blob) return;
         const url = URL.createObjectURL(blob);
         setSharePreviewUrl((prev) => {
@@ -745,7 +718,7 @@ export default function ExtraLessonCalcPage() {
     const short = buildShareShort();
     let blob: Blob | null = null;
     if (typeof window !== 'undefined') {
-      blob = await captureEkDersCardAsPng(resultCardRef.current, shareSnapshotRef.current);
+      blob = await captureResultCardAsPng(resultCardRef.current, shareSnapshotRef.current);
     }
 
     const tryCopyImage = async (): Promise<boolean> => {
@@ -810,7 +783,7 @@ export default function ExtraLessonCalcPage() {
   }, [buildShareText, buildShareShort]);
 
   const copyShareImageOnly = useCallback(async () => {
-    const blob = await captureEkDersCardAsPng(resultCardRef.current, shareSnapshotRef.current);
+    const blob = await captureResultCardAsPng(resultCardRef.current, shareSnapshotRef.current);
     if (!blob) {
       toast.error('Sonuç kartı görseli oluşturulamadı');
       return;
@@ -1598,7 +1571,7 @@ export default function ExtraLessonCalcPage() {
       {hasInput && p ? (
         <div
           ref={shareSnapshotRef}
-          className="pointer-events-none fixed left-[-9999px] top-0 z-0 box-border w-[380px] overflow-hidden rounded-2xl border border-emerald-200 bg-white text-zinc-900 shadow-2xl"
+          className="pointer-events-none fixed left-[-9999px] top-0 z-0 box-border w-[380px] overflow-hidden rounded-2xl border border-emerald-200 bg-white text-zinc-900 shadow-2xl relative"
           style={{ fontFamily: 'system-ui, "Segoe UI", sans-serif' }}
           aria-hidden
         >
@@ -1615,7 +1588,7 @@ export default function ExtraLessonCalcPage() {
                     : p.title ?? 'Aktif dönem'}
                 </p>
               </div>
-              <div className="shrink-0 rounded-xl bg-white/20 px-2.5 py-1.5 text-center backdrop-blur-sm">
+              <div className="shrink-0 rounded-xl bg-white/25 px-2.5 py-1.5 text-center">
                 <p className="text-[8px] font-medium uppercase text-emerald-100">Öğretmen</p>
                 <p className="text-[11px] font-bold leading-none">Pro</p>
               </div>
@@ -1688,99 +1661,50 @@ export default function ExtraLessonCalcPage() {
               ) : null}
             </div>
 
-            <p className="mt-3 pb-4 text-center text-[8px] leading-snug text-zinc-400">
+            <p className="mt-3 pb-12 text-center text-[8px] leading-snug text-zinc-400">
               Bilgilendirme amaçlıdır. Kesin tutar için kurumunuza danışın.
             </p>
           </div>
+          <ShareCardPngFiligran variant="emerald" />
         </div>
       ) : null}
 
-      {shareSheetMounted && hasInput && p && shareSheetOpen
-        ? createPortal(
-            <div className="fixed inset-0 z-[100] sm:hidden">
-              <button
-                type="button"
-                className="absolute inset-0 bg-zinc-900/50 backdrop-blur-[2px]"
-                aria-label="Kapat"
-                onClick={() => setShareSheetOpen(false)}
-              />
-              <div
-                className="absolute bottom-0 left-0 right-0 max-h-[90vh] overflow-y-auto rounded-t-3xl border border-zinc-200/90 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950"
-                style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="ek-share-sheet-title"
-              >
-                <div className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-zinc-200 dark:bg-zinc-700" />
-                <div className="px-5 pt-2 pb-4">
-                  <h2 id="ek-share-sheet-title" className="text-lg font-bold text-zinc-900 dark:text-zinc-50">
-                    Paylaş
-                  </h2>
-                  <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                    Aşağıdaki görsel, ekrandaki sonuç kartının PNG kopyasıdır. Paylaşımda bu görsel ve kısa özet gider; tam metin için ayrı düğmeyi kullanın.
-                  </p>
-                  {sharePreviewUrl ? (
-                    // blob: URL — next/image uygun değil
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={sharePreviewUrl}
-                      alt="Ek ders sonuç kartı önizlemesi"
-                      className="mt-4 w-full rounded-2xl border border-zinc-200 object-top shadow-md dark:border-zinc-600"
-                    />
-                  ) : (
-                    <div className="mt-4 flex min-h-[200px] items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 text-xs text-zinc-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
-                      Önizleme hazırlanıyor…
-                    </div>
-                  )}
-                  <ul className="mt-4 space-y-2 text-[13px] text-zinc-600 dark:text-zinc-400">
-                    <li className="flex gap-2">
-                      <span className="shrink-0 font-semibold text-emerald-600 dark:text-emerald-400">✓</span>
-                      <span>Sonuç kartı PNG (WhatsApp vb. ile görsel paylaşım)</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="shrink-0 font-semibold text-emerald-600 dark:text-emerald-400">✓</span>
-                      <span>Kısa özet metin + isteğe bağlı tam döküm</span>
-                    </li>
-                  </ul>
-                  <button
-                    type="button"
-                    className="mt-5 flex w-full min-h-12 items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3.5 text-base font-semibold text-white shadow-lg shadow-emerald-500/20 active:scale-[0.99] dark:bg-emerald-600"
-                    onClick={() => {
-                      void performShare().finally(() => setShareSheetOpen(false));
-                    }}
-                  >
-                    <Share2 className="size-5" strokeWidth={2} />
-                    Paylaşımı aç
-                  </button>
-                  <button
-                    type="button"
-                    className="mt-2 flex w-full min-h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 py-3 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
-                    onClick={() => void copyShareImageOnly()}
-                  >
-                    <ImageIcon className="size-4" strokeWidth={2} />
-                    Sadece kart görselini kopyala
-                  </button>
-                  <button
-                    type="button"
-                    className="mt-2 flex w-full min-h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 py-3 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
-                    onClick={() => void copyShareText()}
-                  >
-                    <Copy className="size-4" strokeWidth={2} />
-                    Tüm metni kopyala
-                  </button>
-                  <button
-                    type="button"
-                    className="mt-1 w-full py-3 text-sm text-zinc-500 dark:text-zinc-400"
-                    onClick={() => setShareSheetOpen(false)}
-                  >
-                    Vazgeç
-                  </button>
-                </div>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+      {shareSheetMounted && hasInput && p && shareSheetOpen ? (
+        <MobileShareSheetGlass
+          titleId="ek-share-sheet-title"
+          previewUrl={sharePreviewUrl}
+          previewAlt="Ek ders sonuç kartı önizlemesi"
+          variant="emerald"
+          description={
+            <>
+              Aşağıdaki görsel, ekrandaki sonuç kartının PNG kopyasıdır. Paylaşımda görsel ile kısa özet çoğu uygulamada birlikte sunulur; tam metin için aşağıdaki ipuçlarını kullanın.
+            </>
+          }
+          hints={[
+            {
+              icon: ImageIcon,
+              title: 'Görsel kart (PNG)',
+              text: 'WhatsApp ve Telegram’da önizleme net görünür; “Sadece kart görselini kopyala” ile panoya alın.',
+            },
+            {
+              icon: Share2,
+              title: 'Özet ve paylaşım',
+              text: 'Paylaşımı aç dediğinizde kısa özet metin ve kart birlikte gidebilir (uygulamaya göre değişir).',
+            },
+            {
+              icon: Copy,
+              title: 'Tam metin',
+              text: 'Tüm satırlar için “Tüm metni kopyala”yı kullanın; uzun döküm panoda hazır olur.',
+            },
+          ]}
+          onShare={() => {
+            void performShare().finally(() => setShareSheetOpen(false));
+          }}
+          onCopyImage={copyShareImageOnly}
+          onCopyText={copyShareText}
+          onClose={() => setShareSheetOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

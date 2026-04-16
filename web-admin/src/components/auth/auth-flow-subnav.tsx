@@ -1,5 +1,9 @@
+'use client';
+
+import { useState } from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { ForgotPasswordGateDialog } from '@/components/auth/forgot-password-gate-dialog';
 
 type Flow = 'login' | 'register' | 'forgot';
 type Role = 'teacher' | 'school';
@@ -12,16 +16,20 @@ export function AuthFlowSubnav({
   flow,
   role,
   redirectQuery,
+  gateForgot,
 }: {
   flow: Flow;
   role: Role;
   redirectQuery?: string;
+  /** Giriş/kayıtta "Şifremi unuttum" sekmesinde önce uyarı diyaloğu */
+  gateForgot?: boolean;
 }) {
+  const [forgotGateOpen, setForgotGateOpen] = useState(false);
   const q = redirectQuery?.startsWith('?') ? redirectQuery : redirectQuery ? `?${redirectQuery}` : '';
   const baseLogin = `/login${suffix(role)}${q}`;
   const baseReg = `/register${suffix(role)}${q}`;
-  const forgot = `/forgot-password${q}`;
-  const hub = flow === 'login' ? `/login${q}` : flow === 'register' ? `/register${q}` : `/forgot-password${q}`;
+  const forgot = `/forgot-password${suffix(role)}${q}`;
+  const hub = flow === 'login' ? `/login${q}` : flow === 'register' ? `/register${q}` : `/login${q}`;
 
   const items: { key: Flow; label: string; labelSm: string; href: string }[] = [
     { key: 'login', label: 'Giriş', labelSm: 'Giriş', href: baseLogin },
@@ -43,6 +51,17 @@ export function AuthFlowSubnav({
   const activeSchool =
     'bg-linear-to-r from-amber-500 to-orange-600 text-white shadow-md shadow-amber-500/25 ring-0 dark:from-amber-500 dark:to-orange-600';
   const activeClass = role === 'teacher' ? activeTeacher : activeSchool;
+
+  const tabClass = (active: boolean) =>
+    cn(
+      'flex min-h-9 flex-1 items-center justify-center rounded-xl px-1 py-1.5 text-center text-[10px] font-bold leading-tight transition sm:min-h-10 sm:px-2 sm:py-2 sm:text-xs',
+      active
+        ? activeClass
+        : cn(
+            'text-muted-foreground hover:bg-background/80 hover:text-foreground',
+            role === 'teacher' ? 'active:bg-violet-500/5' : 'active:bg-amber-500/5',
+          ),
+    );
 
   return (
     <div className="mb-3 space-y-2 sm:mb-5 sm:space-y-3">
@@ -73,25 +92,37 @@ export function AuthFlowSubnav({
         )}
         aria-label="Hesap adımları"
       >
-        {items.map((it) => (
-          <Link
-            key={it.key}
-            href={it.href}
-            className={cn(
-              'flex min-h-9 flex-1 items-center justify-center rounded-xl px-1 py-1.5 text-center text-[10px] font-bold leading-tight transition sm:min-h-10 sm:px-2 sm:py-2 sm:text-xs',
-              flow === it.key
-                ? activeClass
-                : cn(
-                    'text-muted-foreground hover:bg-background/80 hover:text-foreground',
-                    role === 'teacher' ? 'active:bg-violet-500/5' : 'active:bg-amber-500/5',
-                  ),
-            )}
-          >
-            <span className="max-sm:sr-only">{it.label}</span>
-            <span className="sm:hidden">{it.labelSm}</span>
-          </Link>
-        ))}
+        {items.map((it) => {
+          const active = flow === it.key;
+          if (gateForgot && it.key === 'forgot' && flow !== 'forgot') {
+            return (
+              <button
+                key={it.key}
+                type="button"
+                onClick={() => setForgotGateOpen(true)}
+                className={tabClass(active)}
+              >
+                <span className="max-sm:sr-only">{it.label}</span>
+                <span className="sm:hidden">{it.labelSm}</span>
+              </button>
+            );
+          }
+          return (
+            <Link key={it.key} href={it.href} className={tabClass(active)}>
+              <span className="max-sm:sr-only">{it.label}</span>
+              <span className="sm:hidden">{it.labelSm}</span>
+            </Link>
+          );
+        })}
       </nav>
+      {gateForgot && (
+        <ForgotPasswordGateDialog
+          open={forgotGateOpen}
+          onOpenChange={setForgotGateOpen}
+          continueHref={forgot}
+          role={role}
+        />
+      )}
       <p className="text-center text-[10px] text-muted-foreground sm:text-[11px]">
         <Link
           href={otherHref}

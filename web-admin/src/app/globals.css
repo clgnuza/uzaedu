@@ -399,7 +399,7 @@ body {
 
 /* Akıllı tahta: mobil yatay sekmeler */
 .akilli-tahta-tabnav {
-  scroll-padding-inline: 6px;
+  scroll-padding-inline: 4px;
   overscroll-behavior-x: contain;
 }
 
@@ -1166,6 +1166,34 @@ body {
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+@keyframes hub-modal-backdrop {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes hub-modal-card {
+  from {
+    opacity: 0;
+    transform: scale(0.82) rotate(-3deg);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  @keyframes hub-modal-card {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
 }
 

@@ -1,4 +1,4 @@
-/** BİLSEM katalog satırı: yetenek alanı veya Ek-1 bilsem_* kodu */
+/** Bilsem katalog satırı: yetenek alanı veya Ek-1 bilsem_* kodu */
 export function isBilsemCatalogSubject(s: { code: string; ana_grup?: string | null }): boolean {
   const ag = s.ana_grup;
   if (ag != null && String(ag).trim() !== '') return true;

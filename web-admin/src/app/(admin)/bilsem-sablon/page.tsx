@@ -39,7 +39,7 @@ const YillikPlanBilsemTab = dynamic(
 
 const TABS = [
   { id: 'calisma-takvimi', label: 'Çalışma Takvimi', icon: CalendarClock },
-  { id: 'is-plani', label: 'BİLSEM İş Planı', icon: BookOpen },
+  { id: 'is-plani', label: 'Bilsem İş Planı', icon: BookOpen },
   { id: 'yillik-plan', label: 'Yıllık Plan İçerikleri', icon: ClipboardList },
   { id: 'sablonlar', label: 'Şablonlar', icon: FileText },
   { id: 'ayarlar', label: 'Ayarlar', icon: Settings },
@@ -98,22 +98,22 @@ export default function BilsemSablonPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-foreground md:text-3xl">BİLSEM altyapısı</h1>
+        <h1 className="text-2xl font-semibold text-foreground md:text-3xl">Bilsem altyapısı</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          MEB çalışma takvimi, BİLSEM iş planı (haftalık),{' '}
+          MEB çalışma takvimi, Bilsem iş planı (haftalık),{' '}
           <span className="font-medium text-foreground">Yıllık Plan İçerikleri</span> sekmesinde{' '}
           <code className="rounded bg-muted px-1.5 py-0.5 text-xs">curriculum_model = bilsem</code> ders satırları
           (ör. Coğrafya PÜY 2025-2026: <code className="rounded bg-muted px-1 text-xs">seed-yillik-plan-bilsem-cografya-2025-2026.sql</code>
           ). Word şablonları ve ders ayarları bu sayfada. Okul yöneticisi gruplar/dersler için kendi ekranını kullanır. Takvim:{' '}
           <Link href="/bilsem/takvim" className="font-medium text-primary underline">
-            BİLSEM takvim
+            Bilsem takvim
           </Link>
           .
         </p>
       </div>
 
       <div className="mobile-tab-scroll border-b border-border pb-1">
-        <nav className="flex min-w-max gap-1 rounded-xl border border-border/70 bg-muted/30 p-1 shadow-sm" aria-label="BİLSEM sekmeleri">
+        <nav className="flex min-w-max gap-1 rounded-xl border border-border/70 bg-muted/30 p-1 shadow-sm" aria-label="Bilsem sekmeleri">
           {TABS.map((t) => {
             const Icon = t.icon;
             const isActive = tab === t.id;

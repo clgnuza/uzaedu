@@ -498,6 +498,53 @@ export function SmartBoardSettings({
           </div>
         </CardHeader>
         <CardContent className="space-y-2 px-4 py-4 sm:px-6 sm:py-5">
+          <details className="group rounded-xl border border-border/60 bg-card/50 transition-colors open:border-emerald-500/25 open:bg-emerald-500/5">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3.5 text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
+              <span className="flex items-center gap-2">
+                Sunum kumandası (TV slaytları)
+                <span className="rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-200">
+                  USB / dokunmatik
+                </span>
+              </span>
+              <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
+            </summary>
+            <div className="border-t border-border/50 px-4 pb-4 pt-0 text-[10px] leading-relaxed text-muted-foreground sm:text-xs sm:leading-relaxed">
+              <ul className="mt-3 list-disc space-y-1.5 pl-4">
+                <li>
+                  Tarayıcıda açık olan <strong className="text-foreground">panel TV (sınıf) sayfası</strong> odaktayken çoğu USB
+                  kumanda <code className="rounded bg-muted px-1 font-mono text-[10px]">PageDown</code> /{' '}
+                  <code className="rounded bg-muted px-1 font-mono text-[10px]">PageUp</code> veya ok tuşları ile slayt ilerletir;{' '}
+                  <code className="rounded bg-muted px-1 font-mono text-[10px]">Space</code> sonraki slayta geçer.{' '}
+                  <code className="rounded bg-muted px-1 font-mono text-[10px]">Home</code> /{' '}
+                  <code className="rounded bg-muted px-1 font-mono text-[10px]">End</code> ilk / son slayta gider.
+                </li>
+                <li>
+                  <code className="break-all rounded bg-muted px-1 font-mono text-[9px] sm:text-[10px]">kilit=1</code> veya sınıf
+                  TV&apos;de, dokunmatik tahta için ekranın altında yarı saydam <strong className="text-foreground">İleri / Geri</strong>{' '}
+                  ok düğmeleri gösterilir.
+                </li>
+                <li>
+                  <strong className="text-foreground">Telefon:</strong> USB oturumlu sınıf TV&apos;de «Telefon kumandası»
+                  düğmesiyle QR / link üretin; öğretmen{' '}
+                  <code className="rounded bg-muted px-1 font-mono text-[10px]">/sunum-kumandasi</code> sayfasından komut
+                  gönderir (mobil veri OK). Eşleştirme anahtarı URL&apos;nin <code className="rounded bg-muted px-1 font-mono text-[10px]">#</code>{' '}
+                  kısmında kalır (path olarak sunucuya gitmez); komutlar HTTPS ile API&apos;ye gider. Üretimde panel ve telefonun
+                  doğru API&apos;ye vurması için ortamda{' '}
+                  <code className="rounded bg-muted px-1 font-mono text-[9px]">NEXT_PUBLIC_API_BASE_URL</code> (gerçek{' '}
+                  <code className="rounded bg-muted px-1 font-mono text-[9px]">…/api</code> kökü) tanımlı olmalıdır.
+                </li>
+                <li>
+                  Impress veya başka bir uygulama önde ise kısayollar o pencereye gider — sınıf içi sunumda TV sekmesine tıklayıp
+                  odağı tarayıcıya alın.
+                </li>
+                <li>
+                  <strong className="text-foreground">Kurulum:</strong> Sunucuda{' '}
+                  <code className="rounded bg-muted px-1 font-mono text-[9px]">add-tv-remote-session.sql</code> migration
+                  çalıştırılmadan «Telefon kumandası» oturumu oluşturulamaz (veritabanı hatası).
+                </li>
+              </ul>
+            </div>
+          </details>
           <details className="group rounded-xl border border-border/60 bg-card/50 transition-colors open:border-violet-500/25 open:bg-violet-500/3">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3.5 text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
               <span>Firefox / Firefox ESR</span>
@@ -506,8 +553,12 @@ export function SmartBoardSettings({
             <div className="border-t border-border/50 px-4 pb-4 pt-0 text-[10px] leading-relaxed text-muted-foreground sm:text-xs sm:leading-relaxed">
               <ul className="mt-3 list-disc space-y-1.5 pl-4">
                 <li>
-                  Ayrı profil; ana sayfa{' '}
-                  <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px]">/tv/classroom?device_id=…</code>
+                  Ayrı profil; sınıf TV adresi (PIN ile USB) örn.{' '}
+                  <code className="wrap-break-word rounded-md bg-muted px-1.5 py-0.5 font-mono text-[9px] sm:text-[10px]">
+                    /tv/classroom?school_id=…&amp;device_id=…&amp;usb=1
+                  </code>{' '}
+                  — Chromium örneğiyle aynı parametreler; yalnızca <code className="rounded bg-muted px-1 font-mono text-[10px]">device_id</code>{' '}
+                  yetersizdir.
                 </li>
                 <li>Güncellemeleri bakım penceresinde yapın; kiosk için oturum otomatik başlatma ile profili açın.</li>
                 <li>Kurum CA&apos;sını Yetkililer deposuna ekleyin (about:certificate veya politika).</li>

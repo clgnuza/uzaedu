@@ -17,6 +17,7 @@ import { CreateSorumlulukGroupDto } from './dto/create-group.dto';
 import { CreateSorumlulukStudentDto } from './dto/create-student.dto';
 import { CreateSorumlulukSessionDto } from './dto/create-session.dto';
 import { SorumlulukExamPdfService } from './sorumluluk-exam-pdf.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class SorumlulukExamService {
@@ -40,11 +41,83 @@ export class SorumlulukExamService {
     @InjectRepository(SchoolTimetablePlan)
     private readonly timetablePlanRepo: Repository<SchoolTimetablePlan>,
     private readonly pdf: SorumlulukExamPdfService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   assertAccess(role: string, userSchoolId: string | null, targetSchoolId: string) {
     if (role === UserRole.superadmin || role === UserRole.moderator) return;
     if (userSchoolId !== targetSchoolId) throw new ForbiddenException();
+  }
+
+  /** Oturum görevlisi olarak atanan oturumlar (yalnızca bu okul). */
+  async listMyProctorAssignments(schoolId: string, userId: string) {
+    const proctorRows = await this.proctorRepo.find({ where: { userId } });
+    if (!proctorRows.length) return [];
+    const sessionIds = [...new Set(proctorRows.map((r) => r.sessionId))];
+    const sessions = await this.sessionRepo.find({
+      where: { id: In(sessionIds), schoolId },
+    });
+    const sessionMap = new Map(sessions.map((s) => [s.id, s]));
+    const groupIds = [...new Set(sessions.map((s) => s.groupId))];
+    if (!groupIds.length) return [];
+    const groups = await this.groupRepo.find({ where: { id: In(groupIds), schoolId } });
+    const groupMap = new Map(groups.map((g) => [g.id, g]));
+
+    const roleLabel = (r: 'komisyon_uye' | 'gozcu') => (r === 'gozcu' ? 'Gözcü' : 'Komisyon üyesi');
+
+    const seen = new Set<string>();
+    const out: Array<{
+      sessionId: string;
+      groupId: string;
+      groupTitle: string;
+      examType: string;
+      proctorRole: 'komisyon_uye' | 'gozcu';
+      proctorRoleLabel: string;
+      subjectName: string;
+      sessionDate: string;
+      startTime: string;
+      endTime: string;
+      roomName: string | null;
+      sessionStatus: string;
+    }> = [];
+
+    for (const pr of proctorRows) {
+      const s = sessionMap.get(pr.sessionId);
+      if (!s) continue;
+      const g = groupMap.get(s.groupId);
+      if (!g) continue;
+      const key = `${pr.sessionId}:${pr.role}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        sessionId: s.id,
+        groupId: g.id,
+        groupTitle: g.title,
+        examType: g.examType,
+        proctorRole: pr.role,
+        proctorRoleLabel: roleLabel(pr.role),
+        subjectName: s.subjectName,
+        sessionDate: s.sessionDate,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        roomName: s.roomName,
+        sessionStatus: s.status,
+      });
+    }
+
+    out.sort((a, b) => {
+      const c = a.sessionDate.localeCompare(b.sessionDate);
+      if (c !== 0) return c;
+      return a.startTime.localeCompare(b.startTime);
+    });
+    return out;
+  }
+
+  async isUserProctorOnSession(schoolId: string, sessionId: string, userId: string): Promise<boolean> {
+    const session = await this.sessionRepo.findOne({ where: { id: sessionId, schoolId } });
+    if (!session) return false;
+    const n = await this.proctorRepo.count({ where: { sessionId, userId } });
+    return n > 0;
   }
 
   // ── Gruplar ──────────────────────────────────────────────────────────────
@@ -288,11 +361,36 @@ export class SorumlulukExamService {
   async setProctors(schoolId: string, sessionId: string, proctors: Array<{ userId: string; role: 'komisyon_uye' | 'gozcu'; sortOrder?: number }>) {
     const session = await this.sessionRepo.findOne({ where: { id: sessionId, schoolId } });
     if (!session) throw new NotFoundException();
+    const oldRows = await this.proctorRepo.find({ where: { sessionId } });
+    const oldUserIds = new Set(oldRows.map((r) => r.userId));
     await this.proctorRepo.delete({ sessionId });
     for (const [i, p] of proctors.entries()) {
       await this.proctorRepo.save(this.proctorRepo.create({ sessionId, userId: p.userId, role: p.role, sortOrder: p.sortOrder ?? i }));
     }
+    const group = await this.groupRepo.findOne({ where: { id: session.groupId } });
+    const groupTitle = group?.title?.trim() || 'Sorumluluk / beceri sınavı';
+    const newUserIds = [...new Set(proctors.map((p) => p.userId))];
+    for (const userId of newUserIds) {
+      if (oldUserIds.has(userId)) continue;
+      const roleLabel = proctors.find((p) => p.userId === userId)?.role === 'gozcu' ? 'Gözcü' : 'Komisyon üyesi';
+      await this.notificationsService.createInboxEntry({
+        user_id: userId,
+        event_type: 'sorumluluk_exam.proctor_assigned',
+        entity_id: sessionId,
+        target_screen: 'sorumluluk-sinav/bilgilendirme',
+        title: 'Sorumluluk sınavı görevi',
+        body: `"${groupTitle}" — ${session.subjectName} (${this._formatSessionWhen(session)}): ${roleLabel}.`,
+        metadata: { group_id: session.groupId, session_id: sessionId, school_id: schoolId },
+      });
+    }
     return this.proctorRepo.find({ where: { sessionId }, order: { sortOrder: 'ASC' } });
+  }
+
+  private _formatSessionWhen(session: SorumlulukSession): string {
+    const d = session.sessionDate;
+    const t0 = session.startTime?.slice(0, 5) ?? '';
+    const t1 = session.endTime?.slice(0, 5) ?? '';
+    return t0 && t1 ? `${d} ${t0}–${t1}` : d;
   }
 
   async listTeachers(schoolId: string) {
@@ -358,10 +456,16 @@ export class SorumlulukExamService {
 
     let assignedSessions = 0;
 
+    const groupMeta = await this.groupRepo.findOne({ where: { id: groupId } });
+    const groupTitle = groupMeta?.title?.trim() || 'Sorumluluk / beceri sınavı';
+
     for (const session of sessions) {
       // Skip if already has proctors and overwrite is off
       const existingCount = await this.proctorRepo.count({ where: { sessionId: session.id } });
       if (existingCount > 0 && !opts.overwrite) continue;
+
+      const prevRows = await this.proctorRepo.find({ where: { sessionId: session.id } });
+      const prevUserIds = new Set(prevRows.map((r) => r.userId));
 
       const timetable = await getTimetableForDate(session.sessionDate);
 
@@ -404,6 +508,31 @@ export class SorumlulukExamService {
       for (const t of gozcu) {
         await this.proctorRepo.save(this.proctorRepo.create({ sessionId: session.id, userId: t.id, role: 'gozcu', sortOrder: order++ }));
         loadCount.set(t.id, (loadCount.get(t.id) ?? 0) + 1);
+      }
+
+      for (const t of komisyon) {
+        if (prevUserIds.has(t.id)) continue;
+        await this.notificationsService.createInboxEntry({
+          user_id: t.id,
+          event_type: 'sorumluluk_exam.proctor_assigned',
+          entity_id: session.id,
+          target_screen: 'sorumluluk-sinav/bilgilendirme',
+          title: 'Sorumluluk sınavı görevi',
+          body: `"${groupTitle}" — ${session.subjectName} (${this._formatSessionWhen(session)}): Komisyon üyesi (otomatik atama).`,
+          metadata: { group_id: session.groupId, session_id: session.id, school_id: schoolId },
+        });
+      }
+      for (const t of gozcu) {
+        if (prevUserIds.has(t.id)) continue;
+        await this.notificationsService.createInboxEntry({
+          user_id: t.id,
+          event_type: 'sorumluluk_exam.proctor_assigned',
+          entity_id: session.id,
+          target_screen: 'sorumluluk-sinav/bilgilendirme',
+          title: 'Sorumluluk sınavı görevi',
+          body: `"${groupTitle}" — ${session.subjectName} (${this._formatSessionWhen(session)}): Gözcü (otomatik atama).`,
+          metadata: { group_id: session.groupId, session_id: session.id, school_id: schoolId },
+        });
       }
 
       assignedSessions++;

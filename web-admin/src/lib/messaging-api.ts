@@ -54,6 +54,18 @@ export async function loadCampaigns(token: string, q: string): Promise<Campaign[
   return apiFetch<Campaign[]>(`${MSG_API}/campaigns${q}`, { token });
 }
 
+export async function createManualMessagingCampaign(
+  token: string,
+  q: string,
+  body: { title: string; recipients: Array<{ name: string; phone: string; message: string }> },
+): Promise<Campaign> {
+  return apiFetch<Campaign>(`${MSG_API}/campaigns/toplu-mesaj/manual${q}`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify(body),
+  });
+}
+
 export async function deleteCampaign(token: string, id: string, q: string): Promise<void> {
   await apiFetch(`${MSG_API}/campaigns/${id}${q}`, { method: 'DELETE', token });
 }
@@ -64,4 +76,47 @@ export async function executeCampaign(token: string, id: string, q: string) {
 
 export async function loadRecipients(token: string, id: string, q: string): Promise<Recipient[]> {
   return apiFetch<Recipient[]>(`${MSG_API}/campaigns/${id}/recipients${q}`, { token });
+}
+
+export async function getDeliveryHint(token: string, q: string): Promise<{ whatsappLinkMode: boolean }> {
+  return apiFetch<{ whatsappLinkMode: boolean }>(`${MSG_API}/delivery-hint${q}`, { token });
+}
+
+export type TeacherMessagingPreferences = {
+  appendSignature: string;
+  openWaInNewTab: boolean;
+};
+
+export async function getMyMessagingPreferences(token: string, q: string): Promise<TeacherMessagingPreferences> {
+  return apiFetch<TeacherMessagingPreferences>(`${MSG_API}/me/preferences${q}`, { token });
+}
+
+export async function patchMyMessagingPreferences(
+  token: string,
+  q: string,
+  body: Partial<Pick<TeacherMessagingPreferences, 'appendSignature' | 'openWaInNewTab'>>,
+): Promise<TeacherMessagingPreferences> {
+  return apiFetch<TeacherMessagingPreferences>(`${MSG_API}/me/preferences${q}`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify(body),
+  });
+}
+
+export async function getWaManualLinks(
+  token: string,
+  campaignId: string,
+  q: string,
+): Promise<{
+  notice?: string;
+  items: Array<{ id: string; phone: string | null; recipientName: string | null; messageText: string | null; waUrl: string }>;
+}> {
+  return apiFetch(`${MSG_API}/campaigns/${campaignId}/wa-manual-links${q}`, { token });
+}
+
+export async function markRecipientManualSent(token: string, recipientId: string, q: string) {
+  return apiFetch<{ recipient: unknown; campaign: Campaign }>(
+    `${MSG_API}/recipients/${recipientId}/mark-manual-sent${q}`,
+    { method: 'POST', token },
+  );
 }

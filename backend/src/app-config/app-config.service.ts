@@ -261,6 +261,8 @@ export type GdprConfig = {
   dpo_email: string | null;
   cookie_policy_path: string;
   reject_button_visible: boolean;
+  /** Kamu çerez şeridi görsel şablonu */
+  cookie_banner_visual: 'gradient' | 'minimal' | 'brand';
   cache_ttl_gdpr: number;
 };
 
@@ -299,6 +301,12 @@ function clampCacheTtl(n: unknown, fallback: number): number {
   const x = typeof n === 'number' ? n : parseInt(String(n ?? ''), 10);
   if (Number.isNaN(x)) return fallback;
   return Math.min(86400, Math.max(10, Math.round(x)));
+}
+
+function normalizeCookieBannerVisual(v: unknown): 'gradient' | 'minimal' | 'brand' {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (s === 'minimal' || s === 'brand') return s;
+  return 'gradient';
 }
 
 const GUEST_SHELL_MAX_ITEMS = 8;
@@ -465,6 +473,7 @@ function cloneGdprDefaults(): GdprConfig {
     dpo_email: DEFAULT_GDPR.dpo_email,
     cookie_policy_path: DEFAULT_GDPR.cookie_policy_path,
     reject_button_visible: DEFAULT_GDPR.reject_button_visible,
+    cookie_banner_visual: normalizeCookieBannerVisual(DEFAULT_GDPR.cookie_banner_visual),
     cache_ttl_gdpr: DEFAULT_GDPR.cache_ttl_gdpr,
   };
 }
@@ -514,6 +523,10 @@ function mergeGdprFromStored(stored: Partial<GdprConfig> | null): GdprConfig {
         : d.cookie_policy_path,
     reject_button_visible:
       typeof stored.reject_button_visible === 'boolean' ? stored.reject_button_visible : d.reject_button_visible,
+    cookie_banner_visual:
+      stored.cookie_banner_visual !== undefined
+        ? normalizeCookieBannerVisual(stored.cookie_banner_visual)
+        : d.cookie_banner_visual,
     cache_ttl_gdpr: clampCacheTtl(stored.cache_ttl_gdpr, d.cache_ttl_gdpr),
   };
 }
@@ -1344,6 +1357,9 @@ export class AppConfigService {
       next.cookie_policy_path = String(dto.cookie_policy_path).trim().replace(/\s/g, '') || current.cookie_policy_path;
     }
     if (dto.reject_button_visible !== undefined) next.reject_button_visible = !!dto.reject_button_visible;
+    if (dto.cookie_banner_visual !== undefined) {
+      next.cookie_banner_visual = normalizeCookieBannerVisual(dto.cookie_banner_visual);
+    }
     if (dto.cache_ttl_gdpr !== undefined) next.cache_ttl_gdpr = clampCacheTtl(dto.cache_ttl_gdpr, 120);
     await this.setValue(this.gdprConfigKey, JSON.stringify(next));
   }

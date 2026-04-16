@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
@@ -984,17 +984,46 @@ function DutyRow({
   const timelineScrollRef = useRef<HTMLDivElement>(null);
   const soonChipId = appEndSoon && !appEndPast && appEndRaw ? `duty-soon-${i.id}` : undefined;
 
-  useEffect(() => {
-    if (!soonChipId) return;
+  /** Mobilde: ilk bakışta soldaki ardışık «geçti» chip’lerini atla; yakın/gelecek milestone’lar görünsün. sm+ sarmalanır. */
+  useLayoutEffect(() => {
     const sc = timelineScrollRef.current;
-    const chip = document.getElementById(soonChipId);
-    if (!sc || !chip) return;
-    const raf = requestAnimationFrame(() => {
-      const left = chip.offsetLeft - sc.clientWidth / 2 + chip.offsetWidth / 2;
-      sc.scrollLeft = Math.max(0, left);
+    if (!sc || typeof window === 'undefined') return;
+    if (window.matchMedia('(min-width: 640px)').matches) return;
+
+    let raf = 0;
+    raf = requestAnimationFrame(() => {
+      if (soonChipId) {
+        const chip = document.getElementById(soonChipId);
+        if (chip && sc.contains(chip)) {
+          const left = chip.offsetLeft - sc.clientWidth / 2 + chip.offsetWidth / 2;
+          sc.scrollLeft = Math.max(0, left);
+          return;
+        }
+      }
+      const chips = Array.from(sc.querySelectorAll<HTMLElement>('[data-duty-chip]'));
+      let idx = 0;
+      while (idx < chips.length && chips[idx]!.dataset.past === '1') idx += 1;
+      if (idx >= chips.length) {
+        sc.scrollLeft = Math.max(0, sc.scrollWidth - sc.clientWidth);
+        return;
+      }
+      sc.scrollLeft = Math.max(0, chips[idx]!.offsetLeft - 4);
     });
     return () => cancelAnimationFrame(raf);
-  }, [soonChipId, i.id]);
+  }, [
+    soonChipId,
+    i.id,
+    publishedRaw,
+    appEndRaw,
+    appEndPast,
+    appApprovalEndRaw,
+    examDateRaw,
+    examEndRaw,
+    examMinusIso,
+    examPlusIso,
+    sabahChip.show,
+    sabahChip.past,
+  ]);
 
   return (
     <li className="list-none">
@@ -1315,9 +1344,12 @@ function DateChip({
 }) {
   const t = DATE_TONE[tone] ?? DATE_TONE.blue;
   const show = valueCompact ?? value;
+  const pastFlag = past ? '1' : '0';
   return (
     <span
       id={id}
+      data-duty-chip
+      data-past={pastFlag}
       className={cn(
         'inline-flex max-w-[min(100%,11.5rem)] shrink-0 snap-start items-center gap-1 rounded-lg border px-1.5 py-1 text-[9px] shadow-sm ring-1 sm:max-w-full sm:gap-2 sm:rounded-xl sm:px-2.5 sm:py-1.5 sm:text-[11px] sm:text-xs',
         t.card,

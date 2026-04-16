@@ -249,7 +249,7 @@ export default function ClassesSubjectsPage() {
               </h1>
               <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground sm:text-xs sm:leading-relaxed">
                 {isBilsem
-                  ? 'BİLSEM öbekleri ve alan/ders listesi; tek kaynak.'
+                  ? 'Bilsem öbekleri ve alan/ders listesi; tek kaynak.'
                   : 'Sınıf ve ders listesi ders programı ile diğer modüllerde ortak kullanılır.'}
               </p>
               <ToolbarIconHints
@@ -267,7 +267,7 @@ export default function ClassesSubjectsPage() {
 
           <div className="flex flex-wrap items-center gap-1 border-t border-border/40 pt-1.5 sm:gap-1.5 sm:pt-2">
             <span className="text-[10px] font-medium text-muted-foreground sm:text-xs">Kullanıldığı:</span>
-            {(isBilsem ? [...USED_IN_MODULES, 'BİLSEM'] : USED_IN_MODULES).map((m) => (
+            {(isBilsem ? [...USED_IN_MODULES, 'Bilsem'] : USED_IN_MODULES).map((m) => (
               <span
                 key={m}
                 className="inline-flex max-w-[9.5rem] truncate rounded-md border border-border/50 bg-background/90 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground sm:max-w-none sm:rounded-full sm:px-2 sm:text-[10px]"

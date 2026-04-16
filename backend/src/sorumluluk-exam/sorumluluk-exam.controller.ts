@@ -1,5 +1,5 @@
 import {
-  BadRequestException, Body, Controller, Delete, Get, Param,
+  BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param,
   Patch, Post, Query, Res, UploadedFile, UseGuards, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -33,10 +33,17 @@ export class SorumlulukExamController {
     return payload.schoolId;
   }
 
+  @Get('my-assignments')
+  @Roles(UserRole.teacher)
+  listMyAssignments(@CurrentUser() p: CurrentUserPayload) {
+    if (!p.schoolId) throw new BadRequestException({ code: 'NO_SCHOOL', message: 'Okul bağlantısı yok.' });
+    return this.service.listMyProctorAssignments(p.schoolId, p.userId);
+  }
+
   // ── Gruplar ──────────────────────────────────────────────────────────────
 
   @Get('groups')
-  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   listGroups(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q?: string) {
     const sid = this.sid(p, q);
     this.service.assertAccess(p.role, p.schoolId, sid);
@@ -70,7 +77,7 @@ export class SorumlulukExamController {
   // ── Öğrenciler ────────────────────────────────────────────────────────────
 
   @Get('groups/:groupId/students')
-  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   listStudents(@CurrentUser() p: CurrentUserPayload, @Param('groupId') groupId: string, @Query('school_id') q?: string) {
     const sid = this.sid(p, q);
     return this.service.listStudents(sid, groupId);
@@ -165,7 +172,7 @@ export class SorumlulukExamController {
   // ── Oturumlar ─────────────────────────────────────────────────────────────
 
   @Get('groups/:groupId/sessions')
-  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   listSessions(@CurrentUser() p: CurrentUserPayload, @Param('groupId') groupId: string, @Query('school_id') q?: string) {
     const sid = this.sid(p, q);
     return this.service.listSessions(sid, groupId);
@@ -195,7 +202,7 @@ export class SorumlulukExamController {
   // ── Oturum öğrencileri ────────────────────────────────────────────────────
 
   @Get('sessions/:sessionId/students')
-  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   listSessionStudents(@CurrentUser() p: CurrentUserPayload, @Param('sessionId') sessionId: string, @Query('school_id') q?: string) {
     const sid = this.sid(p, q);
     return this.service.listSessionStudents(sid, sessionId);
@@ -216,7 +223,7 @@ export class SorumlulukExamController {
   }
 
   @Patch('sessions/:sessionId/students/:studentId/attendance')
-  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   updateAttendance(@CurrentUser() p: CurrentUserPayload, @Param('sessionId') sessionId: string, @Param('studentId') studentId: string, @Query('school_id') q: string | undefined, @Body() body: { status: string }) {
     const sid = this.sid(p, q);
     return this.service.updateAttendance(sid, sessionId, studentId, body.status);
@@ -232,7 +239,7 @@ export class SorumlulukExamController {
   }
 
   @Get('groups/:groupId/conflicts')
-  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   getConflicts(@CurrentUser() p: CurrentUserPayload, @Param('groupId') groupId: string, @Query('school_id') q?: string) {
     const sid = this.sid(p, q);
     return this.service.getConflicts(sid, groupId);
@@ -286,13 +293,17 @@ export class SorumlulukExamController {
   @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
   async pdfYoklama(@CurrentUser() p: CurrentUserPayload, @Param('sessionId') sessionId: string, @Query('school_id') q: string | undefined, @Res() res: Response) {
     const sid = this.sid(p, q);
+    if (p.role === UserRole.teacher) {
+      const ok = await this.service.isUserProctorOnSession(sid, sessionId, p.userId);
+      if (!ok) throw new ForbiddenException();
+    }
     const bytes = await this.service.buildYoklamaPdf(sid, sessionId);
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="yoklama.pdf"' });
     res.send(Buffer.from(bytes));
   }
 
   @Get('groups/:groupId/pdf/program')
-  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   async pdfProgram(@CurrentUser() p: CurrentUserPayload, @Param('groupId') groupId: string, @Query('school_id') q: string | undefined, @Res() res: Response) {
     const sid = this.sid(p, q);
     const bytes = await this.service.buildProgramPdf(sid, groupId);
@@ -301,7 +312,7 @@ export class SorumlulukExamController {
   }
 
   @Get('groups/:groupId/pdf/ogrenci-program')
-  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   async pdfOgrenciProgram(@CurrentUser() p: CurrentUserPayload, @Param('groupId') groupId: string, @Query('school_id') q: string | undefined, @Res() res: Response) {
     const sid = this.sid(p, q);
     const bytes = await this.service.buildOgrenciProgramPdf(sid, groupId);
@@ -310,7 +321,7 @@ export class SorumlulukExamController {
   }
 
   @Get('groups/:groupId/pdf/gorevlendirme')
-  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   async pdfGorevlendirme(@CurrentUser() p: CurrentUserPayload, @Param('groupId') groupId: string, @Query('school_id') q: string | undefined, @Res() res: Response) {
     const sid = this.sid(p, q);
     const bytes = await this.service.buildGorevlendirmePdf(sid, groupId);
@@ -319,7 +330,7 @@ export class SorumlulukExamController {
   }
 
   @Get('groups/:groupId/pdf/imza-sirkulu')
-  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   async pdfImzaSirkulu(@CurrentUser() p: CurrentUserPayload, @Param('groupId') groupId: string, @Query('school_id') q: string | undefined, @Res() res: Response) {
     const sid = this.sid(p, q);
     const bytes = await this.service.buildImzaSirkuluPdf(sid, groupId);
@@ -328,7 +339,7 @@ export class SorumlulukExamController {
   }
 
   @Get('groups/:groupId/pdf/gorev-dagilimi')
-  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   async pdfGorevDagilimi(@CurrentUser() p: CurrentUserPayload, @Param('groupId') groupId: string, @Query('school_id') q: string | undefined, @Res() res: Response) {
     const sid = this.sid(p, q);
     const bytes = await this.service.buildGorevDagilimPdf(sid, groupId);
@@ -346,7 +357,7 @@ export class SorumlulukExamController {
   }
 
   @Get('groups/:groupId/pdf/tutanak')
-  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   async pdfTutanak(@CurrentUser() p: CurrentUserPayload, @Param('groupId') groupId: string, @Query('school_id') q: string | undefined, @Res() res: Response) {
     const sid = this.sid(p, q);
     const bytes = await this.service.buildTutanakPdf(sid, groupId);
@@ -355,7 +366,7 @@ export class SorumlulukExamController {
   }
 
   @Get('students/excel-template')
-  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   excelTemplate(@Res() res: Response) {
     const bytes = this.service.buildStudentExcelTemplate();
     res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': 'attachment; filename="ogrenci-sablon.xlsx"' });

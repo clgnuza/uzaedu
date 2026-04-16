@@ -8,7 +8,9 @@ import { TeacherLoginForm } from '@/components/auth/teacher-login-form';
 
 function Subnav() {
   const sp = useSearchParams();
-  return <AuthFlowSubnav flow="login" role="teacher" redirectQuery={sp?.toString() || undefined} />;
+  return (
+    <AuthFlowSubnav flow="login" role="teacher" redirectQuery={sp?.toString() || undefined} gateForgot />
+  );
 }
 
 export default function OgretmenLoginPage() {

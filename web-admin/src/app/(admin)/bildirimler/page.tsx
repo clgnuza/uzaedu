@@ -22,6 +22,11 @@ import {
   Headphones,
   Newspaper,
   LayoutGrid,
+  Mail,
+  GraduationCap,
+  Home,
+  MessageSquare,
+  type LucideIcon,
 } from 'lucide-react';
 import { ToolbarIconHints, type ToolbarHintItem } from '@/components/layout/toolbar-icon-hints';
 import { useAuth } from '@/hooks/use-auth';
@@ -67,8 +72,8 @@ const EVENT_LABELS: Record<string, string> = {
   'belirli_gun_hafta.assigned': 'Belirli Gün görevlendirmesi',
   'belirli_gun_hafta.reminder': 'Belirli Gün hatırlatması',
   'belirli_gun_hafta.notification_sent': 'Bildirim gönderildi',
-  'bilsem_calendar.assigned': 'BİLSEM görevlendirmesi',
-  'bilsem_calendar.notification_sent': 'BİLSEM bildirimi',
+  'bilsem_calendar.assigned': 'Bilsem görevlendirmesi',
+  'bilsem_calendar.notification_sent': 'Bilsem bildirimi',
   'timetable.published': 'Ders programı',
   'announcement.created': 'Duyuru',
   'smart_board.disconnected_by_admin': 'Tahta bağlantısı kesildi',
@@ -89,6 +94,10 @@ const EVENT_LABELS: Record<string, string> = {
   'agenda.reminder': 'Ajanda hatırlatması',
   'market.school_credit_added': 'Market (okul)',
   'market.user_credit_added': 'Market (bireysel)',
+  'butterfly_exam.proctor_assigned': 'Kertenkele sınav görevi',
+  'sorumluluk_exam.proctor_assigned': 'Sorumluluk sınav görevi',
+  'admin_message.sent': 'Sistem mesajı',
+  'messaging.campaign_completed': 'Mesaj merkezi',
 };
 
 const SWAP_EVENT_TYPES = ['duty.swap_requested', 'duty.swap_approved', 'duty.swap_rejected', 'duty.swap_teacher2_approved'];
@@ -110,6 +119,54 @@ const BILDIRIM_KAYNAK_ICONS: ToolbarHintItem[] = [
   { label: 'Diğer', icon: LayoutGrid },
 ];
 
+/** Okul sınavları sekmesi — boş liste; renk geçişli kartlar */
+const EXAM_SCHOOL_FOCUS_LINKS: ReadonlyArray<{
+  href: string;
+  label: string;
+  Icon: LucideIcon;
+  blob: string;
+  ring: string;
+}> = [
+  {
+    href: '/kelebek-sinav/sinav-islemleri',
+    label: 'Kertenkele sınav',
+    Icon: LayoutGrid,
+    blob: 'from-amber-400 via-orange-400 to-rose-400',
+    ring: 'ring-amber-400/40',
+  },
+  {
+    href: '/sorumluluk-sinav/bilgilendirme',
+    label: 'Sorumluluk sınavı',
+    Icon: GraduationCap,
+    blob: 'from-teal-400 via-cyan-400 to-emerald-400',
+    ring: 'ring-teal-400/40',
+  },
+  {
+    href: '/dashboard',
+    label: 'Ana sayfa',
+    Icon: Home,
+    blob: 'from-sky-400 via-indigo-400 to-violet-500',
+    ring: 'ring-sky-400/40',
+  },
+];
+
+const EXAM_SCHOOL_MORE_LINKS: ReadonlyArray<{
+  href: string;
+  label: string;
+  Icon: LucideIcon;
+  wash: string;
+}> = [
+  { href: '/duty', label: 'Nöbetlere git', Icon: CalendarClock, wash: 'from-indigo-400/25 to-violet-500/20' },
+  { href: '/akademik-takvim', label: 'Akademik Takvim', Icon: Award, wash: 'from-amber-400/25 to-orange-500/20' },
+  { href: '/bilsem/takvim', label: 'Bilsem Takvim', Icon: CalendarDays, wash: 'from-violet-400/25 to-fuchsia-500/20' },
+  { href: '/ogretmen-ajandasi', label: 'Öğretmen Ajandası', Icon: BookOpen, wash: 'from-rose-400/25 to-pink-500/20' },
+  { href: '/ders-programi/programlarim', label: 'Programlarım', Icon: Table2, wash: 'from-emerald-400/25 to-teal-500/20' },
+  { href: '/akilli-tahta', label: 'Akıllı Tahta', Icon: Monitor, wash: 'from-cyan-400/25 to-sky-500/20' },
+  { href: '/support', label: 'Destek Talepleri', Icon: Headphones, wash: 'from-fuchsia-400/25 to-purple-600/20' },
+  { href: '/sinav-gorevlerim', label: 'Sınav Görevleri', Icon: ClipboardList, wash: 'from-sky-400/25 to-blue-600/20' },
+  { href: '/market', label: 'Market / Cüzdan', Icon: Wallet, wash: 'from-lime-400/25 to-green-600/20' },
+];
+
 function formatDate(s: string) {
   const d = new Date(s);
   const now = new Date();
@@ -125,6 +182,17 @@ function formatDate(s: string) {
 }
 
 function getNotificationLink(item: NotificationItem): string {
+  if (item.event_type?.startsWith('messaging.')) {
+    return '/mesaj-merkezi';
+  }
+  if (item.event_type?.startsWith('admin_message.')) {
+    return '/dashboard';
+  }
+  if (item.event_type?.startsWith('sorumluluk_exam.')) {
+    const schoolId = (item.metadata as { school_id?: string } | null)?.school_id;
+    const q = schoolId ? `?school_id=${schoolId}` : '';
+    return `/sorumluluk-sinav/bilgilendirme${q}`;
+  }
   if (item.event_type?.startsWith('market.') || item.target_screen === 'market') {
     return '/market';
   }
@@ -205,6 +273,21 @@ function isMarketNotification(eventType: string): boolean {
   return eventType?.startsWith('market.');
 }
 
+function isExamSchoolModuleNotification(eventType: string): boolean {
+  return (
+    eventType?.startsWith('butterfly_exam.') ||
+    eventType?.startsWith('sorumluluk_exam.')
+  );
+}
+
+/** Mesaj merkezi sekmesi: okul WhatsApp + merkez sistem mesajı */
+function isMessageCenterGroupNotification(eventType: string): boolean {
+  return (
+    eventType?.startsWith('messaging.') ||
+    eventType?.startsWith('admin_message.')
+  );
+}
+
 function isAnnouncementNotification(eventType: string): boolean {
   return eventType === 'announcement.created' || eventType?.startsWith('announcement.');
 }
@@ -242,6 +325,12 @@ function getNotificationRowAccentClass(item: NotificationItem): string | null {
   }
   if (isMarketNotification(item.event_type)) {
     return 'border-l-[3px] border-l-lime-500 bg-lime-50/40 dark:border-l-lime-400 dark:bg-lime-950/20';
+  }
+  if (isExamSchoolModuleNotification(item.event_type)) {
+    return 'border-l-[3px] border-l-teal-500 bg-teal-50/40 dark:border-l-teal-400 dark:bg-teal-950/20';
+  }
+  if (isMessageCenterGroupNotification(item.event_type)) {
+    return 'border-l-[3px] border-l-emerald-500 bg-emerald-50/40 dark:border-l-emerald-400 dark:bg-emerald-950/20';
   }
   return null;
 }
@@ -318,6 +407,34 @@ function getNotificationIcon(item: NotificationItem): { icon: React.ReactNode; b
         'bg-linear-to-br from-lime-400/50 to-green-500/35 text-lime-950 ring-2 ring-lime-400/55 shadow-sm dark:from-lime-600/40 dark:to-green-800/35 dark:text-lime-50 dark:ring-lime-400/40',
     };
   }
+  if (item.event_type?.startsWith('butterfly_exam.')) {
+    return {
+      icon: <LayoutGrid className={iconSm} strokeWidth={2} />,
+      bgClass:
+        'bg-linear-to-br from-amber-400/45 to-orange-500/35 text-amber-950 ring-2 ring-amber-400/50 shadow-sm dark:from-amber-600/45 dark:to-orange-800/40 dark:text-amber-50 dark:ring-amber-400/40',
+    };
+  }
+  if (item.event_type?.startsWith('sorumluluk_exam.')) {
+    return {
+      icon: <GraduationCap className={iconSm} strokeWidth={2} />,
+      bgClass:
+        'bg-linear-to-br from-teal-400/40 to-cyan-600/35 text-teal-950 ring-2 ring-teal-400/50 shadow-sm dark:from-teal-600/45 dark:to-cyan-800/40 dark:text-teal-50 dark:ring-teal-400/40',
+    };
+  }
+  if (item.event_type?.startsWith('admin_message.')) {
+    return {
+      icon: <Mail className={iconSm} strokeWidth={2} />,
+      bgClass:
+        'bg-linear-to-br from-sky-400/45 to-indigo-500/35 text-sky-950 ring-2 ring-sky-400/50 shadow-sm dark:from-sky-600/45 dark:to-indigo-800/40 dark:text-sky-50 dark:ring-sky-400/40',
+    };
+  }
+  if (item.event_type?.startsWith('messaging.')) {
+    return {
+      icon: <MessageSquare className={iconSm} strokeWidth={2} />,
+      bgClass:
+        'bg-linear-to-br from-emerald-400/45 to-green-600/35 text-emerald-950 ring-2 ring-emerald-400/50 shadow-sm dark:from-emerald-600/45 dark:to-green-800/40 dark:text-emerald-50 dark:ring-emerald-400/40',
+    };
+  }
   return {
     icon: <Megaphone className={iconSm} strokeWidth={2} />,
     bgClass:
@@ -356,6 +473,18 @@ function getChipClass(item: NotificationItem): string {
   if (isMarketNotification(item.event_type)) {
     return 'border border-lime-300/50 bg-lime-200/85 font-medium text-lime-950 dark:border-lime-500/35 dark:bg-lime-900/45 dark:text-lime-100';
   }
+  if (item.event_type?.startsWith('butterfly_exam.')) {
+    return 'border border-amber-300/50 bg-amber-200/85 font-medium text-amber-950 dark:border-amber-500/35 dark:bg-amber-900/45 dark:text-amber-100';
+  }
+  if (item.event_type?.startsWith('sorumluluk_exam.')) {
+    return 'border border-teal-300/50 bg-teal-200/85 font-medium text-teal-950 dark:border-teal-500/35 dark:bg-teal-900/45 dark:text-teal-100';
+  }
+  if (item.event_type?.startsWith('admin_message.')) {
+    return 'border border-sky-300/50 bg-sky-200/85 font-medium text-sky-950 dark:border-sky-500/35 dark:bg-sky-900/45 dark:text-sky-100';
+  }
+  if (item.event_type?.startsWith('messaging.')) {
+    return 'border border-emerald-300/50 bg-emerald-200/85 font-medium text-emerald-950 dark:border-emerald-500/35 dark:bg-emerald-900/45 dark:text-emerald-100';
+  }
   return 'border border-slate-300/50 bg-slate-200/80 font-medium text-slate-800 dark:border-slate-500/35 dark:bg-slate-800/60 dark:text-slate-200';
 }
 
@@ -382,6 +511,8 @@ type FilterTab =
   | 'smart_board'
   | 'support'
   | 'exam_duty'
+  | 'exam_school'
+  | 'messaging'
   | 'market';
 
 const FILTER_TABS = [
@@ -395,6 +526,8 @@ const FILTER_TABS = [
   'support',
   'announcement',
   'exam_duty',
+  'exam_school',
+  'messaging',
   'market',
 ] as const;
 
@@ -462,6 +595,18 @@ const TAB_PASTEL: Record<
     idle:
       'bg-sky-100/95 text-sky-950 ring-1 ring-sky-300/70 hover:bg-sky-200/90 dark:bg-sky-950/55 dark:text-sky-100 dark:ring-sky-500/35 dark:hover:bg-sky-900/75',
   },
+  exam_school: {
+    active:
+      'bg-linear-to-br from-teal-500 to-cyan-700 text-white shadow-md ring-2 ring-teal-400/50 dark:ring-teal-400/40',
+    idle:
+      'bg-teal-100/95 text-teal-950 ring-1 ring-teal-300/70 hover:bg-teal-200/90 dark:bg-teal-950/55 dark:text-teal-100 dark:ring-teal-500/35 dark:hover:bg-teal-900/75',
+  },
+  messaging: {
+    active:
+      'bg-linear-to-br from-emerald-500 to-green-700 text-white shadow-md ring-2 ring-emerald-400/50 dark:ring-emerald-400/40',
+    idle:
+      'bg-emerald-100/95 text-emerald-950 ring-1 ring-emerald-300/70 hover:bg-emerald-200/90 dark:bg-emerald-950/55 dark:text-emerald-100 dark:ring-emerald-500/35 dark:hover:bg-emerald-900/75',
+  },
   market: {
     active:
       'bg-linear-to-br from-lime-500 to-green-600 text-white shadow-md ring-2 ring-lime-400/50 dark:ring-lime-400/40',
@@ -469,6 +614,42 @@ const TAB_PASTEL: Record<
       'bg-lime-100/95 text-lime-950 ring-1 ring-lime-300/70 hover:bg-lime-200/90 dark:bg-lime-950/45 dark:text-lime-100 dark:ring-lime-500/35 dark:hover:bg-lime-900/70',
   },
 };
+
+function getEmptyStateDescription(filter: FilterTab): string {
+  switch (filter) {
+    case 'all':
+      return 'Nöbet, Belirli Gün, ajanda, ders programı, Akıllı Tahta, market cüzdanı veya duyuru geldiğinde burada göreceksiniz.';
+    case 'duty':
+      return 'Henüz nöbet bildiriminiz yok.';
+    case 'belirli':
+      return 'Henüz Belirli Gün görevlendirmesi bildiriminiz yok.';
+    case 'bilsem':
+      return 'Henüz Bilsem görevlendirmesi bildiriminiz yok.';
+    case 'timetable':
+      return 'Henüz ders programı bildiriminiz yok.';
+    case 'agenda':
+      return 'Henüz ajanda etkinliği bildiriminiz yok.';
+    case 'smart_board':
+      return 'Henüz Akıllı Tahta bildiriminiz yok.';
+    case 'support':
+      return 'Henüz destek talebi bildiriminiz yok.';
+    case 'announcement':
+      return 'Henüz duyuru bildiriminiz yok.';
+    case 'exam_duty':
+      return 'Henüz sınav görevi bildiriminiz yok.';
+    case 'exam_school':
+      return 'Henüz Kertenkele sınavı veya sorumluluk sınavı bildiriminiz yok.';
+    case 'messaging':
+      return 'Henüz Mesaj merkezi bildiriminiz yok (WhatsApp kampanyası tamamlanınca veya merkez sistem mesajı gelince burada görünür).';
+    case 'market':
+      return 'Henüz market / cüzdan bildiriminiz yok.';
+    default:
+      return 'Henüz duyuru bildiriminiz yok.';
+  }
+}
+
+const BILDIRIM_EMPTY_SHORTCUT_CLASS =
+  'inline-flex w-full items-center justify-center gap-2 rounded-xl border border-violet-300/40 bg-linear-to-br from-white/95 via-violet-50/50 to-fuchsia-50/45 px-3.5 py-2.5 text-sm font-medium text-foreground shadow-sm backdrop-blur-md transition hover:border-violet-400/60 hover:shadow-md dark:border-violet-500/30 dark:from-zinc-900/90 dark:via-violet-950/35 dark:to-fuchsia-950/30 dark:hover:border-violet-400/45 sm:w-auto';
 
 export default function BildirimlerPage() {
   const router = useRouter();
@@ -492,6 +673,8 @@ export default function BildirimlerPage() {
     urlFilter === 'smart_board' ||
     urlFilter === 'support' ||
     urlFilter === 'exam_duty' ||
+    urlFilter === 'exam_school' ||
+    urlFilter === 'messaging' ||
     urlFilter === 'market'
       ? urlFilter
       : 'all';
@@ -541,7 +724,9 @@ export default function BildirimlerPage() {
     setLoading(true);
     try {
       const q = new URLSearchParams({ page: '1', limit: String(limit) });
-      if (eventTypeParam) q.set('event_type', eventTypeParam);
+      if (filter === 'exam_school') q.set('event_group', 'exam_school_modules');
+      else if (filter === 'messaging') q.set('event_group', 'message_center_modules');
+      else if (eventTypeParam) q.set('event_type', eventTypeParam);
       const res = await apiFetch<PaginatedResponse>(`/notifications?${q}`, { token });
       setItems(res?.items ?? []);
       setTotal(res?.total ?? 0);
@@ -551,7 +736,7 @@ export default function BildirimlerPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, canAccess, eventTypeParam]);
+  }, [token, canAccess, eventTypeParam, filter]);
 
   useEffect(() => {
     fetchList();
@@ -562,14 +747,16 @@ export default function BildirimlerPage() {
     const nextPage = Math.floor(items.length / limit) + 1;
     if (nextPage * limit <= total) {
       const q = new URLSearchParams({ page: String(nextPage), limit: String(limit) });
-      if (eventTypeParam) q.set('event_type', eventTypeParam);
+      if (filter === 'exam_school') q.set('event_group', 'exam_school_modules');
+      else if (filter === 'messaging') q.set('event_group', 'message_center_modules');
+      else if (eventTypeParam) q.set('event_type', eventTypeParam);
       apiFetch<PaginatedResponse>(`/notifications?${q}`, { token })
         .then((res) => {
           setItems((prev) => [...prev, ...(res?.items ?? [])]);
         })
         .catch(() => {});
     }
-  }, [token, items.length, total, limit, eventTypeParam]);
+  }, [token, items.length, total, limit, eventTypeParam, filter]);
 
   const loadMoreVisible = items.length < total && items.length > 0;
 
@@ -776,7 +963,7 @@ export default function BildirimlerPage() {
             {tab === 'bilsem' && (
               <>
                 <CalendarDays className="size-3.5 shrink-0" />
-                BİLSEM
+                Bilsem
               </>
             )}
             {tab === 'timetable' && (
@@ -815,6 +1002,18 @@ export default function BildirimlerPage() {
                 Sınav Görevi
               </>
             )}
+            {tab === 'exam_school' && (
+              <>
+                <LayoutGrid className="size-3.5 shrink-0" />
+                Okul sınavları
+              </>
+            )}
+            {tab === 'messaging' && (
+              <>
+                <MessageSquare className="size-3.5 shrink-0" />
+                Mesaj merkezi
+              </>
+            )}
             {tab === 'market' && (
               <>
                 <Wallet className="size-3.5 shrink-0" />
@@ -837,91 +1036,130 @@ export default function BildirimlerPage() {
               <LoadingSpinner />
             </div>
           ) : items.length === 0 ? (
-            <EmptyState
-              icon={<Bell className="size-10 text-muted-foreground" />}
-              title="Henüz bildirim yok"
-              description={
-                filter === 'all'
-                  ? 'Nöbet, Belirli Gün, ajanda, ders programı, Akıllı Tahta, market cüzdanı veya duyuru geldiğinde burada göreceksiniz.'
-                  : filter === 'duty'
-                    ? 'Henüz nöbet bildiriminiz yok.'
-                    : filter === 'belirli'
-                      ? 'Henüz Belirli Gün görevlendirmesi bildiriminiz yok.'
-                      : filter === 'bilsem'
-                        ? 'Henüz BİLSEM görevlendirmesi bildiriminiz yok.'
-                        : filter === 'timetable'
-                        ? 'Henüz ders programı bildiriminiz yok.'
-                        : filter === 'agenda'
-                          ? 'Henüz ajanda etkinliği bildiriminiz yok.'
-                          : filter === 'smart_board'
-                            ? 'Henüz Akıllı Tahta bildiriminiz yok.'
-                            : filter === 'support'
-                              ? 'Henüz destek talebi bildiriminiz yok.'
-                              : filter === 'exam_duty'
-                                ? 'Henüz sınav görevi bildiriminiz yok.'
-                                : filter === 'market'
-                                  ? 'Henüz market / cüzdan bildiriminiz yok.'
-                                  : 'Henüz duyuru bildiriminiz yok.'
-              }
-              action={
-                <div className="flex max-w-md flex-col gap-2 sm:max-w-none sm:flex-row sm:flex-wrap sm:justify-center">
-                  <Link href="/duty" className="w-full sm:w-auto">
-                    <Button variant="outline" className="w-full gap-2 sm:w-auto">
-                      <CalendarClock className="size-4" />
-                      Nöbetlere git
-                    </Button>
-                  </Link>
-                  <Link href="/akademik-takvim" className="w-full sm:w-auto">
-                    <Button variant="outline" className="w-full gap-2 sm:w-auto">
-                      <Award className="size-4" />
-                      Akademik Takvim
-                    </Button>
-                  </Link>
-                  <Link href="/bilsem/takvim" className="w-full sm:w-auto">
-                    <Button variant="outline" className="w-full gap-2 sm:w-auto">
-                      <CalendarDays className="size-4" />
-                      BİLSEM Takvim
-                    </Button>
-                  </Link>
-                  <Link href="/ogretmen-ajandasi" className="w-full sm:w-auto">
-                    <Button variant="outline" className="w-full gap-2 sm:w-auto">
-                      <CalendarDays className="size-4" />
-                      Öğretmen Ajandası
-                    </Button>
-                  </Link>
-                  <Link href="/ders-programi/programlarim" className="w-full sm:w-auto">
-                    <Button variant="outline" className="w-full gap-2 sm:w-auto">
-                      <Table2 className="size-4" />
-                      Programlarım
-                    </Button>
-                  </Link>
-                  <Link href="/akilli-tahta" className="w-full sm:w-auto">
-                    <Button variant="outline" className="w-full gap-2 sm:w-auto">
-                      <Monitor className="size-4" />
-                      Akıllı Tahta
-                    </Button>
-                  </Link>
-                  <Link href="/support" className="w-full sm:w-auto">
-                    <Button variant="outline" className="w-full gap-2 sm:w-auto">
-                      <Megaphone className="size-4" />
-                      Destek Talepleri
-                    </Button>
-                  </Link>
-                  <Link href="/sinav-gorevlerim" className="w-full sm:w-auto">
-                    <Button variant="outline" className="w-full gap-2 sm:w-auto">
-                      <ClipboardList className="size-4" />
-                      Sınav Görevleri
-                    </Button>
-                  </Link>
-                  <Link href="/market" className="w-full sm:w-auto">
-                    <Button variant="outline" className="w-full gap-2 sm:w-auto">
-                      <Wallet className="size-4" />
-                      Market / Cüzdan
-                    </Button>
-                  </Link>
+            <div className="relative min-h-[280px] overflow-hidden px-4 py-10 sm:px-8 sm:py-12">
+              <div
+                className="pointer-events-none absolute -left-24 -top-28 size-[22rem] rounded-full bg-linear-to-br from-violet-400/50 via-fuchsia-300/35 to-transparent blur-3xl dark:from-violet-600/35 dark:via-fuchsia-500/22"
+                aria-hidden
+              />
+              <div
+                className="pointer-events-none absolute -bottom-32 -right-20 size-[24rem] rounded-full bg-linear-to-tl from-amber-400/45 via-orange-300/30 to-transparent blur-3xl dark:from-amber-600/28 dark:via-orange-500/18"
+                aria-hidden
+              />
+              <div
+                className="pointer-events-none absolute left-1/2 top-1/2 size-[28rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-linear-to-r from-cyan-300/30 via-teal-200/25 to-indigo-300/25 blur-3xl dark:from-cyan-500/18 dark:via-teal-500/12 dark:to-indigo-500/15"
+                aria-hidden
+              />
+              <div className="relative mx-auto max-w-2xl">
+                <div
+                  className={cn(
+                    'rounded-[1.75rem] border border-white/55 p-6 shadow-2xl backdrop-blur-xl sm:p-8',
+                    'bg-linear-to-br from-white/95 via-violet-100/50 to-amber-100/45 ring-1 ring-violet-300/35',
+                    'dark:border-white/12 dark:from-zinc-900/95 dark:via-violet-950/40 dark:to-amber-950/30 dark:ring-violet-500/25',
+                  )}
+                >
+                  <div className="flex flex-col items-center text-center">
+                    <div className="mb-5 flex size-[4.25rem] items-center justify-center rounded-2xl bg-linear-to-br from-violet-500 via-fuchsia-500 to-amber-500 text-white shadow-xl shadow-violet-500/30 ring-4 ring-white/60 dark:ring-zinc-900/90">
+                      <Bell className="size-8 sm:size-9" strokeWidth={2} aria-hidden />
+                    </div>
+                    <h3 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">Henüz bildirim yok</h3>
+                    <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-muted-foreground">
+                      {getEmptyStateDescription(filter)}
+                    </p>
+                  </div>
+
+                  {filter === 'exam_school' ? (
+                    <>
+                      <p className="mt-8 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-teal-700/90 dark:text-teal-300/90">
+                        Bu grupta bildirim kaynakları
+                      </p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                        {EXAM_SCHOOL_FOCUS_LINKS.map(({ href, label, Icon, blob, ring }) => (
+                          <Link
+                            key={href}
+                            href={href}
+                            className={cn(
+                              'group flex flex-col items-center gap-3 rounded-2xl border border-white/60 bg-linear-to-b p-4 text-center shadow-sm backdrop-blur-md transition hover:-translate-y-0.5 hover:shadow-md',
+                              'from-white/90 to-white/60 dark:border-white/10 dark:from-zinc-900/85 dark:to-zinc-950/70',
+                              ring,
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                'flex size-12 items-center justify-center rounded-xl bg-linear-to-br text-white shadow-inner',
+                                blob,
+                              )}
+                            >
+                              <Icon className="size-6" strokeWidth={2} aria-hidden />
+                            </span>
+                            <span className="text-sm font-semibold text-foreground">{label}</span>
+                          </Link>
+                        ))}
+                      </div>
+
+                      <p className="mt-10 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-700/90 dark:text-violet-300/90">
+                        Hızlı erişim
+                      </p>
+                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {EXAM_SCHOOL_MORE_LINKS.map(({ href, label, Icon, wash }) => (
+                          <Link
+                            key={href}
+                            href={href}
+                            className={cn(
+                              'flex items-center gap-3 rounded-xl border border-white/50 bg-linear-to-r px-4 py-3 text-left text-sm font-medium text-foreground shadow-sm backdrop-blur-sm transition hover:border-white/80 hover:shadow dark:border-white/10 dark:hover:border-white/20',
+                              wash,
+                            )}
+                          >
+                            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/70 text-foreground shadow-sm dark:bg-zinc-900/80">
+                              <Icon className="size-4" strokeWidth={2} aria-hidden />
+                            </span>
+                            {label}
+                          </Link>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="mt-8 flex flex-col items-stretch gap-2 sm:mx-auto sm:max-w-3xl sm:flex-row sm:flex-wrap sm:justify-center sm:gap-2.5">
+                      <Link href="/duty" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
+                        <CalendarClock className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
+                        Nöbetlere git
+                      </Link>
+                      <Link href="/akademik-takvim" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
+                        <Award className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
+                        Akademik Takvim
+                      </Link>
+                      <Link href="/bilsem/takvim" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
+                        <CalendarDays className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
+                        Bilsem Takvim
+                      </Link>
+                      <Link href="/ogretmen-ajandasi" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
+                        <CalendarDays className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
+                        Öğretmen Ajandası
+                      </Link>
+                      <Link href="/ders-programi/programlarim" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
+                        <Table2 className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
+                        Programlarım
+                      </Link>
+                      <Link href="/akilli-tahta" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
+                        <Monitor className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
+                        Akıllı Tahta
+                      </Link>
+                      <Link href="/support" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
+                        <Megaphone className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
+                        Destek Talepleri
+                      </Link>
+                      <Link href="/sinav-gorevlerim" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
+                        <ClipboardList className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
+                        Sınav Görevleri
+                      </Link>
+                      <Link href="/market" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
+                        <Wallet className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
+                        Market / Cüzdan
+                      </Link>
+                    </div>
+                  )}
                 </div>
-              }
-            />
+              </div>
+            </div>
           ) : (
             <ul className="divide-y divide-border">
               {items.map((item) => {
@@ -1106,6 +1344,34 @@ export default function BildirimlerPage() {
                         >
                           <ClipboardList className="size-3.5" />
                           Sınav görevlerine git
+                        </Button>
+                      )}
+                      {isExamSchoolModuleNotification(item.event_type) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="min-h-10 flex-1 gap-1.5 text-xs max-sm:min-h-8 max-sm:gap-1 max-sm:px-2 max-sm:text-[11px] sm:min-h-9 sm:flex-initial"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleLinkClick(e, item);
+                          }}
+                        >
+                          <ExternalLink className="size-3.5" />
+                          Sayfaya git
+                        </Button>
+                      )}
+                      {isMessageCenterGroupNotification(item.event_type) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="min-h-10 flex-1 gap-1.5 text-xs max-sm:min-h-8 max-sm:gap-1 max-sm:px-2 max-sm:text-[11px] sm:min-h-9 sm:flex-initial"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleLinkClick(e, item);
+                          }}
+                        >
+                          <MessageSquare className="size-3.5" />
+                          Sayfaya git
                         </Button>
                       )}
                       {MARKET_EVENT_TYPES.includes(item.event_type) && (

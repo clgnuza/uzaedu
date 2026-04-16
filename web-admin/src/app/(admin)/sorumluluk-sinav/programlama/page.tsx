@@ -26,7 +26,7 @@ type SessionStudent = { id: string; studentId: string; attendanceStatus: string 
 type FilterMode = 'all' | 'assigned' | 'unassigned';
 
 const NO_GROUP = (
-  <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-indigo-300/60 bg-indigo-50/40 py-16 text-center dark:border-indigo-800/40 dark:bg-indigo-950/20">
+  <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-indigo-300/60 bg-indigo-50/40 px-3 py-10 text-center dark:border-indigo-800/40 dark:bg-indigo-950/20 sm:gap-3 sm:rounded-2xl sm:py-16">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="size-10 text-indigo-400" aria-hidden>
       <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
     </svg>
@@ -121,24 +121,24 @@ export default function ProgramlamaPage() {
   });
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 sm:space-y-4">
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
         {[
           { label: 'Oturum',   value: sessions.length,  color: 'text-amber-600' },
           { label: 'Ö?renci',  value: students.length,  color: 'text-sky-600' },
           { label: 'Çak??ma',  value: conflicts.length, color: conflicts.length ? 'text-red-600' : 'text-green-600' },
         ].map((s) => (
-          <div key={s.label} className="rounded-2xl border border-white/50 bg-white/80 p-3 text-center shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60">
-            <p className={cn('text-2xl font-bold', s.color)}>{s.value}</p>
-            <p className="text-[10px] text-muted-foreground">{s.label}</p>
+          <div key={s.label} className="rounded-xl border border-white/50 bg-white/80 p-2 text-center shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 sm:rounded-2xl sm:p-3">
+            <p className={cn('text-lg font-bold tabular-nums sm:text-2xl', s.color)}>{s.value}</p>
+            <p className="text-[9px] text-muted-foreground sm:text-[10px]">{s.label}</p>
           </div>
         ))}
       </div>
 
       {/* Progress */}
-      <div className="rounded-xl border border-white/50 bg-white/80 px-4 py-3 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60">
-        <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
+      <div className="rounded-lg border border-white/50 bg-white/80 px-3 py-2 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 sm:rounded-xl sm:px-4 sm:py-3">
+        <div className="mb-1 flex justify-between gap-2 text-[10px] text-muted-foreground sm:text-xs">
           <span>Atama ?lerlemesi</span>
           <span className="font-semibold">{assignedSubjects}/{totalSubjects} ders ({assignPct}%)</span>
         </div>
@@ -180,7 +180,7 @@ export default function ProgramlamaPage() {
       </div>
 
       {/* View tabs */}
-      <div className="flex gap-1.5 rounded-xl border bg-slate-50 p-1 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <div className="flex flex-col gap-1 rounded-lg border bg-slate-50 p-1 dark:border-zinc-800 dark:bg-zinc-900/40 sm:flex-row sm:gap-1.5 sm:rounded-xl">
         {([
           { key: 'atama',  label: 'Oturum Bazl? Atama', icon: ListChecks, idle: 'text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-sky-950/30',     active: 'bg-sky-600 text-white shadow dark:bg-sky-700' },
           { key: 'matris', label: 'Ö?renci Matris',     icon: LayoutGrid, idle: 'text-violet-700 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-950/30', active: 'bg-violet-600 text-white shadow dark:bg-violet-700' },
@@ -188,9 +188,9 @@ export default function ProgramlamaPage() {
           const Icon = t.icon;
           return (
             <button key={t.key} onClick={() => setTab(t.key)}
-              className={cn('flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-all',
+              className={cn('flex min-h-9 flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[10px] font-semibold leading-tight transition-all sm:gap-1.5 sm:rounded-lg sm:px-3 sm:py-2 sm:text-xs',
                 tab === t.key ? t.active : t.idle)}>
-              <Icon className="size-3.5 shrink-0" />
+              <Icon className="size-3 shrink-0 sm:size-3.5" />
               {t.label}
             </button>
           );
@@ -207,7 +207,7 @@ export default function ProgramlamaPage() {
               const pct = Math.min(100, Math.round(((s.studentCount ?? 0) / Math.max(s.capacity, 1)) * 100));
               return (
                 <button key={s.id} onClick={() => setSelectedSession(s.id === selectedSession ? null : s.id)}
-                  className={cn('w-full text-left rounded-xl border px-4 py-3 transition-colors',
+                  className={cn('w-full text-left rounded-lg border px-3 py-2 transition-colors sm:rounded-xl sm:px-4 sm:py-3',
                     s.id === selectedSession
                       ? 'border-indigo-400 bg-indigo-50 dark:border-indigo-700 dark:bg-indigo-950/30'
                       : 'border-white/50 bg-white/70 hover:bg-white/90 dark:border-zinc-800/40 dark:bg-zinc-900/50')}>

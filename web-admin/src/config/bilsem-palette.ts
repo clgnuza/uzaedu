@@ -1,5 +1,5 @@
 /**
- * BİLSEM takvim şablonu – sürükle-bırak palet öğeleri.
+ * Bilsem takvim şablonu – sürükle-bırak palet öğeleri.
  * Haftalara sürüklenebilir hızlı ekleme öğeleri.
  */
 

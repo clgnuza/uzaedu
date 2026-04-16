@@ -33,6 +33,7 @@ type PlanRules = {
   studentSortOrder?: 'student_number' | 'alphabetical' | 'random';
   fillDirection?: 'ltr' | 'rtl' | 'alternating';
   prioritizePinned?: boolean;
+  lockPinnedAssignments?: boolean;
   specialNeedsInFront?: boolean;
   proctorMode?: 'auto' | 'manual';
   proctorsPerRoom?: number;
@@ -183,11 +184,11 @@ export function PlanSessionPanel() {
   if (loading) return <div className="flex justify-center py-16"><LoadingSpinner /></div>;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-base font-semibold">Sınav İşlemleri</h2>
+    <div className="min-w-0 space-y-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-sm font-semibold sm:text-base">Sınav İşlemleri</h2>
         {isAdmin && (
-          <Button asChild size="sm" className="gap-1.5">
+          <Button asChild size="sm" className="w-full gap-1.5 sm:w-auto">
             <Link href={`/kelebek-sinav/sinav-olustur${schoolQ}`}>
               <Plus className="size-4" /> Yeni Sınav
             </Link>
@@ -211,11 +212,12 @@ export function PlanSessionPanel() {
         <div className="space-y-3" ref={menuRef}>
           {plans.map((p) => (
             <div key={p.id} className="relative overflow-visible rounded-2xl border border-white/60 bg-white/80 shadow-sm dark:border-indigo-900/40 dark:bg-zinc-900/60">
-              <div className="flex items-start gap-3 px-4 py-3">
+              <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-start sm:gap-3 sm:px-4">
+                <div className="flex min-w-0 flex-1 gap-3">
                 <div
                   className={cn('mt-0.5 size-2.5 shrink-0 rounded-full', p.status === 'published' ? 'bg-emerald-500' : 'bg-amber-400')}
                 />
-                <div className="flex-1 min-w-0">
+                <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold truncate">{p.title}</span>
                       <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-medium', statusColor(p.status))}>
@@ -262,7 +264,10 @@ export function PlanSessionPanel() {
                       {(p.rules?.constraints?.length ?? 0) > 0 && (
                         <RuleBadge color="violet">{p.rules.constraints!.length} kısıt</RuleBadge>
                       )}
-                      {p.rules?.prioritizePinned && <RuleBadge color="rose">Sabit önce</RuleBadge>}
+                      {p.rules?.prioritizePinned !== false && <RuleBadge color="rose">Önce sabit</RuleBadge>}
+                      {p.rules?.lockPinnedAssignments !== false && (p.rules?.pinnedStudentIds?.length ?? 0) > 0 && (
+                        <RuleBadge color="slate">Kilit</RuleBadge>
+                      )}
                       {p.rules?.fillDirection && p.rules.fillDirection !== 'ltr' && (
                         <RuleBadge color="slate">{p.rules.fillDirection === 'rtl' ? 'Sağdan doldur' : 'Alternatif'}</RuleBadge>
                       )}
@@ -271,9 +276,10 @@ export function PlanSessionPanel() {
                       )}
                     </div>
                   </div>
+                </div>
 
                 {/* Actions */}
-                <div className="flex shrink-0 items-center gap-1">
+                <div className="flex w-full shrink-0 flex-wrap items-center gap-1 sm:ml-auto sm:w-auto sm:justify-end">
                   {isAdmin && p.status === 'draft' && (
                     <>
                       <Button type="button" size="sm" variant="secondary" className="h-7 gap-1 px-2 text-xs"
@@ -302,7 +308,7 @@ export function PlanSessionPanel() {
                       <MoreVertical className="size-4" />
                     </Button>
                     {menuOpenId === p.id && (
-                      <div className="absolute right-0 top-8 z-50 min-w-[190px] rounded-xl border border-white/60 bg-white/95 py-1 shadow-lg dark:border-zinc-700/60 dark:bg-zinc-900/95">
+                      <div className="absolute left-0 right-0 top-8 z-50 min-w-0 rounded-xl border border-white/60 bg-white/95 py-1 shadow-lg dark:border-zinc-700/60 dark:bg-zinc-900/95 sm:left-auto sm:right-0 sm:min-w-[190px]">
                         <MenuBtn icon={<Search className="size-3.5" />} label="Öğrenci Ara"
                           onClick={() => { setMenuOpenId(null); }}
                           href={`/kelebek-sinav/sinif-ogrenci${schoolQ}`} />
@@ -627,7 +633,14 @@ export function PlanSessionPanel() {
                 {(rulesPlan.rules?.fixedClassIds?.length ?? 0) > 0 && `${rulesPlan.rules.fixedClassIds!.length} sabit sınıf`}
                 {(rulesPlan.rules?.pinnedStudentIds?.length ?? 0) > 0 && ` · ${rulesPlan.rules.pinnedStudentIds!.length} sabit öğrenci`}
                 {!(rulesPlan.rules?.fixedClassIds?.length) && !(rulesPlan.rules?.pinnedStudentIds?.length) && '—'}
-                {rulesPlan.rules?.prioritizePinned && ' · Sabit öğrenciler önce yerleştirilir'}
+                {(rulesPlan.rules?.pinnedStudentIds?.length ?? 0) > 0 && (
+                  <>
+                    {rulesPlan.rules?.prioritizePinned !== false && ' · Önce yerleştir (sabitler öncelikli)'}
+                    {rulesPlan.rules?.lockPinnedAssignments !== false
+                      ? ' · Yerleştirmeden sonra kilitle açık'
+                      : ' · Kilitle kapalı'}
+                  </>
+                )}
                 {rulesPlan.rules?.specialNeedsInFront && ' · Özel ihtiyaçlı öğrenciler ön sıraya'}
               </RuleSection>
               <RuleSection icon={<UserCog className="size-3.5" />} title="Gözetmen Ayarları">

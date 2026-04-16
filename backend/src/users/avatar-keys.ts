@@ -8,6 +8,11 @@ export const AVATAR_KEYS = [
   'violet',
   'amber',
   'mint',
+  'laptop',
+  'bulb',
+  'note',
+  'mind',
+  'palette',
 ] as const;
 
 export type AvatarKey = (typeof AVATAR_KEYS)[number];

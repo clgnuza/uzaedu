@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { msgQ, Campaign, loadRecipients, Recipient } from '@/lib/messaging-api';
+import { DAVETIYE_PRESETS } from '@/lib/messaging-default-templates';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -12,13 +13,6 @@ import { toast } from 'sonner';
 import { Upload, X, RefreshCw, Send } from 'lucide-react';
 import CampaignPreviewTable from '../components/CampaignPreviewTable';
 import SendPanel from '../components/SendPanel';
-
-const TEMPLATES = [
-  { label: '🎓 Mezuniyet', msg: 'Sayın {AD},\n\nMezuniyet törenimize sizi davet etmekten onur duyarız.\n\n📅 Tarih: \n🕐 Saat: \n📍 Yer: \n\nSaygılarımızla. — OgretmenPro' },
-  { label: '🎭 Kermes / Etkinlik', msg: 'Sayın {AD},\n\nOkulumuzun düzenlediği etkinliğe davetlisiniz!\n\n📅 Tarih: \n🕐 Saat: \n📍 Yer: \n\nBekliyoruz. — OgretmenPro' },
-  { label: '📚 Seminer', msg: 'Sayın {AD},\n\nDüzenlediğimiz seminere katılımınızı bekliyoruz.\n\n📅 Tarih: \n🕐 Saat: \n📍 Yer: \n\nSaygılarımızla. — OgretmenPro' },
-  { label: '✏️ Özel', msg: '' },
-];
 
 type Group = { id: string; name: string; memberCount: number };
 
@@ -29,7 +23,7 @@ export default function DavetiyePage() {
 
   const [groups, setGroups]         = useState<Group[]>([]);
   const [title, setTitle]           = useState('');
-  const [message, setMessage]       = useState(TEMPLATES[0].msg);
+  const [message, setMessage]       = useState(DAVETIYE_PRESETS[0].msg);
   const [source, setSource]         = useState<'excel' | 'group'>('excel');
   const [selectedGroup, setSelGroup] = useState('');
   const [campaign, setCampaign]     = useState<Campaign | null>(null);
@@ -84,7 +78,7 @@ export default function DavetiyePage() {
             <div>
               <p className="mb-1.5 text-xs font-semibold text-muted-foreground">Şablon Seç</p>
               <div className="flex flex-wrap gap-2">
-                {TEMPLATES.map((t) => (
+                {DAVETIYE_PRESETS.map((t) => (
                   <button key={t.label} onClick={() => { if (t.msg) setMessage(t.msg); }}
                     className="rounded-xl border bg-white/60 px-3 py-1.5 text-xs font-semibold hover:bg-indigo-50 hover:border-indigo-300 transition-colors dark:bg-zinc-900/50">
                     {t.label}

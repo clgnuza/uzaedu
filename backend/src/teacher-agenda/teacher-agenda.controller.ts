@@ -440,6 +440,7 @@ export class TeacherAgendaController {
       maxScore: dto.maxScore ?? 5,
       scoreType: dto.scoreType ?? 'numeric',
       subjectId: dto.subjectId ?? undefined,
+      criterionCategory: dto.criterionCategory,
     });
   }
 
@@ -457,6 +458,7 @@ export class TeacherAgendaController {
       scoreType: dto.scoreType,
       sortOrder: dto.sortOrder,
       subjectId: dto.subjectId !== undefined ? dto.subjectId : undefined,
+      criterionCategory: dto.criterionCategory,
     });
   }
 

@@ -378,7 +378,7 @@ export default function BilsemTakvimAyarlarPage() {
           <Link
             href="/bilsem/takvim"
             className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-background/80 hover:text-primary sm:size-8 sm:rounded-lg"
-            aria-label="BİLSEM takvime dön"
+            aria-label="Bilsem takvime dön"
           >
             <Home className="size-4 sm:size-[18px]" />
           </Link>
@@ -387,7 +387,7 @@ export default function BilsemTakvimAyarlarPage() {
             <Settings2 className="size-3.5 sm:size-4" aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
-            <h1 className="text-xs font-bold leading-tight text-foreground sm:text-base">BİLSEM takvim ayarları</h1>
+            <h1 className="text-xs font-bold leading-tight text-foreground sm:text-base">Bilsem takvim ayarları</h1>
             <p className="truncate text-[10px] text-muted-foreground sm:text-xs" title={headerSummary}>
               {headerSummary}
             </p>
@@ -497,7 +497,7 @@ export default function BilsemTakvimAyarlarPage() {
             <Card soft className="border-dashed">
               <CardContent className="flex flex-col items-center justify-center py-10 text-center sm:py-16">
                 <Calendar className="mb-3 size-12 text-muted-foreground/50 sm:mb-4 sm:size-14" />
-                <p className="text-sm font-medium text-muted-foreground">BİLSEM şablonu henüz oluşturulmamış</p>
+                <p className="text-sm font-medium text-muted-foreground">Bilsem şablonu henüz oluşturulmamış</p>
                 <p className="mt-1 text-xs text-muted-foreground sm:text-sm">Süper admin şablonu doldurduktan sonra burada listelenir.</p>
               </CardContent>
             </Card>

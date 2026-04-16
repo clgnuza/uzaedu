@@ -1,8 +1,22 @@
 import { IsIn, IsOptional, IsString } from 'class-validator';
 
 export class MebbisIlceQueryDto {
+  @IsIn(['1', '2', '3'])
+  owner!: '1' | '2' | '3';
+
   @IsString()
   il_kodu!: string;
+}
+
+export class MebbisTypeQueryDto {
+  @IsIn(['1', '2', '3'])
+  owner!: '1' | '2' | '3';
+
+  @IsString()
+  il_kodu!: string;
+
+  @IsString()
+  ilce_label!: string;
 }
 
 export class MebbisFetchDto {

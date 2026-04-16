@@ -53,7 +53,7 @@ export class YillikPlanIcerikService {
     return rows.map((r) => (r as { subject_code: string }).subject_code).filter(Boolean);
   }
 
-  /** BİLSEM: yıllık plan içeriği girilmiş ders kodları (öğretmen «plan iste» ders listesi). */
+  /** Bilsem: yıllık plan içeriği girilmiş ders kodları (öğretmen «plan iste» ders listesi). */
   async getSubjectCodesWithPlanBilsem(params?: {
     academic_year?: string;
     ana_grup?: string;
@@ -472,7 +472,7 @@ export class YillikPlanIcerikService {
     return qb.getMany();
   }
 
-  /** BİLSEM PÜY listesi/API: DB’de boş olan yardımcı sütunları gösterim için doldurur (kalıcı yazmaz). */
+  /** Bilsem PÜY listesi/API: DB’de boş olan yardımcı sütunları gösterim için doldurur (kalıcı yazmaz). */
   attachBilsemPuyDisplayDefaults(items: YillikPlanIcerik[]): void {
     for (const e of items) {
       if (e.curriculumModel?.trim() !== 'bilsem') continue;
@@ -510,7 +510,7 @@ export class YillikPlanIcerikService {
     const isBilsem = dto.curriculum_model?.trim() === 'bilsem';
     if (isBilsem) {
       if (!dto.ana_grup?.trim()) {
-        throw new BadRequestException({ code: 'ANA_GRUP_REQUIRED', message: 'BİLSEM için ana grup zorunludur.' });
+        throw new BadRequestException({ code: 'ANA_GRUP_REQUIRED', message: 'Bilsem için ana grup zorunludur.' });
       }
     } else if (dto.grade == null || dto.grade < 1 || dto.grade > 12) {
       throw new BadRequestException({ code: 'GRADE_REQUIRED', message: 'Sınıf (1-12) zorunludur.' });
@@ -574,7 +574,7 @@ export class YillikPlanIcerikService {
     await this.repo.delete(id);
   }
 
-  /** Filtrelere göre toplu silme. MEB: grade zorunlu; BİLSEM: ana_grup zorunlu. */
+  /** Filtrelere göre toplu silme. MEB: grade zorunlu; Bilsem: ana_grup zorunlu. */
   async bulkDelete(filters: {
     subject_code: string;
     grade?: number;
@@ -712,7 +712,7 @@ export class YillikPlanIcerikService {
     }
   }
 
-  /** Plan meta (tablo altı not) – MEB: grade; BİLSEM: anaGrup, altGrup */
+  /** Plan meta (tablo altı not) – MEB: grade; Bilsem: anaGrup, altGrup */
   async getMeta(
     subjectCode: string,
     gradeOrAna: number | string,

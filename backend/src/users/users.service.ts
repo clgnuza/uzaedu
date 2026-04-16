@@ -26,6 +26,7 @@ import {
   mebbisPlaceholderEmailsForLookup,
   type ParsedMebbisPerson,
 } from './mebbis-personnel-xls.parser';
+import { normalizeTeacherDisplayName } from '../common/utils/teacher-display-name.util';
 
 @Injectable()
 export class UsersService {
@@ -422,6 +423,18 @@ export class UsersService {
     if (dto.teacher_public_name_masked !== undefined) {
       user.teacherPublicNameMasked = dto.teacher_public_name_masked;
     }
+    if (dto.login_otp_required !== undefined) {
+      const allowed = [UserRole.teacher, UserRole.school_admin, UserRole.superadmin, UserRole.moderator].includes(
+        user.role as UserRole,
+      );
+      if (!allowed) {
+        throw new ForbiddenException({
+          code: 'FORBIDDEN',
+          message: 'Giriş doğrulama ayarı bu hesap türü için kullanılamaz.',
+        });
+      }
+      user.loginOtpRequired = dto.login_otp_required;
+    }
     if (dto.teacher_branch !== undefined) {
       const b = dto.teacher_branch?.trim() || null;
       if (b?.includes('\0')) {
@@ -729,5 +742,95 @@ export class UsersService {
     }
     user.passwordHash = await bcrypt.hash(newPassword, 10);
     await this.userRepo.save(user);
+  }
+
+  /**
+   * Okul yöneticisi: şifresiz ön kayıt (stub) ile aynı ad-soyadlı web kayıtlı öğretmeni tek hesapta birleştirir.
+   * Kayıt akışındaki otomatik birleştirme ile aynı kurallar (ad eşleşmesi, tek stub).
+   */
+  async mergeTeacherRegistration(
+    stubUserId: string,
+    registeredEmail: string,
+    scope: { role: UserRole; schoolId: string | null },
+  ): Promise<User> {
+    if (scope.role !== UserRole.school_admin || !scope.schoolId) {
+      throw new ForbiddenException({
+        code: 'FORBIDDEN',
+        message: 'Bu işlem yalnızca okul yöneticisi tarafından yapılabilir.',
+      });
+    }
+    const schoolId = scope.schoolId;
+    const emailNorm = registeredEmail.trim().toLowerCase();
+    const stub = await this.userRepo.findOne({ where: { id: stubUserId } });
+    const registered = await this.userRepo.findOne({ where: { email: emailNorm } });
+    if (!stub || stub.role !== UserRole.teacher || stub.school_id !== schoolId) {
+      throw new BadRequestException({ code: 'INVALID_STUB', message: 'Geçersiz ön kayıt (öğretmen).' });
+    }
+    if (stub.passwordHash || stub.firebaseUid) {
+      throw new BadRequestException({
+        code: 'NOT_PASSWORDLESS_STUB',
+        message: 'Bu kayıt zaten şifre veya sosyal giriş ile bağlı; birleştirme yapılamaz.',
+      });
+    }
+    if (!registered || registered.role !== UserRole.teacher || registered.school_id !== schoolId) {
+      throw new BadRequestException({
+        code: 'INVALID_REGISTERED',
+        message: 'Bu e-posta ile aynı okulda kayıtlı öğretmen bulunamadı.',
+      });
+    }
+    if (registered.id === stub.id) {
+      throw new BadRequestException({ code: 'SAME_USER', message: 'Aynı kullanıcı.' });
+    }
+    if (!registered.passwordHash) {
+      throw new BadRequestException({
+        code: 'REGISTERED_HAS_NO_PASSWORD',
+        message: 'Seçilen hesapta yerel şifre yok; birleştirme için web ile kayıtlı hesap gerekir.',
+      });
+    }
+    const nStub = normalizeTeacherDisplayName(stub.display_name);
+    const nReg = normalizeTeacherDisplayName(registered.display_name);
+    if (!nStub || nStub !== nReg) {
+      throw new BadRequestException({
+        code: 'NAME_MISMATCH',
+        message: 'Ad-soyad eşleşmiyor. Ön kayıt ile web hesabındaki görünen ad aynı olmalıdır.',
+      });
+    }
+    const otherStubs = await this.userRepo.find({
+      where: { school_id: schoolId, role: UserRole.teacher },
+    });
+    const sameNameStubs = otherStubs.filter(
+      (u) =>
+        u.id !== stub.id &&
+        !u.passwordHash &&
+        !u.firebaseUid &&
+        normalizeTeacherDisplayName(u.display_name) === nStub,
+    );
+    if (sameNameStubs.length > 0) {
+      throw new BadRequestException({
+        code: 'AMBIGUOUS_NAME_MERGE',
+        message: 'Aynı adda başka ön kayıt var; önce fazlalıkları kaldırın.',
+      });
+    }
+
+    stub.email = registered.email;
+    stub.passwordHash = registered.passwordHash;
+    stub.firebaseUid = registered.firebaseUid;
+    stub.emailVerifiedAt = registered.emailVerifiedAt;
+    stub.display_name = registered.display_name?.trim() || stub.display_name;
+    if (!stub.teacherBranch && registered.teacherBranch) stub.teacherBranch = registered.teacherBranch;
+    if (!stub.teacherPhone && registered.teacherPhone) stub.teacherPhone = registered.teacherPhone;
+    if (!stub.teacherTitle && registered.teacherTitle) stub.teacherTitle = registered.teacherTitle;
+    if (!stub.avatarUrl && registered.avatarUrl) stub.avatarUrl = registered.avatarUrl;
+    if (!stub.avatarKey && registered.avatarKey) stub.avatarKey = registered.avatarKey;
+    stub.teacherSchoolMembership = registered.teacherSchoolMembership;
+    stub.schoolJoinEmailVerifiedAt = registered.schoolJoinEmailVerifiedAt;
+    stub.schoolJoinEmailToken = registered.schoolJoinEmailToken;
+    stub.schoolJoinEmailTokenExpiresAt = registered.schoolJoinEmailTokenExpiresAt;
+
+    await this.userRepo.manager.transaction(async (em) => {
+      await em.save(stub);
+      await em.delete(User, { id: registered.id });
+    });
+    return this.findById(stub.id);
   }
 }

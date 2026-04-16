@@ -155,7 +155,7 @@ export default function BilsemYillikPlanPage() {
               <ClipboardList className="size-6" strokeWidth={2} />
             </div>
             <div className="min-w-0">
-              <h1 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">BİLSEM yıllık çalışma planı</h1>
+              <h1 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">Bilsem yıllık çalışma planı</h1>
               <p className="mt-0.5 text-sm text-muted-foreground">
                 {academicYear} · Kurum üst bilgisini düzenleyip tabloyu doldurun; yazdırmada yalnızca belge çıkar.
               </p>
@@ -241,7 +241,7 @@ export default function BilsemYillikPlanPage() {
                   onChange={(e) => setKurumAdi(e.target.value)}
                   readOnly={!canEdit}
                   className="yillik-plani-input border-0 bg-transparent text-center text-lg font-bold text-black shadow-none focus-visible:ring-0 print:text-lg"
-                  placeholder="Kurum adı (örn: Akşehir BİLSEM Müdürlüğü)"
+                  placeholder="Kurum adı (örn: Akşehir Bilsem Müdürlüğü)"
                 />
               </p>
               <div className="mx-auto mt-4 h-px w-48 bg-violet-200 print:bg-black dark:bg-violet-800/50" />
