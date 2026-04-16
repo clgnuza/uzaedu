@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { memo, useEffect, useId, useState } from 'react';
+import { memo, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AuthTransitionLink } from '@/components/landing/auth-transition-link';
 import { cn } from '@/lib/utils';
@@ -60,7 +60,7 @@ const ITEMS: HubItem[] = [
 
 const OUTER_R = 45.2;
 const STAR_R  = 39.4;
-const NODE_R  = 39.0;
+const NODE_R  = 37.0;
 const INNER_R = 20.8;
 
 /** Sabit yüzdeler — SSR / istemci kayan nokta farkı hidrasyon hatası vermesin */
@@ -106,7 +106,7 @@ function ActionButton({
   );
 }
 
-function HubDetailModal({ item, onClose }: { item: HubItem; onClose: () => void }) {
+function HubDetailModal({ item, onClose, hubRect }: { item: HubItem; onClose: () => void; hubRect: DOMRect }) {
   const sid = useId().replace(/:/g, '');
   const CardIcon = item.icon;
 
@@ -135,13 +135,16 @@ function HubDetailModal({ item, onClose }: { item: HubItem; onClose: () => void 
     ? item.href
     : `/login?redirect=${encodeURIComponent(item.href)}`;
 
-  /** SealHub dış kare ile aynı üst sınır + taşmayı önlemek için dvh */
-  const hubMatchSize =
-    'aspect-square w-[min(94vw,min(440px,88dvh))] max-w-[min(94vw,min(440px,88dvh))] sm:w-[min(92vw,min(500px,90dvh))] sm:max-w-[min(92vw,min(500px,90dvh))] md:w-[min(90vw,min(540px,90dvh))] md:max-w-[min(90vw,min(540px,90dvh))] lg:w-[min(88vw,min(620px,92dvh))] lg:max-w-[min(88vw,min(620px,92dvh))] xl:w-[min(84vw,min(700px,92dvh))] xl:max-w-[min(84vw,min(700px,92dvh))]';
+  /** Kırmızı halka = hub container × (OUTER_R/50) = %90.4; kartı tam oraya sabitle */
+  const ringRatio = (OUTER_R * 2) / 100;          // 0.904
+  const padFrac   = (1 - ringRatio) / 2;           // 0.048
+  const cardSize  = hubRect.width * ringRatio;
+  const cardLeft  = hubRect.left  + hubRect.width  * padFrac;
+  const cardTop   = hubRect.top   + hubRect.height * padFrac;
 
   return createPortal(
     <div
-      className="fixed inset-0 z-80 flex items-center justify-center p-2 sm:p-4"
+      className="fixed inset-0 z-80"
       style={{ animation: 'hub-modal-backdrop 0.32s ease-out both' }}
       onClick={onClose}
       role="presentation"
@@ -151,8 +154,13 @@ function HubDetailModal({ item, onClose }: { item: HubItem; onClose: () => void 
         aria-hidden
       />
       <div
-        className={`relative flex min-h-0 shrink-0 flex-col overflow-hidden rounded-full border border-white/14 text-center shadow-[0_28px_90px_-24px_rgba(139,92,246,0.5),inset_0_1px_0_rgba(255,255,255,0.08)] ${hubMatchSize}`}
+        className="relative flex min-h-0 flex-col overflow-hidden rounded-full border border-white/14 text-center shadow-[0_28px_90px_-24px_rgba(139,92,246,0.5),inset_0_1px_0_rgba(255,255,255,0.08)]"
         style={{
+          position: 'fixed',
+          left: cardLeft,
+          top: cardTop,
+          width: cardSize,
+          height: cardSize,
           animation: 'hub-modal-card 0.48s cubic-bezier(0.22, 1, 0.32, 1) both',
           background:
             'linear-gradient(152deg, rgba(49,46,129,0.98) 0%, rgba(91,33,182,0.95) 36%, rgba(30,27,75,0.98) 64%, rgba(15,23,42,0.99) 100%)',
@@ -399,7 +407,9 @@ function RopeRing({
 
 export function SealHub() {
   const router = useRouter();
+  const hubRef = useRef<HTMLDivElement>(null);
   const [activeItem, setActiveItem] = useState<HubItem | null>(null);
+  const [hubRect, setHubRect] = useState<DOMRect | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -408,10 +418,15 @@ export function SealHub() {
     router.prefetch('/register');
   }, [router]);
 
+  const handleSelect = useCallback((item: HubItem) => {
+    if (hubRef.current) setHubRect(hubRef.current.getBoundingClientRect());
+    setActiveItem(item);
+  }, []);
+
   return (
     <div className="w-full min-w-0 max-w-[100vw]">
       {/* Yuvarlak logo + çevrede simgeler — tüm ekranlar */}
-      <div className="relative isolate mx-auto aspect-square w-full min-h-0 max-w-[min(94vw,440px)] sm:max-w-[min(92vw,500px)] md:max-w-[min(90vw,540px)] lg:max-w-[min(88vw,620px)] xl:max-w-[min(84vw,700px)]">
+      <div ref={hubRef} className="relative isolate mx-auto aspect-square w-full min-h-0 max-w-[min(94vw,440px)] sm:max-w-[min(92vw,500px)] md:max-w-[min(90vw,540px)] lg:max-w-[min(88vw,620px)] xl:max-w-[min(84vw,700px)]">
         {/* Ambient bloom */}
         <div
           className="pointer-events-none absolute inset-0 rounded-full"
@@ -475,13 +490,15 @@ export function SealHub() {
                 className="absolute flex w-[15%] min-w-0 max-w-[15%] -translate-x-1/2 -translate-y-1/2 justify-center sm:w-[16%] sm:max-w-[16%] md:w-[17%] md:max-w-[17%] lg:w-[17.5%] lg:max-w-[17.5%]"
                 style={NODE_POSITIONS[i]}
               >
-                <Node3D item={item} onSelect={setActiveItem} />
+                <Node3D item={item} onSelect={handleSelect} />
               </div>
             ))}
           </div>
         </div>
 
-        {mounted && activeItem && <HubDetailModal item={activeItem} onClose={() => setActiveItem(null)} />}
+        {mounted && activeItem && hubRect && (
+          <HubDetailModal item={activeItem} hubRect={hubRect} onClose={() => { setActiveItem(null); setHubRect(null); }} />
+        )}
 
         {/* Orta logo */}
         <div className="pointer-events-none absolute inset-[30%] flex items-center justify-center">
