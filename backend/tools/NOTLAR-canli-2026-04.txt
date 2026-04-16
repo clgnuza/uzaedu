@@ -13,3 +13,44 @@ CORS / "Backend bağlantısı kurulamadı" (uzaedu.com)
 - Nginx: infra/nginx/uzaedu.conf sunucuya uyarlandı; nginx -t + reload.
 - /opt/uzaedu/web-admin/.env.production: NEXT_PUBLIC_API_BASE_URL=https://api.uzaedu.com/api, NEXT_PUBLIC_SITE_URL=https://uzaedu.com (NEXT_PUBLIC_* build anında gömülür).
 - scripts/hetzner/bootstrap.sh CORS için DOMAIN_SITE kullanıyor; sunucudaki eski elle .env bootstrap ile uyumsuz olabilir.
+
+2026-04-16 oturum özeti
+-----------------------
+GİTHUB: main → 10203f7 push edildi (origin: clgnuza/uzaedu).
+
+SUNUCU DEPLOY (Hetzner 178.104.124.176):
+- git pull + backend build + web-admin build + pm2 restart (api + web) → OK.
+- SSH key: ~/.ssh/id_rsa_uzaedu  user: root
+- Web build komutu: cd /opt/uzaedu/web-admin && node_modules/.bin/next build
+- NOT: sunucuda swap yok (0B). Build sırasında OOM/bus error riski var.
+  Geçici çözüm: dd if=/dev/zero of=/swapfile bs=1M count=1536 && mkswap /swapfile && swapon /swapfile
+  Sonra temizle: swapoff /swapfile && rm /swapfile
+- NOT: npm ci --jobs=1 OOM'a giriyor; rm -rf node_modules && npm install --no-audit --no-fund kullan.
+- NOT: git pull "cannot lock ref" hatası → git remote prune origin && git fetch --all && git reset --hard origin/main
+- NOT: Turbopack cache bozulursa → rm -rf .next && next build
+
+SQL MİGRASYONLAR UYGULANDI (16 Nisan):
+  backend/tools/sql/add-login-otp-required.sql
+  backend/migrations/20260415-school-teacher-name-merge-mode.sql
+  backend/migrations/add-messaging-user-preferences.sql
+  backend/migrations/add-teacher-evaluation-criterion-category.sql
+  backend/migrations/add-tv-remote-session.sql
+  Uygulama: scp + python3 run-remote-sql-import.py → docker exec psql → IMPORT_OK
+
+LANDING PAGE (seal-hub) DÜZELTMELERİ:
+- NODE_R: 35.2 → 37.0 (ikonlar halkadan içerde, yazılar taşmıyor)
+- max-sm:inset-[12%] kaldırıldı → inset-[4%] sabit (mobilde ikon bunching düzeltildi)
+- İkon dairesi clamp(36px,7.2vmin,50px), icon clamp(16px,3.1vmin,22px) (büyütüldü)
+- Modal: getBoundingClientRect() ile hub'ın gerçek DOM konumuna sabitlendi
+  cardSize = hubRect.width × (OUTER_R×2/100) = × 0.904
+  cardLeft = hubRect.left + hubRect.width × 0.048
+  cardTop  = hubRect.top  + hubRect.height × 0.048
+
+BU OTURUMDA YAPILAN DİĞER DEĞİŞİKLİKLER (commit 130fb07):
+- Mesaj merkezi: toplu mesaj, bordro, ogretmen WA tercihleri
+- Akıllı tahta / TV: telefon kumandası (sunum-kumandasi sayfası, QR, poll)
+- Backend: smart_board TV remote session/command entity + endpoint
+- Sınav görevlerim: DateChip useLayoutEffect ile mobil kaydırma
+- Sorumluluk bilgilendirme: overdue/upcoming ayrımı, 2 sütun mobil
+- Okullar: teacher_name_merge_mode, MEB import iyileştirmeleri
+- Kelebek sınav, yıllık plan, değerlendirme araçları güncellemeleri
