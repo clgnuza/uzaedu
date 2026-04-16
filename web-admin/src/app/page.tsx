@@ -86,7 +86,7 @@ export default function HomePage() {
 
       {/* ── Main ── */}
       <main
-        className="relative z-10 mx-auto flex w-full min-h-0 min-w-0 flex-1 flex-col items-center justify-center px-3 pb-5 pt-1 sm:px-5 sm:pb-8 sm:pt-2 md:max-w-4xl md:px-6 lg:px-8"
+        className="relative z-10 mx-auto flex w-full min-h-0 min-w-0 flex-1 flex-col items-center justify-center px-2 pb-4 pt-1 sm:px-4 sm:pb-7 sm:pt-2 md:px-6 lg:px-8"
         style={{ animation: 'landing-fadein 0.7s ease 0.1s both' }}
       >
         <div className="flex w-full min-w-0 flex-col items-center justify-center gap-0">

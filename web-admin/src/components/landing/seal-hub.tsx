@@ -60,7 +60,7 @@ const ITEMS: HubItem[] = [
 
 const OUTER_R = 45.2;
 const STAR_R  = 39.4;
-const NODE_R  = 35.2;
+const NODE_R  = 39.0;
 const INNER_R = 20.8;
 
 /** Sabit yüzdeler — SSR / istemci kayan nokta farkı hidrasyon hatası vermesin */
@@ -137,7 +137,7 @@ function HubDetailModal({ item, onClose }: { item: HubItem; onClose: () => void 
 
   /** SealHub dış kare ile aynı üst sınır + taşmayı önlemek için dvh */
   const hubMatchSize =
-    'aspect-square w-[min(96vw,min(400px,92dvh))] max-w-[min(96vw,min(400px,92dvh))] sm:w-[min(94vw,min(480px,92dvh))] sm:max-w-[min(94vw,min(480px,92dvh))] md:w-[min(94vw,min(520px,92dvh))] md:max-w-[min(94vw,min(520px,92dvh))] lg:w-[min(90vw,min(600px,92dvh))] lg:max-w-[min(90vw,min(600px,92dvh))] xl:w-[min(85vw,min(680px,92dvh))] xl:max-w-[min(85vw,min(680px,92dvh))]';
+    'aspect-square w-[min(94vw,min(440px,88dvh))] max-w-[min(94vw,min(440px,88dvh))] sm:w-[min(92vw,min(500px,90dvh))] sm:max-w-[min(92vw,min(500px,90dvh))] md:w-[min(90vw,min(540px,90dvh))] md:max-w-[min(90vw,min(540px,90dvh))] lg:w-[min(88vw,min(620px,92dvh))] lg:max-w-[min(88vw,min(620px,92dvh))] xl:w-[min(84vw,min(700px,92dvh))] xl:max-w-[min(84vw,min(700px,92dvh))]';
 
   return createPortal(
     <div
@@ -249,61 +249,61 @@ function HubDetailModal({ item, onClose }: { item: HubItem; onClose: () => void 
         </button>
 
         <div className="relative z-2 flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-1 pt-7 [-webkit-overflow-scrolling:touch] sm:px-6 sm:pt-8 sm:pb-2">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-1 pt-[14%] [-webkit-overflow-scrolling:touch] sm:px-6 sm:pt-[13%]">
             <div className="flex flex-col items-center">
-              <span className="relative flex size-11 shrink-0 items-center justify-center rounded-full border border-white/20 bg-[linear-gradient(160deg,rgba(255,255,255,0.12)_0%,rgba(15,23,42,0.5)_100%)] shadow-[0_0_20px_-8px_rgba(244,114,182,0.4)] sm:size-13">
-                <CardIcon className="size-5 text-rose-100 sm:size-7" strokeWidth={1.85} aria-hidden />
+              <span className="relative flex size-10 shrink-0 items-center justify-center rounded-full border border-white/20 bg-[linear-gradient(160deg,rgba(255,255,255,0.12)_0%,rgba(15,23,42,0.5)_100%)] shadow-[0_0_20px_-8px_rgba(244,114,182,0.4)] sm:size-12">
+                <CardIcon className="size-4.5 text-rose-100 sm:size-6" strokeWidth={1.85} aria-hidden />
               </span>
 
-              <p className="relative mt-1.5 text-[9px] font-bold uppercase tracking-[0.2em] text-violet-200/90 sm:text-[10px]">
+              <p className="relative mt-1 text-[8.5px] font-bold uppercase tracking-[0.2em] text-violet-200/90">
                 Modül
               </p>
               <h3
                 id="hub-detail-title"
-                className="relative mt-0.5 max-w-[22ch] bg-linear-to-r from-rose-100 via-amber-50 to-violet-200 bg-clip-text text-[15px] font-bold leading-tight text-transparent sm:text-base md:text-lg"
+                className="relative mt-0.5 max-w-[22ch] bg-linear-to-r from-rose-100 via-amber-50 to-violet-200 bg-clip-text text-[14px] font-bold leading-tight text-transparent sm:text-base md:text-lg"
               >
                 {item.label}
               </h3>
 
-              <span className="relative mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[9px] font-medium text-zinc-200/95 sm:text-[10px]">
-                <Sparkle className="size-3 shrink-0 text-amber-200/90" aria-hidden />
+              <span className="relative mt-1 inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[8.5px] font-medium text-zinc-200/95">
+                <Sparkle className="size-2.5 shrink-0 text-amber-200/90" aria-hidden />
                 Okul akışı
               </span>
 
-              <p className="relative mt-2 max-w-[36ch] text-pretty text-[11px] leading-relaxed text-zinc-200/95 sm:text-xs">
+              <p className="relative mt-1.5 max-w-[34ch] text-pretty text-[10.5px] leading-relaxed text-zinc-200/95 sm:text-xs">
                 {item.description}
               </p>
-              <p className="relative mt-1.5 max-w-[38ch] text-pretty text-[10px] leading-relaxed text-zinc-400 sm:text-[11px]">
+              <p className="relative mt-1 max-w-[36ch] text-pretty text-[9.5px] leading-relaxed text-zinc-400 sm:text-[11px]">
                 {item.detail}
               </p>
 
-              <ul className="relative mt-2 flex w-full max-w-md flex-wrap justify-center gap-1 px-1">
+              <ul className="relative mt-1.5 flex w-full max-w-md flex-wrap justify-center gap-1 px-1">
                 {item.tags.map((tag) => (
                   <li
                     key={tag}
-                    className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/25 px-2 py-1 text-[10px] font-medium text-zinc-100/90 sm:text-[11px]"
+                    className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/25 px-2 py-0.5 text-[9.5px] font-medium text-zinc-100/90"
                   >
-                    <Sparkles className="size-2.5 shrink-0 text-fuchsia-300/80 sm:size-3" aria-hidden />
+                    <Sparkles className="size-2.5 shrink-0 text-fuchsia-300/80" aria-hidden />
                     {tag}
                   </li>
                 ))}
               </ul>
 
-              <ul className="relative mt-2 w-full max-w-sm space-y-1 px-2 text-left text-[9px] leading-snug text-zinc-400 sm:text-[10px]">
-                <li className="flex items-start gap-2">
-                  <CheckCircle2 className="mt-0.5 size-3 shrink-0 text-emerald-400/90 sm:size-3.5" aria-hidden />
+              <ul className="relative mt-1.5 w-full max-w-sm space-y-0.5 px-2 text-left text-[9px] leading-snug text-zinc-400 sm:text-[10px]">
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="size-3 shrink-0 text-emerald-400/90" aria-hidden />
                   <span>Sade, anlaşılır akış</span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <Layers3 className="mt-0.5 size-3 shrink-0 text-violet-300/90 sm:size-3.5" aria-hidden />
+                <li className="flex items-center gap-2">
+                  <Layers3 className="size-3 shrink-0 text-violet-300/90" aria-hidden />
                   <span>Düzenli iş adımları</span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <Users className="mt-0.5 size-3 shrink-0 text-sky-300/90 sm:size-3.5" aria-hidden />
+                <li className="flex items-center gap-2">
+                  <Users className="size-3 shrink-0 text-sky-300/90" aria-hidden />
                   <span>Öğretmen ve yönetici</span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <Zap className="mt-0.5 size-3 shrink-0 text-amber-300/90 sm:size-3.5" aria-hidden />
+                <li className="flex items-center gap-2">
+                  <Zap className="size-3 shrink-0 text-amber-300/90" aria-hidden />
                   <span>Hızlı erişim</span>
                 </li>
               </ul>
@@ -336,7 +336,7 @@ const Node3D = memo(function Node3D({ item, onSelect }: { item: HubItem; onSelec
       aria-label={`${item.label} bilgi kartını aç`}
       className="group flex max-w-full flex-col items-center gap-0.5 outline-none focus-visible:ring-2 focus-visible:ring-red-500/70 sm:gap-1"
     >
-      <span className="relative flex h-[clamp(32px,5.8vmin,48px)] w-[clamp(32px,5.8vmin,48px)] shrink-0 items-center justify-center overflow-hidden rounded-full transition-transform duration-200 group-hover:scale-105 sm:h-[clamp(38px,6.5vmin,54px)] sm:w-[clamp(38px,6.5vmin,54px)] sm:group-hover:scale-110">
+      <span className="relative flex h-[clamp(36px,7.2vmin,50px)] w-[clamp(36px,7.2vmin,50px)] shrink-0 items-center justify-center overflow-hidden rounded-full transition-transform duration-200 group-hover:scale-105 sm:h-[clamp(40px,7.5vmin,56px)] sm:w-[clamp(40px,7.5vmin,56px)] sm:group-hover:scale-110">
         {/* Metallic base */}
         <span
           className="absolute inset-0 rounded-full"
@@ -358,11 +358,11 @@ const Node3D = memo(function Node3D({ item, onSelect }: { item: HubItem; onSelec
         />
         {/* Icon */}
         <Icon
-          className="relative z-10 h-[clamp(14px,2.5vmin,20px)] w-[clamp(14px,2.5vmin,20px)] text-red-400 drop-shadow-[0_0_5px_rgba(220,38,38,0.8)] transition-colors duration-200 group-hover:text-red-200 sm:h-[clamp(16px,2.9vmin,24px)] sm:w-[clamp(16px,2.9vmin,24px)]"
+          className="relative z-10 h-[clamp(16px,3.1vmin,22px)] w-[clamp(16px,3.1vmin,22px)] text-red-400 drop-shadow-[0_0_5px_rgba(220,38,38,0.8)] transition-colors duration-200 group-hover:text-red-200 sm:h-[clamp(18px,3.5vmin,26px)] sm:w-[clamp(18px,3.5vmin,26px)]"
           strokeWidth={1.6}
         />
       </span>
-      <span className="line-clamp-2 max-w-[min(4.5rem,22vw)] text-balance text-center text-[clamp(7px,1.05vmin,9px)] font-semibold leading-[1.08] text-zinc-200 [text-shadow:0_1px_6px_rgba(0,0,0,0.95)] transition-colors duration-200 group-hover:text-white sm:max-w-[min(84px,18vw)] sm:text-[clamp(8px,1.24vmin,10px)] sm:leading-tight">
+      <span className="line-clamp-2 max-w-[min(5rem,24vw)] text-balance text-center text-[clamp(8px,1.3vmin,10px)] font-semibold leading-[1.1] text-zinc-200 [text-shadow:0_1px_6px_rgba(0,0,0,0.95)] transition-colors duration-200 group-hover:text-white sm:max-w-[min(88px,18vw)] sm:text-[clamp(8.5px,1.4vmin,11px)] sm:leading-tight">
         {item.label}
       </span>
     </button>
@@ -410,8 +410,8 @@ export function SealHub() {
 
   return (
     <div className="w-full min-w-0 max-w-[100vw]">
-      {/* Yuvarlak logo + çevrede simgeler — tüm ekranlar (mobilde masaüstü ile aynı düzen) */}
-      <div className="relative isolate mx-auto aspect-square w-full min-h-0 max-w-[min(96vw,400px)] sm:max-w-[min(94vw,480px)] md:max-w-[min(94vw,520px)] lg:max-w-[min(90vw,600px)] xl:max-w-[min(85vw,680px)]">
+      {/* Yuvarlak logo + çevrede simgeler — tüm ekranlar */}
+      <div className="relative isolate mx-auto aspect-square w-full min-h-0 max-w-[min(94vw,440px)] sm:max-w-[min(92vw,500px)] md:max-w-[min(90vw,540px)] lg:max-w-[min(88vw,620px)] xl:max-w-[min(84vw,700px)]">
         {/* Ambient bloom */}
         <div
           className="pointer-events-none absolute inset-0 rounded-full"
@@ -466,13 +466,13 @@ export function SealHub() {
           </g>
         </svg>
 
-        {/* Module nodes — mobilde halkadan içeri (inset) + dar yuva; taşmayı önler */}
-        <div className="absolute inset-[5%] max-sm:inset-[12%] sm:inset-[4%] md:inset-[3%]">
+        {/* Module nodes */}
+        <div className="absolute inset-[4%] sm:inset-[3%] md:inset-[2.5%]">
           <div className="relative h-full min-h-0 w-full min-w-0">
             {ITEMS.map((item, i) => (
               <div
                 key={item.href}
-                className="absolute flex w-[14%] min-w-0 max-w-[14%] -translate-x-1/2 -translate-y-1/2 justify-center max-sm:w-[12.5%] max-sm:max-w-[12.5%] sm:w-[16%] sm:max-w-[16%] md:w-[17%] md:max-w-[17%] lg:w-[17.5%] lg:max-w-[17.5%]"
+                className="absolute flex w-[15%] min-w-0 max-w-[15%] -translate-x-1/2 -translate-y-1/2 justify-center sm:w-[16%] sm:max-w-[16%] md:w-[17%] md:max-w-[17%] lg:w-[17.5%] lg:max-w-[17.5%]"
                 style={NODE_POSITIONS[i]}
               >
                 <Node3D item={item} onSelect={setActiveItem} />
