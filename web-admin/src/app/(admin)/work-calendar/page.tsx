@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, createFetchTimeoutSignal, isAbortError } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -156,11 +156,16 @@ export default function WorkCalendarPage(props?: { embedded?: boolean }) {
         method: 'POST',
         token,
         body: JSON.stringify({ academic_year: academicYear }),
+        signal: createFetchTimeoutSignal(480_000),
       });
       setGptDraft(res.items ?? []);
       toast.success(`${res.items?.length ?? 0} haftalık taslak oluşturuldu. Kaydedebilirsiniz.`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'GPT taslağı oluşturulamadı.');
+      if (isAbortError(e)) {
+        toast.error('Taslak oluşturma zaman aşımı (8 dk). Tekrar deneyin.');
+      } else {
+        toast.error(e instanceof Error ? e.message : 'GPT taslağı oluşturulamadı.');
+      }
     } finally {
       setGptGenerating(false);
     }

@@ -42,6 +42,21 @@ function isConnectionError(e: unknown): boolean {
 const CONNECTION_ERROR_MESSAGE =
   'Backend bağlantısı kurulamadı. Önce backend\'i başlatın (backend: npm run start:dev), birkaç saniye bekleyip sayfayı yenileyin.';
 
+/** Bağlantı reddi sonrası arka plan tekrarlarını kesmek (konsolda aynı URL için tekrarlayan net::ERR_ gürültüsü). */
+let apiUnavailableUntil = 0;
+
+export function shouldSkipOptionalApiCalls(): boolean {
+  return Date.now() < apiUnavailableUntil;
+}
+
+export function registerApiUnavailable(ms: number): void {
+  apiUnavailableUntil = Math.max(apiUnavailableUntil, Date.now() + ms);
+}
+
+export function clearApiUnavailable(): void {
+  apiUnavailableUntil = 0;
+}
+
 export function getApiUrl(path: string): string {
   return buildApiUrl(path, resolveDefaultApiBase());
 }
@@ -93,6 +108,16 @@ export function isAbortError(e: unknown): boolean {
   if (e instanceof DOMException && e.name === 'AbortError') return true;
   if (e instanceof Error && e.name === 'AbortError') return true;
   return false;
+}
+
+/** fetch için istemci süre sınırı (AbortSignal.timeout yoksa polyfill). */
+export function createFetchTimeoutSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(ms);
+  }
+  const ctrl = new AbortController();
+  setTimeout(() => ctrl.abort(), ms);
+  return ctrl.signal;
 }
 
 export async function apiFetch<T>(
@@ -148,10 +173,14 @@ export async function apiFetch<T>(
       }
       throw err;
     }
+    clearApiUnavailable();
     return res.json() as Promise<T>;
   } catch (e) {
     if (isAbortError(e)) throw e;
-    if (isConnectionError(e)) throw new Error(CONNECTION_ERROR_MESSAGE);
+    if (isConnectionError(e)) {
+      registerApiUnavailable(15_000);
+      throw new Error(CONNECTION_ERROR_MESSAGE);
+    }
     throw e;
   }
 }

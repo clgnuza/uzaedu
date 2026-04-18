@@ -15,12 +15,17 @@ import {
 import { getTymmFetchUrl, getTymmSourceUrls, normalizeSubjectCodeForMeb } from '../config/meb-sources';
 import { AppConfigService } from '../app-config/app-config.service';
 import { getDersSaatiStatic } from '../config/ders-saati';
+import { parsePlanImportPayload } from './plan-import-parse';
+import { buildParsedRowsFromKazanimPlan } from './plan-kazanim-distribute';
 
 /** Varsayılan model – hız için gpt-5-mini (gpt-5.2 daha yavaş) */
 const DEFAULT_GPT_MODEL = 'gpt-5-mini';
 
 /** MEB Excel parse için varsayılan – tablo çıkarma basit bir iş, hızlı model yeterli */
 export const DEFAULT_MEB_IMPORT_MODEL = 'gpt-5-nano';
+
+/** Yapıştırılmış plan metni → haftalık JSON (hız; açıkça model seçilmediyse) */
+const DEFAULT_PASTE_GPT_MODEL = DEFAULT_MEB_IMPORT_MODEL;
 
 /** Bu modeller sadece temperature=1 destekler (özel değer vermek 400 hatası verir) */
 const MODELS_TEMP_1_ONLY = ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5.1', 'gpt-5.2', 'gpt-5.2-pro', 'gpt-4.1'];
@@ -39,6 +44,8 @@ export const GPT_TASLAK_MODELS = [
   { id: 'gpt-4-turbo', label: 'GPT-4 Turbo', description: 'Kararlı yedek' },
 ] as const;
 const MAX_RETRIES = 1;
+/** Yapıştırılmış tam metin — ek deneme gecikmeyi artırır; tek çağrı tercih */
+const PASTE_GPT_MAX_RETRIES = 0;
 /** Plan max 38 hafta: 36 plan + takvim 38 ise 37-38 (Okul Temelli, Sosyal Etkinlik). 39-40 yok. */
 const MAX_WEEKS = 38;
 
@@ -61,7 +68,7 @@ export interface DraftPlanItem {
 export interface GenerateDraftResult {
   items: DraftPlanItem[];
   warnings: string[];
-  source?: 'gpt' | 'tymm' | 'meb_fallback' | 'excel_parse';
+  source?: 'gpt' | 'tymm' | 'meb_fallback' | 'excel_parse' | 'paste_json' | 'paste_csv' | 'paste_gpt';
   quality?: {
     total_weeks: number;
     filled_weeks: number;
@@ -122,6 +129,14 @@ export class YillikPlanGptService {
     if (this.looksLikePlanNote(kazanim)) out.kazanimlar = null;
     if (this.looksLikePlanNote(konu)) out.konu = null;
     return out;
+  }
+
+  /** Tablo planı yapıştırmalarında BOM / görünmez karakter ve aşırı boş satırları sadeleştirir (TAB korunur). */
+  private normalizePastedPlanText(raw: string): string {
+    let s = raw.replace(/^\uFEFF/, '').replace(/[\u200b\u200c\u200d\ufeff]/g, '');
+    s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    s = s.replace(/\n{6,}/g, '\n\n\n\n\n');
+    return s.trim();
   }
 
   private getSupportColumnDefaults(): Pick<
@@ -966,6 +981,118 @@ ZORUNLU KURALLAR:
     return foundGrade >= 1 && foundGrade <= 12 && foundGrade !== grade;
   }
 
+  /**
+   * Yalnızca JSON/CSV veya kazanim_plan: GPT/TYMM/MEB otomatik tamamlama yok.
+   * Hafta ve tatil çerçevesi çalışma takviminden (veya yedek MEB 36 hafta) gelir.
+   */
+  async importPlanDraftNoGpt(params: {
+    subject_code: string;
+    subject_label: string;
+    grade: number;
+    academic_year: string;
+    section?: string;
+    payload: string;
+  }): Promise<GenerateDraftResult> {
+    const warnings: string[] = [];
+    this.validateSchoolProfileSubject(params.subject_code, undefined);
+    const calendar = await this.workCalendarService.findAll(params.academic_year);
+    type WeekInfo = { weekOrder: number; weekStart: string; weekEnd: string; ay: string; haftaLabel: string | null };
+    let teachingWeeks: WeekInfo[] = this.workCalendarService
+      .sortWeeksLikeFindAll(calendar.filter((w) => w.weekOrder >= 1 && w.weekOrder <= MAX_WEEKS))
+      .map((w) => ({ weekOrder: w.weekOrder, weekStart: w.weekStart, weekEnd: w.weekEnd, ay: w.ay, haftaLabel: w.haftaLabel }));
+
+    if (teachingWeeks.length < 36 && hasMebCalendar(params.academic_year)) {
+      warnings.push(
+        'Çalışma takvimi kısa veya boş; hafta çerçevesi için MEB şablonu kullanıldı (tatil işaretleri veritabanından gelmeyebilir).',
+      );
+      const mebWeeks = generateMebWorkCalendar(params.academic_year);
+      teachingWeeks = mebWeeks
+        .filter((w) => w.week_order >= 1 && w.week_order <= 36)
+        .map((w) => ({
+          weekOrder: w.week_order,
+          weekStart: w.week_start,
+          weekEnd: w.week_end,
+          ay: w.ay,
+          haftaLabel: w.hafta_label,
+        }));
+    }
+
+    const tatilWeeks = calendar
+      .filter((w) => w.isTatil && w.weekOrder >= 1 && w.weekOrder <= MAX_WEEKS)
+      .map((w) => w.weekOrder);
+
+    const totalWeeks = Math.min(
+      teachingWeeks.length > 0 ? Math.max(...teachingWeeks.map((w) => w.weekOrder)) : 36,
+      MAX_WEEKS,
+    );
+    const calendarWeekOrders = new Set(
+      teachingWeeks.length > 0
+        ? teachingWeeks.map((w) => w.weekOrder)
+        : Array.from({ length: totalWeeks }, (_, i) => i + 1),
+    );
+
+    const parsed = parsePlanImportPayload(params.payload);
+    let sourceRows: ParsedPlanRow[];
+    if (parsed.kind === 'kazanim_plan') {
+      const calMin = calendar.map((w) => ({
+        weekOrder: w.weekOrder,
+        isTatil: w.isTatil,
+        tatilLabel: w.tatilLabel,
+      }));
+      sourceRows = buildParsedRowsFromKazanimPlan(parsed.plan, calMin);
+      warnings.push(
+        parsed.plan.scope === 'full_year'
+          ? 'Kazanımlar tüm öğretim haftalarına dağıtıldı.'
+          : parsed.plan.scope === 'term1'
+            ? 'Kazanımlar 1. dönem öğretim haftalarına dağıtıldı; diğer haftalar yer tutucu.'
+            : 'Kazanımlar 2. dönem öğretim haftalarına dağıtıldı; diğer haftalar yer tutucu.',
+      );
+    } else {
+      sourceRows = parsed.rows;
+    }
+
+    if (!sourceRows.length) {
+      throw new BadRequestException({ code: 'IMPORT_NO_ROWS', message: 'İçe aktarılacak hafta satırı yok.' });
+    }
+
+    if (tatilWeeks.length > 0) {
+      warnings.push(`Tatil / seminer (çalışma takvimi): ${tatilWeeks.length} hafta.`);
+    }
+
+    const haftalikDersSaati = await this.appConfigService.getDersSaati(params.subject_code, params.grade);
+    const sourceDraft = this.buildDraftFromSourceRows({
+      sourceRows,
+      calendarWeekOrders,
+      tatilWeeks,
+      totalWeeks,
+      expectedSaati: haftalikDersSaati,
+      teachingWeeks,
+    });
+    const hardened = this.hardenDraftResult({
+      items: sourceDraft.items,
+      sourceRows,
+      tatilWeeks,
+      totalWeeks,
+      expectedSaati: haftalikDersSaati,
+      teachingWeeks,
+    });
+    const quality = this.buildDraftQuality({
+      items: hardened.items,
+      subjectCode: params.subject_code,
+      grade: params.grade,
+      tatilWeeks,
+    });
+    const sourceLabel =
+      parsed.kind === 'kazanim_plan' ? 'paste_json' : parsed.detected === 'csv' ? 'paste_csv' : 'paste_json';
+    return {
+      items: hardened.items,
+      warnings: [...warnings, ...sourceDraft.warnings],
+      source: sourceLabel,
+      quality,
+      ...this.buildSaveDecision(quality),
+    };
+  }
+
   private isSourceRowsCompatibleWithSubject(subjectCode: string, rows: ParsedPlanRow[]): boolean {
     const base = normalizeSubjectCodeForMeb(subjectCode);
     if (!rows.length) return true;
@@ -990,6 +1117,318 @@ ZORUNLU KURALLAR:
     return !looksLikeEnglishPlan;
   }
 
+  /** Yapıştırılan tam plan metninden GPT ile takvime oturtulmuş taslak. */
+  async generateDraftFromPastedFullText(params: {
+    subject_code: string;
+    subject_label: string;
+    grade: number;
+    academic_year: string;
+    section?: string;
+    school_profile?: string;
+    model?: string;
+    pasted_text: string;
+    curriculum_model?: string | null;
+    ana_grup?: string | null;
+    alt_grup?: string | null;
+  }): Promise<GenerateDraftResult> {
+    const raw = String(params.pasted_text ?? '').trim();
+    if (raw.length < 30) {
+      throw new BadRequestException({
+        code: 'PASTE_TEXT_SHORT',
+        message: 'GPT için plan metni çok kısa (en az ~30 karakter).',
+      });
+    }
+    const clipped = this.normalizePastedPlanText(raw).slice(0, 90_000);
+    this.validateSchoolProfileSubject(params.subject_code, params.school_profile);
+    const draftWarnings: string[] = [];
+    const calendar = await this.workCalendarService.findAll(params.academic_year);
+    type WeekInfo = { weekOrder: number; weekStart: string; weekEnd: string; ay: string; haftaLabel: string | null };
+    let teachingWeeks: WeekInfo[] = this.workCalendarService
+      .sortWeeksLikeFindAll(calendar.filter((w) => w.weekOrder >= 1 && w.weekOrder <= MAX_WEEKS))
+      .map((w) => ({ weekOrder: w.weekOrder, weekStart: w.weekStart, weekEnd: w.weekEnd, ay: w.ay, haftaLabel: w.haftaLabel }));
+
+    if (teachingWeeks.length < 36 && hasMebCalendar(params.academic_year)) {
+      draftWarnings.push(
+        'Çalışma takvimi kısa veya boş; hafta çerçevesi için MEB şablonu kullanıldı (tatil işaretleri veritabanından gelmeyebilir).',
+      );
+      const mebWeeks = generateMebWorkCalendar(params.academic_year);
+      teachingWeeks = mebWeeks
+        .filter((w) => w.week_order >= 1 && w.week_order <= 36)
+        .map((w) => ({
+          weekOrder: w.week_order,
+          weekStart: w.week_start,
+          weekEnd: w.week_end,
+          ay: w.ay,
+          haftaLabel: w.hafta_label,
+        }));
+    }
+
+    const tatilWeeks = calendar
+      .filter((w) => w.isTatil && w.weekOrder >= 1 && w.weekOrder <= MAX_WEEKS)
+      .map((w) => w.weekOrder);
+    let tatilLines = calendar
+      .filter((w) => w.isTatil && w.tatilLabel)
+      .map((w) => `- ${w.tatilLabel} (Hafta ${w.weekOrder})`)
+      .join('\n');
+    if (!tatilLines && tatilWeeks.length > 0) {
+      tatilLines = `- Standart MEB tatilleri (Hafta ${tatilWeeks.join(', ')})`;
+    }
+
+    const totalWeeks = Math.min(
+      teachingWeeks.length > 0 ? Math.max(...teachingWeeks.map((w) => w.weekOrder)) : 36,
+      MAX_WEEKS,
+    );
+    const calendarWeekOrders = new Set(
+      teachingWeeks.length > 0
+        ? teachingWeeks.map((w) => w.weekOrder)
+        : Array.from({ length: totalWeeks }, (_, i) => i + 1),
+    );
+    const weekLabelsBlock =
+      teachingWeeks.length > 0
+        ? (() => {
+            const firstW = teachingWeeks[0];
+            const lastW = teachingWeeks[teachingWeeks.length - 1];
+            return `Özet: ${totalWeeks} öğretim haftası (week_order 1…${totalWeeks}). Tatil week_order: ${tatilWeeks.length ? tatilWeeks.join(',') : '—'}. Örnek ilk/son: ${firstW.weekOrder}→${(firstW.ay ?? '').trim()}/${(firstW.haftaLabel ?? firstW.weekStart).slice(0, 24)} … ${lastW.weekOrder}→${(lastW.ay ?? '').trim()}/${(lastW.haftaLabel ?? lastW.weekStart).slice(0, 24)}`;
+          })()
+        : '';
+
+    const haftalikDersSaati = await this.appConfigService.getDersSaati(params.subject_code, params.grade);
+    const openai = this.openai;
+    if (!openai) {
+      throw new BadRequestException({
+        code: 'GPT_NOT_CONFIGURED',
+        message: 'Bu işlem için OPENAI_API_KEY gerekir.',
+      });
+    }
+
+    const subjectCodeLower = params.subject_code?.toLowerCase?.() ?? params.subject_code;
+    const unites = CURRICULUM_UNITES[subjectCodeLower]?.[params.grade];
+    const kazanimPrefix = KAZANIM_PREFIX[subjectCodeLower] ?? params.subject_code.slice(0, 3).toUpperCase();
+    let mebKazanimlarBlock = formatMebKazanimlarForPrompt(subjectCodeLower, params.grade);
+    const MEB_KAZANIM_PASTE_MAX = 10_000;
+    if (mebKazanimlarBlock.length > MEB_KAZANIM_PASTE_MAX) {
+      draftWarnings.push(`MEB kazanım bağlamı ${MEB_KAZANIM_PASTE_MAX} karaktere kısaltıldı (hız).`);
+      mebKazanimlarBlock = `${mebKazanimlarBlock.slice(0, MEB_KAZANIM_PASTE_MAX)}\n[…kısaltıldı]`;
+    }
+    const hasMeb = hasMebKazanimlar(subjectCodeLower, params.grade);
+    let unitesBlock = unites?.length
+      ? `MÜFREDAT ÜNİTELERİ (önerilen sıra; yapıştırılan metinle çelişirse metni önceliklendir):\n${unites.map((u, i) => `${i + 1}. ${u}`).join('\n')}`
+      : 'Müfredat ünite listesi tanımlı değil; yapıştırılan metne ve derse uygun üret.';
+    const UNITE_PASTE_MAX = 3_500;
+    if (unitesBlock.length > UNITE_PASTE_MAX) {
+      draftWarnings.push(`Ünite listesi ${UNITE_PASTE_MAX} karaktere kısaltıldı (hız).`);
+      unitesBlock = `${unitesBlock.slice(0, UNITE_PASTE_MAX)}\n[…]`;
+    }
+
+    const kazanimRule = hasMeb
+      ? `KAZANIM: MEB tam metinleri aşağıda verildiyse kazanimlar alanında mümkün olduğunca aynen kullan; yoksa yapıştırılan plandaki öğrenme çıktılarını koru.`
+      : `Kazanım: ${kazanimPrefix}.${params.grade}.… biçiminde tam açıklama yaz.`;
+
+    const sonHaftalarBlock =
+      totalWeeks >= 37
+        ? `SON HAFTALAR (${totalWeeks >= 38 ? '37–38' : '37'}): Hafta 37 OKUL TEMELLİ PLANLAMA* (zümre kararıyla araştırma/proje/yerel çalışmalar); ${totalWeeks >= 38 ? 'Hafta 38 SOSYAL ETKİNLİK (yıl sonu).' : ''} Bu haftalarda süreç ve ölçme alanlarını doldur.`
+        : '';
+
+    const alanKurallariBlock = `ALAN KURALLARI:
+- unite: ünite/tema adı (kısa). Tatil dışı 37/38 için özel ünite adları yukarıda.
+- konu: işlenecek konu özeti; kazanım tam metnini buraya yazma.
+- kazanimlar: öğrenme çıktıları tam metni.
+- belirli_gun_haftalar: her zaman boş string "".
+- surec_bilesenleri: Mümkünse DB/SDB kodları (DB1.1 SDB2.2); tabloda yoksa yöntem/etkinlikten kısa Türkçe özet.
+- olcme_degerlendirme: Tablodaki değerlendirme sütunundan kısa özet veya "—" yalnızca tatilde.`;
+
+    const tabloPlaniCikarimBlock = `## TABLO / YILLIK MÜFREDAT PLANI METNİNDEN ÇIKARIM
+Girdi Word/PDF’ten kopyalanmış çok sütunlu tablo veya TAB ile ayrılmış satırlar olabilir (Ay, N. Hafta, Ünite/Tema/Konu, Kazanımlar, araç-gereç, öğretme-öğrenme yöntemleri, değerlendirme).
+- week_order: Yalnızca aşağıdaki ÇALIŞMA TAKVİMİ tablosundaki sıra (1…${totalWeeks}). Belgendeki “N. Hafta” veya ay adı yalnızca hizalama ipucu; belge takvimden eksik/ fazla hafta içeriyorsa içeriği bu ${totalWeeks} haftaya yeniden yay.
+- Tatil / ara tatil / yarıyıl / seminer / karne: Aşağıda listelenen tatil week_order değerleriyle eşleştir; bu haftalarda ders_saati=0, unite, konu, kazanimlar kısa “—”, yardımcı alanlar boş string.
+- Kazanımlar: Madde işaretli veya kodlu uzun metni mümkün olduğunca aynen koru; aynı haftada birden çok madde varsa tek metinde birleştir (noktalı virgül veya satır sonu).
+- unite/konu: Tablodaki ünite–tema–konu hücrelerinden türet; ay veya “Hafta N” ifadesini unite içine gereksiz kopyalama.
+- surec_bilesenleri / olcme_degerlendirme: Tablodaki yöntem–teknik ve değerlendirme sütunlarından kısa Türkçe özet; kod yoksa anlamlı özet cümlesi yeterli.
+- Birleştirilmiş hücre veya iki haftayı kapsayan satır: İçeriği mantıklı şekilde böl veya sonraki boş öğretim haftasına taşı; hiçbir öğretim haftasını içeriksiz bırakma.`;
+
+    const destekAlanlariBlock = `## SOSYAL–DEĞER–OKURYAZARLIK–ZENGİNLEŞTİRME–OKUL TEMELLİ
+Tatil dışı haftalarda sosyal_duygusal, degerler, okuryazarlik_becerileri, zenginlestirme, okul_temelli_planlama alanlarında kısa anlamlı Türkçe (tercihen 1 kısa cümle); tabloda sütun yoksa ünite ve kazanıma uygun makul ifade yaz. Tatil haftalarında bu beş alanı boş string bırak.`;
+
+    const isBilsem = params.curriculum_model?.trim() === 'bilsem';
+    const bilsemCtx = isBilsem
+      ? `Bu plan Bilsem müfredatı içindir. Ders: ${params.subject_label} (kod: ${params.subject_code}). Ana grup: ${(params.ana_grup ?? '').trim() || '—'}. Alt grup: ${(params.alt_grup ?? '').trim() || '(yok)'}.`
+      : '';
+
+    const systemPrompt = `Sen ${params.subject_label} dersi için yıllık plan uzmanısın.
+${bilsemCtx}
+Öğretmenin yapıştırdığı metin birincil kaynaktır: içeriği mümkün olduğunca koru, hafta sayısı ve tatiller için çalışma takvimine uy, eksik haftaları tamamla.
+${tabloPlaniCikarimBlock}
+${alanKurallariBlock}
+
+## ÜNİTE REFERANSI
+${unitesBlock}
+
+${mebKazanimlarBlock ? `## MEB KAZANIM METİNLERİ (uyum için)\n${mebKazanimlarBlock}` : ''}
+
+## KAZANIM
+${kazanimRule}
+${destekAlanlariBlock}
+${sonHaftalarBlock}`;
+
+    const seviyeLine = isBilsem
+      ? `Referans düzey ${params.grade} (yapılandırmadan haftalık ders saati okunur; plan satırında düzey yok).`
+      : `${params.grade}. sınıf seviyesi`;
+    const userPromptBase = `## GÖREV
+${params.subject_label} (${params.subject_code}) — ${seviyeLine}, ${params.academic_year} öğretim yılı. Öğretim haftalarında haftalık ders saati: ${haftalikDersSaati} (tatilde 0).
+${params.school_profile ? `Okul profili: ${params.school_profile}.` : ''}
+Yalnızca bu dersin satırlarını ve kazanımlarını işle; metinde başka dersler geçiyorsa yok say.
+
+## AKTARIM ÖNCELİĞİ
+1) items içinde week_order tam olarak 1,2,…,${totalWeeks} — tekrar ve atlama yok.
+2) Öğretim haftasında ders_saati=${haftalikDersSaati}; tatil listesindeki haftada 0.
+3) Tatil dışı haftada unite, konu, kazanimlar ve yardımcı alanlar anlamlı; "—" yalnızca tatilde (ünite/konu/kazanım).
+4) belirli_gun_haftalar her satırda "".
+
+## ÖĞRETMENİN YAPIŞTIRDIĞI TAM PLAN
+${clipped}
+
+## ÇALIŞMA TAKVİMİ (${totalWeeks} HAFTA)
+${weekLabelsBlock || `Hafta 1-${totalWeeks}`}
+${tatilLines ? `\n## TATİL / SEMİNER (bu haftalarda ders_saati=0; unite, konu, kazanimlar "—")\n${tatilLines}` : ''}`;
+
+    const jsonSchema = {
+      type: 'object',
+      properties: {
+        items: {
+          type: 'array',
+          minItems: totalWeeks,
+          maxItems: totalWeeks,
+          items: {
+            type: 'object',
+            properties: {
+              week_order: { type: 'integer', description: `Takvim sırası 1-${totalWeeks}, tekrarsız` },
+              unite: { type: 'string', description: 'Yalnızca ünite veya tema adı; tarih/hafta etiketi yazma' },
+              konu: { type: 'string', description: 'Konu özeti; kazanım tam metnini buraya koyma' },
+              kazanimlar: { type: 'string', description: 'Öğrenme çıktıları tam metni (tablodan mümkün olduğunca aynen)' },
+              ders_saati: {
+                type: 'integer',
+                description: `Öğretim haftası ${haftalikDersSaati}, tatil 0`,
+              },
+              belirli_gun_haftalar: { type: 'string', description: 'Her zaman bos string ""' },
+              surec_bilesenleri: { type: 'string', description: 'DB/SDB kodu veya yöntem özeti; tatilde ""' },
+              olcme_degerlendirme: { type: 'string', description: 'Kısa ölçme; tatilde ""' },
+              sosyal_duygusal: { type: 'string', description: 'Kısa ifade; tatilde ""' },
+              degerler: { type: 'string', description: 'Kısa ifade; tatilde ""' },
+              okuryazarlik_becerileri: { type: 'string', description: 'Kısa ifade; tatilde ""' },
+              zenginlestirme: { type: 'string', description: 'Kısa ifade; tatilde ""' },
+              okul_temelli_planlama: { type: 'string', description: 'Kısa ifade; tatilde ""' },
+            },
+            required: [
+              'week_order',
+              'unite',
+              'konu',
+              'kazanimlar',
+              'ders_saati',
+              'belirli_gun_haftalar',
+              'surec_bilesenleri',
+              'olcme_degerlendirme',
+              'sosyal_duygusal',
+              'degerler',
+              'okuryazarlik_becerileri',
+              'zenginlestirme',
+              'okul_temelli_planlama',
+            ],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['items'],
+      additionalProperties: false,
+    };
+
+    const modelToUse =
+      params.model && GPT_TASLAK_MODELS.some((m) => m.id === params.model)
+        ? params.model
+        : DEFAULT_PASTE_GPT_MODEL;
+    const temp1Only = MODELS_TEMP_1_ONLY.includes(modelToUse);
+    let lastError: Error | null = null;
+    const emptySourceRows: ParsedPlanRow[] = [];
+    for (let attempt = 0; attempt <= PASTE_GPT_MAX_RETRIES; attempt++) {
+      try {
+        const retryHint =
+          attempt > 0
+            ? `\n\n[Deneme ${attempt + 1}] Önceki çıktı hatalıydı; week_order 1…${totalWeeks} eksiksiz JSON.`
+            : '';
+        const completion = await openai.chat.completions.create({
+          model: modelToUse,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPromptBase + retryHint },
+          ],
+          max_completion_tokens: 14_000,
+          ...(temp1Only ? { temperature: 1 } : { temperature: 0.1 }),
+          response_format: {
+            type: 'json_schema',
+            json_schema: {
+              name: 'yillik_plan_paste_gpt',
+              strict: true,
+              schema: jsonSchema as Record<string, unknown>,
+            },
+          },
+        });
+        const content = completion.choices[0]?.message?.content;
+        if (!content) throw new Error('GPT boş yanıt döndü');
+        const parsed = JSON.parse(content) as { items?: Array<Partial<DraftPlanItem> & { week_order?: number }> };
+        const rawItems = parsed?.items ?? [];
+        const validated = this.validateAndNormalize(
+          rawItems,
+          haftalikDersSaati,
+          calendarWeekOrders,
+          tatilWeeks,
+          totalWeeks,
+          teachingWeeks,
+        );
+        const hardenedItems = this.hardenDraftResult({
+          items: validated.items,
+          sourceRows: emptySourceRows,
+          tatilWeeks,
+          totalWeeks,
+          expectedSaati: haftalikDersSaati,
+          teachingWeeks,
+        });
+        const coverage = this.ensureMebGainCoverage({
+          items: hardenedItems.items,
+          subjectCode: params.subject_code,
+          grade: params.grade,
+          tatilWeeks,
+        });
+        const quality = this.buildDraftQuality({
+          items: coverage.items,
+          subjectCode: params.subject_code,
+          grade: params.grade,
+          tatilWeeks,
+        });
+        return {
+          items: coverage.items,
+          warnings: [
+            ...draftWarnings,
+            ...(attempt > 0 ? [`GPT çıktısı ${attempt + 1}. denemede tamamlandı.`] : []),
+            ...validated.warnings,
+            ...coverage.warnings,
+          ],
+          source: 'paste_gpt',
+          quality,
+          ...this.buildSaveDecision(quality),
+          token_usage: completion.usage
+            ? { input: completion.usage.prompt_tokens, output: completion.usage.completion_tokens }
+            : undefined,
+        };
+      } catch (e) {
+        lastError = e instanceof Error ? e : new Error(String(e));
+        if (attempt < PASTE_GPT_MAX_RETRIES) continue;
+      }
+    }
+    throw new BadRequestException({
+      code: 'GPT_ERROR',
+      message: lastError?.message ?? 'GPT ile plan oluşturulamadı.',
+    });
+  }
+
   async generateDraft(params: {
     subject_code: string;
     subject_label: string;
@@ -1000,6 +1439,8 @@ ZORUNLU KURALLAR:
     model?: string;
     /** Excel yüklemeyle verilen satırlar – varsa TYMM fetch atlanır. */
     customSourceRows?: ParsedPlanRow[];
+    /** Yapıştırılan JSON/CSV gibi kaynaklarda dönüş source alanı. */
+    importSource?: 'paste_json' | 'paste_csv' | 'excel_parse';
   }): Promise<GenerateDraftResult> {
     this.validateSchoolProfileSubject(params.subject_code, params.school_profile);
     const draftWarnings: string[] = [];
@@ -1028,7 +1469,8 @@ ZORUNLU KURALLAR:
     const kazanimPrefix = KAZANIM_PREFIX[subjectCodeLower] ?? params.subject_code.slice(0, 3).toUpperCase();
     const mebKazanimlarBlock = formatMebKazanimlarForPrompt(subjectCodeLower, params.grade);
     const hasMeb = hasMebKazanimlar(subjectCodeLower, params.grade);
-    if (!this.openai && !hasMeb) {
+    const hasStructuredSource = (params.customSourceRows?.length ?? 0) > 0;
+    if (!hasStructuredSource && !this.openai && !hasMeb) {
       throw new BadRequestException({
         code: 'GPT_NOT_CONFIGURED',
         message: 'OpenAI API anahtarı tanımlı değil. OPENAI_API_KEY environment variable kontrol edin.',
@@ -1210,7 +1652,7 @@ KURALLAR: Kendi metin üretme, uydurma kesinlikle yasak. Verilen TYMM Excel veri
             ...sourceDraft.warnings,
             ...coverage.warnings,
           ],
-          source: 'excel_parse',
+          source: params.importSource ?? 'excel_parse',
           quality,
           ...this.buildSaveDecision(quality),
         };

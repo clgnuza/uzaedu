@@ -390,7 +390,7 @@ export class YillikPlanIcerikService {
       .createQueryBuilder('yp')
       .select('yp.subject_code', 'subject_code')
       .addSelect('yp.subject_label', 'subject_label')
-      .addSelect('yp.grade', 'grade')
+      .addSelect(isBilsem ? 'MAX(yp.grade)' : 'yp.grade', 'grade')
       .addSelect('yp.ana_grup', 'ana_grup')
       .addSelect('yp.alt_grup', 'alt_grup')
       .addSelect('yp.academic_year', 'academic_year')
@@ -615,10 +615,15 @@ export class YillikPlanIcerikService {
   async bulkCreate(params: {
     subject_code: string;
     subject_label: string;
-    grade: number;
+    /** MEB: zorunlu 1-12. Bilsem: null (ana_grup ile silinir); takvim üretimi için plan_grade kullanılır. */
+    grade?: number | null;
+    /** Bilsem + GPT/yapıştır: takvim ve üretimde kullanılacak sınıf (1-12). */
+    plan_grade?: number | null;
     section?: string;
     academic_year: string;
     curriculum_model?: string | null;
+    ana_grup?: string | null;
+    alt_grup?: string | null;
     items: Array<{
       week_order: number;
       unite?: string;
@@ -635,10 +640,6 @@ export class YillikPlanIcerikService {
       okul_temelli_planlama?: string;
     }>;
   }): Promise<YillikPlanIcerik[]> {
-    const grade = Number(params.grade);
-    if (!Number.isFinite(grade) || grade < 1 || grade > 12) {
-      throw new BadRequestException({ code: 'INVALID_GRADE', message: 'Geçerli sınıf (1-12) girin.' });
-    }
     const academicYear = String(params.academic_year ?? '').trim();
     if (!academicYear) {
       throw new BadRequestException({ code: 'INVALID_ACADEMIC_YEAR', message: 'Öğretim yılı zorunludur.' });
@@ -650,6 +651,22 @@ export class YillikPlanIcerikService {
     if (!Array.isArray(params.items) || params.items.length === 0) {
       throw new BadRequestException({ code: 'EMPTY_ITEMS', message: 'En az bir hafta verisi gerekir.' });
     }
+    const cm = params.curriculum_model?.trim() === 'bilsem' ? 'bilsem' : null;
+    const isBilsem = !!cm;
+    const scaffoldGrade = Number(
+      isBilsem ? (params.plan_grade ?? params.grade) : params.grade,
+    );
+    if (!Number.isFinite(scaffoldGrade) || scaffoldGrade < 1 || scaffoldGrade > 12) {
+      throw new BadRequestException({
+        code: 'INVALID_GRADE',
+        message: isBilsem
+          ? 'Bilsem toplu kayıt için plan_grade veya grade ile geçerli sınıf (1-12) gerekir (takvim eşlemesi).'
+          : 'Geçerli sınıf (1-12) girin.',
+      });
+    }
+    if (isBilsem && !String(params.ana_grup ?? '').trim()) {
+      throw new BadRequestException({ code: 'ANA_GRUP_REQUIRED', message: 'Bilsem toplu kayıt için ana_grup zorunludur.' });
+    }
     const sortedItems = [...params.items].sort((a, b) => {
       const wa = Number(a.week_order);
       const wb = Number(b.week_order);
@@ -657,19 +674,29 @@ export class YillikPlanIcerikService {
       const nb = Number.isFinite(wb) ? wb : 0;
       return na - nb;
     });
-    const cm = params.curriculum_model?.trim() === 'bilsem' ? 'bilsem' : null;
     try {
       const delQb = this.repo
         .createQueryBuilder()
         .delete()
         .from(YillikPlanIcerik)
         .where('subject_code = :sc', { sc: subjectCode })
-        .andWhere('grade = :g', { g: grade })
         .andWhere('academic_year = :ay', { ay: academicYear });
-      if (cm) {
-        delQb.andWhere('curriculum_model = :cm', { cm });
+      if (isBilsem) {
+        delQb
+          .andWhere('curriculum_model = :cm', { cm: 'bilsem' })
+          .andWhere('ana_grup = :anaGrup', { anaGrup: String(params.ana_grup).trim() });
+        const alt = params.alt_grup;
+        if (alt !== undefined && alt !== null) {
+          if (String(alt).trim() === '') {
+            delQb.andWhere('(alt_grup IS NULL OR alt_grup = :empty)', { empty: '' });
+          } else {
+            delQb.andWhere('alt_grup = :altGrup', { altGrup: String(alt).trim() });
+          }
+        }
       } else {
-        delQb.andWhere('(curriculum_model IS NULL OR curriculum_model = :empty)', { empty: '' });
+        delQb
+          .andWhere('grade = :g', { g: scaffoldGrade })
+          .andWhere('(curriculum_model IS NULL OR curriculum_model = :empty)', { empty: '' });
       }
       await delQb.execute();
     } catch (err) {
@@ -684,7 +711,9 @@ export class YillikPlanIcerikService {
       return this.repo.create({
         subjectCode,
         subjectLabel: String(params.subject_label ?? '').trim() || subjectCode,
-        grade,
+        grade: isBilsem ? null : scaffoldGrade,
+        anaGrup: isBilsem ? String(params.ana_grup).trim() : null,
+        altGrup: isBilsem ? (params.alt_grup?.trim() ? params.alt_grup.trim() : null) : null,
         section: params.section ?? null,
         academicYear,
         weekOrder: Number.isFinite(wo) && wo >= 1 && wo <= 38 ? Math.round(wo) : idx + 1,

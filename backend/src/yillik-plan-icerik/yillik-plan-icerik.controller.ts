@@ -34,6 +34,7 @@ import { UpdateYillikPlanIcerikDto } from './dto/update-yillik-plan-icerik.dto';
 import { GenerateDraftDto } from './dto/generate-draft.dto';
 import { GenerateDraftFromExcelDto } from './dto/generate-draft-from-excel.dto';
 import { ImportMebTaslakDto } from './dto/import-meb-taslak.dto';
+import { PreviewDraftFromPasteDto } from './dto/preview-draft-from-paste.dto';
 import { MebFetchService, ParsedPlanRow } from '../meb/meb-fetch.service';
 import { generateMebWorkCalendar, hasMebCalendar } from '../config/meb-calendar';
 import { getDersSaatiStatic } from '../config/ders-saati';
@@ -726,6 +727,38 @@ export class YillikPlanIcerikController {
     });
   }
 
+  /** structured: JSON/CSV / kazanim_plan (GPT yok). gpt: payload = tam plan metni → GPT + takvim. */
+  @Post('preview-draft-from-paste')
+  @Throttle({ default: { limit: 25, ttl: 60000 } })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('document_templates')
+  async previewDraftFromPaste(@Body() dto: PreviewDraftFromPasteDto) {
+    if (dto.paste_mode === 'gpt') {
+      return this.gptService.generateDraftFromPastedFullText({
+        subject_code: dto.subject_code,
+        subject_label: dto.subject_label,
+        grade: dto.grade,
+        section: dto.section,
+        school_profile: dto.school_profile,
+        academic_year: dto.academic_year,
+        model: dto.model,
+        pasted_text: dto.payload,
+        curriculum_model: dto.curriculum_model,
+        ana_grup: dto.ana_grup,
+        alt_grup: dto.alt_grup,
+      });
+    }
+    return this.gptService.importPlanDraftNoGpt({
+      subject_code: dto.subject_code,
+      subject_label: dto.subject_label,
+      grade: dto.grade,
+      section: dto.section,
+      academic_year: dto.academic_year,
+      payload: dto.payload,
+    });
+  }
+
   /** Superadmin, moderator: Excel yükleyerek GPT taslak oluştur (kaynak olarak yüklenen dosya kullanılır) */
   @Post('generate-draft-from-excel')
   @Throttle({ default: { limit: 20, ttl: 60000 } })
@@ -1021,9 +1054,24 @@ export class YillikPlanIcerikController {
         okul_temelli_planlama?: string;
       }>;
       curriculum_model?: string | null;
+      ana_grup?: string | null;
+      alt_grup?: string | null;
+      /** Bilsem: takvim üretimi için sınıf (DB’de grade null). */
+      plan_grade?: number;
     },
   ) {
-    const created = await this.service.bulkCreate(body);
+    const created = await this.service.bulkCreate({
+      subject_code: body.subject_code,
+      subject_label: body.subject_label,
+      grade: body.grade,
+      plan_grade: body.plan_grade,
+      section: body.section,
+      academic_year: body.academic_year,
+      curriculum_model: body.curriculum_model,
+      ana_grup: body.ana_grup,
+      alt_grup: body.alt_grup,
+      items: body.items,
+    });
     return { created: created.length, items: created };
   }
 
