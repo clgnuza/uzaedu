@@ -433,7 +433,7 @@ export default function SinavGorevUcretleriPage() {
     const m = getCatMeta(selectedCategory.id);
     const kurum = m.label || selectedCategory.label;
     return [
-      '📋 Sınav görev ücreti · Öğretmen Pro',
+      '📋 Sınav görev ücreti · Uzaedu Öğretmen',
       `📅 ${catalog.period_label}`,
       `🏛 ${kurum}`,
       `📝 ${selectedRole.label}`,
@@ -502,7 +502,7 @@ export default function SinavGorevUcretleriPage() {
   const performShare = useCallback(async () => {
     const textFull = buildShareText();
     if (!textFull) return;
-    const title = 'Sınav görev ücreti — Öğretmen Pro';
+    const title = 'Sınav görev ücreti — Uzaedu Öğretmen';
     const short = buildShareShort();
     let blob: Blob | null = null;
     if (typeof window !== 'undefined') {
@@ -1305,7 +1305,7 @@ export default function SinavGorevUcretleriPage() {
               <p className="mt-0.5 text-[10px] text-zinc-500">{catalog.period_label}</p>
             </div>
             <span className="shrink-0 rounded-lg bg-violet-100 px-2 py-1 text-[9px] font-semibold text-violet-800">
-              Öğretmen Pro
+              Uzaedu Öğretmen
             </span>
           </div>
 

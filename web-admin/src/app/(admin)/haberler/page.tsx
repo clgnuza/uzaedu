@@ -44,6 +44,9 @@ import {
   normalizeContentTypeFilterParam,
 } from '@/lib/haber-news-overlay';
 import { HaberOverlayBands } from '@/components/haber/haber-overlay-bands';
+import { HaberSourceFootnote } from '@/components/haber/haber-source-footnote';
+import { useHaberContentLiveRefresh } from '@/hooks/use-haber-content-live-refresh';
+import { broadcastHaberContentRefresh } from '@/lib/haber-content-refresh-bus';
 import { Sheet, SheetBody, SheetClose, SheetContent, SheetHeader } from '@/components/ui/sheet';
 
 type Channel = { id: string; key: string; label: string; sortOrder: number; itemCount?: number };
@@ -436,8 +439,9 @@ export default function HaberlerPage() {
     }
   }, [token]);
 
-  const fetchItems = useCallback(async () => {
-    setLoading(true);
+  const fetchItems = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: String(pageLimit) });
       if (selectedChannel) params.set('channel_key', selectedChannel);
@@ -452,14 +456,22 @@ export default function HaberlerPage() {
       setItems(unique);
       setTotal(data?.total ?? 0);
     } catch (e) {
-      setItems([]);
-      setTotal(0);
-      const msg = e instanceof Error ? e.message : 'İçerik yüklenemedi';
-      toast.error(msg);
+      if (!silent) {
+        setItems([]);
+        setTotal(0);
+        const msg = e instanceof Error ? e.message : 'İçerik yüklenemedi';
+        toast.error(msg);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [token, selectedChannel, selectedSourceKey, contentTypeFilter, page, refreshKey, pageLimit]);
+
+  useHaberContentLiveRefresh({
+    authLoading,
+    token,
+    onSilentRefresh: () => fetchItems({ silent: true }),
+  });
 
   useEffect(() => {
     if (authLoading) return;
@@ -628,6 +640,7 @@ export default function HaberlerPage() {
         });
       }
       await Promise.all([fetchChannels(), fetchItems()]);
+      broadcastHaberContentRefresh();
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Senkronizasyon başarısız.';
       toast.error(msg);
@@ -941,6 +954,8 @@ export default function HaberlerPage() {
           )}
         </div>
       )}
+
+      <HaberSourceFootnote className="mt-4" />
     </div>
   );
 }

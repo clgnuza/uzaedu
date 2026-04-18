@@ -3,7 +3,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { XMLParser } from 'fast-xml-parser';
 import * as cheerio from 'cheerio';
 import { ExamDutySyncSource } from './entities/exam-duty-sync-source.entity';
@@ -15,13 +15,21 @@ import {
   normalizeExamDutyCategorySlug,
   type DateValidationStatus,
 } from './entities/exam-duty.entity';
-import { applyExamDutyWallClockInTurkey } from './exam-duty-turkey-time';
+import { applyExamDutyWallClockInTurkey, turkeyDayBeforeExamWithWallClock } from './exam-duty-turkey-time';
 import { ExamDutyGptService, type ExamDutyExtractResult } from './exam-duty-gpt.service';
 import { ExamDutiesService } from './exam-duties.service';
 import { AppConfigService } from '../app-config/app-config.service';
 import { User } from '../users/entities/user.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UserRole } from '../types/enums';
+
+/** Sync döngüsü içinde yeni eklenen / geri yüklenen duyurular — DB’ye yazılmadan sonraki adayla çakışmayı yakalamak için */
+type ExamDutyScheduleSlice = {
+  categorySlug: string;
+  examDate: Date | null;
+  examDateEnd: Date | null;
+  applicationEnd: Date | null;
+};
 
 const FETCH_TIMEOUT_MS = 30000;
 const RSS_ITEM_LIMIT = 50;
@@ -250,6 +258,7 @@ export class ExamDutySyncService {
     let totalGptErrors = 0;
 
     const syncOptions = await this.appConfig.getExamDutySyncOptions();
+    const hadScrapeSource = syncable.some((s) => !!(s.baseUrl?.trim() && s.scrapeConfig));
     const scrapeKeys = syncable.filter((s) => s.baseUrl?.trim() && s.scrapeConfig).map((s) => s.key);
     let recheckDuties: ExamDuty[] = [];
     if (scrapeKeys.length > 0 && syncOptions.recheck_max_count > 0) {
@@ -267,6 +276,8 @@ export class ExamDutySyncService {
     const quota = {
       remaining: syncOptions.max_new_per_sync > 0 ? syncOptions.max_new_per_sync : Number.MAX_SAFE_INTEGER,
     };
+    /** Tüm aktif kaynaklar (RSS+scrape) tek sync turunda aynı sınav takvimine ikinci duyuru düşmesin */
+    const scheduleDedupeSlicesThisRun: ExamDutyScheduleSlice[] = [];
     for (const source of syncable) {
       const recheckForThisSource = recheckDuties.filter((d) => d.sourceKey === source.key);
       const result = await this.syncSource(source, recheckForThisSource, {
@@ -276,6 +287,8 @@ export class ExamDutySyncService {
         add_draft_without_dates: syncOptions.add_draft_without_dates,
         quota,
         dry_run: dryRun,
+        scrape_slider_slot_index: syncOptions.scrape_slider_slot_index ?? 0,
+        schedule_dedupe_slices: scheduleDedupeSlicesThisRun,
       });
       results.push(result);
       totalCreated += result.created;
@@ -304,7 +317,14 @@ export class ExamDutySyncService {
       }
     }
 
-    const allSkipped = results.flatMap((r) => r.skipped_items ?? []).slice(0, MAX_LAST_SKIPPED_ITEMS);
+    if (!dryRun && hadScrapeSource) {
+      await this.appConfig.advanceExamDutyScrapeSliderSlot();
+    }
+
+    const allSkipped = this.sortExamDutySkippedItems(results.flatMap((r) => r.skipped_items ?? [])).slice(
+      0,
+      MAX_LAST_SKIPPED_ITEMS,
+    );
     this.lastSkippedItems = allSkipped;
     if (!dryRun) this.lastSyncCompletedAt = new Date();
     this.lastTotalCreated = totalCreated;
@@ -361,34 +381,45 @@ export class ExamDutySyncService {
     };
   }
 
-  /** Sync ile eklenen verileri temizle (test için). Kaynak bazlı taslakları siler, last_processed_url sıfırlar. */
+  /**
+   * Sync test sıfırlama: `source_key` ile eşleşen tüm sınav görevi duyurularını kalıcı siler (taslak+yayın, silinmiş kayıt dahil),
+   * böylece sonraki sync geri yükleme yapmadan kaynaktan yeniden oluşturur. Kaynak satırı sync geçmişi yeni eklenmiş gibi sıfırlanır.
+   */
   async clearSyncData(sourceKey?: string): Promise<{ deleted: number; sources_reset: number }> {
-    const keys = sourceKey
-      ? [sourceKey]
-      : (await this.sourceRepo.find({ select: ['key'] })).map((s) => s.key);
+    const allKeys = (await this.sourceRepo.find({ select: ['key'] })).map((s) => s.key);
+    const trimmed = sourceKey?.trim();
+    const keys = trimmed ? [trimmed] : allKeys;
     let deleted = 0;
+    if (keys.length > 0) {
+      const r = await this.dutyRepo.delete({ sourceKey: In(keys) });
+      deleted = r.affected ?? 0;
+    }
     let sourcesReset = 0;
     for (const key of keys) {
-      const duties = await this.dutyRepo.find({
-        where: { sourceKey: key, status: 'draft', deletedAt: IsNull() },
-        select: ['id'],
-      });
-      for (const d of duties) {
-        const item = await this.dutyRepo.findOne({ where: { id: d.id } });
-        if (item) {
-          item.deletedAt = new Date();
-          await this.dutyRepo.save(item);
-          deleted++;
-        }
-      }
       const src = await this.sourceRepo.findOne({ where: { key } });
-      if (src) {
-        src.lastProcessedUrl = null;
-        await this.sourceRepo.save(src);
-        sourcesReset++;
-      }
+      if (!src) continue;
+      src.lastProcessedUrl = null;
+      src.lastSyncedAt = null;
+      src.lastResultCreated = 0;
+      src.lastResultSkipped = 0;
+      src.lastResultError = null;
+      src.consecutiveErrorCount = 0;
+      await this.sourceRepo.save(src);
+      sourcesReset++;
     }
-    this.logger.log(`[ExamDutySync] clearSyncData: ${deleted} taslak silindi, ${sourcesReset} kaynak last_processed_url sıfırlandı`);
+    if (trimmed) {
+      this.lastSkippedItems = this.lastSkippedItems.filter((i) => i.source_key !== trimmed);
+    } else {
+      this.lastSkippedItems = [];
+    }
+    this.lastSyncLog = null;
+    this.lastSyncCompletedAt = null;
+    this.lastTotalCreated = 0;
+    this.lastTotalRestored = 0;
+    this.lastTotalGptErrors = 0;
+    this.logger.log(
+      `[ExamDutySync] clearSyncData: ${deleted} duyuru kalıcı silindi, ${sourcesReset} kaynak sync alanları sıfırlandı`,
+    );
     return { deleted, sources_reset: sourcesReset };
   }
 
@@ -524,9 +555,44 @@ export class ExamDutySyncService {
     try {
       await this.examDutiesService.publish(dutyId);
       this.logger.log(`[ExamDutySync] GPT sync duyuru otomatik yayınlandı: ${dutyId.slice(0, 8)}…`);
+      await this.notifySuperadminsAutoPublishedDuty(dutyId);
     } catch (e) {
       this.logger.warn(
         `[ExamDutySync] Otomatik yayınlanamadı (${dutyId}): ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  /** Otomatik yayınlanan sync duyurusu — yalnızca superadmin gelen kutusu (öğretmenlere tekrar gitmez). */
+  private async notifySuperadminsAutoPublishedDuty(dutyId: string): Promise<void> {
+    try {
+      const duty = await this.dutyRepo.findOne({
+        where: { id: dutyId },
+        select: ['id', 'title', 'categorySlug', 'sourceUrl'],
+      });
+      if (!duty) return;
+      const superadmins = await this.userRepo.find({
+        where: { role: UserRole.superadmin },
+        select: ['id'],
+      });
+      const title = 'Sınav görevi otomatik yayında';
+      const src = duty.sourceUrl ? ` Kaynak: ${duty.sourceUrl.slice(0, 120)}${duty.sourceUrl.length > 120 ? '…' : ''}` : '';
+      const body = `GPT sync ile oluşturulan duyuru yayına alındı: ${duty.title}.${src}`;
+      for (const sa of superadmins) {
+        await this.notificationsService.createInboxEntry({
+          user_id: sa.id,
+          event_type: 'exam_duty.sync_auto_published',
+          entity_id: duty.id,
+          target_screen: '/sinav-gorevleri',
+          title,
+          body,
+          metadata: { exam_duty_id: duty.id, category_slug: duty.categorySlug },
+        });
+      }
+      this.logger.log(`[ExamDutySync] Superadmin otomatik yayın bildirimi: ${dutyId.slice(0, 8)}…`);
+    } catch (e) {
+      this.logger.error(
+        `[ExamDutySync] Otomatik yayın superadmin bildirimi: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
   }
@@ -541,6 +607,8 @@ export class ExamDutySyncService {
       add_draft_without_dates: boolean;
       quota: { remaining: number };
       dry_run?: boolean;
+      scrape_slider_slot_index?: number;
+      schedule_dedupe_slices?: ExamDutyScheduleSlice[];
     },
   ): Promise<SyncSourceResult> {
     const base: SyncSourceResult = {
@@ -553,7 +621,13 @@ export class ExamDutySyncService {
     const dryRun = options.dry_run === true;
     try {
       if (source.rssUrl?.trim()) {
-        const r = await this.syncFromRss(source, options.fetch_timeout_ms, options.quota, dryRun);
+        const r = await this.syncFromRss(
+          source,
+          options.fetch_timeout_ms,
+          options.quota,
+          dryRun,
+          options.schedule_dedupe_slices ?? [],
+        );
         base.created = r.created;
         base.skipped = r.skipped;
         base.skipped_items = r.skippedItems ?? [];
@@ -565,6 +639,8 @@ export class ExamDutySyncService {
           addDraftWithoutDates: options.add_draft_without_dates ?? false,
           quota: options.quota,
           dryRun,
+          scrapeSliderSlotIndex: options.scrape_slider_slot_index ?? 0,
+          scheduleDedupeSlices: options.schedule_dedupe_slices ?? [],
         });
         base.created = r.created;
         base.restored = r.restored ?? 0;
@@ -579,10 +655,20 @@ export class ExamDutySyncService {
       base.error = e instanceof Error ? e.message : String(e);
     }
 
+    if (base.skipped_items?.length) {
+      base.skipped_items = this.sortExamDutySkippedItems(base.skipped_items);
+    }
+
     return base;
   }
 
-  private async syncFromRss(source: ExamDutySyncSource, timeoutMs: number = FETCH_TIMEOUT_MS, quota?: { remaining: number }, dryRun = false): Promise<{
+  private async syncFromRss(
+    source: ExamDutySyncSource,
+    timeoutMs: number = FETCH_TIMEOUT_MS,
+    quota?: { remaining: number },
+    dryRun = false,
+    scheduleDedupeSlices: ExamDutyScheduleSlice[] = [],
+  ): Promise<{
     created: number;
     skipped: number;
     skippedItems: ExamDutySkippedItem[];
@@ -617,13 +703,20 @@ export class ExamDutySyncService {
     }
 
     const skippedItems: ExamDutySkippedItem[] = [];
-    const addSkipped = (title: string, linkUrl: string, reason: string) => {
+    const addSkipped = (
+      title: string,
+      linkUrl: string,
+      reason: string,
+      placement?: Pick<ExamDutySkippedItem, 'list_section' | 'section_order'>,
+    ) => {
       skippedItems.push({
         source_key: source.key,
         source_label: source.label,
         title: title.slice(0, 512),
         url: linkUrl.slice(0, 1024),
         reason,
+        list_section: placement?.list_section,
+        section_order: placement?.section_order,
       });
     };
 
@@ -639,6 +732,7 @@ export class ExamDutySyncService {
     );
 
     const rssTimes = await this.appConfig.getExamDutyDefaultTimes();
+    const examSyncOpts = await this.appConfig.getExamDutySyncOptions();
     const applyTime = (d: Date | null, key: keyof typeof rssTimes): Date | null => {
       if (!d) return null;
       return applyExamDutyWallClockInTurkey(d, rssTimes[key] ?? '00:00');
@@ -648,7 +742,10 @@ export class ExamDutySyncService {
     let skipped = 0;
     let gptErrorsRss = 0;
 
-    for (const entry of entries.filter(Boolean)) {
+    const entryList = entries.filter(Boolean);
+    const pendingScheduleSlices = scheduleDedupeSlices;
+    for (let rssIdx = 0; rssIdx < entryList.length; rssIdx++) {
+      const entry = entryList[rssIdx];
       const e = entry as Record<string, unknown>;
       const title = extractText(e.title ?? e['title']);
       if (!title) continue;
@@ -661,16 +758,18 @@ export class ExamDutySyncService {
       }
       if (!link) continue;
 
+      const rssPlace = { list_section: 'rss' as const, section_order: rssIdx };
+
       if (!matchesKeywords(title, source.titleKeywords)) {
         skipped++;
-        addSkipped(title, link, 'Anahtar kelime eşleşmedi');
+        addSkipped(title, link, 'Anahtar kelime eşleşmedi', rssPlace);
         continue;
       }
 
       const externalId = normalizeExternalId(link);
       if (existingIds.has(externalId)) {
         skipped++;
-        addSkipped(title, link, 'Zaten mevcut');
+        addSkipped(title, link, 'Zaten mevcut', rssPlace);
         continue;
       }
       existingIds.add(externalId);
@@ -694,12 +793,12 @@ export class ExamDutySyncService {
         if (gptResult) {
           if (!gptResult.is_application_announcement) {
             skipped++;
-            addSkipped(title, link, 'GPT: Başvuru duyurusu değil');
+            addSkipped(title, link, 'GPT: Başvuru duyurusu değil', rssPlace);
             continue;
           }
           if (/ek\s*gelir\s*getiriyor|haftada\s*(bin\s*)?\d[\d.]*\s*tl/i.test(title)) {
             skipped++;
-            addSkipped(title, link, 'Sadece ek gelir/ücret haberi; başvuru duyurusu değil');
+            addSkipped(title, link, 'Sadece ek gelir/ücret haberi; başvuru duyurusu değil', rssPlace);
             continue;
           }
           const hasGptDates = !!(
@@ -713,7 +812,7 @@ export class ExamDutySyncService {
             this.isLikelyNonApplication(title)
           ) {
             skipped++;
-            addSkipped(title, link, 'Sadece ücret haberi; başvuru/sınav tarihi yok');
+            addSkipped(title, link, 'Sadece ücret haberi; başvuru/sınav tarihi yok', rssPlace);
             continue;
           }
           categorySlug = this.resolveExamDutyCategorySlug({
@@ -741,6 +840,11 @@ export class ExamDutySyncService {
         [rssExamDate, rssExamDateEnd] = [rssExamDateEnd, rssExamDate];
       }
 
+      let rssResultDate = applyTime(parsed.result_date ?? null, 'result_date');
+      if (!rssResultDate && rssExamDate) {
+        rssResultDate = turkeyDayBeforeExamWithWallClock(rssExamDate, rssTimes.result_date ?? '00:00');
+      }
+
       const { summary: dutySummary, body: dutyBody } = this.buildShortSummaryAndBody(
         rawDesc,
         title,
@@ -754,13 +858,37 @@ export class ExamDutySyncService {
       });
       if (dupByUrl) {
         skipped++;
-        addSkipped(title, link, 'Aynı kaynak URL başka duyuruda mevcut');
+        addSkipped(title, link, 'Aynı kaynak URL başka duyuruda mevcut', rssPlace);
+        continue;
+      }
+
+      const rssApplicationEnd = applyTime(parsed.application_end ?? null, 'application_end');
+      const dedupeSched = examSyncOpts.dedupe_exam_schedule !== false;
+      const scheduleDupRss = dedupeSched
+        ? await this.findDuplicateDutyByExamSchedule(
+            categorySlug,
+            rssExamDate,
+            rssExamDateEnd,
+            rssApplicationEnd,
+            true,
+          )
+        : null;
+      const sessionDupRss =
+        dedupeSched &&
+        this.sessionScheduleCollidesWithSlices(
+          { categorySlug, examDate: rssExamDate, examDateEnd: rssExamDateEnd, applicationEnd: rssApplicationEnd },
+          pendingScheduleSlices,
+        );
+      if (scheduleDupRss || sessionDupRss) {
+        skipped++;
+        existingIds.delete(externalId);
+        addSkipped(title, link, 'Aynı sınav takvimi zaten kayıtlı (farklı haber)', rssPlace);
         continue;
       }
 
       if (quota && quota.remaining <= 0) {
         skipped++;
-        addSkipped(title, link, 'Sync kotası doldu (max yeni duyuru)');
+        addSkipped(title, link, 'Sync kotası doldu (max yeni duyuru)', rssPlace);
         continue;
       }
       if (quota) quota.remaining--;
@@ -776,7 +904,7 @@ export class ExamDutySyncService {
         externalId,
         applicationStart: new Date(),
         applicationEnd: applyTime(parsed.application_end ?? null, 'application_end'),
-        resultDate: applyTime(parsed.result_date ?? null, 'result_date'),
+        resultDate: rssResultDate,
         examDate: rssExamDate,
         examDateEnd: rssExamDateEnd,
         status: 'draft',
@@ -787,12 +915,30 @@ export class ExamDutySyncService {
         await this.maybeAutoPublishGptSyncDuty(duty.id, rssHadGptResult, dryRun);
       }
       created++;
+      pendingScheduleSlices.push({
+        categorySlug,
+        examDate: rssExamDate,
+        examDateEnd: rssExamDateEnd,
+        applicationEnd: rssApplicationEnd,
+      });
     }
 
     return { created, skipped, skippedItems, gpt_errors: gptErrorsRss };
   }
 
-  private async syncFromScrape(source: ExamDutySyncSource, recheckDuties: ExamDuty[] = [], options: { timeoutMs: number; skipPastExamDate: boolean; addDraftWithoutDates: boolean; quota: { remaining: number }; dryRun?: boolean }): Promise<{
+  private async syncFromScrape(
+    source: ExamDutySyncSource,
+    recheckDuties: ExamDuty[] = [],
+    options: {
+      timeoutMs: number;
+      skipPastExamDate: boolean;
+      addDraftWithoutDates: boolean;
+      quota: { remaining: number };
+      dryRun?: boolean;
+      scrapeSliderSlotIndex?: number;
+      scheduleDedupeSlices?: ExamDutyScheduleSlice[];
+    },
+  ): Promise<{
     created: number;
     restored: number;
     skipped: number;
@@ -881,9 +1027,12 @@ export class ExamDutySyncService {
       preloadedBody?: string;
       domOrder: number;
       fromRecheck?: boolean;
+      list_section?: 'list' | 'slider' | 'recheck';
+      section_order?: number;
     }[] = [];
     const seenHref = new Set<string>();
     let domOrderSeq = 0;
+    let listAreaOrder = 0;
 
     const sliderSelector = config?.slider_selector?.trim();
 
@@ -908,7 +1057,14 @@ export class ExamDutySyncService {
 
         let dateStr = '';
         if (dateSelector) dateStr = $el.find(dateSelector).first().text().trim();
-        candidates.push({ title, href, dateStr, domOrder: domOrderSeq++ });
+        candidates.push({
+          title,
+          href,
+          dateStr,
+          domOrder: domOrderSeq++,
+          list_section: 'list',
+          section_order: listAreaOrder++,
+        });
       });
     };
 
@@ -929,6 +1085,7 @@ export class ExamDutySyncService {
         const sliderItemSel = config?.slider_item_selector?.trim() || itemSelector;
         const $sliderItems = $slider.find(sliderItemSel);
         let addedFromSlider = 0;
+        let sliderSectionOrder = 0;
         $sliderItems.each((_, el) => {
           if (addedFromSlider >= sliderPoolCap) return false;
           const $el = $(el);
@@ -949,7 +1106,14 @@ export class ExamDutySyncService {
 
           let dateStr = '';
           if (dateSelector) dateStr = $el.find(dateSelector).first().text().trim();
-          candidates.push({ title, href, dateStr, domOrder: domOrderSeq++ });
+          candidates.push({
+            title,
+            href,
+            dateStr,
+            domOrder: domOrderSeq++,
+            list_section: 'slider',
+            section_order: sliderSectionOrder++,
+          });
           addedFromSlider++;
         });
         if (addedFromSlider > 0)
@@ -963,6 +1127,7 @@ export class ExamDutySyncService {
     const bodySelectors =
       config?.article_body_selector ??
       'article, .post-content, .content, .entry-content, main, .haber-detay, .haber-content';
+    let recheckSectionOrder = 0;
     for (const recheckDuty of recheckDuties) {
       if (recheckDuty.sourceKey !== source.key || !recheckDuty.sourceUrl?.trim()) continue;
       const recheckUrl = recheckDuty.sourceUrl.trim();
@@ -977,13 +1142,21 @@ export class ExamDutySyncService {
         preloadedBody: preloadedBody ?? undefined,
         domOrder: domOrderSeq++,
         fromRecheck: true,
+        list_section: 'recheck',
+        section_order: recheckSectionOrder++,
       });
       this.logger.log(`[${source.key}] Recheck: silinen duyuru linki eklendi (${recheckUrl.slice(0, 60)}…)`);
     }
 
     const candidatesPoolSize = candidates.length;
-    const processList = this.limitScrapeCandidatesToLatest(candidates, latestContentCheckLimit);
-    if (candidatesPoolSize > processList.length) {
+    const processList = this.buildScrapeProcessListRoundRobinSlider(
+      candidates,
+      latestContentCheckLimit,
+      options.scrapeSliderSlotIndex ?? 0,
+      !!sliderSelector?.trim(),
+      source.key,
+    );
+    if (candidatesPoolSize > processList.length && !sliderSelector?.trim()) {
       this.logger.log(
         `[${source.key}] Aday havuzu ${candidatesPoolSize} → içerik kontrolü ${processList.length} link (son eklenen öncelik, limit=${latestContentCheckLimit})`,
       );
@@ -997,6 +1170,7 @@ export class ExamDutySyncService {
     const gptEnabled = await this.appConfig.isExamDutyGptEnabled();
     const gptAvailable = await this.gptService.isAvailable();
     const scrapeTimes = await this.appConfig.getExamDutyDefaultTimes();
+    const examSyncOpts = await this.appConfig.getExamDutySyncOptions();
 
     const existingRows = await this.dutyRepo
       .createQueryBuilder('e')
@@ -1020,13 +1194,20 @@ export class ExamDutySyncService {
     let gptErrorsScrape = 0;
     const seen = new Set<string>();
     const skippedItems: ExamDutySkippedItem[] = [];
-    const addSkipped = (title: string, hrefUrl: string, reason: string) => {
+    const addSkipped = (
+      title: string,
+      hrefUrl: string,
+      reason: string,
+      placement?: Pick<ExamDutySkippedItem, 'list_section' | 'section_order'>,
+    ) => {
       skippedItems.push({
         source_key: source.key,
         source_label: source.label,
         title: title.slice(0, 512),
         url: hrefUrl.slice(0, 1024),
         reason,
+        list_section: placement?.list_section,
+        section_order: placement?.section_order,
       });
     };
 
@@ -1036,30 +1217,37 @@ export class ExamDutySyncService {
     let passedLastProcessed = !normLastProcessed || !lastProcessedInList;
     let processedCount = 0;
     let processedUrl: string | null = null;
+    const pendingScheduleSlices = options.scheduleDedupeSlices ?? [];
 
     for (const c of processList) {
       const normHref = normalizeExternalId(c.href);
       if (seen.has(normHref)) continue;
       seen.add(normHref);
+      const skipPlacement = this.scrapeSkippedPlacement(c);
 
       if (maxProcessPerSync > 0 && normLastProcessed) {
         if (!passedLastProcessed) {
-          if (normHref === normLastProcessed) passedLastProcessed = true;
-          continue;
+          if (normHref === normLastProcessed) {
+            passedLastProcessed = true;
+            continue;
+          }
+          // Son işlenen linkin "altında" kalan eski kayıtları atla; ama ankordan ÖNCE
+          // görünen yeni URL'leri (ör. slayt #1'e eklenen haber) yok sayma.
+          if (existingIds.has(normHref)) continue;
         }
       }
 
       if (!skipTitleKeywords && !matchesKeywords(c.title, source.titleKeywords)) {
         skipped++;
         skippedKeywords++;
-        addSkipped(c.title, c.href, 'Anahtar kelime eşleşmedi');
+        addSkipped(c.title, c.href, 'Anahtar kelime eşleşmedi', skipPlacement);
         continue;
       }
 
       if (existingIds.has(normHref)) {
         skipped++;
         skippedExisting++;
-        addSkipped(c.title, c.href, 'Zaten mevcut');
+        addSkipped(c.title, c.href, 'Zaten mevcut', skipPlacement);
         continue;
       }
 
@@ -1081,7 +1269,7 @@ export class ExamDutySyncService {
         bodyText = await this.fetchArticleBody(c.href, bodySelectors, options.timeoutMs);
         if (!bodyText) {
           skipped++;
-          addSkipped(c.title, c.href, 'Link erişilemedi veya içerik alınamadı');
+          addSkipped(c.title, c.href, 'Link erişilemedi veya içerik alınamadı', skipPlacement);
           continue;
         }
         await new Promise((r) => setTimeout(r, 150));
@@ -1136,6 +1324,7 @@ export class ExamDutySyncService {
               c.title,
               c.href,
               'GPT: Başvuru duyurusu değil',
+              skipPlacement,
             );
             continue;
           }
@@ -1146,6 +1335,7 @@ export class ExamDutySyncService {
               c.title,
               c.href,
               'GPT: İçerikte sınav tarihi veya başvuru tarihi bulunamadı (tam metin kontrol edildi)',
+              skipPlacement,
             );
             continue;
           }
@@ -1162,6 +1352,7 @@ export class ExamDutySyncService {
             c.title,
             c.href,
             bodyFeeOnly ? 'İçerik sadece ücret bilgisi' : 'Başvuru duyurusu değil (başlık/içerik)',
+            skipPlacement,
           );
           continue;
         }
@@ -1237,7 +1428,7 @@ export class ExamDutySyncService {
 
       if (!applicationApprovalEnd && applicationEnd) {
         const d = new Date(applicationEnd);
-        d.setDate(d.getDate() + 1);
+        d.setDate(d.getDate() + 2);
         applicationApprovalEnd = d;
       }
 
@@ -1253,6 +1444,10 @@ export class ExamDutySyncService {
       examDate = applyScrapeTime(examDate, 'exam_date', examHasTime);
       examDateEnd = applyScrapeTime(examDateEnd, 'exam_date_end', examEndHasTime);
 
+      if (!resultDate && examDate) {
+        resultDate = turkeyDayBeforeExamWithWallClock(examDate, scrapeTimes.result_date ?? '00:00');
+      }
+
       const dateValidationStatus: DateValidationStatus | null = gptResult?.is_application_announcement ? 'validated' : null;
       const dateValidationIssues: string | null = null;
 
@@ -1263,7 +1458,7 @@ export class ExamDutySyncService {
         const lastStr = lastExam.toISOString().slice(0, 10);
         if (lastStr < todayTurkey) {
           skipped++;
-          addSkipped(c.title, c.href, 'Sınav tarihi geçmiş');
+          addSkipped(c.title, c.href, 'Sınav tarihi geçmiş', skipPlacement);
           continue;
         }
       }
@@ -1283,7 +1478,7 @@ export class ExamDutySyncService {
         if (existingDuty.deletedAt) {
           if (options.quota.remaining <= 0) {
             skipped++;
-            addSkipped(c.title, c.href, 'Sync kotası doldu (max yeni duyuru)');
+            addSkipped(c.title, c.href, 'Sync kotası doldu (max yeni duyuru)', skipPlacement);
             continue;
           }
           options.quota.remaining--;
@@ -1307,10 +1502,18 @@ export class ExamDutySyncService {
           restored++;
           existingIds.add(externalId);
           processedUrl = c.href;
+          if (examSyncOpts.dedupe_exam_schedule !== false) {
+            pendingScheduleSlices.push({
+              categorySlug,
+              examDate: examDate ?? null,
+              examDateEnd: examDateEnd ?? null,
+              applicationEnd: applicationEnd ?? null,
+            });
+          }
         } else {
           skipped++;
           skippedExisting++;
-          addSkipped(c.title, c.href, 'Zaten mevcut');
+          addSkipped(c.title, c.href, 'Zaten mevcut', skipPlacement);
         }
         continue;
       }
@@ -1320,13 +1523,30 @@ export class ExamDutySyncService {
       });
       if (dupByUrl) {
         skipped++;
-        addSkipped(c.title, c.href, 'Aynı kaynak URL başka duyuruda mevcut');
+        addSkipped(c.title, c.href, 'Aynı kaynak URL başka duyuruda mevcut', skipPlacement);
+        continue;
+      }
+
+      const dedupeSched = examSyncOpts.dedupe_exam_schedule !== false;
+      const scheduleDupScrape = dedupeSched
+        ? await this.findDuplicateDutyByExamSchedule(categorySlug, examDate, examDateEnd, applicationEnd, true)
+        : null;
+      const sessionDupScrape =
+        dedupeSched &&
+        this.sessionScheduleCollidesWithSlices(
+          { categorySlug, examDate, examDateEnd, applicationEnd },
+          pendingScheduleSlices,
+        );
+      if (scheduleDupScrape || sessionDupScrape) {
+        skipped++;
+        existingIds.delete(externalId);
+        addSkipped(c.title, c.href, 'Aynı sınav takvimi zaten kayıtlı (farklı haber)', skipPlacement);
         continue;
       }
 
       if (options.quota.remaining <= 0) {
         skipped++;
-        addSkipped(c.title, c.href, 'Sync kotası doldu (max yeni duyuru)');
+        addSkipped(c.title, c.href, 'Sync kotası doldu (max yeni duyuru)', skipPlacement);
         continue;
       }
       options.quota.remaining--;
@@ -1356,6 +1576,9 @@ export class ExamDutySyncService {
       }
       created++;
       processedUrl = c.href;
+      if (examSyncOpts.dedupe_exam_schedule !== false) {
+        pendingScheduleSlices.push({ categorySlug, examDate, examDateEnd, applicationEnd });
+      }
     }
     if (processList.length > 0 && created === 0 && restored === 0) {
       this.logger.warn(
@@ -1399,6 +1622,138 @@ export class ExamDutySyncService {
     return r ? r.getTime() : 0;
   }
 
+  private ymdIstanbul(d: Date | null): string | null {
+    if (!d || isNaN(d.getTime())) return null;
+    return d.toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+  }
+
+  /** İstanbul YYYY-MM-DD aralığı (dahil); sınav yoksa null. */
+  private examRangeTurkey(examDate: Date | null, examDateEnd: Date | null): { start: string; end: string } | null {
+    const d1 = this.ymdIstanbul(examDate);
+    if (!d1) return null;
+    const d2 = this.ymdIstanbul(examDateEnd ?? examDate) ?? d1;
+    return d1 <= d2 ? { start: d1, end: d2 } : { start: d2, end: d1 };
+  }
+
+  private rangesYmdOverlap(a: { start: string; end: string }, b: { start: string; end: string }): boolean {
+    return a.start <= b.end && b.start <= a.end;
+  }
+
+  /**
+   * Yeni haber farklı olsa da aynı sınav oturumları (İstanbul günü) zaten kayıtlıysa ikinci duyuru açılmasın.
+   * Öncelik: sınav başı+sonu; sınav yoksa son başvuru günü.
+   */
+  private examScheduleFingerprint(
+    categorySlug: string,
+    examDate: Date | null,
+    examDateEnd: Date | null,
+    applicationEnd: Date | null,
+  ): string | null {
+    const ex1 = this.ymdIstanbul(examDate);
+    const ex2 = this.ymdIstanbul(examDateEnd ?? examDate);
+    if (ex1) {
+      const endKey = ex2 && ex2 !== ex1 ? ex2 : ex1;
+      return `${categorySlug}|e|${ex1}|${endKey}`;
+    }
+    const ap = this.ymdIstanbul(applicationEnd);
+    if (ap) return `${categorySlug}|a|${ap}`;
+    return null;
+  }
+
+  /** Aynı kategori + sınav aralığı / parmak izi / son başvuru günü (İstanbul) eşleşmesi */
+  private schedulesDateDuplicatePair(a: ExamDutyScheduleSlice, b: ExamDutyScheduleSlice): boolean {
+    if (a.categorySlug !== b.categorySlug) return false;
+    const newRange = this.examRangeTurkey(a.examDate, a.examDateEnd);
+    const rowRange = this.examRangeTurkey(b.examDate, b.examDateEnd);
+    if (newRange && rowRange && this.rangesYmdOverlap(newRange, rowRange)) return true;
+
+    const fp = this.examScheduleFingerprint(a.categorySlug, a.examDate, a.examDateEnd, a.applicationEnd);
+    const rfp = this.examScheduleFingerprint(b.categorySlug, b.examDate, b.examDateEnd, b.applicationEnd);
+    if (fp && rfp && fp === rfp) return true;
+
+    const newAppYmd = this.ymdIstanbul(a.applicationEnd);
+    const rowAppYmd = this.ymdIstanbul(b.applicationEnd);
+    if (newAppYmd && rowAppYmd && newAppYmd === rowAppYmd) return true;
+    return false;
+  }
+
+  private sessionScheduleCollidesWithSlices(needle: ExamDutyScheduleSlice, pending: ExamDutyScheduleSlice[]): boolean {
+    return pending.some((p) => this.schedulesDateDuplicatePair(needle, p));
+  }
+
+  private async findDuplicateDutyByExamSchedule(
+    categorySlug: string,
+    examDate: Date | null,
+    examDateEnd: Date | null,
+    applicationEnd: Date | null,
+    dedupeExamSchedule: boolean,
+  ): Promise<ExamDuty | null> {
+    if (!dedupeExamSchedule) return null;
+
+    const needle: ExamDutyScheduleSlice = { categorySlug, examDate, examDateEnd, applicationEnd };
+
+    const rows = await this.dutyRepo.find({
+      where: { categorySlug, deletedAt: IsNull() },
+      order: { createdAt: 'DESC' },
+      take: 5000,
+    });
+    for (const row of rows) {
+      const slice: ExamDutyScheduleSlice = {
+        categorySlug: row.categorySlug,
+        examDate: row.examDate,
+        examDateEnd: row.examDateEnd,
+        applicationEnd: row.applicationEnd,
+      };
+      if (this.schedulesDateDuplicatePair(needle, slice)) return row;
+    }
+    return null;
+  }
+
+  /** Atlanan kayıt satırında gösterilecek bölüm + sıra (slayt DOM sırası, sonra liste alanı). */
+  private scrapeSkippedPlacement(c: {
+    list_section?: 'list' | 'slider' | 'recheck';
+    section_order?: number;
+    fromRecheck?: boolean;
+  }): Pick<ExamDutySkippedItem, 'list_section' | 'section_order'> {
+    if (c.fromRecheck || c.list_section === 'recheck') {
+      return { list_section: 'recheck', section_order: c.section_order ?? 0 };
+    }
+    if (c.list_section === 'slider') return { list_section: 'slider', section_order: c.section_order ?? 0 };
+    return { list_section: 'list', section_order: c.section_order ?? 0 };
+  }
+
+  /**
+   * Kaynak anahtarı → slayt (üst carousel) DOM sırası → sayfa listesi → RSS → recheck.
+   * Alan bilgisi yoksa (eski kayıtlar) en sona alınır.
+   */
+  private sortExamDutySkippedItems(items: ExamDutySkippedItem[]): ExamDutySkippedItem[] {
+    const rank = (s: ExamDutySkippedItem): number => {
+      switch (s.list_section) {
+        case 'slider':
+          return 0;
+        case 'list':
+          return 1;
+        case 'rss':
+          return 2;
+        case 'recheck':
+          return 3;
+        default:
+          return 9;
+      }
+    };
+    return [...items].sort((a, b) => {
+      const sk = (a.source_key || '').localeCompare(b.source_key || '', 'tr');
+      if (sk !== 0) return sk;
+      const ra = rank(a);
+      const rb = rank(b);
+      if (ra !== rb) return ra - rb;
+      const oa = a.section_order ?? 1e9;
+      const ob = b.section_order ?? 1e9;
+      if (oa !== ob) return oa - ob;
+      return (a.title || '').localeCompare(b.title || '', 'tr');
+    });
+  }
+
   /**
    * Sayfa+slayt havuzundan “en güncel” N linki seçer: önce tarih (azalan), eşit/yoksa DOM sırası (küçük = üstte, tipik yeni haber).
    * Silinen duyuru recheck kayıtları her zaman sona eklenir (limit dışı sayılmaz).
@@ -1411,6 +1766,8 @@ export class ExamDutySyncService {
       preloadedBody?: string;
       domOrder: number;
       fromRecheck?: boolean;
+      list_section?: 'list' | 'slider' | 'recheck';
+      section_order?: number;
     }>,
     limit: number,
   ): Array<{
@@ -1420,6 +1777,8 @@ export class ExamDutySyncService {
     preloadedBody?: string;
     domOrder: number;
     fromRecheck?: boolean;
+    list_section?: 'list' | 'slider' | 'recheck';
+    section_order?: number;
   }> {
     const recheck = candidates.filter((c) => c.fromRecheck);
     const page = candidates.filter((c) => !c.fromRecheck);
@@ -1430,6 +1789,78 @@ export class ExamDutySyncService {
       return a.domOrder - b.domOrder;
     });
     return [...page.slice(0, limit), ...recheck];
+  }
+
+  /**
+   * Slayt: 1. slayt (section_order=0) kaynaklarda sık değiştiği için her sync’te mutlaka kontrol edilir;
+   * ayrıca tur için section_order = slotMod (0..14) — aynı link tekrarlanmaz. Liste: tarih/DOM ile üst N; recheck sonda.
+   */
+  private buildScrapeProcessListRoundRobinSlider(
+    candidates: Array<{
+      title: string;
+      href: string;
+      dateStr: string;
+      preloadedBody?: string;
+      domOrder: number;
+      fromRecheck?: boolean;
+      list_section?: 'list' | 'slider' | 'recheck';
+      section_order?: number;
+    }>,
+    listLimit: number,
+    sliderSlotIndex: number,
+    hasSliderSelector: boolean,
+    sourceKey: string,
+  ): Array<{
+    title: string;
+    href: string;
+    dateStr: string;
+    preloadedBody?: string;
+    domOrder: number;
+    fromRecheck?: boolean;
+    list_section?: 'list' | 'slider' | 'recheck';
+    section_order?: number;
+  }> {
+    const nSlots = 15;
+    const slotMod = ((Math.floor(sliderSlotIndex) % nSlots) + nSlots) % nSlots;
+    const recheck = candidates.filter((c) => c.fromRecheck);
+    const page = candidates.filter((c) => !c.fromRecheck);
+    const sliderPool = page.filter((c) => c.list_section === 'slider');
+    const listPool = page.filter((c) => c.list_section !== 'slider');
+    const sliderFirst = sliderPool.filter((c) => (c.section_order ?? 0) === 0).slice(0, 1);
+    const sliderRotating = sliderPool.filter((c) => (c.section_order ?? 0) === slotMod).slice(0, 1);
+    const sliderThisSync: typeof sliderFirst = [];
+    const seenHref = new Set<string>();
+    for (const s of [...sliderFirst, ...sliderRotating]) {
+      const h = s.href.trim();
+      if (seenHref.has(h)) continue;
+      seenHref.add(h);
+      sliderThisSync.push(s);
+    }
+    listPool.sort((a, b) => {
+      const tb = this.scrapeCandidateTimeMs(b.dateStr);
+      const ta = this.scrapeCandidateTimeMs(a.dateStr);
+      if (tb !== ta) return tb - ta;
+      return a.domOrder - b.domOrder;
+    });
+    const listTop = listPool.slice(0, listLimit);
+    if (hasSliderSelector) {
+      const parts: string[] = [];
+      if (sliderFirst.length) parts.push('1. slayt her sync');
+      if (
+        sliderRotating.length &&
+        (!sliderFirst.length || sliderFirst[0]!.href.trim() !== sliderRotating[0]!.href.trim())
+      ) {
+        parts.push(`${slotMod + 1}. slayt (tur)`);
+      }
+      if (parts.length) {
+        this.logger.log(`[${sourceKey}] Slayt: ${parts.join(' + ')}; liste ${listTop.length} aday (limit=${listLimit})`);
+      } else {
+        this.logger.log(
+          `[${sourceKey}] Slayt turu: ${slotMod + 1}. slayt DOM’da yok/boş; liste ${listTop.length} aday (limit=${listLimit})`,
+        );
+      }
+    }
+    return [...sliderThisSync, ...listTop, ...recheck];
   }
 
   /** Haber detay sayfasından içerik metnini çıkar */
@@ -1917,6 +2348,10 @@ export interface ExamDutySkippedItem {
   title: string;
   url: string;
   reason: string;
+  /** Slayt (carousel) önce, sonra sayfa listesi; RSS ve silinen yeniden kontrol ayrı */
+  list_section?: 'slider' | 'list' | 'rss' | 'recheck';
+  /** İlgili bölümdeki 0 tabanlı sıra (slayt 0 = en üstteki öğe) */
+  section_order?: number;
 }
 
 export interface SyncSourceResult {

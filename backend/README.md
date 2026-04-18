@@ -1,4 +1,4 @@
-# Öğretmen Pro – Core Backend
+# Uzaedu Öğretmen – Core Backend
 
 NestJS + TypeORM + PostgreSQL. API sözleşmesi: proje kökündeki `API_CONTRACT.md` ve `AUTHORITY_MATRIX.md`.
 

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
@@ -126,6 +126,8 @@ const AKADEMIK_TAKVIM_SEED: Array<{ title: string; path: string | null; descript
 
 @Injectable()
 export class SeedService {
+  private readonly logger = new Logger(SeedService.name);
+
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
@@ -138,6 +140,48 @@ export class SeedService {
     private readonly workCalendarService: WorkCalendarService,
     private readonly bilsemService: BilsemService,
   ) {}
+
+  /** Yerel seed: demo öğretmen / okul admin hangi okuldaysa o kanonik Demo okuludur. */
+  private async resolveCanonicalDemoSchool(): Promise<School | null> {
+    const teacher = await this.userRepo.findOne({ where: { email: 'teacher@demo.local' } });
+    if (teacher?.school_id) {
+      const s = await this.schoolRepo.findOne({ where: { id: teacher.school_id } });
+      if (s) return s;
+    }
+    const admin = await this.userRepo.findOne({ where: { email: 'school_admin@demo.local' } });
+    if (admin?.school_id) {
+      const s = await this.schoolRepo.findOne({ where: { id: admin.school_id } });
+      if (s) return s;
+    }
+    const byCode = await this.schoolRepo.findOne({
+      where: { institutionCode: '123456' },
+      order: { created_at: 'ASC' },
+    });
+    if (byCode) return byCode;
+    return this.schoolRepo.findOne({
+      where: { name: 'Demo Okulu' },
+      order: { created_at: 'ASC' },
+    });
+  }
+
+  /** Aynı adda ikinci Demo okulu; kullanıcısı yoksa sil (FK engellerse atlanır). */
+  private async removeEmptyDuplicateDemoSchools(canonicalId: string): Promise<void> {
+    const rows = await this.schoolRepo.find({
+      where: { name: 'Demo Okulu' },
+      order: { created_at: 'ASC' },
+    });
+    for (const row of rows) {
+      if (row.id === canonicalId) continue;
+      const n = await this.userRepo.count({ where: { school_id: row.id } });
+      if (n > 0) continue;
+      try {
+        await this.schoolRepo.remove(row);
+        this.logger.log(`Yinelenen boş Demo okulu silindi: ${row.id}`);
+      } catch (e) {
+        this.logger.warn(`Boş Demo okulu silinemedi (${row.id}): ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
 
   async run(): Promise<{ schoolId: string; userId: string; message: string }> {
     const [hashTeacher, hashSchoolAdmin, hashSuperadmin] = await Promise.all([
@@ -161,7 +205,7 @@ export class SeedService {
         if (!superadmin.emailVerifiedAt) superadmin.emailVerifiedAt = new Date();
         await this.userRepo.save(superadmin);
       }
-      let school = await this.schoolRepo.findOne({ where: {} });
+      let school = await this.resolveCanonicalDemoSchool();
       const demoSchoolData = {
         name: 'Demo Okulu',
         type: SchoolType.lise,
@@ -207,6 +251,7 @@ export class SeedService {
         );
       } else {
         schoolAdminExists.passwordHash = hashSchoolAdmin;
+        schoolAdminExists.school_id = school.id;
         if (!schoolAdminExists.emailVerifiedAt) schoolAdminExists.emailVerifiedAt = new Date();
         await this.userRepo.save(schoolAdminExists);
       }
@@ -228,9 +273,11 @@ export class SeedService {
         );
       } else {
         teacherExists.passwordHash = hashTeacher;
+        teacherExists.school_id = school.id;
         if (!teacherExists.emailVerifiedAt) teacherExists.emailVerifiedAt = new Date();
         await this.userRepo.save(teacherExists);
       }
+      await this.removeEmptyDuplicateDemoSchools(school.id);
       const first = await this.userRepo.findOne({ where: {}, order: { created_at: 'ASC' } });
       return {
         schoolId: first?.school_id || school.id,

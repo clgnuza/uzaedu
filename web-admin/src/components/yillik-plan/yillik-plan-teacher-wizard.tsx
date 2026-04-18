@@ -205,7 +205,6 @@ function isArchiveBilsem(item: ArchiveItem): boolean {
 function ArchivePlanCards({
   items,
   variant,
-  noEvrakQuota,
   redownloadingId,
   deletingId,
   onRedownload,
@@ -214,7 +213,6 @@ function ArchivePlanCards({
 }: {
   items: ArchiveItem[];
   variant: 'bilsem' | 'other';
-  noEvrakQuota: boolean;
   redownloadingId: string | null;
   deletingId: string | null;
   onRedownload: (id: string) => void;
@@ -284,8 +282,8 @@ function ArchivePlanCards({
             <button
               type="button"
               onClick={() => onRedownload(item.id)}
-              disabled={noEvrakQuota || redownloadingId === item.id || deletingId === item.id}
-              title={noEvrakQuota ? 'Evrak kotanız bitti. Marketten hak alın.' : 'Tekrar indir'}
+              disabled={redownloadingId === item.id || deletingId === item.id}
+              title="Tekrar indir (kota düşmez)"
               className={`inline-flex h-7 items-center justify-center gap-0.5 rounded-md px-2.5 text-[11px] font-semibold text-primary-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                 bilsem
                   ? 'bg-violet-600 hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500'
@@ -293,7 +291,7 @@ function ArchivePlanCards({
               }`}
             >
               <Download className="size-3" />
-              {redownloadingId === item.id ? '…' : noEvrakQuota ? 'Kota' : 'İndir'}
+              {redownloadingId === item.id ? '…' : 'İndir'}
             </button>
             <button
               type="button"
@@ -420,7 +418,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
   const [mainTab, setMainTab] = useState<'plan' | 'archive'>('plan');
   const [redownloadingId, setRedownloadingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [evrakEntitlement, setEvrakEntitlement] = useState<number | null>(null);
+  const [planUretimKota, setPlanUretimKota] = useState<number | null>(null);
   const [showGuideModal, setShowGuideModal] = useState(false);
 
   const [bilsemOutcomeSets, setBilsemOutcomeSets] = useState<BilsemOutcomeSetRow[]>([]);
@@ -595,20 +593,20 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
     if (mainTab === 'archive' && canAccess && token) fetchArchive();
   }, [mainTab, canAccess, token, fetchArchive]);
 
-  const fetchEvrakEntitlement = useCallback(async () => {
+  const fetchPlanKota = useCallback(async () => {
     if (!token || !canAccess || me?.role !== 'teacher') return;
     try {
       const list = await apiFetch<{ entitlementType: string; quantity: number }[]>('/entitlements', { token });
-      const evrak = list?.find((e) => e.entitlementType === 'evrak_uretim');
-      setEvrakEntitlement(evrak?.quantity ?? 0);
+      const row = list?.find((e) => e.entitlementType === 'yillik_plan_uretim');
+      setPlanUretimKota(row?.quantity ?? 0);
     } catch {
-      setEvrakEntitlement(null);
+      setPlanUretimKota(null);
     }
   }, [token, canAccess, me?.role]);
 
   useEffect(() => {
-    if (canAccess && token && me?.role === 'teacher') fetchEvrakEntitlement();
-  }, [canAccess, token, me?.role, fetchEvrakEntitlement]);
+    if (canAccess && token && me?.role === 'teacher') fetchPlanKota();
+  }, [canAccess, token, me?.role, fetchPlanKota]);
 
   useEffect(() => {
     if (isBilsemYillikPlan) {
@@ -873,7 +871,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
       });
       setGenerateSuccess(true);
       fetchArchive();
-      fetchEvrakEntitlement();
+      fetchPlanKota();
 
       // Evrak varsayılanlarını güncelle (okul, müdür, zümre, yıl vb.)
       const evrakDefaultsFields = ['okul_adi', 'mudur_adi', 'ogretim_yili', 'sinif', 'zumre_ogretmenleri', 'zumreler', 'ogretmen_unvani', 'onay_tarihi'];
@@ -890,11 +888,11 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Plan üretilemedi';
-      const isEntitlementError = /kota|Marketten|evrak.*hak/i.test(msg);
+      const isEntitlementError = /kota|Marketten|evrak|plan üretim/i.test(msg);
       if (isEntitlementError && me?.role === 'teacher') {
-        toast.error(isBilsemYillikPlan ? 'Evrak kotası doldu' : 'Evrak üretim kotanız bitti. Marketten hak alarak devam edebilirsiniz.', {
+        toast.error('Plan üretim kotanız bitti. Marketten hak alarak devam edebilirsiniz.', {
           ...(isBilsemYillikPlan ? bilsemToastErr : {}),
-          description: isBilsemYillikPlan ? 'Marketten hak alarak devam edebilirsiniz' : undefined,
+          description: isBilsemYillikPlan ? 'Marketten plan / evrak hakkı' : undefined,
           action: {
             label: 'Markete git',
             onClick: () => router.push('/market'),
@@ -959,11 +957,11 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
         });
       } catch (e) {
         const msg = e && typeof e === 'object' && 'message' in e ? String((e as Error).message) : 'Tekrar indirme başarısız.';
-        const isEntitlementError = /kota|Marketten|evrak.*hak/i.test(msg);
+        const isEntitlementError = /kota|Marketten|evrak|plan üretim/i.test(msg);
         if (isEntitlementError) {
-          toast.error(scope === 'bilsem' ? 'Evrak kotası doldu' : 'Evrak üretim kotanız bitti. Marketten hak alarak devam edebilirsiniz.', {
+          toast.error('Plan üretim kotası yetersiz veya sunucu reddi. Gerekirse marketten hak alın.', {
             ...(scope === 'bilsem' ? bilsemToastErr : {}),
-            description: scope === 'bilsem' ? 'Marketten hak alarak devam edebilirsiniz' : undefined,
+            description: scope === 'bilsem' ? 'Tekrar indirme genelde kotadan düşmez; sorun devam ederse destek.' : undefined,
             action: {
               label: 'Markete git',
               onClick: () => router.push('/market'),
@@ -1133,14 +1131,14 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
   const teacherEvrakUiEnforced =
     process.env.NODE_ENV === 'production' &&
     process.env.NEXT_PUBLIC_EVRAK_SKIP_TEACHER_QUOTA !== '1';
-  const noEvrakQuota =
+  const noPlanKota =
     teacherEvrakUiEnforced &&
     me?.role === 'teacher' &&
-    evrakEntitlement !== null &&
-    evrakEntitlement <= 0;
+    planUretimKota !== null &&
+    planUretimKota <= 0;
 
   const shellClass = isBilsemYillikPlan
-    ? 'relative isolate space-y-3 overflow-hidden rounded-xl border border-violet-300/35 bg-gradient-to-br from-violet-500/[0.09] via-background to-fuchsia-500/[0.06] p-3 shadow-[0_24px_60px_-16px_rgba(109,40,217,0.18)] dark:border-violet-500/25 dark:from-violet-950/50 dark:via-background dark:to-fuchsia-950/30 sm:space-y-7 sm:rounded-2xl sm:p-5 md:space-y-9 md:p-8'
+    ? 'relative isolate space-y-2 overflow-hidden rounded-lg border border-violet-300/35 bg-gradient-to-br from-violet-500/[0.09] via-background to-fuchsia-500/[0.06] p-2.5 shadow-[0_16px_40px_-14px_rgba(109,40,217,0.16)] dark:border-violet-500/25 dark:from-violet-950/50 dark:via-background dark:to-fuchsia-950/30 sm:space-y-6 sm:rounded-2xl sm:p-5 md:space-y-8 md:p-8'
     : 'relative isolate space-y-3 overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-b from-sky-500/[0.06] via-background to-muted/25 p-3 shadow-[0_16px_40px_-18px_rgba(14,116,144,0.14)] sm:space-y-4 sm:p-4 md:space-y-5 md:p-6';
 
   return (
@@ -1148,7 +1146,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
       {isBilsemYillikPlan && (
         <div
           aria-hidden
-          className="pointer-events-none absolute -right-24 -top-24 size-[28rem] rounded-full bg-gradient-to-br from-violet-500/20 to-fuchsia-500/10 blur-3xl dark:from-violet-600/25"
+          className="pointer-events-none absolute -right-16 -top-16 size-[14rem] rounded-full bg-gradient-to-br from-violet-500/18 to-fuchsia-500/10 blur-2xl dark:from-violet-600/22 sm:-right-24 sm:-top-24 sm:size-[28rem] sm:blur-3xl"
         />
       )}
       {!isBilsemYillikPlan && (
@@ -1196,8 +1194,8 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
           archiveCount={archiveItems.length}
           templatesTotal={templates?.total ?? null}
           showQuota={me?.role === 'teacher'}
-          evrakEntitlement={evrakEntitlement}
-          noEvrakQuota={noEvrakQuota}
+          planUretimKota={planUretimKota}
+          noPlanKota={noPlanKota}
           defaultsIncomplete={defaultsIncomplete}
         />
       )}
@@ -1207,7 +1205,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
           title={isBilsemYillikPlan ? 'Yıllık plan rehberi' : 'Evrak rehberi'}
           className={
             isBilsemYillikPlan
-              ? 'max-w-xl border-violet-500/20 shadow-2xl shadow-violet-500/10 dark:border-violet-500/25'
+              ? 'max-h-[min(88dvh,36rem)] max-w-xl overflow-y-auto border-violet-500/20 shadow-2xl shadow-violet-500/10 dark:border-violet-500/25 max-sm:mx-3 max-sm:max-w-[calc(100vw-1.5rem)]'
               : 'max-w-xl border-sky-500/15 shadow-xl shadow-sky-500/5 dark:border-sky-900/35'
           }
         >
@@ -1220,55 +1218,55 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
           </p>
 
           {isBilsemYillikPlan ? (
-            <div className="mt-4 space-y-3">
-              <div className="rounded-xl border border-violet-500/15 bg-violet-500/[0.04] p-3.5 dark:border-violet-500/20 dark:bg-violet-950/35">
-                <div className="flex gap-3">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-700 dark:bg-violet-500/25 dark:text-violet-200">
-                    <Calendar className="size-4" />
+            <div className="mt-3 space-y-2 sm:mt-4 sm:space-y-3">
+              <div className="rounded-lg border border-violet-500/15 bg-violet-500/[0.04] p-2.5 dark:border-violet-500/20 dark:bg-violet-950/35 sm:rounded-xl sm:p-3.5">
+                <div className="flex gap-2 sm:gap-3">
+                  <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-700 dark:bg-violet-500/25 dark:text-violet-200 sm:size-9">
+                    <Calendar className="size-3.5 sm:size-4" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-foreground">1. Öğretim yılı</p>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    <p className="text-xs font-semibold text-foreground sm:text-sm">1. Öğretim yılı</p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground sm:mt-1 sm:text-xs">
                       Listeden çalıştığınız akademik yılı seçin. Kazanım ve şablon listeleri bu yıla göre gelir.
                     </p>
                   </div>
                 </div>
               </div>
-              <div className="rounded-xl border border-violet-500/15 bg-violet-500/[0.04] p-3.5 dark:border-violet-500/20 dark:bg-violet-950/35">
-                <div className="flex gap-3">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-700 dark:bg-violet-500/25 dark:text-violet-200">
-                    <Layers className="size-4" />
+              <div className="rounded-lg border border-violet-500/15 bg-violet-500/[0.04] p-2.5 dark:border-violet-500/20 dark:bg-violet-950/35 sm:rounded-xl sm:p-3.5">
+                <div className="flex gap-2 sm:gap-3">
+                  <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-700 dark:bg-violet-500/25 dark:text-violet-200 sm:size-9">
+                    <Layers className="size-3.5 sm:size-4" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-foreground">2. Ana ve alt grup</p>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    <p className="text-xs font-semibold text-foreground sm:text-sm">2. Ana ve alt grup</p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground sm:mt-1 sm:text-xs">
                       Yetenek alanınızı (ana grup) seçin. Program aşaması için alt grup isteğe bağlıdır; ders listesi buna göre filtrelenir.
                     </p>
                   </div>
                 </div>
               </div>
-              <div className="rounded-xl border border-violet-500/15 bg-violet-500/[0.04] p-3.5 dark:border-violet-500/20 dark:bg-violet-950/35">
-                <div className="flex gap-3">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-700 dark:bg-violet-500/25 dark:text-violet-200">
-                    <BookOpen className="size-4" />
+              <div className="rounded-lg border border-violet-500/15 bg-violet-500/[0.04] p-2.5 dark:border-violet-500/20 dark:bg-violet-950/35 sm:rounded-xl sm:p-3.5">
+                <div className="flex gap-2 sm:gap-3">
+                  <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-700 dark:bg-violet-500/25 dark:text-violet-200 sm:size-9">
+                    <BookOpen className="size-3.5 sm:size-4" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-foreground">3. Ders ve kazanımlar</p>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    <p className="text-xs font-semibold text-foreground sm:text-sm">3. Ders ve kazanımlar</p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground sm:mt-1 sm:text-xs">
                       Dersinizi seçin. Kazanım listesinden haftaya yansıyacak maddeleri işaretleyin; tüm yıl veya dönem kapsamı ile haftalık ders saatini ayarlayın.{' '}
                       <strong className="font-medium text-foreground">Şablonları göster</strong> ile bir sonraki adıma geçin.
                     </p>
                   </div>
                 </div>
               </div>
-              <div className="rounded-xl border border-violet-500/15 bg-violet-500/[0.04] p-3.5 dark:border-violet-500/20 dark:bg-violet-950/35">
-                <div className="flex gap-3">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-700 dark:bg-violet-500/25 dark:text-violet-200">
-                    <ListChecks className="size-4" />
+              <div className="rounded-lg border border-violet-500/15 bg-violet-500/[0.04] p-2.5 dark:border-violet-500/20 dark:bg-violet-950/35 sm:rounded-xl sm:p-3.5">
+                <div className="flex gap-2 sm:gap-3">
+                  <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-700 dark:bg-violet-500/25 dark:text-violet-200 sm:size-9">
+                    <ListChecks className="size-3.5 sm:size-4" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-foreground">4. Şablon, önizleme, indirme</p>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    <p className="text-xs font-semibold text-foreground sm:text-sm">4. Şablon, önizleme, indirme</p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground sm:mt-1 sm:text-xs">
                       Uygun şablonu seçin; okul ve onay bilgilerini kontrol edin. İsterseniz önizlemeyi açıp tabloyu görün, ardından{' '}
                       <strong className="font-medium text-foreground">Üret ve İndir</strong> ile Word dosyasını alın. Dosya{' '}
                       <strong className="font-medium text-foreground">Arşiv</strong> sekmesinde de saklanır; tekrar indirebilirsiniz.
@@ -1451,7 +1449,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
 
       {mainTab === 'plan' && (
         <>
-      {/* Öğretmen: Evrak kotası ve varsayılanları */}
+      {/* Öğretmen: plan kotası ve varsayılanlar */}
       {me?.role === 'teacher' && (
         <Card
           className={cn(
@@ -1483,21 +1481,21 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                 Plan üretirken okul adı, müdür ve zümre öğretmenleri otomatik doldurulur.
                 <span className="ml-1 text-muted-foreground">Ayarlardan düzenleyebilirsiniz.</span>
               </p>
-              {evrakEntitlement !== null && (
+              {planUretimKota !== null && (
                 <p className={cn('mt-2', isBilsemYillikPlan ? 'text-xs sm:text-sm' : 'text-sm')}>
-                  <span className="font-medium text-foreground">Evrak kotanız:</span>{' '}
+                  <span className="font-medium text-foreground">Yıllık plan üretim kotanız:</span>{' '}
                   <span
                     className={
-                      evrakEntitlement > 0
+                      planUretimKota > 0
                         ? isBilsemYillikPlan
                           ? 'font-semibold text-violet-700 dark:text-violet-300'
                           : 'text-primary'
                         : 'text-amber-600 dark:text-amber-500'
                     }
                   >
-                    {evrakEntitlement} adet
+                    {planUretimKota} adet
                   </span>
-                  {evrakEntitlement <= 0 && (
+                  {planUretimKota <= 0 && (
                     <Link
                       href="/market"
                       className={cn(
@@ -2083,8 +2081,10 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                     <button
                       type="button"
                       onClick={() => handleGenerateClick(t)}
+                      disabled={me?.role === 'teacher' && noPlanKota}
+                      title={me?.role === 'teacher' && noPlanKota ? 'Plan üretim kotanız bitti. Marketten hak alın.' : undefined}
                       className={cn(
-                        'shrink-0 rounded-xl bg-primary font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90 hover:shadow',
+                        'shrink-0 rounded-xl bg-primary font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90 hover:shadow disabled:cursor-not-allowed disabled:opacity-50',
                         isBilsemYillikPlan
                           ? 'w-full px-3 py-2 text-xs sm:w-auto sm:px-4 sm:py-2.5 sm:text-sm'
                           : 'px-4 py-2.5 text-sm',
@@ -2205,7 +2205,6 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                     <ArchivePlanCards
                       items={archiveOther}
                       variant="other"
-                      noEvrakQuota={noEvrakQuota}
                       redownloadingId={redownloadingId}
                       deletingId={deletingId}
                       onRedownload={handleRedownload}
@@ -2232,7 +2231,6 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                     <ArchivePlanCards
                       items={archiveBilsem}
                       variant="bilsem"
-                      noEvrakQuota={noEvrakQuota}
                       redownloadingId={redownloadingId}
                       deletingId={deletingId}
                       onRedownload={handleRedownload}
@@ -2708,10 +2706,10 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                     onClick={handleGenerateSubmit}
                     disabled={
                       generateLoading ||
-                      noEvrakQuota ||
+                      noPlanKota ||
                       (isBilsemYillikPlan && !String(generateForm.bilsem_yillik_draft_json ?? '').trim())
                     }
-                    title={noEvrakQuota ? 'Evrak kotanız bitti. Marketten hak alın.' : undefined}
+                    title={noPlanKota ? 'Plan üretim kotanız bitti. Marketten hak alın.' : undefined}
                     className={
                       isBilsemYillikPlan
                         ? 'inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50'

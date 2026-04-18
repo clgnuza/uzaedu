@@ -29,11 +29,11 @@ async function getSeoConfig() {
 
 export async function generateMetadata(): Promise<Metadata> {
   const seo = await getSeoConfig();
-  if (!seo) return { title: 'Haber Yayını – Öğretmen Pro' };
-    const title = seo?.title || 'Haber Yayını – Öğretmen Pro';
+  if (!seo) return { title: 'Haber Yayını – Uzaedu Öğretmen' };
+    const title = seo?.title || 'Haber Yayını – Uzaedu Öğretmen';
     const description = seo?.description || '';
     const ogImage = seo?.og_image || null;
-    const siteName = seo?.site_name || 'Öğretmen Pro';
+    const siteName = seo?.site_name || 'Uzaedu Öğretmen';
     const siteUrl = (
       seo?.site_url?.trim() ? stripUzaBadPortsFromUrl(seo.site_url) : SITE_URL
     ).replace(/\/$/, '');
@@ -69,7 +69,7 @@ export async function generateMetadata(): Promise<Metadata> {
  */
 export default async function YayinLayout({ children }: { children: React.ReactNode }) {
   const seo = await getSeoConfig();
-  const title = seo?.title || 'Haber Yayını – Öğretmen Pro';
+  const title = seo?.title || 'Haber Yayını – Uzaedu Öğretmen';
   const description = seo?.description || '';
   const siteUrl = (seo?.site_url?.trim() ? stripUzaBadPortsFromUrl(seo.site_url) : SITE_URL).replace(
     /\/$/,

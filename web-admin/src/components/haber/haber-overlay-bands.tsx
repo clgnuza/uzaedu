@@ -49,14 +49,14 @@ export function HaberOverlayBands({
     if (density === 'feed') {
       return 'text-[11px] sm:text-sm';
     }
-    if (isHero) return 'text-sm sm:text-base md:text-lg';
+    if (isHero) return 'text-[11px] leading-tight sm:text-base md:text-lg';
     return 'text-[11px] sm:text-sm';
   })();
 
   const lineClampClass = (() => {
     if (isCompactLayout && !isHero) return 'line-clamp-2';
     if (density === 'feed') return 'line-clamp-10';
-    if (isHero) return 'line-clamp-12';
+    if (isHero) return 'line-clamp-6 sm:line-clamp-12';
     return 'line-clamp-8';
   })();
 
@@ -71,7 +71,7 @@ export function HaberOverlayBands({
           ? 'flex max-h-[50%] min-h-0 flex-col justify-end px-1.5 pb-1.5 pt-3 sm:max-h-[52%] sm:px-2'
           : 'flex justify-center',
         !isCompactLayout && !isHero && 'px-2 pb-3 pt-10 sm:px-4 sm:pb-4 sm:pt-14',
-        isHero && 'pb-4 pt-12 sm:pb-6 sm:pt-20',
+        isHero && 'pb-2 pt-8 sm:pb-6 sm:pt-20',
         isBroadcast && !isHero && !isCompactLayout && 'sm:pt-16',
         className,
       )}

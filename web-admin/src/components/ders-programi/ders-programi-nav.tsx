@@ -68,7 +68,7 @@ const NAV_ITEMS: NavItem[] = [
   {
     path: '/ders-programi/programlarim',
     label: 'Programlarım',
-    labelAdmin: 'Öğretmen Programları',
+    labelAdmin: 'Öğretmen programları',
     hint: 'Tüm kişisel programlar (liste)',
     hintAdmin: 'Öğretmenlere göre planlar',
     icon: FolderKanban,

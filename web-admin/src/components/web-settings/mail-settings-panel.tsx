@@ -19,6 +19,7 @@ type MailConfigForAdmin = {
   smtp_from_name: string;
   smtp_secure: boolean;
   mail_app_base_url: string | null;
+  contact_form_notify_email: string | null;
 };
 
 /** Gizli alan yok; kullanıcı/uygulama şifresi elle girilir. */
@@ -28,7 +29,7 @@ function buildGmailTemplateForm(origin: string): Record<string, string | number 
     smtp_host: 'smtp.gmail.com',
     smtp_port: 587,
     smtp_secure: false,
-    smtp_from_name: 'Öğretmen Pro',
+    smtp_from_name: 'Uzaedu Öğretmen',
     mail_app_base_url: origin.replace(/\/$/, ''),
   };
 }
@@ -84,9 +85,11 @@ export function MailSettingsPanel() {
         smtp_port: form.smtp_port ?? config?.smtp_port ?? 587,
         smtp_user: (form.smtp_user ?? config?.smtp_user ?? '').toString().trim() || null,
         smtp_from: (form.smtp_from ?? config?.smtp_from ?? '').toString().trim() || null,
-        smtp_from_name: (form.smtp_from_name ?? config?.smtp_from_name ?? 'Öğretmen Pro').toString().trim() || null,
+        smtp_from_name: (form.smtp_from_name ?? config?.smtp_from_name ?? 'Uzaedu Öğretmen').toString().trim() || null,
         smtp_secure: form.smtp_secure ?? config?.smtp_secure ?? false,
         mail_app_base_url: (form.mail_app_base_url ?? config?.mail_app_base_url ?? '').toString().trim() || null,
+        contact_form_notify_email:
+          (form.contact_form_notify_email ?? config?.contact_form_notify_email ?? '').toString().trim() || null,
       };
       if ((form.smtp_pass ?? '').toString().trim()) {
         (body as Record<string, string>).smtp_pass = form.smtp_pass!.toString().trim();
@@ -125,7 +128,7 @@ export function MailSettingsPanel() {
     <WebSettingsPanel
       icon={Mail}
       title="Mail (SMTP)"
-      description="Bildirim ve şifre sıfırlama e-postaları. Gmail: smtp.gmail.com, 587, güvenli kapalı. Boş şifre mevcut şifreyi korur."
+      description="Bildirim, şifre sıfırlama ve iletişim yanıtları. İletişim yanıtı e-postaları gönderen adı (Gönderen adı), imza (yanıtlayan moderatör) ve konu + alıntı ile gider. Gmail: smtp.gmail.com, 587, güvenli kapalı."
     >
       <label className="flex cursor-pointer items-center gap-2.5 text-sm text-foreground/90">
         <input
@@ -194,9 +197,9 @@ export function MailSettingsPanel() {
             id="smtp-from-name"
             type="text"
             className={WEB_SETTINGS_INPUT}
-            value={String(form.smtp_from_name ?? config?.smtp_from_name ?? 'Öğretmen Pro')}
+            value={String(form.smtp_from_name ?? config?.smtp_from_name ?? 'Uzaedu Öğretmen')}
             onChange={(e) => handleChange('smtp_from_name', e.target.value)}
-            placeholder="Öğretmen Pro"
+            placeholder="Uzaedu Öğretmen"
           />
         </WebSettingsField>
         <div className="sm:col-span-2">
@@ -208,6 +211,22 @@ export function MailSettingsPanel() {
               value={String(form.mail_app_base_url ?? config?.mail_app_base_url ?? '')}
               onChange={(e) => handleChange('mail_app_base_url', e.target.value)}
               placeholder="http://localhost:3000 veya https://uzaedu.com"
+            />
+          </WebSettingsField>
+        </div>
+        <div className="sm:col-span-2">
+          <WebSettingsField
+            label="İletişim formu bildirim e-postası"
+            hint="Form gönderildiğinde kopyanın gideceği adres. Boşsa sunucu varsayılanı."
+            htmlFor="contact-form-notify-email"
+          >
+            <Input
+              id="contact-form-notify-email"
+              type="email"
+              className={WEB_SETTINGS_INPUT}
+              value={String(form.contact_form_notify_email ?? config?.contact_form_notify_email ?? '')}
+              onChange={(e) => handleChange('contact_form_notify_email', e.target.value)}
+              placeholder="ornek@gmail.com"
             />
           </WebSettingsField>
         </div>

@@ -74,6 +74,14 @@ export async function executeCampaign(token: string, id: string, q: string) {
   return apiFetch<{ started: boolean; total: number }>(`${MSG_API}/campaigns/${id}/execute${q}`, { method: 'POST', token });
 }
 
+export async function retryFailedCampaign(token: string, id: string, q: string) {
+  return apiFetch<{ started: boolean; total: number }>(`${MSG_API}/campaigns/${id}/retry-failed${q}`, { method: 'POST', token });
+}
+
+export async function abortCampaignSend(token: string, id: string, q: string) {
+  return apiFetch<{ ok: boolean }>(`${MSG_API}/campaigns/${id}/abort-send${q}`, { method: 'POST', token });
+}
+
 export async function loadRecipients(token: string, id: string, q: string): Promise<Recipient[]> {
   return apiFetch<Recipient[]>(`${MSG_API}/campaigns/${id}/recipients${q}`, { token });
 }

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 export const metadata: Metadata = {
   title: 'Giriş Yap',
-  description: 'ÖğretmenPro hesabınıza giriş yapın. Öğretmen ve okul yöneticisi girişi.',
+  description: 'Uzaedu Öğretmen hesabınıza giriş yapın. Öğretmen ve okul yöneticisi girişi.',
   robots: { index: true, follow: true },
   alternates: { canonical: '/login' },
 };

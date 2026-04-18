@@ -162,7 +162,7 @@ export function Footer() {
               </div>
               <div>
                 <p className="text-base font-extrabold tracking-tight text-white">
-                  Öğretmen<span className="text-blue-400">Pro</span>
+                  Uzaedu<span className="text-blue-400"> Öğretmen</span>
                 </p>
                 <p className="text-[10px] text-white/40">by UzaMobil</p>
               </div>

@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { IsEmail, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
-import { MailService } from './mail.service';
+import { ContactSubmissionsService } from './contact-submissions.service';
 
 class ContactFormDto {
   @IsString() @MinLength(2) @MaxLength(100)
@@ -25,15 +25,15 @@ class ContactFormDto {
 @UseGuards(ThrottlerGuard)
 @Throttle({ default: { limit: 3, ttl: 300_000 } }) // 5 dakikada maks 3
 export class ContactController {
-  constructor(private readonly mail: MailService) {}
+  constructor(private readonly contactSubmissions: ContactSubmissionsService) {}
 
   @Post()
   @HttpCode(200)
   async submit(@Body() dto: ContactFormDto) {
     if (dto.website) throw new BadRequestException('Spam tespit edildi');
-    await this.mail.sendContactEmail({
-      name:    dto.name.trim(),
-      email:   dto.email.trim(),
+    await this.contactSubmissions.createFromPublicForm({
+      name: dto.name.trim(),
+      email: dto.email.trim(),
       subject: dto.subject.trim(),
       message: dto.message.trim(),
     });

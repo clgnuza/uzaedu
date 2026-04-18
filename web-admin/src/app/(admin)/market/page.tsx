@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
@@ -76,6 +78,12 @@ type MarketPolicyLite = {
     jeton_for_inviter: number;
     max_invites_per_teacher: number;
     code_length: number;
+  };
+  entitlement_exchange?: {
+    enabled: boolean;
+    jeton_per_yillik_plan_unit: number;
+    jeton_per_evrak_unit: number;
+    max_units_per_request: number;
   };
 };
 
@@ -327,7 +335,8 @@ const ACTIVATION_MODULE_CARD_STYLES = [
 ] as const;
 
 const ENTITLEMENT_LABELS: Record<string, string> = {
-  evrak_uretim: 'Evrak üretim hakkı',
+  evrak_uretim: 'Evrak üretim hakkı (diğer şablonlar)',
+  yillik_plan_uretim: 'Yıllık plan üretim hakkı',
   optik_okuma: 'Optik okuma',
   tahta_kilit: 'Akıllı tahta',
 };
@@ -807,6 +816,9 @@ export default function MarketPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [policy, setPolicy] = useState<MarketPolicyLite | null>(null);
+  const [exchangeKind, setExchangeKind] = useState<'yillik_plan_uretim' | 'evrak_uretim'>('yillik_plan_uretim');
+  const [exchangeQty, setExchangeQty] = useState(1);
+  const [exchangeBusy, setExchangeBusy] = useState(false);
   const [schoolCreditAdmin, setSchoolCreditAdmin] = useState<{
     total: number;
     items: SchoolCreditAdminRow[];
@@ -1238,6 +1250,17 @@ export default function MarketPage() {
   if (!canAccess) return null;
 
   const evrakQty = entitlements.find((e) => e.entitlementType === 'evrak_uretim')?.quantity ?? 0;
+  const yillikPlanKota = entitlements.find((e) => e.entitlementType === 'yillik_plan_uretim')?.quantity ?? 0;
+  const exCfg = policy?.entitlement_exchange;
+  const exMaxUnits = exCfg
+    ? Math.min(500, Math.max(1, Math.floor(exCfg.max_units_per_request ?? 25)))
+    : 25;
+  const exQtyClamped = Math.min(exMaxUnits, Math.max(1, Math.floor(exchangeQty)));
+  const exRate =
+    exchangeKind === 'yillik_plan_uretim'
+      ? (exCfg?.jeton_per_yillik_plan_unit ?? 0)
+      : (exCfg?.jeton_per_evrak_unit ?? 0);
+  const exCost = exRate * exQtyClamped;
 
   const totalPagesMine = mine ? Math.max(1, Math.ceil(mine.total / PAGE_SIZE)) : 1;
   const totalPagesSchool = school ? Math.max(1, Math.ceil(school.total / PAGE_SIZE)) : 1;
@@ -3757,8 +3780,8 @@ export default function MarketPage() {
                     <CardTitle className="text-lg">Kullanım hakları</CardTitle>
                     <InfoHintDialog label="Kullanım hakları" title="Kullanım hakları">
                       <p>
-                        Evrak vb. kullanımlardan düşen haklar. Ücretli modüllerde jeton/ek ders düşümü üstteki özet ve
-                        tüketim tablolarında izlenir.
+                        <strong>Yıllık plan üretim</strong> ile <strong>diğer evrak üretim</strong> ayrı satırlardadır.
+                        Ücretli modüllerde jeton/ek ders düşümü üstteki özet ve tüketim tablolarında izlenir.
                       </p>
                     </InfoHintDialog>
                   </div>
@@ -3770,7 +3793,7 @@ export default function MarketPage() {
                 <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-muted/20 px-4 py-8 text-center">
                   <p className="text-sm text-muted-foreground">Henüz kayıtlı hak yok.</p>
                   <InfoHintDialog label="Kullanım hakları hakkında" title="Kullanım hakları">
-                    <p>Evrak ürettiğinizde varsayılan kotanız oluşturulur.</p>
+                    <p>İlk API erişiminde plan ve evrak için varsayılan kota satırları oluşturulur.</p>
                   </InfoHintDialog>
                 </div>
               ) : (
@@ -3784,10 +3807,12 @@ export default function MarketPage() {
                         <div
                           className={cn(
                             'flex size-9 shrink-0 items-center justify-center rounded-lg',
-                            e.entitlementType === 'evrak_uretim' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
+                            e.entitlementType === 'evrak_uretim' || e.entitlementType === 'yillik_plan_uretim'
+                              ? 'bg-primary/10 text-primary'
+                              : 'bg-muted text-muted-foreground',
                           )}
                         >
-                          {e.entitlementType === 'evrak_uretim' ? (
+                          {e.entitlementType === 'evrak_uretim' || e.entitlementType === 'yillik_plan_uretim' ? (
                             <FileText className="size-4" />
                           ) : (
                             <Coins className="size-4" />
@@ -3811,6 +3836,76 @@ export default function MarketPage() {
                   ))}
                 </ul>
               )}
+              {(isTeacher || isSchoolAdmin) && exCfg?.enabled ? (
+                <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4 sm:p-5">
+                  <p className="mb-3 text-sm font-semibold text-foreground">Jetonla hak al</p>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                    <div className="min-w-0 space-y-1.5 sm:min-w-[220px]">
+                      <Label htmlFor="mex-kind">Hak türü</Label>
+                      <Select
+                        value={exchangeKind}
+                        onValueChange={(v) => setExchangeKind(v as 'yillik_plan_uretim' | 'evrak_uretim')}
+                      >
+                        <SelectTrigger id="mex-kind" className="h-9" />
+                        <SelectValue />
+                        <SelectItem value="yillik_plan_uretim">Yıllık plan üretimi</SelectItem>
+                        <SelectItem value="evrak_uretim">Evrak üretimi</SelectItem>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="mex-qty">Adet (en fazla {exMaxUnits})</Label>
+                      <Input
+                        id="mex-qty"
+                        type="number"
+                        min={1}
+                        max={exMaxUnits}
+                        className="h-9 w-28 font-medium tabular-nums"
+                        value={exchangeQty}
+                        onChange={(e) => setExchangeQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                      />
+                    </div>
+                    <div className="flex min-w-0 flex-1 flex-col gap-1 sm:pb-0.5">
+                      <p className="text-xs text-muted-foreground">
+                        Tahmini jeton: <span className="font-semibold text-foreground">{fmtNum(exCost)}</span>
+                        {exRate <= 0 ? (
+                          <span className="ml-2 text-amber-700 dark:text-amber-400">
+                            (Bu tür için tarife 0 — Market politikasından düzenleyin.)
+                          </span>
+                        ) : null}
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="w-full sm:w-auto"
+                        disabled={
+                          exchangeBusy || exRate <= 0 || !Number.isFinite(exCost) || exCost <= 0
+                        }
+                        onClick={() => {
+                          void (async () => {
+                            if (!token || !exCfg?.enabled) return;
+                            setExchangeBusy(true);
+                            try {
+                              await apiFetch('/market/entitlements/exchange', {
+                                token,
+                                method: 'POST',
+                                body: JSON.stringify({ kind: exchangeKind, quantity: exQtyClamped }),
+                              });
+                              toast.success('Hak eklendi');
+                              await loadAll();
+                            } catch (e) {
+                              toast.error(e instanceof Error ? e.message : 'İşlem başarısız');
+                            } finally {
+                              setExchangeBusy(false);
+                            }
+                          })();
+                        }}
+                      >
+                        {exchangeBusy ? 'İşleniyor…' : 'Jetonla al'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 
@@ -3833,9 +3928,9 @@ export default function MarketPage() {
                   </InfoHintDialog>
                 </div>
               </div>
-              {isTeacher && evrakQty <= 0 && (
+              {isTeacher && yillikPlanKota <= 0 && evrakQty <= 0 && (
                 <Button asChild className="mt-6" size="lg">
-                  <Link href="/evrak">Evrak modülüne git</Link>
+                  <Link href="/evrak">Plan / evrak modülüne git</Link>
                 </Button>
               )}
               {isSuperOrMod && (

@@ -4,8 +4,8 @@ import { NextResponse } from 'next/server';
 const XML = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>Öğretmen Pro — Günün Sözü</title>
-    <link>https://ogretmenpro.com</link>
+    <title>Uzaedu Öğretmen — Günün Sözü</title>
+    <link>https://uzaedu.com</link>
     <description>TV Günün Sözü bar. item/title = söz, item/description = yazar.</description>
     <language>tr-TR</language>
     <item>

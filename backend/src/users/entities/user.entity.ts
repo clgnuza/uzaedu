@@ -105,6 +105,14 @@ export class User {
   @Column({ name: 'duty_exempt_reason', type: 'varchar', length: 128, nullable: true })
   dutyExemptReason: string | null;
 
+  /** Nöbet günü gelen kutusu hatırlatması (Europe/Istanbul, duty_reminder_time_tr) */
+  @Column({ name: 'duty_reminder_enabled', type: 'boolean', default: true })
+  dutyReminderEnabled: boolean;
+
+  /** TSİ HH:mm (00:00–23:59) */
+  @Column({ name: 'duty_reminder_time_tr', type: 'varchar', length: 5, default: '07:00' })
+  dutyReminderTimeTr: string;
+
   /** Evrak formunda varsayılan olarak doldurulacak alanlar (profil ayarlarından) */
   @Column({ name: 'evrak_defaults', type: 'jsonb', nullable: true })
   evrakDefaults: EvrakDefaults | null;
@@ -139,6 +147,14 @@ export class User {
   /** USB / tahta: sınıf TV ekranı için öğretmene özel PIN (bcrypt); idare atar. */
   @Column({ name: 'smart_board_usb_pin_hash', type: 'varchar', length: 255, nullable: true })
   smartBoardUsbPinHash: string | null;
+
+  /** Onaylı içerik bildirimi sonrası süper yöneticinin uyguladığı ceza sayacı */
+  @Column({ name: 'school_reviews_strike_count', type: 'int', default: 0 })
+  schoolReviewsStrikeCount: number;
+
+  /** Kurallara göre geçici site erişim yasağı (öğretmen API’si; /api/me ve auth hariç) */
+  @Column({ name: 'school_reviews_site_ban_until', type: 'timestamptz', nullable: true })
+  schoolReviewsSiteBanUntil: Date | null;
 
   @CreateDateColumn()
   created_at: Date;

@@ -109,7 +109,7 @@ export function parseMebbisPuantaj(buf: Buffer, donemLabel: string, schoolName =
       defaultNote,
       '────────',
       'İyi çalışmalar.',
-      schoolName ? schoolName : 'OgretmenPro',
+      schoolName ? schoolName : 'Uzaedu Öğretmen',
     ].filter((l, i, arr) => l !== '' || (arr[i - 1] !== '' && i > 0));
 
     return { name, tc: g.tc, phone: g.phone, messageText: lines.join('\n').trim(), rawRows: g.rows };
@@ -164,7 +164,7 @@ export function parseEkDersBordro(buf: Buffer, donemLabel: string, schoolName = 
       defaultNote,
       '────────',
       'İyi çalışmalar.',
-      schoolName ? schoolName : 'OgretmenPro',
+      schoolName ? schoolName : 'Uzaedu Öğretmen',
     ].filter((l, i, arr) => l !== '' || (arr[i - 1] !== '' && i > 0));
 
     return { name, tc: g.tc, phone: g.phone, messageText: lines.join('\n').trim(), rawRows: g.rows };
@@ -215,7 +215,7 @@ export function parseMaasBordro(buf: Buffer, donemLabel: string, schoolName = ''
       defaultNote,
       '────────',
       'İyi çalışmalar.',
-      schoolName ? schoolName : 'OgretmenPro',
+      schoolName ? schoolName : 'Uzaedu Öğretmen',
     ].filter((l, i, arr) => l !== '' || (arr[i - 1] !== '' && i > 0));
 
     return { name, tc: g.tc, phone: g.phone, messageText: lines.join('\n').trim(), rawRows: g.rows };

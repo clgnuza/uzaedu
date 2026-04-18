@@ -15,6 +15,7 @@ import {
   ChevronDown,
   Palette,
   PanelLeft,
+  Inbox,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -177,6 +178,21 @@ export function Header({
     return () => window.removeEventListener('scroll', onScroll);
   }, [isMobile]);
 
+  /** Mobil header kaydırınca gizlenince sticky çubuklar hâlâ eski ofsette kalmasın (ör. akademik takvim). */
+  useEffect(() => {
+    if (!isMobile) {
+      document.documentElement.style.removeProperty('--app-header-sticky-top');
+      return;
+    }
+    document.documentElement.style.setProperty(
+      '--app-header-sticky-top',
+      hideHeader ? '0px' : 'var(--header-height)',
+    );
+    return () => {
+      document.documentElement.style.removeProperty('--app-header-sticky-top');
+    };
+  }, [isMobile, hideHeader]);
+
   useEffect(() => {
     if (!userMenuOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -287,12 +303,19 @@ export function Header({
         <Container className="flex h-full w-full min-w-0 max-w-full items-center gap-2 overflow-x-auto sm:gap-3">
           <Link
             href="/"
-            className="min-w-0 max-w-[min(100%,min(280px,85vw))] shrink-0 rounded-lg px-0.5 py-0.5 outline-offset-2 transition-opacity hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
-            aria-label="Ana sayfaya dön — Öğretmen Pro"
+            className={cn(
+              'min-w-0 rounded-lg px-0.5 py-0.5 outline-offset-2 transition-opacity hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring',
+              guestShellNav ? 'shrink-0' : 'flex-1',
+            )}
+            aria-label="Ana sayfaya dön — Uzaedu Öğretmen"
           >
             <AdminShellLogoHeaderMobile subtitle={brandSub} />
           </Link>
-          <div className="min-w-0 flex-1">{guestShellNav ? <GuestPublicShellTopBar nav={guestShellNav} /> : null}</div>
+          {guestShellNav ? (
+            <div className="min-w-0 flex-1">
+              <GuestPublicShellTopBar nav={guestShellNav} />
+            </div>
+          ) : null}
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 sm:gap-2.5">
             <div className="flex items-center rounded-full border border-border/70 bg-muted/40 p-0.5 dark:bg-muted/25">
               <button
@@ -381,7 +404,7 @@ export function Header({
       />
       <Container className="flex w-full items-center justify-between gap-2 sm:gap-4">
         {/* Sol: mobil menü + logo */}
-        <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
+        <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-2.5">
           {isMobile && (
             <Sheet open={sidebarSheetOpen} onOpenChange={setSidebarSheetOpen}>
               <SheetTrigger asChild>
@@ -395,7 +418,7 @@ export function Header({
               </SheetTrigger>
               <SheetContent
                 side="left"
-                className="!w-[min(78vw,188px)] !max-w-[188px] gap-0 border-r p-0"
+                className="!w-[min(88vw,280px)] !max-w-[280px] gap-0 border-r p-0"
               >
                 <SheetBody className="min-h-0 p-0">
                   <SidebarMenu
@@ -410,7 +433,7 @@ export function Header({
           )}
           <Link
             href="/dashboard"
-            className="min-w-0 max-w-[min(100%,180px)] shrink-0 rounded-xl px-1.5 py-1 transition-opacity hover:opacity-90 sm:max-w-[min(100%,220px)] lg:hidden"
+            className="min-w-0 flex-1 rounded-xl px-1 py-1 transition-opacity hover:opacity-90 lg:hidden"
             aria-label="Dashboard"
           >
             <AdminShellLogoHeaderMobile subtitle={logoSubtitleConfigured || undefined} />
@@ -418,7 +441,7 @@ export function Header({
         </div>
 
         {/* Sağ: hesap menüsü */}
-        <div className="relative flex min-w-0 items-center justify-end gap-1.5 sm:gap-2">
+        <div className="relative flex shrink-0 items-center justify-end gap-1.5 sm:gap-2">
           <div className="relative" ref={userMenuAnchorRef}>
             <button
               type="button"
@@ -609,6 +632,19 @@ export function Header({
                         </span>
                         Profil
                       </Link>
+                      {(me?.role === 'superadmin' || me?.role === 'moderator') && (
+                        <Link
+                          href="/contact-inbox"
+                          role="menuitem"
+                          className="flex min-h-10 items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-background active:scale-[0.99] sm:min-h-11 sm:text-sm"
+                          onClick={() => setUserMenuOpen(false)}
+                        >
+                          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-800 dark:bg-sky-500/25 dark:text-sky-100">
+                            <Inbox className="size-3.5" aria-hidden />
+                          </span>
+                          İletişim gelen kutusu
+                        </Link>
+                      )}
                       <button
                         type="button"
                         role="menuitem"

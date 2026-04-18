@@ -7,7 +7,7 @@ Sayın {AD}
 Mesajınız okul yönetimi tarafından iletilmiştir.
 
 ────────
-OgretmenPro`;
+Uzaedu Öğretmen`;
 
 export const TPL_EK_DERS = `💼 Ek ders özeti
 
@@ -20,7 +20,7 @@ Sayın {AD}
 İyi çalışmalar.
 
 ────────
-OgretmenPro`;
+Uzaedu Öğretmen`;
 
 export const TPL_MAAS = `💼 Maaş özeti
 
@@ -33,7 +33,7 @@ Sayın {AD}
 İyi çalışmalar.
 
 ────────
-OgretmenPro`;
+Uzaedu Öğretmen`;
 
 export const TPL_DEVAMSIZLIK = `📋 Devamsızlık bildirimi
 

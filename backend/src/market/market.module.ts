@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppConfigModule } from '../app-config/app-config.module';
+import { EntitlementModule } from '../entitlements/entitlement.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { User } from '../users/entities/user.entity';
 import { School } from '../schools/entities/school.entity';
@@ -14,6 +15,7 @@ import { MarketSchoolCreditService } from './market-school-credit.service';
 import { MarketUserCreditService } from './market-user-credit.service';
 import { MarketPurchaseController } from './market-purchase.controller';
 import { MarketWalletService } from './market-wallet.service';
+import { MarketEntitlementExchangeService } from './market-entitlement-exchange.service';
 import { MarketWalletController } from './market-wallet.controller';
 import { MarketModuleUsageService } from './market-module-usage.service';
 import { MarketUsageService } from './market-usage.service';
@@ -28,6 +30,7 @@ import { RequireModuleActivationGuard } from './guards/require-module-activation
 @Module({
   imports: [
     AppConfigModule,
+    EntitlementModule,
     NotificationsModule,
     TypeOrmModule.forFeature([
       MarketPurchaseLedger,
@@ -50,6 +53,7 @@ import { RequireModuleActivationGuard } from './guards/require-module-activation
   providers: [
     MarketPurchaseService,
     MarketWalletService,
+    MarketEntitlementExchangeService,
     MarketModuleUsageService,
     MarketUsageService,
     MarketSchoolCreditService,

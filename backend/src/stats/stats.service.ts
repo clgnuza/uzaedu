@@ -17,7 +17,6 @@ const SCHOOL_MODULE_KEYS = [
   'smart_board',
   'teacher_agenda',
   'bilsem',
-  'school_profile',
   'school_reviews',
 ] as const;
 

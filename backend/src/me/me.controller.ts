@@ -67,6 +67,10 @@ export class MeController {
       status: user.status,
       moderator_modules: user.moderatorModules ?? null,
       evrak_defaults: user.evrakDefaults ?? null,
+      school_reviews_strike_count: Math.max(0, Math.round(Number(user.schoolReviewsStrikeCount ?? 0))),
+      school_reviews_site_ban_until: user.schoolReviewsSiteBanUntil?.toISOString() ?? null,
+      duty_reminder_enabled: user.dutyReminderEnabled !== false,
+      duty_reminder_time_tr: user.dutyReminderTimeTr ?? '07:00',
       created_at: user.created_at,
       updated_at: user.updated_at,
     };
@@ -102,6 +106,10 @@ export class MeController {
       teacher_public_name_masked: user.teacherPublicNameMasked,
       status: user.status,
       evrak_defaults: user.evrakDefaults ?? null,
+      school_reviews_strike_count: Math.max(0, Math.round(Number(user.schoolReviewsStrikeCount ?? 0))),
+      school_reviews_site_ban_until: user.schoolReviewsSiteBanUntil?.toISOString() ?? null,
+      duty_reminder_enabled: user.dutyReminderEnabled !== false,
+      duty_reminder_time_tr: user.dutyReminderTimeTr ?? '07:00',
       updated_at: user.updated_at,
     };
   }

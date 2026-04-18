@@ -424,7 +424,7 @@ export class TvPublicController {
     try {
       const res = await fetch(url, {
         headers: {
-          'User-Agent': 'OgretmenPro-TV/1.0',
+          'User-Agent': 'UzaeduOgretmen-TV/1.0',
           Accept: 'application/rss+xml, application/xml; charset=utf-8',
         },
         signal: AbortSignal.timeout(8000),
@@ -500,7 +500,7 @@ export class TvPublicController {
     try {
       const res = await fetch(url, {
         headers: {
-          'User-Agent': 'OgretmenPro-TV/1.0',
+          'User-Agent': 'UzaeduOgretmen-TV/1.0',
           Accept: 'application/rss+xml, application/xml; charset=utf-8',
         },
         signal: AbortSignal.timeout(8000),

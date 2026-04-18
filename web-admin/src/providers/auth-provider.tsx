@@ -79,8 +79,13 @@ export type Me = {
   email_verified?: boolean;
   /** E-posta+şifre girişinde OTP (varsayılan true) */
   login_otp_required?: boolean;
+  /** Nöbet günü gelen kutusu hatırlatması (TSİ) */
+  duty_reminder_enabled?: boolean;
+  duty_reminder_time_tr?: string;
   school_verified?: boolean;
   teacher_public_name_masked?: boolean;
+  school_reviews_strike_count?: number;
+  school_reviews_site_ban_until?: string | null;
   created_at?: string;
   /** Sunucudan gelirse profil / PATCH sonrası güncelleme zamanı */
   updated_at?: string;

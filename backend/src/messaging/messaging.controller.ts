@@ -144,6 +144,18 @@ export class MessagingController {
     return this.svc.executeCampaign(this.sid(p, q), id, { userId: p.userId, role: p.role });
   }
 
+  @Post('campaigns/:id/retry-failed')
+  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  retryFailed(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') q?: string) {
+    return this.svc.retryFailedRecipients(this.sid(p, q), id, { userId: p.userId, role: p.role });
+  }
+
+  @Post('campaigns/:id/abort-send')
+  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  abortSend(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') q?: string) {
+    return this.svc.requestCampaignSendAbort(this.sid(p, q), id, { userId: p.userId, role: p.role });
+  }
+
   // ── Manuel / Toplu ────────────────────────────────────────────────────────
 
   @Post('campaigns/toplu-mesaj/manual')

@@ -116,23 +116,23 @@ export function AuthPageShell({ children, eyebrow = 'Web Admin', compact = false
               </div>
             </div>
 
-            <h1 className="relative z-10 flex flex-wrap items-baseline justify-center gap-x-1 leading-none tracking-tight">
+            <h1 className="relative z-10 flex max-w-full flex-wrap items-baseline justify-center gap-x-0.5 px-2 leading-none tracking-tight">
               <span
                 className={cn(
                   'font-extrabold text-foreground drop-shadow-[0_0_24px_rgba(255,255,255,0.35)] dark:drop-shadow-[0_0_20px_rgba(167,139,250,0.15)]',
-                  compact ? 'text-[1.2rem] sm:text-[1.6rem]' : 'text-[1.2rem] sm:text-[1.75rem]',
+                  compact ? 'text-[1.05rem] sm:text-[1.45rem]' : 'text-[1.05rem] sm:text-[1.55rem]',
                 )}
               >
-                Öğretmen
+                Uzaedu
               </span>
               <span
                 className={cn(
                   'bg-linear-to-r from-violet-500 via-fuchsia-500 to-cyan-400 bg-clip-text font-extrabold text-transparent',
                   'drop-shadow-[0_0_20px_rgba(139,92,246,0.35)] dark:drop-shadow-[0_0_24px_rgba(192,132,252,0.4)]',
-                  compact ? 'text-[1.2rem] sm:text-[1.6rem]' : 'text-[1.2rem] sm:text-[1.75rem]',
+                  compact ? 'text-[1.05rem] sm:text-[1.45rem]' : 'text-[1.05rem] sm:text-[1.55rem]',
                 )}
               >
-                Pro
+                Öğretmen
               </span>
             </h1>
           </Link>

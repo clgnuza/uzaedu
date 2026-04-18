@@ -99,29 +99,29 @@ const IND_NIGHT = 150;
 const r = (v: number) => Math.round(v * 100) / 100;
 
 const DEFAULT_LINE_ITEMS: LineItem[] = [
-  { key: 'gunduz', label: 'Gündüz Tutar', type: 'hourly', indicator: 140, multiplier: 1, unit_price_day: r(COEFF_DEFAULT * 140), unit_price_night: r(COEFF_DEFAULT * 150), sort_order: 1 },
-  { key: 'gece', label: 'Gece Tutar', type: 'hourly', indicator: 150, multiplier: 1, unit_price: r(COEFF_DEFAULT * 150), sort_order: 2 },
-  { key: 'edygg_gunduz', label: 'EDYGG-Gündüz Tutar', type: 'hourly', indicator: 140, multiplier: 1, unit_price: r(COEFF_DEFAULT * 140), sort_order: 3 },
-  { key: 'edygg_gece', label: 'EDYGG-Gece Tutar', type: 'hourly', indicator: 150, multiplier: 1, unit_price: r(COEFF_DEFAULT * 150), sort_order: 4 },
-  { key: 'nobet', label: 'Nöbet Ücreti Tutar', type: 'hourly', indicator: 140, multiplier: 1, unit_price: r(COEFF_DEFAULT * 140), sort_order: 5 },
-  { key: 'belleticilik', label: 'Belletmenlik Tutar', type: 'hourly', indicator: 140, multiplier: 1, unit_price: r(COEFF_DEFAULT * 140), sort_order: 6 },
-  { key: 'sinav_gorevi', label: 'Sınav Görevi Tutar', type: 'hourly', indicator: 140, multiplier: 1, unit_price: r(COEFF_DEFAULT * 140), sort_order: 7 },
-  { key: 'egzersiz', label: 'Egzersiz Tutar', type: 'hourly', indicator: 140, multiplier: 1, unit_price: r(COEFF_DEFAULT * 140), sort_order: 8 },
-  { key: 'hizmet_ici', label: 'Hizmet İçi Tutar', type: 'hourly', indicator: 140, multiplier: 1, unit_price: r(COEFF_DEFAULT * 140), sort_order: 9 },
-  { key: 'ozel_egitim_25_gunduz', label: '%25 Gündüz Tutar', type: 'hourly', indicator: 140, multiplier: 1.25, unit_price_day: r(COEFF_DEFAULT * 175), unit_price_night: r(COEFF_DEFAULT * 187.5), sort_order: 10 },
-  { key: 'ozel_egitim_25_gece', label: '%25 Gece Tutar', type: 'hourly', indicator: 150, multiplier: 1.25, unit_price: r(COEFF_DEFAULT * 187.5), sort_order: 11 },
-  { key: 'edygg_25_gunduz', label: 'EDYGG-%25 Gündüz Tutar', type: 'hourly', indicator: 140, multiplier: 1.25, unit_price: r(COEFF_DEFAULT * 175), sort_order: 12 },
-  { key: 'edygg_25_gece', label: 'EDYGG-%25 Gece Tutar', type: 'hourly', indicator: 150, multiplier: 1.25, unit_price: r(COEFF_DEFAULT * 187.5), sort_order: 13 },
-  { key: 'ozel_egitim_25_nobet', label: '%25 Nöbet Ücreti Tutar', type: 'hourly', indicator: 140, multiplier: 1.25, unit_price: r(COEFF_DEFAULT * 175), sort_order: 14 },
-  { key: 'ozel_egitim_25_belleticilik', label: '%25 Belletmenlik Tutar', type: 'hourly', indicator: 140, multiplier: 1.25, unit_price: r(COEFF_DEFAULT * 175), sort_order: 15 },
-  { key: 'destek_odasi_25', label: 'Destek Odası %25 Tutar', type: 'hourly', indicator: 140, multiplier: 1.25, unit_price: r(COEFF_DEFAULT * 175), sort_order: 16 },
-  { key: 'evde_egitim_25', label: 'Evde Eğitim %25 Tutar', type: 'hourly', indicator: 140, multiplier: 1.25, unit_price: r(COEFF_DEFAULT * 175), sort_order: 17 },
-  { key: 'cezaevi_gunduz', label: 'Cezaevi Görevi Gündüz Tutar', type: 'hourly', indicator: 140, multiplier: 1.25, unit_price_day: r(COEFF_DEFAULT * 175), unit_price_night: r(COEFF_DEFAULT * 187.5), sort_order: 18 },
-  { key: 'cezaevi_gece', label: 'Cezaevi Görevi Gece Tutar', type: 'hourly', indicator: 150, multiplier: 1.25, unit_price: r(COEFF_DEFAULT * 187.5), sort_order: 19 },
-  { key: 'takviye_gunduz', label: 'Takviye Kursu-Gündüz Tutar', type: 'hourly', indicator: 140, multiplier: 2, unit_price_day: r(COEFF_DEFAULT * 280), unit_price_night: r(COEFF_DEFAULT * 300), sort_order: 20 },
-  { key: 'takviye_gece', label: 'Takviye Kursu-Gece Tutar', type: 'hourly', indicator: 150, multiplier: 2, unit_price: r(COEFF_DEFAULT * 300), sort_order: 21 },
-  { key: 'iyep_gunduz', label: 'İYEP-Gündüz Tutar', type: 'hourly', indicator: 140, multiplier: 1, unit_price: r(COEFF_DEFAULT * 140), sort_order: 22 },
-  { key: 'iyep_gece', label: 'İYEP-Gece Tutar', type: 'hourly', indicator: 150, multiplier: 1, unit_price: r(COEFF_DEFAULT * 150), sort_order: 23 },
+  { key: 'gunduz', label: 'Gündüz', type: 'hourly', indicator: 140, multiplier: 1, unit_price_day: r(COEFF_DEFAULT * 140), unit_price_night: r(COEFF_DEFAULT * 150), sort_order: 1 },
+  { key: 'gece', label: 'Gece', type: 'hourly', indicator: 150, multiplier: 1, unit_price: r(COEFF_DEFAULT * 150), sort_order: 2 },
+  { key: 'edygg_gunduz', label: 'EDYGG-Gündüz', type: 'hourly', indicator: 140, multiplier: 1, unit_price: r(COEFF_DEFAULT * 140), sort_order: 3 },
+  { key: 'edygg_gece', label: 'EDYGG-Gece', type: 'hourly', indicator: 150, multiplier: 1, unit_price: r(COEFF_DEFAULT * 150), sort_order: 4 },
+  { key: 'nobet', label: 'Nöbet Ücreti', type: 'hourly', indicator: 140, multiplier: 1, unit_price: r(COEFF_DEFAULT * 140), sort_order: 5 },
+  { key: 'belleticilik', label: 'Belletmenlik', type: 'hourly', indicator: 140, multiplier: 1, unit_price: r(COEFF_DEFAULT * 140), sort_order: 6 },
+  { key: 'sinav_gorevi', label: 'Sınav Görevi', type: 'hourly', indicator: 140, multiplier: 1, unit_price: r(COEFF_DEFAULT * 140), sort_order: 7 },
+  { key: 'egzersiz', label: 'Egzersiz', type: 'hourly', indicator: 140, multiplier: 1, unit_price: r(COEFF_DEFAULT * 140), sort_order: 8 },
+  { key: 'hizmet_ici', label: 'Hizmet İçi', type: 'hourly', indicator: 140, multiplier: 1, unit_price: r(COEFF_DEFAULT * 140), sort_order: 9 },
+  { key: 'ozel_egitim_25_gunduz', label: '%25 Gündüz', type: 'hourly', indicator: 140, multiplier: 1.25, unit_price_day: r(COEFF_DEFAULT * 175), unit_price_night: r(COEFF_DEFAULT * 187.5), sort_order: 10 },
+  { key: 'ozel_egitim_25_gece', label: '%25 Gece', type: 'hourly', indicator: 150, multiplier: 1.25, unit_price: r(COEFF_DEFAULT * 187.5), sort_order: 11 },
+  { key: 'edygg_25_gunduz', label: 'EDYGG-%25 Gündüz', type: 'hourly', indicator: 140, multiplier: 1.25, unit_price: r(COEFF_DEFAULT * 175), sort_order: 12 },
+  { key: 'edygg_25_gece', label: 'EDYGG-%25 Gece', type: 'hourly', indicator: 150, multiplier: 1.25, unit_price: r(COEFF_DEFAULT * 187.5), sort_order: 13 },
+  { key: 'ozel_egitim_25_nobet', label: '%25 Nöbet Ücreti', type: 'hourly', indicator: 140, multiplier: 1.25, unit_price: r(COEFF_DEFAULT * 175), sort_order: 14 },
+  { key: 'ozel_egitim_25_belleticilik', label: '%25 Belletmenlik', type: 'hourly', indicator: 140, multiplier: 1.25, unit_price: r(COEFF_DEFAULT * 175), sort_order: 15 },
+  { key: 'destek_odasi_25', label: 'Destek Odası %25', type: 'hourly', indicator: 140, multiplier: 1.25, unit_price: r(COEFF_DEFAULT * 175), sort_order: 16 },
+  { key: 'evde_egitim_25', label: 'Evde Eğitim %25', type: 'hourly', indicator: 140, multiplier: 1.25, unit_price: r(COEFF_DEFAULT * 175), sort_order: 17 },
+  { key: 'cezaevi_gunduz', label: 'Cezaevi Görevi Gündüz', type: 'hourly', indicator: 140, multiplier: 1.25, unit_price_day: r(COEFF_DEFAULT * 175), unit_price_night: r(COEFF_DEFAULT * 187.5), sort_order: 18 },
+  { key: 'cezaevi_gece', label: 'Cezaevi Görevi Gece', type: 'hourly', indicator: 150, multiplier: 1.25, unit_price: r(COEFF_DEFAULT * 187.5), sort_order: 19 },
+  { key: 'takviye_gunduz', label: 'Takviye Kursu-Gündüz', type: 'hourly', indicator: 140, multiplier: 2, unit_price_day: r(COEFF_DEFAULT * 280), unit_price_night: r(COEFF_DEFAULT * 300), sort_order: 20 },
+  { key: 'takviye_gece', label: 'Takviye Kursu-Gece', type: 'hourly', indicator: 150, multiplier: 2, unit_price: r(COEFF_DEFAULT * 300), sort_order: 21 },
+  { key: 'iyep_gunduz', label: 'İYEP-Gündüz', type: 'hourly', indicator: 140, multiplier: 1, unit_price: r(COEFF_DEFAULT * 140), sort_order: 22 },
+  { key: 'iyep_gece', label: 'İYEP-Gece', type: 'hourly', indicator: 150, multiplier: 1, unit_price: r(COEFF_DEFAULT * 150), sort_order: 23 },
 ];
 
 type LineItemTemplate = {
@@ -269,7 +269,7 @@ export default function EkDersParamsPage() {
             Gösterge tablosu (kalem şablonları)
           </CardTitle>
           <CardDescription className="text-sm">
-            Birim ücretler formül ile hesaplanır: <span className="font-mono text-xs">Tutar = Katsayı × Gösterge</span>.
+            Birim ücretler formül ile hesaplanır: <span className="font-mono text-xs">Ücret = Katsayı × Gösterge</span>.
             Göstergeler bu tabloda düzenlenebilir.
           </CardDescription>
         </CardHeader>

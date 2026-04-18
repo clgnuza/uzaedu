@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { uuidToTvShortSchoolId } from '@/lib/tv-school-short-id';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -595,12 +596,8 @@ export default function TvPage() {
         ? byCategoryTeachers
         : byCategoryClassroom;
 
-  const previewUrlCorridor = schoolId
-    ? `/tv/corridor?school_id=${schoolId}&preview=1`
-    : '/tv/corridor?preview=1';
-  const previewUrlTeachers = schoolId
-    ? `/tv/teachers?school_id=${schoolId}&preview=1`
-    : '/tv/teachers?preview=1';
+  const previewUrlCorridor = tvPlayerPath('corridor', schoolId ?? undefined, { preview: true });
+  const previewUrlTeachers = tvPlayerPath('teachers', schoolId ?? undefined, { preview: true });
   const firstDeviceId = smartBoardDevices[0]?.id;
   const previewUrlClassroom =
     schoolId && firstDeviceId
@@ -663,7 +660,7 @@ export default function TvPage() {
 
   return (
     <div className="space-y-3 sm:space-y-6 max-sm:-mx-2 max-sm:rounded-2xl max-sm:bg-gradient-to-b max-sm:from-cyan-500/[0.07] max-sm:via-background max-sm:to-indigo-500/10 max-sm:px-2 max-sm:pb-2 max-sm:pt-0.5 dark:max-sm:from-cyan-950/50 dark:max-sm:via-background dark:max-sm:to-indigo-950/40">
-      <header className="sticky top-0 z-[1] -mt-4 max-sm:-mt-2 rounded-lg border border-border/70 bg-card/90 shadow-sm ring-1 ring-cyan-500/10 backdrop-blur-md supports-backdrop-filter:bg-card/85 sm:rounded-xl dark:ring-cyan-400/10">
+      <header className="-mt-4 max-sm:-mt-2 rounded-lg border border-border/70 bg-card/90 shadow-sm ring-1 ring-cyan-500/10 backdrop-blur-md supports-backdrop-filter:bg-card/85 sm:rounded-xl dark:ring-cyan-400/10">
         <div className="flex flex-col gap-2 border-b border-border/60 px-2 py-2 sm:gap-4 sm:px-6 sm:py-5">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <div className="min-w-0 flex-1">
@@ -1465,10 +1462,18 @@ export default function TvPage() {
   );
 }
 
-function tvPlayerPath(group: 'corridor' | 'teachers', schoolId?: string) {
+function tvPlayerPath(group: 'corridor' | 'teachers', schoolId?: string, opts?: { preview?: boolean }) {
   const base = group === 'corridor' ? '/tv/corridor' : '/tv/teachers';
-  if (!schoolId) return base;
-  return `${base}?school_id=${encodeURIComponent(schoolId)}`;
+  const q = new URLSearchParams();
+  if (opts?.preview) q.set('preview', '1');
+  const sid = schoolId?.trim();
+  if (sid) {
+    const s = uuidToTvShortSchoolId(sid);
+    if (s) q.set('s', s);
+    else q.set('school_id', sid);
+  }
+  const qs = q.toString();
+  return qs ? `${base}?${qs}` : base;
 }
 
 function TvDevicesSection({
@@ -1561,7 +1566,7 @@ function TvDevicesSection({
             onClick={() => copyTvUrl(group)}
             disabled={!schoolId}
             className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium shadow-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:py-1.5"
-            title="Tam adresi panoya kopyalar (uzun URL yazmaya gerek yok)"
+            title="Kısa TV adresini panoya kopyalar (?s=…)"
           >
             <Copy className="size-3.5 shrink-0" />
             Adresi kopyala

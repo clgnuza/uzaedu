@@ -14,21 +14,35 @@ import {
   ArrowRight,
   ChevronRight,
   Award,
+  Banknote,
   Bell,
+  BellRing,
+  BookMarked,
+  Bug,
   Calendar,
   CalendarCheck,
   CalendarClock,
+  CalendarDays,
+  CalendarRange,
   CheckCircle2,
   ClipboardList,
   Coins,
   Clock,
   FileText,
+  FolderOpen,
   Headphones,
   Heart,
+  GraduationCap,
   Layers,
+  LifeBuoy,
   MapPin,
+  Medal,
+  Megaphone,
+  MessageSquare,
   Monitor,
   Newspaper,
+  NotebookPen,
+  ScanBarcode,
   ScanLine,
   Settings,
   ShoppingBag,
@@ -40,6 +54,8 @@ import {
   XCircle,
   Undo2,
   Calculator,
+  Sigma,
+  UsersRound,
   Lock,
   BadgeCheck,
   Quote,
@@ -380,6 +396,14 @@ function buildTeacherQuickSections(enabledModules: string[] | null | undefined):
     .filter((sec) => sec.items.length > 0);
 }
 
+type TeacherHomeTopShortcut = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  ring: string;
+  marketKey?: SchoolModuleKey;
+};
+
 type DutySlot = { user_id: string; area_name: string | null; slot_name: string | null; shift?: string };
 type Pref = { id?: string; date: string; status: string };
 type Swap = {
@@ -487,47 +511,138 @@ export function TeacherHome({
     }
   };
 
-  const topShortcutItems = useMemo(
-    () => {
-      const items: { href: string; label: string; icon: LucideIcon; ring: string }[] = [
-        { href: '/hesaplamalar', label: 'Hesap', icon: Calculator, ring: 'bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-200' },
-        { href: '/akademik-takvim', label: 'Takvim', icon: Calendar, ring: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-100' },
-      ];
-      if (dutyEnabled && isSchoolModuleEnabled(enabledModules, 'duty')) {
-        items.push({
-          href: '/duty',
-          label: 'Nöbet',
-          icon: CalendarClock,
-          ring: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-100',
-        });
-      }
-      items.push(
-        { href: '/ders-programi/programlarim', label: 'Program', icon: Table2, ring: 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-100' },
-        { href: '/bildirimler', label: 'Bildirim', icon: Bell, ring: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-100' },
-        { href: '/haberler', label: 'Haber', icon: Newspaper, ring: 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-100' },
-        { href: '/support', label: 'Destek', icon: Headphones, ring: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-100' },
-        { href: '/market', label: 'Market', icon: ShoppingBag, ring: 'bg-teal-100 text-teal-800 dark:bg-teal-950/60 dark:text-teal-100' },
-      );
-      if (isSchoolModuleEnabled(enabledModules, 'optical')) {
-        items.splice(items.length - 1, 0, {
-          href: '/optik-formlar',
-          label: 'Optik',
-          icon: ScanLine,
-          ring: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-950/60 dark:text-fuchsia-100',
-        });
-      }
-      if (isSchoolModuleEnabled(enabledModules, 'bilsem')) {
-        items.splice(items.length - 1, 0, {
-          href: '/bilsem/takvim',
-          label: 'Bilsem',
-          icon: Layers,
-          ring: 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-100',
-        });
-      }
-      return items;
-    },
-    [dutyEnabled, enabledModules],
-  );
+  const topShortcutItems = useMemo((): TeacherHomeTopShortcut[] => {
+    const items: TeacherHomeTopShortcut[] = [
+      { href: '/hesaplamalar', label: 'Hesap', icon: Sigma, ring: 'bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-200' },
+      { href: '/akademik-takvim', label: 'Takvim', icon: CalendarDays, ring: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-100' },
+    ];
+    if (dutyEnabled && isSchoolModuleEnabled(enabledModules, 'duty')) {
+      items.push({
+        href: '/duty',
+        label: 'Nöbet',
+        icon: UsersRound,
+        ring: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-100',
+        marketKey: 'duty',
+      });
+    }
+    items.push(
+      { href: '/ders-programi/programlarim', label: 'Program', icon: CalendarRange, ring: 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-100' },
+      { href: '/bildirimler', label: 'Bildirim', icon: BellRing, ring: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-100' },
+      { href: '/haberler', label: 'Haber', icon: Megaphone, ring: 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-100' },
+      { href: '/support', label: 'Destek', icon: LifeBuoy, ring: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-100' },
+    );
+
+    const moduleStrip: TeacherHomeTopShortcut[] = [];
+    if (isSchoolModuleEnabled(enabledModules, 'extra_lesson')) {
+      moduleStrip.push({
+        href: '/ek-ders-hesaplama',
+        label: 'Ek ders',
+        icon: Banknote,
+        ring: 'bg-lime-100 text-lime-900 dark:bg-lime-950/50 dark:text-lime-200',
+        marketKey: 'extra_lesson',
+      });
+    }
+    if (isSchoolModuleEnabled(enabledModules, 'document')) {
+      moduleStrip.push({
+        href: '/evrak',
+        label: 'Evrak',
+        icon: FolderOpen,
+        ring: 'bg-teal-100 text-teal-900 dark:bg-teal-950/50 dark:text-teal-100',
+        marketKey: 'document',
+      });
+    }
+    if (isSchoolModuleEnabled(enabledModules, 'outcome')) {
+      moduleStrip.push({
+        href: '/kazanim-takip',
+        label: 'Kazanım',
+        icon: BookMarked,
+        ring: 'bg-indigo-100 text-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-100',
+        marketKey: 'outcome',
+      });
+    }
+    if (isSchoolModuleEnabled(enabledModules, 'teacher_agenda')) {
+      moduleStrip.push({
+        href: '/ogretmen-ajandasi',
+        label: 'Ajanda',
+        icon: NotebookPen,
+        ring: 'bg-blue-100 text-blue-900 dark:bg-blue-950/50 dark:text-blue-100',
+        marketKey: 'teacher_agenda',
+      });
+    }
+    if (isSchoolModuleEnabled(enabledModules, 'smart_board')) {
+      moduleStrip.push({
+        href: '/akilli-tahta',
+        label: 'Tahta',
+        icon: Monitor,
+        ring: 'bg-violet-100 text-violet-900 dark:bg-violet-950/50 dark:text-violet-100',
+        marketKey: 'smart_board',
+      });
+    }
+    if (isSchoolModuleEnabled(enabledModules, 'school_reviews')) {
+      moduleStrip.push({
+        href: '/okul-degerlendirmeleri',
+        label: 'Okul',
+        icon: Star,
+        ring: 'bg-orange-100 text-orange-900 dark:bg-orange-950/50 dark:text-orange-100',
+        marketKey: 'school_reviews',
+      });
+    }
+    if (isSchoolModuleEnabled(enabledModules, 'butterfly_exam')) {
+      moduleStrip.push({
+        href: '/kelebek-sinav/ogrenci-sorgu',
+        label: 'Kertenkele',
+        icon: Bug,
+        ring: 'bg-slate-200 text-slate-900 dark:bg-slate-800 dark:text-slate-100',
+        marketKey: 'butterfly_exam',
+      });
+    }
+    if (isSchoolModuleEnabled(enabledModules, 'sorumluluk_sinav')) {
+      moduleStrip.push({
+        href: '/sorumluluk-sinav/bilgilendirme',
+        label: 'Beceri',
+        icon: Medal,
+        ring: 'bg-yellow-100 text-yellow-900 dark:bg-yellow-950/50 dark:text-yellow-100',
+        marketKey: 'sorumluluk_sinav',
+      });
+    }
+    if (isSchoolModuleEnabled(enabledModules, 'messaging')) {
+      moduleStrip.push({
+        href: '/mesaj-merkezi',
+        label: 'Mesaj',
+        icon: MessageSquare,
+        ring: 'bg-green-100 text-green-900 dark:bg-green-950/50 dark:text-green-100',
+        marketKey: 'messaging',
+      });
+    }
+
+    const tail: TeacherHomeTopShortcut[] = [];
+    if (isSchoolModuleEnabled(enabledModules, 'optical')) {
+      tail.push({
+        href: '/optik-formlar',
+        label: 'Optik',
+        icon: ScanBarcode,
+        ring: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-950/60 dark:text-fuchsia-100',
+        marketKey: 'optical',
+      });
+    }
+    if (isSchoolModuleEnabled(enabledModules, 'bilsem')) {
+      tail.push({
+        href: '/bilsem/takvim',
+        label: 'Bilsem',
+        icon: GraduationCap,
+        ring: 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-100',
+        marketKey: 'bilsem',
+      });
+    }
+    tail.push({
+      href: '/market',
+      label: 'Market',
+      icon: ShoppingBag,
+      ring: 'bg-teal-100 text-teal-800 dark:bg-teal-950/60 dark:text-teal-100',
+    });
+
+    return [...items, ...moduleStrip, ...tail];
+  }, [dutyEnabled, enabledModules]);
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-2 px-3 pb-6 pt-0 sm:space-y-6 sm:px-4 sm:pb-8 lg:px-2">
@@ -739,23 +854,34 @@ export function TeacherHome({
         className="scroll-mt-[4.75rem] sm:scroll-mt-24 rounded-[1.15rem] border-2 border-violet-200/60 bg-gradient-to-b from-violet-50/90 to-white p-3 shadow-inner dark:border-violet-500/25 dark:from-violet-950/30 dark:to-zinc-950 sm:p-4"
       >
         <div className="flex gap-3 overflow-x-auto pb-1 pt-0.5 [scrollbar-width:none] sm:gap-4 [&::-webkit-scrollbar]:hidden">
-          {topShortcutItems.map((s) => (
-            <Link
-              key={s.href}
-              href={s.href}
-              className="flex min-w-[4.5rem] shrink-0 snap-start flex-col items-center gap-1.5 text-center"
-            >
-              <span
-                className={cn(
-                  'flex size-16 items-center justify-center rounded-full shadow-md ring-2 ring-white/80 dark:ring-zinc-800',
-                  s.ring,
-                )}
+          {topShortcutItems.map((s) => {
+            const locked = s.marketKey != null && isMarketModuleLocked(activationModules, s.marketKey);
+            const href = locked ? '/market' : s.href;
+            return (
+              <Link
+                key={`${s.href}-${s.label}`}
+                href={href}
+                title={locked ? `${s.label} — Market’te etkinleştirin` : s.label}
+                className="flex min-w-[4.5rem] shrink-0 snap-start flex-col items-center gap-1.5 text-center"
               >
-                <s.icon className="size-7" strokeWidth={1.75} />
-              </span>
-              <span className="max-w-[5.5rem] text-[11px] font-semibold leading-tight text-foreground">{s.label}</span>
-            </Link>
-          ))}
+                <span
+                  className={cn(
+                    'relative flex size-16 items-center justify-center rounded-full shadow-md ring-2 ring-white/80 dark:ring-zinc-800',
+                    s.ring,
+                    locked && 'opacity-80',
+                  )}
+                >
+                  <s.icon className="size-7" strokeWidth={1.75} />
+                  {locked ? (
+                    <span className="absolute -bottom-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full bg-amber-500 text-white shadow ring-2 ring-white dark:ring-zinc-900">
+                      <Lock className="size-3" strokeWidth={2.5} aria-hidden />
+                    </span>
+                  ) : null}
+                </span>
+                <span className="max-w-[5.5rem] text-[11px] font-semibold leading-tight text-foreground">{s.label}</span>
+              </Link>
+            );
+          })}
         </div>
       </div>
 

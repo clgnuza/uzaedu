@@ -1,11 +1,27 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
 import { msgQ } from '@/lib/messaging-api';
-import { LayoutGrid, Users, Banknote, FileText, BookOpen, LogOut, Settings, MessageSquare, CalendarCheck, PartyPopper, ClipboardList, GraduationCap, Mail } from 'lucide-react';
+import {
+  LayoutGrid,
+  Users,
+  Banknote,
+  FileText,
+  BookOpen,
+  LogOut,
+  Settings,
+  MessageSquare,
+  CalendarCheck,
+  PartyPopper,
+  ClipboardList,
+  GraduationCap,
+  Mail,
+  ChevronDown,
+} from 'lucide-react';
 
 const GROUPS = [
   {
@@ -53,56 +69,102 @@ const GROUPS = [
   },
 ] as const;
 
+type TabDef = (typeof GROUPS)[number]['tabs'][number];
+
+function tabVisible(t: TabDef, isAdmin: boolean, isTeacher: boolean): boolean {
+  if (!(!t.adminOnly || isAdmin)) return false;
+  if (isTeacher) {
+    return (
+      t.path === '/mesaj-merkezi' ||
+      t.path === '/mesaj-merkezi/ogretmen-ayarlar' ||
+      t.path === '/mesaj-merkezi/veli-iletisim'
+    );
+  }
+  if (t.path === '/mesaj-merkezi/ogretmen-ayarlar') return false;
+  return true;
+}
+
 export default function MesajMerkeziLayout({ children }: { children: React.ReactNode }) {
-  const pathname     = usePathname();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { me }       = useAuth();
-  const isAdmin      = me?.role !== 'teacher';
-  const isTeacher    = me?.role === 'teacher';
-  const q            = msgQ(me?.role, searchParams.get('school_id'));
+  const { me } = useAuth();
+  const isAdmin = me?.role !== 'teacher';
+  const isTeacher = me?.role === 'teacher';
+  const q = msgQ(me?.role, searchParams.get('school_id'));
+
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
+
+  const currentTabLabel = useMemo(() => {
+    for (const group of GROUPS) {
+      for (const t of group.tabs) {
+        if (!tabVisible(t, isAdmin, isTeacher)) continue;
+        if (t.active(pathname)) return t.label;
+      }
+    }
+    return 'Genel Bakış';
+  }, [pathname, isAdmin, isTeacher]);
 
   return (
     <div className="mx-auto max-w-5xl space-y-3 px-1 sm:space-y-4 sm:px-0">
-      <div className="overflow-hidden rounded-xl border border-green-200/50 bg-linear-to-br from-green-500/8 via-teal-500/5 to-indigo-400/6 p-2 shadow-sm dark:border-green-900/40 dark:from-green-950/50 sm:rounded-2xl sm:p-4">
-        <div className="mb-2 sm:mb-3">
-          <h1 className="text-sm font-bold tracking-tight text-green-950 dark:text-green-50 sm:text-lg">
-            📲 Mesaj Gönderme Merkezi
-          </h1>
-          <p className="text-[10px] leading-snug text-muted-foreground sm:text-xs">
-            WhatsApp üzerinden veli, öğrenci ve öğretmenlere otomatik kişiselleştirilmiş mesaj gönderin.
-          </p>
+      <div className="overflow-hidden rounded-xl border border-green-200/50 bg-linear-to-br from-green-500/8 via-teal-500/5 to-indigo-400/6 p-2 shadow-sm dark:border-green-900/40 dark:from-green-950/50 sm:rounded-2xl sm:p-3">
+        <div className="mb-1.5 flex items-start justify-between gap-2 sm:mb-2">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-sm font-bold tracking-tight text-green-950 dark:text-green-50 sm:text-base">
+              📲 Mesaj Gönderme Merkezi
+            </h1>
+            <p
+              className={cn(
+                'text-xs leading-snug text-muted-foreground sm:text-xs',
+                !mobileNavOpen && 'max-md:line-clamp-1',
+              )}
+            >
+              WhatsApp üzerinden veli, öğrenci ve öğretmenlere otomatik kişiselleştirilmiş mesaj gönderin.
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-expanded={mobileNavOpen}
+            onClick={() => setMobileNavOpen((o) => !o)}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-green-200/70 bg-white/70 px-2 py-1.5 text-xs font-semibold text-green-900 shadow-sm dark:border-green-800/50 dark:bg-zinc-900/70 dark:text-green-100 md:hidden"
+          >
+            <span className="max-w-[140px] truncate">{currentTabLabel}</span>
+            <ChevronDown className={cn('size-4 shrink-0 text-green-700 transition-transform dark:text-green-300', mobileNavOpen && 'rotate-180')} />
+          </button>
         </div>
 
-        <div className="space-y-1 sm:space-y-1.5">
+        <div className={cn('space-y-1.5', !mobileNavOpen && 'max-md:hidden', 'md:block')}>
           {GROUPS.map((group) => {
-            const visibleTabs = group.tabs.filter((t) => {
-              if (!(!t.adminOnly || isAdmin)) return false;
-              if (isTeacher) return t.path === '/mesaj-merkezi' || t.path === '/mesaj-merkezi/ogretmen-ayarlar' || t.path === '/mesaj-merkezi/veli-iletisim';
-              if (t.path === '/mesaj-merkezi/ogretmen-ayarlar') return false;
-              return true;
-            });
+            const visibleTabs = group.tabs.filter((t) => tabVisible(t, isAdmin, isTeacher));
             if (!visibleTabs.length) return null;
             return (
-              <div key={group.label} className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-stretch sm:gap-2">
-                {/* Grup etiketi — mobilde üstte tam genişlik */}
-                <span className="shrink-0 text-[8px] font-bold uppercase tracking-wider text-muted-foreground/55 sm:w-[68px] sm:self-center sm:text-right sm:text-[9px] sm:tracking-widest">
+              <div
+                key={group.label}
+                className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-stretch sm:gap-2"
+              >
+                <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-muted-foreground/70 sm:w-[72px] sm:self-center sm:text-right sm:text-[10px] sm:tracking-wider">
                   {group.label}
                 </span>
-                {/* Sekmeler — mobilde iki sütun, daha küçük dokunma alanı */}
-                <div className="flex min-w-0 flex-1 flex-wrap content-start gap-1 sm:gap-1">
+                <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:flex-wrap sm:content-start sm:gap-1">
                   {visibleTabs.map((tab) => {
                     const active = tab.active(pathname);
-                    const Icon   = tab.icon;
+                    const Icon = tab.icon;
                     return (
-                      <Link key={tab.path} href={`${tab.path}${q}`}
+                      <Link
+                        key={tab.path}
+                        href={`${tab.path}${q}`}
                         className={cn(
-                          'flex min-h-9 flex-[1_1_calc(50%-2px)] items-center justify-center gap-0.5 overflow-hidden rounded-md px-1 py-1.5 text-[9px] font-semibold leading-tight transition-all duration-150 sm:min-h-10 sm:min-w-27 sm:flex-1 sm:gap-1 sm:rounded-lg sm:px-1.5 sm:py-2 sm:text-[10.5px]',
+                          'flex min-h-10 w-full items-center justify-start gap-2 rounded-lg px-2.5 py-2 text-xs font-semibold leading-snug transition-all duration-150 sm:min-h-9 sm:min-w-30 sm:flex-1 sm:justify-center sm:px-2 sm:py-1.5 sm:text-[11px] sm:leading-tight',
                           active
                             ? cn('bg-linear-to-r text-white shadow-md', tab.cls)
-                            : cn('bg-white/60 dark:bg-zinc-900/50 border border-transparent', tab.idle),
-                        )}>
-                        <Icon className="size-2.5 shrink-0 sm:size-3" strokeWidth={2.2} />
-                        <span className="truncate">{tab.label}</span>
+                            : cn('border border-transparent bg-white/65 dark:bg-zinc-900/55', tab.idle),
+                        )}
+                      >
+                        <Icon className="size-4 shrink-0 sm:size-3.5" strokeWidth={2.2} />
+                        <span className="min-w-0 text-left sm:truncate sm:text-center">{tab.label}</span>
                       </Link>
                     );
                   })}

@@ -75,7 +75,6 @@ export class RequireSchoolModuleGuard implements CanActivate {
       teacher_agenda: 'Bu okulda Öğretmen Ajandası modülü kapalı.',
       bilsem: 'Bu okulda Bilsem modülü kapalı.',
       extra_lesson: 'Bu okulda Ek Ders modülü kapalı.',
-      school_profile: 'Bu okulda Okul Tanıtım modülü kapalı.',
       butterfly_exam: 'Bu okulda Kertenkele Sınav modülü kapalı.',
     };
     const message = messages[moduleKey] ?? 'Bu okulda bu modül kapalı.';

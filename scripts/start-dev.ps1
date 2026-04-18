@@ -1,4 +1,4 @@
-# OgretmenPro - Geliştirme ortamını başlat (run-order sırası)
+﻿# Uzaedu Öğretmen - Geliştirme ortamını başlat (run-order sırası)
 # Kullanım: .\scripts\start-dev.ps1
 
 $ErrorActionPreference = "Stop"
@@ -48,3 +48,4 @@ Write-Host "  Backend:  http://localhost:4000"
 Write-Host "  Web-admin: http://localhost:3000"
 Write-Host ""
 Write-Host "Not: Mevcut backend/web-admin çalışıyorsa EADDRINUSE veya lock hatası alabilirsiniz." -ForegroundColor Yellow
+

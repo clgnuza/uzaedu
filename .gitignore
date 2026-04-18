@@ -1,4 +1,4 @@
-# Öğretmen Pro – Ortak .gitignore taslağı
+# Uzaedu Öğretmen – Ortak .gitignore taslağı
 # Backend/Web/Flutter eklenince ilgili bloklar açılır veya alt projelere taşınır.
 
 # Ortam ve gizlilik (asla commit edilmez)

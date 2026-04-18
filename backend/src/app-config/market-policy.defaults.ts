@@ -11,7 +11,6 @@ export const MARKET_MODULE_KEYS = [
   'smart_board',
   'teacher_agenda',
   'bilsem',
-  'school_profile',
   'school_reviews',
   'butterfly_exam',
   'sorumluluk_sinav',
@@ -60,6 +59,10 @@ export type MarketIapPack = {
   /** Satın alınca eklenecek jeton veya ek ders miktarı (ondalık olabilir) */
   amount: number;
   label?: string | null;
+  /** Opsiyonel: doğrulanan satın alma sonrası eklenecek yıllık plan üretim hakkı (adet) */
+  grant_yillik_plan_uretim?: number;
+  /** Opsiyonel: doğrulanan satın alma sonrası eklenecek diğer evrak üretim hakkı (adet) */
+  grant_evrak_uretim?: number;
 };
 
 export type MarketIapSide = {
@@ -117,6 +120,17 @@ export type MarketTeacherInviteJetonConfig = {
   code_length: number;
 };
 
+/** Jeton karşılığı plan / evrak üretim hakkı (Market sayfası «Jetonla hak al»). */
+export type MarketEntitlementExchangeConfig = {
+  enabled: boolean;
+  /** 1 adet yıllık plan üretim hakkı için jeton maliyeti; ondalık olabilir (0 = bu tür kapalı) */
+  jeton_per_yillik_plan_unit: number;
+  /** 1 adet evrak üretim hakkı için jeton maliyeti; ondalık olabilir (örn. 0,1) (0 = bu tür kapalı) */
+  jeton_per_evrak_unit: number;
+  /** Tek istekte en fazla kaç birim */
+  max_units_per_request: number;
+};
+
 export type MarketPolicyConfig = {
   /** GET /content/market-policy Cache-Control max-age (sn) */
   cache_ttl_market_policy: number;
@@ -128,6 +142,7 @@ export type MarketPolicyConfig = {
   minor_privacy: MarketMinorPrivacy;
   rewarded_ad_jeton: MarketRewardedAdJetonConfig;
   teacher_invite_jeton: MarketTeacherInviteJetonConfig;
+  entitlement_exchange: MarketEntitlementExchangeConfig;
 };
 
 function zeroPair(): MarketCurrencyPair {
@@ -187,10 +202,6 @@ const MODULE_ENTRY_NOTICES: Record<MarketModuleKey, { tr: string; en: string }> 
   bilsem: {
     tr: 'Bilsem takvim ve yıllık plan özelliklerinde jeton veya ek ders düşümü olabilir.',
     en: 'Bilsem calendar and yearly plan features may debit jeton or extra lesson credits.',
-  },
-  school_profile: {
-    tr: 'Okul tanıtım ve vitrin içeriğinde bazı işlemler ücretli olabilir; bakiyenizi Market’ten takip edin.',
-    en: 'Some school profile and showcase actions may be paid; track balance in Market.',
   },
   school_reviews: {
     tr: 'Okul değerlendirme ve raporlarda kullanım başına jeton veya ek ders düşebilir.',
@@ -279,6 +290,13 @@ const DEFAULT_TEACHER_INVITE_JETON: MarketTeacherInviteJetonConfig = {
   code_length: 8,
 };
 
+const DEFAULT_ENTITLEMENT_EXCHANGE: MarketEntitlementExchangeConfig = {
+  enabled: false,
+  jeton_per_yillik_plan_unit: 25,
+  jeton_per_evrak_unit: 10,
+  max_units_per_request: 25,
+};
+
 export const DEFAULT_MARKET_POLICY: MarketPolicyConfig = {
   cache_ttl_market_policy: 120,
   module_prices: buildDefaultModulePrices(),
@@ -289,6 +307,7 @@ export const DEFAULT_MARKET_POLICY: MarketPolicyConfig = {
   minor_privacy: { ...DEFAULT_MINOR_PRIVACY },
   rewarded_ad_jeton: { ...DEFAULT_REWARDED_AD_JETON },
   teacher_invite_jeton: { ...DEFAULT_TEACHER_INVITE_JETON },
+  entitlement_exchange: { ...DEFAULT_ENTITLEMENT_EXCHANGE },
 };
 
 function clampInt(n: unknown, fallback: number): number {
@@ -366,6 +385,14 @@ function sanitizeRow(raw: unknown, fallback: MarketModulePriceRow): MarketModule
   };
 }
 
+const IAP_GRANT_MAX = 10_000;
+
+function sanitizeIapGrant(raw: unknown): number {
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? parseInt(raw, 10) : 0;
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(IAP_GRANT_MAX, Math.floor(n));
+}
+
 function sanitizeIapList(raw: unknown): MarketIapPack[] {
   if (!Array.isArray(raw)) return [];
   const out: MarketIapPack[] = [];
@@ -374,10 +401,14 @@ function sanitizeIapList(raw: unknown): MarketIapPack[] {
     const o = item as Record<string, unknown>;
     const pid = typeof o.product_id === 'string' ? o.product_id.trim().slice(0, 200) : '';
     if (!pid) continue;
+    const gy = sanitizeIapGrant(o.grant_yillik_plan_uretim);
+    const ge = sanitizeIapGrant(o.grant_evrak_uretim);
     out.push({
       product_id: pid,
       amount: clampNonNegativeRatio(o.amount, 0),
       label: o.label !== undefined && o.label !== null ? String(o.label).trim().slice(0, 120) || null : null,
+      ...(gy > 0 ? { grant_yillik_plan_uretim: gy } : {}),
+      ...(ge > 0 ? { grant_evrak_uretim: ge } : {}),
     });
   }
   return out;
@@ -531,6 +562,30 @@ function sanitizeAdUnitIdList(raw: unknown): string[] {
   return out;
 }
 
+function sanitizeEntitlementExchange(
+  raw: unknown,
+  fallback: MarketEntitlementExchangeConfig,
+): MarketEntitlementExchangeConfig {
+  if (!raw || typeof raw !== 'object') return { ...fallback };
+  const o = raw as Record<string, unknown>;
+  const maxU =
+    typeof o.max_units_per_request === 'number'
+      ? clampInt(o.max_units_per_request, fallback.max_units_per_request)
+      : fallback.max_units_per_request;
+  return {
+    enabled: typeof o.enabled === 'boolean' ? o.enabled : fallback.enabled,
+    jeton_per_yillik_plan_unit: clampNonNegativeRatio(
+      o.jeton_per_yillik_plan_unit ?? fallback.jeton_per_yillik_plan_unit,
+      fallback.jeton_per_yillik_plan_unit,
+    ),
+    jeton_per_evrak_unit: clampNonNegativeRatio(
+      o.jeton_per_evrak_unit ?? fallback.jeton_per_evrak_unit,
+      fallback.jeton_per_evrak_unit,
+    ),
+    max_units_per_request: Math.min(500, Math.max(1, maxU)),
+  };
+}
+
 function sanitizeTeacherInviteJeton(
   raw: unknown,
   fallback: MarketTeacherInviteJetonConfig,
@@ -584,6 +639,7 @@ export function mergeMarketPolicyFromStored(stored: Partial<MarketPolicyConfig> 
     minor_privacy: { ...DEFAULT_MINOR_PRIVACY },
     rewarded_ad_jeton: { ...DEFAULT_REWARDED_AD_JETON },
     teacher_invite_jeton: { ...DEFAULT_TEACHER_INVITE_JETON },
+    entitlement_exchange: { ...DEFAULT_ENTITLEMENT_EXCHANGE },
   };
   if (!stored || typeof stored !== 'object') return d;
   if (stored.cache_ttl_market_policy !== undefined) {
@@ -604,5 +660,6 @@ export function mergeMarketPolicyFromStored(stored: Partial<MarketPolicyConfig> 
   d.minor_privacy = sanitizeMinorPrivacy(stored.minor_privacy, d.minor_privacy);
   d.rewarded_ad_jeton = sanitizeRewardedAdJeton(stored.rewarded_ad_jeton, d.rewarded_ad_jeton);
   d.teacher_invite_jeton = sanitizeTeacherInviteJeton(stored.teacher_invite_jeton, d.teacher_invite_jeton);
+  d.entitlement_exchange = sanitizeEntitlementExchange(stored.entitlement_exchange, d.entitlement_exchange);
   return d;
 }

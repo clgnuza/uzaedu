@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -22,6 +22,7 @@ import {
   CalendarRange,
   Download,
   RefreshCw,
+  BarChart3,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
@@ -94,6 +95,9 @@ const FIELD_LABELS: Record<string, string> = {
   tv_weather_city: 'TV hava durumu',
   tv_welcome_image_url: 'TV hoş geldin görseli',
   tv_logo_url: 'TV logo',
+  review_placement_dual_track: 'Merkezî+yerel yerleştirme kartı',
+  review_placement_scores: 'Ortaöğretime geçiş yerleştirme göstergeleri',
+  review_placement_charts: 'Yerleştirme infografik JSON (v2)',
 };
 
 function formatLogActionLabel(action: string): string {
@@ -237,6 +241,9 @@ type SchoolDetail = {
   enabled_modules: string[] | null;
   marketJetonBalance?: string | number | null;
   marketEkdersBalance?: string | number | null;
+  review_placement_dual_track?: boolean;
+  review_placement_scores?: { year: number; with_exam: number | null; without_exam: number | null }[] | null;
+  review_placement_charts?: unknown;
   created_at: string;
   updated_at: string;
 };
@@ -267,6 +274,15 @@ function parsePositiveAmount(s: string): number {
 function parseBalanceNum(n: unknown): number {
   const x = typeof n === 'number' ? n : parseFloat(String(n ?? '0').replace(',', '.'));
   return Number.isFinite(x) ? x : 0;
+}
+
+function emptyPlacementRows(): { year: string; with_exam: string; without_exam: string }[] {
+  return [
+    { year: '', with_exam: '', without_exam: '' },
+    { year: '', with_exam: '', without_exam: '' },
+    { year: '', with_exam: '', without_exam: '' },
+    { year: '', with_exam: '', without_exam: '' },
+  ];
 }
 
 type AuditLogItem = {
@@ -325,6 +341,11 @@ export default function SchoolDetailPage() {
   const [addEkders, setAddEkders] = useState('');
   const [addNote, setAddNote] = useState('');
   const [addingCredit, setAddingCredit] = useState(false);
+  const [placementDual, setPlacementDual] = useState(false);
+  const [placementRows, setPlacementRows] = useState(emptyPlacementRows);
+  const [placementChartsText, setPlacementChartsText] = useState('');
+  const placementChartsTouched = useRef(false);
+  const [savingPlacement, setSavingPlacement] = useState(false);
   const isSuperadmin = me?.role === 'superadmin';
 
   const fetchSchool = useCallback(async () => {
@@ -352,6 +373,27 @@ export default function SchoolDetailPage() {
       } else {
         setModules(s.enabled_modules);
       }
+      setPlacementDual(!!(s as { review_placement_dual_track?: boolean }).review_placement_dual_track);
+      const scores = (s as { review_placement_scores?: SchoolDetail['review_placement_scores'] }).review_placement_scores;
+      if (Array.isArray(scores) && scores.length > 0) {
+        const mapped = scores
+          .filter((r) => r && typeof r.year === 'number')
+          .map((r) => ({
+            year: String(r.year),
+            with_exam: r.with_exam != null && Number.isFinite(Number(r.with_exam)) ? String(r.with_exam) : '',
+            without_exam:
+              r.without_exam != null && Number.isFinite(Number(r.without_exam)) ? String(r.without_exam) : '',
+          }))
+          .sort((a, b) => parseInt(b.year, 10) - parseInt(a.year, 10));
+        setPlacementRows([0, 1, 2, 3].map((i) => mapped[i] ?? { year: '', with_exam: '', without_exam: '' }));
+      } else {
+        setPlacementRows(emptyPlacementRows());
+      }
+      const ch = (s as { review_placement_charts?: unknown }).review_placement_charts;
+      placementChartsTouched.current = false;
+      setPlacementChartsText(
+        ch != null && typeof ch === 'object' ? JSON.stringify(ch, null, 2) : '',
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Okul yüklenemedi');
     }
@@ -510,6 +552,57 @@ export default function SchoolDetailPage() {
       toast.error(e instanceof Error ? e.message : 'Kaydedilemedi');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSavePlacementScores = async () => {
+    if (!token || !id) return;
+    setSavingPlacement(true);
+    try {
+      const rows = placementRows
+        .map((r) => {
+          const year = parseInt(String(r.year).trim(), 10);
+          const we = r.with_exam.trim().replace(',', '.');
+          const wo = r.without_exam.trim().replace(',', '.');
+          const with_exam = we === '' ? null : parseFloat(we);
+          const without_exam = wo === '' ? null : parseFloat(wo);
+          return { year, with_exam, without_exam };
+        })
+        .filter((r) => Number.isFinite(r.year) && r.year >= 1990 && r.year <= 2100);
+      const valid = rows.filter(
+        (r) =>
+          (r.with_exam != null && Number.isFinite(r.with_exam)) ||
+          (r.without_exam != null && Number.isFinite(r.without_exam)),
+      );
+      const body: Record<string, unknown> = {
+        review_placement_dual_track: placementDual,
+        review_placement_scores: valid.length ? valid : null,
+      };
+      if (placementChartsTouched.current) {
+        const raw = placementChartsText.trim();
+        if (raw === '') {
+          body.review_placement_charts = null;
+        } else {
+          try {
+            body.review_placement_charts = JSON.parse(raw) as Record<string, unknown>;
+          } catch {
+            toast.error('Grafik JSON ayrıştırılamadı');
+            setSavingPlacement(false);
+            return;
+          }
+        }
+      }
+      await apiFetch(`/schools/${id}`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify(body),
+      });
+      toast.success('Yerleştirme puan ayarları kaydedildi');
+      await fetchSchool();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Kaydedilemedi');
+    } finally {
+      setSavingPlacement(false);
     }
   };
 
@@ -984,6 +1077,117 @@ export default function SchoolDetailPage() {
                 </div>
               </>
             )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <BarChart3 className="size-5 shrink-0 text-sky-600" />
+              Okul değerlendirme — ortaöğretime geçiş göstergeleri
+            </CardTitle>
+            <button
+              type="button"
+              onClick={handleSavePlacementScores}
+              disabled={savingPlacement}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-primary bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              <Save className="size-3.5" />
+              Kaydet
+            </button>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <label className="flex cursor-pointer items-start gap-2">
+              <input
+                type="checkbox"
+                checked={placementDual}
+                onChange={(e) => setPlacementDual(e.target.checked)}
+                className="mt-1 size-4 rounded border-input"
+              />
+              <span>
+                <span className="font-medium">Merkezî (LGS) + yerel yerleştirme göstergeleri</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Açıkken okul değerlendirme sayfasında son yıllar gösterilir (en fazla 4 yıl). MEB’de merkezî yerleştirme
+                  LGS puanı ile; yerel yerleştirmede OBP ve ikamet gibi kriterler vardır.
+                </span>
+              </span>
+            </label>
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full min-w-[320px] text-left text-xs sm:text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40">
+                    <th className="px-2 py-2 font-semibold">Yıl</th>
+                    <th className="px-2 py-2 font-semibold">Merkezî — LGS tabanı</th>
+                    <th className="px-2 py-2 font-semibold">Yerel — gösterge</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {placementRows.map((row, idx) => (
+                    <tr key={idx} className="border-b border-border last:border-0">
+                      <td className="p-1.5">
+                        <Input
+                          inputMode="numeric"
+                          placeholder="örn. 2025"
+                          value={row.year}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setPlacementRows((prev) => prev.map((r, i) => (i === idx ? { ...r, year: v } : r)));
+                          }}
+                          className="h-9 min-w-[4.5rem] text-xs sm:text-sm"
+                        />
+                      </td>
+                      <td className="p-1.5">
+                        <Input
+                          inputMode="decimal"
+                          placeholder="—"
+                          value={row.with_exam}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setPlacementRows((prev) => prev.map((r, i) => (i === idx ? { ...r, with_exam: v } : r)));
+                          }}
+                          className="h-9 text-xs sm:text-sm"
+                        />
+                      </td>
+                      <td className="p-1.5">
+                        <Input
+                          inputMode="decimal"
+                          placeholder="—"
+                          value={row.without_exam}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setPlacementRows((prev) => prev.map((r, i) => (i === idx ? { ...r, without_exam: v } : r)));
+                          }}
+                          className="h-9 text-xs sm:text-sm"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Boş satırlar kaydedilmez. Yerel sütuna okulunuzda kullandığınız göstergeyi (ör. yerel taban) yazın; resmî
+              değerleri MEB/OGM kılavuzundan doğrulayın. Mesleki-teknik ve çok programlı okullarda program bazında fark
+              olabilir.
+            </p>
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-foreground">İnfografik grafikler (isteğe bağlı, v2 JSON)</p>
+              <p className="text-[11px] text-muted-foreground">
+                Düzenlerseniz Kaydet ile gönderilir. Alanı tamamen silip kaydederseniz sunucudaki grafik verisi silinir.
+                Dokunmazsanız mevcut JSON korunur.
+              </p>
+              <textarea
+                value={placementChartsText}
+                onChange={(e) => {
+                  placementChartsTouched.current = true;
+                  setPlacementChartsText(e.target.value);
+                }}
+                spellCheck={false}
+                rows={12}
+                className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-[11px] leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                placeholder={`{\n  "v": 2,\n  "lgs": { "axisLabel": "LGS Taban Puanlar", "footer": "…", "series": [\n    { "label": "Alan A", "color": "#ef4444", "points": [{ "year": 2022, "score": 278.72 }] }\n  ]},\n  "obp": { "yMax": 200, "series": [\n    { "label": "Alan A", "color": "#ef4444", "programs": [\n      { "code": "ATP", "lower": 75, "upper": 96.72 }\n    ]}\n  ]}\n}`}
+              />
+            </div>
           </CardContent>
         </Card>
 

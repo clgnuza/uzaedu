@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   Bar,
@@ -8,6 +8,8 @@ import {
   CartesianGrid,
   Cell,
   Legend,
+  Line,
+  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -20,9 +22,13 @@ import {
   ArrowRight,
   Building2,
   Calculator,
+  ClipboardList,
   Download,
   FileText,
+  Globe,
+  Inbox,
   LayoutDashboard,
+  LifeBuoy,
   Megaphone,
   Puzzle,
   School,
@@ -35,6 +41,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useMarketAdminSummaryQuery } from '@/hooks/use-market-admin-summary-query';
 import { downloadSuperadminStatsCsv } from '@/lib/export-superadmin-stats-csv';
 import type { StatsResponse } from '@/lib/stats-response';
+import { apiFetch } from '@/lib/api';
 import { ToolbarHeading, ToolbarPageTitle } from '@/components/layout/toolbar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
@@ -82,6 +89,9 @@ type Props = {
 export function SuperadminDashboardShell({ me, displayName, stats, statsError, isLoadingStats }: Props) {
   const { token } = useAuth();
   const marketQ = useMarketAdminSummaryQuery(token, true);
+  const [extQueues, setExtQueues] = useState<
+    'pending' | { moderation: number | null; reportsUnread: number | null; contactNew: number | null }
+  >('pending');
   const sa = stats?.superadmin;
   const nearRatio = sa?.teacher_quota_near_ratio ?? 0.9;
   const nearPct = Math.round(nearRatio * 100);
@@ -109,10 +119,68 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
       key: m.key,
     })) ?? [];
 
-  const regChart =
-    sa?.users_registration_chart.map((d) => ({ name: d.month, kayit: d.count })) ?? [];
+  const MONTH_ORDER = [
+    'Oca',
+    'Şub',
+    'Mar',
+    'Nis',
+    'May',
+    'Haz',
+    'Tem',
+    'Ağu',
+    'Eyl',
+    'Eki',
+    'Kas',
+    'Ara',
+  ] as const;
 
-  const annChart = chartData.map((d) => ({ name: d.month, duyuru: d.count }));
+  const combinedMonthlyActivity = useMemo(() => {
+    const regMap = new Map((sa?.users_registration_chart ?? []).map((x) => [x.month, x.count]));
+    const annMap = new Map(chartData.map((x) => [x.month, x.count]));
+    return MONTH_ORDER.map((m) => ({
+      ay: m,
+      yeni_kullanici: regMap.get(m) ?? 0,
+      yeni_duyuru: annMap.get(m) ?? 0,
+    }));
+  }, [sa?.users_registration_chart, chartData]);
+
+  const schoolStatusPieData = useMemo(() => {
+    if (!sa) return [];
+    return Object.entries(sa.schools_by_status).map(([k, v]) => ({
+      name: SCHOOL_STATUS_LABELS[k] ?? k,
+      value: v,
+    }));
+  }, [sa]);
+
+  const askidaSchoolCount = sa?.schools_by_status?.askida ?? 0;
+
+  useEffect(() => {
+    if (!token) {
+      setExtQueues({ moderation: null, reportsUnread: null, contactNew: null });
+      return;
+    }
+    let cancelled = false;
+    setExtQueues('pending');
+    void (async () => {
+      const [mq, cr, ci] = await Promise.allSettled([
+        apiFetch<{ total: number }>('/school-reviews/moderation/queue?limit=1&page=1', { token }),
+        apiFetch<{ total: number }>(
+          '/school-reviews/content-reports/admin?unread_only=true&limit=1&page=1',
+          { token },
+        ),
+        apiFetch<{ total: number }>('/admin/contact-submissions?status=new&limit=1&page=1', { token }),
+      ]);
+      if (cancelled) return;
+      setExtQueues({
+        moderation: mq.status === 'fulfilled' ? mq.value.total : null,
+        reportsUnread: cr.status === 'fulfilled' ? cr.value.total : null,
+        contactNew: ci.status === 'fulfilled' ? ci.value.total : null,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   const schoolTypeRows = useMemo(() => {
     const m = sa?.schools_by_type ?? {};
@@ -124,15 +192,17 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
     ];
   }, [sa?.schools_by_type]);
 
+  const fmtQ = (n: number | null) => (n === null ? '—' : n);
+
   return (
-    <div className="space-y-6">
-      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-violet-500/[0.08] via-background to-sky-500/[0.12] p-6 shadow-sm sm:p-8 dark:from-violet-950/30 dark:to-sky-950/20">
+    <div className="mx-auto max-w-5xl space-y-3">
+      <div className="relative overflow-hidden rounded-xl border border-border/60 bg-gradient-to-br from-violet-500/[0.08] via-background to-sky-500/[0.12] p-4 shadow-sm sm:p-5 dark:from-violet-950/30 dark:to-sky-950/20">
         <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-gradient-to-br from-violet-400/20 to-transparent blur-3xl" aria-hidden />
-        <div className="flex flex-wrap items-center justify-between gap-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <ToolbarHeading>
-            <ToolbarPageTitle className="text-2xl sm:text-3xl">Genel pano</ToolbarPageTitle>
-            <div className="max-w-xl text-sm font-normal text-muted-foreground">
-              Hoş geldiniz, {displayName} · Tüm kurumlar, kullanıcılar ve modül kullanımı tek ekranda
+            <ToolbarPageTitle className="text-xl sm:text-2xl">Genel pano</ToolbarPageTitle>
+            <div className="max-w-xl text-xs font-normal text-muted-foreground sm:text-sm">
+              Hoş geldiniz, {displayName} · Kurulum, bekleyen kuyruklar ve trendler
             </div>
           </ToolbarHeading>
         </div>
@@ -140,26 +210,26 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
 
       <WelcomeMotivationBanner />
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
         <button
           type="button"
           disabled={!stats}
           onClick={() => stats && downloadSuperadminStatsCsv(stats)}
-          className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-50 sm:text-sm"
         >
           <Download className="size-4" />
           CSV indir
         </button>
         <Link
           href="/market"
-          className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium hover:bg-muted sm:text-sm"
         >
           Market detay
           <ArrowRight className="size-4" />
         </Link>
         <Link
           href="/schools?status=askida"
-          className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium hover:bg-muted sm:text-sm"
         >
           Askıdaki okullar
         </Link>
@@ -178,36 +248,36 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
 
       {marketQ.data && (
         <Card className="border-border/60">
-          <CardHeader>
-            <CardTitle className="text-base">Market (bu ay)</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              IAP yükleme ve modül tüketimi — {marketQ.data.period_labels?.month ?? ''}
+          <CardHeader className="space-y-0.5 py-3">
+            <CardTitle className="text-sm">Market (bu ay)</CardTitle>
+            <p className="text-[11px] text-muted-foreground">
+              IAP / tüketim — {marketQ.data.period_labels?.month ?? ''}
             </p>
           </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
-            <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
-              <p className="text-xs text-muted-foreground">IAP — kullanıcı</p>
+          <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-[11px] sm:text-xs">
+            <div className="rounded-md border border-border/60 bg-muted/20 p-2">
+              <p className="text-[10px] text-muted-foreground sm:text-xs">IAP — kullanıcı</p>
               <p className="font-semibold tabular-nums">
                 jeton {marketQ.data.purchases.month.user.jeton.toFixed(2)} · ek ders{' '}
                 {marketQ.data.purchases.month.user.ekders.toFixed(2)}
               </p>
             </div>
-            <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
-              <p className="text-xs text-muted-foreground">IAP — okul</p>
+            <div className="rounded-md border border-border/60 bg-muted/20 p-2">
+              <p className="text-[10px] text-muted-foreground sm:text-xs">IAP — okul</p>
               <p className="font-semibold tabular-nums">
                 jeton {marketQ.data.purchases.month.school.jeton.toFixed(2)} · ek ders{' '}
                 {marketQ.data.purchases.month.school.ekders.toFixed(2)}
               </p>
             </div>
-            <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
-              <p className="text-xs text-muted-foreground">Tüketim — kullanıcı</p>
+            <div className="rounded-md border border-border/60 bg-muted/20 p-2">
+              <p className="text-[10px] text-muted-foreground sm:text-xs">Tüketim — kullanıcı</p>
               <p className="font-semibold tabular-nums">
                 jeton {marketQ.data.consumption.month.user.jeton.toFixed(2)} · ek ders{' '}
                 {marketQ.data.consumption.month.user.ekders.toFixed(2)}
               </p>
             </div>
-            <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
-              <p className="text-xs text-muted-foreground">Tüketim — okul</p>
+            <div className="rounded-md border border-border/60 bg-muted/20 p-2">
+              <p className="text-[10px] text-muted-foreground sm:text-xs">Tüketim — okul</p>
               <p className="font-semibold tabular-nums">
                 jeton {marketQ.data.consumption.month.school.jeton.toFixed(2)} · ek ders{' '}
                 {marketQ.data.consumption.month.school.ekders.toFixed(2)}
@@ -220,37 +290,106 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
         <p className="text-xs text-muted-foreground">Market özeti yüklenemedi (market politikası kapalı olabilir).</p>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          { href: '/schools', label: 'Okullar', sub: 'Kurum listesi', icon: School, accent: 'teal' },
-          { href: '/users', label: 'Kullanıcılar', sub: 'Rol ve durum', icon: Users, accent: 'indigo' },
-          { href: '/modules', label: 'Modüller', sub: 'Okul politikaları', icon: Puzzle, accent: 'violet' },
-          { href: '/announcements', label: 'Duyurular', sub: 'İçerik yönetimi', icon: Megaphone, accent: 'rose' },
-          { href: '/hesaplamalar', label: 'Hesaplamalar', sub: 'Ek ders ve sınav ücreti', icon: Calculator, accent: 'sky' },
-          { href: '/bilsem-sablon', label: 'Bilsem altyapı', sub: 'Takvim & kazanım', icon: FileText, accent: 'emerald' },
-          { href: '/support/platform', label: 'Destek', sub: 'Platform talepleri', icon: Building2, accent: 'amber' },
-          { href: '/profile', label: 'Profil', sub: 'Hesap & özet', icon: LayoutDashboard, accent: 'slate' },
-        ].map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className="group flex items-center justify-between rounded-xl border border-border/80 bg-card/60 p-4 shadow-sm backdrop-blur-sm transition-all hover:border-primary/30 hover:shadow-md"
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <item.icon className="size-5" />
-              </div>
-              <div>
-                <p className="font-medium text-foreground">{item.label}</p>
-                <p className="text-xs text-muted-foreground">{item.sub}</p>
-              </div>
+      {sa && (
+        <Card className="border-primary/20 bg-gradient-to-br from-primary/[0.06] to-transparent">
+          <CardHeader className="space-y-0.5 py-3">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <ClipboardList className="size-4 text-primary" aria-hidden />
+              Bekleyenler (kuyruk & modül)
+            </CardTitle>
+            <p className="text-[11px] text-muted-foreground">Tıklanabilir kutular ilgili ekrana gider</p>
+          </CardHeader>
+          <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+            <Link
+              href="/users?role=teacher&teacher_school_membership=pending"
+              className="rounded-lg border border-border/70 bg-card/80 p-2 transition-colors hover:border-amber-500/40 hover:bg-muted/30"
+            >
+              <p className="text-[10px] font-medium text-muted-foreground sm:text-xs">Öğretmen onayı</p>
+              <p className="text-lg font-semibold tabular-nums sm:text-xl">{sa.teachers_pending_approval}</p>
+            </Link>
+            <Link
+              href="/schools?status=askida"
+              className="rounded-lg border border-border/70 bg-card/80 p-2 transition-colors hover:border-amber-500/40 hover:bg-muted/30"
+            >
+              <p className="text-[10px] font-medium text-muted-foreground sm:text-xs">Askıdaki okul</p>
+              <p className="text-lg font-semibold tabular-nums sm:text-xl">{askidaSchoolCount}</p>
+            </Link>
+            <div className="rounded-lg border border-border/70 bg-card/80 p-2">
+              <p className="text-[10px] font-medium text-muted-foreground sm:text-xs">Kota dolu</p>
+              <p className="text-lg font-semibold tabular-nums text-rose-600 sm:text-xl dark:text-rose-400">
+                {sa.schools_teacher_quota_full}
+              </p>
             </div>
-            <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
-          </Link>
-        ))}
-      </div>
+            <div className="rounded-lg border border-border/70 bg-card/80 p-2">
+              <p className="text-[10px] font-medium text-muted-foreground sm:text-xs">Kota %{nearPct}+</p>
+              <p className="text-lg font-semibold tabular-nums text-amber-700 sm:text-xl dark:text-amber-300">
+                {sa.schools_teacher_quota_near}
+              </p>
+            </div>
+            <Link
+              href="/school-reviews-settings"
+              className="rounded-lg border border-border/70 bg-card/80 p-2 transition-colors hover:border-primary/35 hover:bg-muted/30"
+            >
+              <p className="text-[10px] font-medium text-muted-foreground sm:text-xs">Değerlendirme · moderasyon</p>
+              <p className="text-lg font-semibold tabular-nums sm:text-xl">
+                {extQueues === 'pending' ? '…' : fmtQ(extQueues.moderation)}
+              </p>
+            </Link>
+            <Link
+              href="/school-reviews-settings"
+              className="rounded-lg border border-border/70 bg-card/80 p-2 transition-colors hover:border-primary/35 hover:bg-muted/30"
+            >
+              <p className="text-[10px] font-medium text-muted-foreground sm:text-xs">Değerlendirme · bildirim</p>
+              <p className="text-lg font-semibold tabular-nums sm:text-xl">
+                {extQueues === 'pending' ? '…' : fmtQ(extQueues.reportsUnread)}
+              </p>
+            </Link>
+            <Link
+              href="/contact-inbox"
+              className="rounded-lg border border-border/70 bg-card/80 p-2 transition-colors hover:border-primary/35 hover:bg-muted/30"
+            >
+              <p className="text-[10px] font-medium text-muted-foreground sm:text-xs">İletişim · yeni</p>
+              <p className="text-lg font-semibold tabular-nums sm:text-xl">
+                {extQueues === 'pending' ? '…' : fmtQ(extQueues.contactNew)}
+              </p>
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <Card className="border-border/60">
+        <CardHeader className="space-y-0.5 py-3">
+          <CardTitle className="text-sm">Yıllık platform trafiği</CardTitle>
+          <p className="text-[11px] text-muted-foreground">Kayıt ve duyuru</p>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="h-[220px] w-full min-w-0 min-h-[180px]">
+            {isLoading ? (
+              <Skeleton className="h-full w-full" />
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={combinedMonthlyActivity} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="ay" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: '0.5rem',
+                      border: '1px solid var(--border)',
+                      background: 'var(--card)',
+                    }}
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="yeni_kullanici" name="Yeni kullanıcı" stroke="var(--chart-2)" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="yeni_duyuru" name="Yeni duyuru" stroke="var(--chart-4)" strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {[
           {
             title: 'Okul',
@@ -293,25 +432,25 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
             key={k.title}
             className={`border-border/60 bg-gradient-to-br ${k.color} shadow-sm`}
           >
-            <CardContent className="p-4 sm:p-5">
-              <div className="flex items-start gap-3">
+            <CardContent className="p-3">
+              <div className="flex items-start gap-2">
                 <div
-                  className={`flex size-9 shrink-0 items-center justify-center rounded-xl shadow-sm ring-1 sm:size-10 ${k.iconWrap}`}
+                  className={`flex size-8 shrink-0 items-center justify-center rounded-lg shadow-sm ring-1 ${k.iconWrap}`}
                 >
-                  <k.Icon className="size-4 sm:size-5" strokeWidth={2} />
+                  <k.Icon className="size-4" strokeWidth={2} />
                 </div>
                 <div className="min-w-0 flex-1 pt-0.5">
-                  <p className="text-sm font-bold leading-tight text-foreground">{k.title}</p>
-                  <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-[11px]">
+                  <p className="text-xs font-bold leading-tight text-foreground sm:text-sm">{k.title}</p>
+                  <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                     {k.sub}
                   </p>
                 </div>
               </div>
-              <div className="mt-3">
+              <div className="mt-2">
                 {isLoading ? (
-                  <Skeleton className="h-9 w-20" />
+                  <Skeleton className="h-8 w-16" />
                 ) : (
-                  <p className="text-3xl font-semibold tabular-nums text-foreground">
+                  <p className="text-2xl font-semibold tabular-nums text-foreground">
                     {statsError ? '—' : k.value ?? '—'}
                   </p>
                 )}
@@ -321,134 +460,158 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="border-border/60 lg:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-base">Okul durumu</CardTitle>
-            <p className="text-xs text-muted-foreground">Deneme / aktif / askıda</p>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <Card className="border-border/60">
+          <CardHeader className="space-y-0.5 py-3">
+            <CardTitle className="text-sm">Okul durumu</CardTitle>
+            <p className="text-[11px] text-muted-foreground">Deneme / aktif / askıda</p>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="pt-0">
             {isLoading ? (
-              <Skeleton className="h-24 w-full" />
-            ) : (
-              sa &&
-              Object.entries(sa.schools_by_status).map(([st, n]) => (
-                <div
-                  key={st}
-                  className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-sm"
-                >
-                  <span>{SCHOOL_STATUS_LABELS[st] ?? st}</span>
-                  <span className="font-semibold tabular-nums">{n}</span>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/60 lg:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-base">Öğretmen kotası</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Dolu ve %{nearPct}+ (eşik: env STATS_TEACHER_QUOTA_NEAR_RATIO)
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {isLoading ? (
-              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-36 w-full" />
             ) : (
               sa && (
-                <>
-                  <div className="flex justify-between gap-4 text-sm">
-                    <span className="text-muted-foreground">Kota dolu</span>
-                    <span className="font-semibold text-rose-600 dark:text-rose-400">
-                      {sa.schools_teacher_quota_full}
-                    </span>
+                <div className="grid gap-3 sm:grid-cols-2 sm:items-center">
+                  <div className="h-[140px] min-h-[120px] w-full min-w-0">
+                    <ResponsiveContainer width="100%" height={140}>
+                      <PieChart>
+                        <Pie
+                          data={schoolStatusPieData}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={32}
+                          outerRadius={54}
+                          paddingAngle={2}
+                        >
+                          {schoolStatusPieData.map((_, i) => (
+                            <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{
+                            borderRadius: '0.5rem',
+                            border: '1px solid var(--border)',
+                            background: 'var(--card)',
+                          }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
                   </div>
-                  <div className="flex justify-between gap-4 text-sm">
-                    <span className="text-muted-foreground">Kota dolmak üzere (%{nearPct}+)</span>
-                    <span className="font-semibold text-amber-700 dark:text-amber-300">
-                      {sa.schools_teacher_quota_near}
-                    </span>
+                  <div className="space-y-1.5">
+                    {Object.entries(sa.schools_by_status).map(([st, n]) => (
+                      <div
+                        key={st}
+                        className="flex items-center justify-between rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-xs"
+                      >
+                        <span>{SCHOOL_STATUS_LABELS[st] ?? st}</span>
+                        <span className="font-semibold tabular-nums">{n}</span>
+                      </div>
+                    ))}
                   </div>
-                </>
+                </div>
               )
             )}
           </CardContent>
         </Card>
 
-        <Card className="border-amber-500/25 bg-amber-500/[0.06] lg:col-span-1">
-          <CardHeader className="flex flex-row items-center gap-2 space-y-0">
-            <ShieldAlert className="size-5 text-amber-600 dark:text-amber-400" />
-            <CardTitle className="text-base">Operasyon uyarıları</CardTitle>
+        <Card className="border-border/60">
+          <CardHeader className="space-y-0.5 py-3">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <ShieldAlert className="size-4 text-amber-600 dark:text-amber-400" />
+              Öğretmen kotası & uyarılar
+            </CardTitle>
+            <p className="text-[11px] text-muted-foreground">Dolu / %{nearPct}+</p>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm">
+          <CardContent className="space-y-2 pt-0 text-xs">
             {isLoading ? (
               <Skeleton className="h-16 w-full" />
             ) : (
               sa && (
                 <>
-                  {sa.schools_askida.length > 0 && (
-                    <div>
-                      <p className="mb-1.5 flex flex-wrap items-center gap-2 font-medium text-foreground">
-                        <span className="inline-flex items-center gap-1">
-                          <AlertTriangle className="size-3.5 text-amber-600" />
-                          Askıdaki okullar
-                        </span>
-                        <Link href="/schools?status=askida" className="text-xs font-normal text-primary hover:underline">
-                          Tümünü listele
-                        </Link>
-                      </p>
-                      <ul className="space-y-1">
-                        {sa.schools_askida.map((s) => (
-                          <li key={s.id}>
-                            <Link
-                              href={`/schools/${s.id}`}
-                              className="text-primary hover:underline"
-                            >
-                              {s.name}
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {sa.schools_teacher_full.length > 0 && (
-                    <div>
-                      <p className="mb-1.5 flex items-center gap-1 font-medium text-foreground">
-                        <UserPlus className="size-3.5 text-rose-600" />
-                        Öğretmen kotası dolu
-                      </p>
-                      <ul className="space-y-1">
-                        {sa.schools_teacher_full.map((s) => (
-                          <li key={s.id} className="flex flex-wrap items-baseline justify-between gap-2">
-                            <Link
-                              href={`/schools/${s.id}`}
-                              className="text-primary hover:underline"
-                            >
-                              {s.name}
-                            </Link>
-                            <span className="text-xs tabular-nums text-muted-foreground">
-                              {s.teacher_count}/{s.teacher_limit}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {sa.teachers_pending_approval > 0 && (
-                    <Link
-                      href="/users?role=teacher&teacher_school_membership=pending"
-                      className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
-                    >
-                      {sa.teachers_pending_approval} öğretmen onay bekliyor
-                      <ArrowRight className="size-3.5" />
-                    </Link>
-                  )}
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Kota dolu</span>
+                    <span className="font-semibold tabular-nums text-rose-600 dark:text-rose-400">
+                      {sa.schools_teacher_quota_full}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Kota %{nearPct}+</span>
+                    <span className="font-semibold tabular-nums text-amber-700 dark:text-amber-300">
+                      {sa.schools_teacher_quota_near}
+                    </span>
+                  </div>
                   {sa.schools_askida.length === 0 &&
-                    sa.schools_teacher_full.length === 0 &&
-                    sa.teachers_pending_approval === 0 && (
-                      <p className="text-muted-foreground">Şu an kritik uyarı yok.</p>
-                    )}
+                  sa.schools_teacher_full.length === 0 &&
+                  sa.teachers_pending_approval === 0 ? (
+                    <p className="text-[11px] text-muted-foreground">Liste boş.</p>
+                  ) : (
+                    <details className="rounded-md border border-border/60 bg-muted/20 p-2">
+                      <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground hover:text-foreground">
+                        Okul listeleri ({sa.schools_askida.length + sa.schools_teacher_full.length})
+                      </summary>
+                      <div className="mt-2 max-h-28 space-y-2 overflow-y-auto text-[11px]">
+                        {sa.schools_askida.length > 0 && (
+                          <div>
+                            <p className="mb-1 flex items-center gap-1 font-medium">
+                              <AlertTriangle className="size-3 text-amber-600" />
+                              Askıda
+                              <Link href="/schools?status=askida" className="ml-auto text-primary hover:underline">
+                                Tümü
+                              </Link>
+                            </p>
+                            <ul className="space-y-0.5">
+                              {sa.schools_askida.slice(0, 8).map((s) => (
+                                <li key={s.id}>
+                                  <Link href={`/schools/${s.id}`} className="text-primary hover:underline">
+                                    {s.name}
+                                  </Link>
+                                </li>
+                              ))}
+                            </ul>
+                            {sa.schools_askida.length > 8 ? (
+                              <p className="mt-1 text-[10px] text-muted-foreground">+{sa.schools_askida.length - 8} daha</p>
+                            ) : null}
+                          </div>
+                        )}
+                        {sa.schools_teacher_full.length > 0 && (
+                          <div>
+                            <p className="mb-1 flex items-center gap-1 font-medium">
+                              <UserPlus className="size-3 text-rose-600" />
+                              Kota dolu
+                            </p>
+                            <ul className="space-y-0.5">
+                              {sa.schools_teacher_full.slice(0, 8).map((s) => (
+                                <li key={s.id} className="flex justify-between gap-2">
+                                  <Link href={`/schools/${s.id}`} className="min-w-0 truncate text-primary hover:underline">
+                                    {s.name}
+                                  </Link>
+                                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                                    {s.teacher_count}/{s.teacher_limit}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                            {sa.schools_teacher_full.length > 8 ? (
+                              <p className="mt-1 text-[10px] text-muted-foreground">
+                                +{sa.schools_teacher_full.length - 8} daha
+                              </p>
+                            ) : null}
+                          </div>
+                        )}
+                        {sa.teachers_pending_approval > 0 && (
+                          <Link
+                            href="/users?role=teacher&teacher_school_membership=pending"
+                            className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                          >
+                            {sa.teachers_pending_approval} öğretmen onayı
+                            <ArrowRight className="size-3" />
+                          </Link>
+                        )}
+                      </div>
+                    </details>
+                  )}
                 </>
               )
             )}
@@ -458,11 +621,11 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
 
       {sa && (
         <Card className="border-border/60">
-          <CardHeader>
-            <CardTitle className="text-base">Okullar — tür kırılımı</CardTitle>
-            <p className="text-xs text-muted-foreground">Kayıtlı okul sayısı, tür alanına göre</p>
+          <CardHeader className="space-y-0.5 py-3">
+            <CardTitle className="text-sm">Okullar — tür</CardTitle>
+            <p className="text-[11px] text-muted-foreground">Türe göre sayı</p>
           </CardHeader>
-          <CardContent className="overflow-x-auto pt-0">
+          <CardContent className="max-h-44 overflow-y-auto overflow-x-auto pt-0">
             {isLoading ? (
               <Skeleton className="h-32 w-full" />
             ) : (
@@ -488,10 +651,10 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
       )}
 
       {sa && (sa.recent_schools?.length || sa.recent_users?.length) ? (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-3 lg:grid-cols-2">
           <Card className="border-border/60">
-            <CardHeader>
-              <CardTitle className="text-base">Son eklenen okullar</CardTitle>
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm">Son eklenen okullar</CardTitle>
             </CardHeader>
             <CardContent className="text-sm">
               <ul className="space-y-2">
@@ -509,8 +672,8 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
             </CardContent>
           </Card>
           <Card className="border-border/60">
-            <CardHeader>
-              <CardTitle className="text-base">Son kayıt olan kullanıcılar</CardTitle>
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm">Son kayıt olan kullanıcılar</CardTitle>
             </CardHeader>
             <CardContent className="text-sm">
               <ul className="space-y-2">
@@ -530,18 +693,18 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
         </div>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-2">
         <Card className="border-border/60">
-          <CardHeader>
-            <CardTitle>Kullanıcı rolleri</CardTitle>
-            <p className="text-xs text-muted-foreground">Sistem geneli dağılım</p>
+          <CardHeader className="space-y-0.5 py-3">
+            <CardTitle className="text-sm">Kullanıcı rolleri</CardTitle>
+            <p className="text-[11px] text-muted-foreground">Dağılım</p>
           </CardHeader>
-          <CardContent>
-            <div className="h-[260px] w-full min-w-0 min-h-[200px]">
+          <CardContent className="pt-0">
+            <div className="h-[220px] w-full min-w-0 min-h-[180px]">
               {isLoading ? (
                 <Skeleton className="h-full w-full" />
               ) : (
-                <ResponsiveContainer width="100%" height={260}>
+                <ResponsiveContainer width="100%" height={220}>
                   <PieChart>
                     <Pie
                       data={rolePieData}
@@ -549,7 +712,7 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
                       nameKey="name"
                       cx="50%"
                       cy="50%"
-                      outerRadius={88}
+                      outerRadius={72}
                       label={({ name, percent }) =>
                         `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
                       }
@@ -574,16 +737,16 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
         </Card>
 
         <Card className="border-border/60">
-          <CardHeader>
-            <CardTitle>Hesap durumları</CardTitle>
-            <p className="text-xs text-muted-foreground">Aktif / pasif / askıda</p>
+          <CardHeader className="space-y-0.5 py-3">
+            <CardTitle className="text-sm">Hesap durumları</CardTitle>
+            <p className="text-[11px] text-muted-foreground">Aktif / pasif / askıda</p>
           </CardHeader>
-          <CardContent>
-            <div className="h-[260px] w-full min-w-0 min-h-[200px]">
+          <CardContent className="pt-0">
+            <div className="h-[220px] w-full min-w-0 min-h-[180px]">
               {isLoading ? (
                 <Skeleton className="h-full w-full" />
               ) : (
-                <ResponsiveContainer width="100%" height={260}>
+                <ResponsiveContainer width="100%" height={220}>
                   <PieChart>
                     <Pie
                       data={statusPieData}
@@ -591,8 +754,8 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
                       nameKey="name"
                       cx="50%"
                       cy="50%"
-                      innerRadius={48}
-                      outerRadius={88}
+                      innerRadius={40}
+                      outerRadius={72}
                       paddingAngle={2}
                     >
                       {statusPieData.map((_, i) => (
@@ -616,30 +779,28 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
       </div>
 
       <Card className="border-border/60">
-        <CardHeader>
-          <CardTitle>Modül — kaç okulda açık</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Boş liste = tüm modüller açık sayılır (okul ayarı)
-          </p>
+        <CardHeader className="space-y-0.5 py-3">
+          <CardTitle className="text-sm">Modül — kaç okulda açık</CardTitle>
+          <p className="text-[11px] text-muted-foreground">Boş = tümü açık varsayımı</p>
         </CardHeader>
-        <CardContent>
-          <div className="h-[340px] w-full min-w-0 min-h-[200px]">
+        <CardContent className="pt-0">
+          <div className="h-[260px] w-full min-w-0 min-h-[180px]">
             {isLoading ? (
               <Skeleton className="h-full w-full" />
             ) : (
-              <ResponsiveContainer width="100%" height={340}>
+              <ResponsiveContainer width="100%" height={260}>
                 <BarChart
                   data={moduleBarData}
                   layout="vertical"
-                  margin={{ top: 4, right: 8, left: 8, bottom: 4 }}
+                  margin={{ top: 4, right: 4, left: 4, bottom: 4 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis type="number" tick={{ fontSize: 11 }} />
+                  <XAxis type="number" tick={{ fontSize: 10 }} />
                   <YAxis
                     type="category"
                     dataKey="name"
-                    width={128}
-                    tick={{ fontSize: 11 }}
+                    width={100}
+                    tick={{ fontSize: 10 }}
                     className="text-muted-foreground"
                   />
                   <Tooltip
@@ -661,67 +822,36 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="border-border/60">
-          <CardHeader>
-            <CardTitle>Yeni kayıtlar (bu yıl)</CardTitle>
-            <p className="text-xs text-muted-foreground">Kullanıcı oluşturma — aylık</p>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[240px] w-full min-w-0 min-h-[200px]">
-              {isLoading ? (
-                <Skeleton className="h-full w-full" />
-              ) : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={regChart} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip
-                      contentStyle={{
-                        borderRadius: '0.5rem',
-                        border: '1px solid var(--border)',
-                        background: 'var(--card)',
-                      }}
-                    />
-                    <Bar dataKey="kayit" name="Kayıt" fill="var(--chart-2)" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/60">
-          <CardHeader>
-            <CardTitle>Duyurular (bu yıl)</CardTitle>
-            <p className="text-xs text-muted-foreground">Oluşturulan duyuru — aylık</p>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[240px] w-full min-w-0 min-h-[200px]">
-              {isLoading ? (
-                <Skeleton className="h-full w-full" />
-              ) : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={annChart} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip
-                      contentStyle={{
-                        borderRadius: '0.5rem',
-                        border: '1px solid var(--border)',
-                        background: 'var(--card)',
-                      }}
-                    />
-                    <Bar dataKey="duyuru" name="Duyuru" fill="var(--chart-4)" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <details className="rounded-lg border border-dashed border-border/80 bg-muted/15 px-3 py-2 text-xs">
+        <summary className="cursor-pointer font-medium text-muted-foreground hover:text-foreground">
+          Yönetim sayfalarına git (kısayol)
+        </summary>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {[
+            { href: '/schools', label: 'Okullar', icon: School },
+            { href: '/users', label: 'Kullanıcılar', icon: Users },
+            { href: '/modules', label: 'Modüller', icon: Puzzle },
+            { href: '/announcements', label: 'Duyurular', icon: Megaphone },
+            { href: '/hesaplamalar', label: 'Hesaplamalar', icon: Calculator },
+            { href: '/bilsem-sablon', label: 'Bilsem', icon: FileText },
+            { href: '/school-join-queue', label: 'Okul birleştirme', icon: Building2 },
+            { href: '/contact-inbox', label: 'İletişim kutusu', icon: Inbox },
+            { href: '/school-reviews-settings', label: 'Okul değerlendirme', icon: ShieldAlert },
+            { href: '/support/platform', label: 'Destek', icon: LifeBuoy },
+            { href: '/web-ayarlar', label: 'Web ayarları', icon: Globe },
+            { href: '/profile', label: 'Profil', icon: LayoutDashboard },
+          ].map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground hover:border-primary/40 hover:bg-muted/50"
+            >
+              <item.icon className="size-3.5 shrink-0 opacity-70" aria-hidden />
+              {item.label}
+            </Link>
+          ))}
+        </div>
+      </details>
 
       {statsError && (
         <Alert message="Bazı istatistikler yüklenemedi. Sayfayı yenileyin." variant="error" />

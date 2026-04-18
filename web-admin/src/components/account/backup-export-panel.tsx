@@ -281,7 +281,7 @@ export function BackupExportPanel({ token, enabledModules, role, layout = 'defau
         setImportDialogOpen(true);
       } catch {
         toast.error('Dosya okunamadı', {
-          description: 'Geçerli bir .json yedek dosyası seçin (ÖğretmenPro dışa aktarma çıktısı).',
+          description: 'Geçerli bir .json yedek dosyası seçin (Uzaedu Öğretmen dışa aktarma çıktısı).',
         });
       }
     };

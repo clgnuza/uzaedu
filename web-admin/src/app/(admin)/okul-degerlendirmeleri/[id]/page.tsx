@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const school = await fetchSchool(id);
   if (!school) {
-    return { title: 'Okul bulunamadı | Öğretmen Pro' };
+    return { title: 'Okul bulunamadı | Uzaedu Öğretmen' };
   }
   const name = school.name || 'Okul';
   const loc = [school.city, school.district].filter(Boolean).join(' / ');
@@ -36,20 +36,20 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   ]
     .filter(Boolean)
     .join(' · ');
-  const url = process.env.NEXT_PUBLIC_APP_URL || 'https://ogretmenpro.com';
+  const url = process.env.NEXT_PUBLIC_APP_URL || 'https://uzaedu.com';
   return {
-    title: `${name} | Okul Değerlendirmeleri | Öğretmen Pro`,
+    title: `${name} | Okul Değerlendirmeleri | Uzaedu Öğretmen`,
     description: desc || `${name} – Öğretmen değerlendirmeleri`,
     openGraph: {
-      title: `${name} | Öğretmen Pro Okul Değerlendirmeleri`,
+      title: `${name} | Uzaedu Öğretmen Okul Değerlendirmeleri`,
       description: desc || `${name} – Öğretmen değerlendirmeleri`,
       type: 'website',
       url: `${url}${PAGE_PATH}/${id}`,
-      siteName: 'Öğretmen Pro',
+      siteName: 'Uzaedu Öğretmen',
     },
     twitter: {
       card: 'summary_large_image',
-      title: `${name} | Öğretmen Pro`,
+      title: `${name} | Uzaedu Öğretmen`,
       description: desc || `${name} – Öğretmen değerlendirmeleri`,
     },
   };

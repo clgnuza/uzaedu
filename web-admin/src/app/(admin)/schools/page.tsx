@@ -69,6 +69,17 @@ export default function SchoolsPage() {
   const isModerator = me?.role === 'moderator';
   const canUseFilters = isSuperadmin || isModerator;
   const canOpenDetail = canUseFilters;
+  const districtOptions = getDistrictsForCity(filters.city, []);
+  const hasActiveListFilters =
+    !!(
+      filters.city ||
+      filters.district ||
+      filters.status ||
+      filters.type ||
+      filters.type_group ||
+      filters.segment ||
+      filters.search?.trim()
+    );
 
   const patchFilters = useCallback((updater: (f: typeof filters) => typeof filters) => {
     setFilters(updater);
@@ -220,9 +231,9 @@ export default function SchoolsPage() {
                 <select
                   value={filters.city}
                   onChange={(e) => patchFilters((f) => ({ ...f, city: e.target.value, district: '' }))}
-                  className="mt-0.5 w-32 rounded border border-input bg-background px-2.5 py-1.5 text-sm"
+                  className="mt-0.5 w-36 max-w-[10rem] rounded border border-input bg-background px-2.5 py-1.5 text-sm"
                 >
-                  <option value="">Tümü</option>
+                  <option value="">Tüm iller</option>
                   {TURKEY_CITIES.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
@@ -230,16 +241,31 @@ export default function SchoolsPage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-muted-foreground">İlçe</label>
-                <select
-                  value={filters.district}
-                  onChange={(e) => patchFilters((f) => ({ ...f, district: e.target.value }))}
-                  className="mt-0.5 w-32 rounded border border-input bg-background px-2.5 py-1.5 text-sm"
-                >
-                  <option value="">Tümü</option>
-                  {getDistrictsForCity(filters.city, []).map((d) => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
+                {!filters.city ? (
+                  <p className="mt-0.5 w-36 rounded border border-dashed border-input px-2 py-1.5 text-xs text-muted-foreground">
+                    Önce il seçin
+                  </p>
+                ) : districtOptions.length > 0 ? (
+                  <select
+                    value={filters.district}
+                    onChange={(e) => patchFilters((f) => ({ ...f, district: e.target.value }))}
+                    className="mt-0.5 w-36 max-w-[10rem] rounded border border-input bg-background px-2.5 py-1.5 text-sm"
+                  >
+                    <option value="">Tüm ilçeler</option>
+                    {districtOptions.map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={filters.district}
+                    onChange={(e) => patchFilters((f) => ({ ...f, district: e.target.value }))}
+                    placeholder="İlçe adı"
+                    maxLength={100}
+                    className="mt-0.5 w-36 max-w-[10rem] rounded border border-input bg-background px-2.5 py-1.5 text-sm"
+                  />
+                )}
               </div>
               <div>
                 <label className="block text-xs font-medium text-muted-foreground">Durum</label>
@@ -338,7 +364,7 @@ export default function SchoolsPage() {
                       Segment
                     </th>
                     <th className="hidden px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground md:table-cell">
-                      İlçe
+                      İl / İlçe
                     </th>
                     <th className="px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       Durum
@@ -364,7 +390,24 @@ export default function SchoolsPage() {
                         {SCHOOL_SEGMENT_LABELS[s.segment] ?? s.segment}
                       </td>
                       <td className="hidden px-5 py-4 text-muted-foreground md:table-cell">
-                        {[s.city, s.district].filter(Boolean).join(' / ') || '—'}
+                        {s.city || s.district ? (
+                          <button
+                            type="button"
+                            title="Bu ile ve ilçeye göre filtrele"
+                            onClick={() =>
+                              patchFilters((f) => ({
+                                ...f,
+                                city: s.city ?? '',
+                                district: s.district ?? '',
+                              }))
+                            }
+                            className="max-w-[14rem] cursor-pointer text-left underline-offset-2 hover:text-foreground hover:underline"
+                          >
+                            {[s.city, s.district].filter(Boolean).join(' / ')}
+                          </button>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                       <td className="px-5 py-4 text-muted-foreground">
                         {SCHOOL_STATUS_LABELS[s.status] ?? s.status}
@@ -415,16 +458,39 @@ export default function SchoolsPage() {
         ) : (
           <EmptyState
             icon={<School />}
-            title="Henüz okul yok"
-            description="İlk okulu ekleyerek başlayabilirsiniz."
+            title={hasActiveListFilters ? 'Bu filtrelere uyan okul yok' : 'Henüz okul yok'}
+            description={
+              hasActiveListFilters
+                ? 'İl, ilçe veya diğer filtreleri değiştirip tekrar deneyin.'
+                : 'İlk okulu ekleyerek başlayabilirsiniz.'
+            }
             action={
-              isSuperadmin ? (
+              !hasActiveListFilters && isSuperadmin ? (
                 <button
                   type="button"
                   onClick={() => setCreateOpen(true)}
                   className="text-sm font-medium text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
                 >
                   İlk okulu ekle
+                </button>
+              ) : hasActiveListFilters ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilters({
+                      city: '',
+                      district: '',
+                      status: '',
+                      type: '',
+                      type_group: '',
+                      segment: '',
+                      search: '',
+                    });
+                    setPage(1);
+                  }}
+                  className="text-sm font-medium text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                >
+                  Filtreleri temizle
                 </button>
               ) : undefined
             }

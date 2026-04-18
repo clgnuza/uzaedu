@@ -75,7 +75,14 @@ type SyncResult = {
   quota_limit?: number;
   /** Kota dolduğu için atlanan link sayısı */
   quota_skipped?: number;
-  skipped_items?: Array<{ source_key: string; title: string; url: string; reason: string }>;
+  skipped_items?: Array<{
+    source_key: string;
+    title: string;
+    url: string;
+    reason: string;
+    list_section?: 'slider' | 'list' | 'rss' | 'recheck';
+    section_order?: number;
+  }>;
 };
 
 const EXAM_DUTY_TIME_FIELDS = [
@@ -123,6 +130,10 @@ type ExamDutySyncConfig = {
     notify_superadmin_on_sync_items?: boolean;
     /** GPT ile eklenen sync duyurusunu hemen yayınla */
     auto_publish_gpt_sync_duties?: boolean;
+    /** Aynı kategori + çakışan sınav günleri veya aynı son başvuru günü → ikinci duyuruyu atlama */
+    dedupe_exam_schedule?: boolean;
+    /** 0–14 → scrape’de 1–15. slayt; tam sync sonrası otomatik artar */
+    scrape_slider_slot_index?: number;
   };
 };
 
@@ -229,6 +240,8 @@ export default function SinavGoreviAyarlarPage() {
       sync_schedule_times: [...DEFAULT_SYNC_SCHEDULE_TIMES],
       notify_superadmin_on_sync_items: true,
       auto_publish_gpt_sync_duties: false,
+      dedupe_exam_schedule: true,
+      scrape_slider_slot_index: 0,
     },
   });
   const [configSaving, setConfigSaving] = useState(false);
@@ -283,6 +296,11 @@ export default function SinavGoreviAyarlarPage() {
             : [...DEFAULT_SYNC_SCHEDULE_TIMES],
           notify_superadmin_on_sync_items: data?.sync_options?.notify_superadmin_on_sync_items !== false,
           auto_publish_gpt_sync_duties: data?.sync_options?.auto_publish_gpt_sync_duties === true,
+          dedupe_exam_schedule: data?.sync_options?.dedupe_exam_schedule !== false,
+          scrape_slider_slot_index: Math.min(
+            14,
+            Math.max(0, Math.floor(Number(data?.sync_options?.scrape_slider_slot_index)) || 0),
+          ),
         },
       });
     } catch {
@@ -305,6 +323,8 @@ export default function SinavGoreviAyarlarPage() {
           sync_schedule_times: [...DEFAULT_SYNC_SCHEDULE_TIMES],
           notify_superadmin_on_sync_items: true,
           auto_publish_gpt_sync_duties: false,
+          dedupe_exam_schedule: true,
+          scrape_slider_slot_index: 0,
         },
       });
     }
@@ -649,6 +669,13 @@ export default function SinavGoreviAyarlarPage() {
                         {formatSyncScheduleSummary(config.sync_options?.sync_schedule_times)}
                       </span>
                     </p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Scrape slayt (sonraki tam sync):{' '}
+                      <span className="font-mono text-foreground">
+                        {(config.sync_options?.scrape_slider_slot_index ?? 0) + 1}
+                      </span>
+                      /15
+                    </p>
                   </div>
                   <div className="flex flex-wrap gap-2 items-center">
                     {(config.sync_options?.sync_schedule_times?.length
@@ -897,6 +924,25 @@ export default function SinavGoreviAyarlarPage() {
                 <div className="space-y-3 border-t border-border pt-4">
                   <p className="text-sm font-medium">Sync seçenekleri</p>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="flex items-start gap-2 cursor-pointer sm:col-span-2">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={config.sync_options?.dedupe_exam_schedule !== false}
+                        onChange={(e) =>
+                          setConfig((c) => ({
+                            ...c,
+                            sync_options: { ...(c.sync_options ?? {}), dedupe_exam_schedule: e.target.checked },
+                          }))
+                        }
+                      />
+                      <span className="text-sm">
+                        Aynı kategoride sınav takvimi / son başvuru günü tekrarını atlama
+                        <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                          İstanbul takviminde sınav günleri çakışıyorsa veya son başvuru tarihi aynıysa yeni haber eklenmez; atlananlar listesine yazılır. Kapatırsanız yalnızca aynı kaynak URL engellenir.
+                        </span>
+                      </span>
+                    </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"

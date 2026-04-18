@@ -26,6 +26,7 @@ import {
   R2ConfigForAdmin,
   SchoolReviewsConfig,
   SchoolReviewsContentRules,
+  SchoolReviewsPenaltyRules,
   DersSaatiConfig,
   YayinSeoConfig,
   WebPublicConfig,
@@ -359,6 +360,10 @@ class UpdateMailDto {
   @IsOptional()
   @IsString()
   mail_app_base_url?: string | null;
+
+  @IsOptional()
+  @IsString()
+  contact_form_notify_email?: string | null;
 }
 
 class UpdateWelcomeModuleDto {
@@ -733,6 +738,30 @@ class UpdateMobileAppDto {
   feature_flags?: Record<string, boolean>;
 }
 
+class SchoolReviewsPenaltyRulesPatchDto implements Partial<SchoolReviewsPenaltyRules> {
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  strikes_until_ban?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  ban_duration_days?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  reset_strikes_on_ban?: boolean;
+}
+
 class UpdateSchoolReviewsDto {
   @IsOptional()
   @IsBoolean()
@@ -767,6 +796,11 @@ class UpdateSchoolReviewsDto {
   @IsOptional()
   @IsObject()
   content_rules?: SchoolReviewsContentRules;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SchoolReviewsPenaltyRulesPatchDto)
+  penalty_rules?: SchoolReviewsPenaltyRulesPatchDto;
 }
 
 @Controller('app-config')
@@ -815,6 +849,12 @@ export class AppConfigController {
       throw new ForbiddenException({
         code: 'FORBIDDEN',
         message: 'Modül aç/kapa yalnızca süper yönetici tarafından değiştirilebilir.',
+      });
+    }
+    if (payload.user.role === UserRole.moderator && dto.penalty_rules !== undefined) {
+      throw new ForbiddenException({
+        code: 'FORBIDDEN',
+        message: 'Ceza kuralları yalnızca süper yönetici tarafından değiştirilebilir.',
       });
     }
     await this.service.updateSchoolReviewsConfig(dto);
@@ -1084,6 +1124,9 @@ export class AppConfigController {
         sync_schedule_times?: string[];
         notify_superadmin_on_sync_items?: boolean;
         auto_publish_gpt_sync_duties?: boolean;
+        dedupe_exam_schedule?: boolean;
+        /** 0–14: bir sonraki scrape sync’te içerik kontrolü yapılacak slayt (1–15) */
+        scrape_slider_slot_index?: number;
       };
     },
   ): Promise<{ success: boolean }> {

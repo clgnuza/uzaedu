@@ -127,7 +127,7 @@ export class MessagingService {
     const s = await this.settingsRepo.findOne({ where: { schoolId } });
     if (!s) return { ok: false, message: 'Ayarlar bulunamadı' };
     if (s.provider === 'whatsapp_link') {
-      const url = this.buildWaMeUrl(testPhone, '🔔 OgretmenPro — wa.me testi (göndermek için bağlantıyı açın)');
+      const url = this.buildWaMeUrl(testPhone, '🔔 Uzaedu Öğretmen — wa.me testi (göndermek için bağlantıyı açın)');
       return {
         ok: true,
         message: url
@@ -135,7 +135,7 @@ export class MessagingService {
           : 'Geçerli bir telefon girin',
       };
     }
-    const res = await this.wa.sendText(s, testPhone, '🔔 OgretmenPro — Bağlantı testi başarılı!');
+    const res = await this.wa.sendText(s, testPhone, '🔔 Uzaedu Öğretmen — Bağlantı testi başarılı!');
     return { ok: res.success, message: res.error ?? 'Gönderildi' };
   }
 
@@ -578,6 +578,61 @@ export class MessagingService {
 
   // ── Gönderme ──────────────────────────────────────────────────────────────
 
+  /** Başarısız alıcıları tekrar pending yapıp API gönderimini yeniden başlatır (whatsapp_link hariç). */
+  async retryFailedRecipients(
+    schoolId: string,
+    campaignId: string,
+    requester?: { userId: string; role: string },
+  ): Promise<{ started: boolean; total: number }> {
+    const campaign = await this.getCampaign(schoolId, campaignId);
+    if (requester?.role === UserRole.teacher && campaign.createdBy !== requester.userId) {
+      throw new ForbiddenException('Bu kampanyayı siz oluşturmadınız.');
+    }
+    const settings = await this.settingsRepo.findOne({ where: { schoolId } });
+    if (!settings) throw new BadRequestException('Mesaj ayarları bulunamadı.');
+    if (settings.provider === 'whatsapp_link' && settings.isActive) {
+      throw new BadRequestException('Bu modda sunucudan gönderim yok; wa.me listesini kullanın.');
+    }
+    if (campaign.status === 'sending') throw new BadRequestException('Gönderim devam ediyor; bitene kadar bekleyin.');
+    const failedList = await this.recipientRepo.find({ where: { campaignId, status: 'failed' } });
+    if (!failedList.length) throw new BadRequestException('Başarısız alıcı yok.');
+    for (const r of failedList) {
+      r.status = 'pending';
+      r.errorMsg = null;
+      await this.recipientRepo.save(r);
+    }
+    await this._syncCampaignCountsFromRecipients(campaignId);
+    const pending = await this.recipientRepo.find({ where: { campaignId, status: 'pending' }, order: { sortOrder: 'ASC' } });
+    if (!pending.length) throw new BadRequestException('Yeniden gönderilecek alıcı kalmadı.');
+    const fresh = await this.getCampaign(schoolId, campaignId);
+    if (!settings?.isActive && settings?.provider !== 'mock') {
+      throw new BadRequestException('WhatsApp entegrasyonu aktif değil.');
+    }
+    if (fresh.status === 'sending') {
+      void this._sendAll(fresh, pending, settings);
+      return { started: true, total: pending.length };
+    }
+    return this.executeCampaign(schoolId, campaignId, requester);
+  }
+
+  /** Arka planda çalışan toplu gönderimi durdurmayı talep eder (bir sonraki alıcıdan önce kontrol edilir). */
+  async requestCampaignSendAbort(
+    schoolId: string,
+    campaignId: string,
+    requester?: { userId: string; role: string },
+  ): Promise<{ ok: boolean }> {
+    const campaign = await this.getCampaign(schoolId, campaignId);
+    if (requester?.role === UserRole.teacher && campaign.createdBy !== requester.userId) {
+      throw new ForbiddenException('Bu kampanyayı siz oluşturmadınız.');
+    }
+    if (campaign.status !== 'sending') {
+      throw new BadRequestException('Yalnızca gönderim sürerken durdurulabilir.');
+    }
+    campaign.metadata = { ...(campaign.metadata ?? {}), abortSend: true };
+    await this.campaignRepo.save(campaign);
+    return { ok: true };
+  }
+
   async executeCampaign(
     schoolId: string,
     campaignId: string,
@@ -588,6 +643,10 @@ export class MessagingService {
       throw new ForbiddenException('Bu kampanyayı siz oluşturmadınız.');
     }
     if (campaign.status === 'sending') throw new BadRequestException('Gönderim zaten devam ediyor');
+    if (campaign.metadata && (campaign.metadata as Record<string, unknown>).abortSend === true) {
+      campaign.metadata = { ...(campaign.metadata ?? {}), abortSend: false };
+      await this.campaignRepo.save(campaign);
+    }
     const settings = await this.settingsRepo.findOne({ where: { schoolId } });
     if (settings?.provider === 'whatsapp_link' && settings.isActive) {
       throw new BadRequestException({
@@ -645,8 +704,10 @@ export class MessagingService {
     c.failedCount = failed;
     if (pending === 0) {
       c.status = failed > 0 && sent === 0 ? 'failed' : 'completed';
-    } else if (sent > 0 && c.status === 'preview') {
+    } else if (sent > 0) {
       c.status = 'sending';
+    } else {
+      c.status = 'preview';
     }
     await this.campaignRepo.save(c);
     if (pending === 0) {
@@ -695,40 +756,89 @@ export class MessagingService {
     return campaign;
   }
 
+  /** Alıcılar arası gecikme (ms) ve başarısız deneme sayısı — extraConfig */
+  private _sendTuning(settings: MessagingSettings): { delayMs: number; maxRetries: number } {
+    const ex = (settings.extraConfig ?? {}) as Record<string, unknown>;
+    const rawDelay = Number(ex.send_delay_ms);
+    const delayMs = Number.isFinite(rawDelay) ? Math.min(15000, Math.max(200, Math.floor(rawDelay))) : 600;
+    const rawRetries = Number(ex.send_max_retries);
+    const maxRetries = Number.isFinite(rawRetries) ? Math.min(4, Math.max(0, Math.floor(rawRetries))) : 1;
+    return { delayMs, maxRetries };
+  }
+
   private async _sendAll(campaign: MessagingCampaign, recipients: MessagingRecipient[], settings: MessagingSettings) {
-    let sent = 0; let failed = 0;
+    const { delayMs, maxRetries } = this._sendTuning(settings);
     // Kampanya düzeyinde ortak dosya eki
     const commonAttachment = campaign.attachmentPath && existsSync(campaign.attachmentPath)
       ? { buf: readFileSync(campaign.attachmentPath), name: campaign.attachmentName ?? 'ek.pdf' }
       : null;
 
     for (const r of recipients) {
-      if (!r.phone) { r.status = 'skipped'; await this.recipientRepo.save(r); continue; }
-      try {
-        let result;
-        if (r.filePath && existsSync(r.filePath)) {
-          // Kişiye özel dosya (karne/mektup split)
-          const buf = readFileSync(r.filePath);
-          result = await this.wa.sendDocument(settings, r.phone, r.messageText ?? '', buf, r.filePath.split(/[\\/]/).pop() ?? 'dosya.pdf');
-        } else if (commonAttachment) {
-          // Ortak dosya eki (tüm alıcılara aynı)
-          result = await this.wa.sendDocument(settings, r.phone, r.messageText ?? '', commonAttachment.buf, commonAttachment.name);
-        } else {
-          result = await this.wa.sendText(settings, r.phone, r.messageText ?? '');
+      const ctrl = await this.campaignRepo.findOne({ where: { id: campaign.id } });
+      if (ctrl?.metadata && (ctrl.metadata as Record<string, unknown>).abortSend === true) {
+        ctrl.metadata = { ...(ctrl.metadata ?? {}), abortSend: false };
+        await this.campaignRepo.save(ctrl);
+        this.logger.log(`Kampanya ${campaign.id} gönderimi kullanıcı tarafından durduruldu.`);
+        await this._syncCampaignCountsFromRecipients(campaign.id);
+        const pendLeft = await this.recipientRepo.count({ where: { campaignId: campaign.id, status: 'pending' } });
+        if (pendLeft > 0) {
+          const cur = await this.campaignRepo.findOne({ where: { id: campaign.id } });
+          if (cur) {
+            cur.status = 'preview';
+            await this.campaignRepo.save(cur);
+          }
         }
-        if (result.success) { r.status = 'sent'; r.sentAt = new Date(); sent++; }
-        else { r.status = 'failed'; r.errorMsg = result.error ?? 'Hata'; failed++; }
-      } catch (e) { r.status = 'failed'; r.errorMsg = String(e); failed++; }
+        return;
+      }
+
+      if (!r.phone) {
+        r.status = 'skipped';
+        await this.recipientRepo.save(r);
+        continue;
+      }
+
+      let lastError = 'Hata';
+      let ok = false;
+      for (let attempt = 0; attempt <= maxRetries && !ok; attempt++) {
+        if (attempt > 0) {
+          const backoff = Math.min(8000, 400 * 2 ** (attempt - 1));
+          await new Promise((res) => setTimeout(res, backoff));
+        }
+        try {
+          let result;
+          if (r.filePath && existsSync(r.filePath)) {
+            const buf = readFileSync(r.filePath);
+            result = await this.wa.sendDocument(settings, r.phone, r.messageText ?? '', buf, r.filePath.split(/[\\/]/).pop() ?? 'dosya.pdf');
+          } else if (commonAttachment) {
+            result = await this.wa.sendDocument(settings, r.phone, r.messageText ?? '', commonAttachment.buf, commonAttachment.name);
+          } else {
+            result = await this.wa.sendText(settings, r.phone, r.messageText ?? '');
+          }
+          if (result.success) {
+            r.status = 'sent';
+            r.sentAt = new Date();
+            r.errorMsg = null;
+            ok = true;
+          } else {
+            lastError = result.error ?? 'Hata';
+          }
+        } catch (e) {
+          lastError = String(e);
+        }
+      }
+      if (!ok) {
+        r.status = 'failed';
+        r.errorMsg = lastError;
+      }
       await this.recipientRepo.save(r);
-      // Rate limiting
-      await new Promise((res) => setTimeout(res, 200));
+      await new Promise((res) => setTimeout(res, delayMs));
     }
-    campaign.sentCount  += sent;
-    campaign.failedCount += failed;
-    campaign.status = failed > 0 && sent === 0 ? 'failed' : failed > 0 ? 'completed' : 'completed';
-    await this.campaignRepo.save(campaign);
-    this.logger.log(`Kampanya ${campaign.id} tamamlandı: ${sent} gönderildi, ${failed} hatalı`);
-    await this._notifyTeachersCampaignCompleted(campaign);
+
+    await this._syncCampaignCountsFromRecipients(campaign.id);
+    const done = await this.campaignRepo.findOne({ where: { id: campaign.id } });
+    this.logger.log(
+      `Kampanya ${campaign.id} gönderim turu bitti (durum: ${done?.status ?? '?'}, gönderilen: ${done?.sentCount ?? 0}, hatalı: ${done?.failedCount ?? 0}).`,
+    );
   }
 
   /** Mesaj Gönderme Merkezi kampanyası bitince okul öğretmenlerine gelen kutusu */

@@ -1026,7 +1026,7 @@ export class TeacherAgendaService {
       const dt = new Date(d);
       return hasTime ? dt.toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z' : dt.toISOString().slice(0, 10).replace(/-/g, '');
     };
-    let ical = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//OgretmenPro//Agenda//TR\r\nCALSCALE:GREGORIAN\r\n';
+    let ical = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//UzaeduOgretmen//Agenda//TR\r\nCALSCALE:GREGORIAN\r\n';
     for (const ev of events) {
       const hasTime = ev.start.includes('T');
       const startDt = hasTime ? formatDt(ev.start) : ev.start.slice(0, 10).replace(/-/g, '') + 'T090000Z';

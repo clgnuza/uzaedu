@@ -9,10 +9,10 @@ export const DEFAULT_LEGAL_PAGES = {
   privacy: {
     title: 'Aydınlatma Metni ve Gizlilik Politikası',
     meta_description:
-      'Öğretmen Pro KVKK kapsamında kişisel verilerin işlenmesi, amaçlar, haklarınız ve iletişim bilgileri.',
+      'Uzaedu Öğretmen KVKK kapsamında kişisel verilerin işlenmesi, amaçlar, haklarınız ve iletişim bilgileri.',
     body_html: `
 <h2>1. Giriş</h2>
-<p>Bu metin, 6698 sayılı Kişisel Verilerin Korunması Kanunu (&quot;KVKK&quot;) uyarınca veri sorumlusu sıfatıyla Öğretmen Pro (&quot;Platform&quot;) üzerinden sunulan hizmetler kapsamında kişisel verilerinizin nasıl işlendiğini açıklar. Platformu kullanarak veya hesap oluşturarak bu politikayı okuduğunuzu varsayarız.</p>
+<p>Bu metin, 6698 sayılı Kişisel Verilerin Korunması Kanunu (&quot;KVKK&quot;) uyarınca veri sorumlusu sıfatıyla Uzaedu Öğretmen (&quot;Platform&quot;) üzerinden sunulan hizmetler kapsamında kişisel verilerinizin nasıl işlendiğini açıklar. Platformu kullanarak veya hesap oluşturarak bu politikayı okuduğunuzu varsayarız.</p>
 
 <h2>2. Veri sorumlusu ve iletişim</h2>
 <p>Kişisel verileriniz, Platformu işleten veri sorumlusu tarafından işlenmektedir. KVKK kapsamındaki talepleriniz ve sorularınız için Platform üzerindeki iletişim kanallarını veya yöneticinizin bildirdiği resmi e-posta adresini kullanabilirsiniz.</p>
@@ -58,10 +58,10 @@ export const DEFAULT_LEGAL_PAGES = {
   terms: {
     title: 'Kullanım Şartları',
     meta_description:
-      'Öğretmen Pro hizmetinin kullanımına ilişkin kurallar, hesap yükümlülükleri ve sorumluluklar.',
+      'Uzaedu Öğretmen hizmetinin kullanımına ilişkin kurallar, hesap yükümlülükleri ve sorumluluklar.',
     body_html: `
 <h2>1. Taraflar ve kabul</h2>
-<p>Bu Kullanım Şartları (&quot;Şartlar&quot;), Öğretmen Pro web yönetim arayüzü ve bağlı mobil uygulama dahil Platform hizmetlerinin kullanımına ilişkindir. Hesap oluşturarak veya hizmeti kullanarak Şartları okuduğunuzu ve bağlı olduğunuzu kabul edersiniz.</p>
+<p>Bu Kullanım Şartları (&quot;Şartlar&quot;), Uzaedu Öğretmen web yönetim arayüzü ve bağlı mobil uygulama dahil Platform hizmetlerinin kullanımına ilişkindir. Hesap oluşturarak veya hizmeti kullanarak Şartları okuduğunuzu ve bağlı olduğunuzu kabul edersiniz.</p>
 
 <h2>2. Hizmetin tanımı</h2>
 <p>Platform; öğretmen ve okul yöneticilerine yönelik duyuru, nöbet, evrak, içerik ve iletişim araçları sunar. Özellikler modül ve lisanslara göre değişebilir. Hizmet &quot;olduğu gibi&quot; sunulur; kesintisiz veya hatasız çalışma garanti edilmez.</p>
@@ -105,7 +105,7 @@ export const DEFAULT_LEGAL_PAGES = {
   cookies: {
     title: 'Çerez Politikası',
     meta_description:
-      'Öğretmen Pro’da kullanılan çerez ve benzeri teknolojiler, amaçları ve tercihlerinizi nasıl yönetebileceğiniz.',
+      'Uzaedu Öğretmen platformunda kullanılan çerez ve benzeri teknolojiler, amaçları ve tercihlerinizi nasıl yönetebileceğiniz.',
     body_html: `
 <h2>1. Çerez ve benzeri teknolojiler</h2>
 <p>Çerezler, ziyaret ettiğiniz site tarafından tarayıcınıza veya cihazınıza kaydedilen küçük metin dosyalarıdır. Benzer şekilde yerel depolama ve piksel gibi teknolojiler de tercih ve güvenlik için kullanılabilir.</p>

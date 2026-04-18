@@ -24,8 +24,8 @@ const DEFAULT_GPT_MODEL = 'gpt-5-mini';
 /** MEB Excel parse için varsayılan – tablo çıkarma basit bir iş, hızlı model yeterli */
 export const DEFAULT_MEB_IMPORT_MODEL = 'gpt-5-nano';
 
-/** Yapıştırılmış plan metni → haftalık JSON (hız; açıkça model seçilmediyse) */
-const DEFAULT_PASTE_GPT_MODEL = DEFAULT_MEB_IMPORT_MODEL;
+/** Yapıştırılmış plan metni → haftalık JSON (nano + strict json_schema bazen boş content; mini güvenilir) */
+const DEFAULT_PASTE_GPT_MODEL = DEFAULT_GPT_MODEL;
 
 /** Bu modeller sadece temperature=1 destekler (özel değer vermek 400 hatası verir) */
 const MODELS_TEMP_1_ONLY = ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5.1', 'gpt-5.2', 'gpt-5.2-pro', 'gpt-4.1'];
@@ -100,6 +100,38 @@ export class YillikPlanGptService {
 
   isAvailable(): boolean {
     return this.openai != null;
+  }
+
+  /** Chat Completions: string veya parçalı content; refusal / finish_reason meta. */
+  private extractChatCompletionMessageText(completion: {
+    choices?: Array<{
+      finish_reason?: string | null;
+      message?: {
+        content?: string | Array<{ type?: string; text?: string }> | null;
+        refusal?: string | null;
+      } | null;
+    }>;
+  }): { text: string | null; refusal?: string; finishReason?: string | null } {
+    const choice = completion.choices?.[0];
+    const msg = choice?.message;
+    const finishReason = choice?.finish_reason ?? null;
+    const refusalRaw = msg?.refusal;
+    const refusal =
+      typeof refusalRaw === 'string' && refusalRaw.trim() ? refusalRaw.trim() : undefined;
+    if (refusal) return { text: null, refusal, finishReason };
+    const c = msg?.content;
+    if (typeof c === 'string') {
+      const t = c.trim();
+      return { text: t || null, finishReason };
+    }
+    if (Array.isArray(c)) {
+      const t = c
+        .map((p) => (p?.type === 'text' && typeof p.text === 'string' ? p.text : ''))
+        .join('')
+        .trim();
+      return { text: t || null, finishReason };
+    }
+    return { text: null, finishReason };
   }
 
   private looksLikePlanNote(s: string | null | undefined): boolean {
@@ -1371,8 +1403,19 @@ ${tatilLines ? `\n## TATİL / SEMİNER (bu haftalarda ders_saati=0; unite, konu,
             },
           },
         });
-        const content = completion.choices[0]?.message?.content;
-        if (!content) throw new Error('GPT boş yanıt döndü');
+        const { text: content, refusal, finishReason } = this.extractChatCompletionMessageText(completion);
+        if (refusal) {
+          throw new BadRequestException({
+            code: 'GPT_REFUSED',
+            message: `GPT reddetti: ${refusal}`,
+          });
+        }
+        if (!content) {
+          throw new BadRequestException({
+            code: 'GPT_EMPTY',
+            message: `GPT boş yanıt döndü (finish_reason: ${finishReason ?? '—'}).`,
+          });
+        }
         const parsed = JSON.parse(content) as { items?: Array<Partial<DraftPlanItem> & { week_order?: number }> };
         const rawItems = parsed?.items ?? [];
         const validated = this.validateAndNormalize(
@@ -1419,6 +1462,7 @@ ${tatilLines ? `\n## TATİL / SEMİNER (bu haftalarda ders_saati=0; unite, konu,
             : undefined,
         };
       } catch (e) {
+        if (e instanceof BadRequestException) throw e;
         lastError = e instanceof Error ? e : new Error(String(e));
         if (attempt < PASTE_GPT_MAX_RETRIES) continue;
       }

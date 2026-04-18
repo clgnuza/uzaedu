@@ -104,7 +104,7 @@ export function AdminMessageListSection({
       <EmptyState
         icon={<Inbox className="size-8" />}
         title="Henüz mesaj yok"
-        description="Öğretmen Pro yönetiminden okulunuza gönderilen sistem ve bilgilendirme mesajları burada görünür. Duyuru TV veya sınıf duyurularından bağımsızdır."
+        description="Uzaedu Öğretmen yönetiminden okulunuza gönderilen sistem ve bilgilendirme mesajları burada görünür. Duyuru TV veya sınıf duyurularından bağımsızdır."
       />
     );
 

@@ -9,7 +9,7 @@ import {
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 
-/** Kullanıcının kullanım hakları – evrak_uretim, optik_okuma vb. */
+/** Kullanıcının kullanım hakları – evrak_uretim, yillik_plan_uretim, optik_okuma vb. */
 @Entity('entitlements')
 export class Entitlement {
   @PrimaryGeneratedColumn('uuid')
@@ -22,7 +22,7 @@ export class Entitlement {
   @JoinColumn({ name: 'user_id' })
   user: User;
 
-  /** evrak_uretim, optik_okuma, tahta_kilit vb. */
+  /** evrak_uretim, yillik_plan_uretim, optik_okuma, tahta_kilit vb. */
   @Column({ name: 'entitlement_type', type: 'varchar', length: 64 })
   entitlementType: string;
 

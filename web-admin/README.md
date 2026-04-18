@@ -1,4 +1,4 @@
-# Öğretmen Pro – Web Admin
+# Uzaedu Öğretmen – Web Admin
 
 Next.js (App Router). Backend: `NEXT_PUBLIC_API_BASE_URL`. Auth: ileride Firebase; şu an yerel test için Bearer token (user id) localStorage'da.
 

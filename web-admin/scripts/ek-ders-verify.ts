@@ -1,6 +1,6 @@
-#!/usr/bin/env npx tsx
+﻿#!/usr/bin/env npx tsx
 /**
- * EK_DERS_DOGRULAMA.md senaryoları ile Öğretmen Pro hesaplama sonuçlarını doğrular.
+ * EK_DERS_DOGRULAMA.md senaryoları ile Uzaedu Öğretmen hesaplama sonuçlarını doğrular.
  * Çalıştırma: cd web-admin && npx tsx scripts/ek-ders-verify.ts
  */
 
@@ -219,3 +219,4 @@ runScenario('getTaxRateFromMatrah: 185000 → %15', () => {
 console.log('\n=== Özet ===');
 console.log(`Geçen: ${passed} | Başarısız: ${failed}`);
 process.exit(failed > 0 ? 1 : 0);
+

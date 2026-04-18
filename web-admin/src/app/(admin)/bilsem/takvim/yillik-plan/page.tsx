@@ -144,33 +144,33 @@ export default function BilsemYillikPlanPage() {
   const dateStr = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
   return (
-    <div className="yillik-calisma-plani space-y-4 sm:space-y-5 print:space-y-0">
-      <div className="print:hidden overflow-hidden rounded-2xl border border-violet-200/50 bg-gradient-to-br from-violet-50/95 via-white to-fuchsia-50/60 shadow-sm ring-1 ring-violet-500/10 dark:border-violet-800/45 dark:from-violet-950/45 dark:via-zinc-950 dark:to-fuchsia-950/25 dark:ring-violet-500/15">
-        <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:p-5">
-          <div className="flex min-w-0 items-start gap-3">
+    <div className="yillik-calisma-plani space-y-3 px-0.5 sm:space-y-5 sm:px-0 print:space-y-0">
+      <div className="print:hidden overflow-hidden rounded-xl border border-violet-200/50 bg-gradient-to-br from-violet-50/95 via-white to-fuchsia-50/60 shadow-sm ring-1 ring-violet-500/10 dark:border-violet-800/45 dark:from-violet-950/45 dark:via-zinc-950 dark:to-fuchsia-950/25 dark:ring-violet-500/15 sm:rounded-2xl">
+        <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:p-5">
+          <div className="flex min-w-0 items-start gap-2.5 sm:gap-3">
             <div
-              className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white shadow-md shadow-violet-500/25"
+              className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white shadow-md shadow-violet-500/25 sm:size-12 sm:rounded-2xl"
               aria-hidden
             >
-              <ClipboardList className="size-6" strokeWidth={2} />
+              <ClipboardList className="size-5 sm:size-6" strokeWidth={2} />
             </div>
             <div className="min-w-0">
-              <h1 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">Bilsem yıllık çalışma planı</h1>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                {academicYear} · Kurum üst bilgisini düzenleyip tabloyu doldurun; yazdırmada yalnızca belge çıkar.
+              <h1 className="text-sm font-semibold tracking-tight text-foreground sm:text-lg">Bilsem yıllık çalışma planı</h1>
+              <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground sm:text-sm sm:leading-normal">
+                {academicYear} · Kurum bilgisi ve tablo; yazdırmada yalnızca belge.
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-            <div className="flex items-center gap-2 rounded-xl border border-violet-200/60 bg-white/80 px-3 py-2 dark:border-violet-800/50 dark:bg-zinc-900/60">
-              <Label htmlFor="bilsem-ycp-yil" className="text-xs font-medium text-muted-foreground">
+          <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:items-center sm:justify-end sm:gap-2">
+            <div className="col-span-2 flex items-center gap-2 rounded-lg border border-violet-200/60 bg-white/80 px-2 py-1.5 dark:border-violet-800/50 dark:bg-zinc-900/60 sm:col-span-1 sm:rounded-xl sm:px-3 sm:py-2">
+              <Label htmlFor="bilsem-ycp-yil" className="shrink-0 text-[10px] font-medium text-muted-foreground sm:text-xs">
                 Öğr. yılı
               </Label>
               <Input
                 id="bilsem-ycp-yil"
                 value={academicYear}
                 onChange={(e) => setAcademicYear(e.target.value)}
-                className="h-8 w-[6.5rem] border-violet-200/80 text-sm dark:border-violet-800/60"
+                className="h-8 min-w-0 flex-1 border-violet-200/80 text-xs sm:w-[6.5rem] sm:flex-none sm:text-sm dark:border-violet-800/60"
                 placeholder="2025-2026"
                 readOnly={!canEdit}
               />
@@ -183,9 +183,9 @@ export default function BilsemYillikPlanPage() {
                   size="sm"
                   onClick={addRow}
                   title="Yeni satır ekle"
-                  className="border-violet-200/80 bg-white/90 dark:border-violet-800/50 dark:bg-zinc-900/60"
+                  className="h-8 border-violet-200/80 bg-white/90 text-xs dark:border-violet-800/50 dark:bg-zinc-900/60 sm:h-9 sm:text-sm"
                 >
-                  <Plus className="mr-1.5 size-4" />
+                  <Plus className="mr-1 size-3.5 sm:mr-1.5 sm:size-4" />
                   Ekle
                 </Button>
                 <Button
@@ -194,11 +194,11 @@ export default function BilsemYillikPlanPage() {
                   size="sm"
                   onClick={clearAllRows}
                   disabled={rows.length === 0}
-                  className="border-violet-200/80 bg-white/90 text-destructive hover:bg-destructive/10 hover:text-destructive dark:border-violet-800/50 dark:bg-zinc-900/60"
+                  className="h-8 border-violet-200/80 bg-white/90 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive dark:border-violet-800/50 dark:bg-zinc-900/60 sm:h-9 sm:text-sm"
                   title="Tüm satırları sil"
                 >
-                  <Trash2 className="mr-1.5 size-4" />
-                  Temizle
+                  <Trash2 className="mr-1 size-3.5 sm:mr-1.5 sm:size-4" />
+                  Sil
                 </Button>
               </>
             )}
@@ -207,9 +207,9 @@ export default function BilsemYillikPlanPage() {
               size="sm"
               onClick={handlePrint}
               title="Yazdır"
-              className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-md shadow-violet-500/25 hover:from-violet-700 hover:to-fuchsia-700"
+              className="col-span-2 h-8 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-xs text-white shadow-md shadow-violet-500/25 hover:from-violet-700 hover:to-fuchsia-700 sm:col-span-1 sm:h-9 sm:text-sm"
             >
-              <Printer className="mr-1.5 size-4" />
+              <Printer className="mr-1 size-3.5 sm:mr-1.5 sm:size-4" />
               Yazdır
             </Button>
           </div>
@@ -223,7 +223,7 @@ export default function BilsemYillikPlanPage() {
         )}
       >
         <CardContent className="p-0">
-          <div className="yillik-print-header border-b border-violet-100/80 bg-gradient-to-b from-violet-50/40 to-white px-4 py-5 dark:border-violet-900/35 dark:from-violet-950/30 dark:to-zinc-950 print:border-b print:border-black print:bg-white print:from-transparent print:to-transparent">
+          <div className="yillik-print-header border-b border-violet-100/80 bg-gradient-to-b from-violet-50/40 to-white px-3 py-4 dark:border-violet-900/35 dark:from-violet-950/30 dark:to-zinc-950 sm:px-4 sm:py-5 print:border-b print:border-black print:bg-white print:from-transparent print:to-transparent">
             <div className="space-y-2 text-center">
               <p className="text-sm font-medium tracking-[0.3em] text-black print:text-sm">T.C.</p>
               <p className="text-base font-semibold text-black print:text-base print:font-bold">
@@ -254,7 +254,7 @@ export default function BilsemYillikPlanPage() {
           <div className="table-x-scroll -mx-px overflow-x-auto rounded-lg border-2 border-violet-200/50 bg-white dark:border-violet-800/45 dark:bg-zinc-950 print:mx-0 print:overflow-visible print:rounded-none print:border print:border-black">
             <table
               className={cn(
-                'yillik-plani-table w-full min-w-[640px] table-fixed border-collapse text-black print:min-w-0 print:table-auto print:text-black',
+                'yillik-plani-table w-full min-w-[520px] table-fixed border-collapse text-[11px] text-black sm:min-w-[640px] sm:text-sm print:min-w-0 print:table-auto print:text-black',
               )}
             >
               <colgroup>

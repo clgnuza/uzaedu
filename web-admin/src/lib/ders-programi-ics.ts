@@ -96,11 +96,11 @@ export function buildDersProgramiIcs(
   const out: string[] = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//OgretmenPro//DersProgrami//TR',
+    'PRODID:-//UzaeduOgretmen//DersProgrami//TR',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     `X-WR-CALNAME:${icsEscapeText(options.calName)}`,
-    `X-WR-CALDESC:${icsEscapeText(`${options.academicYearLabel} — Haftalık ders programı (Öğretmen Pro)`)}`,
+    `X-WR-CALDESC:${icsEscapeText(`${options.academicYearLabel} — Haftalık ders programı (Uzaedu Öğretmen)`)}`,
   ];
 
   let idx = 0;
@@ -124,7 +124,7 @@ export function buildDersProgramiIcs(
 
     const summary = icsEscapeText(`${e.class_section} — ${e.subject}`.trim() || 'Ders');
     const desc = icsEscapeText(
-      `Sınıf: ${e.class_section}\\nDers: ${e.subject}\\nSaat: ${startStr}–${endStr}\\nKaynak: Öğretmen Pro`,
+      `Sınıf: ${e.class_section}\\nDers: ${e.subject}\\nSaat: ${startStr}–${endStr}\\nKaynak: Uzaedu Öğretmen`,
     );
     const uid = `${batchId}-d${e.day_of_week}-l${e.lesson_num}-${idx}@ogretmenpro.invalid`;
     idx += 1;

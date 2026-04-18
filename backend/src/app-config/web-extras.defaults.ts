@@ -32,7 +32,6 @@ export const DEFAULT_WEB_EXTRAS = {
     '/tv',
     '/evrak',
     '/modules',
-    '/moderation',
     '/document-templates',
     '/extra-lesson-params',
     '/favoriler',
@@ -44,7 +43,6 @@ export const DEFAULT_WEB_EXTRAS = {
     '/akademik-takvim',
     '/ogretmen-ajandasi',
     '/okul-degerlendirmeleri',
-    '/school-profile',
     '/send-announcement',
     '/system-announcements',
     '/work-calendar',
@@ -68,7 +66,7 @@ export const DEFAULT_WEB_EXTRAS = {
   default_og_image_url: null as string | null,
   meta_description: null as string | null,
   recaptcha_site_key: null as string | null,
-  pwa_short_name: 'Öğretmen Pro',
+  pwa_short_name: 'Uzaedu Öğretmen',
   theme_color: '#0f172a',
   favicon_url: null as string | null,
   app_store_url: null as string | null,
@@ -83,7 +81,7 @@ export const DEFAULT_WEB_EXTRAS = {
    */
   ads_web_targeting_requires_cookie_consent: true,
   /**
-   * Giriş yapmadan açılan Öğretmen Pro kabuğu (haberler, hesaplamalar…).
+   * Giriş yapmadan açılan Uzaedu Öğretmen kabuğu (haberler, hesaplamalar…).
    * Yollar `isPublicAdminPath` ile uyumlu tutulmalı.
    */
   guest_public_web_shell_nav: {

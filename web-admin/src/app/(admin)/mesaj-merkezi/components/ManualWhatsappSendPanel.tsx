@@ -1,11 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Campaign, getMyMessagingPreferences, getWaManualLinks, markRecipientManualSent } from '@/lib/messaging-api';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { toast } from 'sonner';
-import { ExternalLink, CheckCircle2, Smartphone } from 'lucide-react';
+import { ExternalLink, CheckCircle2, Smartphone, Download, ListOrdered } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 type Item = {
   id: string;
@@ -22,12 +24,42 @@ interface Props {
   onUpdate?: () => void;
 }
 
+function csvEscape(s: string | null | undefined): string {
+  const v = String(s ?? '');
+  return `"${v.replace(/"/g, '""')}"`;
+}
+
+function downloadWaManualCsv(campaignTitle: string, rows: Item[]) {
+  const header = ['ad', 'telefon', 'mesaj', 'wa_url'];
+  const lines = [
+    header.join(';'),
+    ...rows.map((r) =>
+      [csvEscape(r.recipientName), csvEscape(r.phone), csvEscape(r.messageText), csvEscape(r.waUrl)].join(';'),
+    ),
+  ];
+  const blob = new Blob([`\ufeff${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `wa-manuel-${campaignTitle.replace(/[^\wğüşıöçĞÜŞİÖÇ]+/gi, '-').slice(0, 40) || 'kampanya'}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 export default function ManualWhatsappSendPanel({ campaign, token, q, onUpdate }: Props) {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | undefined>();
   const [items, setItems] = useState<Item[]>([]);
   const [marking, setMarking] = useState<string | null>(null);
   const [openWaInNewTab, setOpenWaInNewTab] = useState(true);
+  const [delaySec, setDelaySec] = useState(3);
+  const [autoOpenNext, setAutoOpenNext] = useState(false);
+  const autoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
+    };
+  }, []);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -63,12 +95,19 @@ export default function ManualWhatsappSendPanel({ campaign, token, q, onUpdate }
 
   const markSent = async (id: string) => {
     if (!token) return;
+    const idx = items.findIndex((x) => x.id === id);
+    const nextRow = idx >= 0 ? items[idx + 1] : undefined;
     setMarking(id);
     try {
       await markRecipientManualSent(token, id, q);
       toast.success('Gönderildi olarak işaretlendi');
       await load();
       onUpdate?.();
+      if (autoOpenNext && nextRow?.waUrl) {
+        if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
+        const ms = Math.max(0, Math.min(60, delaySec)) * 1000;
+        autoTimerRef.current = setTimeout(() => openWa(nextRow.waUrl), ms);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Hata');
     } finally {
@@ -104,6 +143,37 @@ export default function ManualWhatsappSendPanel({ campaign, token, q, onUpdate }
           {notice}
         </p>
       ) : null}
+
+      {items.length > 0 ? (
+        <div className="flex flex-col gap-2 rounded-lg border border-emerald-200/50 bg-white/70 p-2 text-xs dark:border-emerald-900/40 dark:bg-zinc-900/50 sm:flex-row sm:flex-wrap sm:items-end">
+          <div className="flex flex-1 flex-col gap-0.5">
+            <label className="font-medium text-emerald-900 dark:text-emerald-100">Sonraki wa.me gecikmesi (sn)</label>
+            <Input
+              type="number"
+              min={0}
+              max={60}
+              className="h-8 max-w-[120px] text-xs"
+              value={delaySec}
+              onChange={(e) => setDelaySec(Number(e.target.value) || 0)}
+            />
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 text-emerald-900 dark:text-emerald-100">
+            <input type="checkbox" checked={autoOpenNext} onChange={(e) => setAutoOpenNext(e.target.checked)} className="rounded border-input" />
+            Gönderildi sonrası sıradaki wa.me’yi otomatik aç
+          </label>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="gap-1 shrink-0 border-emerald-300 text-emerald-900 dark:border-emerald-800 dark:text-emerald-100"
+            onClick={() => downloadWaManualCsv(campaign.title, items)}
+          >
+            <Download className="size-3.5" />
+            CSV indir
+          </Button>
+        </div>
+      ) : null}
+
       {items.length === 0 ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <CheckCircle2 className="size-4 text-green-600" />
@@ -111,12 +181,21 @@ export default function ManualWhatsappSendPanel({ campaign, token, q, onUpdate }
         </p>
       ) : (
         <ul className="space-y-2">
-          {items.map((row) => (
+          {items.map((row, i) => (
             <li
               key={row.id}
-              className="flex flex-col gap-2 rounded-lg border border-white/60 bg-white/90 p-2.5 dark:border-zinc-700/60 dark:bg-zinc-900/70 sm:rounded-xl sm:p-3 sm:flex-row sm:items-center sm:justify-between"
+              className={cn(
+                'flex flex-col gap-2 rounded-lg border bg-white/90 p-2.5 dark:bg-zinc-900/70 sm:rounded-xl sm:p-3 sm:flex-row sm:items-center sm:justify-between',
+                i === 0 ? 'ring-2 ring-emerald-500/70 border-emerald-300 dark:border-emerald-800' : 'border-white/60 dark:border-zinc-700/60',
+              )}
             >
               <div className="min-w-0 text-sm">
+                {i === 0 ? (
+                  <p className="mb-0.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                    <ListOrdered className="size-3.5" />
+                    Sıradaki
+                  </p>
+                ) : null}
                 <p className="truncate font-medium">{row.recipientName ?? row.phone ?? '—'}</p>
                 {row.messageText ? (
                   <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{row.messageText}</p>

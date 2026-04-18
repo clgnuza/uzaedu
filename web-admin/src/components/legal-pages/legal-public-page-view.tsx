@@ -114,7 +114,7 @@ export function LegalPublicPageView({
               Girişe Dön
             </Link>
             <Link href="/" className="text-[11px] font-bold tracking-tight text-white/50 transition hover:text-white/80">
-              Öğretmen<span className="text-blue-400">Pro</span>
+              Uzaedu<span className="text-blue-400"> Öğretmen</span>
             </Link>
           </div>
 
@@ -224,7 +224,7 @@ export function LegalPublicPageView({
 
         {/* Alt bilgi */}
         <p className="mt-6 text-center text-[11px] text-slate-400 dark:text-slate-600">
-          &copy; {new Date().getFullYear()} ÖğretmenPro &middot; UzaMobil Yazılım &middot; Tüm hakları saklıdır
+          &copy; {new Date().getFullYear()} Uzaedu Öğretmen &middot; UzaMobil Yazılım &middot; Tüm hakları saklıdır
         </p>
       </div>
     </div>

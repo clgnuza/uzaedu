@@ -17,7 +17,7 @@ export function ShareCardPngFiligran({ variant }: { variant: 'emerald' | 'violet
     >
       <div className="flex items-end justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-[6.5px] font-semibold uppercase tracking-[0.18em] text-white/80">Öğretmen Pro</p>
+          <p className="text-[6.5px] font-semibold uppercase tracking-[0.18em] text-white/80">Uzaedu Öğretmen</p>
           <p className="mt-0.5 truncate text-[8px] font-medium text-white/50">ogretmen.pro</p>
         </div>
         <div

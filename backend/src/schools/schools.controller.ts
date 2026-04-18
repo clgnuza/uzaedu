@@ -1,4 +1,17 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { SchoolsService } from './schools.service';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -14,6 +27,13 @@ import { BulkSchoolModuleDto } from './dto/bulk-school-module.dto';
 import { ReconcilePreviewDto, ReconcileApplyDto } from './dto/reconcile-schools.dto';
 import { MebbisKurumlistesiService } from './mebbis-kurumlistesi.service';
 import { MebbisFetchDto, MebbisIlceQueryDto, MebbisTypeQueryDto } from './dto/mebbis-fetch.dto';
+import {
+  SchoolPlacementScoresSyncService,
+  normalizePlacementUpdateScope,
+} from './school-placement-scores-sync.service';
+import { PlacementGptExtractService } from './placement-gpt-extract.service';
+import { PlacementGptExtractDto } from './dto/placement-gpt-extract.dto';
+import { PlacementSyncFeedDto } from './dto/placement-sync-feed.dto';
 
 @Controller('schools')
 @UseGuards(JwtAuthGuard)
@@ -21,6 +41,8 @@ export class SchoolsController {
   constructor(
     private readonly schoolsService: SchoolsService,
     private readonly mebbisKurumlistesi: MebbisKurumlistesiService,
+    private readonly placementScoresSync: SchoolPlacementScoresSyncService,
+    private readonly placementGptExtract: PlacementGptExtractService,
   ) {}
 
   @Get()
@@ -58,6 +80,84 @@ export class SchoolsController {
   @Roles(UserRole.superadmin)
   mebbisFetchRows(@Body() dto: MebbisFetchDto) {
     return this.mebbisKurumlistesi.fetchSchools(dto);
+  }
+
+  /** LGS taban puanları: env’deki JSON URL’den senkron (süperadmin manuel tetik). */
+  @Post('placement-scores/sync-from-feed')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin)
+  @RequireModule('schools')
+  syncPlacementScoresFromFeed(@Body() body: PlacementSyncFeedDto) {
+    return this.placementScoresSync.syncFromRemoteFeed(body?.update_scope);
+  }
+
+  /** CSV: kurum_kodu/institution_code, yıl, merkezî (with_exam|merkezi_lgs|…) ve yerel (without_exam|yerel_taban|…) */
+  @Post('placement-scores/import-csv')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin)
+  @RequireModule('schools')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }))
+  importPlacementScoresCsv(
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Query('auto_enable_dual_track') autoRaw?: string,
+    @Query('update_scope') updateScopeRaw?: string,
+  ) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException({ code: 'FILE_REQUIRED', message: 'CSV dosyası (file) gerekli.' });
+    }
+    const auto = autoRaw !== 'false' && autoRaw !== '0';
+    const scope = normalizePlacementUpdateScope(updateScopeRaw);
+    const rows = this.placementScoresSync.parseCsv(file.buffer);
+    return this.placementScoresSync.applyRows(rows, auto, scope);
+  }
+
+  /** Kaynak metin + GPT → yerleştirme satırları önizleme (DB yazılmaz). */
+  @Post('placement-scores/gpt-preview')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin)
+  @RequireModule('schools')
+  async previewPlacementGpt(@Body() dto: PlacementGptExtractDto) {
+    const { rows, warnings, schools_considered, batches, model, context_school_ids } =
+      await this.placementGptExtract.extractRows(dto);
+    const update_scope = normalizePlacementUpdateScope(dto.update_scope);
+    const city_trim = (dto.city ?? '').trim();
+    const restrict_on_apply =
+      (Array.isArray(dto.school_ids) && dto.school_ids.length > 0) || city_trim.length > 0;
+    return {
+      ok: true,
+      rows,
+      warnings,
+      schools_considered,
+      batches,
+      model,
+      update_scope,
+      city: city_trim || undefined,
+      context_school_ids_count: context_school_ids.length,
+      restrict_on_apply,
+      sample_payload: { auto_enable_dual_track: true, update_scope, rows },
+    };
+  }
+
+  /** Kaynak metin + GPT → çıkan satırları okullara uygular (CSV ile aynı applyRows). */
+  @Post('placement-scores/gpt-apply')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin)
+  @RequireModule('schools')
+  async applyPlacementGpt(@Body() dto: PlacementGptExtractDto, @Query('auto_enable_dual_track') autoRaw?: string) {
+    const { rows, warnings, context_school_ids } = await this.placementGptExtract.extractRows(dto);
+    const auto = autoRaw !== 'false' && autoRaw !== '0';
+    const scope = normalizePlacementUpdateScope(dto.update_scope);
+    const city_trim = (dto.city ?? '').trim();
+    const restrictOnContext =
+      (Array.isArray(dto.school_ids) && dto.school_ids.length > 0) || city_trim.length > 0;
+    const restrict = restrictOnContext ? context_school_ids : undefined;
+    const result = await this.placementScoresSync.applyRows(rows, auto, scope, {
+      restrictToSchoolIds: restrict,
+    });
+    return {
+      ...result,
+      gpt_warnings: warnings.slice(0, 300),
+    };
   }
 
   @Get(':id')

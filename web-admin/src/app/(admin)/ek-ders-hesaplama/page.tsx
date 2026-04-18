@@ -635,7 +635,7 @@ export default function ExtraLessonCalcPage() {
     const kesintiStr =
       result.totalKesinti > 0 ? `\n📉 Kesintiler: −${formatTL(result.totalKesinti)} (GV/DV${result.sgkKesinti > 0 ? '/SGK' : ''})` : '';
     return [
-      '📋 Ek ders ücreti · Öğretmen Pro',
+      '📋 Ek ders ücreti · Uzaedu Öğretmen',
       `📅 ${dönemLabel}`,
       `👤 ${unvanLabel} · ${eduLabel}`,
       totalH > 0 || examN > 0 ? `⏱ ${totalH} saat ek ders${examN > 0 ? ` · 📝 ${examN} sınav görevi` : ''}` : null,
@@ -714,7 +714,7 @@ export default function ExtraLessonCalcPage() {
 
   const performShare = useCallback(async () => {
     const textFull = buildShareText();
-    const title = 'Ek ders ücreti — Öğretmen Pro';
+    const title = 'Ek ders ücreti — Uzaedu Öğretmen';
     const short = buildShareShort();
     let blob: Blob | null = null;
     if (typeof window !== 'undefined') {
@@ -1589,8 +1589,8 @@ export default function ExtraLessonCalcPage() {
                 </p>
               </div>
               <div className="shrink-0 rounded-xl bg-white/25 px-2.5 py-1.5 text-center">
-                <p className="text-[8px] font-medium uppercase text-emerald-100">Öğretmen</p>
-                <p className="text-[11px] font-bold leading-none">Pro</p>
+                <p className="text-[8px] font-medium uppercase text-emerald-100">Uzaedu</p>
+                <p className="text-[11px] font-bold leading-none">Öğretmen</p>
               </div>
             </div>
           </div>

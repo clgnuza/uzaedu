@@ -88,7 +88,7 @@ export class School {
 
   /**
    * Okula açık modüller. null/boş = tüm modüller açık.
-   * Örnek: ["duty", "tv", "extra_lesson", "document", "outcome", "optical", "smart_board", "school_profile"]
+   * Örnek: ["duty", "tv", "extra_lesson", "document", "outcome", "optical", "smart_board"]
    */
   @Column({ type: 'jsonb', nullable: true })
   enabled_modules: string[] | null;
@@ -419,6 +419,21 @@ export class School {
   /** Haftalık nöbet çizelgesi: Nöbetçi öğretmenlerin görevleri (her satır 1 madde, numarasız veya "1-" ile başlayabilir) */
   @Column({ name: 'duty_teblig_haftalik_duty_duties_text', type: 'text', nullable: true })
   duty_teblig_haftalik_duty_duties_text: string | null;
+
+  /**
+   * Okul değerlendirme: merkezî (LGS) + yerel yerleştirme göstergelerini birlikte gösteren kart.
+   * MEB kılavuzunda yerel yerleştirme “puansız” değil; OBP, ikamet ve devamsızlık kriterlidir.
+   */
+  @Column({ name: 'review_placement_dual_track', type: 'boolean', default: false })
+  review_placement_dual_track: boolean;
+
+  /** Son yıllar: { year, with_exam: merkezî LGS tabanı, without_exam: yerel göstergesi } — en fazla 4 satır */
+  @Column({ name: 'review_placement_scores', type: 'jsonb', nullable: true })
+  review_placement_scores: { year: number; with_exam: number | null; without_exam: number | null }[] | null;
+
+  /** v2: alan/program bazlı LGS çizgi + OBP ATP/AMP aralık grafikleri (okul değerlendirme infografik) */
+  @Column({ name: 'review_placement_charts', type: 'jsonb', nullable: true })
+  review_placement_charts: Record<string, unknown> | null;
 
   /** Market: okul jeton bakiyesi (kurumsal satın alma) */
   @Column({ name: 'market_jeton_balance', type: 'numeric', precision: 14, scale: 6, default: 0 })

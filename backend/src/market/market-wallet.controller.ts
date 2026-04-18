@@ -11,6 +11,8 @@ import { MarketModuleActivationService } from './market-module-activation.servic
 import { ActivateModuleDto } from './dto/activate-module.dto';
 import { MarketSchoolCreditService } from './market-school-credit.service';
 import { MarketUserCreditService } from './market-user-credit.service';
+import { MarketEntitlementExchangeService } from './market-entitlement-exchange.service';
+import { ExchangeEntitlementDto } from './dto/exchange-entitlement.dto';
 
 function parseUtcDayInclusive(s: string | undefined): Date | null {
   if (!s?.trim()) return null;
@@ -48,6 +50,7 @@ export class MarketWalletController {
     private readonly userCredits: MarketUserCreditService,
     private readonly rewardedAdSsv: MarketRewardedAdSsvService,
     private readonly moduleActivation: MarketModuleActivationService,
+    private readonly entitlementExchange: MarketEntitlementExchangeService,
   ) {}
 
   /**
@@ -93,6 +96,14 @@ export class MarketWalletController {
       schoolId: payload.schoolId,
       role: payload.user.role as UserRole,
     });
+  }
+
+  /** Jeton karşılığı yıllık plan / evrak üretim kotası (Market politikası). */
+  @Post('entitlements/exchange')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.teacher, UserRole.school_admin)
+  async exchangeEntitlement(@CurrentUser() payload: CurrentUserPayload, @Body() dto: ExchangeEntitlementDto) {
+    return this.entitlementExchange.exchange(payload.user, dto.kind, dto.quantity);
   }
 
   /** Okul yöneticisi: kendi okuluna superadmin tarafından eklenen jeton/ek ders ve ekleyen bilgisi */

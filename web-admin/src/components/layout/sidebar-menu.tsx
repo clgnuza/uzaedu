@@ -2,13 +2,15 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MENU_SIDEBAR } from '@/config/menu';
 import type { MenuItem, WebAdminRole } from '@/config/types';
 import { useAuth } from '@/hooks/use-auth';
 import { useSupportModuleAvailability } from '@/hooks/use-support-module-availability';
+import { collectPathsFromFilteredMenu, getSidebarExtraSearchHits } from '@/lib/sidebar-extra-search';
+import { SidebarExtraSearchHits } from '@/components/layout/sidebar-extra-search-hits';
 
 interface SidebarMenuProps {
   role: WebAdminRole | null;
@@ -212,6 +214,7 @@ function filterMenuBySearch(
 
 export function SidebarMenu({ role, moderatorModules }: SidebarMenuProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { me } = useAuth();
   const { supportEnabled } = useSupportModuleAvailability();
   const supportEnabledValue = supportEnabled ?? true;
@@ -232,17 +235,37 @@ export function SidebarMenu({ role, moderatorModules }: SidebarMenuProps) {
     return filterMenuBySearch(withoutHeadingsWhenSearch, search, role, !!bilsemOkul);
   }, [items, search, role, bilsemOkul]);
 
+  const extraSearchHits = useMemo(() => {
+    const q = search.trim();
+    if (!q) return [];
+    const excludePaths = collectPathsFromFilteredMenu(displayItems);
+    return getSidebarExtraSearchHits(q, {
+      role,
+      moderatorModules: moderatorModules ?? me?.moderator_modules ?? null,
+      schoolEnabledModules: me?.school?.enabled_modules ?? null,
+      supportEnabled: supportEnabledValue,
+      excludePaths,
+    });
+  }, [search, displayItems, role, moderatorModules, me?.moderator_modules, me?.school?.enabled_modules, supportEnabledValue]);
+
   const isActive = (path?: string) => {
     if (!path) return false;
     if (path === '/dashboard') return pathname === '/dashboard' || pathname === '/';
-    return pathname === path || pathname.startsWith(path + '/');
+    const [base, queryStr] = path.split('?');
+    if (pathname !== base && !pathname.startsWith(`${base}/`)) return false;
+    if (!queryStr) return pathname === base || pathname.startsWith(`${base}/`);
+    const expected = new URLSearchParams(queryStr);
+    for (const key of expected.keys()) {
+      if (searchParams.get(key) !== expected.get(key)) return false;
+    }
+    return true;
   };
 
   return (
     <>
       <div className="sticky top-0 z-10 border-b border-border/70 bg-background px-3 pb-3 pt-4">
         <label htmlFor="sidebar-menu-search" className="sr-only">
-          Menüde ara
+          Menü ve ayarlarda ara
         </label>
         <div className="relative">
           <Search
@@ -254,7 +277,7 @@ export function SidebarMenu({ role, moderatorModules }: SidebarMenuProps) {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Menüde ara…"
+            placeholder="Menü ve ayarlarda ara…"
             autoComplete="off"
             className="h-9 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
           />
@@ -357,8 +380,9 @@ export function SidebarMenu({ role, moderatorModules }: SidebarMenuProps) {
           </Link>
         );
       })}
-      {search.trim() && displayItems.length === 0 && (
-        <p className="px-1 py-6 text-center text-sm text-muted-foreground">Eşleşen menü yok.</p>
+      <SidebarExtraSearchHits hits={extraSearchHits} isActive={isActive} />
+      {search.trim() && displayItems.length === 0 && extraSearchHits.length === 0 && (
+        <p className="px-1 py-6 text-center text-sm text-muted-foreground">Eşleşen sonuç yok.</p>
       )}
     </nav>
     </>

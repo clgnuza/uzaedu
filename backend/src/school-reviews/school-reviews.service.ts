@@ -21,10 +21,12 @@ import { SchoolAnswerLike } from './entities/school-answer-like.entity';
 import { SchoolAnswerDislike } from './entities/school-answer-dislike.entity';
 import { SchoolContentReport } from './entities/school-content-report.entity';
 import { SchoolFavorite } from './entities/school-favorite.entity';
+import { User } from '../users/entities/user.entity';
 import { CreateCriteriaDto } from './dto/create-criteria.dto';
 import { UpdateCriteriaDto } from './dto/update-criteria.dto';
 import { UserRole } from '../types/enums';
 import { AppConfigService } from '../app-config/app-config.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import type { SchoolReviewsContentRules } from '../app-config/app-config.service';
 import { ListSchoolsForReviewsDto } from './dto/list-schools-for-reviews.dto';
 import { CreateReviewDto } from './dto/create-review.dto';
@@ -34,8 +36,11 @@ import { UpdateQuestionDto } from './dto/update-question.dto';
 import { CreateAnswerDto } from './dto/create-answer.dto';
 import { UpdateAnswerDto } from './dto/update-answer.dto';
 import { ListContentReportsAdminDto } from './dto/list-content-reports-admin.dto';
+import { ApplySchoolReviewsStrikeDto } from './dto/apply-school-reviews-strike.dto';
 import { ListModerationQueueDto } from './dto/list-moderation-queue.dto';
 import { paginate } from '../common/dtos/pagination.dto';
+import { normalizeReviewPlacementScoresJson } from '../schools/review-placement-scores.util';
+import { sanitizeReviewPlacementCharts } from '../schools/review-placement-charts.util';
 
 /** Varsayılan kriterler — puanlama 1–10 (1: çok zayıf, 10: çok iyi). */
 const CRITERIA_SCORE_MIN = 1;
@@ -123,7 +128,10 @@ export class SchoolReviewsService implements OnModuleInit {
     private readonly reportRepo: Repository<SchoolContentReport>,
     @InjectRepository(SchoolFavorite)
     private readonly favoriteRepo: Repository<SchoolFavorite>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
     private readonly appConfig: AppConfigService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private async ensureModuleEnabled(): Promise<void> {
@@ -201,6 +209,34 @@ export class SchoolReviewsService implements OnModuleInit {
       is_active: dto.is_active ?? true,
     });
     return this.criteriaRepo.save(c);
+  }
+
+  /** Kriter sırası — tek istek (çoklu PATCH / throttle 429 önlenir). */
+  async reorderCriteria(orderedIds: string[]): Promise<void> {
+    const ids = orderedIds.map((x) => x.trim()).filter(Boolean);
+    if (ids.length === 0) return;
+    const unique = new Set(ids);
+    if (unique.size !== ids.length) {
+      throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Yinelenen kriter kimliği.' });
+    }
+    const allRows = await this.criteriaRepo.find({ select: ['id'] });
+    if (allRows.length !== ids.length) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Sıra listesi tüm kriterleri içermelidir.',
+      });
+    }
+    const valid = new Set(allRows.map((r) => r.id));
+    for (const id of ids) {
+      if (!valid.has(id)) {
+        throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Geçersiz kriter kimliği.' });
+      }
+    }
+    await this.criteriaRepo.manager.transaction(async (em) => {
+      for (let i = 0; i < ids.length; i++) {
+        await em.update(SchoolReviewCriteria, { id: ids[i] }, { sort_order: i });
+      }
+    });
   }
 
   /** Superadmin: kriter güncelle. */
@@ -290,12 +326,12 @@ export class SchoolReviewsService implements OnModuleInit {
     }));
   }
 
-  /** Son cevaplar (KVK: sadece okul adı, aktivite tipi, tarih – kişi bilgisi yok). */
+  /** Son cevaplar (değerlendirme/soru widget’ı ile aynı gösterim adı mantığı). */
   async listRecentAnswers(limit: number = 10) {
     await this.ensureModuleEnabled();
     const items = await this.answerRepo.find({
       where: { status: 'approved' },
-      relations: { question: { school: true } },
+      relations: { question: { school: true }, user: true },
       order: { created_at: 'DESC' },
       take: limit,
     });
@@ -306,6 +342,7 @@ export class SchoolReviewsService implements OnModuleInit {
         school_id: a.question!.school_id,
         school_name: a.question!.school?.name ?? 'Okul',
         created_at: a.created_at,
+        author_display_name: a.is_anonymous ? 'Öğretmen' : (a.user?.display_name || 'Öğretmen'),
       }));
   }
 
@@ -473,6 +510,14 @@ export class SchoolReviewsService implements OnModuleInit {
       const fav = await this.favoriteRepo.findOne({ where: { user_id: userId, school_id: schoolId } });
       is_favorited = !!fav;
     }
+    const placementOn = !!(school as School).review_placement_dual_track;
+    const placement_scores = placementOn
+      ? normalizeReviewPlacementScoresJson((school as School).review_placement_scores)
+      : null;
+    const placement_charts = placementOn
+      ? sanitizeReviewPlacementCharts((school as School).review_placement_charts)
+      : null;
+
     return {
       ...school,
       review_view_count: currentViewCount + 1,
@@ -483,6 +528,9 @@ export class SchoolReviewsService implements OnModuleInit {
       criteria_averages: Object.keys(criteriaAverages).length > 0 ? criteriaAverages : null,
       rating_distribution,
       is_favorited: userId ? is_favorited : undefined,
+      review_placement_dual_track: placementOn,
+      review_placement_scores: placement_scores,
+      review_placement_charts: placement_charts,
     };
   }
 
@@ -678,12 +726,13 @@ export class SchoolReviewsService implements OnModuleInit {
     return this.reviewRepo.save(review);
   }
 
-  /** Değerlendirme sil – sadece kendi yorumu. */
-  async deleteReview(reviewId: string, userId: string) {
+  /** Değerlendirme sil – sahibi veya süper yönetici. */
+  async deleteReview(reviewId: string, userId: string, actorRole?: string) {
     await this.ensureModuleEnabled();
     const review = await this.reviewRepo.findOne({ where: { id: reviewId } });
     if (!review) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Değerlendirme bulunamadı.' });
-    if (review.user_id !== userId) {
+    const superBypass = actorRole === UserRole.superadmin;
+    if (!superBypass && review.user_id !== userId) {
       throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu değerlendirmeyi silemezsiniz.' });
     }
     await this.reviewRepo.remove(review);
@@ -1198,12 +1247,13 @@ export class SchoolReviewsService implements OnModuleInit {
     return this.questionRepo.save(question);
   }
 
-  /** Soru sil – sadece kendi sorusu. */
-  async deleteQuestion(questionId: string, userId: string) {
+  /** Soru sil – sahibi veya süper yönetici. */
+  async deleteQuestion(questionId: string, userId: string, actorRole?: string) {
     await this.ensureModuleEnabled();
     const question = await this.questionRepo.findOne({ where: { id: questionId } });
     if (!question) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Soru bulunamadı.' });
-    if (question.user_id !== userId) {
+    const superBypass = actorRole === UserRole.superadmin;
+    if (!superBypass && question.user_id !== userId) {
       throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu soruyu silemezsiniz.' });
     }
     await this.questionRepo.remove(question);
@@ -1224,12 +1274,13 @@ export class SchoolReviewsService implements OnModuleInit {
     return this.answerRepo.save(answer);
   }
 
-  /** Cevap sil – sadece kendi cevabı. */
-  async deleteAnswer(answerId: string, userId: string) {
+  /** Cevap sil – sahibi veya süper yönetici. */
+  async deleteAnswer(answerId: string, userId: string, actorRole?: string) {
     await this.ensureModuleEnabled();
     const answer = await this.answerRepo.findOne({ where: { id: answerId } });
     if (!answer) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Cevap bulunamadı.' });
-    if (answer.user_id !== userId) {
+    const superBypass = actorRole === UserRole.superadmin;
+    if (!superBypass && answer.user_id !== userId) {
       throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu cevabı silemezsiniz.' });
     }
     await this.answerRepo.remove(answer);
@@ -1453,59 +1504,199 @@ export class SchoolReviewsService implements OnModuleInit {
     const offset = (page - 1) * limit;
     const entityType = dto.entity_type ?? null;
     const reason = dto.reason?.trim() || null;
+    const unreadOnly = dto.unread_only === true;
 
-    const rows = await this.reportRepo.query(
-      `
-      SELECT r.id, r.entity_type, r.entity_id::text AS entity_id, r.reason, r.comment, r.created_at, r.reporter_actor_key,
-        r.reporter_user_id::text AS reporter_user_id,
-        COALESCE(rev.school_id, sq.school_id, sq2.school_id)::text AS school_id,
-        sch.name AS school_name,
-        CASE
-          WHEN r.entity_type = 'review' THEN LEFT(COALESCE(rev.comment, ''), 320)
-          WHEN r.entity_type = 'question' THEN LEFT(COALESCE(sq.question, ''), 320)
-          WHEN r.entity_type = 'answer' THEN LEFT(COALESCE(ans.answer, ''), 320)
-          ELSE NULL
-        END AS content_preview
+    const filterSql = `
       FROM school_content_reports r
       LEFT JOIN school_reviews rev ON r.entity_type = 'review' AND r.entity_id = rev.id
       LEFT JOIN school_questions sq ON r.entity_type = 'question' AND r.entity_id = sq.id
       LEFT JOIN school_question_answers ans ON r.entity_type = 'answer' AND r.entity_id = ans.id
       LEFT JOIN school_questions sq2 ON ans.question_id = sq2.id
       LEFT JOIN schools sch ON sch.id = COALESCE(rev.school_id, sq.school_id, sq2.school_id)
+      LEFT JOIN users rep ON rep.id = r.reporter_user_id
+      LEFT JOIN users auth ON auth.id = COALESCE(rev.user_id, sq.user_id, ans.user_id)
       WHERE ($1::varchar IS NULL OR r.entity_type = $1)
         AND ($2::varchar IS NULL OR r.reason = $2)
-      ORDER BY r.created_at DESC
-      LIMIT $3 OFFSET $4
+        AND (NOT COALESCE($3::boolean, false) OR r.admin_seen_at IS NULL)
+    `;
+
+    const rows = await this.reportRepo.query(
+      `
+      SELECT r.id, r.entity_type, r.entity_id::text AS entity_id, r.reason, r.comment, r.created_at, r.reporter_actor_key,
+        r.reporter_user_id::text AS reporter_user_id,
+        r.admin_seen_at, r.admin_seen_by::text AS admin_seen_by,
+        rep.display_name AS reporter_display_name,
+        rep.email AS reporter_email,
+        COALESCE(rev.school_id, sq.school_id, sq2.school_id)::text AS school_id,
+        sch.name AS school_name,
+        (rev.id IS NOT NULL OR sq.id IS NOT NULL OR ans.id IS NOT NULL) AS content_exists,
+        COALESCE(rev.user_id, sq.user_id, ans.user_id)::text AS content_author_user_id,
+        auth.display_name AS content_author_display_name,
+        COALESCE(rev.is_anonymous, sq.is_anonymous, ans.is_anonymous, false) AS content_is_anonymous,
+        CASE
+          WHEN r.entity_type = 'review' THEN LEFT(COALESCE(rev.comment, ''), 320)
+          WHEN r.entity_type = 'question' THEN LEFT(COALESCE(sq.question, ''), 320)
+          WHEN r.entity_type = 'answer' THEN LEFT(COALESCE(ans.answer, ''), 320)
+          ELSE NULL
+        END AS content_preview
+      ${filterSql}
+      ORDER BY (r.admin_seen_at IS NULL) DESC, r.created_at DESC
+      LIMIT $4 OFFSET $5
       `,
-      [entityType, reason, limit, offset],
+      [entityType, reason, unreadOnly, limit, offset],
     );
 
-    const countRow = await this.reportRepo.query(
+    const countRow = await this.reportRepo.query(`SELECT COUNT(*)::int AS c ${filterSql}`, [
+      entityType,
+      reason,
+      unreadOnly,
+    ]);
+    const total = countRow[0]?.c ?? 0;
+
+    const unreadRow = await this.reportRepo.query(
       `
       SELECT COUNT(*)::int AS c
       FROM school_content_reports r
       WHERE ($1::varchar IS NULL OR r.entity_type = $1)
         AND ($2::varchar IS NULL OR r.reason = $2)
+        AND r.admin_seen_at IS NULL
       `,
       [entityType, reason],
     );
-    const total = countRow[0]?.c ?? 0;
+    const unread_total = unreadRow[0]?.c ?? 0;
 
-    const items = (rows as Record<string, unknown>[]).map((row) => ({
-      id: String(row.id),
-      entity_type: row.entity_type as string,
-      entity_id: String(row.entity_id),
-      reason: String(row.reason),
-      comment: row.comment ? String(row.comment) : null,
-      created_at:
-        row.created_at instanceof Date ? (row.created_at as Date).toISOString() : String(row.created_at),
-      reporter_kind: row.reporter_user_id ? ('registered' as const) : ('guest' as const),
-      school_id: row.school_id ? String(row.school_id) : null,
-      school_name: row.school_name ? String(row.school_name) : null,
-      content_preview: row.content_preview != null ? String(row.content_preview) : null,
-    }));
+    const items = (rows as Record<string, unknown>[]).map((row) => {
+      const contentExists = row.content_exists === true || row.content_exists === 't' || row.content_exists === 'true';
+      const anonRaw = row.content_is_anonymous;
+      const contentIsAnonymous =
+        anonRaw === true || anonRaw === 't' || anonRaw === 'true' || anonRaw === 1 || anonRaw === '1';
+      const seenAt = row.admin_seen_at;
+      return {
+        id: String(row.id),
+        entity_type: row.entity_type as string,
+        entity_id: String(row.entity_id),
+        reason: String(row.reason),
+        comment: row.comment ? String(row.comment) : null,
+        created_at:
+          row.created_at instanceof Date ? (row.created_at as Date).toISOString() : String(row.created_at),
+        reporter_actor_key: String(row.reporter_actor_key ?? ''),
+        reporter_user_id: row.reporter_user_id ? String(row.reporter_user_id) : null,
+        reporter_display_name: row.reporter_display_name ? String(row.reporter_display_name) : null,
+        reporter_email: row.reporter_email ? String(row.reporter_email) : null,
+        reporter_kind: row.reporter_user_id ? ('registered' as const) : ('guest' as const),
+        school_id: row.school_id ? String(row.school_id) : null,
+        school_name: row.school_name ? String(row.school_name) : null,
+        content_exists: contentExists,
+        content_author_user_id: row.content_author_user_id ? String(row.content_author_user_id) : null,
+        content_author_display_name: row.content_author_display_name ? String(row.content_author_display_name) : null,
+        content_is_anonymous: contentIsAnonymous,
+        content_preview: row.content_preview != null ? String(row.content_preview) : null,
+        admin_seen_at:
+          seenAt instanceof Date ? seenAt.toISOString() : seenAt != null ? String(seenAt) : null,
+        admin_seen_by: row.admin_seen_by ? String(row.admin_seen_by) : null,
+        is_read: !!(seenAt instanceof Date ? seenAt : seenAt != null && String(seenAt).length > 0),
+      };
+    });
 
-    return paginate(items, total, page, limit);
+    return { ...paginate(items, total, page, limit), unread_total };
+  }
+
+  async markContentReportSeen(reportId: string, moderatorUserId: string): Promise<{ ok: boolean }> {
+    const r = await this.reportRepo.findOne({ where: { id: reportId } });
+    if (!r) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Bildirim bulunamadı.' });
+    r.adminSeenAt = new Date();
+    r.adminSeenBy = moderatorUserId;
+    await this.reportRepo.save(r);
+    return { ok: true };
+  }
+
+  /** İçerik yazarına bir «ceza» (strike) ekler; ayarlara göre eşikte site yasağı uzatılır. */
+  async applySchoolReviewsStrike(dto: ApplySchoolReviewsStrikeDto) {
+    const target = await this.userRepo.findOne({ where: { id: dto.user_id } });
+    if (!target) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Kullanıcı bulunamadı.' });
+    if (target.role === UserRole.superadmin) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Süper yöneticiye ceza uygulanamaz.' });
+    }
+    const prevStrikes = Math.max(0, Math.round(Number(target.schoolReviewsStrikeCount ?? 0)));
+    target.schoolReviewsStrikeCount = prevStrikes + 1;
+    const cfg = await this.appConfig.getSchoolReviewsConfig();
+    const pr = cfg.penalty_rules;
+    let banned = false;
+    if (pr.enabled && target.schoolReviewsStrikeCount >= pr.strikes_until_ban) {
+      const now = Date.now();
+      const existingUntil = target.schoolReviewsSiteBanUntil?.getTime() ?? 0;
+      const start = Math.max(now, existingUntil);
+      target.schoolReviewsSiteBanUntil = new Date(start + pr.ban_duration_days * 86400000);
+      banned = true;
+      if (pr.reset_strikes_on_ban) {
+        target.schoolReviewsStrikeCount = 0;
+      }
+    }
+    await this.userRepo.save(target);
+    await this.notifySchoolReviewsPenalty(target, banned, pr);
+    return {
+      user_id: target.id,
+      school_reviews_strike_count: target.schoolReviewsStrikeCount,
+      school_reviews_site_ban_until: target.schoolReviewsSiteBanUntil?.toISOString() ?? null,
+      banned,
+    };
+  }
+
+  private async notifySchoolReviewsPenalty(
+    target: User,
+    banned: boolean,
+    pr: { enabled: boolean; strikes_until_ban: number; ban_duration_days: number; reset_strikes_on_ban: boolean },
+  ): Promise<void> {
+    const strikes = Math.max(0, Math.round(Number(target.schoolReviewsStrikeCount ?? 0)));
+    const until = target.schoolReviewsSiteBanUntil;
+    const untilTr = until ? until.toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    try {
+      if (banned && until) {
+        await this.notificationsService.createInboxEntry({
+          user_id: target.id,
+          event_type: 'school_reviews.penalty.site_ban',
+          entity_id: target.id,
+          target_screen: 'bildirimler',
+          title: 'Okul değerlendirmeleri — hesabınız süreli olarak kısıtlandı',
+          body:
+            `Okul değerlendirme modülünde içeriğinize ilişkin onaylı kullanıcı bildirimleri ve yönetici incelemesi sonucunda ceza eşiği doldu. ${pr.ban_duration_days} günlük kurala göre platform erişiminiz ${untilTr} tarihine kadar sınırlandı (profil ve oturum aç/kapa hariç çoğu özellik kullanılamaz). ` +
+            (pr.reset_strikes_on_ban
+              ? 'Ceza sayacınız bu yasakla birlikte sıfırlandı; süre sonunda kurallara uygun kullanımda sayaç yeniden işler. '
+              : '') +
+            'Nedeni: topluluk kurallarına aykırı veya tekrarlayan şekilde bildirilen içerikler. İtiraz veya açıklama için okul yönetiminiz veya destek kanalını kullanabilirsiniz.',
+          metadata: {
+            school_reviews_site_ban_until: until.toISOString(),
+            school_reviews_strike_count: strikes,
+            strikes_until_ban: pr.strikes_until_ban,
+            ban_duration_days: pr.ban_duration_days,
+          },
+        });
+        return;
+      }
+      const auto =
+        pr.enabled && pr.strikes_until_ban > 0
+          ? `Otomatik kural açıksa toplam ${pr.strikes_until_ban} cezada yaklaşık ${pr.ban_duration_days} gün süreyle site erişiminiz kısıtlanabilir. `
+          : 'Otomatik site yasağı yönetici ayarında kapalı olabilir; yine de içerik kurallarına uymanız gerekir. ';
+      await this.notificationsService.createInboxEntry({
+        user_id: target.id,
+        event_type: 'school_reviews.penalty.strike',
+        entity_id: target.id,
+        target_screen: 'bildirimler',
+        title: 'Okul değerlendirmeleri — hesabınıza ceza (strike) eklendi',
+        body:
+          `İçeriğinize ilişkin onaylı bir kullanıcı bildirimi üzerine yönetici hesabınıza 1 ceza (strike) işledi. Güncel ceza sayınız: ${strikes}. ` +
+          auto +
+          'Neden: okul değerlendirme topluluğu kuralları (uygunsuz dil, spam, yanıltıcı bilgi vb.) ihlali veya tekrarlayan bildirimler. Detaylar için Bildirimler sayfasındaki «Ceza» sekmesine bakabilirsiniz.',
+        metadata: {
+          school_reviews_strike_count: strikes,
+          strikes_until_ban: pr.strikes_until_ban,
+          ban_duration_days: pr.ban_duration_days,
+          penalty_auto_enabled: pr.enabled,
+        },
+      });
+    } catch {
+      /* bildirim hatası ceza işlemini engellemez */
+    }
   }
 
   async onModuleInit(): Promise<void> {

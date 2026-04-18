@@ -56,7 +56,7 @@ export default function SystemMessagesPage() {
       </div>
 
       <p className="px-0.5 text-[11px] leading-relaxed text-muted-foreground sm:text-sm">
-        Öğretmen Pro merkezi tarafından yalnızca okul yöneticilerine iletilen duyurular. Bakım, politika ve hatırlatmalar burada toplanır.
+        Uzaedu Öğretmen merkezi tarafından yalnızca okul yöneticilerine iletilen duyurular. Bakım, politika ve hatırlatmalar burada toplanır.
       </p>
 
       <div

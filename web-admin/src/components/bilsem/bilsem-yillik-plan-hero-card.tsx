@@ -19,18 +19,18 @@ export function BilsemYillikPlanHeroCard({ onOpenGuide, role, className }: Bilse
   return (
     <div
       className={cn(
-        'relative overflow-hidden rounded-xl border border-violet-400/35 bg-gradient-to-br from-violet-500/[0.08] via-background to-fuchsia-500/[0.06] p-3 shadow-sm ring-1 ring-violet-500/10 dark:border-violet-500/35 dark:from-violet-950/55 dark:to-fuchsia-950/25 dark:ring-violet-500/15 sm:rounded-2xl sm:p-5',
+        'relative overflow-hidden rounded-lg border border-violet-400/35 bg-gradient-to-br from-violet-500/[0.08] via-background to-fuchsia-500/[0.06] p-2.5 shadow-sm ring-1 ring-violet-500/10 dark:border-violet-500/35 dark:from-violet-950/55 dark:to-fuchsia-950/25 dark:ring-violet-500/15 sm:rounded-2xl sm:p-5',
         className,
       )}
     >
       <div
         aria-hidden
-        className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-fuchsia-400/15 blur-2xl dark:bg-fuchsia-500/20"
+        className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-fuchsia-400/12 blur-2xl dark:bg-fuchsia-500/15 sm:-right-8 sm:-top-8 sm:h-32 sm:w-32 sm:bg-fuchsia-400/15"
       />
-      <div className="relative flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-5">
+      <div className="relative flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-5">
         <div className="flex shrink-0 justify-center sm:justify-start">
           <svg
-            className="h-14 w-14 shrink-0 text-violet-600 drop-shadow-sm dark:text-violet-300 sm:h-[5.25rem] sm:w-[5.25rem]"
+            className="h-10 w-10 shrink-0 text-violet-600 drop-shadow-sm dark:text-violet-300 sm:h-[5.25rem] sm:w-[5.25rem]"
             viewBox="0 0 96 96"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
@@ -64,23 +64,26 @@ export function BilsemYillikPlanHeroCard({ onOpenGuide, role, className }: Bilse
             />
           </svg>
         </div>
-        <div className="min-w-0 flex-1 space-y-1 text-center sm:space-y-2 sm:text-left">
+        <div className="min-w-0 flex-1 space-y-0.5 text-center sm:space-y-2 sm:text-left">
           <div className="flex flex-col items-center gap-0.5 sm:items-start sm:gap-1">
-            <span className="inline-flex items-center rounded-full bg-violet-600/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-800 ring-1 ring-violet-500/20 dark:bg-violet-500/20 dark:text-violet-100 sm:px-2.5 sm:text-[10px]">
+            <span className="inline-flex items-center rounded-full bg-violet-600/15 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-violet-800 ring-1 ring-violet-500/20 dark:bg-violet-500/20 dark:text-violet-100 sm:px-2.5 sm:text-[10px]">
               Bilsem · Word yıllık plan
             </span>
-            <h2 className="text-sm font-semibold leading-tight text-foreground sm:text-lg">Hızlı akış</h2>
+            <h2 className="text-[13px] font-semibold leading-tight text-foreground sm:text-lg">Hızlı akış</h2>
           </div>
-          <p className="text-pretty text-xs leading-snug text-muted-foreground sm:text-sm sm:leading-relaxed">{blurb}</p>
+          <p className="text-pretty text-[11px] leading-snug text-muted-foreground max-sm:line-clamp-2 sm:text-sm sm:leading-relaxed sm:line-clamp-none">
+            {blurb}
+          </p>
         </div>
         <button
           type="button"
           onClick={onOpenGuide}
-          className="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-lg border border-violet-500/40 bg-background/95 px-3 py-2 text-xs font-semibold text-violet-900 shadow-sm transition-colors hover:bg-violet-500/10 dark:border-violet-400/35 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-950 sm:w-auto sm:gap-2 sm:self-center sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm"
+          className="inline-flex w-full shrink-0 items-center justify-center gap-1 rounded-md border border-violet-500/40 bg-background/95 px-2.5 py-1.5 text-[11px] font-semibold text-violet-900 shadow-sm transition-colors hover:bg-violet-500/10 dark:border-violet-400/35 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-950 sm:w-auto sm:gap-2 sm:self-center sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm"
           aria-label="Adım adım rehberi aç"
         >
-          <HelpCircle className="size-4 shrink-0" />
-          Rehberi aç
+          <HelpCircle className="size-3.5 shrink-0 sm:size-4" />
+          <span className="sm:inline">Rehber</span>
+          <span className="hidden sm:inline">i aç</span>
         </button>
       </div>
     </div>

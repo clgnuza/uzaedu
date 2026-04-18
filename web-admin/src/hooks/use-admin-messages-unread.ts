@@ -1,9 +1,26 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, shouldSkipOptionalApiCalls } from '@/lib/api';
 
 const ADMIN_MESSAGES_UPDATED = 'admin-messages-updated';
+
+const adminUnreadInflight = new Map<string, Promise<number>>();
+
+function sharedAdminUnreadCount(token: string): Promise<number> {
+  const key = token;
+  let p = adminUnreadInflight.get(key);
+  if (!p) {
+    p = apiFetch<{ count: number }>('/admin-messages/unread-count', { token })
+      .then((r) => r.count ?? 0)
+      .catch(() => 0)
+      .finally(() => {
+        adminUnreadInflight.delete(key);
+      });
+    adminUnreadInflight.set(key, p);
+  }
+  return p;
+}
 
 export function emitAdminMessagesUpdated() {
   if (typeof window !== 'undefined') {
@@ -22,9 +39,11 @@ export function useAdminMessagesUnread(token: string | null, role: string | null
       setCount(0);
       return;
     }
-    apiFetch<{ count: number }>('/admin-messages/unread-count', { token })
-      .then((r) => setCount(r.count ?? 0))
-      .catch(() => setCount(0));
+    if (shouldSkipOptionalApiCalls()) {
+      setCount(0);
+      return;
+    }
+    void sharedAdminUnreadCount(token).then(setCount);
   }, [token, role]);
 
   useEffect(() => {

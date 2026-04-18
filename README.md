@@ -1,4 +1,4 @@
-# Öğretmen Pro – Proje Dokümanları
+# Uzaedu Öğretmen – Proje Dokümanları
 
 Bu klasör, projeye başlamadan önce hataları azaltmak ve Cursor/Copilot ile tutarlı geliştirme yapmak için kullanılan referans dokümanlarını içerir.
 

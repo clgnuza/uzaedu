@@ -65,7 +65,7 @@ export function WebShellNavPanel() {
 
   const applyOgretmenProPreset = () => {
     setForm(defaultShell());
-    toast.message('Öğretmen Pro önerisi yüklendi', {
+    toast.message('Uzaedu Öğretmen önerisi yüklendi', {
       description: 'Kaydetmediğiniz sürece sunucuya yazılmaz.',
       duration: 3200,
     });
@@ -108,7 +108,7 @@ export function WebShellNavPanel() {
     <WebSettingsPanel
       icon={LayoutPanelLeft}
       title="Misafir web kabuğu"
-      description="Giriş yapmadan görülen Öğretmen Pro sayfalarında (haberler, hesaplamalar, ek ders, sınav görev ücretleri) üst link şeridi ve alt sekme çubuğu. Veri kamuya GET /content/web-extras → guest_public_web_shell_nav ile gider."
+      description="Giriş yapmadan görülen Uzaedu Öğretmen sayfalarında (haberler, hesaplamalar, ek ders, sınav görev ücretleri) üst link şeridi ve alt sekme çubuğu. Veri kamuya GET /content/web-extras → guest_public_web_shell_nav ile gider."
     >
       {loading ? (
         <div className="flex justify-center py-12">
@@ -123,7 +123,7 @@ export function WebShellNavPanel() {
               herkese açık tutulan sayfalarda gösterilir. Üst şerit başlıkta; alt çubuk ekranın altına sabittir (çoğunlukla
               mobilde kullanılır).
             </p>
-            <p className="mt-3 font-medium text-foreground">Desteklenen iç sayfalar (Öğretmen Pro)</p>
+            <p className="mt-3 font-medium text-foreground">Desteklenen iç sayfalar (Uzaedu Öğretmen)</p>
             <ul className="mt-1.5 list-inside list-disc space-y-0.5 font-mono text-xs">
               <li>/haberler · /haberler/yayin</li>
               <li>/hesaplamalar · /ek-ders-hesaplama</li>
@@ -138,7 +138,7 @@ export function WebShellNavPanel() {
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" variant="secondary" size="sm" className="gap-1.5" onClick={applyOgretmenProPreset}>
               <RotateCcw className="size-4" />
-              Öğretmen Pro önerisini yükle
+              Uzaedu Öğretmen önerisini yükle
             </Button>
             <span className="text-xs text-muted-foreground">Haberler + hesaplamalar + ek ders + sınav görev ücretleri</span>
           </div>

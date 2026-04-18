@@ -125,7 +125,6 @@ export class MeUserModuleSnapshotsService {
       case 'tv':
       case 'extra_lesson':
       case 'outcome':
-      case 'school_profile':
       case 'school_reviews':
         return {
           unavailable: true,

@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString } from 'class-validator';
 
 export class MebbisIlceQueryDto {
   @IsIn(['1', '2', '3'])
@@ -26,9 +26,15 @@ export class MebbisFetchDto {
   @IsString()
   il_kodu!: string;
 
-  /** MEBBİS ilçe listesinde görünen tam metin (örn. Çankaya) */
+  /** MEBBİS ilçe listesinde görünen tam metin (örn. Çankaya). `tum_il` true ise yok sayılır. */
+  @IsOptional()
   @IsString()
-  ilce_label!: string;
+  ilce_label?: string;
+
+  /** true: seçilen ildeki tüm ilçeler (il geneli). Uzun sürebilir; istemci onayı önerilir. */
+  @IsOptional()
+  @IsBoolean()
+  tum_il?: boolean;
 
   /** Kurum türü açılır listesinde kısmi eşleşme (opsiyonel) */
   @IsOptional()

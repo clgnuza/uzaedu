@@ -445,6 +445,20 @@ export class UsersService {
     if (dto.avatar_key !== undefined) {
       user.avatarKey = dto.avatar_key;
     }
+    if (dto.duty_reminder_enabled !== undefined || dto.duty_reminder_time_tr !== undefined) {
+      if (user.role !== UserRole.teacher && user.role !== UserRole.school_admin) {
+        throw new ForbiddenException({
+          code: 'FORBIDDEN',
+          message: 'Nöbet bildirim ayarı yalnızca öğretmen veya okul yöneticisi hesapları içindir.',
+        });
+      }
+    }
+    if (dto.duty_reminder_enabled !== undefined) {
+      user.dutyReminderEnabled = dto.duty_reminder_enabled;
+    }
+    if (dto.duty_reminder_time_tr !== undefined) {
+      user.dutyReminderTimeTr = dto.duty_reminder_time_tr.trim();
+    }
     const saved = await this.userRepo.save(user);
     if (dto.school_id !== undefined && user.role === UserRole.teacher) {
       const next = dto.school_id ? String(dto.school_id).trim() : null;

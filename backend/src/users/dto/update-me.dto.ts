@@ -106,4 +106,15 @@ export class UpdateMeDto {
   @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsIn([...AVATAR_KEYS], { message: 'Geçersiz profil görseli.' })
   avatar_key?: string | null;
+
+  /** Öğretmen / okul yöneticisi: nöbet günü hatırlatması */
+  @IsOptional()
+  @IsBoolean()
+  duty_reminder_enabled?: boolean;
+
+  /** TSİ HH:mm */
+  @IsOptional()
+  @IsString()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'Saat HH:mm (TSİ) formatında olmalıdır.' })
+  duty_reminder_time_tr?: string;
 }

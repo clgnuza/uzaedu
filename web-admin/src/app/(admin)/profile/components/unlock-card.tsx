@@ -11,7 +11,7 @@ export function UnlockCard() {
         <div className="flex flex-wrap md:flex-nowrap items-center gap-6 md:gap-10">
           <div className="flex flex-col gap-3">
             <h2 className="text-xl font-semibold text-foreground">
-              ÖğretmenPro ile
+              Uzaedu Öğretmen ile
               <br />
               daha verimli yönetim
             </h2>

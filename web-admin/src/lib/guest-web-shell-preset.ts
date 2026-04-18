@@ -1,6 +1,6 @@
 import type { GuestPublicWebShellNav } from '@/lib/web-extras-public';
 
-/** Backend `web-extras.defaults` ile aynı — Öğretmen Pro misafir sayfaları. */
+/** Backend `web-extras.defaults` ile aynı — Uzaedu Öğretmen misafir sayfaları. */
 export const OGRETMEN_PRO_GUEST_SHELL_NAV: GuestPublicWebShellNav = {
   top_bar_enabled: true,
   top_bar_items: [

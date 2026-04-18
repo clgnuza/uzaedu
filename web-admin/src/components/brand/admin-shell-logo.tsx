@@ -114,9 +114,9 @@ function BrandTitleLines() {
   return (
     <span className="flex min-w-0 flex-col gap-0.5 leading-tight">
       <span className="truncate text-[13px] font-semibold tracking-tight">
-        <span className="text-foreground">Öğretmen </span>
+        <span className="text-foreground">Uzaedu </span>
         <span className="bg-linear-to-r from-violet-500 via-fuchsia-500 to-cyan-500 bg-clip-text text-transparent dark:from-violet-400 dark:via-fuchsia-400 dark:to-cyan-400">
-          Pro
+          Öğretmen
         </span>
       </span>
       <span className="truncate text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
@@ -153,17 +153,17 @@ export function AdminShellLogoHeaderMobile({
 }) {
   const sub = subtitle ?? 'Panel';
   return (
-    <span className={cn('flex min-w-0 items-center gap-3', className)}>
+    <span className={cn('flex min-w-0 items-center gap-2 sm:gap-3', className)}>
       <BrandSeal size="sm" />
-      <span className="flex min-w-0 flex-col justify-center gap-1 leading-none">
-        <span className="truncate text-[0.9375rem] font-semibold tracking-tight">
-          <span className="text-foreground">Öğretmen </span>
+      <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 leading-none sm:gap-1">
+        <span className="w-full min-w-0 text-pretty text-[0.8125rem] font-semibold tracking-tight leading-snug sm:text-[0.9375rem] sm:leading-tight">
+          <span className="text-foreground">Uzaedu </span>
           <span className="bg-linear-to-r from-violet-500 via-fuchsia-500 to-cyan-500 bg-clip-text text-transparent drop-shadow-[0_0_12px_rgba(168,85,247,0.35)] dark:from-violet-400 dark:via-fuchsia-400 dark:to-cyan-400">
-            Pro
+            Öğretmen
           </span>
         </span>
         <span
-          className="max-w-full truncate rounded-full border border-primary/25 bg-primary/6 px-2 py-0.5 text-[11px] font-medium leading-none text-muted-foreground shadow-[0_0_14px_-6px_color-mix(in_srgb,var(--primary)_55%,transparent)] dark:border-primary/30 dark:bg-primary/10"
+          className="w-fit max-w-full self-start truncate rounded-full border border-primary/25 bg-primary/6 px-2 py-0.5 text-[11px] font-medium leading-none text-muted-foreground shadow-[0_0_14px_-6px_color-mix(in_srgb,var(--primary)_55%,transparent)] dark:border-primary/30 dark:bg-primary/10"
           title={sub}
         >
           {sub}

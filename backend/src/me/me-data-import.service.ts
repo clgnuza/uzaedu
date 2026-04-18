@@ -141,7 +141,7 @@ export class MeDataImportService {
         throw new ForbiddenException({
           code: 'BACKUP_USER_MISMATCH',
           message:
-            'Bu dosya tanınan bir ÖğretmenPro hesap yedeği değil veya hesap bilgisi oturumunuzla eşleşmiyor. Yalnızca kendi dışa aktardığınız JSON’u kullanın.',
+            'Bu dosya tanınan bir Uzaedu Öğretmen hesap yedeği değil veya hesap bilgisi oturumunuzla eşleşmiyor. Yalnızca kendi dışa aktardığınız JSON’u kullanın.',
         });
       }
     }

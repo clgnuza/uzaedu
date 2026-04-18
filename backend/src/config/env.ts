@@ -81,7 +81,7 @@ export const env = {
     port: parseInt(process.env.SMTP_PORT || '587', 10),
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
-    from: process.env.SMTP_FROM || 'noreply@ogretmenpro.com',
+    from: process.env.SMTP_FROM || 'noreply@uzaedu.com',
   },
   /** Yalnızca canlı sunucuda: süper admin şifre + betik ile git pull / restart */
   deploy: {
@@ -98,5 +98,14 @@ export const env = {
   },
   tickets: {
     autoCloseWaitingRequesterDays: parseInt(process.env.TICKETS_AUTO_CLOSE_WAITING_REQUESTER_DAYS || '7', 10),
+  },
+  /**
+   * Ortaöğretime geçiş yerleştirme göstergeleri: günlük cron ile JSON çekilir.
+   * Satırlar: kurum_kodu/institution_code veya okul_id; yıl; merkezî LGS: with_exam veya merkezi_lgs;
+   * yerel: without_exam veya yerel_taban (MEB: merkezî vs yerel yerleştirme).
+   */
+  schoolPlacementScores: {
+    feedUrl: process.env.SCHOOL_PLACEMENT_SCORES_FEED_URL?.trim(),
+    feedBearerToken: process.env.SCHOOL_PLACEMENT_SCORES_FEED_TOKEN?.trim(),
   },
 };

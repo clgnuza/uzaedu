@@ -99,7 +99,7 @@ export type WebPublicConfig = {
   social_youtube: string | null;
   privacy_policy_url: string | null;
   terms_url: string | null;
-  /** Yılın sağında: örn. "© Öğretmen Pro Web Admin" */
+  /** Yılın sağında: örn. "© Uzaedu Öğretmen Web Admin" */
   footer_copyright_suffix: string | null;
   /** Alt bilgi gezinme (en fazla 8). href: iç yol, https:// veya __consent__ */
   footer_nav_items: WebPublicFooterNavItem[];
@@ -123,7 +123,7 @@ const DEFAULT_WEB_PUBLIC: WebPublicConfig = {
   social_youtube: null,
   privacy_policy_url: null,
   terms_url: null,
-  footer_copyright_suffix: '© Öğretmen Pro Web Admin',
+  footer_copyright_suffix: '© Uzaedu Öğretmen Web Admin',
   footer_nav_items: [
     { label: 'Gizlilik', href: '/gizlilik' },
     { label: 'Kullanım Şartları', href: '/kullanim-sartlari' },
@@ -729,6 +729,13 @@ export type ExamDutySyncOptions = {
   notify_superadmin_on_sync_items: boolean;
   /** Sync + GPT ile yeni eklenen duyuruyu hemen yayınla (publish_now bildirimi gider) */
   auto_publish_gpt_sync_duties: boolean;
+  /**
+   * true: aynı kategoride sınav takvimi çakışması veya aynı son başvuru günü olan ikinci duyuru eklenmez.
+   * false: yalnızca kaynak URL / external_id ile tekrar engellenir (takvim dedup kapalı).
+   */
+  dedupe_exam_schedule: boolean;
+  /** Scrape: 0–14 = 1–15. slayt; her tam sync’te yalnızca bu slayt içerik kontrolüne alınır, sonra +1 (mod 15). */
+  scrape_slider_slot_index: number;
 };
 
 const DEFAULT_EXAM_DUTY_SYNC_SCHEDULE_TIMES = ['09:00', '13:00', '17:00', '21:00'];
@@ -756,6 +763,8 @@ const DEFAULT_EXAM_DUTY_SYNC_OPTIONS: ExamDutySyncOptions = {
   sync_schedule_times: [...DEFAULT_EXAM_DUTY_SYNC_SCHEDULE_TIMES],
   notify_superadmin_on_sync_items: true,
   auto_publish_gpt_sync_duties: false,
+  dedupe_exam_schedule: true,
+  scrape_slider_slot_index: 0,
 };
 
 const EXAM_DUTY_TIME_KEYS = ['application_start', 'application_end', 'application_approval_end', 'result_date', 'exam_date', 'exam_date_end'] as const;
@@ -933,6 +942,16 @@ export class AppConfigService {
       }
     }
     const content_rules = this.mergeSchoolReviewsContentRules(contentRulesParsed);
+    let penaltyRulesParsed: unknown;
+    const rawPr = await this.getValue('school_reviews_penalty_rules');
+    if (rawPr?.trim()) {
+      try {
+        penaltyRulesParsed = JSON.parse(rawPr) as unknown;
+      } catch {
+        penaltyRulesParsed = undefined;
+      }
+    }
+    const penalty_rules = this.mergeSchoolReviewsPenaltyRules(penaltyRulesParsed);
     return {
       enabled: enabled ?? false,
       rating_min: Number.isNaN(ratingMin) || ratingMin < 1 ? 1 : Math.min(ratingMin, 10),
@@ -941,7 +960,25 @@ export class AppConfigService {
       allow_questions: allowQuestions ?? true,
       questions_require_moderation: questionsRequireModeration,
       content_rules,
+      penalty_rules,
     };
+  }
+
+  private mergeSchoolReviewsPenaltyRules(raw: unknown, seed?: SchoolReviewsPenaltyRules): SchoolReviewsPenaltyRules {
+    const base: SchoolReviewsPenaltyRules = seed
+      ? { ...seed }
+      : { ...DEFAULT_SCHOOL_REVIEWS_PENALTY_RULES };
+    if (!raw || typeof raw !== 'object') return base;
+    const o = raw as Partial<SchoolReviewsPenaltyRules>;
+    if (typeof o.enabled === 'boolean') base.enabled = o.enabled;
+    if (typeof o.strikes_until_ban === 'number' && !Number.isNaN(o.strikes_until_ban)) {
+      base.strikes_until_ban = Math.max(1, Math.min(20, Math.round(o.strikes_until_ban)));
+    }
+    if (typeof o.ban_duration_days === 'number' && !Number.isNaN(o.ban_duration_days)) {
+      base.ban_duration_days = Math.max(1, Math.min(3650, Math.round(o.ban_duration_days)));
+    }
+    if (typeof o.reset_strikes_on_ban === 'boolean') base.reset_strikes_on_ban = o.reset_strikes_on_ban;
+    return base;
   }
 
   private cloneDefaultContentRules(): SchoolReviewsContentRules {
@@ -1038,7 +1075,7 @@ export class AppConfigService {
     };
   }
 
-  async updateSchoolReviewsConfig(dto: Partial<SchoolReviewsConfig>): Promise<void> {
+  async updateSchoolReviewsConfig(dto: SchoolReviewsConfigPatch): Promise<void> {
     const current = await this.getSchoolReviewsConfig();
     let nextMin = dto.rating_min !== undefined ? dto.rating_min : current.rating_min;
     let nextMax = dto.rating_max !== undefined ? dto.rating_max : current.rating_max;
@@ -1064,6 +1101,10 @@ export class AppConfigService {
     if (dto.content_rules !== undefined) {
       const merged = this.mergeSchoolReviewsContentRules(dto.content_rules, current.content_rules);
       await this.setValue('school_reviews_content_rules', JSON.stringify(merged));
+    }
+    if (dto.penalty_rules !== undefined) {
+      const merged = this.mergeSchoolReviewsPenaltyRules(dto.penalty_rules, current.penalty_rules);
+      await this.setValue('school_reviews_penalty_rules', JSON.stringify(merged));
     }
   }
 
@@ -1113,7 +1154,7 @@ export class AppConfigService {
     const siteUrl = await this.getValue('yayin_seo_site_url');
     const siteName = await this.getValue('yayin_seo_site_name');
     return {
-      title: title?.trim() || 'Haber Yayını – Öğretmen Pro',
+      title: title?.trim() || 'Haber Yayını – Uzaedu Öğretmen',
       description: description?.trim() || '',
       og_image: ogImage?.trim() || null,
       robots: robots?.trim() === 'index' ? 'index' : 'noindex',
@@ -1827,10 +1868,23 @@ export class AppConfigService {
         sync_schedule_times: normalizeExamDutySyncScheduleTimes(parsed.sync_schedule_times),
         notify_superadmin_on_sync_items: parsed.notify_superadmin_on_sync_items !== false,
         auto_publish_gpt_sync_duties: parsed.auto_publish_gpt_sync_duties === true,
+        dedupe_exam_schedule: parsed.dedupe_exam_schedule !== false,
+        scrape_slider_slot_index: Math.min(
+          14,
+          Math.max(0, Math.floor(Number(parsed.scrape_slider_slot_index)) || 0),
+        ),
       };
     } catch {
       return { ...DEFAULT_EXAM_DUTY_SYNC_OPTIONS };
     }
+  }
+
+  /** Tam scrape sync sonrası slayt sırasını 0..14 arasında bir artırır. */
+  async advanceExamDutyScrapeSliderSlot(): Promise<void> {
+    const cur = await this.getExamDutySyncOptions();
+    const nextIdx = ((cur.scrape_slider_slot_index ?? 0) + 1) % 15;
+    const next: ExamDutySyncOptions = { ...cur, scrape_slider_slot_index: nextIdx };
+    await this.setValue('exam_duty_sync_options', JSON.stringify(next));
   }
 
   /** Planlı sınav görevi RSS/scrape sync tetik saatleri (İstanbul HH:mm). */
@@ -1896,6 +1950,14 @@ export class AppConfigService {
           dto.sync_options.auto_publish_gpt_sync_duties !== undefined
             ? dto.sync_options.auto_publish_gpt_sync_duties === true
             : current.auto_publish_gpt_sync_duties,
+        dedupe_exam_schedule:
+          dto.sync_options.dedupe_exam_schedule !== undefined
+            ? dto.sync_options.dedupe_exam_schedule !== false
+            : current.dedupe_exam_schedule,
+        scrape_slider_slot_index:
+          dto.sync_options.scrape_slider_slot_index !== undefined
+            ? Math.min(14, Math.max(0, Math.floor(Number(dto.sync_options.scrape_slider_slot_index)) || 0))
+            : current.scrape_slider_slot_index,
       };
       await this.setValue('exam_duty_sync_options', JSON.stringify(next));
     }
@@ -1941,6 +2003,7 @@ export class AppConfigService {
     const enabled = (cfg.mail_enabled || '').toLowerCase() === 'true';
     const port = cfg.smtp_port ? parseInt(cfg.smtp_port, 10) : 587;
     const secure = (cfg.smtp_secure || '').toLowerCase() === 'true';
+    const notify = await this.getValue('contact_form_notify_email');
     return {
       mail_enabled: enabled,
       smtp_host: cfg.smtp_host ?? '',
@@ -1948,10 +2011,17 @@ export class AppConfigService {
       smtp_user: cfg.smtp_user ?? '',
       smtp_pass: cfg.smtp_pass ? '••••••••' : null,
       smtp_from: cfg.smtp_from ?? '',
-      smtp_from_name: cfg.smtp_from_name ?? 'Öğretmen Pro',
+      smtp_from_name: cfg.smtp_from_name ?? 'Uzaedu Öğretmen',
       smtp_secure: secure,
       mail_app_base_url: cfg.mail_app_base_url ?? null,
+      contact_form_notify_email: notify?.trim() || null,
     };
+  }
+
+  /** İletişim formu bildirim adresi (tek anahtar; MailService için) */
+  async getContactFormNotifyEmailSetting(): Promise<string | null> {
+    const v = await this.getValue('contact_form_notify_email');
+    return v?.trim() || null;
   }
 
   /** Mail ayarlarını güncelle – superadmin tarafından */
@@ -1973,6 +2043,12 @@ export class AppConfigService {
     if (dto.smtp_from_name !== undefined) await this.setValue('smtp_from_name', (typeof dto.smtp_from_name === 'string' ? dto.smtp_from_name : '').trim() || null);
     if (dto.smtp_secure !== undefined) await this.setValue('smtp_secure', dto.smtp_secure ? 'true' : 'false');
     if (dto.mail_app_base_url !== undefined) await this.setValue('mail_app_base_url', (typeof dto.mail_app_base_url === 'string' ? dto.mail_app_base_url : '').trim() || null);
+    if (dto.contact_form_notify_email !== undefined) {
+      await this.setValue(
+        'contact_form_notify_email',
+        (typeof dto.contact_form_notify_email === 'string' ? dto.contact_form_notify_email : '').trim() || null,
+      );
+    }
   }
 
   /** Mail SMTP bağlantısını test et */
@@ -2016,7 +2092,7 @@ export class AppConfigService {
       smtp_user: cfg.smtp_user ?? '',
       smtp_pass: cfg.smtp_pass ?? '',
       smtp_from: cfg.smtp_from ?? cfg.smtp_user ?? '',
-      smtp_from_name: cfg.smtp_from_name ?? 'Öğretmen Pro',
+      smtp_from_name: cfg.smtp_from_name ?? 'Uzaedu Öğretmen',
       smtp_secure: secure,
       mail_app_base_url: cfg.mail_app_base_url ?? null,
     };
@@ -2132,6 +2208,10 @@ export class AppConfigService {
         dto.teacher_invite_jeton !== undefined
           ? { ...current.teacher_invite_jeton, ...dto.teacher_invite_jeton }
           : current.teacher_invite_jeton,
+      entitlement_exchange:
+        dto.entitlement_exchange !== undefined
+          ? { ...current.entitlement_exchange, ...dto.entitlement_exchange }
+          : current.entitlement_exchange,
     };
     const next = mergeMarketPolicyFromStored(merged);
     await this.setValue(this.marketPolicyConfigKey, JSON.stringify(next));
@@ -2167,12 +2247,12 @@ export class AppConfigService {
 
   async getWelcomeModuleConfig(): Promise<WelcomeModuleConfig> {
     const raw = await this.getValue(this.welcomeModuleConfigKey);
-    if (!raw?.trim()) return { ...DEFAULT_WELCOME_MODULE, by_day: {} };
+    if (!raw?.trim()) return this.mergeWelcomeModuleFromStored(null);
     try {
       const parsed = JSON.parse(raw) as Partial<WelcomeModuleConfig>;
       return this.mergeWelcomeModuleFromStored(parsed);
     } catch {
-      return { ...DEFAULT_WELCOME_MODULE, by_day: {} };
+      return this.mergeWelcomeModuleFromStored(null);
     }
   }
 
@@ -2616,6 +2696,22 @@ export const DEFAULT_SCHOOL_REVIEWS_CONTENT_RULES: SchoolReviewsContentRules = {
   blocked_terms: [...DEFAULT_SCHOOL_REVIEWS_BLOCKED_TERMS],
 };
 
+/** Onaylı raporlara göre içerik yazarına otomatik site yasağı (süper yönetici «ceza» ile strike ekler) */
+export type SchoolReviewsPenaltyRules = {
+  enabled: boolean;
+  strikes_until_ban: number;
+  ban_duration_days: number;
+  /** Eşik aşıldığında strike sayacını sıfırla */
+  reset_strikes_on_ban: boolean;
+};
+
+export const DEFAULT_SCHOOL_REVIEWS_PENALTY_RULES: SchoolReviewsPenaltyRules = {
+  enabled: true,
+  strikes_until_ban: 3,
+  ban_duration_days: 30,
+  reset_strikes_on_ban: true,
+};
+
 export type SchoolReviewsConfig = {
   enabled: boolean;
   rating_min: number;
@@ -2625,6 +2721,13 @@ export type SchoolReviewsConfig = {
   questions_require_moderation: boolean;
   /** Bildirim diyaloğu metinleri, görünürlük ve günlük bildirim limiti */
   content_rules: SchoolReviewsContentRules;
+  penalty_rules: SchoolReviewsPenaltyRules;
+};
+
+/** PATCH gövdesi: iç içe nesneler kısmi olabilir */
+export type SchoolReviewsConfigPatch = Partial<Omit<SchoolReviewsConfig, 'penalty_rules' | 'content_rules'>> & {
+  content_rules?: SchoolReviewsContentRules;
+  penalty_rules?: Partial<SchoolReviewsPenaltyRules>;
 };
 
 /** Ders saati config: { subject_code: { grade: saat } } – örn. { turkce: { 1: 10, 2: 10 }, matematik: { 1: 5 } } */
@@ -2680,6 +2783,8 @@ export type MailConfigForAdmin = {
   smtp_from_name: string;
   smtp_secure: boolean;
   mail_app_base_url: string | null;
+  /** İletişim formu bildirimi (SMTP ile); boşsa sunucu varsayılanı */
+  contact_form_notify_email: string | null;
 };
 
 /** Mail göndermek için tam config (server-side) */

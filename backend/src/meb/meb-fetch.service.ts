@@ -405,7 +405,7 @@ export class MebFetchService {
       });
     }
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'OgretmenPro/1.0 (MEB müfredat senkronizasyonu)' },
+      headers: { 'User-Agent': 'UzaeduOgretmen/1.0 (MEB müfredat senkronizasyonu)' },
       signal: AbortSignal.timeout(90000),
     });
     if (!res.ok) {

@@ -33,6 +33,12 @@ const PUBLIC_INSTITUTION_TYPE_PATTERNS: Array<{ label: string; pattern: RegExp }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/** MEB okul dizini: büyük illerde tablo çizimi ve HTTP istekleri uzun sürebilir */
+const MEB_NAV_TIMEOUT_MS = 180_000;
+const MEB_PLAYWRIGHT_DEFAULT_MS = 600_000;
+const MEB_DATATABLE_READY_MS = 420_000;
+const MEB_DETAIL_FETCH_MS = 55_000;
+
 @Injectable()
 export class MebbisKurumlistesiService {
   private async loadPlaywright(): Promise<typeof import('playwright')> {
@@ -62,16 +68,9 @@ export class MebbisKurumlistesiService {
     });
     try {
       const page = await browser.newPage();
-      page.setDefaultTimeout(120000);
-      await page.goto(PUBLIC_MEB_SCHOOLS_URL, { waitUntil: 'domcontentloaded' });
-      await page.selectOption('#ILADI', dto.il_kodu);
-      await sleep(3000);
-      await page.evaluate(() => {
-        const dt = (window as typeof window & { jQuery?: any }).jQuery?.('#icerik-listesi')?.DataTable?.();
-        const total = dt?.page?.info?.()?.recordsDisplay ?? 5000;
-        dt?.page?.len?.(Math.max(100, total))?.draw?.();
-      });
-      await sleep(3500);
+      page.setDefaultTimeout(MEB_PLAYWRIGHT_DEFAULT_MS);
+      page.setDefaultNavigationTimeout(MEB_NAV_TIMEOUT_MS);
+      await this.preparePublicListPage(page, dto.il_kodu);
       const labels = await page.evaluate(() => {
         const rows = Array.from(document.querySelectorAll('#icerik-listesi tbody tr'));
         return rows
@@ -100,7 +99,8 @@ export class MebbisKurumlistesiService {
     });
     try {
       const page = await browser.newPage();
-      page.setDefaultTimeout(120000);
+      page.setDefaultTimeout(MEB_PLAYWRIGHT_DEFAULT_MS);
+      page.setDefaultNavigationTimeout(MEB_NAV_TIMEOUT_MS);
       await this.preparePublicListPage(page, dto.il_kodu);
       const rawRows = await this.readPublicRows(page);
       const items = [...new Set(
@@ -123,10 +123,18 @@ export class MebbisKurumlistesiService {
 
   async fetchSchools(dto: MebbisFetchDto): Promise<{
     schools: ReconcileSourceSchoolDto[];
-    meta: { row_count: number; sheet: string };
+    meta: { row_count: number; sheet: string; tum_il: boolean };
   }> {
     const il = MEBBIS_IL_OPTIONS.find((x) => x.value === dto.il_kodu);
     if (!il) throw new BadRequestException({ code: 'INVALID_IL', message: 'Geçersiz il kodu.' });
+    const tumIl = dto.tum_il === true;
+    const ilceTrim = (dto.ilce_label ?? '').trim();
+    if (!tumIl && !ilceTrim) {
+      throw new BadRequestException({
+        code: 'ILCE_OR_TUM_IL',
+        message: 'İlçe seçin veya il geneli için tum_il: true gönderin.',
+      });
+    }
 
     const pw = await this.loadPlaywright();
     const browser = await pw.chromium.launch({
@@ -135,7 +143,8 @@ export class MebbisKurumlistesiService {
     });
     try {
       const page = await browser.newPage();
-      page.setDefaultTimeout(120000);
+      page.setDefaultTimeout(MEB_PLAYWRIGHT_DEFAULT_MS);
+      page.setDefaultNavigationTimeout(MEB_NAV_TIMEOUT_MS);
       await this.preparePublicListPage(page, dto.il_kodu);
       const rawRows = await this.readPublicRows(page);
 
@@ -144,7 +153,7 @@ export class MebbisKurumlistesiService {
         const parsed = this.parsePublicRowTitle(row.title);
         if (!parsed) continue;
         if (this.normalizeText(parsed.city) !== this.normalizeText(il.label)) continue;
-        if (this.normalizeText(parsed.district) !== this.normalizeText(dto.ilce_label)) continue;
+        if (!tumIl && this.normalizeText(parsed.district) !== this.normalizeText(ilceTrim)) continue;
         if (dto.kurum_turu_contains?.trim() && !this.matchesTypeFilter(parsed.name, dto.kurum_turu_contains)) continue;
 
         const institutionCode = this.extractInstitutionCode(row.about_url, row.website_url, row.map_url);
@@ -170,7 +179,7 @@ export class MebbisKurumlistesiService {
       }
       return {
         schools,
-        meta: { row_count: schools.length, sheet: 'meb-public-okullar' },
+        meta: { row_count: schools.length, sheet: 'meb-public-okullar', tum_il: tumIl },
       };
     } finally {
       await browser.close();
@@ -251,16 +260,58 @@ export class MebbisKurumlistesiService {
     return this.normalizeText(name).includes(filter);
   }
 
+  /** DataTables tüm satırları çizene kadar bekle (uzun illerde kısa sleep yetersiz kalıyordu). */
+  private async waitForPublicDataTableRowsReady(page: import('playwright').Page, timeoutMs: number): Promise<void> {
+    try {
+      await page.waitForFunction(
+        () => {
+          const jq = (window as unknown as { jQuery?: (sel: string) => any }).jQuery;
+          if (!jq) return false;
+          const $t = jq('#icerik-listesi');
+          if (!$t.length) return false;
+          const wrap = $t.closest('.dataTables_wrapper');
+          if (wrap.find('.dataTables_processing:visible').length) return false;
+          const dt = $t.DataTable?.();
+          if (!dt) return false;
+          const info = dt.page.info();
+          const target = Math.max(info.recordsTotal ?? 0, info.recordsDisplay ?? 0);
+          const rows = document.querySelectorAll('#icerik-listesi tbody tr').length;
+          if (target <= 0) return rows >= 1;
+          return rows >= target;
+        },
+        { timeout: timeoutMs, polling: 500 },
+      );
+    } catch {
+      await sleep(12_000);
+    }
+  }
+
   private async preparePublicListPage(page: import('playwright').Page, ilKodu: string) {
-    await page.goto(PUBLIC_MEB_SCHOOLS_URL, { waitUntil: 'domcontentloaded' });
-    await page.selectOption('#ILADI', ilKodu);
-    await sleep(3000);
-    await page.evaluate(() => {
-      const dt = (window as typeof window & { jQuery?: any }).jQuery?.('#icerik-listesi')?.DataTable?.();
-      const total = dt?.page?.info?.()?.recordsDisplay ?? 5000;
-      dt?.page?.len?.(Math.max(100, total))?.draw?.();
+    await page.goto(PUBLIC_MEB_SCHOOLS_URL, {
+      waitUntil: 'domcontentloaded',
+      timeout: MEB_NAV_TIMEOUT_MS,
     });
-    await sleep(3500);
+    await page.selectOption('#ILADI', ilKodu);
+    await sleep(2800);
+    await page.evaluate(() => {
+      const jq = (window as typeof window & { jQuery?: CallableFunction }).jQuery as any;
+      const dt = jq?.('#icerik-listesi')?.DataTable?.();
+      if (!dt) return;
+      const info = dt.page.info();
+      const total = Math.max(info.recordsTotal ?? 0, info.recordsDisplay ?? 0, 100);
+      const want = Math.min(Math.max(total, 100), 25_000);
+      try {
+        dt.page.len(want).draw(false);
+      } catch {
+        try {
+          dt.page.len(-1).draw(false);
+        } catch {
+          dt.page.len(10_000).draw(false);
+        }
+      }
+    });
+    await this.waitForPublicDataTableRowsReady(page, MEB_DATATABLE_READY_MS);
+    await sleep(600);
   }
 
   private async readPublicRows(page: import('playwright').Page): Promise<
@@ -420,6 +471,19 @@ export class MebbisKurumlistesiService {
     return data;
   }
 
+  private async fetchTextWithTimeout(url: string, headers: Record<string, string>, ms: number): Promise<string> {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), ms);
+    try {
+      const res = await fetch(url, { headers, signal: ac.signal });
+      return res.ok ? await res.text() : '';
+    } catch {
+      return '';
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
   private async fetchSchoolDetail(
     aboutUrl: string | null,
     websiteUrl: string | null,
@@ -442,15 +506,9 @@ export class MebbisKurumlistesiService {
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131 Safari/537.36',
       };
       const [aboutHtml, contactHtml] = await Promise.all([
-        aboutTargetUrl
-          ? fetch(aboutTargetUrl, { headers })
-              .then((res) => (res.ok ? res.text() : ''))
-              .catch(() => '')
-          : Promise.resolve(''),
+        aboutTargetUrl ? this.fetchTextWithTimeout(aboutTargetUrl, headers, MEB_DETAIL_FETCH_MS) : Promise.resolve(''),
         contactTargetUrl
-          ? fetch(contactTargetUrl, { headers })
-              .then((res) => (res.ok ? res.text() : ''))
-              .catch(() => '')
+          ? this.fetchTextWithTimeout(contactTargetUrl, headers, MEB_DETAIL_FETCH_MS)
           : Promise.resolve(''),
       ]);
       const $about = cheerio.load(aboutHtml || '<html></html>');

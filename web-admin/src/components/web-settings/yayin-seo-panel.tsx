@@ -26,7 +26,7 @@ export function YayinSeoPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<YayinSeoConfig>({
-    title: 'Haber Yayını – Öğretmen Pro',
+    title: 'Haber Yayını – Uzaedu Öğretmen',
     description: '',
     og_image: null,
     robots: 'noindex',
@@ -41,7 +41,7 @@ export function YayinSeoPanel() {
     try {
       const data = await apiFetch<YayinSeoConfig>('/app-config/yayin-seo', { token });
       setForm({
-        title: data?.title ?? 'Haber Yayını – Öğretmen Pro',
+        title: data?.title ?? 'Haber Yayını – Uzaedu Öğretmen',
         description: data?.description ?? '',
         og_image: data?.og_image ?? null,
         robots: data?.robots === 'index' ? 'index' : 'noindex',
@@ -107,7 +107,7 @@ export function YayinSeoPanel() {
                   className={WEB_SETTINGS_INPUT}
                   value={form.site_name ?? ''}
                   onChange={(e) => setForm((f) => ({ ...f, site_name: e.target.value.trim() || null }))}
-                  placeholder="Öğretmen Pro"
+                  placeholder="Uzaedu Öğretmen"
                 />
               </WebSettingsField>
             </div>

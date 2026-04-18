@@ -26,6 +26,7 @@ import {
   GraduationCap,
   Home,
   MessageSquare,
+  Gavel,
   type LucideIcon,
 } from 'lucide-react';
 import { ToolbarIconHints, type ToolbarHintItem } from '@/components/layout/toolbar-icon-hints';
@@ -86,6 +87,7 @@ const EVENT_LABELS: Record<string, string> = {
   'exam_duty.exam_day_morning': 'Sınav günü sabah hatırlatması',
   'exam_duty.sync_source_error': 'Sınav görevi sync (kaynak hatası)',
   'exam_duty.sync_items_processed': 'Sınav görevi sync (işlenen duyurular)',
+  'exam_duty.sync_auto_published': 'Sınav görevi otomatik yayın (sync)',
   'support.ticket.created': 'Yeni destek talebi',
   'support.ticket.replied': 'Talebinize yanıt verildi',
   'support.ticket.assigned': 'Size destek talebi atandı',
@@ -98,6 +100,8 @@ const EVENT_LABELS: Record<string, string> = {
   'sorumluluk_exam.proctor_assigned': 'Sorumluluk sınav görevi',
   'admin_message.sent': 'Sistem mesajı',
   'messaging.campaign_completed': 'Mesaj merkezi',
+  'school_reviews.penalty.strike': 'Okul değerlendirme — ceza',
+  'school_reviews.penalty.site_ban': 'Okul değerlendirme — erişim kısıtı',
 };
 
 const SWAP_EVENT_TYPES = ['duty.swap_requested', 'duty.swap_approved', 'duty.swap_rejected', 'duty.swap_teacher2_approved'];
@@ -182,6 +186,9 @@ function formatDate(s: string) {
 }
 
 function getNotificationLink(item: NotificationItem): string {
+  if (isSchoolReviewsPenaltyNotification(item.event_type)) {
+    return '/bildirimler?filter=penalty';
+  }
   if (item.event_type?.startsWith('messaging.')) {
     return '/mesaj-merkezi';
   }
@@ -195,6 +202,9 @@ function getNotificationLink(item: NotificationItem): string {
   }
   if (item.event_type?.startsWith('market.') || item.target_screen === 'market') {
     return '/market';
+  }
+  if (item.event_type?.startsWith('exam_duty.sync') || item.target_screen === '/sinav-gorevleri') {
+    return '/sinav-gorevleri';
   }
   if (item.target_screen === 'sinav-gorevi' || EXAM_DUTY_EVENT_TYPES.includes(item.event_type)) {
     return '/sinav-gorevlerim';
@@ -288,6 +298,10 @@ function isMessageCenterGroupNotification(eventType: string): boolean {
   );
 }
 
+function isSchoolReviewsPenaltyNotification(eventType: string): boolean {
+  return eventType?.startsWith('school_reviews.penalty.');
+}
+
 function isAnnouncementNotification(eventType: string): boolean {
   return eventType === 'announcement.created' || eventType?.startsWith('announcement.');
 }
@@ -331,6 +345,9 @@ function getNotificationRowAccentClass(item: NotificationItem): string | null {
   }
   if (isMessageCenterGroupNotification(item.event_type)) {
     return 'border-l-[3px] border-l-emerald-500 bg-emerald-50/40 dark:border-l-emerald-400 dark:bg-emerald-950/20';
+  }
+  if (isSchoolReviewsPenaltyNotification(item.event_type)) {
+    return 'border-l-[3px] border-l-rose-600 bg-rose-50/50 dark:border-l-rose-500 dark:bg-rose-950/30';
   }
   return null;
 }
@@ -435,6 +452,13 @@ function getNotificationIcon(item: NotificationItem): { icon: React.ReactNode; b
         'bg-linear-to-br from-emerald-400/45 to-green-600/35 text-emerald-950 ring-2 ring-emerald-400/50 shadow-sm dark:from-emerald-600/45 dark:to-green-800/40 dark:text-emerald-50 dark:ring-emerald-400/40',
     };
   }
+  if (isSchoolReviewsPenaltyNotification(item.event_type)) {
+    return {
+      icon: <Gavel className={iconSm} strokeWidth={2} />,
+      bgClass:
+        'bg-linear-to-br from-rose-500/50 to-red-700/40 text-white ring-2 ring-rose-400/55 shadow-sm dark:from-rose-700/55 dark:to-red-900/45 dark:ring-rose-400/45',
+    };
+  }
   return {
     icon: <Megaphone className={iconSm} strokeWidth={2} />,
     bgClass:
@@ -485,6 +509,9 @@ function getChipClass(item: NotificationItem): string {
   if (item.event_type?.startsWith('messaging.')) {
     return 'border border-emerald-300/50 bg-emerald-200/85 font-medium text-emerald-950 dark:border-emerald-500/35 dark:bg-emerald-900/45 dark:text-emerald-100';
   }
+  if (isSchoolReviewsPenaltyNotification(item.event_type)) {
+    return 'border border-rose-400/55 bg-rose-200/90 font-semibold text-rose-950 dark:border-rose-500/40 dark:bg-rose-950/55 dark:text-rose-50';
+  }
   return 'border border-slate-300/50 bg-slate-200/80 font-medium text-slate-800 dark:border-slate-500/35 dark:bg-slate-800/60 dark:text-slate-200';
 }
 
@@ -513,6 +540,7 @@ type FilterTab =
   | 'exam_duty'
   | 'exam_school'
   | 'messaging'
+  | 'penalty'
   | 'market';
 
 const FILTER_TABS = [
@@ -528,6 +556,7 @@ const FILTER_TABS = [
   'exam_duty',
   'exam_school',
   'messaging',
+  'penalty',
   'market',
 ] as const;
 
@@ -607,6 +636,12 @@ const TAB_PASTEL: Record<
     idle:
       'bg-emerald-100/95 text-emerald-950 ring-1 ring-emerald-300/70 hover:bg-emerald-200/90 dark:bg-emerald-950/55 dark:text-emerald-100 dark:ring-emerald-500/35 dark:hover:bg-emerald-900/75',
   },
+  penalty: {
+    active:
+      'bg-linear-to-br from-rose-600 to-red-800 text-white shadow-md ring-2 ring-rose-400/50 dark:ring-rose-400/40',
+    idle:
+      'bg-rose-100/95 text-rose-950 ring-1 ring-rose-300/70 hover:bg-rose-200/90 dark:bg-rose-950/55 dark:text-rose-100 dark:ring-rose-500/35 dark:hover:bg-rose-900/75',
+  },
   market: {
     active:
       'bg-linear-to-br from-lime-500 to-green-600 text-white shadow-md ring-2 ring-lime-400/50 dark:ring-lime-400/40',
@@ -618,7 +653,7 @@ const TAB_PASTEL: Record<
 function getEmptyStateDescription(filter: FilterTab): string {
   switch (filter) {
     case 'all':
-      return 'Nöbet, Belirli Gün, ajanda, ders programı, Akıllı Tahta, market cüzdanı veya duyuru geldiğinde burada göreceksiniz.';
+      return 'Nöbet, Belirli Gün, ajanda, ders programı, Akıllı Tahta, okul değerlendirme cezaları, market cüzdanı veya duyuru geldiğinde burada göreceksiniz.';
     case 'duty':
       return 'Henüz nöbet bildiriminiz yok.';
     case 'belirli':
@@ -641,6 +676,8 @@ function getEmptyStateDescription(filter: FilterTab): string {
       return 'Henüz Kertenkele sınavı veya sorumluluk sınavı bildiriminiz yok.';
     case 'messaging':
       return 'Henüz Mesaj merkezi bildiriminiz yok (WhatsApp kampanyası tamamlanınca veya merkez sistem mesajı gelince burada görünür).';
+    case 'penalty':
+      return 'Henüz okul değerlendirme cezası veya erişim kısıtı bildiriminiz yok.';
     case 'market':
       return 'Henüz market / cüzdan bildiriminiz yok.';
     default:
@@ -675,6 +712,7 @@ export default function BildirimlerPage() {
     urlFilter === 'exam_duty' ||
     urlFilter === 'exam_school' ||
     urlFilter === 'messaging' ||
+    urlFilter === 'penalty' ||
     urlFilter === 'market'
       ? urlFilter
       : 'all';
@@ -726,6 +764,7 @@ export default function BildirimlerPage() {
       const q = new URLSearchParams({ page: '1', limit: String(limit) });
       if (filter === 'exam_school') q.set('event_group', 'exam_school_modules');
       else if (filter === 'messaging') q.set('event_group', 'message_center_modules');
+      else if (filter === 'penalty') q.set('event_group', 'school_reviews_penalty');
       else if (eventTypeParam) q.set('event_type', eventTypeParam);
       const res = await apiFetch<PaginatedResponse>(`/notifications?${q}`, { token });
       setItems(res?.items ?? []);
@@ -749,6 +788,7 @@ export default function BildirimlerPage() {
       const q = new URLSearchParams({ page: String(nextPage), limit: String(limit) });
       if (filter === 'exam_school') q.set('event_group', 'exam_school_modules');
       else if (filter === 'messaging') q.set('event_group', 'message_center_modules');
+      else if (filter === 'penalty') q.set('event_group', 'school_reviews_penalty');
       else if (eventTypeParam) q.set('event_type', eventTypeParam);
       apiFetch<PaginatedResponse>(`/notifications?${q}`, { token })
         .then((res) => {
@@ -1012,6 +1052,12 @@ export default function BildirimlerPage() {
               <>
                 <MessageSquare className="size-3.5 shrink-0" />
                 Mesaj merkezi
+              </>
+            )}
+            {tab === 'penalty' && (
+              <>
+                <Gavel className="size-3.5 shrink-0" />
+                Ceza
               </>
             )}
             {tab === 'market' && (

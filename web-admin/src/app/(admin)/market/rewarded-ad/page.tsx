@@ -209,7 +209,7 @@ export default function MarketRewardedAdPage() {
                     <p className="mt-2">Ödül, reklamı tamamladığınızda sunucuya bildirilir ve jeton eklenir.</p>
                   </InfoHintDialog>
                 </div>
-                <p className="text-[10px] text-muted-foreground sm:text-xs">Öğretmen Pro iOS veya Android</p>
+                <p className="text-[10px] text-muted-foreground sm:text-xs">Uzaedu Öğretmen iOS veya Android</p>
               </CardHeader>
               <CardContent className="space-y-2 px-3 pb-3 pt-3 text-xs text-muted-foreground sm:space-y-3 sm:px-6 sm:pb-6 sm:pt-4 sm:text-sm">
                 <ol className="list-decimal space-y-1 pl-4 text-foreground/90 sm:space-y-2 sm:pl-5">
@@ -233,7 +233,7 @@ export default function MarketRewardedAdPage() {
                     </Button>
                   ) : null}
                   {!storeIos && !storeAndroid ? (
-                    <p className="text-xs">Mağaza bağlantıları ayarlı değil; uygulama mağazasından «Öğretmen Pro» arayın.</p>
+                    <p className="text-xs">Mağaza bağlantıları ayarlı değil; uygulama mağazasından «Uzaedu Öğretmen» arayın.</p>
                   ) : null}
                 </div>
               </CardContent>

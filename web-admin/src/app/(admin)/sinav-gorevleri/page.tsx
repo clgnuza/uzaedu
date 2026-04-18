@@ -23,6 +23,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
+import { applyExamDutyWallClockInTurkey } from '@/lib/exam-duty-turkey-time';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -77,6 +78,50 @@ const EXAM_DUTY_CATEGORIES = [
   { value: 'ataaof', label: 'ATA-AÖF' },
   { value: 'auzef', label: 'AUZEF' },
 ] as const;
+
+const HHMM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
+
+function padHHmm(s: string): string {
+  const m = s.trim().match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+  if (!m) return s;
+  return `${m[1]!.padStart(2, '0')}:${m[2]}`;
+}
+
+const DEFAULT_EXAM_DUTY_SYNC_SCHEDULE_TIMES = ['09:00', '13:00', '17:00', '21:00'] as const;
+
+const EXAM_DUTY_CARD_PRESET_TIMES: Record<string, string> = {
+  application_start: '00:00',
+  application_end: '23:59',
+  application_approval_end: '11:00',
+  result_date: '10:00',
+  exam_date: '06:00',
+  exam_date_end: '05:00',
+};
+
+const EXAM_DUTY_CARD_DEFAULT_TIME_FIELDS = [
+  { key: 'application_start', label: 'Başvuru Açılış' },
+  { key: 'application_end', label: 'Son Başvuru' },
+  { key: 'application_approval_end', label: 'Başvuru Onay' },
+  { key: 'result_date', label: 'Sonuç / Sınav öncesi (duvar saati)' },
+  { key: 'exam_date', label: 'Sınav Tarihi' },
+  { key: 'exam_date_end', label: 'Sınav sonrası (duvar saati)' },
+] as const;
+
+type ExamDutyNotifKey = 'deadline' | 'approval_day' | 'exam_minus_1d' | 'exam_plus_1d';
+
+const DEFAULT_EXAM_DUTY_NOTIFICATION_TIMES: Record<ExamDutyNotifKey, string> = {
+  deadline: '09:00',
+  approval_day: '09:00',
+  exam_minus_1d: '09:00',
+  exam_plus_1d: '09:00',
+};
+
+const EXAM_DUTY_CARD_NOTIFICATION_FIELDS: { key: ExamDutyNotifKey; label: string }[] = [
+  { key: 'deadline', label: 'Son başvuru günü bildirimi' },
+  { key: 'approval_day', label: 'Onay günü bildirimi' },
+  { key: 'exam_minus_1d', label: 'Sınavdan 1 gün önce' },
+  { key: 'exam_plus_1d', label: 'Sınavdan 1 gün sonra' },
+];
 
 const CATEGORY_COLORS: Record<string, string> = {
   meb: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
@@ -147,20 +192,94 @@ type SkippedItem = {
   title: string;
   url: string;
   reason: string;
+  list_section?: 'slider' | 'list' | 'rss' | 'recheck';
+  section_order?: number;
 };
 
-function normalizeItem(i: ExamDutyItem): ExamDutyItem {
+function formatSkippedListPlace(row: SkippedItem): string {
+  const n = row.section_order;
+  if (row.list_section === 'slider') {
+    return n != null ? `Slayt · ${n + 1}. sıra (üstten)` : 'Slayt';
+  }
+  if (row.list_section === 'list') {
+    return n != null ? `Sayfa listesi · ${n + 1}. sıra` : 'Sayfa listesi';
+  }
+  if (row.list_section === 'rss') {
+    return n != null ? `RSS akışı · ${n + 1}. kayıt` : 'RSS akışı';
+  }
+  if (row.list_section === 'recheck') {
+    return n != null ? `Yeniden kontrol · ${n + 1}.` : 'Yeniden kontrol';
+  }
+  return '—';
+}
+
+function compareSkippedItems(a: SkippedItem, b: SkippedItem): number {
+  const rank = (s: SkippedItem): number => {
+    switch (s.list_section) {
+      case 'slider':
+        return 0;
+      case 'list':
+        return 1;
+      case 'rss':
+        return 2;
+      case 'recheck':
+        return 3;
+      default:
+        return 9;
+    }
+  };
+  const sk = (a.source_key || '').localeCompare(b.source_key || '', 'tr');
+  if (sk !== 0) return sk;
+  const ra = rank(a);
+  const rb = rank(b);
+  if (ra !== rb) return ra - rb;
+  const oa = a.section_order ?? 1e9;
+  const ob = b.section_order ?? 1e9;
+  if (oa !== ob) return oa - ob;
+  return (a.title || '').localeCompare(b.title || '', 'tr');
+}
+
+const EXAM_DUTY_HHMM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
+
+/** Ayarlardaki HH:mm ile İstanbul takvim günü korunarak gösterim (sync’teki duvar saati ile uyum). */
+function examDutyInstantWithDefaultWall(
+  iso: string | null | undefined,
+  defaultHHmm: string | undefined,
+): string | null | undefined {
+  if (iso == null || !String(iso).trim()) return iso ?? undefined;
+  const t = (defaultHHmm ?? '').trim();
+  if (!t || !EXAM_DUTY_HHMM_RE.test(t)) return iso;
+  try {
+    const adj = applyExamDutyWallClockInTurkey(new Date(iso), t);
+    if (!adj || Number.isNaN(adj.getTime())) return iso;
+    return adj.toISOString();
+  } catch {
+    return iso;
+  }
+}
+
+/** Liste/akış: tarih alanlarında ayarlı duvar saati varsa İstanbul günü + o saat (kaynak saati ezmez: yalnızca geçerli HH:mm ayarı varken). */
+function normalizeItem(i: ExamDutyItem, defaultTimes?: Record<string, string>): ExamDutyItem {
+  const t = defaultTimes;
+  let application_start = examDutyInstantWithDefaultWall(i.application_start ?? i.applicationStart, t?.application_start) ?? (i.application_start ?? i.applicationStart);
+  let application_end = examDutyInstantWithDefaultWall(i.application_end ?? i.applicationEnd, t?.application_end) ?? (i.application_end ?? i.applicationEnd);
+  let application_approval_end =
+    examDutyInstantWithDefaultWall(i.application_approval_end ?? i.applicationApprovalEnd, t?.application_approval_end) ??
+    (i.application_approval_end ?? i.applicationApprovalEnd);
+  let result_date = examDutyInstantWithDefaultWall(i.result_date ?? i.resultDate, t?.result_date) ?? (i.result_date ?? i.resultDate);
+  let exam_date = examDutyInstantWithDefaultWall(i.exam_date ?? i.examDate, t?.exam_date) ?? (i.exam_date ?? i.examDate);
+  let exam_date_end = examDutyInstantWithDefaultWall(i.exam_date_end ?? i.examDateEnd, t?.exam_date_end) ?? (i.exam_date_end ?? i.examDateEnd);
   return {
     ...i,
     category_slug: i.category_slug ?? i.categorySlug ?? '',
     source_url: i.source_url ?? i.sourceUrl,
     application_url: i.application_url ?? i.applicationUrl,
-    application_start: i.application_start ?? i.applicationStart,
-    application_end: i.application_end ?? i.applicationEnd,
-    application_approval_end: i.application_approval_end ?? i.applicationApprovalEnd,
-    result_date: i.result_date ?? i.resultDate,
-    exam_date: i.exam_date ?? i.examDate,
-    exam_date_end: i.exam_date_end ?? i.examDateEnd,
+    application_start,
+    application_end,
+    application_approval_end,
+    result_date,
+    exam_date,
+    exam_date_end,
     published_at: i.published_at ?? i.publishedAt,
   };
 }
@@ -201,6 +320,7 @@ function toDatetimeLocal(s: string | null | undefined): string {
   if (!s) return '';
   try {
     const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return '';
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
@@ -210,6 +330,28 @@ function toDatetimeLocal(s: string | null | undefined): string {
   } catch {
     return '';
   }
+}
+
+/** API'de result yokken: sınavın TR gününden −1 gün + varsayılan saat (form önerisi). */
+function fillResultDateIfMissing(n: ExamDutyItem, defaultTimeHHmm: string): string {
+  const rd = toDatetimeLocal(n.result_date ?? n.resultDate) || '';
+  if (rd) return rd;
+  const examIso = n.exam_date ?? n.examDate;
+  if (!examIso) return '';
+  const examInstant = new Date(examIso);
+  if (Number.isNaN(examInstant.getTime())) return '';
+  const examYmd = examInstant.toLocaleDateString('en-CA', { timeZone: TURKEY_TZ });
+  const anchor = new Date(`${examYmd}T12:00:00+03:00`);
+  anchor.setUTCDate(anchor.getUTCDate() - 1);
+  const prevYmd = anchor.toLocaleDateString('en-CA', { timeZone: TURKEY_TZ });
+  const tm = (defaultTimeHHmm || '00:00').trim().match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+  const h = tm ? parseInt(tm[1]!, 10) : 0;
+  const min = tm ? parseInt(tm[2]!, 10) : 0;
+  const resultAt = new Date(
+    `${prevYmd}T${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:00+03:00`,
+  );
+  if (Number.isNaN(resultAt.getTime())) return '';
+  return toDatetimeLocal(resultAt.toISOString());
 }
 
 /** datetime-local value → ISO string for API. defaultTime: HH:mm (varsayılan saat, sadece tarih girildiğinde) */
@@ -332,18 +474,22 @@ function renderDateCompact(s: string | null | undefined) {
 }
 
 
-/** ISO string → YYYY-MM-DD */
-function toYMD(s: string | null | undefined): string | null {
+/** ISO / tarih string → YYYY-MM-DD (Türkiye günü; takvim hücresi eşlemesi) */
+function toYMDTurkey(s: string | null | undefined): string | null {
   if (!s) return null;
   try {
     const d = new Date(s);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleDateString('en-CA', { timeZone: TURKEY_TZ });
   } catch {
     return null;
   }
+}
+
+function turkeyCalendarNow(): { ymd: string; year: number; monthIndex: number } {
+  const ymd = new Date().toLocaleDateString('en-CA', { timeZone: TURKEY_TZ });
+  const [y, m] = ymd.split('-').map((x) => parseInt(x, 10));
+  return { ymd, year: y, monthIndex: m - 1 };
 }
 
 type FlowEvent = {
@@ -372,10 +518,10 @@ const FLOW_EVENT_CONFIG: Record<FlowEvent['type'], { label: string; color: strin
   exam_date_end: { label: 'Sınav bitti', color: 'bg-teal-100 text-teal-800 dark:bg-teal-900/50 dark:text-teal-300 border-teal-300/50' },
 };
 
-function buildFlowEvents(items: ExamDutyItem[]): FlowEvent[] {
+function buildFlowEvents(items: ExamDutyItem[], defaultTimes?: Record<string, string>): FlowEvent[] {
   const events: FlowEvent[] = [];
   for (const item of items) {
-    const n = normalizeItem(item);
+    const n = normalizeItem(item, defaultTimes);
     const fields: { key: FlowEvent['type']; val: string | null | undefined }[] = [
       { key: 'application_start', val: n.application_start ?? n.applicationStart },
       { key: 'application_end', val: n.application_end ?? n.applicationEnd },
@@ -396,24 +542,27 @@ function buildFlowEvents(items: ExamDutyItem[]): FlowEvent[] {
 
 function ExamDutyFlowCalendar({
   items,
+  defaultTimes,
   onEdit,
   onSelectDate,
 }: {
   items: ExamDutyItem[];
+  defaultTimes?: Record<string, string>;
   onEdit: (item: ExamDutyItem) => void;
   onSelectDate: (d: string | null) => void;
 }) {
-  const today = new Date();
-  const todayYMD = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  const [monthState, setMonthState] = useState(() => ({ year: today.getFullYear(), month: today.getMonth() }));
+  const [monthState, setMonthState] = useState(() => {
+    const { year, monthIndex } = turkeyCalendarNow();
+    return { year, month: monthIndex };
+  });
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
-  const flowEvents = useMemo(() => buildFlowEvents(items), [items]);
+  const flowEvents = useMemo(() => buildFlowEvents(items, defaultTimes), [items, defaultTimes]);
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, FlowEvent[]>();
     for (const e of flowEvents) {
-      const ymd = toYMD(e.datetime);
+      const ymd = toYMDTurkey(e.datetime);
       if (ymd) {
         const list = map.get(ymd) ?? [];
         list.push(e);
@@ -428,8 +577,11 @@ function ExamDutyFlowCalendar({
   const lastDay = new Date(monthState.year, monthState.month + 1, 0);
   const startPad = (firstDay.getDay() + 6) % 7;
   const daysInMonth = lastDay.getDate();
-  const monthLabel = new Date(monthState.year, monthState.month).toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' });
+  const monthLabel = new Date(
+    `${monthState.year}-${String(monthState.month + 1).padStart(2, '0')}-15T12:00:00+03:00`,
+  ).toLocaleDateString('tr-TR', { month: 'long', year: 'numeric', timeZone: TURKEY_TZ });
   const dayLabels = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+  const todayYMD = new Date().toLocaleDateString('en-CA', { timeZone: TURKEY_TZ });
 
   const cells: { dateStr: string | null; isCurrentMonth: boolean }[] = [];
   for (let i = 0; i < startPad; i++) cells.push({ dateStr: null, isCurrentMonth: false });
@@ -456,8 +608,18 @@ function ExamDutyFlowCalendar({
     onSelectDate(dateStr);
   };
 
+  const summaryLine = `${items.length} duyuru · ${flowEvents.length} olay · Türkiye saati`;
+
   return (
     <div className="space-y-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+        <p className="text-sm font-medium text-foreground">{summaryLine}</p>
+        <p className="text-xs text-muted-foreground max-w-xl">
+          Sync ile gelen kayıtlarda <strong className="font-medium text-foreground/90">başvuru onayı</strong>, son başvuru gününden{' '}
+          <strong className="font-medium text-foreground/90">2 takvim günü</strong> sonraya otomatik yazılır; saat sınav görevi varsayılan saatlerinden gelir.
+        </p>
+      </div>
+
       {/* Olay türleri göstergesi */}
       <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Takvimdeki olay türleri</p>
@@ -485,7 +647,16 @@ function ExamDutyFlowCalendar({
             <ChevronRight className="size-4" />
           </Button>
         </div>
-        <Button variant="outline" size="sm" onClick={() => handleDayClick(todayYMD)} className="border-primary/40 text-primary hover:bg-primary/10 shrink-0">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            const { ymd, year, monthIndex } = turkeyCalendarNow();
+            setMonthState({ year, month: monthIndex });
+            handleDayClick(ymd);
+          }}
+          className="border-primary/40 text-primary hover:bg-primary/10 shrink-0"
+        >
           <Calendar className="size-4 mr-1.5" />
           Bugüne git
         </Button>
@@ -504,7 +675,7 @@ function ExamDutyFlowCalendar({
             const isSelected = c.dateStr === selectedDate;
             const isToday = c.dateStr === todayYMD;
             const day = parseInt(c.dateStr.slice(8), 10);
-            const dayOfWeek = new Date(c.dateStr + 'T12:00:00').getDay();
+            const dayOfWeek = new Date(`${c.dateStr}T12:00:00+03:00`).getDay();
             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
             const evts = eventsByDate.get(c.dateStr) ?? [];
             return (
@@ -513,7 +684,7 @@ function ExamDutyFlowCalendar({
                 type="button"
                 onClick={() => handleDayClick(c.dateStr)}
                 className={cn(
-                  'min-h-[100px] flex flex-col items-stretch justify-start p-1.5 rounded-md transition-all bg-card text-left',
+                  'min-h-[92px] sm:min-h-[100px] flex flex-col items-stretch justify-start p-1.5 rounded-md transition-all bg-card text-left',
                   !c.isCurrentMonth && 'opacity-40',
                   isWeekend && c.isCurrentMonth && !isSelected && 'bg-muted/20',
                   isSelected && 'bg-primary/20 ring-2 ring-primary shadow-md',
@@ -521,7 +692,14 @@ function ExamDutyFlowCalendar({
                   !isSelected && !isToday && 'hover:bg-muted/40',
                 )}
               >
-                <span className={cn('text-sm font-medium shrink-0', isSelected && 'font-semibold')}>{day}</span>
+                <div className="flex items-center justify-between gap-1 shrink-0 w-full">
+                  <span className={cn('text-sm font-medium tabular-nums', isSelected && 'font-semibold')}>{day}</span>
+                  {evts.length > 0 && (
+                    <span className="rounded-full bg-primary/15 px-1.5 py-0 text-[10px] font-semibold text-primary tabular-nums">
+                      {evts.length}
+                    </span>
+                  )}
+                </div>
                 <div className="flex-1 min-h-0 mt-1 space-y-0.5 overflow-hidden">
                   {evts.slice(0, 3).map((e, j) => {
                     const CellIcon = FLOW_EVENT_ICONS[e.type];
@@ -547,10 +725,15 @@ function ExamDutyFlowCalendar({
             <Calendar className="size-4 text-muted-foreground shrink-0" />
             <div>
               <h3 className="font-semibold text-foreground capitalize">
-                {new Date(selectedDate + 'T12:00:00').toLocaleDateString('tr-TR', { weekday: 'long' })}
+                {new Date(`${selectedDate}T12:00:00+03:00`).toLocaleDateString('tr-TR', { weekday: 'long', timeZone: TURKEY_TZ })}
               </h3>
               <p className="text-sm text-muted-foreground">
-                {new Date(selectedDate + 'T12:00:00').toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                {new Date(`${selectedDate}T12:00:00+03:00`).toLocaleDateString('tr-TR', {
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric',
+                  timeZone: TURKEY_TZ,
+                })}
                 {dayEvents.length > 0 && ` · ${dayEvents.length} olay`}
               </p>
             </div>
@@ -635,6 +818,7 @@ export default function SinavGorevleriPage() {
   const [skippedItems, setSkippedItems] = useState<SkippedItem[]>([]);
   const [skippedSyncedAt, setSkippedSyncedAt] = useState<string | null>(null);
   const [skippedLoading, setSkippedLoading] = useState(false);
+  const skippedItemsSorted = useMemo(() => [...skippedItems].sort(compareSkippedItems), [skippedItems]);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<ExamDutyItem | null>(null);
   const [bodyEditRaw, setBodyEditRaw] = useState(false);
@@ -646,6 +830,10 @@ export default function SinavGorevleriPage() {
   const [syncSources, setSyncSources] = useState<SyncSourceItem[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [defaultTimes, setDefaultTimes] = useState<Record<string, string>>({});
+  const [syncScheduleTimes, setSyncScheduleTimes] = useState<string[]>([...DEFAULT_EXAM_DUTY_SYNC_SCHEDULE_TIMES]);
+  const [notificationTimes, setNotificationTimes] = useState<Record<ExamDutyNotifKey, string>>({
+    ...DEFAULT_EXAM_DUTY_NOTIFICATION_TIMES,
+  });
   const [form, setForm] = useState({
     title: '',
     category_slug: 'meb',
@@ -676,17 +864,43 @@ export default function SinavGorevleriPage() {
   const fetchExamDutyConfig = useCallback(async () => {
     if (!token || !isSuperadmin) return;
     try {
-      const cfg = await apiFetch<{ default_times?: Record<string, string> }>('/app-config/exam-duty-sync', { token });
+      const cfg = await apiFetch<{
+        default_times?: Record<string, string>;
+        notification_times?: Partial<Record<ExamDutyNotifKey, string>>;
+        sync_options?: { sync_schedule_times?: string[] };
+      }>('/app-config/exam-duty-sync', { token });
       const times = cfg?.default_times ?? {};
       const valid: Record<string, string> = {};
       const keys = ['application_start', 'application_end', 'application_approval_end', 'result_date', 'exam_date', 'exam_date_end'];
       for (const k of keys) {
         const v = times[k]?.trim();
-        valid[k] = v && /^([01]?\d|2[0-3]):[0-5]\d$/.test(v) ? v : '00:00';
+        const preset = EXAM_DUTY_CARD_PRESET_TIMES[k] ?? '00:00';
+        valid[k] = v && HHMM_RE.test(v) ? padHHmm(v) : preset;
       }
       setDefaultTimes(valid);
+
+      const rawSched = cfg?.sync_options?.sync_schedule_times;
+      const schedSet = new Set<string>();
+      if (Array.isArray(rawSched)) {
+        for (const x of rawSched) {
+          const s = String(x).trim();
+          if (HHMM_RE.test(s)) schedSet.add(padHHmm(s));
+        }
+      }
+      const sched = schedSet.size > 0 ? [...schedSet].sort() : [...DEFAULT_EXAM_DUTY_SYNC_SCHEDULE_TIMES];
+      setSyncScheduleTimes(sched);
+
+      const nt = cfg?.notification_times ?? {};
+      const nextNotif: Record<ExamDutyNotifKey, string> = { ...DEFAULT_EXAM_DUTY_NOTIFICATION_TIMES };
+      for (const k of Object.keys(DEFAULT_EXAM_DUTY_NOTIFICATION_TIMES) as ExamDutyNotifKey[]) {
+        const v = nt[k]?.trim();
+        if (v && HHMM_RE.test(v)) nextNotif[k] = padHHmm(v);
+      }
+      setNotificationTimes(nextNotif);
     } catch {
       setDefaultTimes({});
+      setSyncScheduleTimes([...DEFAULT_EXAM_DUTY_SYNC_SCHEDULE_TIMES]);
+      setNotificationTimes({ ...DEFAULT_EXAM_DUTY_NOTIFICATION_TIMES });
     }
   }, [token, isSuperadmin]);
 
@@ -723,7 +937,7 @@ export default function SinavGorevleriPage() {
       params.set('page', String(forCalendar ? 1 : page));
       params.set('limit', String(forCalendar ? 100 : limit));
       const res = await apiFetch<ListResponse>(`/admin/exam-duties?${params}`, { token });
-      const list = (res.items ?? []).map(normalizeItem);
+      const list = (res.items ?? []).map((it) => normalizeItem(it, defaultTimes));
       if (forCalendar) {
         setCalendarItems(list);
       } else {
@@ -744,17 +958,21 @@ export default function SinavGorevleriPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, isSuperadmin, categoryFilter, statusFilter, page, limit, mainView]);
+  }, [token, isSuperadmin, categoryFilter, statusFilter, page, limit, mainView, defaultTimes]);
 
   useEffect(() => {
     if (!isSuperadmin) {
       router.replace('/403');
       return;
     }
-    fetchList();
-    fetchSyncSources();
-    fetchExamDutyConfig();
-  }, [isSuperadmin, router, fetchList, fetchSyncSources, fetchExamDutyConfig]);
+    void fetchExamDutyConfig();
+    void fetchSyncSources();
+  }, [isSuperadmin, router, fetchExamDutyConfig, fetchSyncSources]);
+
+  useEffect(() => {
+    if (!isSuperadmin || !token) return;
+    void fetchList();
+  }, [isSuperadmin, token, fetchList]);
 
   useEffect(() => {
     if (mainView === 'skipped' && isSuperadmin && token) {
@@ -801,7 +1019,7 @@ export default function SinavGorevleriPage() {
     if (!token || !item.id) return;
     try {
       const full = await apiFetch<ExamDutyItem>(`/admin/exam-duties/${item.id}`, { token });
-      const n = normalizeItem(full);
+      const n = normalizeItem(full, defaultTimes);
       setForm({
         title: n.title,
         category_slug: (n.category_slug ?? n.categorySlug ?? 'meb') as string,
@@ -812,12 +1030,12 @@ export default function SinavGorevleriPage() {
         application_start: toDatetimeLocal(n.application_start ?? n.applicationStart) || '',
         application_end: toDatetimeLocal(n.application_end ?? n.applicationEnd) || '',
         application_approval_end: toDatetimeLocal(n.application_approval_end ?? n.applicationApprovalEnd) || '',
-        result_date: toDatetimeLocal(n.result_date ?? n.resultDate) || '',
+        result_date: fillResultDateIfMissing(n, defaultTimes.result_date ?? '00:00'),
         exam_date: toDatetimeLocal(n.exam_date ?? n.examDate) || '',
         exam_date_end: toDatetimeLocal(n.exam_date_end ?? n.examDateEnd) || '',
       });
     } catch {
-      const n = normalizeItem(item);
+      const n = normalizeItem(item, defaultTimes);
       setForm({
         title: n.title,
         category_slug: (n.category_slug ?? n.categorySlug ?? 'meb') as string,
@@ -828,7 +1046,7 @@ export default function SinavGorevleriPage() {
         application_start: toDatetimeLocal(n.application_start ?? n.applicationStart) || '',
         application_end: toDatetimeLocal(n.application_end ?? n.applicationEnd) || '',
         application_approval_end: toDatetimeLocal(n.application_approval_end ?? n.applicationApprovalEnd) || '',
-        result_date: toDatetimeLocal(n.result_date ?? n.resultDate) || '',
+        result_date: fillResultDateIfMissing(n, defaultTimes.result_date ?? '00:00'),
         exam_date: toDatetimeLocal(n.exam_date ?? n.examDate) || '',
         exam_date_end: toDatetimeLocal(n.exam_date_end ?? n.examDateEnd) || '',
       });
@@ -1080,7 +1298,12 @@ export default function SinavGorevleriPage() {
 
   const handleClearSyncData = async () => {
     if (!token) return;
-    if (!confirm('Sync ile eklenen tüm taslak duyurular silinecek ve sync sıfırlanacak. Devam?')) return;
+    if (
+      !confirm(
+        'Kaynaklara bağlı TÜM sınav görevi duyuruları kalıcı silinecek (taslak ve yayın), sync geçmişi sıfırlanacak; sonraki sync silinen kayıtları geri yüklemez. Devam?',
+      )
+    )
+      return;
     setSyncing(true);
     try {
       const res = await apiFetch<{ deleted: number; sources_reset: number }>('/admin/exam-duties/clear-sync-data', {
@@ -1090,8 +1313,8 @@ export default function SinavGorevleriPage() {
       });
       toast.success(
         res.deleted > 0
-          ? `${res.deleted} taslak silindi, ${res.sources_reset} kaynak sıfırlandı`
-          : `Silinecek sync taslağı yok; ${res.sources_reset} kaynağın sync konumu sıfırlandı`,
+          ? `${res.deleted} duyuru silindi, ${res.sources_reset} kaynak sync sıfırlandı`
+          : `Silinecek kayıt yok; ${res.sources_reset} kaynak sync sıfırlandı`,
       );
       fetchList();
       fetchSyncSources();
@@ -1342,7 +1565,7 @@ export default function SinavGorevleriPage() {
                 </div>
                 <div>
                   <CardTitle className="text-base font-semibold">Atlanan içerik</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-0.5">Sync sırasında eklenmeyen kayıtlar ve nedenleri</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Slayt → sayfa listesi → RSS sırası; satırda konum ve atlama nedeni</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -1364,7 +1587,7 @@ export default function SinavGorevleriPage() {
               </div>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Sync sırasında eklenmeyen kayıtlar ve atlama nedenleri. Yeni liste için &quot;Şimdi Sync&quot; çalıştırın.
+              Liste önce slayt alanındaki sıraya göre, ardından sayfa listesi ve RSS’e göre sıralanır. Yeni özet için &quot;Şimdi Sync&quot; çalıştırın.
             </p>
           </CardHeader>
           <CardContent className="p-0">
@@ -1372,7 +1595,7 @@ export default function SinavGorevleriPage() {
               <div className="flex min-h-[200px] items-center justify-center py-12">
                 <LoadingSpinner className="size-8" />
               </div>
-            ) : skippedItems.length === 0 ? (
+            ) : skippedItemsSorted.length === 0 ? (
               <EmptyState
                 icon={<SkipForward className="size-12 text-muted-foreground" />}
                 title="Atlanan kayıt yok"
@@ -1381,19 +1604,23 @@ export default function SinavGorevleriPage() {
               />
             ) : (
               <div className="table-x-scroll">
-                <table className="w-full min-w-[640px] text-sm">
+                <table className="w-full min-w-[720px] text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
                       <th className="px-4 py-3 text-left font-semibold">Kaynak</th>
+                      <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">Sayfadaki yer</th>
                       <th className="px-4 py-3 text-left font-semibold">Başlık</th>
                       <th className="px-4 py-3 text-left font-semibold">Neden atlandı</th>
                       <th className="w-20 px-4 py-3 text-right font-semibold">Link</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {skippedItems.map((row, idx) => (
-                      <tr key={idx} className="border-b border-border/50 hover:bg-muted/20">
+                    {skippedItemsSorted.map((row, idx) => (
+                      <tr key={`${row.source_key}-${row.url}-${idx}`} className="border-b border-border/50 hover:bg-muted/20">
                         <td className="px-4 py-2.5 font-medium text-foreground/90">{row.source_label}</td>
+                        <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap" title={formatSkippedListPlace(row)}>
+                          {formatSkippedListPlace(row)}
+                        </td>
                         <td className="px-4 py-2.5 text-foreground line-clamp-2" title={row.title}>{row.title}</td>
                         <td className="px-4 py-2.5 text-muted-foreground">{row.reason}</td>
                         <td className="px-4 py-2.5 text-right">
@@ -1428,25 +1655,28 @@ export default function SinavGorevleriPage() {
                 Otomatik Sync
               </CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">
-                RSS ve scrape kaynaklarından duyurular otomatik çekilir (günde 4 kez). Kaynakları Ayarlar sayfasından yönetin.
+                RSS ve scrape kaynaklarından duyurular, Ayarlar → Senkronizasyon’da kayıtlı İstanbul saatlerinde günde{' '}
+                {syncScheduleTimes.length} kez tetiklenir ({syncScheduleTimes.join(', ')}). Kaynakları ve bu saatleri Ayarlar
+                sayfasından yönetin.
               </p>
-              {Object.keys(defaultTimes).length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground/80">Varsayılan saatler:</span>
-                  {[
-                    { k: 'application_start', l: 'Başvuru Açılış' },
-                    { k: 'application_end', l: 'Son Başvuru' },
-                    { k: 'application_approval_end', l: 'Başvuru Onay' },
-                    { k: 'result_date', l: 'Öncesi hatırlatma' },
-                    { k: 'exam_date', l: 'Sınav' },
-                    { k: 'exam_date_end', l: 'Sonrası hatırlatma' },
-                  ].map(({ k, l }) => (
-                    <span key={k} title={l}>
-                      {l}: {defaultTimes[k] ?? '00:00'}
+              <div className="mt-2 space-y-1.5 text-xs text-muted-foreground">
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  <span className="font-medium text-foreground/80">Taslakta yalnız gün geldiğinde duvar saati:</span>
+                  {EXAM_DUTY_CARD_DEFAULT_TIME_FIELDS.map(({ key, label }) => (
+                    <span key={key} title={label}>
+                      {label}: {defaultTimes[key] ?? EXAM_DUTY_CARD_PRESET_TIMES[key] ?? '—'}
                     </span>
                   ))}
                 </div>
-              )}
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  <span className="font-medium text-foreground/80">Planlı öğretmen bildirimleri (İstanbul):</span>
+                  {EXAM_DUTY_CARD_NOTIFICATION_FIELDS.map(({ key, label }) => (
+                    <span key={key} title={label}>
+                      {label}: {notificationTimes[key] ?? DEFAULT_EXAM_DUTY_NOTIFICATION_TIMES[key]}
+                    </span>
+                  ))}
+                </div>
+              </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <Link href="/sinav-gorevleri/ayarlar">
@@ -1534,7 +1764,7 @@ export default function SinavGorevleriPage() {
               Akış Takvimi
             </CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
-              Başvuru, onay ve sınav tarihlerini takvimde görün. Bir güne tıklayarak o gündeki duyuruları ve olayları listeleyebilir, düzenleyebilirsiniz.
+              Başvuru, onay ve sınav tarihlerini Türkiye takvim gününe göre hücrelerde görün. Güne tıklayınca o günkü olaylar listelenir; duyuruyu düzenleyebilirsiniz.
             </p>
           </CardHeader>
           <CardContent className="p-6">
@@ -1542,8 +1772,20 @@ export default function SinavGorevleriPage() {
               <div className="flex min-h-[300px] items-center justify-center">
                 <LoadingSpinner className="size-8" />
               </div>
+            ) : !loading && calendarItems.length === 0 ? (
+              <EmptyState
+                icon={<CalendarRange className="size-12 text-muted-foreground" />}
+                title="Takvimde gösterilecek duyuru yok"
+                description="Bu sekme sınav veya başvuru tarihi olan kayıtları çeker. Sync sonrası veya elle duyuru ekleyip tarihleri doldurun; ardından Yenile ile tekrar açın."
+                className="py-12"
+              />
             ) : (
-              <ExamDutyFlowCalendar items={calendarItems} onEdit={openEdit} onSelectDate={() => {}} />
+              <ExamDutyFlowCalendar
+                items={calendarItems}
+                defaultTimes={defaultTimes}
+                onEdit={openEdit}
+                onSelectDate={() => {}}
+              />
             )}
           </CardContent>
         </Card>
@@ -1705,7 +1947,7 @@ export default function SinavGorevleriPage() {
               {viewMode === 'cards' ? (
                 <div className="divide-y divide-border/50 p-4">
                   {sortedItems.map((i) => {
-                    const n = normalizeItem(i);
+                    const n = normalizeItem(i, defaultTimes);
                     const cat = n.category_slug ?? n.categorySlug ?? '';
                     const appEndPast = isDatePast(n.application_end ?? n.applicationEnd);
                     const examPast = isDatePast(n.exam_date ?? n.examDate);
@@ -1870,7 +2112,7 @@ export default function SinavGorevleriPage() {
                 </thead>
                 <tbody>
                   {sortedItems.map((i) => {
-                    const n = normalizeItem(i);
+                    const n = normalizeItem(i, defaultTimes);
                     const appEndPast = isDatePast(n.application_end ?? n.applicationEnd);
                     const examPast = isDatePast(n.exam_date ?? n.examDate);
                     const isSelected = selectedIds.has(i.id);
@@ -2152,6 +2394,59 @@ export default function SinavGorevleriPage() {
                 className="mt-1"
               />
             </div>
+            <div className="rounded-lg border border-border bg-muted/20 p-4 overflow-visible">
+              <Label className="text-sm font-medium mb-2 block">Tarih ve Saat (opsiyonel)</Label>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 min-w-0">
+                <div className="min-w-0 space-y-1 sm:min-w-48">
+                  <Label htmlFor="egd-app-start" className="text-xs text-muted-foreground">Başvuru Açılış</Label>
+                  <DateTimeInput
+                    id="egd-app-start"
+                    value={form.application_start ?? ''}
+                    onValueChange={(v) => setForm((f) => ({ ...f, application_start: v }))}
+                  />
+                </div>
+                <div className="min-w-0 space-y-1 sm:min-w-48">
+                  <Label htmlFor="egd-app-end" className="text-xs text-muted-foreground">Son Başvuru</Label>
+                  <DateTimeInput
+                    id="egd-app-end"
+                    value={form.application_end ?? ''}
+                    onValueChange={(v) => setForm((f) => ({ ...f, application_end: v }))}
+                  />
+                </div>
+                <div className="min-w-0 space-y-1 sm:min-w-48">
+                  <Label htmlFor="egd-app-approval-end" className="text-xs text-muted-foreground">Başvuru Onay</Label>
+                  <DateTimeInput
+                    id="egd-app-approval-end"
+                    value={form.application_approval_end ?? ''}
+                    onValueChange={(v) => setForm((f) => ({ ...f, application_approval_end: v }))}
+                  />
+                </div>
+                <div className="min-w-0 space-y-1 sm:min-w-48">
+                  <Label htmlFor="egd-result" className="text-xs text-muted-foreground">Sınav öncesi hatırlatma</Label>
+                  <DateTimeInput
+                    id="egd-result"
+                    value={form.result_date ?? ''}
+                    onValueChange={(v) => setForm((f) => ({ ...f, result_date: v }))}
+                  />
+                </div>
+                <div className="min-w-0 space-y-1 sm:min-w-48">
+                  <Label htmlFor="egd-exam" className="text-xs text-muted-foreground">Sınav Tarihi</Label>
+                  <DateTimeInput
+                    id="egd-exam"
+                    value={form.exam_date ?? ''}
+                    onValueChange={(v) => setForm((f) => ({ ...f, exam_date: v }))}
+                  />
+                </div>
+                <div className="min-w-0 space-y-1 sm:min-w-48">
+                  <Label htmlFor="egd-exam-end" className="text-xs text-muted-foreground">Sınav sonrası hatırlatma</Label>
+                  <DateTimeInput
+                    id="egd-exam-end"
+                    value={form.exam_date_end ?? ''}
+                    onValueChange={(v) => setForm((f) => ({ ...f, exam_date_end: v }))}
+                  />
+                </div>
+              </div>
+            </div>
             <div>
               <Label htmlFor="egd-body">İçerik</Label>
               {(() => {
@@ -2185,6 +2480,7 @@ export default function SinavGorevleriPage() {
                           </tbody>
                         </table>
                       </div>
+                      <p className="text-xs text-muted-foreground">Tablo yalnızca metin önizlemesidir; tarih/saat için yukarıdaki «Tarih ve Saat» alanlarını kullanın.</p>
                       <Button
                         type="button"
                         variant="ghost"
@@ -2244,59 +2540,6 @@ export default function SinavGorevleriPage() {
                 className="mt-1"
               />
               <p className="mt-1 text-xs text-muted-foreground">Kaynak = duyuru; Başvuru = MEB/e-devlet vb. başvuru sayfası</p>
-            </div>
-            <div className="rounded-lg border border-border bg-muted/20 p-4 overflow-visible">
-              <Label className="text-sm font-medium mb-2 block">Tarih ve Saat (opsiyonel)</Label>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 min-w-0">
-                <div className="min-w-0 space-y-1 sm:min-w-48">
-                  <Label htmlFor="egd-app-start" className="text-xs text-muted-foreground">Başvuru Açılış</Label>
-                  <DateTimeInput
-                    id="egd-app-start"
-                    value={form.application_start ?? ''}
-                    onValueChange={(v) => setForm((f) => ({ ...f, application_start: v }))}
-                  />
-                </div>
-                <div className="min-w-0 space-y-1 sm:min-w-48">
-                  <Label htmlFor="egd-app-end" className="text-xs text-muted-foreground">Son Başvuru</Label>
-                  <DateTimeInput
-                    id="egd-app-end"
-                    value={form.application_end ?? ''}
-                    onValueChange={(v) => setForm((f) => ({ ...f, application_end: v }))}
-                  />
-                </div>
-                <div className="min-w-0 space-y-1 sm:min-w-48">
-                  <Label htmlFor="egd-app-approval-end" className="text-xs text-muted-foreground">Başvuru Onay</Label>
-                  <DateTimeInput
-                    id="egd-app-approval-end"
-                    value={form.application_approval_end ?? ''}
-                    onValueChange={(v) => setForm((f) => ({ ...f, application_approval_end: v }))}
-                  />
-                </div>
-                <div className="min-w-0 space-y-1 sm:min-w-48">
-                  <Label htmlFor="egd-result" className="text-xs text-muted-foreground">Sınav öncesi hatırlatma</Label>
-                  <DateTimeInput
-                    id="egd-result"
-                    value={form.result_date ?? ''}
-                    onValueChange={(v) => setForm((f) => ({ ...f, result_date: v }))}
-                  />
-                </div>
-                <div className="min-w-0 space-y-1 sm:min-w-48">
-                  <Label htmlFor="egd-exam" className="text-xs text-muted-foreground">Sınav Tarihi</Label>
-                  <DateTimeInput
-                    id="egd-exam"
-                    value={form.exam_date ?? ''}
-                    onValueChange={(v) => setForm((f) => ({ ...f, exam_date: v }))}
-                  />
-                </div>
-                <div className="min-w-0 space-y-1 sm:min-w-48">
-                  <Label htmlFor="egd-exam-end" className="text-xs text-muted-foreground">Sınav sonrası hatırlatma</Label>
-                  <DateTimeInput
-                    id="egd-exam-end"
-                    value={form.exam_date_end ?? ''}
-                    onValueChange={(v) => setForm((f) => ({ ...f, exam_date_end: v }))}
-                  />
-                </div>
-              </div>
             </div>
           </div>
           <div className="flex justify-end gap-2 pt-4">

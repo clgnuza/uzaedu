@@ -14,6 +14,8 @@ import { emailDomainFromInstitutional } from '../common/utils/institutional-emai
 import { MARKET_MODULE_KEYS } from '../app-config/market-policy.defaults';
 import { SCHOOL_TYPE_GROUP_MEMBERS } from './school-type-group.util';
 import { ReconcileApplyDto, ReconcileSourceSchoolDto } from './dto/reconcile-schools.dto';
+import { normalizeReviewPlacementScoresJson } from './review-placement-scores.util';
+import { sanitizeReviewPlacementCharts } from './review-placement-charts.util';
 
 @Injectable()
 export class SchoolsService {
@@ -34,8 +36,8 @@ export class SchoolsService {
       if (!scope.schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
       qb.andWhere('s.id = :schoolId', { schoolId: scope.schoolId });
     } else {
-      if (dto.city) qb.andWhere('LOWER(s.city) = LOWER(:city)', { city: dto.city.trim() });
-      if (dto.district) qb.andWhere('LOWER(s.district) = LOWER(:district)', { district: dto.district.trim() });
+      if (dto.city?.trim()) qb.andWhere('TRIM(s.city) ILIKE TRIM(:city)', { city: dto.city.trim() });
+      if (dto.district?.trim()) qb.andWhere('TRIM(s.district) ILIKE TRIM(:district)', { district: dto.district.trim() });
       if (dto.status) qb.andWhere('s.status = :status', { status: dto.status });
       if (dto.type_group) {
         const types = SCHOOL_TYPE_GROUP_MEMBERS[dto.type_group];
@@ -218,6 +220,29 @@ export class SchoolsService {
       if (dto.status !== undefined) school.status = dto.status;
       if (dto.teacher_limit !== undefined) school.teacher_limit = dto.teacher_limit;
       if (dto.enabled_modules !== undefined) school.enabled_modules = dto.enabled_modules;
+      if (dto.review_placement_dual_track !== undefined) {
+        school.review_placement_dual_track = dto.review_placement_dual_track === true;
+      }
+      if (dto.review_placement_scores !== undefined) {
+        school.review_placement_scores =
+          dto.review_placement_scores === null
+            ? null
+            : normalizeReviewPlacementScoresJson(dto.review_placement_scores);
+      }
+      if (dto.review_placement_charts !== undefined) {
+        if (dto.review_placement_charts === null) {
+          school.review_placement_charts = null;
+        } else {
+          const s = sanitizeReviewPlacementCharts(dto.review_placement_charts);
+          if (!s) {
+            throw new BadRequestException({
+              code: 'INVALID_PLACEMENT_CHARTS',
+              message: 'review_placement_charts geçersiz; v:2 ve en az bir lgs veya obp bloğu gerekir.',
+            });
+          }
+          school.review_placement_charts = s;
+        }
+      }
     }
     const saved = await this.schoolRepo.save(school);
     await this.auditService.log({
@@ -303,10 +328,10 @@ export class SchoolsService {
       });
     }
     if (filters?.city?.trim()) {
-      qb.andWhere('LOWER(s.city) = LOWER(:fcity)', { fcity: filters.city.trim() });
+      qb.andWhere('TRIM(s.city) ILIKE TRIM(:fcity)', { fcity: filters.city.trim() });
     }
     if (filters?.district?.trim()) {
-      qb.andWhere('LOWER(s.district) = LOWER(:fdist)', { fdist: filters.district.trim() });
+      qb.andWhere('TRIM(s.district) ILIKE TRIM(:fdist)', { fdist: filters.district.trim() });
     }
     if (filters?.type) {
       qb.andWhere('s.type = :ftype', { ftype: filters.type });

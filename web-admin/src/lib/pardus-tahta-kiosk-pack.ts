@@ -63,7 +63,7 @@ function buildConf(args: {
   tahtaKilit: boolean;
 }): string {
   const o = args.panelOrigin.replace(/\/$/, '');
-  return `# ÖğretmenPRO akıllı tahta — okul/cihaz bağlamı (yeniden indirip kurun)
+  return `# Uzaedu Öğretmen akıllı tahta — okul/cihaz bağlamı (yeniden indirip kurun)
 PANEL_ORIGIN=${o}
 SCHOOL_ID=${args.schoolId}
 DEVICE_ID=${args.deviceId}
@@ -155,7 +155,7 @@ if [[ -f "\$ROOT/uninstall.sh" ]]; then
 fi
 install -d /etc/xdg/autostart
 ln -sf /usr/share/applications/ogretmenpro-tahta.desktop /etc/xdg/autostart/ogretmenpro-tahta.desktop
-echo "ÖğretmenPRO tahta kuruldu. Oturumu kapatıp açın veya: ogretmenpro-tahta-launch"
+echo "Uzaedu Öğretmen tahta kuruldu. Oturumu kapatıp açın veya: ogretmenpro-tahta-launch"
 echo "Kaldırma: sudo /usr/local/lib/ogretmenpro-tahta/uninstall.sh"
 `;
 
@@ -172,12 +172,12 @@ rm -f /etc/opt/chrome/policies/managed/99-ogretmenpro-tahta.json
 rm -f /usr/share/applications/ogretmenpro-tahta.desktop
 rm -f /etc/xdg/autostart/ogretmenpro-tahta.desktop
 rm -f /usr/local/share/pixmaps/ogretmenpro-tahta.svg
-echo "ÖğretmenPRO tahta kaldırıldı."
+echo "Uzaedu Öğretmen tahta kaldırıldı."
 `;
 
 const DESKTOP = `[Desktop Entry]
 Type=Application
-Name=ÖğretmenPRO Sınıf Tahtası
+Name=Uzaedu Öğretmen Sınıf Tahtası
 Comment=Okula özel kiosk — yalnızca panel ve API
 Exec=/usr/local/bin/ogretmenpro-tahta-launch
 Icon=/usr/local/share/pixmaps/ogretmenpro-tahta.svg
@@ -196,7 +196,7 @@ const PACKAGES_README = `Bu paket harici .deb içermez (ör. i-kilit gibi wmctrl
 Tahtada: sudo apt install -y chromium x11-xserver-utils
 `;
 
-const MAKEFILE = `# ÖğretmenPRO tahta — Pardus (Chromium kiosk). Giriş noktası: i-kilit-pardus-etap tarzı make.
+const MAKEFILE = `# Uzaedu Öğretmen tahta — Pardus (Chromium kiosk). Giriş noktası: i-kilit-pardus-etap tarzı make.
 .PHONY: install uninstall
 DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
@@ -211,7 +211,7 @@ uninstall:
 `;
 
 function buildReadme(deviceLabel: string): string {
-  return `# ÖğretmenPRO — Pardus tahta kiosk paketi (${deviceLabel})
+  return `# Uzaedu Öğretmen — Pardus tahta kiosk paketi (${deviceLabel})
 
 ## Ne işe yarar?
 - Chromium yalnızca **okul paneli**, **API** ve (duyuru slaytları için) **YouTube** adreslerine izin verir; diğer siteler politika ile engellenir (tabela / KioWare sınıfı kısıtlama).

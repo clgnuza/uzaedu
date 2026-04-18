@@ -32,6 +32,12 @@ export class SchoolContentReport {
   @Column({ type: 'text', nullable: true })
   comment: string | null;
 
+  @Column({ name: 'admin_seen_at', type: 'timestamptz', nullable: true })
+  adminSeenAt: Date | null;
+
+  @Column({ name: 'admin_seen_by', type: 'uuid', nullable: true })
+  adminSeenBy: string | null;
+
   @CreateDateColumn()
   created_at: Date;
 }

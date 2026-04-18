@@ -11,6 +11,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { useAdminMessagesUnread } from '@/hooks/use-admin-messages-unread';
 import { useAllNotificationsUnread } from '@/hooks/use-duty-notifications-unread';
 import { useSupportModuleAvailability } from '@/hooks/use-support-module-availability';
+import { collectPathsFromFilteredMenu, getSidebarExtraSearchHits } from '@/lib/sidebar-extra-search';
+import { SidebarExtraSearchHits } from '@/components/layout/sidebar-extra-search-hits';
 
 interface SidebarMenuProps {
   role: WebAdminRole | null;
@@ -500,6 +502,19 @@ export function SidebarMenu({ role, moderatorModules, schoolEnabledModules, comp
     return filterMenuBySearch(base, search, role, schoolEnabledModules);
   }, [items, search, role, schoolEnabledModules]);
 
+  const extraSearchHits = useMemo(() => {
+    const q = search.trim();
+    if (!q) return [];
+    const excludePaths = collectPathsFromFilteredMenu(displayItems);
+    return getSidebarExtraSearchHits(q, {
+      role,
+      moderatorModules,
+      schoolEnabledModules,
+      supportEnabled: supportEnabledValue,
+      excludePaths,
+    });
+  }, [search, displayItems, role, moderatorModules, schoolEnabledModules, supportEnabledValue]);
+
   const getBadgeCount = (item: MenuItem): number => {
     if (item.badgeKey === 'adminMessagesUnread') return adminMessagesUnread;
     if (item.badgeKey === 'dutyNotificationsUnread') return allNotificationsUnread;
@@ -556,7 +571,7 @@ export function SidebarMenu({ role, moderatorModules, schoolEnabledModules, comp
         )}
       >
         <label htmlFor="sidebar-menu-search" className="sr-only">
-          Menüde ara
+          Menü ve ayarlarda ara
         </label>
         <div className="relative">
           <Search
@@ -568,7 +583,7 @@ export function SidebarMenu({ role, moderatorModules, schoolEnabledModules, comp
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Menüde ara…"
+            placeholder="Menü ve ayarlarda ara…"
             autoComplete="off"
             className={cn(
               'w-full rounded-lg border border-input bg-background pl-9 text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
@@ -627,9 +642,10 @@ export function SidebarMenu({ role, moderatorModules, schoolEnabledModules, comp
             />
           );
         })}
-        {search.trim() && displayItems.length === 0 && (
+        <SidebarExtraSearchHits hits={extraSearchHits} isActive={isActive} compact={compact} />
+        {search.trim() && displayItems.length === 0 && extraSearchHits.length === 0 && (
           <p className={cn('px-1 text-center text-muted-foreground', compact ? 'py-4 text-[11px]' : 'py-6 text-sm')}>
-            Eşleşen menü yok.
+            Eşleşen sonuç yok.
           </p>
         )}
       </nav>

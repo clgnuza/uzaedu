@@ -680,7 +680,7 @@ export default function DersProgramiAnaPage() {
   useEffect(() => {
     const onBefore = () => {
       printTitleBackupRef.current = document.title;
-      document.title = `Ders programı — ${programTitle} (${academicYear}) · Öğretmen Pro`;
+      document.title = `Ders programı — ${programTitle} (${academicYear}) · Uzaedu Öğretmen`;
     };
     const onAfter = () => {
       if (printTitleBackupRef.current != null) document.title = printTitleBackupRef.current;
@@ -1149,7 +1149,7 @@ export default function DersProgramiAnaPage() {
         )}
         <CardContent className="min-w-0 p-0 table-x-scroll">
           <div className="ders-programi-print-header hidden print:block px-3 pt-1 pb-3 sm:px-4">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-neutral-500">Öğretmen Pro</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-neutral-500">Uzaedu Öğretmen</p>
             <h1 className="mt-1 text-[15px] font-bold leading-snug text-black">{printListTitle}</h1>
             {me?.school?.name ? (
               <p className="mt-1 text-sm font-semibold text-neutral-900">{me.school.name}</p>

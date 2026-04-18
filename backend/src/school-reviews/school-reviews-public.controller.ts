@@ -14,7 +14,7 @@ import { ReportContentDto } from './dto/report-content.dto';
  * Rate limit: 120 istek/dakika (IP bazlı).
  */
 @Controller('school-reviews-public')
-@Throttle({ public: { limit: 120, ttl: 60000 } })
+@Throttle({ public: { limit: 400, ttl: 60000 } })
 export class SchoolReviewsPublicController {
   constructor(private readonly service: SchoolReviewsService) {}
 

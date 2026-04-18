@@ -16,7 +16,7 @@ export function SidebarHeader() {
       )}
     >
       <Link href="/dashboard" className="flex items-center gap-2 font-semibold text-foreground hover:opacity-90">
-        Öğretmen Pro
+        Uzaedu Öğretmen
       </Link>
       <button
         type="button"

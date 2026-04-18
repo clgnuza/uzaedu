@@ -31,7 +31,7 @@ function safeGa4Id(id: string): boolean {
 
 export async function generateMetadata(): Promise<Metadata> {
   const extras = await fetchWebExtrasPublic();
-  const appName   = extras?.pwa_short_name?.trim() || 'ÖğretmenPro';
+  const appName   = extras?.pwa_short_name?.trim() || 'Uzaedu Öğretmen';
   const siteTitle = `${appName} | Dijital Okul Yönetim Platformu`;
   const desc      = extras?.meta_description?.trim() ||
     'Öğretmenler ve okul yöneticileri için ders programı, sınav planlama, akademik takvim, ek ders hesaplama ve öğretmen ajandası. MEB uyumlu yerli yazılım.';
@@ -45,7 +45,7 @@ export async function generateMetadata(): Promise<Metadata> {
     keywords:        [
       'öğretmen', 'okul yönetimi', 'ders programı', 'sınav planlama', 'akademik takvim',
       'ek ders hesaplama', 'nöbet', 'öğretmen ajandası', 'MEB', 'dijital okul',
-      'ÖğretmenPro', 'UzaMobil', 'yerli yazılım',
+      'Uzaedu Öğretmen', 'UzaMobil', 'yerli yazılım',
     ],
     authors:         [{ name: 'UzaMobil Yazılım', url: SITE_URL }],
     creator:         'UzaMobil',
@@ -143,8 +143,8 @@ export default async function RootLayout({
                 {
                   '@type': 'Organization',
                   '@id': `${SITE_URL}/#organization`,
-                  name: 'ÖğretmenPro',
-                  alternateName: 'UzaMobil ÖğretmenPro',
+                  name: 'Uzaedu Öğretmen',
+                  alternateName: 'UzaMobil Uzaedu Öğretmen',
                   url: SITE_URL,
                   logo: {
                     '@type': 'ImageObject',
@@ -171,7 +171,7 @@ export default async function RootLayout({
                   '@type': 'WebSite',
                   '@id': `${SITE_URL}/#website`,
                   url: SITE_URL,
-                  name: 'ÖğretmenPro | Dijital Okul Yönetim Platformu',
+                  name: 'Uzaedu Öğretmen | Dijital Okul Yönetim Platformu',
                   description: 'Öğretmenler ve okul yöneticileri için ders programı, sınav planlama, akademik takvim ve daha fazlası.',
                   publisher: { '@id': `${SITE_URL}/#organization` },
                   inLanguage: 'tr',

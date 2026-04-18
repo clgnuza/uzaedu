@@ -1,4 +1,4 @@
-# Öğretmen Pro – Yerel geliştirme için PostgreSQL
+# Uzaedu Öğretmen – Yerel geliştirme için PostgreSQL
 # Kullanım: docker compose up -d
 # Backend .env: DB_HOST=127.0.0.1, DB_PORT=5432, DB_DATABASE=ogretmenpro, DB_USERNAME=postgres, DB_PASSWORD=postgres
 

@@ -11,7 +11,7 @@ interface WorkItem {
 }
 
 const SAMPLE_ITEMS: WorkItem[] = [
-  { title: 'ÖğretmenPro', desc: 'Okul Yöneticisi / Öğretmen', date: '2024 - Günümüz' },
+  { title: 'Uzaedu Öğretmen', desc: 'Okul Yöneticisi / Öğretmen', date: '2024 - Günümüz' },
   { heading: 'Önceki görevler' },
   { title: 'Örnek Okul', desc: 'Öğretmen', date: '2020 - 2024' },
   { title: 'Eğitim Kurumu', desc: 'Stajyer', date: '2018 - 2020' },

@@ -44,7 +44,7 @@ export function Main({ children, role }: MainProps) {
           </div>
         </main>
         <footer className="border-t border-border bg-muted/30 py-4 text-center text-xs text-muted-foreground">
-          Öğretmen Pro Web Admin
+          Uzaedu Öğretmen Web Admin
         </footer>
       </div>
     </>

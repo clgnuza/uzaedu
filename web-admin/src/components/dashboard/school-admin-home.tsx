@@ -140,14 +140,6 @@ function SchoolSuggestedActionsCard({
     { href: '/classes-subjects', title: 'Sınıf ve ders yapısı', hint: 'Şubeleri güncel tutun', icon: BookOpen },
     { href: '/ders-programi', title: 'Ders programı', hint: 'Günlük tablo ve planlar', icon: Table2 },
   ];
-  if (isModuleEnabled(enabledModules, 'school_profile')) {
-    pool.splice(2, 0, {
-      href: '/school-profile',
-      title: 'Okul tanıtım sayfası',
-      hint: 'Vitrin metinleri ve görseller',
-      icon: Building2,
-    });
-  }
   if (isModuleEnabled(enabledModules, 'messaging')) {
     pool.push({
       href: '/mesaj-merkezi',
@@ -217,7 +209,6 @@ const MODULE_CATALOG: { key: SchoolModuleKey; label: string; href: string; icon:
   { key: 'smart_board', label: 'Akıllı tahta', href: '/akilli-tahta', icon: Monitor },
   { key: 'teacher_agenda', label: 'Öğretmen ajandası', href: '/ogretmen-ajandasi', icon: ClipboardList },
   { key: 'bilsem', label: 'Bilsem', href: '/bilsem/takvim', icon: School },
-  { key: 'school_profile', label: 'Okul tanıtım', href: '/school-profile', icon: Building2 },
   { key: 'school_reviews', label: 'Okul değerlendirmesi', href: '/school-reviews-report', icon: BarChart3 },
   { key: 'messaging', label: 'Mesaj merkezi', href: '/mesaj-merkezi', icon: MessageSquare },
   { key: 'butterfly_exam', label: 'Kertenkele sınav', href: '/kelebek-sinav', icon: LayoutGrid },

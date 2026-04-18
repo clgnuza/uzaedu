@@ -17,6 +17,16 @@ export function applyExamDutyWallClockInTurkey(d: Date | null, timeHHmm: string)
   return new Date(`${ymd}T${hh}:${mm}:00+03:00`);
 }
 
+/** GPT sonuç tarihi yoksa: sınavın İstanbul takvim gününden bir gün önce + result_date varsayılan saati. */
+export function turkeyDayBeforeExamWithWallClock(examInstant: Date, timeHHmm: string): Date {
+  const examYmd = examInstant.toLocaleDateString('en-CA', { timeZone: TURKEY_TZ });
+  const anchor = new Date(`${examYmd}T12:00:00+03:00`);
+  anchor.setUTCDate(anchor.getUTCDate() - 1);
+  const prevYmd = anchor.toLocaleDateString('en-CA', { timeZone: TURKEY_TZ });
+  const noonPrev = new Date(`${prevYmd}T12:00:00+03:00`);
+  return applyExamDutyWallClockInTurkey(noonPrev, timeHHmm) ?? noonPrev;
+}
+
 /** Şu anki saat HH:mm (İstanbul) */
 export function getNowHHmmTurkey(now = new Date()): string {
   const s = now.toLocaleTimeString('en-GB', {

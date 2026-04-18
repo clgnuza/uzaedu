@@ -51,6 +51,7 @@ import {
   applyBilsemPuyMergeRowDefaults,
   isBilsemSubjectCode,
 } from '../bilsem/bilsem-puy-plan-constants';
+import { EntitlementService } from '../entitlements/entitlement.service';
 
 @Injectable()
 export class DocumentGenerateService {
@@ -64,6 +65,7 @@ export class DocumentGenerateService {
     private readonly workCalendarService: WorkCalendarService,
     private readonly generationService: DocumentGenerationService,
     private readonly bilsemYillikPlanService: BilsemYillikPlanService,
+    private readonly entitlementService: EntitlementService,
   ) {}
 
   async generate(
@@ -102,6 +104,14 @@ export class DocumentGenerateService {
 
     this.validateFormData(template, dto.form_data ?? {});
     const formData = dto.form_data ?? {};
+
+    if (!options?.skipSave && !EntitlementService.isEvrakExempt(user.role as UserRole)) {
+      if (template.type === 'yillik_plan') {
+        await this.entitlementService.checkAndConsumeYillikPlanUretim(user.id);
+      } else {
+        await this.entitlementService.checkAndConsumeEvrak(user.id);
+      }
+    }
 
     // Modül etkinleştirmesi: RequireModuleActivationGuard (document|bilsem) + POST /market/modules/activate
 

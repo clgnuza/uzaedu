@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { Upload, Download, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, isAbortError } from '@/lib/api';
 import { toast } from 'sonner';
 import { Alert } from '@/components/ui/alert';
 import { SCHOOL_TYPE_ORDER, SCHOOL_STATUS_LABELS, SCHOOL_SEGMENT_LABELS, formatSchoolTypeLabel } from '@/lib/school-labels';
@@ -96,6 +96,8 @@ export function SchoolReconcilePanel({
   const [mebbisLoadingIlce, setMebbisLoadingIlce] = useState(false);
   const [mebbisLoadingTur, setMebbisLoadingTur] = useState(false);
   const [mebbisFetching, setMebbisFetching] = useState(false);
+  /** İl geneli: ilçe seçmeden MEB listesindeki o ile ait tüm kurumlar (onay + uzun süre). */
+  const [mebbisTumIl, setMebbisTumIl] = useState(false);
   const [optCreate, setOptCreate] = useState(true);
   const [optUpdate, setOptUpdate] = useState(true);
   const [optAskida, setOptAskida] = useState(false);
@@ -143,13 +145,13 @@ export function SchoolReconcilePanel({
   }, [token, sourceMode]);
 
   useEffect(() => {
-    if (!token || sourceMode !== 'mebbis' || !mebbisOwner || !mebbisIlKodu) {
+    if (!token || sourceMode !== 'mebbis' || !mebbisOwner || !mebbisIlKodu || mebbisTumIl) {
       setMebbisLoadingIlce(false);
       setIlceOptions([]);
       setTurOptions([]);
       setMebbisLoadingTur(false);
       setMebbisTurFilter('');
-      if (!mebbisIlKodu || !mebbisOwner) setMebbisIlce('');
+      if (!mebbisIlKodu || !mebbisOwner || mebbisTumIl) setMebbisIlce('');
       return;
     }
     let cancelled = false;
@@ -177,10 +179,10 @@ export function SchoolReconcilePanel({
     return () => {
       cancelled = true;
     };
-  }, [token, sourceMode, mebbisIlKodu, mebbisOwner]);
+  }, [token, sourceMode, mebbisIlKodu, mebbisOwner, mebbisTumIl]);
 
   useEffect(() => {
-    if (!token || sourceMode !== 'mebbis' || !mebbisOwner || !mebbisIlKodu || !mebbisIlce) {
+    if (!token || sourceMode !== 'mebbis' || !mebbisOwner || !mebbisIlKodu || !mebbisIlce || mebbisTumIl) {
       setMebbisLoadingTur(false);
       setTurOptions([]);
       setMebbisTurFilter('');
@@ -209,7 +211,7 @@ export function SchoolReconcilePanel({
     return () => {
       cancelled = true;
     };
-  }, [token, sourceMode, mebbisOwner, mebbisIlKodu, mebbisIlce]);
+  }, [token, sourceMode, mebbisOwner, mebbisIlKodu, mebbisIlce, mebbisTumIl]);
 
   const runPreview = useCallback(
     async (body: Record<string, unknown>[]): Promise<PreviewRes | null> => {
@@ -267,27 +269,52 @@ export function SchoolReconcilePanel({
   );
 
   const handleMebbisFetch = async () => {
-    if (!token || !mebbisOwner || !mebbisIlKodu || !mebbisIlce.trim()) {
-      toast.warning('Kurum sahibi, il ve ilçe seçin');
+    if (!token || !mebbisOwner || !mebbisIlKodu) {
+      toast.warning('Kurum sahibi ve il seçin');
       return;
+    }
+    if (!mebbisTumIl && !mebbisIlce.trim()) {
+      toast.warning('İlçe seçin veya «Tüm il» ile il genelini işaretleyin');
+      return;
+    }
+    if (mebbisTumIl) {
+      const ilAd = selectedIlLabel || mebbisIlKodu;
+      if (
+        !window.confirm(
+          `${ilAd} ilindeki TÜM ilçelerdeki kurumlar MEB okul dizininden çekilecek; her kurum için ayrıntı sayfası taranır ve işlem uzun sürebilir. Devam edilsin mi?`,
+        )
+      ) {
+        return;
+      }
     }
     setMebbisFetching(true);
     setError(null);
     setPreview(null);
+    const ac = new AbortController();
+    const abortMs = 55 * 60 * 1000;
+    const abortTimer = window.setTimeout(() => ac.abort(), abortMs);
     try {
-      const res = await apiFetch<{ schools: Record<string, unknown>[]; meta: { row_count: number } }>(
-        '/schools/mebbis/fetch-rows',
-        {
-          method: 'POST',
-          token,
-          body: JSON.stringify({
-            owner: mebbisOwner as '1' | '2' | '3',
-            il_kodu: mebbisIlKodu,
-            ilce_label: mebbisIlce.trim(),
-            kurum_turu_contains: mebbisTurFilter.trim() || undefined,
-          }),
-        },
-      );
+      const res = await apiFetch<{
+        schools: Record<string, unknown>[];
+        meta: { row_count: number; tum_il?: boolean };
+      }>('/schools/mebbis/fetch-rows', {
+        method: 'POST',
+        token,
+        signal: ac.signal,
+        body: JSON.stringify(
+          (() => {
+            const kt = mebbisTurFilter.trim();
+            const o: Record<string, unknown> = {
+              owner: mebbisOwner as '1' | '2' | '3',
+              il_kodu: mebbisIlKodu,
+            };
+            if (mebbisTumIl) o.tum_il = true;
+            else o.ilce_label = mebbisIlce.trim();
+            if (kt) o.kurum_turu_contains = kt;
+            return o;
+          })(),
+        ),
+      });
       const p = res.schools ?? [];
       setRows([]);
       setPayload(p);
@@ -313,9 +340,16 @@ export function SchoolReconcilePanel({
         }
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'MEB okul dizini okunamadı');
-      toast.error('MEB okul dizini okunamadı');
+      if (isAbortError(e)) {
+        const msg = `İstek ${Math.round(abortMs / 60000)} dk. içinde tamamlanmadı; sekmeyi kapatmayın. Büyük illerde ilçe ilçe çekmeyi deneyin.`;
+        setError(msg);
+        toast.error(msg);
+      } else {
+        setError(e instanceof Error ? e.message : 'MEB okul dizini okunamadı');
+        toast.error('MEB okul dizini okunamadı');
+      }
     } finally {
+      window.clearTimeout(abortTimer);
       setMebbisFetching(false);
     }
   };
@@ -485,6 +519,7 @@ export function SchoolReconcilePanel({
                 setMebbisIlKodu('');
                 setMebbisIlce('');
                 setMebbisTurFilter('');
+                setMebbisTumIl(false);
                 setIlceOptions([]);
               }
             }}
@@ -546,10 +581,13 @@ export function SchoolReconcilePanel({
         <div className="space-y-3 rounded-lg border border-border bg-muted/10 p-3 text-sm">
           <p className="text-xs leading-5 text-muted-foreground">
             Sunucu public <strong>MEB okul dizini</strong> sayfasını tarar; kurum listesi ve kurum sayfasından adres /
-            telefon / web verilerini toplar. <strong>Yeni okul</strong> yalnızca satırda okunan <strong>kurum kodu</strong>
+            telefon / web verilerini toplar. <strong>Tüm il</strong> ile ilçe seçmeden o ile ait tüm kurumlar çekilir
+            (onay penceresi; işlem uzun sürebilir). <strong>Yeni okul</strong> yalnızca satırda okunan{' '}
+            <strong>kurum kodu</strong>
             ile oluşur (Özet → Yeni). İlk kurulum: backend’de{' '}
             <code className="rounded bg-muted px-1">npx playwright install chromium</code>. Liste boş veya hep kodsuzsa
-            public sayfa taraması veya kurum kodu çıkarımı başarısız demektir.
+            public sayfa taraması veya kurum kodu çıkarımı başarısız demektir. Uzun illerde tablo tam yüklenene kadar
+            sunucu bekler; bu sekmede kalın (yaklaşık 55 dk. tarayıcı zaman aşımı).
           </p>
           <div className="flex max-w-md flex-col gap-3">
             <label className="flex flex-col gap-0.5 text-xs">
@@ -590,22 +628,44 @@ export function SchoolReconcilePanel({
                 ))}
               </select>
             </label>
+            <label className="flex cursor-pointer items-start gap-2 rounded-md border border-dashed border-border bg-background/80 px-3 py-2 text-xs leading-snug">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={mebbisTumIl}
+                onChange={(e) => {
+                  const v = e.target.checked;
+                  setMebbisTumIl(v);
+                  if (v) {
+                    setMebbisIlce('');
+                    setMebbisTurFilter('');
+                  }
+                }}
+                disabled={!mebbisOwner || !mebbisIlKodu}
+              />
+              <span>
+                <strong>Tüm il</strong> — ilçe seçmeden bu ile kayıtlı tüm kurumlar (toplu). Uzun sürebilir; uygulama
+                öncesi özet sekmesini kontrol edin.
+              </span>
+            </label>
             <label className="flex flex-col gap-0.5 text-xs">
               <span className="font-medium text-foreground">3 · İlçe</span>
               <select
                 value={mebbisIlce}
                 onChange={(e) => setMebbisIlce(e.target.value)}
-                disabled={!mebbisOwner || !mebbisIlKodu || mebbisLoadingIlce}
+                disabled={!mebbisOwner || !mebbisIlKodu || mebbisLoadingIlce || mebbisTumIl}
                 className="rounded-lg border border-border bg-background px-3 py-2 text-sm disabled:opacity-50"
               >
                 <option value="">
-                  {!mebbisOwner
-                    ? 'Önce kurum sahibi seçin'
-                    : !mebbisIlKodu
-                      ? 'Önce il seçin'
-                      : mebbisLoadingIlce
-                        ? 'Yükleniyor…'
-                        : 'Seçiniz'}
+                  {mebbisTumIl
+                    ? 'Tüm il modunda ilçe gerekmez'
+                    : !mebbisOwner
+                      ? 'Önce kurum sahibi seçin'
+                      : !mebbisIlKodu
+                        ? 'Önce il seçin'
+                        : mebbisLoadingIlce
+                          ? 'Yükleniyor…'
+                          : 'Seçiniz'}
                 </option>
                 {districtSuggestions.map((label) => (
                   <option key={label} value={label}>
@@ -622,7 +682,7 @@ export function SchoolReconcilePanel({
               <select
                 value={mebbisTurFilter}
                 onChange={(e) => setMebbisTurFilter(e.target.value)}
-                disabled={!mebbisOwner || !mebbisIlKodu || !mebbisIlce || mebbisLoadingTur}
+                disabled={!mebbisOwner || !mebbisIlKodu || !mebbisIlce || mebbisLoadingTur || mebbisTumIl}
                 className="rounded-lg border border-border bg-background px-3 py-2 text-sm disabled:opacity-50"
               >
                 <option value="">Tümü</option>
@@ -633,17 +693,19 @@ export function SchoolReconcilePanel({
                 ))}
               </select>
               <span className="text-[11px] text-muted-foreground">
-                {!mebbisIlce
-                  ? 'İlçe seçilince kurum türleri public MEB okul dizininden yüklenir.'
-                  : mebbisLoadingTur
-                    ? 'Kurum türleri public MEB okul dizininden yükleniyor.'
-                    : 'İsterseniz kurum türünü de listeden seçip sonucu daraltabilirsiniz.'}
+                {mebbisTumIl
+                  ? 'Tüm il modunda kurum türü daraltması kapalıdır (tüm türler).'
+                  : !mebbisIlce
+                    ? 'İlçe seçilince kurum türleri public MEB okul dizininden yüklenir.'
+                    : mebbisLoadingTur
+                      ? 'Kurum türleri public MEB okul dizininden yükleniyor.'
+                      : 'İsterseniz kurum türünü de listeden seçip sonucu daraltabilirsiniz.'}
               </span>
             </label>
           </div>
           <button
             type="button"
-            disabled={mebbisFetching || loadingPreview || !mebbisOwner || !mebbisIlKodu || !mebbisIlce}
+            disabled={mebbisFetching || loadingPreview || !mebbisOwner || !mebbisIlKodu || (!mebbisTumIl && !mebbisIlce)}
             onClick={() => void handleMebbisFetch()}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >

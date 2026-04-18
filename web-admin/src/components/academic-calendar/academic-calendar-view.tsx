@@ -584,20 +584,23 @@ export function AcademicCalendarView({
     });
 
   return (
-    <div className={cn(compact ? 'space-y-2 sm:space-y-5 md:space-y-3' : 'space-y-3 sm:space-y-6 md:space-y-4', className)}>
-      <p className="sr-only" aria-live="polite" aria-atomic>
-        {centerWeek
-          ? `Seçili ${centerWeek.weekNumber}. hafta, ${centerWeek.dateStart && centerWeek.dateEnd ? formatDateRangeProminent(centerWeek.dateStart, centerWeek.dateEnd) : ''}`
-          : ''}
-      </p>
-
+    <div className={cn(compact ? 'flex flex-col gap-2 sm:gap-5 md:gap-3' : 'flex flex-col gap-3 sm:gap-6 md:gap-4', className)}>
       <div
         className={cn(
           'sticky z-20 w-full rounded-lg border border-indigo-100/60 bg-white/95 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-white/90 dark:border-indigo-900/45 dark:bg-zinc-950/95 md:rounded-2xl md:border-violet-100/80 md:bg-background/90 md:shadow-sm md:dark:border-violet-900/40 md:dark:bg-background/90',
-          compact ? 'space-y-1 p-1 max-sm:rounded-md sm:space-y-2.5 sm:p-3 md:space-y-2 md:p-2' : 'space-y-1.5 p-1.5 max-sm:rounded-md sm:space-y-3 sm:p-3 md:space-y-2 md:p-2',
+          compact
+            ? 'flex flex-col gap-1 p-1 max-sm:rounded-md sm:gap-2.5 sm:p-3 md:gap-2 md:p-2'
+            : 'flex flex-col gap-1 p-1 max-sm:rounded-md sm:gap-2.5 sm:p-3 md:gap-2 md:p-2',
         )}
-        style={{ top: 'max(var(--header-height, 0px), env(safe-area-inset-top, 0px))' }}
+        style={{
+          top: 'max(env(safe-area-inset-top, 0px), var(--app-header-sticky-top, var(--header-height, 0px)))',
+        }}
       >
+        <p className="sr-only" aria-live="polite" aria-atomic>
+          {centerWeek
+            ? `Seçili ${centerWeek.weekNumber}. hafta, ${centerWeek.dateStart && centerWeek.dateEnd ? formatDateRangeProminent(centerWeek.dateStart, centerWeek.dateEnd) : ''}`
+            : ''}
+        </p>
         <div
           className={cn(
             '-mx-0.5 hidden max-w-full flex-nowrap items-center justify-center gap-x-2 gap-y-0.5 overflow-x-auto px-0.5 pb-0.5 text-[10px] text-muted-foreground sm:flex sm:justify-start sm:flex-wrap sm:gap-x-3 sm:text-xs',
@@ -617,12 +620,12 @@ export function AcademicCalendarView({
 
         <div
           className={cn(
-            'grid max-sm:grid-cols-2 max-sm:items-end max-sm:gap-2 sm:flex sm:flex-row sm:items-end',
-            compact ? 'gap-1.5 sm:gap-2.5' : 'gap-2 sm:gap-3',
+            'grid max-sm:grid-cols-2 max-sm:items-end max-sm:gap-1.5 sm:flex sm:flex-row sm:items-end',
+            compact ? 'gap-1.5 sm:gap-2.5' : 'gap-1.5 sm:gap-3',
           )}
         >
-          <div className={cn('min-w-0 flex-1', compact ? 'space-y-0.5 sm:space-y-1.5' : 'space-y-0.5 sm:space-y-2')}>
-            <Label htmlFor={weekJumpId} className="text-[9px] text-muted-foreground sm:text-sm">
+          <div className={cn('flex min-w-0 flex-1 flex-col', compact ? 'gap-0.5 sm:gap-1.5' : 'gap-0.5 sm:gap-2')}>
+            <Label htmlFor={weekJumpId} className="text-[9px] leading-none text-muted-foreground sm:text-sm">
               Haftaya git
             </Label>
             <select
@@ -644,8 +647,8 @@ export function AcademicCalendarView({
             </select>
           </div>
           {onViewChange && (
-            <div className={cn('min-w-0 sm:min-w-[11rem]', compact ? 'space-y-0.5 sm:space-y-1.5' : 'space-y-0.5 sm:space-y-2')}>
-              <span className="block text-[9px] font-medium text-muted-foreground sm:text-sm">Görünüm</span>
+            <div className={cn('flex min-w-0 flex-col sm:min-w-[11rem]', compact ? 'gap-0.5 sm:gap-1.5' : 'gap-0.5 sm:gap-2')}>
+              <span className="block text-[9px] font-medium leading-none text-muted-foreground sm:text-sm">Görünüm</span>
               <div className="grid grid-cols-2 gap-px rounded-md border border-border/50 bg-muted/20 p-px dark:bg-muted/10 sm:flex sm:gap-1 sm:rounded-xl sm:border-0 sm:bg-transparent sm:p-0">
                 <button
                   type="button"
@@ -679,8 +682,8 @@ export function AcademicCalendarView({
           )}
         </div>
 
-        <div className="max-sm:pt-0.5">
-          <div className="mb-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground sm:mb-1.5 sm:text-xs">
+        <div className="max-sm:pt-0">
+          <div className="mb-0.5 flex items-center justify-between gap-2 text-[10px] text-muted-foreground sm:mb-1 sm:text-xs">
             <span className="max-sm:truncate">Konum</span>
             <span className="shrink-0 tabular-nums">
               {centerIndex + 1}/{weeks.length} · %{progressPct}
@@ -839,7 +842,7 @@ export function AcademicCalendarView({
                 <div
                   key={w.id}
                   ref={isActive ? monthListActiveElRef : undefined}
-                  className="min-h-0 scroll-mt-[max(6rem,var(--header-height,0px))]"
+                  className="min-h-0 scroll-mt-[calc(var(--header-height,0px)+0.75rem)]"
                 >
                   <WeekCardCompact
                     week={w}

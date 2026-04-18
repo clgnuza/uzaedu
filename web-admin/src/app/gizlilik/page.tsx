@@ -6,8 +6,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const data = await fetchLegalPagesPublic();
   const block = data?.privacy;
   return {
-    title: block ? `${block.title} | ÖğretmenPro` : 'Gizlilik ve Kişisel Veri Bilgilendirmesi | ÖğretmenPro',
-    description: block?.meta_description ?? 'ÖğretmenPro gizlilik politikası ve kişisel veri işleme bilgilendirmesi.',
+    title: block ? `${block.title} | Uzaedu Öğretmen` : 'Gizlilik ve Kişisel Veri Bilgilendirmesi | Uzaedu Öğretmen',
+    description: block?.meta_description ?? 'Uzaedu Öğretmen gizlilik politikası ve kişisel veri işleme bilgilendirmesi.',
   };
 }
 

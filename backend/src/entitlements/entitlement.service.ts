@@ -4,8 +4,12 @@ import { Repository } from 'typeorm';
 import { Entitlement } from './entities/entitlement.entity';
 import { UserRole } from '../types/enums';
 
-/** Varsayılan evrak üretim kotası – yeni kullanıcı veya kayıt yoksa */
+export const ENTITLEMENT_EVRAK_URETIM = 'evrak_uretim';
+/** Yıllık plan (MEB/Bilsem) Word/Excel üretimi — diğer evrak şablonlarından ayrı kota */
+export const ENTITLEMENT_YILLIK_PLAN_URETIM = 'yillik_plan_uretim';
+
 const DEFAULT_EVRAK_QUANTITY = 10;
+const DEFAULT_YILLIK_PLAN_QUANTITY = 10;
 
 /** Development’ta veya EVRAK_SKIP_TEACHER_QUOTA=1 iken öğretmen evrak kotası düşmez / 402 verilmez. */
 function isTeacherEvrakQuotaSkipped(): boolean {
@@ -15,6 +19,10 @@ function isTeacherEvrakQuotaSkipped(): boolean {
   return process.env.NODE_ENV !== 'production';
 }
 
+function defaultQuantityFor(entitlementType: string): number {
+  return entitlementType === ENTITLEMENT_YILLIK_PLAN_URETIM ? DEFAULT_YILLIK_PLAN_QUANTITY : DEFAULT_EVRAK_QUANTITY;
+}
+
 @Injectable()
 export class EntitlementService {
   constructor(
@@ -22,27 +30,40 @@ export class EntitlementService {
     private readonly repo: Repository<Entitlement>,
   ) {}
 
-  /** Kullanıcının evrak_uretim miktarını getir; yoksa varsayılanla oluştur */
-  async getEvrakQuantity(userId: string): Promise<number> {
+  private async loadOrCreateEntitlement(userId: string, entitlementType: string): Promise<Entitlement> {
     let ent = await this.repo.findOne({
-      where: { userId, entitlementType: 'evrak_uretim' },
+      where: { userId, entitlementType },
     });
     if (!ent) {
       ent = this.repo.create({
         userId,
-        entitlementType: 'evrak_uretim',
-        quantity: DEFAULT_EVRAK_QUANTITY,
+        entitlementType,
+        quantity: defaultQuantityFor(entitlementType),
       });
       await this.repo.save(ent);
     }
+    return ent;
+  }
+
+  /** İlgili entitlement miktarı; kayıt yoksa varsayılanla oluşturulur */
+  async getQuantity(userId: string, entitlementType: string): Promise<number> {
+    const ent = await this.loadOrCreateEntitlement(userId, entitlementType);
     if (ent.expiresAt && new Date() > ent.expiresAt) return 0;
     return Math.max(0, ent.quantity);
   }
 
+  /** Kullanıcının evrak_uretim miktarını getir; yoksa varsayılanla oluştur */
+  async getEvrakQuantity(userId: string): Promise<number> {
+    return this.getQuantity(userId, ENTITLEMENT_EVRAK_URETIM);
+  }
+
+  async getYillikPlanUretimQuantity(userId: string): Promise<number> {
+    return this.getQuantity(userId, ENTITLEMENT_YILLIK_PLAN_URETIM);
+  }
+
   /**
-   * Evrak üretim hakkını kontrol et ve 1 düş.
+   * Evrak üretim hakkını kontrol et ve 1 düş (yıllık plan dışı şablonlar).
    * Kotası yoksa ENTITLEMENT_REQUIRED (402) fırlatır.
-   * superadmin / moderator bypass (rol kontrolü caller'da).
    */
   async checkAndConsumeEvrak(userId: string): Promise<void> {
     if (isTeacherEvrakQuotaSkipped()) return;
@@ -52,20 +73,50 @@ export class EntitlementService {
         {
           code: 'ENTITLEMENT_REQUIRED',
           message: 'Evrak üretim kotanız bitti. Marketten hak satın alarak devam edebilirsiniz.',
-          details: { entitlement_type: 'evrak_uretim' },
+          details: { entitlement_type: ENTITLEMENT_EVRAK_URETIM },
         },
-        HttpStatus.PAYMENT_REQUIRED, // 402
+        HttpStatus.PAYMENT_REQUIRED,
       );
     }
-    await this.repo.decrement(
-      { userId, entitlementType: 'evrak_uretim' },
-      'quantity',
-      1,
-    );
+    await this.repo.decrement({ userId, entitlementType: ENTITLEMENT_EVRAK_URETIM }, 'quantity', 1);
+  }
+
+  /**
+   * Yıllık plan üretim hakkını kontrol et ve 1 düş.
+   * Kotası yoksa ENTITLEMENT_REQUIRED (402) fırlatır.
+   */
+  async checkAndConsumeYillikPlanUretim(userId: string): Promise<void> {
+    if (isTeacherEvrakQuotaSkipped()) return;
+    const qty = await this.getYillikPlanUretimQuantity(userId);
+    if (qty <= 0) {
+      throw new HttpException(
+        {
+          code: 'ENTITLEMENT_REQUIRED',
+          message:
+            'Yıllık plan üretim kotanız bitti. Marketten plan üretim hakkı veya evrak paketi satın alarak devam edebilirsiniz.',
+          details: { entitlement_type: ENTITLEMENT_YILLIK_PLAN_URETIM },
+        },
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
+    await this.repo.decrement({ userId, entitlementType: ENTITLEMENT_YILLIK_PLAN_URETIM }, 'quantity', 1);
+  }
+
+  /**
+   * Süperadmin / otomasyon: hak ekle (market webhook vb.).
+   * Kayıt yoksa varsayılan kotayla oluşturulup üzerine eklenir.
+   */
+  async addEntitlementQuantity(userId: string, entitlementType: string, delta: number): Promise<void> {
+    const d = Math.floor(delta);
+    if (!Number.isFinite(d) || d <= 0) return;
+    await this.loadOrCreateEntitlement(userId, entitlementType);
+    await this.repo.increment({ userId, entitlementType }, 'quantity', d);
   }
 
   /** Tüm entitlement'ları döndür (frontend için) */
   async findAllForUser(userId: string): Promise<{ entitlementType: string; quantity: number; expiresAt: string | null }[]> {
+    await this.getEvrakQuantity(userId);
+    await this.getYillikPlanUretimQuantity(userId);
     const list = await this.repo.find({
       where: { userId },
       order: { entitlementType: 'ASC' },

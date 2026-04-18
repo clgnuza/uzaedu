@@ -16,6 +16,8 @@ export class NotificationsService {
     exam_school_modules: ['butterfly_exam', 'sorumluluk_exam'],
     /** Mesaj Gönderme Merkezi (WhatsApp) + merkez sistem mesajı */
     message_center_modules: ['messaging', 'admin_message'],
+    /** Okul değerlendirme: içerik bildirimi sonrası strike / site yasağı */
+    school_reviews_penalty: ['school_reviews.penalty'],
   };
 
   constructor(

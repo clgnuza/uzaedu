@@ -58,7 +58,7 @@ const empty: WebPublicConfig = {
   social_youtube: null,
   privacy_policy_url: null,
   terms_url: null,
-  footer_copyright_suffix: '© Öğretmen Pro Web Admin',
+  footer_copyright_suffix: '© Uzaedu Öğretmen Web Admin',
   footer_nav_items: [
     { label: 'Gizlilik', href: '/gizlilik' },
     { label: 'Kullanım Şartları', href: '/kullanim-sartlari' },
@@ -304,7 +304,7 @@ export function WebPublicPanel() {
             </div>
             <WebSettingsField
               label="Telif satırı (yıl otomatik eklenir)"
-              hint="Örn. © Öğretmen Pro Web Admin"
+              hint="Örn. © Uzaedu Öğretmen Web Admin"
               htmlFor="wp-footer-copy"
             >
               <Input
@@ -312,7 +312,7 @@ export function WebPublicPanel() {
                 className={WEB_SETTINGS_INPUT}
                 value={form.footer_copyright_suffix ?? ''}
                 onChange={(e) => setForm((f) => ({ ...f, footer_copyright_suffix: e.target.value.trim() || null }))}
-                placeholder="© Öğretmen Pro Web Admin"
+                placeholder="© Uzaedu Öğretmen Web Admin"
               />
             </WebSettingsField>
             <div>

@@ -42,16 +42,16 @@ export function EvrakWizardHero({
   archiveCount,
   templatesTotal,
   showQuota,
-  evrakEntitlement,
-  noEvrakQuota,
+  planUretimKota,
+  noPlanKota,
   defaultsIncomplete,
 }: {
   onOpenGuide: () => void;
   archiveCount: number;
   templatesTotal: number | null;
   showQuota: boolean;
-  evrakEntitlement: number | null;
-  noEvrakQuota: boolean;
+  planUretimKota: number | null;
+  noPlanKota: boolean;
   defaultsIncomplete: boolean;
 }) {
   return (
@@ -74,16 +74,16 @@ export function EvrakWizardHero({
                 <span className="inline-flex items-center rounded-full border border-emerald-300/50 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-900 dark:border-emerald-800 dark:text-emerald-100 sm:text-xs">
                   {templatesTotal === null ? 'Şablon —' : `Liste ${templatesTotal}`}
                 </span>
-                {showQuota && evrakEntitlement !== null && (
+                {showQuota && planUretimKota !== null && (
                   <span
                     className={cn(
                       'inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold sm:text-xs',
-                      noEvrakQuota || evrakEntitlement <= 0
+                      noPlanKota || planUretimKota <= 0
                         ? 'border-rose-300/50 bg-rose-500/10 text-rose-900 dark:border-rose-800 dark:text-rose-100'
                         : 'border-violet-300/50 bg-violet-500/10 text-violet-900 dark:border-violet-800 dark:text-violet-100',
                     )}
                   >
-                    Kota {evrakEntitlement}
+                    Plan kotası {planUretimKota}
                   </span>
                 )}
               </div>
@@ -95,13 +95,13 @@ export function EvrakWizardHero({
                   </Link>
                 </p>
               )}
-              {showQuota && noEvrakQuota && (
+              {showQuota && noPlanKota && (
                 <Link
                   href="/market"
                   className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline sm:text-xs"
                 >
                   <ShoppingBag className="size-3.5 shrink-0" />
-                  Marketten evrak hakkı
+                  Marketten plan hakkı
                 </Link>
               )}
             </div>

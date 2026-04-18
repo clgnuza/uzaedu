@@ -69,6 +69,7 @@ const nextConfig: NextConfig = {
       { source: "/bilsem-sablon/planlar", destination: "/bilsem-sablon?tab=planlar", permanent: false },
       { source: "/extra-lesson-calc", destination: "/ek-ders-hesaplama", permanent: true },
       { source: "/school-reviews", destination: "/okul-degerlendirmeleri", permanent: true },
+      { source: "/moderation", destination: "/school-reviews-settings", permanent: false },
     ];
   },
 };

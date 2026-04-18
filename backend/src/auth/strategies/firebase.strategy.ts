@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-custom';
 import { Request } from 'express';
@@ -6,6 +6,14 @@ import * as admin from 'firebase-admin';
 import { AuthService } from '../auth.service';
 import { User } from '../../users/entities/user.entity';
 import { AUTH_COOKIE_NAME } from '../auth-cookie';
+import { UserRole } from '../../types/enums';
+
+function isSchoolReviewsSiteBanExemptPath(path: string): boolean {
+  if (path === '/api/health' || path.startsWith('/api/health/')) return true;
+  if (path.startsWith('/api/auth/')) return true;
+  if (path === '/api/me' || path.startsWith('/api/me/')) return true;
+  return false;
+}
 
 function getFirebaseApp(): admin.app.App | null {
   try {
@@ -48,10 +56,12 @@ export class FirebaseStrategy extends PassportStrategy(Strategy, 'firebase') {
       });
     }
 
+    const path = (req.originalUrl ?? req.url ?? '').split('?')[0];
+
     for (const raw of candidates) {
       if (looksLikeUserIdUuid(raw)) {
         const user = await this.authService.validateUserId(raw);
-        if (user) return user;
+        if (user) return this.assertSchoolReviewsSiteBan(user, path);
       }
     }
 
@@ -62,7 +72,7 @@ export class FirebaseStrategy extends PassportStrategy(Strategy, 'firebase') {
         const decoded = await app.auth().verifyIdToken(raw);
         const uid = decoded.uid;
         const user = await this.authService.validateFirebaseUid(uid);
-        if (user) return user;
+        if (user) return this.assertSchoolReviewsSiteBan(user, path);
         throw new UnauthorizedException({
           code: 'UNAUTHORIZED',
           message: 'Oturum açmanız gerekiyor.',
@@ -76,5 +86,18 @@ export class FirebaseStrategy extends PassportStrategy(Strategy, 'firebase') {
       code: 'UNAUTHORIZED',
       message: 'Oturum açmanız gerekiyor.',
     });
+  }
+
+  private assertSchoolReviewsSiteBan(user: User, path: string) {
+    if (user.role === UserRole.superadmin) return user;
+    const until = user.schoolReviewsSiteBanUntil;
+    if (until instanceof Date && until.getTime() > Date.now() && !isSchoolReviewsSiteBanExemptPath(path)) {
+      const untilStr = until.toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' });
+      throw new ForbiddenException({
+        code: 'SCHOOL_REVIEWS_SITE_BAN',
+        message: `Okul değerlendirme kuralları gereği hesabınız ${untilStr} tarihine kadar kısıtlandı (içerik bildirimleri / ceza politikası). Profil (/me) ve oturum uçları kullanılabilir; ayrıntı için Bildirimler → Ceza.`,
+      });
+    }
+    return user;
   }
 }

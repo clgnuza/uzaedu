@@ -1,3 +1,5 @@
+import { WELCOME_BY_DAY_DEFAULT } from './welcome-by-day.defaults';
+
 export const WELCOME_POPUP_MODES = ['zodiac_auto'] as const;
 
 export type WelcomePopupMode = (typeof WELCOME_POPUP_MODES)[number];
@@ -19,7 +21,7 @@ export type WelcomeModuleConfig = {
 
 export const DEFAULT_WELCOME_MODULE: WelcomeModuleConfig = {
   enabled: false,
-  by_day: {},
+  by_day: WELCOME_BY_DAY_DEFAULT,
   fallback_message: null,
   cache_ttl_welcome: 120,
   popup_enabled: true,

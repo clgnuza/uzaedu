@@ -15,7 +15,12 @@ type Provider = 'mock' | 'meta' | 'twilio' | 'netgsm' | 'custom' | 'whatsapp_lin
 type Settings = {
   provider: Provider; apiKey: string; apiSecret: string;
   phoneNumberId: string; fromNumber: string; apiEndpoint: string; isActive: boolean;
-  extraConfig: { policyComplianceAck: boolean; waManualPolicyAck: boolean };
+  extraConfig: {
+    policyComplianceAck: boolean;
+    waManualPolicyAck: boolean;
+    send_delay_ms?: number;
+    send_max_retries?: number;
+  };
 };
 
 const PROVIDER_DOCS: Record<Provider, { label: string; helpUrl: string; fields: string[] }> = {
@@ -46,7 +51,7 @@ export default function AyarlarPage() {
 
   const [form, setForm]       = useState<Settings>({
     provider: 'mock', apiKey: '', apiSecret: '', phoneNumberId: '', fromNumber: '', apiEndpoint: '', isActive: false,
-    extraConfig: { policyComplianceAck: false, waManualPolicyAck: false },
+    extraConfig: { policyComplianceAck: false, waManualPolicyAck: false, send_delay_ms: 600, send_max_retries: 1 },
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
@@ -67,6 +72,8 @@ export default function AyarlarPage() {
             extraConfig: {
               policyComplianceAck: ex.policyComplianceAck === true,
               waManualPolicyAck: ex.waManualPolicyAck === true,
+              send_delay_ms: Math.min(15000, Math.max(200, Number(ex.send_delay_ms) || 600)),
+              send_max_retries: Math.min(4, Math.max(0, Number(ex.send_max_retries) || 1)),
             },
           }));
         }
@@ -93,6 +100,8 @@ export default function AyarlarPage() {
           extraConfig: {
             policyComplianceAck: form.extraConfig.policyComplianceAck,
             waManualPolicyAck: form.extraConfig.waManualPolicyAck,
+            send_delay_ms: form.extraConfig.send_delay_ms ?? 600,
+            send_max_retries: form.extraConfig.send_max_retries ?? 1,
           },
         }),
       });
@@ -199,6 +208,49 @@ export default function AyarlarPage() {
               . Yalnızca meşru ve izinli iletişim için kullanacağız.
             </span>
           </label>
+        ) : null}
+
+        {form.isActive && ['meta', 'twilio', 'netgsm', 'custom', 'mock'].includes(form.provider) ? (
+          <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 px-4 py-3 dark:border-zinc-700/60 dark:bg-zinc-900/40 space-y-2">
+            <p className="text-xs font-semibold text-foreground">API toplu gönderim</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Alıcılar arası bekleme (ms)</label>
+                <Input
+                  type="number"
+                  min={200}
+                  max={15000}
+                  step={100}
+                  className="h-9 text-sm"
+                  value={form.extraConfig.send_delay_ms ?? 600}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      extraConfig: { ...f.extraConfig, send_delay_ms: Number(e.target.value) || 600 },
+                    }))
+                  }
+                />
+                <p className="mt-0.5 text-[10px] text-muted-foreground">200–15000. Varsayılan 600.</p>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Başarısızlıkta ek deneme (0–4)</label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={4}
+                  className="h-9 text-sm"
+                  value={form.extraConfig.send_max_retries ?? 1}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      extraConfig: { ...f.extraConfig, send_max_retries: Math.min(4, Math.max(0, Number(e.target.value) || 0)) },
+                    }))
+                  }
+                />
+                <p className="mt-0.5 text-[10px] text-muted-foreground">Her alıcı için ilk denemeden sonra tekrar sayısı.</p>
+              </div>
+            </div>
+          </div>
         ) : null}
 
         {form.isActive && form.provider === 'whatsapp_link' ? (

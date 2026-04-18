@@ -9,6 +9,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { SchoolReviewsService } from './school-reviews.service';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -29,12 +30,15 @@ import { CreateAnswerDto } from './dto/create-answer.dto';
 import { UpdateAnswerDto } from './dto/update-answer.dto';
 import { CreateCriteriaDto } from './dto/create-criteria.dto';
 import { UpdateCriteriaDto } from './dto/update-criteria.dto';
+import { ReorderCriteriaDto } from './dto/reorder-criteria.dto';
 import { ReportContentDto } from './dto/report-content.dto';
 import { ListContentReportsAdminDto } from './dto/list-content-reports-admin.dto';
+import { ApplySchoolReviewsStrikeDto } from './dto/apply-school-reviews-strike.dto';
 import { ListModerationQueueDto } from './dto/list-moderation-queue.dto';
 import { ModerateContentDto } from './dto/moderate-content.dto';
 
 @Controller('school-reviews')
+@SkipThrottle({ default: true, auth: true, public: true })
 @UseGuards(JwtAuthGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
 @RequireSchoolModule('school_reviews')
 export class SchoolReviewsController {
@@ -64,6 +68,22 @@ export class SchoolReviewsController {
   @RequireModule('school_reviews')
   async listContentReportsAdmin(@Query() query: ListContentReportsAdminDto) {
     return this.service.listContentReportsAdmin(query);
+  }
+
+  @Patch('content-reports/admin/:id/seen')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('school_reviews')
+  async markContentReportSeen(@Param('id') id: string, @CurrentUser() payload: CurrentUserPayload) {
+    return this.service.markContentReportSeen(id, payload.userId);
+  }
+
+  @Post('content-reports/admin/penalties/strike')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin)
+  @RequireModule('school_reviews')
+  async applySchoolReviewsStrike(@Body() dto: ApplySchoolReviewsStrikeDto) {
+    return this.service.applySchoolReviewsStrike(dto);
   }
 
   /** Onay bekleyen yorum / soru / cevap kuyruğu */
@@ -114,6 +134,16 @@ export class SchoolReviewsController {
   @RequireModule('school_reviews')
   async normalizeCriteriaScoreRange() {
     return this.service.normalizeCriteriaScoreRange();
+  }
+
+  /** Kriter sırasını tek istekle güncelle (çoklu PATCH yerine). */
+  @Post('criteria/reorder')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('school_reviews')
+  async reorderCriteria(@Body() dto: ReorderCriteriaDto) {
+    await this.service.reorderCriteria(dto.ordered_ids);
+    return { ok: true };
   }
 
   @Post('criteria')
@@ -315,9 +345,9 @@ export class SchoolReviewsController {
   @Delete('reviews/:id')
   @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
-  @Roles(UserRole.teacher, UserRole.school_admin)
+  @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin)
   async deleteReview(@Param('id') reviewId: string, @CurrentUser() payload: CurrentUserPayload) {
-    return this.service.deleteReview(reviewId, payload.userId);
+    return this.service.deleteReview(reviewId, payload.userId, payload.role);
   }
 
   /** Okulun değerlendirmeleri listesi. Giriş yapmışsa kendi yorumlarında is_own: true döner. */
@@ -398,24 +428,24 @@ export class SchoolReviewsController {
   @Delete('questions/:id')
   @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
-  @Roles(UserRole.teacher, UserRole.school_admin)
+  @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin)
   async deleteQuestion(
     @Param('id') questionId: string,
     @CurrentUser() payload: CurrentUserPayload,
   ) {
-    return this.service.deleteQuestion(questionId, payload.userId);
+    return this.service.deleteQuestion(questionId, payload.userId, payload.role);
   }
 
   /** Cevap sil. */
   @Delete('answers/:id')
   @BypassSchoolModuleGuard()
   @UseGuards(RolesGuard)
-  @Roles(UserRole.teacher, UserRole.school_admin)
+  @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin)
   async deleteAnswer(
     @Param('id') answerId: string,
     @CurrentUser() payload: CurrentUserPayload,
   ) {
-    return this.service.deleteAnswer(answerId, payload.userId);
+    return this.service.deleteAnswer(answerId, payload.userId, payload.role);
   }
 
   /** Okulun soruları listesi. Giriş yapmışsa kendi soru/cevaplarında is_own: true döner. */

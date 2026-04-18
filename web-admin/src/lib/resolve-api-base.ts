@@ -8,6 +8,13 @@ function isLikelyDevMachineHost(hostname: string): boolean {
   return /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(h);
 }
 
+/** `localhost` → IPv6 önceliği olan istemcilerde Nest (IPv4) kaçırılabilir. */
+function devApiHost(hostname: string): string {
+  const h = hostname.toLowerCase();
+  if (h === 'localhost' || h === '0.0.0.0') return '127.0.0.1';
+  return hostname;
+}
+
 export function resolveDefaultApiBase(): string {
   const fromEnv = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
   if (fromEnv) return fromEnv;
@@ -15,8 +22,8 @@ export function resolveDefaultApiBase(): string {
     const h = window.location.hostname;
     const p = process.env.NEXT_PUBLIC_API_PORT?.trim() || '4000';
     if (isLikelyDevMachineHost(h)) {
-      return `http://${h}:${p}/api`;
+      return `http://${devApiHost(h)}:${p}/api`;
     }
   }
-  return 'http://localhost:4000/api';
+  return 'http://127.0.0.1:4000/api';
 }

@@ -34,6 +34,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { broadcastHaberContentRefresh } from '@/lib/haber-content-refresh-bus';
 
 type Channel = {
   id: string;
@@ -294,6 +295,7 @@ export default function HaberlerAyarlarPage() {
       setAutoEnabled(data.schedule.enabled);
       setAutoIntervalMin(String(data.schedule.interval_minutes));
       toast.success('Zamanlama kaydedildi.');
+      broadcastHaberContentRefresh();
     } catch {
       toast.error('Kayıt başarısız.');
     } finally {
@@ -332,6 +334,7 @@ export default function HaberlerAyarlarPage() {
       fetchSources();
       fetchItems();
       fetchSyncSchedule();
+      broadcastHaberContentRefresh();
     } catch (e) {
       toast.error('Senkronizasyon hatası.');
     } finally {

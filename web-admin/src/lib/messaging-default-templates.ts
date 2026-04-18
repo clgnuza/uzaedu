@@ -11,7 +11,7 @@ Sayın {AD}
 İyi çalışmalar.
 
 ────────
-OgretmenPro`;
+Uzaedu Öğretmen`;
 
 export const TPL_MAAS = `💼 Maaş özeti
 
@@ -24,7 +24,7 @@ Sayın {AD}
 İyi çalışmalar.
 
 ────────
-OgretmenPro`;
+Uzaedu Öğretmen`;
 
 export const TPL_DEVAMSIZLIK = `📋 Devamsızlık bildirimi
 
@@ -115,7 +115,7 @@ Sayın {AD}
 Mesajınız okul yönetimi tarafından iletilmiştir.
 
 ────────
-OgretmenPro`;
+Uzaedu Öğretmen`;
 
 export const TPL_VELI_TOPLANTISI = `📋 Veli toplantısı
 
@@ -130,7 +130,7 @@ Veli toplantımız aşağıdaki bilgilerle gerçekleştirilecektir:
 Katılımınızı bekleriz.
 
 ────────
-OgretmenPro`;
+Uzaedu Öğretmen`;
 
 export const DAVETIYE_PRESETS: { label: string; msg: string }[] = [
   {
@@ -146,7 +146,7 @@ Mezuniyet törenimize sizi davet etmekten onur duyarız.
 • Yer   :
 
 ────────
-OgretmenPro`,
+Uzaedu Öğretmen`,
   },
   {
     label: '🎭 Kermes / Etkinlik',
@@ -161,7 +161,7 @@ Okulumuzun düzenlediği etkinliğe davetlisiniz.
 • Yer   :
 
 ────────
-OgretmenPro`,
+Uzaedu Öğretmen`,
   },
   {
     label: '📚 Seminer',
@@ -176,7 +176,7 @@ Seminerimize katılımınızı bekliyoruz.
 • Yer   :
 
 ────────
-OgretmenPro`,
+Uzaedu Öğretmen`,
   },
   { label: '✏️ Özel', msg: '' },
 ];

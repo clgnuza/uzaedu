@@ -1,9 +1,27 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, shouldSkipOptionalApiCalls } from '@/lib/api';
 
 const NOTIFICATIONS_UPDATED = 'notifications-updated';
+
+/** Aynı path + token için eşzamanlı tek fetch (sidebar + dashboard çift isteği önlenir). */
+const unreadInflight = new Map<string, Promise<number>>();
+
+function sharedUnreadCount(path: string, token: string): Promise<number> {
+  const key = `${path}\t${token}`;
+  let p = unreadInflight.get(key);
+  if (!p) {
+    p = apiFetch<{ count: number }>(path, { token })
+      .then((r) => r.count ?? 0)
+      .catch(() => 0)
+      .finally(() => {
+        unreadInflight.delete(key);
+      });
+    unreadInflight.set(key, p);
+  }
+  return p;
+}
 
 export function emitNotificationsUpdated() {
   if (typeof window !== 'undefined') {
@@ -20,9 +38,11 @@ export function useDutyNotificationsUnread(token: string | null, role: string | 
       setCount(0);
       return;
     }
-    apiFetch<{ count: number }>('/notifications/unread-count?event_type=duty', { token })
-      .then((r) => setCount(r.count ?? 0))
-      .catch(() => setCount(0));
+    if (shouldSkipOptionalApiCalls()) {
+      setCount(0);
+      return;
+    }
+    void sharedUnreadCount('/notifications/unread-count?event_type=duty', token).then(setCount);
   }, [token, role]);
 
   useEffect(() => {
@@ -51,9 +71,11 @@ export function useAllNotificationsUnread(token: string | null, role: string | n
       setCount(0);
       return;
     }
-    apiFetch<{ count: number }>('/notifications/unread-count', { token })
-      .then((r) => setCount(r.count ?? 0))
-      .catch(() => setCount(0));
+    if (shouldSkipOptionalApiCalls()) {
+      setCount(0);
+      return;
+    }
+    void sharedUnreadCount('/notifications/unread-count', token).then(setCount);
   }, [token, role]);
 
   useEffect(() => {

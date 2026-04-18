@@ -95,6 +95,11 @@ export class ExamDutiesService {
     return qb;
   }
 
+  /** Admin Liste sekmesi (has_exam_date) ile aynı: en az bir sınav tarihi */
+  private isListTabEligible(examDuty: ExamDuty): boolean {
+    return examDuty.examDate != null || examDuty.examDateEnd != null;
+  }
+
   /** Admin: mevcut liste filtresiyle taslak / yayında sayıları */
   private async adminListStatusCounts(dto: ListExamDutiesDto): Promise<{
     draft_count: number;
@@ -317,6 +322,7 @@ export class ExamDutiesService {
   async getTargetCount(id: string): Promise<{ count: number }> {
     const item = await this.examDutyRepo.findOne({ where: { id } });
     if (!item) throw new NotFoundException({ code: 'NOT_FOUND', message: 'İstediğiniz kayıt bulunamadı.' });
+    if (!this.isListTabEligible(item)) return { count: 0 };
     const ids = await this.getTargetUserIds(item, 'publish_now');
     return { count: ids.length };
   }
@@ -521,6 +527,7 @@ export class ExamDutiesService {
 
   /** Belirli reason için bildirimleri gönder (reason: "exam_minus_1d" veya "exam_minus_1d:YYYY-MM-DD") */
   async sendNotificationsForReason(examDuty: ExamDuty, reason: string): Promise<{ sent: number }> {
+    if (!this.isListTabEligible(examDuty)) return { sent: 0 };
     const userIds = await this.getTargetUserIds(examDuty, reason);
     if (userIds.length === 0) return { sent: 0 };
 

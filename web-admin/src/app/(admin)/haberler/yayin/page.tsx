@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef, type ReactNode } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import Link from 'next/link';
@@ -9,6 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Sheet, SheetBody, SheetClose, SheetContent, SheetHeader } from '@/components/ui/sheet';
 import {
   Newspaper,
   ArrowLeft,
@@ -24,13 +26,40 @@ import {
   Keyboard,
   RefreshCw,
   Settings,
+  ListFilter,
+  Tag,
+  X,
+  Sparkles,
+  Megaphone,
+  Globe,
+  Trophy,
+  Building2,
+  GraduationCap,
+  FileText,
+  CalendarDays,
+  BookOpen,
+  Folder,
+  Zap,
+  Rss,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { contentReadPath } from '@/lib/content-read-path';
 import { normalizeMebIlImageUrl } from '@/lib/meb-image-url';
-import { CONTENT_TYPE_LABELS } from '@/lib/haber-news-overlay';
+import {
+  CONTENT_TYPE_LABELS,
+  CONTENT_TYPE_FILTER_OPTIONS,
+  normalizeContentTypeFilterParam,
+} from '@/lib/haber-news-overlay';
 import { HaberOverlayBands } from '@/components/haber/haber-overlay-bands';
+import { HaberSourceFootnote } from '@/components/haber/haber-source-footnote';
+import { useHaberContentLiveRefresh } from '@/hooks/use-haber-content-live-refresh';
+import { broadcastHaberContentRefresh } from '@/lib/haber-content-refresh-bus';
 
 type Source = { id: string; key: string; label: string };
+type Channel = { id: string; key: string; label: string; sortOrder: number; itemCount?: number };
+
+/** URL’de “Tüm kanallar”; API’ye gönderilmez (channel_key yok). */
+const CHANNEL_QUERY_ALL = '_all';
 type ContentItem = {
   id: string;
   title: string;
@@ -80,8 +109,10 @@ function NewsCardImage({ src, isHero }: { src: string; isHero: boolean }) {
   const resolved = normalizeMebIlImageUrl(src) ?? src;
   if (error) {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-slate-100 dark:bg-slate-900">
-        <Newspaper className={cn('text-slate-400', isHero ? 'h-16 w-16' : 'h-12 w-12')} />
+      <div className="absolute inset-0 z-0 flex items-center justify-center bg-linear-to-br from-violet-950/80 to-slate-950">
+        <Newspaper
+          className={cn('text-fuchsia-200/80', isHero ? 'size-9 sm:size-16' : 'size-8 sm:size-12')}
+        />
       </div>
     );
   }
@@ -91,26 +122,54 @@ function NewsCardImage({ src, isHero }: { src: string; isHero: boolean }) {
       alt=""
       referrerPolicy="no-referrer"
       onError={() => setError(true)}
-      className="h-full w-full object-cover motion-safe:transition-transform motion-safe:duration-500 motion-reduce:transition-none group-hover/card:scale-[1.03]"
+      className="absolute inset-0 z-0 h-full w-full object-cover object-center motion-safe:transition-transform motion-safe:duration-500 motion-reduce:transition-none group-hover/card:scale-[1.03]"
     />
   );
 }
 
+/** İçerik türüne göre neon çerçeve + rozet (API anahtarı). */
+const YAYIN_FRAME: Record<string, string> = {
+  announcement: 'bg-linear-to-br from-amber-400 via-orange-500 to-rose-500 shadow-amber-500/25',
+  news: 'bg-linear-to-br from-sky-400 via-violet-500 to-fuchsia-500 shadow-fuchsia-500/20',
+  competition: 'bg-linear-to-br from-lime-300 via-amber-400 to-orange-500 shadow-amber-400/20',
+  exam: 'bg-linear-to-br from-rose-400 via-red-500 to-orange-600 shadow-rose-500/25',
+  project: 'bg-linear-to-br from-emerald-400 via-teal-500 to-cyan-500 shadow-cyan-500/20',
+  event: 'bg-linear-to-br from-purple-400 via-fuchsia-500 to-pink-500 shadow-fuchsia-500/25',
+  document: 'bg-linear-to-br from-slate-400 via-zinc-500 to-neutral-700 shadow-slate-400/15',
+};
+const YAYIN_TYPE_CHIP: Record<string, string> = {
+  announcement: 'bg-linear-to-r from-amber-500 to-orange-600 text-white ring-white/25',
+  news: 'bg-linear-to-r from-sky-500 to-violet-600 text-white ring-white/25',
+  competition: 'bg-linear-to-r from-lime-500 to-amber-600 text-neutral-950 ring-white/30',
+  exam: 'bg-linear-to-r from-rose-500 to-red-600 text-white ring-white/25',
+  project: 'bg-linear-to-r from-emerald-500 to-teal-600 text-white ring-white/25',
+  event: 'bg-linear-to-r from-purple-500 to-pink-600 text-white ring-white/25',
+  document: 'bg-linear-to-r from-slate-500 to-zinc-700 text-white ring-white/20',
+};
+
 /** Yayın kartı: gridde alt bar yok; yalnızca hero’da alt bilgi şeridi. */
 function YayinBroadcastCard({ item, variant }: { item: ContentItem; variant: 'hero' | 'default' }) {
   const isHero = variant === 'hero';
+  const typeKey = (item.content_type || 'news').toLowerCase();
   const typeLabel = CONTENT_TYPE_LABELS[item.content_type] ?? item.content_type;
+  const frame = YAYIN_FRAME[typeKey] ?? 'bg-linear-to-br from-cyan-400 via-blue-500 to-indigo-600 shadow-blue-500/20';
+  const chip = YAYIN_TYPE_CHIP[typeKey] ?? 'bg-linear-to-r from-cyan-500 to-indigo-600 text-white ring-white/25';
 
   const metaHero = (
-    <div className="absolute inset-x-0 bottom-0 z-20 flex h-10 items-center justify-between gap-2 border-t border-sky-400/25 bg-slate-950/92 px-2.5 backdrop-blur-md sm:h-11 sm:px-3">
-      <span className="inline-flex max-w-[44%] shrink-0 truncate rounded-md border border-sky-400/30 bg-sky-950/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-50">
+    <div className="absolute inset-x-0 bottom-0 z-20 flex h-8 items-center justify-between gap-1.5 border-t border-white/15 bg-linear-to-r from-slate-950/95 via-violet-950/90 to-slate-950/95 px-2 backdrop-blur-md sm:h-11 sm:gap-2 sm:px-3">
+      <span
+        className={cn(
+          'inline-flex max-w-[46%] shrink-0 truncate rounded-md px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide ring-1 sm:max-w-[44%] sm:px-2 sm:py-0.5 sm:text-[10px]',
+          chip,
+        )}
+      >
         {typeLabel}
       </span>
-      <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-[11px] text-slate-400 sm:text-xs">
-        <span className="truncate font-medium text-slate-100">{item.source_label ?? 'Kaynak'}</span>
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-1 text-[9px] text-slate-300 sm:gap-2 sm:text-xs">
+        <span className="truncate font-medium text-white/95">{item.source_label ?? 'Kaynak'}</span>
         {item.published_at && (
-          <span className="flex shrink-0 items-center gap-1 tabular-nums text-slate-500">
-            <Clock className="h-3.5 w-3.5 opacity-90" />
+          <span className="flex shrink-0 items-center gap-0.5 tabular-nums text-slate-400 sm:gap-1">
+            <Clock className="size-3 opacity-90 sm:size-3.5" />
             {formatRelativeDate(item.published_at) || formatDate(item.published_at)}
           </span>
         )}
@@ -119,51 +178,56 @@ function YayinBroadcastCard({ item, variant }: { item: ContentItem; variant: 'he
   );
 
   return (
-    <Card
+    <div
       className={cn(
-        'group/card overflow-hidden border-slate-200/90 bg-gradient-to-br from-white via-slate-50/40 to-sky-50/35 shadow-[0_1px_3px_rgba(15,23,42,0.07)] transition-[box-shadow,border-color] duration-300 hover:border-sky-300/70 hover:shadow-[0_10px_40px_-16px_rgba(14,116,144,0.22)] dark:border-slate-700/85 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950/95 dark:hover:border-sky-700/50',
-        isHero && 'mx-auto max-w-5xl ring-1 ring-sky-200/60 dark:ring-sky-900/45',
+        'group/card w-full min-w-0 overflow-hidden rounded-xl p-[1.5px] shadow-lg ring-1 ring-white/25 transition-[transform,box-shadow] duration-300 hover:shadow-xl hover:ring-white/35 sm:rounded-2xl sm:p-[2px] sm:shadow-2xl dark:ring-white/10',
+        frame,
+        isHero && 'mx-auto max-w-5xl sm:mx-auto',
       )}
     >
-      <a
-        href={item.source_url}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label={item.title}
-        className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-      >
-        <div
-          className={cn(
-            'relative overflow-hidden bg-slate-950 after:pointer-events-none after:absolute after:inset-0',
-            isHero
-              ? 'aspect-2/1 min-h-[200px] after:shadow-[inset_0_-40px_64px_-24px_rgba(15,23,42,0.55)] sm:aspect-21/9 sm:min-h-[260px]'
-              : 'aspect-video after:shadow-[inset_0_-24px_40px_-14px_rgba(15,23,42,0.38)]',
-          )}
+      <Card className="w-full overflow-hidden rounded-[10px] border-0 bg-slate-950 shadow-none sm:rounded-[14px] dark:bg-slate-950">
+        <a
+          href={item.source_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={item.title}
+          className="block w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400/90 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
         >
-          {item.image_url ? (
-            <NewsCardImage src={item.image_url} isHero={isHero} />
-          ) : (
-            <div className="flex h-full min-h-[120px] w-full items-center justify-center bg-slate-900">
-              <Newspaper className={cn('text-slate-500', isHero ? 'h-16 w-16' : 'h-12 w-12')} />
-            </div>
-          )}
           <div
             className={cn(
-              'pointer-events-none absolute inset-x-0 bg-linear-to-t to-transparent',
-              isHero ? 'bottom-0 h-[58%] from-slate-950/92 via-slate-900/40' : 'bottom-0 h-[50%] from-slate-950/78 via-slate-900/30',
+              'relative isolate w-full overflow-hidden bg-slate-950 after:pointer-events-none after:absolute after:inset-0',
+              isHero
+                ? 'aspect-5/3 max-h-[38vh] min-h-[100px] after:shadow-[inset_0_-28px_48px_-18px_rgba(15,23,42,0.55)] sm:aspect-21/9 sm:max-h-none sm:min-h-[260px] sm:after:shadow-[inset_0_-40px_64px_-24px_rgba(15,23,42,0.55)]'
+                : 'aspect-4/3 max-sm:max-h-[46vw] after:shadow-[inset_0_-20px_36px_-12px_rgba(15,23,42,0.4)] sm:aspect-video',
             )}
-            aria-hidden
-          />
-          <HaberOverlayBands
-            item={item}
-            density={isHero ? 'broadcastHero' : 'broadcast'}
-            compact={!isHero}
-            bottomOffsetClass={isHero ? 'bottom-11 sm:bottom-12' : undefined}
-          />
-          {isHero && metaHero}
-        </div>
-      </a>
-    </Card>
+          >
+            {item.image_url ? (
+              <NewsCardImage src={item.image_url} isHero={isHero} />
+            ) : (
+              <div className="absolute inset-0 z-0 flex min-h-[88px] items-center justify-center bg-linear-to-br from-violet-950 to-slate-950 sm:min-h-[120px]">
+                <Newspaper className={cn('text-fuchsia-300/70', isHero ? 'size-9 sm:size-16' : 'size-8 sm:size-12')} />
+              </div>
+            )}
+            <div
+              className={cn(
+                'pointer-events-none absolute inset-x-0 z-1 bg-linear-to-t to-transparent',
+                isHero
+                  ? 'bottom-0 h-[55%] from-slate-950/95 via-fuchsia-950/25 sm:h-[58%] sm:via-slate-900/40'
+                  : 'bottom-0 h-[48%] from-slate-950/85 via-slate-900/28 sm:h-[50%]',
+              )}
+              aria-hidden
+            />
+            <HaberOverlayBands
+              item={item}
+              density={isHero ? 'broadcastHero' : 'broadcast'}
+              compact={!isHero}
+              bottomOffsetClass={isHero ? 'bottom-8 sm:bottom-12' : undefined}
+            />
+            {isHero && metaHero}
+          </div>
+        </a>
+      </Card>
+    </div>
   );
 }
 
@@ -175,14 +239,23 @@ const SLIDE_INTERVAL_OPTIONS = [
 ];
 
 export default function HaberYayinPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { token, me, loading: authLoading } = useAuth();
+  const [channels, setChannels] = useState<Channel[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
   const [mebItems, setMebItems] = useState<ContentItem[]>([]);
   const [ilItems, setIlItems] = useState<ContentItem[]>([]);
   const [loadingMeb, setLoadingMeb] = useState(true);
   const [loadingIl, setLoadingIl] = useState(true);
   const [loadingSources, setLoadingSources] = useState(true);
+  const [selectedChannel, setSelectedChannel] = useState<string>('');
   const [selectedSourceKey, setSelectedSourceKey] = useState<string>('');
+  const [selectedSourceLabel, setSelectedSourceLabel] = useState<string>('');
+  const [contentTypeFilter, setContentTypeFilter] = useState<string>('');
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [slideIndex, setSlideIndex] = useState(0);
   const [slideMode, setSlideMode] = useState(false);
   const [slideIntervalSec, setSlideIntervalSec] = useState(8);
@@ -194,7 +267,17 @@ export default function HaberYayinPage() {
 
   const userCity = me?.school?.city ?? null;
   const isAdmin = me?.role === 'superadmin' || me?.role === 'school_admin';
+  const isSuperAdmin = me?.role === 'superadmin';
   const allItems = [...mebItems];
+
+  const fetchChannels = useCallback(async () => {
+    try {
+      const data = await apiFetch<Channel[]>(contentReadPath('channels', token), { token });
+      setChannels(Array.isArray(data) ? data : []);
+    } catch {
+      setChannels([]);
+    }
+  }, [token]);
 
   const fetchSources = useCallback(async () => {
     setLoadingSources(true);
@@ -208,32 +291,34 @@ export default function HaberYayinPage() {
     }
   }, [token]);
 
-  const fetchMebItems = useCallback(async () => {
-    setLoadingMeb(true);
+  const fetchMebItems = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) setLoadingMeb(true);
     try {
-      const params = new URLSearchParams({
-        page: '1',
-        limit: '24',
-        channel_key: 'meb_duyurulari',
-      });
+      const params = new URLSearchParams({ page: '1', limit: '24' });
+      if (selectedChannel) params.set('channel_key', selectedChannel);
       if (selectedSourceKey) params.set('source_key', selectedSourceKey);
+      if (contentTypeFilter) params.set('content_type', contentTypeFilter);
       const data = await apiFetch<{ total: number; items: ContentItem[] }>(
         `${contentReadPath('items', token)}?${params}`,
         { token },
       );
       const raw = data?.items ?? [];
-      setMebItems(dedupeContentItemsByUrl(raw));
-      setSlideIndex(0);
+      const next = dedupeContentItemsByUrl(raw);
+      setMebItems(next);
+      if (!silent) setSlideIndex(0);
+      else setSlideIndex((prev) => (next.length === 0 ? 0 : Math.min(prev, next.length - 1)));
       setLastFetchAt(new Date());
     } catch {
-      setMebItems([]);
+      if (!silent) setMebItems([]);
     } finally {
-      setLoadingMeb(false);
+      if (!silent) setLoadingMeb(false);
     }
-  }, [token, selectedSourceKey]);
+  }, [token, selectedChannel, selectedSourceKey, contentTypeFilter]);
 
-  const fetchIlItems = useCallback(async () => {
-    setLoadingIl(true);
+  const fetchIlItems = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) setLoadingIl(true);
     try {
       const params = new URLSearchParams({
         page: '1',
@@ -246,11 +331,59 @@ export default function HaberYayinPage() {
       );
       setIlItems(data?.items ?? []);
     } catch {
-      setIlItems([]);
+      if (!silent) setIlItems([]);
     } finally {
-      setLoadingIl(false);
+      if (!silent) setLoadingIl(false);
     }
   }, [token]);
+
+  useHaberContentLiveRefresh({
+    authLoading,
+    token,
+    onSilentRefresh: () =>
+      Promise.all([fetchMebItems({ silent: true }), fetchIlItems({ silent: true })]),
+  });
+
+  useEffect(() => {
+    if (authLoading) return;
+    fetchChannels();
+  }, [fetchChannels, authLoading]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    const ctRaw = searchParams.get('content_type');
+    if (searchParams.has('content_type')) {
+      setContentTypeFilter(normalizeContentTypeFilterParam(ctRaw));
+    } else {
+      setContentTypeFilter('');
+    }
+    if (searchParams.has('channel_key')) {
+      const ck = searchParams.get('channel_key');
+      if (ck === CHANNEL_QUERY_ALL) setSelectedChannel('');
+      else if (ck) setSelectedChannel(ck);
+    } else {
+      setSelectedChannel('');
+    }
+    const sk = searchParams.get('source_key');
+    const sl = searchParams.get('source_label');
+    if (searchParams.has('source_key')) {
+      if (sk) {
+        setSelectedSourceKey(sk);
+        let label = sk.replace(/_/g, ' ');
+        if (sl?.trim()) {
+          try {
+            label = decodeURIComponent(sl);
+          } catch {
+            label = sl;
+          }
+        }
+        setSelectedSourceLabel(label);
+      }
+    } else {
+      setSelectedSourceKey('');
+      setSelectedSourceLabel('');
+    }
+  }, [authLoading, searchParams]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -267,11 +400,322 @@ export default function HaberYayinPage() {
     };
   }, [authLoading, fetchSources, fetchMebItems, fetchIlItems]);
 
+  const handleChannelChange = (key: string) => {
+    setSelectedChannel(key);
+    const next = new URLSearchParams(searchParams.toString());
+    if (key === '') next.set('channel_key', CHANNEL_QUERY_ALL);
+    else next.set('channel_key', key);
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
+  const handleContentTypeChange = (value: string) => {
+    const v = normalizeContentTypeFilterParam(value || null);
+    setContentTypeFilter(v);
+    const next = new URLSearchParams(searchParams.toString());
+    if (v) next.set('content_type', v);
+    else next.delete('content_type');
+    if (selectedChannel === '') next.set('channel_key', CHANNEL_QUERY_ALL);
+    else next.set('channel_key', selectedChannel);
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
+  const handleSourceFilterClick = (sourceKey: string) => {
+    const next = new URLSearchParams(searchParams.toString());
+    if (selectedSourceKey === sourceKey) {
+      next.delete('source_key');
+      next.delete('source_label');
+      setSelectedSourceKey('');
+      setSelectedSourceLabel('');
+    } else {
+      const src = sources.find((s) => s.key === sourceKey);
+      const label = src?.label ?? sourceKey.replace(/_/g, ' ');
+      next.set('source_key', sourceKey);
+      next.set('source_label', encodeURIComponent(label));
+      setSelectedSourceKey(sourceKey);
+      setSelectedSourceLabel(label);
+    }
+    if (selectedChannel === '') next.set('channel_key', CHANNEL_QUERY_ALL);
+    else next.set('channel_key', selectedChannel);
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
+  const clearSourceFilter = () => {
+    setSelectedSourceKey('');
+    setSelectedSourceLabel('');
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete('source_key');
+    next.delete('source_label');
+    if (selectedChannel === '') next.set('channel_key', CHANNEL_QUERY_ALL);
+    else next.set('channel_key', selectedChannel);
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
+  const handleSync = async () => {
+    if (authLoading) {
+      toast.info('Oturum yükleniyor…');
+      return;
+    }
+    if (!token) {
+      toast.error('Oturum gerekli.');
+      return;
+    }
+    if (!isSuperAdmin) {
+      toast.error('Bu işlem için süper yönetici yetkisi gerekir.');
+      return;
+    }
+    setSyncing(true);
+    try {
+      const res = await apiFetch<{
+        ok: boolean;
+        message: string;
+        results?: { source_label: string; error?: string }[];
+      }>('/content/admin/sync', {
+        method: 'POST',
+        token,
+      });
+      const failed = (res?.results ?? []).filter((r) => r.error);
+      const detail =
+        failed.length > 0
+          ? failed
+              .slice(0, 6)
+              .map((r) => `${r.source_label}: ${r.error}`)
+              .join('\n')
+          : undefined;
+      if (res?.ok) {
+        toast.success(res?.message ?? 'Senkronizasyon tamamlandı.');
+      } else {
+        toast.warning(res?.message ?? 'Senkronizasyon uyarısı', {
+          description: detail,
+          duration: 12_000,
+        });
+      }
+      await Promise.all([fetchChannels(), fetchSources(), fetchMebItems(), fetchIlItems()]);
+      broadcastHaberContentRefresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Senkronizasyon başarısız.';
+      toast.error(msg);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([fetchMebItems(), fetchIlItems()]);
+    await Promise.all([fetchChannels(), fetchSources(), fetchMebItems(), fetchIlItems()]);
     setRefreshing(false);
-  }, [fetchMebItems, fetchIlItems]);
+  }, [fetchChannels, fetchSources, fetchMebItems, fetchIlItems]);
+
+  const CHANNEL_ICON: Record<string, ReactNode> = {
+    meb: <Megaphone className="size-3.5 shrink-0" />,
+    haber: <Newspaper className="size-3.5 shrink-0" />,
+    yarisma: <Trophy className="size-3.5 shrink-0" />,
+    il: <Building2 className="size-3.5 shrink-0" />,
+    egitim: <GraduationCap className="size-3.5 shrink-0" />,
+  };
+  const CONTENT_TYPE_ICON: Record<string, ReactNode> = {
+    '': <Globe className="size-3 shrink-0" />,
+    announcement: <Megaphone className="size-3 shrink-0" />,
+    news: <Newspaper className="size-3 shrink-0" />,
+    competition: <Trophy className="size-3 shrink-0" />,
+    exam: <FileText className="size-3 shrink-0" />,
+    project: <Folder className="size-3 shrink-0" />,
+    event: <CalendarDays className="size-3 shrink-0" />,
+    document: <BookOpen className="size-3 shrink-0" />,
+  };
+
+  const getChannelIcon = (key: string) => {
+    const shortKey = key.split('_')[0] ?? key;
+    return CHANNEL_ICON[shortKey] ?? <Rss className="size-3.5 shrink-0" />;
+  };
+
+  const afterFilterNavigate = () => setFilterSheetOpen(false);
+  const renderFilterPanels = (closeOnSelect: boolean) => {
+    const done = closeOnSelect ? afterFilterNavigate : undefined;
+    return (
+      <>
+        {channels.length > 0 && (
+          <div className="pb-2.5">
+            <div className="mb-1.5 flex items-center gap-1.5">
+              <Layers className="size-3 text-blue-300/70" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-white/40">Kanal</span>
+              {isSuperAdmin && <span className="text-[10px] text-white/25">· {channels.length}</span>}
+            </div>
+            <div className="flex snap-x flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  handleChannelChange('');
+                  done?.();
+                }}
+                className={cn(
+                  'flex shrink-0 snap-start items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-150',
+                  !selectedChannel
+                    ? 'bg-white text-slate-900 shadow-md ring-1 ring-white/40'
+                    : 'bg-white/10 text-white/70 ring-1 ring-white/10 hover:bg-white/18 hover:text-white',
+                )}
+              >
+                <Globe className="size-3.5 shrink-0" />
+                Tümü
+              </button>
+              {channels.map((ch) => {
+                const isActive = selectedChannel === ch.key;
+                const shortKey = ch.key.split('_')[0] ?? ch.key;
+                const colorMap: Record<string, string> = {
+                  meb: isActive
+                    ? 'bg-blue-500 text-white shadow ring-1 ring-blue-300/40'
+                    : 'bg-blue-500/15 text-blue-200 ring-1 ring-blue-400/20 hover:bg-blue-500/25',
+                  haber: isActive
+                    ? 'bg-emerald-500 text-white shadow ring-1 ring-emerald-300/40'
+                    : 'bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/20 hover:bg-emerald-500/25',
+                  yarisma: isActive
+                    ? 'bg-amber-500 text-white shadow ring-1 ring-amber-300/40'
+                    : 'bg-amber-500/15 text-amber-200 ring-1 ring-amber-400/20 hover:bg-amber-500/25',
+                  il: isActive
+                    ? 'bg-violet-500 text-white shadow ring-1 ring-violet-300/40'
+                    : 'bg-violet-500/15 text-violet-200 ring-1 ring-violet-400/20 hover:bg-violet-500/25',
+                  egitim: isActive
+                    ? 'bg-rose-500 text-white shadow ring-1 ring-rose-300/40'
+                    : 'bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/20 hover:bg-rose-500/25',
+                };
+                const cls =
+                  colorMap[shortKey] ??
+                  (isActive ? 'bg-sky-500 text-white' : 'bg-white/10 text-white/70 hover:bg-white/18 hover:text-white ring-1 ring-white/10');
+                return (
+                  <button
+                    type="button"
+                    key={ch.id}
+                    onClick={() => {
+                      handleChannelChange(ch.key);
+                      done?.();
+                    }}
+                    className={cn(
+                      'flex shrink-0 snap-start items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-150',
+                      cls,
+                    )}
+                  >
+                    {getChannelIcon(ch.key)}
+                    <span className="line-clamp-1 max-w-40">{ch.label}</span>
+                    {typeof ch.itemCount === 'number' && ch.itemCount > 0 && (
+                      <span
+                        className={cn(
+                          'shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold tabular-nums leading-none',
+                          isActive ? 'bg-white/25' : 'bg-white/10',
+                        )}
+                      >
+                        {ch.itemCount > 999 ? `${(ch.itemCount / 1000).toFixed(0)}k` : ch.itemCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className={channels.length > 0 ? 'pt-2.5' : ''}>
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <ListFilter className="size-3 text-violet-300/70" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-white/40">İçerik türü</span>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {CONTENT_TYPE_FILTER_OPTIONS.map((o) => (
+              <button
+                key={o.value || '_all'}
+                type="button"
+                onClick={() => {
+                  handleContentTypeChange(o.value);
+                  done?.();
+                }}
+                className={cn(
+                  'flex shrink-0 snap-start items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-150',
+                  contentTypeFilter === o.value
+                    ? 'bg-violet-500 text-white shadow ring-1 ring-violet-300/40'
+                    : 'bg-violet-500/12 text-violet-200 ring-1 ring-violet-400/18 hover:bg-violet-500/22 hover:text-white',
+                )}
+              >
+                {CONTENT_TYPE_ICON[o.value] ?? <Globe className="size-3 shrink-0" />}
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {(sources.length > 0 || loadingSources) && (
+          <div className={cn(channels.length > 0 || CONTENT_TYPE_FILTER_OPTIONS.length > 0 ? 'pt-2.5' : '')}>
+            <div className="mb-1.5 flex items-center gap-1.5">
+              <Layers className="size-3 text-sky-300/70" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-white/40">MEB birimi</span>
+            </div>
+            {loadingSources ? (
+              <div className="h-9 w-full animate-pulse rounded-xl bg-white/10" aria-hidden />
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearSourceFilter();
+                    done?.();
+                  }}
+                  className={cn(
+                    'rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-all',
+                    !selectedSourceKey
+                      ? 'bg-white text-slate-900 shadow ring-1 ring-white/40'
+                      : 'bg-white/10 text-white/70 ring-1 ring-white/10 hover:bg-white/18',
+                  )}
+                >
+                  Tümü
+                </button>
+                {sources.map((s) => {
+                  const active = selectedSourceKey === s.key;
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      title={s.label}
+                      onClick={() => {
+                        handleSourceFilterClick(s.key);
+                        done?.();
+                      }}
+                      className={cn(
+                        'max-w-[min(100%,14rem)] truncate rounded-xl px-2.5 py-1.5 text-left text-[11px] font-semibold transition-all',
+                        active
+                          ? 'bg-sky-500 text-white shadow ring-1 ring-sky-300/40'
+                          : 'bg-white/10 text-white/80 ring-1 ring-white/10 hover:bg-white/18',
+                      )}
+                    >
+                      {s.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {selectedSourceKey && selectedSourceLabel && (
+          <div className="flex items-center justify-between gap-2 pt-2.5">
+            <span className="text-[10px] text-white/40">Kaynak:</span>
+            <button
+              type="button"
+              onClick={() => {
+                clearSourceFilter();
+                done?.();
+              }}
+              className="inline-flex max-w-full items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white ring-1 ring-white/15 hover:bg-white/18"
+            >
+              <Tag className="size-3 shrink-0" />
+              <span className="truncate max-w-[140px]">{selectedSourceLabel}</span>
+              <X className="size-3 shrink-0 opacity-60" />
+            </button>
+          </div>
+        )}
+      </>
+    );
+  };
 
   function formatRelativeTime(date: Date | null): string {
     if (!date) return '—';
@@ -418,182 +862,206 @@ export default function HaberYayinPage() {
         }}
       />
       <div className="space-y-3 sm:space-y-5">
-      <header className="relative overflow-hidden rounded-xl border border-border/70 bg-card/80 p-3 shadow-sm ring-1 ring-border/30 backdrop-blur-sm sm:rounded-2xl sm:p-6">
-        <div className="pointer-events-none absolute -right-10 -top-10 hidden h-36 w-36 rounded-full bg-primary/12 blur-3xl sm:block" aria-hidden />
-        <div className="relative flex items-center justify-between gap-2 sm:items-start sm:justify-between sm:gap-5">
-          <div className="min-w-0 flex-1 sm:space-y-2">
-            <h1 className="text-balance text-lg font-bold tracking-tight text-foreground sm:text-2xl md:text-3xl">Haber yayını</h1>
-            <p className="mt-1 hidden max-w-xl text-sm leading-relaxed text-muted-foreground md:block">
-              MEB akışı, slayt ve tam ekran. Birim seçerek daraltın.
-            </p>
+        <div className="relative overflow-hidden rounded-2xl shadow-lg" style={{ background: 'linear-gradient(160deg,#0d1e3f 0%,#0f2a52 55%,#0b2244 100%)' }}>
+          <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl" aria-hidden>
+            <div
+              style={{
+                backgroundImage:
+                  'linear-gradient(rgba(255,255,255,0.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.025) 1px,transparent 1px)',
+                backgroundSize: '32px 32px',
+              }}
+              className="absolute inset-0"
+            />
+            <div
+              className="absolute -left-10 -top-10 size-52 rounded-full"
+              style={{ background: 'radial-gradient(circle,rgba(59,130,246,0.18) 0%,transparent 65%)' }}
+            />
+            <div
+              className="absolute -bottom-10 right-0 size-44 rounded-full"
+              style={{ background: 'radial-gradient(circle,rgba(139,92,246,0.12) 0%,transparent 65%)' }}
+            />
           </div>
-          <div className="flex shrink-0 items-center gap-1 sm:flex-wrap sm:gap-2 sm:justify-end">
-            <Link
-              href="/haberler"
-              className="inline-flex size-9 items-center justify-center rounded-xl border border-border bg-background/80 text-sm font-medium shadow-sm transition-colors hover:bg-muted sm:size-auto sm:gap-2 sm:px-3.5 sm:py-2"
-              title="Haberler"
-            >
-              <ArrowLeft className="h-4 w-4 shrink-0" />
-              <span className="hidden sm:inline">Haberler</span>
-            </Link>
-            {isAdmin && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="size-9 shrink-0 rounded-xl border-border/80 p-0 sm:size-auto sm:px-3 sm:py-2"
-                  onClick={handleRefresh}
-                  disabled={refreshing}
-                  title={refreshing ? 'Yenileniyor…' : 'Yenile'}
-                >
-                  <RefreshCw className={cn('h-4 w-4 sm:mr-1.5', refreshing && 'animate-spin')} />
-                  <span className="hidden sm:inline">{refreshing ? '…' : 'Yenile'}</span>
-                </Button>
-                {me?.role === 'superadmin' && (
-                  <Link
-                    href="/haberler/ayarlar"
-                    className="inline-flex size-9 items-center justify-center rounded-xl border border-border bg-background/80 text-sm font-medium shadow-sm transition-colors hover:bg-muted sm:size-auto sm:gap-2 sm:px-3.5 sm:py-2"
-                    title="Ayarlar"
-                  >
-                    <Settings className="h-4 w-4" />
-                    <span className="hidden sm:inline">Ayarlar</span>
-                  </Link>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      </header>
 
-      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-border/50 bg-gradient-to-b from-muted/20 to-background/90 shadow-sm backdrop-blur-md sm:rounded-2xl sm:from-muted/15">
-        <div className="p-2 sm:p-4">
-          {(sources.length > 0 || loadingSources) && (
-            <div className="space-y-1.5 sm:space-y-2">
-              <div className="hidden items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:flex">
-                <Layers className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
-                MEB birimi
-              </div>
-              {loadingSources ? (
-                <div className="h-10 w-full animate-pulse rounded-2xl bg-muted/80 sm:h-11" aria-hidden />
-              ) : (
-                <div className="mobile-tab-scroll flex gap-1.5 overscroll-x-contain pb-0.5 sm:flex-wrap sm:overflow-visible sm:pb-0">
-                  <div className="inline-flex w-max max-w-none flex-nowrap gap-1 rounded-2xl border border-sky-200/50 bg-sky-50/40 p-1 dark:border-sky-500/20 dark:bg-sky-950/25 sm:w-auto sm:max-w-full sm:flex-wrap sm:gap-1.5 sm:p-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedSourceKey('')}
-                      className={cn(
-                        'min-h-8 shrink-0 rounded-xl px-2.5 py-1 text-left text-[11px] font-medium transition-all sm:min-h-9 sm:px-3 sm:text-sm',
-                        !selectedSourceKey
-                          ? 'border border-sky-300/60 bg-white text-sky-900 shadow-sm dark:border-sky-500/35 dark:bg-sky-900/50 dark:text-sky-50'
-                          : 'border border-transparent text-muted-foreground hover:border-sky-200/50 hover:bg-white/70 hover:text-foreground dark:hover:border-sky-500/25 dark:hover:bg-sky-950/40',
-                      )}
-                    >
-                      Tümü
-                    </button>
-                    {sources.map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        title={s.label}
-                        onClick={() => setSelectedSourceKey(s.key)}
-                        className={cn(
-                          'max-w-[min(85vw,16rem)] min-h-8 shrink-0 rounded-xl px-2.5 py-1 text-left text-[11px] font-medium transition-all sm:min-h-9 sm:max-w-[16rem] sm:px-3 sm:text-sm',
-                          selectedSourceKey === s.key
-                            ? 'border border-sky-300/60 bg-white text-sky-900 shadow-sm dark:border-sky-500/35 dark:bg-sky-900/50 dark:text-sky-50'
-                            : 'border border-transparent text-muted-foreground hover:border-sky-200/50 hover:bg-white/70 hover:text-foreground dark:hover:border-sky-500/25 dark:hover:bg-sky-950/40',
-                        )}
-                      >
-                        <span className="line-clamp-1">{s.label}</span>
-                      </button>
-                    ))}
+          <div className="relative flex flex-col gap-0 lg:flex-row lg:items-stretch">
+            <div className="flex flex-col justify-between gap-3 px-3 py-3 sm:px-5 sm:py-4 lg:min-w-[220px] lg:max-w-[280px] lg:border-r lg:border-white/10">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/20">
+                    <Sparkles className="size-4 text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <h1 className="text-base font-bold text-white sm:text-lg">Haber yayını</h1>
+                    <p className="text-[10px] leading-snug text-white/45">Slayt ve tam ekran; filtreler Haberler ile aynı (TSİ listesi).</p>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
-
-          <div
-            className={cn(
-              'mt-3 flex min-h-12 min-w-0 w-full max-w-full flex-wrap items-center gap-2 border-t border-border/40 pt-3 dark:border-slate-700/50 sm:gap-2.5',
-              !(sources.length > 0 || loadingSources) && 'mt-0 border-t-0 pt-0',
-            )}
-          >
-            <span className="hidden w-full text-[10px] font-semibold uppercase tracking-wider text-slate-500 sm:mb-0 sm:inline sm:w-auto dark:text-slate-400">
-              Oynatıcı
-            </span>
-            <div className="mobile-tab-scroll flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-1 sm:w-auto sm:flex-wrap sm:overflow-visible sm:pb-0">
-              <div className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-violet-200/45 bg-violet-50/35 px-2.5 py-1.5 dark:border-violet-500/25 dark:bg-violet-950/25">
-                <Clock className="h-3.5 w-3.5 shrink-0 text-slate-500 dark:text-slate-400" />
-                <select
-                  value={slideIntervalSec}
-                  onChange={(e) => setSlideIntervalSec(Number(e.target.value))}
-                  className="max-w-22 cursor-pointer bg-transparent text-xs font-semibold text-slate-800 focus:outline-none dark:text-slate-100"
+                <button
+                  type="button"
+                  onClick={() => setFilterSheetOpen(true)}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-white/10 px-2.5 py-1.5 text-[11px] font-bold text-white ring-1 ring-white/15 transition hover:bg-white/18 lg:hidden"
                 >
-                  {SLIDE_INTERVAL_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+                  <ListFilter className="size-3.5" />
+                  Filtre
+                </button>
               </div>
-
-              {allItems.length > 0 && (
-                <div className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-violet-200/45 bg-violet-50/35 p-0.5 dark:border-violet-500/25 dark:bg-violet-950/25">
+              <div className="flex flex-wrap items-center gap-1">
+                <Link
+                  href="/haberler"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1.5 text-[11px] font-semibold text-white ring-1 ring-white/15 transition hover:bg-white/18"
+                  title="Haberler"
+                >
+                  <ArrowLeft className="size-3.5 shrink-0" />
+                  Haberler
+                </Link>
+                <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-400/20 px-2.5 py-1.5 text-[11px] font-semibold text-amber-200 ring-1 ring-amber-400/30">
+                  <Sparkles className="size-3.5 shrink-0" />
+                  Yayın
+                </span>
+                {isAdmin && (
                   <button
                     type="button"
-                    onClick={goPrev}
-                    className="flex h-8 w-8 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-white/90 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-violet-950/50 dark:hover:text-slate-50"
-                    aria-label="Önceki"
+                    onClick={() => void handleRefresh()}
+                    disabled={refreshing}
+                    className="inline-flex size-7 items-center justify-center rounded-lg bg-white/8 text-white/60 ring-1 ring-white/12 transition hover:bg-white/15 disabled:opacity-40"
+                    title={refreshing ? 'Yenileniyor…' : 'Yenile'}
                   >
-                    <ChevronLeft className="h-4 w-4" />
+                    <RefreshCw className={cn('size-3', refreshing && 'animate-spin')} />
                   </button>
-                  <span className="min-w-14 px-1 text-center text-xs font-semibold tabular-nums text-slate-800 dark:text-slate-100">
-                    {slideIndex + 1} / {allItems.length}
-                  </span>
+                )}
+                {isSuperAdmin && (
+                  <>
+                    <button
+                      type="button"
+                      disabled={syncing}
+                      onClick={() => void handleSync()}
+                      className="inline-flex size-7 items-center justify-center rounded-lg bg-white/8 text-white/60 ring-1 ring-white/12 transition hover:bg-white/15 disabled:opacity-40"
+                      title={syncing ? 'Senkronize ediliyor…' : 'Senkronize Et'}
+                    >
+                      <Zap className={cn('size-3', syncing && 'animate-pulse')} />
+                    </button>
+                    <Link
+                      href="/haberler/ayarlar"
+                      className="inline-flex size-7 items-center justify-center rounded-lg bg-white/8 text-white/60 ring-1 ring-white/12 transition hover:bg-white/15"
+                      title="Ayarlar"
+                    >
+                      <Settings className="size-3" />
+                    </Link>
+                  </>
+                )}
+              </div>
+              {selectedSourceKey && selectedSourceLabel && (
+                <div className="flex items-center justify-between gap-2 rounded-xl bg-white/8 px-2.5 py-1.5 ring-1 ring-white/12 lg:hidden">
+                  <span className="text-[10px] text-white/45">Kaynak</span>
                   <button
                     type="button"
-                    onClick={goNext}
-                    className="flex h-8 w-8 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-white/90 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-violet-950/50 dark:hover:text-slate-50"
-                    aria-label="Sonraki"
+                    onClick={() => clearSourceFilter()}
+                    className="inline-flex min-w-0 flex-1 items-center justify-end gap-1 text-[11px] font-semibold text-white"
                   >
-                    <ChevronRight className="h-4 w-4" />
+                    <Tag className="size-3 shrink-0" />
+                    <span className="truncate">{selectedSourceLabel}</span>
+                    <X className="size-3 shrink-0 opacity-60" />
                   </button>
                 </div>
               )}
+            </div>
 
-              <button
-                type="button"
-                onClick={() => setSlideMode(!slideMode)}
-                className={cn(
-                  'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
-                  slideMode
-                    ? 'border-violet-300/60 bg-white text-violet-900 shadow-sm dark:border-violet-500/40 dark:bg-violet-900/45 dark:text-violet-50'
-                    : 'border-transparent bg-violet-50/50 text-muted-foreground hover:border-violet-200/50 hover:bg-white/80 hover:text-foreground dark:bg-violet-950/20 dark:hover:border-violet-500/30',
-                )}
-              >
-                {slideMode ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                <span>{slideMode ? 'Durdur' : 'Slayt'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={toggleFullscreen}
-                title="Tam ekran (F)"
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-transparent bg-violet-50/40 px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-violet-200/50 hover:bg-white/80 hover:text-foreground dark:bg-violet-950/20 dark:hover:border-violet-500/30"
-              >
-                {fullscreenMode ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-                <span className="hidden sm:inline">{fullscreenMode ? 'Küçült' : 'Tam ekran'}</span>
-              </button>
-
-              {lastFetchAt && (
-                <span className="ml-auto shrink-0 text-[10px] text-slate-500 sm:text-xs dark:text-slate-400">
-                  Güncellendi: {formatRelativeTime(lastFetchAt)}
-                </span>
-              )}
+            <div className="hidden min-w-0 flex-1 flex-col gap-0 divide-y divide-white/8 px-3 py-2.5 sm:px-4 sm:py-3 lg:flex">
+              {renderFilterPanels(false)}
             </div>
           </div>
         </div>
-      </div>
+
+        <Sheet open={filterSheetOpen} onOpenChange={setFilterSheetOpen}>
+          <SheetContent
+            side="right"
+            className="w-[min(100vw,22rem)] max-w-none border-l border-white/10 bg-[linear-gradient(180deg,#0d1e3f_0%,#0b2244_100%)] p-0 text-white shadow-2xl"
+          >
+            <SheetHeader className="shrink-0 justify-between gap-2 border-white/10 bg-white/5 px-4 py-3">
+              <span className="text-sm font-bold">Filtreler</span>
+              <SheetClose className="text-white hover:bg-white/10" />
+            </SheetHeader>
+            <SheetBody className="divide-y divide-white/8 px-3 py-3">{renderFilterPanels(true)}</SheetBody>
+          </SheetContent>
+        </Sheet>
+
+        <div className="w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-border/50 bg-linear-to-b from-muted/20 to-background/90 shadow-sm backdrop-blur-md sm:rounded-2xl sm:from-muted/15">
+          <div className="p-2 sm:p-4">
+            <div className="flex min-h-12 min-w-0 w-full max-w-full flex-wrap items-center gap-2 sm:gap-2.5">
+              <span className="hidden w-full text-[10px] font-semibold uppercase tracking-wider text-slate-500 sm:mb-0 sm:inline sm:w-auto dark:text-slate-400">
+                Oynatıcı
+              </span>
+              <div className="mobile-tab-scroll flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-1 sm:w-auto sm:flex-wrap sm:overflow-visible sm:pb-0">
+                <div className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-violet-200/45 bg-violet-50/35 px-2.5 py-1.5 dark:border-violet-500/25 dark:bg-violet-950/25">
+                  <Clock className="h-3.5 w-3.5 shrink-0 text-slate-500 dark:text-slate-400" />
+                  <select
+                    value={slideIntervalSec}
+                    onChange={(e) => setSlideIntervalSec(Number(e.target.value))}
+                    className="max-w-22 cursor-pointer bg-transparent text-xs font-semibold text-slate-800 focus:outline-none dark:text-slate-100"
+                  >
+                    {SLIDE_INTERVAL_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {allItems.length > 0 && (
+                  <div className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-violet-200/45 bg-violet-50/35 p-0.5 dark:border-violet-500/25 dark:bg-violet-950/25">
+                    <button
+                      type="button"
+                      onClick={goPrev}
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-white/90 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-violet-950/50 dark:hover:text-slate-50"
+                      aria-label="Önceki"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <span className="min-w-14 px-1 text-center text-xs font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                      {slideIndex + 1} / {allItems.length}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={goNext}
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-white/90 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-violet-950/50 dark:hover:text-slate-50"
+                      aria-label="Sonraki"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setSlideMode(!slideMode)}
+                  className={cn(
+                    'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
+                    slideMode
+                      ? 'border-violet-300/60 bg-white text-violet-900 shadow-sm dark:border-violet-500/40 dark:bg-violet-900/45 dark:text-violet-50'
+                      : 'border-transparent bg-violet-50/50 text-muted-foreground hover:border-violet-200/50 hover:bg-white/80 hover:text-foreground dark:bg-violet-950/20 dark:hover:border-violet-500/30',
+                  )}
+                >
+                  {slideMode ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                  <span>{slideMode ? 'Durdur' : 'Slayt'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={toggleFullscreen}
+                  title="Tam ekran (F)"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-transparent bg-violet-50/40 px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-violet-200/50 hover:bg-white/80 hover:text-foreground dark:bg-violet-950/20 dark:hover:border-violet-500/30"
+                >
+                  {fullscreenMode ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                  <span className="hidden sm:inline">{fullscreenMode ? 'Küçült' : 'Tam ekran'}</span>
+                </button>
+
+                {lastFetchAt && (
+                  <span className="ml-auto shrink-0 text-[10px] text-slate-500 sm:text-xs dark:text-slate-400">
+                    Güncellendi: {formatRelativeTime(lastFetchAt)}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
 
       {/* İçerik alanı */}
       {loadingMeb ? (
@@ -601,7 +1069,7 @@ export default function HaberYayinPage() {
           <LoadingSpinner />
         </div>
       ) : mebItems.length === 0 ? (
-        <Card className="border-slate-200/90 bg-gradient-to-br from-white via-slate-50/40 to-sky-50/35 shadow-sm dark:border-slate-700/85 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+        <Card className="border-slate-200/90 bg-linear-to-br from-white via-slate-50/40 to-sky-50/35 shadow-sm dark:border-slate-700/85 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
           <CardContent className="py-12">
             <EmptyState
               icon={<Newspaper className="size-10 text-slate-400" />}
@@ -627,7 +1095,9 @@ export default function HaberYayinPage() {
         </div>
       )}
 
-      <section className="rounded-xl border border-slate-200/80 bg-gradient-to-br from-emerald-50/50 via-white to-sky-50/30 p-4 shadow-sm ring-1 ring-emerald-200/30 dark:border-slate-700/80 dark:from-emerald-950/30 dark:via-slate-950 dark:to-slate-950 dark:ring-emerald-900/30 sm:rounded-2xl sm:p-5">
+      <HaberSourceFootnote className="mt-1" />
+
+      <section className="rounded-xl border border-slate-200/80 bg-linear-to-br from-emerald-50/50 via-white to-sky-50/30 p-4 shadow-sm ring-1 ring-emerald-200/30 dark:border-slate-700/80 dark:from-emerald-950/30 dark:via-slate-950 dark:to-slate-950 dark:ring-emerald-900/30 sm:rounded-2xl sm:p-5">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-200/60 bg-emerald-500/10 text-emerald-700 dark:border-emerald-800/50 dark:text-emerald-400">
             <MapPin className="h-5 w-5" />

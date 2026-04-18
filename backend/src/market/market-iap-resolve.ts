@@ -1,9 +1,41 @@
-import type { MarketPolicyConfig } from '../app-config/market-policy.defaults';
+import type { MarketIapPack, MarketPolicyConfig } from '../app-config/market-policy.defaults';
 
 export type ResolvedIapCredit = {
   currencyKind: 'jeton' | 'ekders';
   amount: number;
 };
+
+function findIapPackByProductId(
+  side: { jeton: MarketIapPack[]; ekders: MarketIapPack[] },
+  productId: string,
+): MarketIapPack | null {
+  const pid = productId.trim();
+  if (!pid) return null;
+  return side.jeton.find((p) => p.product_id === pid) ?? side.ekders.find((p) => p.product_id === pid) ?? null;
+}
+
+export type ResolvedIapEntitlementGrants = {
+  yillik_plan_uretim: number;
+  evrak_uretim: number;
+};
+
+/** IAP satırındaki opsiyonel üretim hakları (jeton/ekders miktarından bağımsız). */
+export function resolveIapEntitlementGrantsFromPolicy(
+  policy: MarketPolicyConfig,
+  platform: 'android' | 'ios',
+  productId: string,
+): ResolvedIapEntitlementGrants {
+  const side = platform === 'android' ? policy.iap_android : policy.iap_ios;
+  const pack = findIapPackByProductId(side, productId);
+  if (!pack) return { yillik_plan_uretim: 0, evrak_uretim: 0 };
+  const y = Math.floor(Number(pack.grant_yillik_plan_uretim ?? 0));
+  const e = Math.floor(Number(pack.grant_evrak_uretim ?? 0));
+  const cap = 10_000;
+  return {
+    yillik_plan_uretim: Math.min(cap, Math.max(0, Number.isFinite(y) ? y : 0)),
+    evrak_uretim: Math.min(cap, Math.max(0, Number.isFinite(e) ? e : 0)),
+  };
+}
 
 /**
  * Market politikasındaki IAP listesinden product_id ile miktar çözümler.

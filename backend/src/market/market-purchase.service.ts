@@ -8,7 +8,9 @@ import { MarketPurchaseLedger } from './entities/market-purchase-ledger.entity';
 import { MarketWalletService } from './market-wallet.service';
 import { verifyAndroidProductPurchase, getDefaultAndroidPackageName } from './google-play-verify';
 import { verifyIosReceipt, getAppleSharedSecret } from './apple-iap-verify';
-import { resolveIapCreditFromPolicy } from './market-iap-resolve';
+import { resolveIapCreditFromPolicy, resolveIapEntitlementGrantsFromPolicy } from './market-iap-resolve';
+import { EntitlementService } from '../entitlements/entitlement.service';
+import { ENTITLEMENT_EVRAK_URETIM, ENTITLEMENT_YILLIK_PLAN_URETIM } from '../entitlements/entitlement.service';
 import type { VerifyAndroidPurchaseDto } from './dto/verify-android-purchase.dto';
 import type { VerifyIosPurchaseDto } from './dto/verify-ios-purchase.dto';
 
@@ -27,6 +29,7 @@ export class MarketPurchaseService {
     private readonly ledgerRepo: Repository<MarketPurchaseLedger>,
     private readonly appConfig: AppConfigService,
     private readonly wallet: MarketWalletService,
+    private readonly entitlements: EntitlementService,
   ) {}
 
   async verifyAndroidPurchase(
@@ -231,31 +234,68 @@ export class MarketPurchaseService {
     const hint =
       dto.currency_kind === 'jeton' || dto.currency_kind === 'ekders' ? dto.currency_kind : undefined;
     const resolved = resolveIapCreditFromPolicy(policy, platform, ledger.productId, hint);
-    if (!resolved || resolved.amount <= 0) {
-      ledger.verificationNote = `${ledger.verificationNote ?? ''} | Ürün market IAP listesinde yok veya miktar 0; bakiye eklenmedi.`.trim();
+    const grants = resolveIapEntitlementGrantsFromPolicy(policy, platform, ledger.productId);
+    const walletAmount = resolved && resolved.amount > 0 ? resolved.amount : 0;
+    const hasWallet = walletAmount > 0;
+    const hasGrants = grants.yillik_plan_uretim > 0 || grants.evrak_uretim > 0;
+
+    if (!hasWallet && !hasGrants) {
+      ledger.verificationNote = `${ledger.verificationNote ?? ''} | Ürün IAP listesinde yok veya jeton/ekders ve üretim hakkı tanımı yok; işlenmedi.`.trim();
       await this.ledgerRepo.save(ledger);
       return;
     }
 
     const creditAccount = dto.credit_account === 'school' ? 'school' : 'user';
-    try {
-      await this.wallet.applyCredit({
-        userId,
-        schoolId,
-        role,
-        creditAccount,
-        currencyKind: resolved.currencyKind,
-        amount: resolved.amount,
-      });
-      ledger.creditsApplied = true;
-      ledger.amountCredited = String(resolved.amount);
-      ledger.creditTarget = creditAccount;
-      await this.ledgerRepo.save(ledger);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Bakiye eklenemedi';
-      ledger.verificationNote = `${ledger.verificationNote ?? ''} | ${msg}`.trim();
-      await this.ledgerRepo.save(ledger);
+    let walletOk = false;
+    if (hasWallet && resolved) {
+      try {
+        await this.wallet.applyCredit({
+          userId,
+          schoolId,
+          role,
+          creditAccount,
+          currencyKind: resolved.currencyKind,
+          amount: resolved.amount,
+        });
+        walletOk = true;
+        ledger.amountCredited = String(resolved.amount);
+        ledger.creditTarget = creditAccount;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Bakiye eklenemedi';
+        ledger.verificationNote = `${ledger.verificationNote ?? ''} | ${msg}`.trim();
+      }
     }
+
+    let grantOk = false;
+    if (hasGrants) {
+      try {
+        if (grants.yillik_plan_uretim > 0) {
+          await this.entitlements.addEntitlementQuantity(
+            userId,
+            ENTITLEMENT_YILLIK_PLAN_URETIM,
+            grants.yillik_plan_uretim,
+          );
+        }
+        if (grants.evrak_uretim > 0) {
+          await this.entitlements.addEntitlementQuantity(userId, ENTITLEMENT_EVRAK_URETIM, grants.evrak_uretim);
+        }
+        grantOk = true;
+        const gnote = `+${grants.yillik_plan_uretim} plan hakkı, +${grants.evrak_uretim} evrak hakkı`;
+        ledger.verificationNote = `${ledger.verificationNote ?? ''} | ${gnote}`.trim();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Hak eklenemedi';
+        ledger.verificationNote = `${ledger.verificationNote ?? ''} | Hak hatası: ${msg}`.trim();
+      }
+    }
+
+    if (walletOk || grantOk) {
+      ledger.creditsApplied = true;
+      if (!walletOk && grantOk) {
+        ledger.amountCredited = ledger.amountCredited ?? '0';
+        ledger.creditTarget = ledger.creditTarget ?? creditAccount;
+      }
+    }
+    await this.ledgerRepo.save(ledger);
   }
 
   async listLedger(params: { page: number; limit: number }): Promise<{

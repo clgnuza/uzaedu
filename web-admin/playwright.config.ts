@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Öğretmen Pro Web Admin – E2E smoke testleri.
+ * Uzaedu Öğretmen Web Admin – E2E smoke testleri.
  * Çalıştırmak için: backend ve web-admin ayağa kalkmış olmalı.
  * npx playwright test
  */

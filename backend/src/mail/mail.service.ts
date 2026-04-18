@@ -4,6 +4,7 @@ import { env } from '../config/env';
 import { interpolateMailTemplate, escapeMailText } from './mail-template-render';
 import type { MailTemplateId } from './mail-templates.types';
 import { createNodemailerTransporter } from './nodemailer-transport';
+import { ContactSubmission } from './entities/contact-submission.entity';
 
 export interface NotificationEmailParams {
   title: string;
@@ -61,7 +62,7 @@ export class MailService {
     const loginUrl = `${base}/login`;
     const registerUrl = `${base}/register`;
     const { schoolName, recipientName } = params;
-    const appName = 'Öğretmen Pro';
+    const appName = 'Uzaedu Öğretmen';
     const fromName = (config.smtp_from_name || appName).trim();
     const rendered = await this.renderMailTemplate('teacher_school_pending', {
       app_name: appName,
@@ -93,7 +94,7 @@ export class MailService {
     const dashboardUrl = `${base}/dashboard`;
     const loginUrl = `${base}/login`;
     const { schoolName, recipientName } = params;
-    const appName = 'Öğretmen Pro';
+    const appName = 'Uzaedu Öğretmen';
     const fromName = (config.smtp_from_name || appName).trim();
     const rendered = await this.renderMailTemplate('teacher_school_approved', {
       app_name: appName,
@@ -125,7 +126,7 @@ export class MailService {
     const registerUrl = `${base}/register`;
     const loginUrl = `${base}/login`;
     const { schoolName, recipientName } = params;
-    const appName = 'Öğretmen Pro';
+    const appName = 'Uzaedu Öğretmen';
     const fromName = (config.smtp_from_name || appName).trim();
     const rendered = await this.renderMailTemplate('teacher_school_rejected', {
       app_name: appName,
@@ -153,7 +154,7 @@ export class MailService {
   ): Promise<boolean> {
     const config = await this.appConfig.getMailConfigForSending();
     if (!this.isMailReady(config)) return false;
-    const appName = 'Öğretmen Pro';
+    const appName = 'Uzaedu Öğretmen';
     const fromName = (config.smtp_from_name || appName).trim();
     const preheader = `${params.schoolName} kaydı: e-posta doğrulaması; ardından platform onay süreci.`;
     const rendered = await this.renderMailTemplate('school_join_verify', {
@@ -182,7 +183,7 @@ export class MailService {
       this.logger.warn(`Şifre sıfırlama SMTP yok; bağlantı (yalnız log): ${resetUrl}`);
       return false;
     }
-    const appName = 'Öğretmen Pro';
+    const appName = 'Uzaedu Öğretmen';
     const fromName = (config.smtp_from_name || appName).trim();
     const rendered = await this.renderMailTemplate('password_reset', {
       app_name: appName,
@@ -202,7 +203,7 @@ export class MailService {
       this.logger.warn(`Doğrulama kodu SMTP yok; kod (log): ${params.code} → ${toEmail}`);
       return false;
     }
-    const appName = 'Öğretmen Pro';
+    const appName = 'Uzaedu Öğretmen';
     const fromName = (config.smtp_from_name || appName).trim();
     const rendered = await this.renderMailTemplate('verification_code', {
       app_name: appName,
@@ -257,23 +258,26 @@ export class MailService {
       smtp_user: user,
       smtp_pass: pass,
       smtp_from: (env.smtp.from || user).trim(),
-      smtp_from_name: 'Öğretmen Pro',
+      smtp_from_name: 'Uzaedu Öğretmen',
       smtp_secure: port === 465,
       mail_app_base_url: null,
     };
   }
 
-  /** İletişim formu: uzaeduapp@gmail.com adresine iletir. */
-  async sendContactEmail(params: {
-    name: string;
-    email: string;
-    subject: string;
-    message: string;
-  }): Promise<boolean> {
+  private async resolveContactInboxNotifyTo(): Promise<string> {
+    const n = await this.appConfig.getContactFormNotifyEmailSetting();
+    if (n?.includes('@')) return n.trim();
+    return 'uzaeduapp@gmail.com';
+  }
+
+  /** Ekibin posta kutusuna kopya; konuda kayıt kimliği, gövdede panel linki. */
+  async sendContactInboxNotification(sub: ContactSubmission): Promise<boolean> {
+    const to = await this.resolveContactInboxNotifyTo();
     const config = await this.appConfig.getMailConfigForSending();
-    const to = 'uzaeduapp@gmail.com';
-    const subject = `[İletişim] ${params.subject}`;
+    const subject = `[İletişim #${sub.id.slice(0, 8)}] ${sub.subject}`;
     const esc = (s: string) => escapeHtml(s);
+    const base = (await this.resolveAppBaseUrl()).replace(/\/$/, '');
+    const panelUrl = `${base}/contact-inbox/${sub.id}`;
     const html = `<!DOCTYPE html>
 <html lang="tr">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>İletişim Formu</title></head>
@@ -284,43 +288,103 @@ export class MailService {
         style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,0.06);">
         <tr><td style="height:3px;background:#007bff;line-height:3px;font-size:0;">&#160;</td></tr>
         <tr><td style="padding:26px 32px;">
-          <div style="font-size:18px;font-weight:700;color:#111827;">Öğretmen Pro</div>
+          <div style="font-size:18px;font-weight:700;color:#111827;">Uzaedu Öğretmen</div>
           <div style="font-size:11px;color:#6b7280;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;margin-top:2px;">İletişim Formu</div>
+          <div style="margin-top:12px;font-size:12px;color:#4b5563;">Kayıt: <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px;">${esc(sub.id)}</code></div>
           <table style="margin-top:20px;width:100%;border-collapse:collapse;">
             <tr><td style="padding:8px 0;font-size:12px;color:#6b7280;font-weight:600;width:90px;">Ad Soyad</td>
-                <td style="padding:8px 0;font-size:14px;color:#111827;">${esc(params.name)}</td></tr>
+                <td style="padding:8px 0;font-size:14px;color:#111827;">${esc(sub.name)}</td></tr>
             <tr style="background:#f9fafb;">
                 <td style="padding:8px 0;font-size:12px;color:#6b7280;font-weight:600;width:90px;">E-posta</td>
-                <td style="padding:8px 0;font-size:14px;color:#111827;">${esc(params.email)}</td></tr>
+                <td style="padding:8px 0;font-size:14px;color:#111827;">${esc(sub.email)}</td></tr>
             <tr><td style="padding:8px 0;font-size:12px;color:#6b7280;font-weight:600;width:90px;">Konu</td>
-                <td style="padding:8px 0;font-size:14px;color:#111827;">${esc(params.subject)}</td></tr>
+                <td style="padding:8px 0;font-size:14px;color:#111827;">${esc(sub.subject)}</td></tr>
           </table>
           <div style="margin-top:16px;padding:16px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;">
             <div style="font-size:12px;color:#6b7280;font-weight:600;margin-bottom:8px;">Mesaj</div>
-            <div style="font-size:14px;color:#374151;line-height:1.7;white-space:pre-wrap;">${esc(params.message)}</div>
+            <div style="font-size:14px;color:#374151;line-height:1.7;white-space:pre-wrap;">${esc(sub.message)}</div>
           </div>
           <div style="margin-top:16px;">
-            <a href="mailto:${esc(params.email)}" style="display:inline-block;padding:10px 20px;background:#007bff;color:#fff;font-size:13px;font-weight:600;text-decoration:none;border-radius:8px;">
-              Yanıtla: ${esc(params.email)}
+            <a href="mailto:${esc(sub.email)}" style="display:inline-block;padding:10px 20px;background:#007bff;color:#fff;font-size:13px;font-weight:600;text-decoration:none;border-radius:8px;">
+              Yanıtla: ${esc(sub.email)}
             </a>
+          </div>
+          <div style="margin-top:14px;font-size:12px;color:#6b7280;">
+            Panel: <a href="${esc(panelUrl)}" style="color:#1d4ed8;">${esc(panelUrl)}</a>
           </div>
         </td></tr>
         <tr><td style="padding:14px 32px 18px;background:#f9fafb;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;">
-          Öğretmen Pro · İletişim Formu · ogretmenpro.com
+          Uzaedu Öğretmen · İletişim Formu · uzaedu.com
         </td></tr>
       </table>
     </td></tr>
   </table>
 </body></html>`;
-    const text = `İletişim Formu\n\nAd Soyad: ${params.name}\nE-posta: ${params.email}\nKonu: ${params.subject}\n\nMesaj:\n${params.message}`;
+    const text = `İletişim Formu\nKayıt: ${sub.id}\nPanel: ${panelUrl}\n\nAd Soyad: ${sub.name}\nE-posta: ${sub.email}\nKonu: ${sub.subject}\n\nMesaj:\n${sub.message}`;
 
     if (config.mail_enabled && config.smtp_host && config.smtp_user && config.smtp_pass) {
       return this.sendMailWithConfig(config, to, subject, html, text);
     }
-    // SMTP kapalıysa env üzerinden dene
     const envConfig = this._envMailConfig();
     if (envConfig) return this.sendMailWithConfig(envConfig, to, subject, html, text);
     this.logger.warn('Contact form submitted but SMTP not configured');
+    return false;
+  }
+
+  /** Gönderene SMTP ile yanıt (panelden) — alıntılı, okunaklı HTML + düz metin. */
+  async sendContactFormReplyToUser(params: {
+    toEmail: string;
+    userSubject: string;
+    replyText: string;
+    originalMessage: string;
+    submitterName: string;
+    replierLabel?: string | null;
+    submissionId?: string | null;
+  }): Promise<boolean> {
+    const config = await this.appConfig.getMailConfigForSending();
+    const brand = (config.smtp_from_name || 'Uzaedu Öğretmen').trim();
+    const signer = (params.replierLabel?.trim() || brand).slice(0, 120);
+    const subject = `[Uzaedu] Re: ${params.userSubject}`.slice(0, 240);
+    const esc = (s: string) => escapeHtml(s);
+    const preheader = params.replyText.replace(/\s+/g, ' ').trim().slice(0, 110);
+    const quotedPlain = formatContactReplyQuotedPlain(params.originalMessage);
+    const text = [
+      `Merhaba ${params.submitterName.trim()},`,
+      '',
+      params.replyText.trim(),
+      '',
+      '—',
+      `${signer} · ${brand}`,
+      '',
+      '──────── İletişim özetiniz ────────',
+      `Konu: ${params.userSubject}`,
+      `Adınız (form): ${params.submitterName.trim()}`,
+      params.submissionId ? `Kayıt no: ${params.submissionId}` : '',
+      '',
+      'Alıntı — gönderdiğiniz mesaj:',
+      quotedPlain,
+      '',
+      'Bu e-posta iletişim formunuza verilen yanıttır. Yanıt yazmak için doğrudan bu iletiyi yanıtlayabilirsiniz.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const html = buildContactReplyEmailHtml({
+      brand,
+      signer,
+      submitterName: params.submitterName.trim(),
+      userSubject: params.userSubject,
+      replyText: params.replyText.trim(),
+      originalMessage: params.originalMessage,
+      submissionId: params.submissionId?.trim() || null,
+      preheader,
+    });
+
+    if (config.mail_enabled && config.smtp_host && config.smtp_user && config.smtp_pass) {
+      return this.sendMailWithConfig(config, params.toEmail.trim(), subject, html, text);
+    }
+    const envConfig = this._envMailConfig();
+    if (envConfig) return this.sendMailWithConfig(envConfig, params.toEmail.trim(), subject, html, text);
     return false;
   }
 
@@ -334,7 +398,7 @@ export class MailService {
       smtp_user: user,
       smtp_pass: pass,
       smtp_from: user,
-      smtp_from_name: 'Öğretmen Pro',
+      smtp_from_name: 'Uzaedu Öğretmen',
       smtp_secure: (typeof port === 'number' ? port : parseInt(String(port ?? '587'), 10)) === 465,
       mail_app_base_url: null,
     };
@@ -362,10 +426,105 @@ export class MailService {
         text,
       });
       return true;
-    } catch {
+    } catch (e) {
+      const hint = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`SMTP gönderim hatası (${to}): ${hint}`);
       return false;
     }
   }
+}
+
+function formatContactReplyQuotedPlain(body: string): string {
+  return body.split('\n').map((line) => (line.length === 0 ? '>' : `> ${line}`)).join('\n');
+}
+
+function buildContactReplyEmailHtml(p: {
+  brand: string;
+  signer: string;
+  submitterName: string;
+  userSubject: string;
+  replyText: string;
+  originalMessage: string;
+  submissionId: string | null;
+  preheader: string;
+}): string {
+  const esc = escapeHtml;
+  const sidRow = p.submissionId
+    ? `<tr><td style="padding:6px 0;font-size:12px;color:#64748b;width:88px;vertical-align:top;">Kayıt no</td><td style="padding:6px 0;font-size:12px;color:#0f172a;font-family:Consolas,Monaco,monospace;">${esc(
+        p.submissionId,
+      )}</td></tr>`
+    : '';
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Yanıt</title>
+</head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <div style="display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;color:#f1f5f9;">${esc(p.preheader)}&#8203;</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:linear-gradient(165deg,#eef2ff 0%,#f8fafc 45%,#ecfeff 100%);padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;border-collapse:separate;border-spacing:0;">
+          <tr>
+            <td style="height:4px;border-radius:16px 16px 0 0;background:linear-gradient(90deg,#6366f1,#a855f7,#22d3ee);font-size:0;line-height:0;">&#160;</td>
+          </tr>
+          <tr>
+            <td style="background:#ffffff;border:1px solid #e2e8f0;border-top:none;padding:28px 28px 8px 28px;">
+              <p style="margin:0 0 4px;font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">İletişim yanıtı</p>
+              <p style="margin:0;font-size:20px;font-weight:700;letter-spacing:-0.02em;color:#0f172a;">${esc(p.brand)}</p>
+              <p style="margin:12px 0 0;font-size:14px;line-height:1.55;color:#334155;">
+                Merhaba <strong style="color:#0f172a;">${esc(p.submitterName)}</strong>,
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#ffffff;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;padding:8px 28px 24px 28px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:linear-gradient(135deg,#f5f3ff 0%,#faf5ff 50%,#ecfeff 100%);border:1px solid #e9d5ff;border-radius:14px;">
+                <tr>
+                  <td style="padding:18px 20px;">
+                    <p style="margin:0 0 6px;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#6d28d9;">Yanıtımız</p>
+                    <div style="font-size:15px;line-height:1.65;color:#1e293b;white-space:pre-wrap;">${esc(p.replyText)}</div>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:20px 0 0;font-size:13px;line-height:1.5;color:#64748b;">
+                Saygılarımızla,<br/>
+                <strong style="color:#334155;">${esc(p.signer)}</strong>
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#f8fafc;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;padding:20px 28px;border-top:1px dashed #cbd5e1;">
+              <p style="margin:0 0 12px;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#94a3b8;">İletişim özetiniz</p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+                <tr><td style="padding:6px 0;font-size:12px;color:#64748b;width:88px;vertical-align:top;">Konu</td><td style="padding:6px 0;font-size:14px;color:#0f172a;font-weight:600;">${esc(p.userSubject)}</td></tr>
+                <tr><td style="padding:6px 0;font-size:12px;color:#64748b;">Gönderen</td><td style="padding:6px 0;font-size:13px;color:#334155;">${esc(p.submitterName)}</td></tr>
+                ${sidRow}
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#f1f5f9;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;padding:20px 28px;border-radius:0 0 16px 16px;">
+              <p style="margin:0 0 10px;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#64748b;">Alıntı — orijinal mesajınız</p>
+              <div style="margin:0;padding:14px 16px;background:#ffffff;border-radius:10px;border-left:4px solid #6366f1;box-shadow:0 1px 2px rgba(15,23,42,0.06);font-size:13px;line-height:1.65;color:#475569;white-space:pre-wrap;font-family:Consolas,'SFMono-Regular',Menlo,monospace;">${esc(p.originalMessage)}</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 8px 0;text-align:center;">
+              <p style="margin:0;font-size:11px;line-height:1.5;color:#94a3b8;">
+                Bu e-posta iletişim formunuza verilen yanıttır.<br/>
+                Yanıtlamak için bu iletiyi kullanabilirsiniz.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
 }
 
 function buildNotificationHtml(params: {

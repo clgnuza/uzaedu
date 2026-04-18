@@ -1,14 +1,14 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'ÖğretmenPro | Dijital Okul Yönetim Platformu',
+  title: 'Uzaedu Öğretmen | Dijital Okul Yönetim Platformu',
   description:
     'Öğretmenler ve okul yöneticileri için ders programı, sınav planlama, akademik takvim, ek ders hesaplama, öğretmen ajandası. MEB uyumlu yerli ve milli yazılım.',
-  keywords: ['öğretmen', 'okul yönetimi', 'ders programı', 'sınav planlama', 'akademik takvim', 'ek ders', 'MEB', 'ÖğretmenPro'],
+  keywords: ['öğretmen', 'okul yönetimi', 'ders programı', 'sınav planlama', 'akademik takvim', 'ek ders', 'MEB', 'Uzaedu Öğretmen'],
   alternates: { canonical: '/' },
   openGraph: {
     type: 'website',
-    title: 'ÖğretmenPro | Dijital Okul Yönetim Platformu',
+    title: 'Uzaedu Öğretmen | Dijital Okul Yönetim Platformu',
     description: 'Öğretmenler ve okul yöneticileri için MEB uyumlu dijital platform.',
     locale: 'tr_TR',
   },
@@ -65,7 +65,7 @@ export default function HomePage() {
         className="relative z-20 flex shrink-0 items-center justify-between px-4 py-3 sm:px-8 sm:py-4 lg:px-10"
         style={{ animation: 'landing-fadein 0.5s ease both' }}
       >
-        <p className="text-[10px] font-bold uppercase tracking-[0.32em] text-zinc-600">Öğretmen Pro</p>
+        <p className="text-[10px] font-bold uppercase tracking-[0.32em] text-zinc-600">Uzaedu Öğretmen</p>
         <nav className="flex items-center gap-2" aria-label="Hesap">
           <AuthTransitionLink
             href="/login"

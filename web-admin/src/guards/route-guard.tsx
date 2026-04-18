@@ -59,7 +59,7 @@ export function RouteGuard({
     return (
       <div className="w-full min-h-[min(100dvh,48rem)] bg-muted/20 dark:bg-muted/10">
         <AppShellLoadingCard
-          title="Öğretmen Pro"
+          title="Uzaedu Öğretmen"
           subtitle="Yükleniyor…"
           hint="Oturum ve sayfa yetkileri kontrol ediliyor."
         />

@@ -21,6 +21,7 @@ import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { DutyPageHeader } from '@/components/duty/duty-page-header';
+import { DutyReminderSettingsCard } from '@/components/duty/duty-reminder-settings-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -94,6 +95,7 @@ function groupByMonth(prefs: DutyPreference[]): Array<{ monthKey: string; label:
 export default function TercihlerPage() {
   const { token, me } = useAuth();
   const isAdmin = me?.role === 'school_admin';
+  const isTeacher = me?.role === 'teacher';
   const [preferencesEnabled, setPreferencesEnabled] = useState<boolean | null>(isAdmin ? true : null);
   const [preferences, setPreferences] = useState<DutyPreference[]>([]);
   const [loading, setLoading] = useState(true);
@@ -282,6 +284,12 @@ export default function TercihlerPage() {
             </div>
           </CardContent>
         </Card>
+        {isTeacher && (
+          <section aria-label="Nöbet bildirimi ayarı" className="rounded-xl border border-border/50 bg-card/40 p-3 shadow-sm ring-1 ring-border/30">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Tercihler</p>
+            <DutyReminderSettingsCard />
+          </section>
+        )}
       </div>
     );
   }
@@ -320,6 +328,13 @@ export default function TercihlerPage() {
         }
       />
 
+      {isTeacher && (
+        <section aria-label="Nöbet bildirimi ayarı" className="rounded-xl border border-border/50 bg-card/40 p-3 shadow-sm ring-1 ring-border/30">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Tercihler</p>
+          <DutyReminderSettingsCard />
+        </section>
+      )}
+
       {/* Özet sayaçlar – sadece admin */}
       {isAdmin && preferences.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
@@ -337,17 +352,37 @@ export default function TercihlerPage() {
       )}
 
       {/* Tarih filtresi */}
-      <div className={cn(
-        'flex flex-wrap items-end gap-3 border border-border/50',
-        isAdmin ? 'rounded-xl bg-muted/40 p-3.5' : 'rounded-lg bg-muted/20 px-3 py-2',
-      )}>
-        <div className="space-y-0.5">
+      <div
+        className={cn(
+          'border border-border/50',
+          isAdmin
+            ? 'flex flex-wrap items-end gap-3 rounded-xl bg-muted/40 p-3.5'
+            : 'flex flex-row flex-wrap items-end gap-3 overflow-visible rounded-lg bg-muted/20 p-3',
+        )}
+      >
+        <div className={cn('min-w-0 space-y-0.5', !isAdmin && 'flex-1')}>
           <Label className="text-[11px] text-muted-foreground">Başlangıç</Label>
-          <Input type="date" value={dateRange.from} onChange={(e) => setDateRange((r) => ({ ...r, from: e.target.value }))} className={cn('h-8 w-32 text-xs', !isAdmin && 'h-8 w-28')} />
+          <Input
+            type="date"
+            value={dateRange.from}
+            onChange={(e) => setDateRange((r) => ({ ...r, from: e.target.value }))}
+            className={cn(
+              'tabular-nums',
+              isAdmin ? 'h-8 w-32 text-xs' : 'h-9 w-full min-w-0 px-2.5 text-sm',
+            )}
+          />
         </div>
-        <div className="space-y-0.5">
+        <div className={cn('min-w-0 space-y-0.5', !isAdmin && 'flex-1')}>
           <Label className="text-[11px] text-muted-foreground">Bitiş</Label>
-          <Input type="date" value={dateRange.to} onChange={(e) => setDateRange((r) => ({ ...r, to: e.target.value }))} className={cn('h-8 w-32 text-xs', !isAdmin && 'h-8 w-28')} />
+          <Input
+            type="date"
+            value={dateRange.to}
+            onChange={(e) => setDateRange((r) => ({ ...r, to: e.target.value }))}
+            className={cn(
+              'tabular-nums',
+              isAdmin ? 'h-8 w-32 text-xs' : 'h-9 w-full min-w-0 px-2.5 text-sm',
+            )}
+          />
         </div>
       </div>
 

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { FormEvent, ReactNode } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { getApiUrl } from '@/lib/api';
+import { uuidFromTvShortSchoolId, uuidToTvShortSchoolId } from '@/lib/tv-school-short-id';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { BookOpen, ChevronLeft, ChevronRight, Megaphone, Rss, Smartphone, Users, X } from 'lucide-react';
 
@@ -305,7 +306,10 @@ function TvPairingGate({
       }
       onPaired(res.device_id);
       if (!schoolId) {
-        router.replace(`/tv/${audience}?school_id=${encodeURIComponent(res.school_id)}`);
+        const short = uuidToTvShortSchoolId(res.school_id);
+        router.replace(
+          `/tv/${audience}?${short ? `s=${encodeURIComponent(short)}` : `school_id=${encodeURIComponent(res.school_id)}`}`,
+        );
       }
     } catch {
       setErr('Bağlantı hatası.');
@@ -319,7 +323,7 @@ function TvPairingGate({
   return (
     <div className="flex min-h-screen flex-1 flex-col items-center justify-center gap-6 bg-[#0c1929] px-4 py-8">
       <div className="w-full max-w-md rounded-2xl border border-slate-600/60 bg-slate-900/95 p-8 shadow-xl">
-        <p className="text-center text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-400/90">Öğretmen Pro · Duyuru TV</p>
+        <p className="text-center text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-400/90">Uzaedu Öğretmen · Duyuru TV</p>
         <h1 className="mt-2 text-center text-xl font-semibold text-slate-100">TV eşleştirme</h1>
         <p className="mt-1 text-center text-sm font-medium text-slate-300">{screenLabel}</p>
 
@@ -340,7 +344,8 @@ function TvPairingGate({
         ) : (
           <div className="mt-5 rounded-xl border border-amber-500/25 bg-amber-950/30 px-4 py-3 text-center">
             <p className="text-sm leading-relaxed text-amber-100/90">
-              Yönetimden aldığınız TV bağlantısını kullanın (adreste <span className="font-mono text-amber-200">school_id</span> olmalı). Kod
+              Yönetimden aldığınız TV bağlantısını kullanın (adreste{' '}
+              <span className="font-mono text-amber-200">s=…</span> veya <span className="font-mono text-amber-200">school_id</span>). Kod
               doğrulandığında okul otomatik tanınır.
             </p>
           </div>
@@ -457,7 +462,13 @@ export default function TvAudienceContent() {
       : params?.audience === 'teachers'
         ? 'teachers'
         : 'corridor';
-  const schoolId = searchParams?.get('school_id') ?? undefined;
+  const schoolIdParam = searchParams?.get('school_id')?.trim() ?? '';
+  const shortSchoolParam = searchParams?.get('s')?.trim() ?? '';
+  const schoolId = useMemo(() => {
+    if (schoolIdParam) return schoolIdParam;
+    const u = shortSchoolParam ? uuidFromTvShortSchoolId(shortSchoolParam) : null;
+    return u ?? undefined;
+  }, [schoolIdParam, shortSchoolParam]);
   const deviceId = searchParams?.get('device_id') ?? undefined;
   const usbMode = searchParams?.get('usb') === '1';
   const [usbToken, setUsbToken] = useState<string | null>(null);
@@ -2359,7 +2370,7 @@ function SlideView({
         )}
         <div className="relative z-10 flex max-w-2xl flex-col items-center gap-6 text-center">
           <h1 className="tv-gradient-text text-3xl font-extrabold uppercase leading-tight tracking-wide md:text-5xl lg:text-6xl">
-            {schoolName.toUpperCase()} KANALINA HOŞ GELDİNİZ
+            {schoolName.toLocaleUpperCase('tr-TR')} KANALINA HOŞ GELDİNİZ
           </h1>
           <div className="flex items-center gap-3 rounded-xl bg-white/5 px-5 py-3">
             <div className="flex size-9 items-center justify-center rounded-lg bg-[var(--tv-red)] text-white">
@@ -2367,7 +2378,7 @@ function SlideView({
                 <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 4c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
               </svg>
             </div>
-            <span className="text-lg font-bold text-[var(--tv-red)]">Öğretmen Pro</span>
+            <span className="text-lg font-bold text-[var(--tv-red)]">Uzaedu Öğretmen</span>
           </div>
           <p className="text-lg leading-relaxed text-[var(--tv-text-muted)] md:text-xl">
             Okulunuzun duyuruları, programları ve bilgilendirmeleri bu ekrandan yayınlanır.

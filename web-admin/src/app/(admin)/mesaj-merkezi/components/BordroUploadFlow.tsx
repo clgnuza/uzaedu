@@ -43,7 +43,7 @@ function maskTc(tc?: string): string {
 
 /** Örnek mesaj önizleme (backend bordro parser ile aynı yapı) */
 function buildPreview(type: BordroType, okulAdi: string, iletisimNotu: string, donem: string): string {
-  const okul = okulAdi || 'OgretmenPro';
+  const okul = okulAdi || 'Uzaedu Öğretmen';
   const mebbisDefault = `Ek ders kontrol amaçlı puantaj ekte sunulmuştur. Hata olması durumunda${okulAdi ? ' ' + okulAdi + ' yönetimi' : ' okul yönetimi'} ile iletişime geçiniz.`;
   const ekDefault = `Ek ders bordro detayları ekte sunulmuştur. Hata olması durumunda${okulAdi ? ' ' + okulAdi + ' yönetimi' : ' okul yönetimi'} ile iletişime geçiniz.`;
   const maasDefault = `Maaş bordro detayları ekte sunulmuştur. Hata olması durumunda${okulAdi ? ' ' + okulAdi + ' yönetimi' : ' okul yönetimi'} ile iletişime geçiniz.`;

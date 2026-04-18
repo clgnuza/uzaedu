@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Nobet Yonetimi Sistemi Otomatik Inceleme Scripti
@@ -450,7 +450,7 @@ class NobetyonetimExplorer:
 2. 
 3. 
 
-### Öğretmen Pro İçin Öneriler
+### Uzaedu Öğretmen İçin Öneriler
 1. (Manuel olarak doldurulacak)
 2. 
 3. 
@@ -521,3 +521,4 @@ if __name__ == "__main__":
     
     explorer = NobetyonetimExplorer(output_dir=args.output_dir, headless=args.headless)
     explorer.run()
+

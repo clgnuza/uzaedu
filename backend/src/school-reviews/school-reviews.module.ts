@@ -14,17 +14,35 @@ import { SchoolAnswerLike } from './entities/school-answer-like.entity';
 import { SchoolAnswerDislike } from './entities/school-answer-dislike.entity';
 import { SchoolContentReport } from './entities/school-content-report.entity';
 import { SchoolFavorite } from './entities/school-favorite.entity';
+import { User } from '../users/entities/user.entity';
 import { SchoolReviewsService } from './school-reviews.service';
 import { SchoolReviewsController } from './school-reviews.controller';
 import { SchoolReviewsPublicController } from './school-reviews-public.controller';
 import { AppConfigModule } from '../app-config/app-config.module';
 import { MarketModule } from '../market/market.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([School, SchoolReview, SchoolReviewCriteria, SchoolQuestion, SchoolQuestionAnswer, SchoolReviewLike, SchoolReviewDislike, SchoolQuestionLike, SchoolQuestionDislike, SchoolAnswerLike, SchoolAnswerDislike, SchoolContentReport, SchoolFavorite]),
+    TypeOrmModule.forFeature([
+      School,
+      SchoolReview,
+      SchoolReviewCriteria,
+      SchoolQuestion,
+      SchoolQuestionAnswer,
+      SchoolReviewLike,
+      SchoolReviewDislike,
+      SchoolQuestionLike,
+      SchoolQuestionDislike,
+      SchoolAnswerLike,
+      SchoolAnswerDislike,
+      SchoolContentReport,
+      SchoolFavorite,
+      User,
+    ]),
     AppConfigModule,
     MarketModule,
+    NotificationsModule,
   ],
   controllers: [SchoolReviewsController, SchoolReviewsPublicController],
   providers: [SchoolReviewsService, RequireSchoolModuleGuard],

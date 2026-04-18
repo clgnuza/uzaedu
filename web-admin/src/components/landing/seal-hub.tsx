@@ -7,6 +7,7 @@ import { memo, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AuthTransitionLink } from '@/components/landing/auth-transition-link';
 import { cn } from '@/lib/utils';
+import { isPublicAdminPath } from '@/lib/public-admin-paths';
 import {
   ScanLine,
   Calculator,
@@ -18,11 +19,11 @@ import {
   CalendarClock,
   Target,
   Star,
-  Building2,
   Bug,
   ClipboardCheck,
   MessageSquare,
   LogIn,
+  ArrowRight,
   CheckCircle2,
   Layers3,
   Sparkle,
@@ -51,7 +52,6 @@ const ITEMS: HubItem[] = [
   { label: 'Akıllı Tahta', href: '/login?redirect=%2Fakilli-tahta', icon: Monitor, description: 'Akıllı tahta oturumları, cihaz yönetimi ve sınıf içi akışı merkezden yönetin.', detail: 'Cihaz erişimi, oturum kurgusu ve sınıf içi kullanım adımlarını tek merkezde toplar.', tags: ['Cihaz', 'Oturum', 'Sınıf içi'] },
   { label: 'Ajanda', href: '/login?redirect=%2Fogretmen-ajandasi', icon: CalendarClock, description: 'Öğretmen ajandası ile not, görüşme, etkinlik ve takip kayıtlarını düzenleyin.', detail: 'Günlük okul temposunu daha düzenli hale getirir; görüşme, not ve takip adımlarını tek ekranda toplar.', tags: ['Notlar', 'Görüşmeler', 'Takip'] },
   { label: 'Bilsem', href: '/login?redirect=%2Fbilsem%2Ftakvim', icon: Sparkles, description: 'Bilsem takvimi, planlar ve ilgili okul süreçlerini tek ekranda yürütün.', detail: 'Bilsem özelindeki takvim ve içerik akışını düzenler; öğretim planını daha görünür kılar.', tags: ['Takvim', 'Plan', 'Özel süreç'] },
-  { label: 'Okul Tanıtım', href: '/login?redirect=%2Fschool-profile', icon: Building2, description: 'Okul vitrini, kurumsal görünüm ve tanıtım içeriklerini güncel tutun.', detail: 'Kurumsal görünümü güçlendirir; okulunuzu dijital vitrinde modern ve güven veren bir şekilde sunmanıza yardımcı olur.', tags: ['Vitrin', 'Kurumsal görünüm', 'Tanıtım'] },
   { label: 'Okul Değerl.', href: '/okul-degerlendirmeleri', icon: Star, description: 'Okul değerlendirme sayfasını inceleyin, görünürlüğü ve geri bildirimleri takip edin.', detail: 'Okul algısını, yorumları ve görünürlük etkisini daha anlaşılır hale getirir.', tags: ['Geri bildirim', 'Görünürlük', 'Analiz'] },
   { label: 'Kertenkele', href: '/login?redirect=%2Fkelebek-sinav', icon: Bug, description: 'Kelebek sınav yerleşimi, salon düzeni ve planlama adımlarını otomatikleştirin.', detail: 'Sınav organizasyonunu daha kontrollü hale getirir; salon, dağılım ve yerleşim süreçlerini hızlandırır.', tags: ['Yerleşim', 'Salon planı', 'Otomasyon'] },
   { label: 'Sorumluluk', href: '/login?redirect=%2Fsorumluluk-sinav', icon: ClipboardCheck, description: 'Sorumluluk ve beceri sınavı programlama ile görevlendirme süreçlerini yönetin.', detail: 'Programlama, görev paylaşımı ve sınav adımlarını daha düzenli ve izlenebilir hale getirir.', tags: ['Programlama', 'Görev', 'Sınav süreci'] },
@@ -74,6 +74,23 @@ const NODE_POSITIONS: { left: string; top: string }[] = (() => {
     return { left: `${x.toFixed(4)}%`, top: `${y.toFixed(4)}%` };
   });
 })();
+
+function hubItemTargetPath(href: string): string {
+  if (href.startsWith('/login')) {
+    const m = href.match(/[?&]redirect=([^&]+)/);
+    if (m?.[1]) {
+      try {
+        const raw = decodeURIComponent(m[1]);
+        return (raw.split('?')[0] || '/').replace(/\/$/, '') || '/';
+      } catch {
+        return '/';
+      }
+    }
+    return '/';
+  }
+  const p = href.split('?')[0] || '/';
+  return p.replace(/\/$/, '') || '/';
+}
 
 function ActionButton({
   href,
@@ -134,6 +151,10 @@ function HubDetailModal({ item, onClose, hubRect }: { item: HubItem; onClose: ()
   const loginHref = item.href.startsWith('/login')
     ? item.href
     : `/login?redirect=${encodeURIComponent(item.href)}`;
+
+  const targetPath = hubItemTargetPath(item.href);
+  const publicTarget = isPublicAdminPath(targetPath);
+  const ctaHref = publicTarget ? targetPath : loginHref;
 
   /** Kırmızı halka = hub container × (OUTER_R/50) = %90.4; kartı tam oraya sabitle */
   const ringRatio = (OUTER_R * 2) / 100;          // 0.904
@@ -320,12 +341,16 @@ function HubDetailModal({ item, onClose, hubRect }: { item: HubItem; onClose: ()
 
           <div className="relative z-10 flex shrink-0 justify-center border-t border-white/10 bg-black/25 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md sm:py-2.5">
             <ActionButton
-              href={loginHref}
+              href={ctaHref}
               compact
               className="border-white/25 bg-linear-to-r from-rose-500/30 via-fuchsia-500/20 to-violet-600/30 px-4 py-1.5 text-[11px] text-white shadow-[0_0_20px_-8px_rgba(244,114,182,0.5)] hover:border-white/35 hover:from-rose-500/40 hover:via-fuchsia-500/30 hover:to-violet-600/40"
             >
-              <LogIn className="size-3.5 shrink-0 opacity-95" />
-              Giriş
+              {publicTarget ? (
+                <ArrowRight className="size-3.5 shrink-0 opacity-95" />
+              ) : (
+                <LogIn className="size-3.5 shrink-0 opacity-95" />
+              )}
+              {publicTarget ? 'Sayfaya git' : 'Giriş'}
             </ActionButton>
           </div>
         </div>
@@ -416,6 +441,14 @@ export function SealHub() {
     setMounted(true);
     router.prefetch('/login');
     router.prefetch('/register');
+    const seen = new Set<string>();
+    for (const it of ITEMS) {
+      const t = hubItemTargetPath(it.href);
+      if (isPublicAdminPath(t) && !seen.has(t)) {
+        seen.add(t);
+        router.prefetch(t);
+      }
+    }
   }, [router]);
 
   const handleSelect = useCallback((item: HubItem) => {

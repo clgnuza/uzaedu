@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
-  Building2,
   KeyRound,
   School,
   Users,
@@ -91,11 +90,8 @@ const OKUL_GROUPS: {
 }[] = [
   {
     title: 'Kurumsal görünüm',
-    description: 'Tanıtım ve ekranlar',
-    items: [
-      { href: '/school-profile', label: 'Okul tanıtımı', sub: 'Logo, metin ve iletişim', icon: Building2 },
-      { href: '/tv', label: 'Duyuru TV', sub: 'Koridor ve öğretmenler odası', icon: Tv },
-    ],
+    description: 'Duyuru ekranları',
+    items: [{ href: '/tv', label: 'Duyuru TV', sub: 'Koridor ve öğretmenler odası', icon: Tv }],
   },
   {
     title: 'Takvim ve program',

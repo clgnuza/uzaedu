@@ -49,43 +49,39 @@ export function DersProgramiTeacherContextCard({
         aria-hidden
       />
       <div className="relative flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
-        <DersProgramiWeekIllustration className="size-14 shrink-0 sm:size-20" />
-        <div className="min-w-0 flex-1 space-y-1 overflow-hidden sm:space-y-2">
-          <div className="flex flex-wrap items-center gap-x-1 gap-y-1 sm:gap-x-2 sm:gap-y-1.5">
-            <span className="rounded-full border border-sky-300/50 bg-sky-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-sky-900 dark:border-sky-700 dark:text-sky-200">
-              {academicYear}
-            </span>
-            <span
-              className={cn(
-                'rounded-full px-2 py-0.5 text-[10px] font-semibold',
-                isClassTime
-                  ? 'bg-emerald-500/15 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
-                  : 'bg-muted text-muted-foreground',
-              )}
-            >
-              {isClassTime ? 'Şimdi ders saati' : 'Ders saati dışı'}
-            </span>
-            <span className="rounded-full bg-muted/80 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-              {educationModeLabel}
-            </span>
-            {extraBadges}
-          </div>
-          <p className="wrap-break-word text-xs font-semibold leading-tight text-foreground sm:text-base">
-            {dateStr} · {weekdayStr}
-            <span className="font-normal text-muted-foreground"> · {timeStr}</span>
-          </p>
-          {statsSlot ?? (
-            <>
-              <p className="wrap-break-word text-[11px] leading-tight text-muted-foreground sm:hidden">
-                Bugün <span className="font-semibold tabular-nums text-foreground">{todayLessons}</span> ders ·{' '}
-                <span className="font-semibold tabular-nums text-foreground">{weekTotalSlots}</span> kayıt
-              </p>
-              <p className="hidden wrap-break-word text-xs leading-snug text-muted-foreground sm:block sm:text-sm">
+        <div className="flex min-w-0 flex-row items-start gap-3 sm:contents">
+          <DersProgramiWeekIllustration className="size-14 shrink-0 sm:size-20" />
+          <div className="min-w-0 flex-1 space-y-1 overflow-hidden sm:space-y-2">
+            <div className="flex flex-wrap items-center gap-x-1 gap-y-1 sm:gap-x-2 sm:gap-y-1.5">
+              <span className="rounded-full border border-sky-300/50 bg-sky-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-sky-900 dark:border-sky-700 dark:text-sky-200">
+                {academicYear}
+              </span>
+              <span
+                className={cn(
+                  'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                  isClassTime
+                    ? 'bg-emerald-500/15 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
+                    : 'bg-muted text-muted-foreground',
+                )}
+              >
+                {isClassTime ? 'Şimdi ders saati' : 'Ders saati dışı'}
+              </span>
+              <span className="rounded-full bg-muted/80 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {educationModeLabel}
+              </span>
+              {extraBadges}
+            </div>
+            <p className="wrap-break-word text-xs font-semibold leading-tight text-foreground sm:text-base">
+              {dateStr} · {weekdayStr}
+              <span className="font-normal text-muted-foreground"> · {timeStr}</span>
+            </p>
+            {statsSlot ?? (
+              <p className="wrap-break-word text-[11px] leading-tight text-muted-foreground sm:text-sm sm:leading-snug">
                 Bugün <span className="font-semibold tabular-nums text-foreground">{todayLessons}</span> ders · Haftalık tabloda{' '}
                 <span className="font-semibold tabular-nums text-foreground">{weekTotalSlots}</span> kayıt
               </p>
-            </>
-          )}
+            )}
+          </div>
         </div>
         {children ? (
           <div className="flex w-full min-w-0 flex-row flex-wrap gap-1.5 *:min-h-9 *:min-w-0 *:flex-1 sm:w-auto sm:max-w-full sm:flex-col sm:gap-2 sm:*:flex-none sm:shrink-0 md:min-w-[200px] md:max-w-[280px]">
