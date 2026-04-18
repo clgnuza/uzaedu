@@ -340,8 +340,9 @@ export default function HaberYayinPage() {
   useHaberContentLiveRefresh({
     authLoading,
     token,
-    onSilentRefresh: () =>
-      Promise.all([fetchMebItems({ silent: true }), fetchIlItems({ silent: true })]),
+    onSilentRefresh: async () => {
+      await Promise.all([fetchMebItems({ silent: true }), fetchIlItems({ silent: true })]);
+    },
   });
 
   useEffect(() => {
