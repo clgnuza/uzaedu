@@ -63,8 +63,10 @@ export const DEFAULT_WEB_EXTRAS = {
   /** GET /content/web-extras Cache-Control max-age (sn) */
   cache_ttl_web_extras: 30,
   global_robots_noindex: false,
-  default_og_image_url: null as string | null,
-  meta_description: null as string | null,
+  /** Site kökü OG; web-admin `public/brand/og-default.png` (göreli yol, metadataBase ile mutlak URL olur) */
+  default_og_image_url: '/brand/og-default.png' as string | null,
+  meta_description:
+    'Öğretmen ve okul yöneticileri için ders planlama, akademik takvim, sınav ve iletişim araçları. Yerli yazılım.' as string | null,
   recaptcha_site_key: null as string | null,
   pwa_short_name: 'Uzaedu Öğretmen',
   theme_color: '#0f172a',

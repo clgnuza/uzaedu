@@ -34,8 +34,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const appName   = extras?.pwa_short_name?.trim() || 'Uzaedu Öğretmen';
   const siteTitle = `${appName} | Dijital Okul Yönetim Platformu`;
   const desc      = extras?.meta_description?.trim() ||
-    'Öğretmenler ve okul yöneticileri için ders programı, sınav planlama, akademik takvim, ek ders hesaplama ve öğretmen ajandası. MEB uyumlu yerli yazılım.';
-  const ogImage   = extras?.default_og_image_url || null;
+    'Öğretmenler ve okul yöneticileri için ders programı, sınav planlama, akademik takvim, ek ders hesaplama ve öğretmen ajandası. Yerli yazılım.';
+  const ogImage   = extras?.default_og_image_url?.trim() || '/brand/og-default.png';
 
   const base: Metadata = {
     metadataBase:    new URL(SITE_URL),
@@ -44,7 +44,7 @@ export async function generateMetadata(): Promise<Metadata> {
     applicationName: appName,
     keywords:        [
       'öğretmen', 'okul yönetimi', 'ders programı', 'sınav planlama', 'akademik takvim',
-      'ek ders hesaplama', 'nöbet', 'öğretmen ajandası', 'MEB', 'dijital okul',
+      'ek ders hesaplama', 'nöbet', 'öğretmen ajandası', 'dijital okul',
       'Uzaedu Öğretmen', 'UzaMobil', 'yerli yazılım',
     ],
     authors:         [{ name: 'UzaMobil Yazılım', url: SITE_URL }],

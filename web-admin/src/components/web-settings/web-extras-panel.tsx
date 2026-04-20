@@ -405,15 +405,16 @@ export function WebExtrasPanel() {
             <div className="grid gap-5 sm:max-w-xl">
               <WebSettingsField
                 label="Varsayılan OG görsel URL"
-                hint="CAPTCHA / site key: Web ayarlar → CAPTCHA sekmesi."
+                hint="Boş bırakılırsa `/brand/og-default.png` (repo). Tam URL de verebilirsiniz."
                 htmlFor="wx-ogdef"
               >
                 <Input
                   id="wx-ogdef"
-                  type="url"
+                  type="text"
                   className={WEB_SETTINGS_INPUT}
                   value={form.default_og_image_url ?? ''}
                   onChange={(e) => setForm((f) => ({ ...f, default_og_image_url: e.target.value.trim() || null }))}
+                  placeholder="/brand/og-default.png"
                 />
               </WebSettingsField>
             </div>

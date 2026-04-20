@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { env } from '../config/env';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3';
@@ -1153,12 +1154,16 @@ export class AppConfigService {
     const keywords = await this.getValue('yayin_seo_keywords');
     const siteUrl = await this.getValue('yayin_seo_site_url');
     const siteName = await this.getValue('yayin_seo_site_name');
+    const webBase = (env.frontendUrl || 'http://localhost:3000').replace(/\/$/, '');
+    const defaultOgHaber = `${webBase}/brand/og-haber-yayin.png`;
     return {
       title: title?.trim() || 'Haber Yayını – Uzaedu Öğretmen',
-      description: description?.trim() || '',
-      og_image: ogImage?.trim() || null,
+      description:
+        description?.trim() ||
+        'Kamu kaynaklı eğitim haberleri ve duyuruların derlenmiş özeti; öğretmenler için tek ekranda takip.',
+      og_image: ogImage?.trim() || defaultOgHaber,
       robots: robots?.trim() === 'index' ? 'index' : 'noindex',
-      keywords: keywords?.trim() || '',
+      keywords: keywords?.trim() || 'haber, duyuru, eğitim, öğretmen, okul',
       site_url: siteUrl?.trim() || null,
       site_name: siteName?.trim() || null,
     };

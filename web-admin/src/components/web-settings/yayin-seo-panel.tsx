@@ -152,14 +152,18 @@ export function YayinSeoPanel() {
                 </span>
               </div>
             </WebSettingsField>
-            <WebSettingsField label="OG görsel URL" hint="1200×630 önerilir." htmlFor="seo-og">
+            <WebSettingsField
+              label="OG görsel URL"
+              hint="1200×630 önerilir. Boşsa sunucu `FRONTEND_URL/brand/og-haber-yayin.png` kullanır."
+              htmlFor="seo-og"
+            >
               <Input
                 id="seo-og"
-                type="url"
+                type="text"
                 className={WEB_SETTINGS_INPUT}
                 value={form.og_image ?? ''}
                 onChange={(e) => setForm((f) => ({ ...f, og_image: e.target.value.trim() || null }))}
-                placeholder="https://…"
+                placeholder="https://… veya /brand/og-haber-yayin.png"
               />
             </WebSettingsField>
             <div className="grid gap-5 sm:grid-cols-2">
