@@ -119,7 +119,7 @@ export function YayinSeoPanel() {
                   value={form.title}
                   onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
                   placeholder="Haber Yayını – …"
-                  maxLength={70}
+                  maxLength={60}
                 />
                 <span
                   className={cn(
@@ -140,7 +140,7 @@ export function YayinSeoPanel() {
                   onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                   placeholder="Kısa özet"
                   rows={3}
-                  maxLength={320}
+                  maxLength={160}
                 />
                 <span
                   className={cn(
