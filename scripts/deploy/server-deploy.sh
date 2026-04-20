@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # /opt/uzaedu: git pull, backend+web build, pm2. Triggers: Actions, panel POST /deploy/run.
-# UZAEDU_SKIP_GIT_PULL=1: skip git (CI already pulled). MIGRATE_ON_DEPLOY=1: run migrations.
+# UZAEDU_SKIP_GIT_PULL=1: skip git (CI already pulled). MIGRATE_ON_DEPLOY=1: run TypeORM migrations.
 
 set -euo pipefail
 
@@ -19,6 +19,9 @@ fi
 echo "[deploy] backend install + build"
 rm -rf "$ROOT/backend/node_modules"
 (cd "$ROOT/backend" && unset NODE_ENV && npm ci --jobs=1 && npm run build)
+
+echo "[deploy] migrate:sql (backend/migrations/*.sql)"
+(cd "$ROOT/backend" && npm run migrate:sql)
 
 if [[ "${MIGRATE_ON_DEPLOY:-0}" == "1" ]]; then
   echo "[deploy] migration:run"
