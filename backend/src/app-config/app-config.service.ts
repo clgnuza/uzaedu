@@ -1341,6 +1341,7 @@ export class AppConfigService {
     if (dto.global_robots_noindex !== undefined) next.global_robots_noindex = !!dto.global_robots_noindex;
     if (dto.default_og_image_url !== undefined) next.default_og_image_url = dto.default_og_image_url?.trim() || null;
     if (dto.meta_description !== undefined) next.meta_description = dto.meta_description?.trim() || null;
+    if (dto.recaptcha_site_key !== undefined) next.recaptcha_site_key = dto.recaptcha_site_key?.trim() || null;
     if (dto.pwa_short_name !== undefined) next.pwa_short_name = dto.pwa_short_name?.trim() || null;
     if (dto.theme_color !== undefined) next.theme_color = dto.theme_color?.trim() || null;
     if (dto.favicon_url !== undefined) next.favicon_url = dto.favicon_url?.trim() || null;

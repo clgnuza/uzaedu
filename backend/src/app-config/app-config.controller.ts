@@ -456,6 +456,11 @@ class UpdateWebExtrasDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
+  recaptcha_site_key?: string | null;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(120)
   pwa_short_name?: string | null;
 
