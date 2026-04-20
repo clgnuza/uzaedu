@@ -624,6 +624,8 @@ export class YillikPlanIcerikService {
     curriculum_model?: string | null;
     ana_grup?: string | null;
     alt_grup?: string | null;
+    /** Bilsem topluluk gönderimi onayı sonrası satırları kaynakla ilişkilendirir */
+    submission_id?: string | null;
     items: Array<{
       week_order: number;
       unite?: string;
@@ -731,6 +733,7 @@ export class YillikPlanIcerikService {
         okulTemelliPlanlama: item.okul_temelli_planlama?.trim() || null,
         sortOrder: null,
         curriculumModel: cm,
+        submissionId: params.submission_id?.trim() || null,
       });
     });
     try {

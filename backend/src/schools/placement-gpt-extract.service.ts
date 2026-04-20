@@ -10,9 +10,15 @@ import {
   chunkArray,
   mergeGptPlacementRows,
   runGptPlacementBatch,
+  type GptPlacementRawRow,
   type GptPlacementSchoolLine,
 } from './placement-gpt-extract-core';
-import { normalizeRawRowToPlacement, type PlacementFeedRow } from './school-placement-scores-sync.service';
+import {
+  normalizePlacementUpdateScope,
+  normalizeRawRowToPlacement,
+  type PlacementFeedRow,
+  type PlacementUpdateScope,
+} from './school-placement-scores-sync.service';
 
 @Injectable()
 export class PlacementGptExtractService {
@@ -25,6 +31,41 @@ export class PlacementGptExtractService {
 
   private model(): string {
     return process.env.PLACEMENT_GPT_MODEL?.trim() || 'gpt-4o-mini';
+  }
+
+  /** Tabloda tek puan sütunu varken GPT’nin yanlış JSON alanına yazmasını telafi eder. */
+  private coerceMergedRowsForSourceTable(
+    rows: GptPlacementRawRow[],
+    sourceScope: PlacementUpdateScope,
+    warnings: string[],
+  ): GptPlacementRawRow[] {
+    if (sourceScope === 'both') return rows;
+    let promoted = 0;
+    const out = rows.map((r) => {
+      const we = r.with_exam;
+      const wo = r.without_exam;
+      if (sourceScope === 'central_only') {
+        if (we == null && wo != null) {
+          promoted += 1;
+          return { ...r, with_exam: wo, without_exam: null };
+        }
+        return { ...r, without_exam: null };
+      }
+      if (sourceScope === 'local_only') {
+        if (wo == null && we != null) {
+          promoted += 1;
+          return { ...r, without_exam: we, with_exam: null };
+        }
+        return { ...r, with_exam: null };
+      }
+      return r;
+    });
+    warnings.push(
+      sourceScope === 'central_only'
+        ? `Tablo kapsamı: yalnız merkezî (LGS) puanları — yerel alan temizlendi${promoted ? `; ${promoted} satırda tek sütun merkezîye taşındı` : ''}.`
+        : `Tablo kapsamı: yalnız yerel puanlar — merkezî alan temizlendi${promoted ? `; ${promoted} satırda tek sütun yerelde taşındı` : ''}.`,
+    );
+    return out;
   }
 
   async loadSchoolLines(dto: PlacementGptExtractDto): Promise<GptPlacementSchoolLine[]> {
@@ -119,9 +160,16 @@ export class PlacementGptExtractService {
       }
     }
 
+    const sourceTableScope = normalizePlacementUpdateScope(dto.source_scores_in_table);
     for (let bi = 0; bi < batches.length; bi++) {
       try {
-        const { rows, warnings: w } = await runGptPlacementBatch(openai, model, sourceText, batches[bi]);
+        const { rows, warnings: w } = await runGptPlacementBatch(
+          openai,
+          model,
+          sourceText,
+          batches[bi],
+          sourceTableScope,
+        );
         rawMerged.push(...rows);
         warnings.push(...w.map((x) => `[parti ${bi + 1}] ${x}`));
       } catch (e) {
@@ -132,9 +180,10 @@ export class PlacementGptExtractService {
     }
 
     const merged = mergeGptPlacementRows(rawMerged);
+    const coerced = this.coerceMergedRowsForSourceTable(merged, sourceTableScope, warnings);
     const rows: PlacementFeedRow[] = [];
-    for (let i = 0; i < merged.length; i++) {
-      const r = merged[i];
+    for (let i = 0; i < coerced.length; i++) {
+      const r = coerced[i];
       try {
         rows.push(
           normalizeRawRowToPlacement(

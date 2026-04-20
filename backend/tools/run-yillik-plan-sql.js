@@ -1,4 +1,4 @@
-/** psql olmadan sql/add-yillik-plan-curriculum-model.sql çalıştırır. */
+/** psql olmadan migrations/add-yillik-plan-meta__widen128-and-icerik-curriculum.sql çalıştırır. */
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
@@ -13,7 +13,12 @@ const { Client } = require('pg');
     database: process.env.DB_DATABASE || 'ogretmenpro',
   });
   await client.connect();
-  const sqlPath = path.join(__dirname, '..', 'sql', 'add-yillik-plan-curriculum-model.sql');
+  const sqlPath = path.join(
+    __dirname,
+    '..',
+    'migrations',
+    'add-yillik-plan-meta__widen128-and-icerik-curriculum.sql',
+  );
   await client.query(fs.readFileSync(sqlPath, 'utf8'));
   console.log('OK:', sqlPath);
   await client.end();

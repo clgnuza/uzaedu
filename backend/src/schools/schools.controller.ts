@@ -120,6 +120,7 @@ export class SchoolsController {
     const { rows, warnings, schools_considered, batches, model, context_school_ids } =
       await this.placementGptExtract.extractRows(dto);
     const update_scope = normalizePlacementUpdateScope(dto.update_scope);
+    const source_scores_in_table = normalizePlacementUpdateScope(dto.source_scores_in_table);
     const city_trim = (dto.city ?? '').trim();
     const restrict_on_apply =
       (Array.isArray(dto.school_ids) && dto.school_ids.length > 0) || city_trim.length > 0;
@@ -131,10 +132,11 @@ export class SchoolsController {
       batches,
       model,
       update_scope,
+      source_scores_in_table,
       city: city_trim || undefined,
       context_school_ids_count: context_school_ids.length,
       restrict_on_apply,
-      sample_payload: { auto_enable_dual_track: true, update_scope, rows },
+      sample_payload: { auto_enable_dual_track: true, update_scope, source_scores_in_table, rows },
     };
   }
 

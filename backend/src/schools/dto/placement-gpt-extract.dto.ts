@@ -43,6 +43,16 @@ export class PlacementGptExtractDto {
   @MaxLength(32)
   update_scope?: string;
 
+  /**
+   * Yapıştırılan tabloda hangi puan türleri var (GPT çıktısı normalize edilir).
+   * central_only: yalnız LGS/merkezî — yerel alan temizlenir; tek sütun puan merkezîye taşınır.
+   * local_only: yalnız yerel — merkezî temizlenir; tek sütun puan yerelde taşınır.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  source_scores_in_table?: string;
+
   /** İl: `schools.city` ile eşleşir (trim, ILIKE). Doluysa bağlam ve DB uygulaması yalnız bu okullarla sınırlanır. */
   @IsOptional()
   @IsString()

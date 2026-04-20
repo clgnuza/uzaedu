@@ -16,6 +16,15 @@ import { BilsemController } from './bilsem.controller';
 import { BilsemCalendarReminderService } from './bilsem-calendar-reminder.service';
 import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
 import { MarketModule } from '../market/market.module';
+import { YillikPlanIcerikModule } from '../yillik-plan-icerik/yillik-plan-icerik.module';
+import { BilsemPlanSubmission } from './entities/bilsem-plan-submission.entity';
+import { BilsemPlanSubmissionEvent } from './entities/bilsem-plan-submission-event.entity';
+import { MarketPlanCreatorRewardLedger } from './entities/market-plan-creator-reward-ledger.entity';
+import { YillikPlanIcerik } from '../yillik-plan-icerik/entities/yillik-plan-icerik.entity';
+import { BilsemPlanSubmissionService } from './bilsem-plan-submission.service';
+import { BilsemPlanSubmissionController } from './bilsem-plan-submission.controller';
+import { BilsemPlanSubmissionModerationController } from './bilsem-plan-submission-moderation.controller';
+import { BilsemPlanCreatorRewardService } from './bilsem-plan-creator-reward.service';
 
 @Module({
   imports: [
@@ -28,13 +37,25 @@ import { MarketModule } from '../market/market.module';
       Notification,
       School,
       User,
+      BilsemPlanSubmission,
+      BilsemPlanSubmissionEvent,
+      MarketPlanCreatorRewardLedger,
+      YillikPlanIcerik,
     ]),
     WorkCalendarModule,
     NotificationsModule,
     MarketModule,
+    YillikPlanIcerikModule,
   ],
-  controllers: [BilsemController],
-  providers: [BilsemService, BilsemYillikPlanService, BilsemCalendarReminderService, RequireSchoolModuleGuard],
-  exports: [BilsemService, BilsemYillikPlanService],
+  controllers: [BilsemController, BilsemPlanSubmissionController, BilsemPlanSubmissionModerationController],
+  providers: [
+    BilsemService,
+    BilsemYillikPlanService,
+    BilsemCalendarReminderService,
+    BilsemPlanSubmissionService,
+    BilsemPlanCreatorRewardService,
+    RequireSchoolModuleGuard,
+  ],
+  exports: [BilsemService, BilsemYillikPlanService, BilsemPlanCreatorRewardService],
 })
 export class BilsemModule {}

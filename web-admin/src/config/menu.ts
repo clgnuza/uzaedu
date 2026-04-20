@@ -389,6 +389,14 @@ export const MENU_SIDEBAR: MenuConfig = [
         allowedRoles: ['school_admin', 'teacher'],
         requiredSchoolModule: 'bilsem',
       },
+      {
+        title: 'Plan katkısı',
+        titleByRole: { teacher: 'Plan katkısı (onay)' },
+        path: '/bilsem/plan-katki',
+        icon: ClipboardList,
+        allowedRoles: ['school_admin', 'teacher'],
+        requiredSchoolModule: 'bilsem',
+      },
     ],
   },
   {
@@ -705,6 +713,13 @@ export const MENU_SIDEBAR: MenuConfig = [
         allowedRoles: ['superadmin', 'moderator'],
         requiredModule: 'document_templates',
       },
+      {
+        title: 'Bilsem plan katkı moderasyonu',
+        path: '/bilsem/plan-katki-moderasyon',
+        icon: ClipboardCheck,
+        allowedRoles: ['superadmin', 'moderator'],
+        requiredModule: 'document_templates',
+      },
     ],
   },
   {
@@ -810,6 +825,8 @@ export const ROUTE_ROLES: Record<string, ('school_admin' | 'superadmin' | 'teach
   '/akademik-takvim-ayarlar': ['school_admin'],
   '/bilsem/takvim': ['teacher', 'school_admin'],
   '/bilsem/yillik-plan': ['school_admin', 'teacher'],
+  '/bilsem/plan-katki': ['school_admin', 'teacher'],
+  '/bilsem/plan-katki-moderasyon': ['superadmin', 'moderator'],
   '/akademik-takvim-sablonu': ['superadmin'],
   '/bilsem-sablon': ['superadmin'],
   '/sinav-gorevleri': ['superadmin'],
@@ -875,6 +892,7 @@ export const ROUTE_SCHOOL_MODULES: Record<string, string | undefined> = {
   '/optik-formlar': 'optical',
   '/bilsem/takvim': 'bilsem',
   '/bilsem/yillik-plan': 'bilsem',
+  '/bilsem/plan-katki': 'bilsem',
   '/kelebek-sinav': 'butterfly_exam',
   '/kelebek-sinav/ogrenci-sorgu': 'butterfly_exam',
   '/kelebek-sinav/sinif-ogrenci': 'butterfly_exam',
@@ -927,6 +945,7 @@ export const ROUTE_MODULES: Record<string, ModeratorModuleKey | undefined> = {
   '/document-templates': 'document_templates',
   '/work-calendar': 'document_templates',
   '/yillik-plan-icerik': 'document_templates',
+  '/bilsem/plan-katki-moderasyon': 'document_templates',
   '/extra-lesson-params': 'extra_lesson_params',
   '/extra-lesson-params/ek-ders': 'extra_lesson_params',
   '/sinav-gorev-ucretleri': 'extra_lesson_params',
@@ -1071,6 +1090,12 @@ export function getBreadcrumbs(pathname: string, role?: WebAdminRole): Breadcrum
       items.push({ label: 'Ayarlar' });
     } else if (normalized === '/bilsem/takvim/yillik-plan') {
       items.push({ label: 'Bilsem yıllık çalışma planı' });
+    } else if (normalized === '/bilsem/plan-katki/yeni') {
+      items.push({ label: 'Yeni taslak' });
+    } else if (normalized.startsWith('/bilsem/plan-katki/') && normalized !== '/bilsem/plan-katki/yeni') {
+      items.push({ label: 'Detay' });
+    } else if (normalized === '/bilsem/plan-katki-moderasyon') {
+      items.push({ label: 'Moderasyon' });
     } else if (normalized.startsWith('/bilsem-sablon/')) {
       /* menü etiketi yeterli */
     } else {

@@ -231,6 +231,76 @@ function YayinBroadcastCard({ item, variant }: { item: ContentItem; variant: 'he
   );
 }
 
+/** İl duyuruları: yatay kart — görsel + metin, il rozeti. */
+function YayinIlProvinceNewsCard({ item, provinceLabel }: { item: ContentItem; provinceLabel: string }) {
+  const typeKey = (item.content_type || 'announcement').toLowerCase();
+  const typeLabel = CONTENT_TYPE_LABELS[item.content_type] ?? item.content_type;
+  const chip =
+    YAYIN_TYPE_CHIP[typeKey] ?? 'bg-linear-to-r from-teal-600 to-cyan-700 text-white ring-white/20';
+
+  return (
+    <a
+      href={item.source_url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group/card group/il relative flex min-h-[7.25rem] w-full min-w-0 overflow-hidden rounded-2xl border border-teal-300/25 bg-linear-to-br from-white via-teal-50/25 to-cyan-50/35 shadow-md ring-1 ring-slate-900/[0.04] transition-[transform,box-shadow] duration-300 hover:-translate-y-0.5 hover:shadow-xl hover:ring-teal-400/25 dark:border-teal-800/50 dark:from-slate-950 dark:via-teal-950/30 dark:to-slate-950 dark:ring-white/10 dark:hover:ring-teal-500/30"
+    >
+      <div className="pointer-events-none absolute -right-6 -top-8 size-28 rounded-full bg-teal-400/20 blur-2xl dark:bg-teal-500/15" aria-hidden />
+      <div className="pointer-events-none absolute bottom-0 left-1/4 size-24 rounded-full bg-cyan-400/15 blur-xl dark:bg-cyan-500/10" aria-hidden />
+
+      <div className="relative w-[min(40%,10rem)] shrink-0 sm:w-[min(34%,11rem)]">
+        <div className="relative aspect-4/3 h-full min-h-[7.25rem] w-full overflow-hidden bg-slate-900">
+          {item.image_url ? (
+            <NewsCardImage src={item.image_url} isHero={false} />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center bg-linear-to-br from-teal-900 via-slate-900 to-slate-950">
+              <Building2 className="size-10 text-teal-200/45" />
+            </div>
+          )}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[55%] bg-linear-to-t from-teal-950/85 to-transparent" aria-hidden />
+        </div>
+        <div className="absolute left-2 top-2 flex max-w-[calc(100%-0.75rem)] items-center gap-1 rounded-full bg-teal-950/88 px-2 py-0.5 text-[10px] font-semibold text-teal-50 shadow-sm backdrop-blur-sm ring-1 ring-white/15">
+          <MapPin className="size-3.5 shrink-0 text-teal-200" aria-hidden />
+          <span className="truncate">{provinceLabel}</span>
+        </div>
+      </div>
+
+      <div className="relative flex min-w-0 flex-1 flex-col justify-between gap-1.5 p-3.5 sm:gap-2 sm:p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={cn(
+              'inline-flex rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1',
+              chip,
+            )}
+          >
+            {typeLabel}
+          </span>
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-teal-700/90 dark:text-teal-300/90">
+            İl duyurusu
+          </span>
+        </div>
+        <h3 className="line-clamp-2 text-[0.95rem] font-semibold leading-snug tracking-tight text-slate-900 transition-colors group-hover/il:text-teal-800 dark:text-slate-50 dark:group-hover/il:text-teal-200 sm:text-base">
+          {item.title}
+        </h3>
+        {item.summary ? (
+          <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground sm:text-[13px]">{item.summary}</p>
+        ) : null}
+        <div className="mt-auto flex flex-wrap items-end justify-between gap-2 border-t border-teal-200/35 pt-2 dark:border-teal-900/45">
+          <span className="min-w-0 truncate text-xs font-medium text-slate-600 dark:text-slate-300">
+            {item.source_label ?? 'Kaynak'}
+          </span>
+          {item.published_at ? (
+            <span className="flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-muted-foreground">
+              <Clock className="size-3 opacity-80" aria-hidden />
+              {formatRelativeDate(item.published_at)}
+            </span>
+          ) : null}
+        </div>
+      </div>
+    </a>
+  );
+}
+
 const SLIDE_INTERVAL_OPTIONS = [
   { value: 5, label: '5 sn' },
   { value: 8, label: '8 sn' },
@@ -320,22 +390,23 @@ export default function HaberYayinPage() {
     const silent = opts?.silent === true;
     if (!silent) setLoadingIl(true);
     try {
+      void userCity;
       const params = new URLSearchParams({
         page: '1',
-        limit: '12',
+        limit: '14',
         channel_key: 'il_duyurulari',
       });
       const data = await apiFetch<{ total: number; items: ContentItem[] }>(
         `${contentReadPath('items', token)}?${params}`,
         { token },
       );
-      setIlItems(data?.items ?? []);
+      setIlItems(dedupeContentItemsByUrl(data?.items ?? []));
     } catch {
       if (!silent) setIlItems([]);
     } finally {
       if (!silent) setLoadingIl(false);
     }
-  }, [token]);
+  }, [token, userCity]);
 
   useHaberContentLiveRefresh({
     authLoading,
@@ -1098,41 +1169,58 @@ export default function HaberYayinPage() {
 
       <HaberSourceFootnote className="mt-1" />
 
-      <section className="rounded-xl border border-slate-200/80 bg-linear-to-br from-emerald-50/50 via-white to-sky-50/30 p-4 shadow-sm ring-1 ring-emerald-200/30 dark:border-slate-700/80 dark:from-emerald-950/30 dark:via-slate-950 dark:to-slate-950 dark:ring-emerald-900/30 sm:rounded-2xl sm:p-5">
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-200/60 bg-emerald-500/10 text-emerald-700 dark:border-emerald-800/50 dark:text-emerald-400">
-            <MapPin className="h-5 w-5" />
-          </div>
-          <div>
-            <h2 className="text-base font-semibold tracking-tight">
-              {userCity ? `${userCity} · İl haberleri` : 'İl haberleri'}
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              {userCity ? 'İl duyuruları' : 'Okul profilinde il gerekir'}
-            </p>
+      <section className="relative overflow-hidden rounded-2xl border border-teal-200/40 bg-linear-to-br from-teal-50/80 via-white to-cyan-50/50 p-4 shadow-md ring-1 ring-teal-300/20 dark:border-teal-900/50 dark:from-teal-950/40 dark:via-slate-950 dark:to-slate-950 dark:ring-teal-800/25 sm:p-6">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.35] dark:opacity-20"
+          aria-hidden
+          style={{
+            backgroundImage:
+              'radial-gradient(ellipse 55% 40% at 100% 0%, rgba(20,184,166,0.14) 0%, transparent 55%), radial-gradient(ellipse 40% 35% at 0% 100%, rgba(6,182,212,0.12) 0%, transparent 50%)',
+          }}
+        />
+        <div className="relative mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-teal-300/50 bg-linear-to-br from-teal-500 to-cyan-600 text-white shadow-lg shadow-teal-600/25 ring-2 ring-white/30 dark:border-teal-700/60 dark:from-teal-600 dark:to-cyan-700 dark:ring-teal-950/50">
+              <MapPin className="h-6 w-6" strokeWidth={2.2} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-teal-700/90 dark:text-teal-300/90">
+                Okulunuzun ili
+              </p>
+              <h2 className="text-lg font-bold tracking-tight text-slate-900 dark:text-slate-50 sm:text-xl">
+                {userCity ? `${userCity} il duyuruları` : 'İl duyuruları'}
+              </h2>
+              <p className="mt-0.5 max-w-prose text-sm text-muted-foreground">
+                {userCity
+                  ? 'Yalnızca bu ile ait MEB il müdürlüğü duyuruları listelenir.'
+                  : 'Duyuruları görmek için okul kaydınızda il alanı dolu olmalı.'}
+              </p>
+            </div>
           </div>
         </div>
 
         {!userCity ? (
-          <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
+          <p className="relative rounded-xl border border-amber-400/35 bg-amber-500/[0.07] px-4 py-3 text-sm text-amber-950 dark:border-amber-600/40 dark:bg-amber-950/20 dark:text-amber-100">
             İl listesi için okul profilinizde il tanımlayın.
           </p>
         ) : loadingIl ? (
-          <div className="flex justify-center py-8">
+          <div className="relative flex justify-center py-12">
             <LoadingSpinner />
           </div>
         ) : ilItems.length === 0 ? (
           <EmptyState
-            icon={<Newspaper className="size-10 text-muted-foreground" />}
-            title={`${userCity} için henüz haber yok`}
-            description="Senkron sonrası il duyuruları burada görünür."
+            icon={<Megaphone className="size-10 text-teal-600/70 dark:text-teal-400/70" />}
+            title={`${userCity} için henüz duyuru yok`}
+            description="Senkron sonrası il müdürlüğü duyuruları burada görünür."
           />
         ) : (
-          <div className="grid gap-5 sm:grid-cols-2">
+          <ul className="relative grid list-none gap-4 p-0 sm:grid-cols-2">
             {ilItems.slice(0, 8).map((item) => (
-              <YayinBroadcastCard key={item.id} item={item} variant="default" />
+              <li key={item.id} className="min-w-0">
+                <YayinIlProvinceNewsCard item={item} provinceLabel={userCity} />
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </section>
 

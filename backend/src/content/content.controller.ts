@@ -31,13 +31,12 @@ export class ContentController {
 
   @Get('items')
   async listItems(@Query() dto: ListContentItemsDto, @CurrentUser() payload: CurrentUserPayload) {
-    const skipAutoCity =
-      dto.channel_key === 'il_duyurulari';
-    if (
-      !skipAutoCity &&
+    const injectCityFromSchool =
       !dto.city &&
-      (payload.role === UserRole.teacher || payload.role === UserRole.school_admin)
-    ) {
+      (payload.role === UserRole.teacher ||
+        payload.role === UserRole.school_admin ||
+        (payload.role === UserRole.superadmin && dto.channel_key === 'il_duyurulari'));
+    if (injectCityFromSchool) {
       const user = await this.usersService.findById(payload.userId);
       if (user.school?.city) {
         const normalized = normalizeCityForMebFilter(user.school.city);

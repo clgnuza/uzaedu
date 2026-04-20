@@ -50,7 +50,17 @@ function rowFromRecord(o: Record<string, unknown>): ParsedPlanRow | null {
     week_order: Math.round(wo),
     unite: str(pick('unite', 'ünite', 'unit', 'tema', 'theme')),
     konu: str(pick('konu', 'topic', 'icerik', 'içerik')),
-    kazanimlar: str(pick('kazanimlar', 'kazanımlar', 'kazanim', 'ogrenme_ciktilari', 'öğrenme çıktıları', 'outcomes')),
+    kazanimlar: str(
+      pick(
+        'kazanimlar',
+        'kazanımlar',
+        'kazanim',
+        'ogrenme_ciktilari',
+        'ogrenme ciktilari',
+        'öğrenme çıktıları',
+        'outcomes',
+      ),
+    ),
     ders_saati: Number.isFinite(ds) && ds >= 0 ? Math.round(ds) : 2,
     belirli_gun_haftalar: str(pick('belirli_gun_haftalar', 'belirli gün ve haftalar', 'belirli gun')),
     surec_bilesenleri: str(pick('surec_bilesenleri', 'süreç bileşenleri', 'surec')),
@@ -119,7 +129,14 @@ function parseCsv(payload: string): ParsedPlanRow[] {
       : 0;
   const colUnite = idx('unite', 'ünite', 'tema', 'unit');
   const colKonu = idx('konu', 'topic', 'icerik', 'içerik');
-  const colKaz = idx('kazanimlar', 'kazanımlar', 'kazanim', 'ogrenme_ciktilari', 'öğrenme çıktıları');
+  const colKaz = idx(
+    'kazanimlar',
+    'kazanımlar',
+    'kazanim',
+    'ogrenme_ciktilari',
+    'ogrenme ciktilari',
+    'öğrenme çıktıları',
+  );
   const colSaat = idx('ders_saati', 'ders saati', 'saat');
   const colSurec = idx('surec_bilesenleri', 'süreç bileşenleri', 'surec');
   const colOlcme = idx('olcme_degerlendirme', 'ölçme ve değerlendirme', 'olcme');

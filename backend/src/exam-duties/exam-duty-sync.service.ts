@@ -1422,6 +1422,23 @@ export class ExamDutySyncService {
 
       let applicationStart: Date | null = new Date();
       let applicationEnd: Date | null = useGptForDates && gptSonBasvuru.date ? gptSonBasvuru.date : (fallbackDates?.application_end ?? null);
+      let appEndHasTime = useGptForDates ? gptSonBasvuru.hasTime : !!fallbackDates?.application_end_has_time;
+      if (useGptForDates && gptSonBasvuru.date && fallbackDates?.application_end) {
+        const dayTr = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+        if (dayTr(gptSonBasvuru.date) !== dayTr(fallbackDates.application_end)) {
+          const probe = (bodyText ?? '').replace(/<[^>]+>/g, ' ');
+          const pl = probe.toLowerCase();
+          const trustFallback =
+            /son\s*işlem\s*tarihi/i.test(probe) ||
+            /son\s*başvuru/i.test(probe) ||
+            /görev\s*talep/i.test(pl) ||
+            /\d{1,2}\s+nisan[^.]{0,160}?kadar/i.test(pl);
+          if (trustFallback) {
+            applicationEnd = fallbackDates.application_end;
+            appEndHasTime = !!fallbackDates.application_end_has_time;
+          }
+        }
+      }
       let applicationApprovalEnd: Date | null = null;
       let resultDate: Date | null = null;
       let examDate: Date | null;
@@ -1439,8 +1456,6 @@ export class ExamDutySyncService {
         examDate = fallbackDates?.exam_date ?? null;
         examDateEnd = fallbackDates?.exam_date_end ?? null;
       }
-
-      let appEndHasTime = useGptForDates ? gptSonBasvuru.hasTime : false;
       let appApprovalHasTime = false;
       let resultHasTime = useGptForDates ? gptSinavOncesi.hasTime : false;
       let examHasTime = useGptForDates ? gptSinav1.hasTime : false;
@@ -1934,6 +1949,7 @@ export class ExamDutySyncService {
   private parseDatesFromBodyFallback(body: string): {
     application_start?: Date | null;
     application_end?: Date | null;
+    application_end_has_time?: boolean;
     exam_date?: Date | null;
     exam_date_end?: Date | null;
   } | null {
@@ -1943,34 +1959,51 @@ export class ExamDutySyncService {
       const dt = new Date(yr, m - 1, d);
       return isNaN(dt.getTime()) ? null : dt;
     };
+    const toDateTime = (d: number, m: number, y: number, h: number, min: number): Date | null => {
+      const yr = y < 100 ? 2000 + y : y;
+      if (yr < 2024 || yr > 2030) return null;
+      const dt = new Date(yr, m - 1, d, h, min);
+      return isNaN(dt.getTime()) ? null : dt;
+    };
     const months: Record<string, number> = {
       ocak: 1, şubat: 2, mart: 3, nisan: 4, mayıs: 5, haziran: 6,
       temmuz: 7, ağustos: 8, eylül: 9, ekim: 10, kasım: 11, aralık: 12,
     };
-    const out: { application_start?: Date; application_end?: Date; exam_date?: Date; exam_date_end?: Date } = {};
-    const norm = body.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const out: {
+      application_start?: Date;
+      application_end?: Date;
+      application_end_has_time?: boolean;
+      exam_date?: Date;
+      exam_date_end?: Date;
+    } = {};
+    const norm = body.replace(/<[^>]+>/g, ' ').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
-    /** Örn. Güncel Eğitim: "Son işlem tarihi 19/04/2026" (son başvuru ile aynı anlam). */
-    const sonIslemTarihiMatch = norm.match(/son\s*işlem\s*tarihi\s+(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{2,4})/i);
-    if (sonIslemTarihiMatch && !out.application_end) {
-      const [, d, m, y] = sonIslemTarihiMatch.map((x) => parseInt(x, 10));
-      const dt = toDate(d, m, y);
-      if (dt) out.application_end = dt;
-    }
-
-    /** "19 Nisan 2026 Pazar günü saat 23.59'a kadar … görev talebi" (AÖF / üniversite duyuruları). */
+    /** "19 Nisan 2026 Pazar günü saat 23.59'a kadar … görev talebi" (AÖF / üniversite duyuruları). Önce (saatli). */
     const gorevSonGunKadarMatch = norm.match(
       /(\d{1,2})\s+(ocak|şubat|mart|nisan|mayıs|haziran|temmuz|ağustos|eylül|ekim|kasım|aralık)\s+(\d{2,4})\s+\S+\s+günü\s+saat\s+(\d{1,2})[.:](\d{2})\s*(?:['\u2019]a\s*)?kadar/i,
     );
     if (gorevSonGunKadarMatch && !out.application_end) {
-      const [, dStr, monthName, yStr] = gorevSonGunKadarMatch;
+      const [, dStr, monthName, yStr, hStr, minStr] = gorevSonGunKadarMatch;
       const d = parseInt(dStr!, 10);
       const m = months[monthName!.toLowerCase()] ?? 0;
       const y = parseInt(yStr!, 10);
+      const hh = parseInt(hStr!, 10);
+      const mm = parseInt(minStr!, 10);
       if (m && d && y) {
-        const dt = toDate(d, m, y);
-        if (dt) out.application_end = dt;
+        const dt = toDateTime(d, m, y, hh, mm);
+        if (dt) {
+          out.application_end = dt;
+          out.application_end_has_time = true;
+        }
       }
+    }
+
+    /** Örn. Güncel Eğitim: "Son işlem tarihi 19/04/2026" (HTML etiketi araya girebilir). */
+    const sonIslemTarihiMatch = norm.match(/son\s*işlem\s*tarihi\D+?(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{2,4})/i);
+    if (sonIslemTarihiMatch && !out.application_end) {
+      const [, d, m, y] = sonIslemTarihiMatch.map((x) => parseInt(x, 10));
+      const dt = toDate(d, m, y);
+      if (dt) out.application_end = dt;
     }
 
     const basvuruMatch = norm.match(/başvuru\s*:\s*(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{2,4})\s+(?:\d{1,2}:\d{2}\s*)?[-–]\s*(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{2,4})/i);

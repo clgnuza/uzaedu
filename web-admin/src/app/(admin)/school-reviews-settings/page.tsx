@@ -192,12 +192,22 @@ export default function SchoolReviewsSettingsPage() {
     row_count: number;
     restrict_on_apply?: boolean;
     city?: string;
+    update_scope?: string;
+    source_scores_in_table?: string;
   } | null>(null);
   const [gptPreviewLoading, setGptPreviewLoading] = useState(false);
   const [gptApplyLoading, setGptApplyLoading] = useState(false);
   const [placementApplySummary, setPlacementApplySummary] = useState<PlacementApplySummary | null>(null);
   /** Yerleştirme: merkezî / yerel beslemelerinin birbirine karışmaması için uygulama kapsamı */
   const [placementUpdateScope, setPlacementUpdateScope] = useState<'both' | 'central_only' | 'local_only'>('both');
+  /** GPT önizleme/uygula: DB’ye hangi sütunların yazılacağı (CSV kapsamından bağımsız) */
+  const [placementGptUpdateScope, setPlacementGptUpdateScope] = useState<'both' | 'central_only' | 'local_only'>(
+    'both',
+  );
+  /** Yapıştırılan tabloda hangi puanlar var — GPT çıktısı ve sütun eşlemesi */
+  const [placementGptSourceTable, setPlacementGptSourceTable] = useState<'both' | 'central_only' | 'local_only'>(
+    'both',
+  );
 
   const fetchConfig = useCallback(async () => {
     if (authLoading || !canAccessSchoolReviewsSettings(me?.role)) return;
@@ -430,7 +440,8 @@ export default function SchoolReviewsSettingsPage() {
         source_text: gptSource,
         limit: Math.min(2000, Math.max(1, gptLimit || 400)),
         batch_size: Math.min(30, Math.max(4, gptBatch || 12)),
-        update_scope: placementUpdateScope,
+        update_scope: placementGptUpdateScope,
+        source_scores_in_table: placementGptSourceTable,
         ...(school_ids?.length ? { school_ids } : {}),
         ...(city ? { city } : {}),
       };
@@ -442,9 +453,15 @@ export default function SchoolReviewsSettingsPage() {
         batches: number;
         model: string;
         update_scope?: string;
+        source_scores_in_table?: string;
         city?: string;
         restrict_on_apply?: boolean;
-        sample_payload: { auto_enable_dual_track: boolean; update_scope?: string; rows: unknown[] };
+        sample_payload: {
+          auto_enable_dual_track: boolean;
+          update_scope?: string;
+          source_scores_in_table?: string;
+          rows: unknown[];
+        };
       }>('/schools/placement-scores/gpt-preview', {
         method: 'POST',
         token,
@@ -459,6 +476,8 @@ export default function SchoolReviewsSettingsPage() {
         row_count: Array.isArray(res.rows) ? res.rows.length : 0,
         restrict_on_apply: res.restrict_on_apply,
         city: res.city,
+        update_scope: res.update_scope,
+        source_scores_in_table: res.source_scores_in_table,
       });
       toast.success(`Önizleme: ${res.rows?.length ?? 0} satır · ${res.schools_considered} okul bağlamı`);
     } catch (e) {
@@ -467,7 +486,17 @@ export default function SchoolReviewsSettingsPage() {
     } finally {
       setGptPreviewLoading(false);
     }
-  }, [token, gptSource, gptLimit, gptBatch, gptSchoolIds, gptCity, parseSchoolIdList, placementUpdateScope]);
+  }, [
+    token,
+    gptSource,
+    gptLimit,
+    gptBatch,
+    gptSchoolIds,
+    gptCity,
+    parseSchoolIdList,
+    placementGptUpdateScope,
+    placementGptSourceTable,
+  ]);
 
   const runPlacementGptApply = useCallback(async () => {
     if (!token) return;
@@ -480,7 +509,23 @@ export default function SchoolReviewsSettingsPage() {
     const scopeHint = hasScope
       ? ' Yalnızca seçilen bağlamdaki (il filtresi ve/veya UUID listesi) okullar güncellenecek.'
       : '';
-    if (!window.confirm(`GPT çıktısı veritabanındaki eşleşen okulların yerleştirme puanlarını güncelleyecek.${scopeHint} Devam edilsin mi?`)) {
+    const scopeLbl =
+      placementGptUpdateScope === 'central_only'
+        ? 'kayıt: yalnız merkezî'
+        : placementGptUpdateScope === 'local_only'
+          ? 'kayıt: yalnız yerel'
+          : 'kayıt: her iki sütun';
+    const tabLbl =
+      placementGptSourceTable === 'central_only'
+        ? 'tablo: yalnız merkezî'
+        : placementGptSourceTable === 'local_only'
+          ? 'tablo: yalnız yerel'
+          : 'tablo: ikisi';
+    if (
+      !window.confirm(
+        `GPT çıktısı veritabanındaki eşleşen okulların yerleştirme puanlarını güncelleyecek (${tabLbl}, ${scopeLbl}).${scopeHint} Devam edilsin mi?`,
+      )
+    ) {
       return;
     }
     setGptApplyLoading(true);
@@ -490,7 +535,8 @@ export default function SchoolReviewsSettingsPage() {
         source_text: gptSource,
         limit: Math.min(2000, Math.max(1, gptLimit || 400)),
         batch_size: Math.min(30, Math.max(4, gptBatch || 12)),
-        update_scope: placementUpdateScope,
+        update_scope: placementGptUpdateScope,
+        source_scores_in_table: placementGptSourceTable,
         ...(school_ids?.length ? { school_ids } : {}),
         ...(city ? { city } : {}),
       };
@@ -527,7 +573,17 @@ export default function SchoolReviewsSettingsPage() {
     } finally {
       setGptApplyLoading(false);
     }
-  }, [token, gptSource, gptLimit, gptBatch, gptSchoolIds, gptCity, parseSchoolIdList, placementUpdateScope]);
+  }, [
+    token,
+    gptSource,
+    gptLimit,
+    gptBatch,
+    gptSchoolIds,
+    gptCity,
+    parseSchoolIdList,
+    placementGptUpdateScope,
+    placementGptSourceTable,
+  ]);
 
   const downloadGptJson = useCallback(() => {
     if (!gptResultJson.trim()) return;
@@ -990,7 +1046,9 @@ export default function SchoolReviewsSettingsPage() {
               </p>
             </div>
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-muted-foreground">Uygulama kapsamı (CSV, GPT ve URL JSON ile aynı)</label>
+              <label className="block text-xs font-medium text-muted-foreground">
+                Uygulama kapsamı (CSV yükleme ve URL JSON senkronu — GPT kartındaki ayarlardan ayrı)
+              </label>
               <select
                 value={placementUpdateScope}
                 onChange={(e) => setPlacementUpdateScope(e.target.value as 'both' | 'central_only' | 'local_only')}
@@ -1042,17 +1100,110 @@ export default function SchoolReviewsSettingsPage() {
               GPT ile tablodan taslak çıkarma
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              MEB / kılavuz tablosunu aşağıya yapıştırın. GPT yalnızca metinde <strong>açıkça yazılı</strong> kurum kodu ve
-              puanları çıkarmaya çalışır; uydurmaz denense de mutlaka <strong>insan kontrolü</strong> yapın. Önizleme DB
-              yazmaz; &quot;Veritabanına uygula&quot; CSV ile aynı birleştirme mantığını kullanır. İl alanı{' '}
-              <code className="rounded bg-muted px-1">schools.city</code> ile eşleşir; doluysa bağlam ve uygulama yalnız o
-              ildedir (aynı kurum kodunun başka ildeki kaydına yazılmaz). Merkezî / yerel ayrımı için üstteki{' '}
-              <strong>uygulama kapsamı</strong> seçimini kullanın. Backend:{' '}
-              <code className="rounded bg-muted px-1">OPENAI_API_KEY</code>, isteğe bağlı{' '}
+              MEB / kılavuz tablosunu yapıştırın. GPT yalnızca metinde <strong>açıkça yazılı</strong> kurum kodu ve puanları
+              çıkarmaya çalışır; yine de <strong>insan kontrolü</strong> yapın. Önizleme DB yazmaz; uygulama CSV ile aynı
+              birleştirme mantığını kullanır. İl alanı <code className="rounded bg-muted px-1">schools.city</code> ile
+              eşleşir; doluysa liste ve uygulama yalnız o ildeki okullarla sınırlıdır. Aşağıda <strong>liste bağlamı</strong>{' '}
+              (hangi okullar GPT&apos;ye verilir) ile <strong>tablo / kayıt kapsamı</strong> (hangi puan türü) ayrı
+              ayarlanır. Backend: <code className="rounded bg-muted px-1">OPENAI_API_KEY</code>, isteğe bağlı{' '}
               <code className="rounded bg-muted px-1">PLACEMENT_GPT_MODEL</code>.
             </p>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
+            <div className="rounded-lg border border-violet-200/50 bg-violet-500/6 p-3 dark:border-violet-900/50 dark:bg-violet-950/25">
+              <p className="mb-2 text-xs font-semibold text-foreground">Tablo ve kayıt kapsamı</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-muted-foreground">
+                    Yapıştırdığınız tabloda hangi puanlar var (GPT + sunucu düzeltmesi)
+                  </label>
+                  <select
+                    value={placementGptSourceTable}
+                    onChange={(e) => setPlacementGptSourceTable(e.target.value as 'both' | 'central_only' | 'local_only')}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="both">İkisi de (merkezî + yerel sütunları)</option>
+                    <option value="central_only">Yalnız merkezî (LGS) — yerel sütunu yok say</option>
+                    <option value="local_only">Yalnız yerel — merkezî sütunu yok say</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-muted-foreground">
+                    Veritabanına hangi sütunlar yazılsın (uygulama)
+                  </label>
+                  <select
+                    value={placementGptUpdateScope}
+                    onChange={(e) => setPlacementGptUpdateScope(e.target.value as 'both' | 'central_only' | 'local_only')}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="both">Her iki sütun</option>
+                    <option value="central_only">Yalnız merkezî (LGS) — yerel DB alanına dokunma</option>
+                    <option value="local_only">Yalnız yerel — merkezî DB alanına dokunma</option>
+                  </select>
+                </div>
+              </div>
+              <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
+                Tabloda tek tür puan varken GPT bazen yanlış JSON alanına yazar; ilk seçenek bunu sadeleştirir. İkinci seçenek
+                ise veritabanında hangi alanın güncelleneceğini belirler (CSV ile aynı <code className="rounded bg-muted px-0.5">update_scope</code>).
+              </p>
+            </div>
+
+            <div>
+              <p className="mb-2 text-xs font-semibold text-foreground">Liste bağlamı — hangi okullar GPT&apos;ye verilir</p>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">En fazla okul (kurum kodlu)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={2000}
+                    value={gptLimit}
+                    onChange={(e) => setGptLimit(parseInt(e.target.value, 10) || 400)}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Parti boyutu (GPT çağrısı başına okul)</label>
+                  <input
+                    type="number"
+                    min={4}
+                    max={30}
+                    value={gptBatch}
+                    onChange={(e) => setGptBatch(parseInt(e.target.value, 10) || 12)}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="sm:col-span-1" />
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                    İl filtresi (isteğe bağlı, okul kaydındaki il adı)
+                  </label>
+                  <input
+                    type="text"
+                    value={gptCity}
+                    onChange={(e) => setGptCity(e.target.value)}
+                    placeholder="Örn. Ankara — boşsa tüm iller (limit kadar)"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                    Okul UUID filtre (isteğe bağlı, virgül veya satır ile)
+                  </label>
+                  <textarea
+                    value={gptSchoolIds}
+                    onChange={(e) => setGptSchoolIds(e.target.value)}
+                    rows={2}
+                    spellCheck={false}
+                    placeholder="Boş + il yoksa (limit kadar) kurum kodlu tüm okullar bağlamda kullanılır."
+                    className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Kaynak metin (tablo / PDF metni)</label>
               <textarea
@@ -1063,58 +1214,6 @@ export default function SchoolReviewsSettingsPage() {
                 placeholder="Kurum kodları ve puanların geçtiği metni buraya yapıştırın…"
                 className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs leading-relaxed"
               />
-            </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">En fazla okul (kurum kodlu)</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={2000}
-                  value={gptLimit}
-                  onChange={(e) => setGptLimit(parseInt(e.target.value, 10) || 400)}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">Parti boyutu (GPT çağrısı başına okul)</label>
-                <input
-                  type="number"
-                  min={4}
-                  max={30}
-                  value={gptBatch}
-                  onChange={(e) => setGptBatch(parseInt(e.target.value, 10) || 12)}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                />
-              </div>
-              <div className="sm:col-span-1" />
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  İl filtresi (isteğe bağlı, okul kaydındaki il adı)
-                </label>
-                <input
-                  type="text"
-                  value={gptCity}
-                  onChange={(e) => setGptCity(e.target.value)}
-                  placeholder="Örn. Ankara — boşsa tüm iller (limit kadar)"
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  Okul UUID filtre (isteğe bağlı, virgül veya satır ile)
-                </label>
-                <textarea
-                  value={gptSchoolIds}
-                  onChange={(e) => setGptSchoolIds(e.target.value)}
-                  rows={2}
-                  spellCheck={false}
-                  placeholder="Boş + il yoksa (limit kadar) kurum kodlu tüm okullar bağlamda kullanılır."
-                  className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
-                />
-              </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
@@ -1158,6 +1257,18 @@ export default function SchoolReviewsSettingsPage() {
                     {' '}
                     · Uygulama yalnız bağlam okul kimlikleriyle sınırlı
                   </span>
+                ) : null}
+                {gptMeta.update_scope ? (
+                  <>
+                    {' '}
+                    · Kayıt kapsamı: <span className="font-mono">{gptMeta.update_scope}</span>
+                  </>
+                ) : null}
+                {gptMeta.source_scores_in_table ? (
+                  <>
+                    {' '}
+                    · Tablo: <span className="font-mono">{gptMeta.source_scores_in_table}</span>
+                  </>
                 ) : null}
               </p>
             )}

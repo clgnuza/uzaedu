@@ -39,6 +39,8 @@ import { User } from '../users/entities/user.entity';
 import { UserRole } from '../types/enums';
 import { UploadService } from '../upload/upload.service';
 import { DocumentGenerationService } from './document-generation.service';
+import { DocumentGeneration } from './entities/document-generation.entity';
+import { BilsemPlanCreatorRewardService } from '../bilsem/bilsem-plan-creator-reward.service';
 import { getAcademicYearOptions } from '../config/document-template-options';
 import { getAyForWeek, hasMebCalendar, mebTeachingWeeksAsWorkCalendar } from '../config/meb-calendar';
 import { GenerateDocumentDto } from './dto/generate-document.dto';
@@ -66,6 +68,7 @@ export class DocumentGenerateService {
     private readonly generationService: DocumentGenerationService,
     private readonly bilsemYillikPlanService: BilsemYillikPlanService,
     private readonly entitlementService: EntitlementService,
+    private readonly bilsemPlanCreatorReward: BilsemPlanCreatorRewardService,
   ) {}
 
   async generate(
@@ -142,9 +145,18 @@ export class DocumentGenerateService {
       } catch (err: unknown) {
         this.rethrowR2Error(err, 'url');
       }
+      let savedGen: DocumentGeneration | null = null;
       if (!options?.skipSave) {
         const displayLabel = this.buildDisplayLabel(template, mergeData);
-        await this.saveGenerationBestEffort(user, template, formData, displayLabel);
+        savedGen = await this.saveGenerationBestEffort(user, template, formData, displayLabel);
+      }
+      if (!options?.skipSave && savedGen) {
+        await this.bilsemPlanCreatorReward.tryRewardAfterYillikPlanGeneration({
+          consumerUserId: user.id,
+          documentGenerationId: savedGen.id,
+          template,
+          formData,
+        });
       }
       return { download_url: downloadUrl, filename };
     }
@@ -229,10 +241,18 @@ export class DocumentGenerateService {
       this.rethrowR2Error(err, 'url');
     }
 
-    // Arşive kaydet (ilk üretimde; tekrar indirmede atla)
+    let savedGenMerge: DocumentGeneration | null = null;
     if (!options?.skipSave) {
       const displayLabel = this.buildDisplayLabel(template, mergeData as Record<string, string>);
-      await this.saveGenerationBestEffort(user, template, formData, displayLabel);
+      savedGenMerge = await this.saveGenerationBestEffort(user, template, formData, displayLabel);
+    }
+    if (!options?.skipSave && savedGenMerge) {
+      await this.bilsemPlanCreatorReward.tryRewardAfterYillikPlanGeneration({
+        consumerUserId: user.id,
+        documentGenerationId: savedGenMerge.id,
+        template,
+        formData,
+      });
     }
 
     return { download_url: downloadUrl, filename };
@@ -258,11 +278,12 @@ export class DocumentGenerateService {
     template: DocumentTemplate,
     formData: Record<string, string | number>,
     displayLabel: string,
-  ): Promise<void> {
+  ): Promise<DocumentGeneration | null> {
     try {
-      await this.generationService.save(user, template, formData, displayLabel);
+      return await this.generationService.save(user, template, formData, displayLabel);
     } catch (e) {
       this.logger.warn(`Evrak arşiv kaydı atlandı: ${e instanceof Error ? e.message : e}`);
+      return null;
     }
   }
 

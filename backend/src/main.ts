@@ -35,8 +35,8 @@ async function bootstrap() {
     }),
   );
   app.use(cookieParser());
-  app.use(json({ limit: '2mb' }));
-  app.use(urlencoded({ limit: '2mb', extended: true }));
+  app.use(json({ limit: '20mb' }));
+  app.use(urlencoded({ limit: '20mb', extended: true }));
   app.setGlobalPrefix('api');
   app.useGlobalPipes(
     new ValidationPipe({

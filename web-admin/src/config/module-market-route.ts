@@ -11,6 +11,8 @@ const ROUTE_PREFIX_TO_MARKET_MODULE: [string, SchoolModuleKey][] = [
   ['/ogretmen-ajandasi/degerlendirme', 'teacher_agenda'],
   ['/ogretmen-ajandasi', 'teacher_agenda'],
   ['/bilsem/yillik-plan', 'bilsem'],
+  ['/bilsem/plan-katki-moderasyon', 'document'],
+  ['/bilsem/plan-katki', 'bilsem'],
   ['/bilsem/takvim', 'bilsem'],
   ['/bilsem-sablon', 'bilsem'],
   ['/bilsem', 'bilsem'],

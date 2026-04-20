@@ -4,7 +4,10 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { BilsemPlanSubmission } from '../../bilsem/entities/bilsem-plan-submission.entity';
 
 /**
  * Yıllık plan içeriği – ders/sınıf/yıl bazlı konu, kazanım, ders saati.
@@ -101,6 +104,14 @@ export class YillikPlanIcerik {
   /** null = MEB / kazanım; bilsem = Bilsem yıllık plan içerikleri */
   @Column({ name: 'curriculum_model', type: 'varchar', length: 32, nullable: true })
   curriculumModel: string | null;
+
+  /** Onaylı Bilsem plan gönderimi (topluluk katkısı); null = merkezi/süperadmin içerik */
+  @Column({ name: 'submission_id', type: 'uuid', nullable: true })
+  submissionId: string | null;
+
+  @ManyToOne(() => BilsemPlanSubmission, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'submission_id' })
+  submission: BilsemPlanSubmission | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

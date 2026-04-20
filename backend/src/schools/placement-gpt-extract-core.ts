@@ -4,6 +4,8 @@ export const SOURCE_MAX_PLACEMENT_GPT = 100_000;
 
 export type GptPlacementSchoolLine = { id: string; institution_code: string; name: string };
 
+export type GptSourceTableScope = 'both' | 'central_only' | 'local_only';
+
 export type GptPlacementRawRow = {
   institution_code: string;
   year: number;
@@ -39,19 +41,29 @@ export async function runGptPlacementBatch(
   model: string,
   sourceText: string,
   schools: GptPlacementSchoolLine[],
+  sourceTableScope: GptSourceTableScope = 'both',
 ): Promise<{ rows: GptPlacementRawRow[]; warnings: string[] }> {
   const schoolLines = schools.map((s) => `- ${s.institution_code} | ${s.name || '(ad yok)'}`).join('\n');
+  const scopeLine =
+    sourceTableScope === 'central_only'
+      ? 'TABLO_KISIT: Metinde yalnızca LGS / merkezî yerleştirme tabanı var. with_exam doldur; without_exam yalnızca metinde açık yerel puan varsa (çoğunlukla yok).'
+      : sourceTableScope === 'local_only'
+        ? 'TABLO_KISIT: Metinde yalnızca yerel / OBP vb. gösterge var. without_exam doldur; with_exam yalnızca metinde açık LGS puanı varsa (çoğunlukla yok).'
+        : '';
   const user = [
     'KAYNAK: yalnızca açık yazılı sayılar; tahmin yok.',
     'Çıktı: {"rows":[],"warnings":[]} JSON.',
     'rows: institution_code, year, with_exam (LGS taban), without_exam (yerel/OBP göstergesi).',
+    scopeLine,
     '',
     'OKULLAR:',
     schoolLines,
     '',
     'KAYNAK_METİN:',
     sourceText,
-  ].join('\n');
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
 
   const completion = await openai.chat.completions.create({
     model,

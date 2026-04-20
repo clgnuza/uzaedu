@@ -377,7 +377,11 @@ export class ContentService {
     }
 
     if (dto.city) {
-      qb.andWhere('(item.cityFilter IS NULL OR item.cityFilter = :city)', { city: dto.city });
+      if (dto.channel_key === 'il_duyurulari') {
+        qb.andWhere('item.cityFilter = :city', { city: dto.city });
+      } else {
+        qb.andWhere('(item.cityFilter IS NULL OR item.cityFilter = :city)', { city: dto.city });
+      }
     }
 
     const [items, total] = await qb
