@@ -1,41 +1,38 @@
 #!/usr/bin/env bash
-# /opt/uzaedu: git pull, backend+web build, pm2. Triggers: Actions, panel POST /deploy/run.
-# UZAEDU_SKIP_GIT_PULL=1: skip git (CI already pulled). MIGRATE_ON_DEPLOY=1: run TypeORM migrations.
-
+# Hetzner /opt/uzaedu: git pull, backend+web build, pm2. Panel POST /api/deploy ile ayni betik.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="${UZAEDU_REPO_ROOT:-${DEPLOY_REMOTE_ROOT:-/opt/uzaedu}}"
+BRANCH="${DEPLOY_GIT_BRANCH:-main}"
 cd "$ROOT"
 
-BRANCH="${DEPLOY_GIT_BRANCH:-main}"
-
 echo "[deploy] repo=$ROOT branch=$BRANCH"
+git fetch origin "$BRANCH"
+git checkout "$BRANCH"
+git pull --ff-only origin "$BRANCH"
 
-if [[ -z "${UZAEDU_SKIP_GIT_PULL:-}" ]]; then
-  git fetch origin "$BRANCH"
-  git pull --ff-only origin "$BRANCH"
+echo "[deploy] backend npm ci + build"
+(
+  cd "$ROOT/backend"
+  npm ci
+  npm run build
+)
+if [[ "${MIGRATE_ON_DEPLOY:-0}" == "1" || "${MIGRATE_ON_DEPLOY:-0}" == "true" ]]; then
+  echo "[deploy] migrate:sql"
+  (cd "$ROOT/backend" && npm run migrate:sql)
 fi
 
-echo "[deploy] backend install + build"
-rm -rf "$ROOT/backend/node_modules"
-(cd "$ROOT/backend" && unset NODE_ENV && npm ci --jobs=1 && npm run build)
+echo "[deploy] web-admin npm ci + build"
+(
+  cd "$ROOT/web-admin"
+  npm ci
+  npm run build
+)
 
-echo "[deploy] migrate:sql (backend/migrations/*.sql)"
-(cd "$ROOT/backend" && npm run migrate:sql)
-
-if [[ "${MIGRATE_ON_DEPLOY:-0}" == "1" ]]; then
-  echo "[deploy] migration:run"
-  (cd "$ROOT/backend" && npm run migration:run)
+echo "[deploy] pm2 restart"
+pm2 restart uzaedu-api --update-env 2>/dev/null || pm2 restart uzaedu-api || true
+if pm2 describe uzaedu-web >/dev/null 2>&1; then
+  pm2 restart uzaedu-web --update-env || pm2 restart uzaedu-web || true
 fi
-
-echo "[deploy] web-admin install + build"
-rm -rf "$ROOT/web-admin/node_modules"
-rm -f "$ROOT/web-admin/.next/lock"
-(cd "$ROOT/web-admin" && unset NODE_ENV && npm ci --jobs=1 && NODE_ENV=production npm run build)
-
-echo "[deploy] pm2"
-pm2 restart uzaedu-api --update-env
-pm2 restart uzaedu-web --update-env
-pm2 save
-
-echo "[deploy] done"
+pm2 save 2>/dev/null || true
+echo "[deploy] OK"
