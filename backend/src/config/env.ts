@@ -40,12 +40,23 @@ export const env = {
     secret: process.env.JWT_SECRET || 'dev-secret',
     expire: parseInt(process.env.JWT_EXPIRE || '86400', 10),
   },
-  corsOrigins: (
-    process.env.CORS_ORIGINS ||
-    'http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001,http://10.0.2.2:3000,https://admin.uzaedu.com,https://uzaedu.com,https://www.uzaedu.com'
-  )
-    .split(',')
-    .map((s) => s.trim()),
+  corsOrigins: (() => {
+    const raw = (
+      process.env.CORS_ORIGINS ||
+      'http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001,http://10.0.2.2:3000,https://admin.uzaedu.com,https://uzaedu.com,https://www.uzaedu.com'
+    )
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const set = new Set(raw);
+    const apex = 'https://uzaedu.com';
+    const www = 'https://www.uzaedu.com';
+    if (set.has(apex) || set.has(www)) {
+      set.add(apex);
+      set.add(www);
+    }
+    return [...set];
+  })(),
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
   /**
    * Oturum çerezi Domain (örn. .uzaedu.com) — admin + api alt alanlarında paylaşım.
