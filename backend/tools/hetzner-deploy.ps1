@@ -32,4 +32,8 @@ $script = "$remoteRoot/scripts/deploy/server-deploy.sh"
 Write-Host "SSH $sshTarget -> bash $script"
 & ssh -i $key -o BatchMode=yes -o StrictHostKeyChecking=accept-new $sshTarget "chmod +x $script 2>/dev/null; bash $script"
 if ($LASTEXITCODE -ne 0) { throw "SSH deploy cikis kodu: $LASTEXITCODE" }
+$pw = "$remoteRoot/backend/tools/server-playwright-install.sh"
+Write-Host "SSH $sshTarget -> Playwright chromium (MEB Mebbis)"
+& ssh -i $key -o BatchMode=yes -o StrictHostKeyChecking=accept-new $sshTarget "chmod +x $pw 2>/dev/null; bash $pw"
+if ($LASTEXITCODE -ne 0) { throw "Playwright kurulum cikis kodu: $LASTEXITCODE" }
 Write-Host "Tamam."
