@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AppConfigModule } from '../app-config/app-config.module';
 import { School } from './entities/school.entity';
 import { SchoolsService } from './schools.service';
 import { SchoolsController } from './schools.controller';
@@ -8,7 +9,7 @@ import { SchoolPlacementScoresSyncService } from './school-placement-scores-sync
 import { PlacementGptExtractService } from './placement-gpt-extract.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([School])],
+  imports: [TypeOrmModule.forFeature([School]), AppConfigModule],
   controllers: [SchoolsController],
   providers: [SchoolsService, MebbisKurumlistesiService, SchoolPlacementScoresSyncService, PlacementGptExtractService],
   exports: [SchoolsService, TypeOrmModule],

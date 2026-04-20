@@ -1,4 +1,11 @@
-import { Injectable, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  HttpException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import * as cheerio from 'cheerio';
 import { MebbisFetchDto, MebbisIlceQueryDto, MebbisTypeQueryDto } from './dto/mebbis-fetch.dto';
 import { MEBBIS_IL_OPTIONS } from './mebbis-il-options.constants';
@@ -41,6 +48,8 @@ const MEB_DETAIL_FETCH_MS = 55_000;
 
 @Injectable()
 export class MebbisKurumlistesiService {
+  private readonly logger = new Logger(MebbisKurumlistesiService.name);
+
   private async loadPlaywright(): Promise<typeof import('playwright')> {
     try {
       return await import('playwright');
@@ -53,6 +62,37 @@ export class MebbisKurumlistesiService {
     }
   }
 
+  /** Canlıda Chromium/Playwright yoksa veya MEB sayfası bozulursa 500 yerine anlamlı HTTP hatası. */
+  private async withChromiumPage<T>(run: (page: import('playwright').Page) => Promise<T>): Promise<T> {
+    const pw = await this.loadPlaywright();
+    let browser: import('playwright').Browser | undefined;
+    try {
+      browser = await pw.chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      });
+      const page = await browser.newPage();
+      page.setDefaultTimeout(MEB_PLAYWRIGHT_DEFAULT_MS);
+      page.setDefaultNavigationTimeout(MEB_NAV_TIMEOUT_MS);
+      return await run(page);
+    } catch (e) {
+      if (e instanceof HttpException) throw e;
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.error(`MEB okul listesi (Playwright): ${msg}`);
+      throw new BadGatewayException({
+        code: 'EXTERNAL_SERVICE_ERROR',
+        message: 'MEB okul listesi şu an okunamıyor. Sunucuda Chromium kurulu olmalı (örn. npx playwright install chromium).',
+        details: { upstream: 'meb_okul_listesi', reason: msg.slice(0, 400) },
+      });
+    } finally {
+      try {
+        await browser?.close();
+      } catch {
+        /* noop */
+      }
+    }
+  }
+
   getIlOptions() {
     return { items: MEBBIS_IL_OPTIONS.filter((x) => x.value !== '999') };
   }
@@ -61,15 +101,7 @@ export class MebbisKurumlistesiService {
     const il = MEBBIS_IL_OPTIONS.find((x) => x.value === dto.il_kodu);
     if (!il) throw new BadRequestException({ code: 'INVALID_IL', message: 'Geçersiz il kodu.' });
 
-    const pw = await this.loadPlaywright();
-    const browser = await pw.chromium.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
-    try {
-      const page = await browser.newPage();
-      page.setDefaultTimeout(MEB_PLAYWRIGHT_DEFAULT_MS);
-      page.setDefaultNavigationTimeout(MEB_NAV_TIMEOUT_MS);
+    return this.withChromiumPage(async (page) => {
       await this.preparePublicListPage(page, dto.il_kodu);
       const labels = await page.evaluate(() => {
         const rows = Array.from(document.querySelectorAll('#icerik-listesi tbody tr'));
@@ -83,24 +115,14 @@ export class MebbisKurumlistesiService {
       });
       const uniq = [...new Set(labels)].sort((a, b) => a.localeCompare(b, 'tr'));
       return { items: uniq.map((label) => ({ label })) };
-    } finally {
-      await browser.close();
-    }
+    });
   }
 
   async getTypeOptions(dto: MebbisTypeQueryDto): Promise<{ items: { label: string; value: string }[] }> {
     const il = MEBBIS_IL_OPTIONS.find((x) => x.value === dto.il_kodu);
     if (!il) throw new BadRequestException({ code: 'INVALID_IL', message: 'Geçersiz il kodu.' });
 
-    const pw = await this.loadPlaywright();
-    const browser = await pw.chromium.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
-    try {
-      const page = await browser.newPage();
-      page.setDefaultTimeout(MEB_PLAYWRIGHT_DEFAULT_MS);
-      page.setDefaultNavigationTimeout(MEB_NAV_TIMEOUT_MS);
+    return this.withChromiumPage(async (page) => {
       await this.preparePublicListPage(page, dto.il_kodu);
       const rawRows = await this.readPublicRows(page);
       const items = [...new Set(
@@ -116,9 +138,7 @@ export class MebbisKurumlistesiService {
           .filter((value): value is string => !!value),
       )].sort((a, b) => a.localeCompare(b, 'tr'));
       return { items: items.map((label) => ({ label, value: label })) };
-    } finally {
-      await browser.close();
-    }
+    });
   }
 
   async fetchSchools(dto: MebbisFetchDto): Promise<{
@@ -136,15 +156,7 @@ export class MebbisKurumlistesiService {
       });
     }
 
-    const pw = await this.loadPlaywright();
-    const browser = await pw.chromium.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
-    try {
-      const page = await browser.newPage();
-      page.setDefaultTimeout(MEB_PLAYWRIGHT_DEFAULT_MS);
-      page.setDefaultNavigationTimeout(MEB_NAV_TIMEOUT_MS);
+    return this.withChromiumPage(async (page) => {
       await this.preparePublicListPage(page, dto.il_kodu);
       const rawRows = await this.readPublicRows(page);
 
@@ -181,9 +193,7 @@ export class MebbisKurumlistesiService {
         schools,
         meta: { row_count: schools.length, sheet: 'meb-public-okullar', tum_il: tumIl },
       };
-    } finally {
-      await browser.close();
-    }
+    });
   }
 
   private mapSegment(owner: '1' | '2' | '3'): SchoolSegment {

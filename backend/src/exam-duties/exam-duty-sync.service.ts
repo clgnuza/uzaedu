@@ -547,18 +547,26 @@ export class ExamDutySyncService {
     }
   }
 
-  /** GPT çıktısı kullanılarak oluşturulan kayıt: ayar açıksa taslak → yayın (publish_now). */
-  private async maybeAutoPublishGptSyncDuty(dutyId: string, gptUsedForRow: boolean, dryRun: boolean): Promise<void> {
+  /** GPT çıktısı kullanılarak oluşturulan kayıt: ayar açıksa taslak → yayın (sınav tarihi yoksa yayınlanmaz). */
+  private async maybeAutoPublishGptSyncDuty(
+    duty: Pick<ExamDuty, 'id' | 'examDate' | 'examDateEnd'>,
+    gptUsedForRow: boolean,
+    dryRun: boolean,
+  ): Promise<void> {
     if (dryRun || !gptUsedForRow) return;
+    if (!duty.examDate && !duty.examDateEnd) {
+      this.logger.log(`[ExamDutySync] Otomatik yayın atlandı (sınav tarihi yok): ${duty.id.slice(0, 8)}…`);
+      return;
+    }
     const opts = await this.appConfig.getExamDutySyncOptions();
     if (!opts.auto_publish_gpt_sync_duties) return;
     try {
-      await this.examDutiesService.publish(dutyId);
-      this.logger.log(`[ExamDutySync] GPT sync duyuru otomatik yayınlandı: ${dutyId.slice(0, 8)}…`);
-      await this.notifySuperadminsAutoPublishedDuty(dutyId);
+      await this.examDutiesService.publish(duty.id);
+      this.logger.log(`[ExamDutySync] GPT sync duyuru otomatik yayınlandı: ${duty.id.slice(0, 8)}…`);
+      await this.notifySuperadminsAutoPublishedDuty(duty.id);
     } catch (e) {
       this.logger.warn(
-        `[ExamDutySync] Otomatik yayınlanamadı (${dutyId}): ${e instanceof Error ? e.message : String(e)}`,
+        `[ExamDutySync] Otomatik yayınlanamadı (${duty.id}): ${e instanceof Error ? e.message : String(e)}`,
       );
     }
   }
@@ -908,11 +916,14 @@ export class ExamDutySyncService {
         examDate: rssExamDate,
         examDateEnd: rssExamDateEnd,
         status: 'draft',
+        sourceListSection: 'rss',
+        sourceSectionOrder: rssIdx,
+        sourceSliderPoolSize: null,
       });
 
       if (!dryRun) {
         await this.dutyRepo.save(duty);
-        await this.maybeAutoPublishGptSyncDuty(duty.id, rssHadGptResult, dryRun);
+        await this.maybeAutoPublishGptSyncDuty(duty, rssHadGptResult, dryRun);
       }
       created++;
       pendingScheduleSlices.push({
@@ -1156,6 +1167,30 @@ export class ExamDutySyncService {
       !!sliderSelector?.trim(),
       source.key,
     );
+    const sliderPoolSizeMeta = candidates.filter((x) => x.list_section === 'slider').length;
+    const dutySourcePlaceFromCandidate = (c: (typeof processList)[number]) => {
+      const sec = c.list_section ?? null;
+      const ord = typeof c.section_order === 'number' ? c.section_order : null;
+      if (!sec || sec === 'recheck') {
+        return {
+          sourceListSection: sec,
+          sourceSectionOrder: ord,
+          sourceSliderPoolSize: null as number | null,
+        };
+      }
+      if (sec === 'slider') {
+        return {
+          sourceListSection: 'slider' as const,
+          sourceSectionOrder: ord,
+          sourceSliderPoolSize: sliderPoolSizeMeta > 0 ? sliderPoolSizeMeta : null,
+        };
+      }
+      return {
+        sourceListSection: 'list' as const,
+        sourceSectionOrder: ord,
+        sourceSliderPoolSize: null as number | null,
+      };
+    };
     if (candidatesPoolSize > processList.length && !sliderSelector?.trim()) {
       this.logger.log(
         `[${source.key}] Aday havuzu ${candidatesPoolSize} → içerik kontrolü ${processList.length} link (son eklenen öncelik, limit=${latestContentCheckLimit})`,
@@ -1200,14 +1235,16 @@ export class ExamDutySyncService {
       reason: string,
       placement?: Pick<ExamDutySkippedItem, 'list_section' | 'section_order'>,
     ) => {
+      const sec = placement?.list_section;
       skippedItems.push({
         source_key: source.key,
         source_label: source.label,
         title: title.slice(0, 512),
         url: hrefUrl.slice(0, 1024),
         reason,
-        list_section: placement?.list_section,
+        list_section: sec,
         section_order: placement?.section_order,
+        slider_pool_size: sec === 'slider' && sliderPoolSizeMeta > 0 ? sliderPoolSizeMeta : undefined,
       });
     };
 
@@ -1403,7 +1440,6 @@ export class ExamDutySyncService {
         examDateEnd = fallbackDates?.exam_date_end ?? null;
       }
 
-      const appStartHasTime = true;
       let appEndHasTime = useGptForDates ? gptSonBasvuru.hasTime : false;
       let appApprovalHasTime = false;
       let resultHasTime = useGptForDates ? gptSinavOncesi.hasTime : false;
@@ -1437,7 +1473,6 @@ export class ExamDutySyncService {
         if (hasTime) return d;
         return applyExamDutyWallClockInTurkey(d, scrapeTimes[key] ?? '00:00');
       };
-      applicationStart = applyScrapeTime(applicationStart, 'application_start', appStartHasTime);
       applicationEnd = applyScrapeTime(applicationEnd, 'application_end', appEndHasTime);
       applicationApprovalEnd = applyScrapeTime(applicationApprovalEnd, 'application_approval_end', appApprovalHasTime);
       resultDate = applyScrapeTime(resultDate, 'result_date', resultHasTime);
@@ -1498,6 +1533,10 @@ export class ExamDutySyncService {
           existingDuty.status = 'draft';
           existingDuty.dateValidationStatus = dateValidationStatus ?? null;
           existingDuty.dateValidationIssues = dateValidationIssues ?? null;
+          const sp = dutySourcePlaceFromCandidate(c);
+          existingDuty.sourceListSection = sp.sourceListSection;
+          existingDuty.sourceSectionOrder = sp.sourceSectionOrder;
+          existingDuty.sourceSliderPoolSize = sp.sourceSliderPoolSize;
           if (!options.dryRun) await this.dutyRepo.save(existingDuty);
           restored++;
           existingIds.add(externalId);
@@ -1569,10 +1608,11 @@ export class ExamDutySyncService {
         status: 'draft',
         dateValidationStatus,
         dateValidationIssues,
+        ...dutySourcePlaceFromCandidate(c),
       });
       if (!options.dryRun) {
         await this.dutyRepo.save(duty);
-        await this.maybeAutoPublishGptSyncDuty(duty.id, !!gptResult, !!options.dryRun);
+        await this.maybeAutoPublishGptSyncDuty(duty, !!gptResult, !!options.dryRun);
       }
       created++;
       processedUrl = c.href;
@@ -1909,6 +1949,29 @@ export class ExamDutySyncService {
     };
     const out: { application_start?: Date; application_end?: Date; exam_date?: Date; exam_date_end?: Date } = {};
     const norm = body.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+    /** Örn. Güncel Eğitim: "Son işlem tarihi 19/04/2026" (son başvuru ile aynı anlam). */
+    const sonIslemTarihiMatch = norm.match(/son\s*işlem\s*tarihi\s+(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{2,4})/i);
+    if (sonIslemTarihiMatch && !out.application_end) {
+      const [, d, m, y] = sonIslemTarihiMatch.map((x) => parseInt(x, 10));
+      const dt = toDate(d, m, y);
+      if (dt) out.application_end = dt;
+    }
+
+    /** "19 Nisan 2026 Pazar günü saat 23.59'a kadar … görev talebi" (AÖF / üniversite duyuruları). */
+    const gorevSonGunKadarMatch = norm.match(
+      /(\d{1,2})\s+(ocak|şubat|mart|nisan|mayıs|haziran|temmuz|ağustos|eylül|ekim|kasım|aralık)\s+(\d{2,4})\s+\S+\s+günü\s+saat\s+(\d{1,2})[.:](\d{2})\s*(?:['\u2019]a\s*)?kadar/i,
+    );
+    if (gorevSonGunKadarMatch && !out.application_end) {
+      const [, dStr, monthName, yStr] = gorevSonGunKadarMatch;
+      const d = parseInt(dStr!, 10);
+      const m = months[monthName!.toLowerCase()] ?? 0;
+      const y = parseInt(yStr!, 10);
+      if (m && d && y) {
+        const dt = toDate(d, m, y);
+        if (dt) out.application_end = dt;
+      }
+    }
 
     const basvuruMatch = norm.match(/başvuru\s*:\s*(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{2,4})\s+(?:\d{1,2}:\d{2}\s*)?[-–]\s*(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{2,4})/i);
     if (basvuruMatch) {
@@ -2352,6 +2415,8 @@ export interface ExamDutySkippedItem {
   list_section?: 'slider' | 'list' | 'rss' | 'recheck';
   /** İlgili bölümdeki 0 tabanlı sıra (slayt 0 = en üstteki öğe) */
   section_order?: number;
+  /** Scrape sync anında slayt havuzundaki toplam öğe (örn. 15) */
+  slider_pool_size?: number;
 }
 
 export interface SyncSourceResult {

@@ -159,6 +159,12 @@ type ExamDutyItem = {
   publishedAt?: string | null;
   created_at?: string;
   createdAt?: string;
+  source_list_section?: string | null;
+  sourceListSection?: string | null;
+  source_section_order?: number | null;
+  sourceSectionOrder?: number | null;
+  source_slider_pool_size?: number | null;
+  sourceSliderPoolSize?: number | null;
 };
 
 type ListResponse = {
@@ -194,11 +200,27 @@ type SkippedItem = {
   reason: string;
   list_section?: 'slider' | 'list' | 'rss' | 'recheck';
   section_order?: number;
+  slider_pool_size?: number;
 };
+
+function formatDutySourcePlace(i: ExamDutyItem): string {
+  const sec = i.source_list_section ?? i.sourceListSection;
+  const ord = i.source_section_order ?? i.sourceSectionOrder;
+  const pool = i.source_slider_pool_size ?? i.sourceSliderPoolSize;
+  if (sec === 'slider' && ord != null) {
+    return pool != null && pool > 0 ? `Slayt ${ord + 1}/${pool}` : `Slayt · ${ord + 1}. sıra`;
+  }
+  if (sec === 'list' && ord != null) return `Liste ${ord + 1}`;
+  if (sec === 'rss' && ord != null) return `RSS ${ord + 1}`;
+  if (sec === 'recheck' && ord != null) return `Yeniden kontrol ${ord + 1}`;
+  return '—';
+}
 
 function formatSkippedListPlace(row: SkippedItem): string {
   const n = row.section_order;
   if (row.list_section === 'slider') {
+    const pool = row.slider_pool_size;
+    if (n != null && pool != null && pool > 0) return `Slayt ${n + 1}/${pool}`;
     return n != null ? `Slayt · ${n + 1}. sıra (üstten)` : 'Slayt';
   }
   if (row.list_section === 'list') {
@@ -258,10 +280,10 @@ function examDutyInstantWithDefaultWall(
   }
 }
 
-/** Liste/akış: tarih alanlarında ayarlı duvar saati varsa İstanbul günü + o saat (kaynak saati ezmez: yalnızca geçerli HH:mm ayarı varken). */
+/** Liste/akış: Bşv. Açılış kayıt anı (duvar saati uygulanmaz); diğer tarihlerde ayarlı duvar saati varsa İstanbul günü + o saat. */
 function normalizeItem(i: ExamDutyItem, defaultTimes?: Record<string, string>): ExamDutyItem {
   const t = defaultTimes;
-  let application_start = examDutyInstantWithDefaultWall(i.application_start ?? i.applicationStart, t?.application_start) ?? (i.application_start ?? i.applicationStart);
+  let application_start = i.application_start ?? i.applicationStart;
   let application_end = examDutyInstantWithDefaultWall(i.application_end ?? i.applicationEnd, t?.application_end) ?? (i.application_end ?? i.applicationEnd);
   let application_approval_end =
     examDutyInstantWithDefaultWall(i.application_approval_end ?? i.applicationApprovalEnd, t?.application_approval_end) ??
@@ -1565,7 +1587,7 @@ export default function SinavGorevleriPage() {
                 </div>
                 <div>
                   <CardTitle className="text-base font-semibold">Atlanan içerik</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-0.5">Slayt → sayfa listesi → RSS sırası; satırda konum ve atlama nedeni</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Slayt → sayfa listesi → RSS; slaytta x/y (sync anındaki havuz) ve atlama nedeni</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -1587,7 +1609,7 @@ export default function SinavGorevleriPage() {
               </div>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Liste önce slayt alanındaki sıraya göre, ardından sayfa listesi ve RSS’e göre sıralanır. Yeni özet için &quot;Şimdi Sync&quot; çalıştırın.
+              Liste önce slayt sırasına göre; slayt satırında x/y toplam slayt sayısı (örn. 15). Yeni özet için &quot;Şimdi Sync&quot; çalıştırın.
             </p>
           </CardHeader>
           <CardContent className="p-0">
@@ -1815,7 +1837,7 @@ export default function SinavGorevleriPage() {
                       ? 'Sync ile gelen, GPT/kaynak metninden başvuru bitişi ve sınav tarihleri tespit edilemeyen duyurular (elle tarih girin veya yayınlamayın).'
                       : mainView === 'no-exam'
                         ? 'Kayıtta sınav başlangıç ve bitiş tarihi olmayan duyurular (başvuru tarihi olsa bile). Elle sınav tarihi girin veya yayınlamayın.'
-                        : 'Duyuruları tablo veya kart olarak filtreleyip düzenleyin'}
+                        : 'Scrape kaynaklarda 1. slayt her sync’te kontrol edilir; tur ile diğer slaytlar sırayla işlenir. Kaynak yeri sütunu sync anındaki slayt sırasını gösterir (örn. Slayt 3/15).'}
                   </p>
                 </div>
                 <Button
@@ -1990,6 +2012,12 @@ export default function SinavGorevleriPage() {
                             >
                               {i.status === 'published' ? 'Yayında' : 'Taslak'}
                             </span>
+                            <span
+                              className="inline-flex max-w-[160px] truncate rounded-md border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                              title={formatDutySourcePlace(i)}
+                            >
+                              {formatDutySourcePlace(i)}
+                            </span>
                             {(appEndPast || examPast) && (
                               <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
                                 <AlertTriangle className="size-3" /> Tarih geçti
@@ -2087,7 +2115,7 @@ export default function SinavGorevleriPage() {
                 </div>
               ) : (
               <div className="table-x-scroll rounded-xl border border-border/80 shadow-sm">
-              <table className="exam-duty-table evrak-admin-table w-full min-w-[900px] text-sm">
+              <table className="exam-duty-table evrak-admin-table w-full min-w-[980px] text-sm">
                 <thead className="sticky top-0 z-10 bg-muted/98 backdrop-blur-sm border-b-2 border-primary/20">
                   <tr>
                     <th className="sticky left-0 z-20 w-11 shrink-0 exam-duty-sticky px-2 py-3">
@@ -2097,6 +2125,9 @@ export default function SinavGorevleriPage() {
                       Başlık
                     </th>
                     <th className="w-14 shrink-0 px-2 py-3" title="Kategori">Kat.</th>
+                    <th className="w-[88px] min-w-[84px] shrink-0 px-2 py-3 text-left" title="Sync sonrası kaynak konumu (slayt sırası)">
+                      Kaynak
+                    </th>
                     <th className="w-[90px] min-w-[86px] shrink-0 px-2 py-3 text-left" title="Başvuru Açılış">Bşv. Açılış</th>
                     <th className="w-[90px] min-w-[86px] shrink-0 px-2 py-3 text-left" title="Son Başvuru">Son Bşv.</th>
                     <th className="w-[90px] min-w-[86px] shrink-0 px-2 py-3 text-left" title="Başvuru Onay">Onay</th>
@@ -2152,6 +2183,14 @@ export default function SinavGorevleriPage() {
                             )}
                           >
                             {EXAM_DUTY_CATEGORIES.find((c) => c.value === (n.category_slug ?? n.categorySlug))?.label ?? n.category_slug ?? n.categorySlug}
+                          </span>
+                        </td>
+                        <td className="w-[88px] min-w-[84px] shrink-0 px-2 py-2 align-top">
+                          <span
+                            className="inline-block max-w-[84px] truncate rounded border border-border/80 bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                            title={formatDutySourcePlace(i)}
+                          >
+                            {formatDutySourcePlace(i)}
                           </span>
                         </td>
                         <td className="w-[90px] min-w-[86px] shrink-0 px-2 py-2 align-top">

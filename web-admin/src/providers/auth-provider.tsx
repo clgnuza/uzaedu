@@ -12,8 +12,12 @@ import {
 import { usePathname, useRouter } from 'next/navigation';
 import { apiFetch, type ApiError } from '@/lib/api';
 import { COOKIE_SESSION_TOKEN } from '@/lib/auth-session';
+import { rememberReturnPath } from '@/lib/post-login-redirect';
 import { safeStorageGetItem, safeStorageRemoveItem, safeStorageSetItem } from '@/lib/safe-storage';
 import type { WebAdminRole } from '@/config/types';
+
+/** Etkileşim yoksa oturumu kapatır; arka planda /me isteği birikmez. */
+const IDLE_LOGOUT_MS = 30 * 60 * 1000;
 
 const TOKEN_KEY = 'ogretmenpro_token';
 const meRequestCache = new Map<string, Promise<Me | null>>();
@@ -103,7 +107,7 @@ type AuthContextValue = {
   loading: boolean;
   error: string | null;
   setToken: (value: string | null) => Promise<void>;
-  logout: () => void;
+  logout: (opts?: { redirectTo?: string }) => void;
   refetchMe: () => Promise<Me | null>;
   isAuthenticated: boolean;
 };
@@ -171,18 +175,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (pathname && PUBLIC_AUTH_PATHS.has(pathname)) {
-      setError(null);
-      setLoading(false);
-      prevPathnameRef.current = pathname;
-      return;
-    }
+    const isPublicAuth = !!pathname && PUBLIC_AUTH_PATHS.has(pathname);
+    if (isPublicAuth) setError(null);
     const fromPublicAuth =
       prevPathnameRef.current !== undefined && PUBLIC_AUTH_PATHS.has(prevPathnameRef.current);
     prevPathnameRef.current = pathname ?? undefined;
-    if (fromPublicAuth) setLoading(true);
+    if (fromPublicAuth || isPublicAuth) setLoading(true);
     const t = getStoredToken();
     setTokenState(t);
+    const finish = () => setLoading(false);
     if (t) {
       void fetchMe(t)
         .then((data) => {
@@ -195,7 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setError(err instanceof Error ? err.message : 'Hata');
           setMe(null);
         })
-        .finally(() => setLoading(false));
+        .finally(finish);
       return;
     }
     void fetchMe(null)
@@ -205,7 +206,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => {
         setMe(null);
       })
-      .finally(() => setLoading(false));
+      .finally(finish);
   }, [fetchMe, pathname]);
 
   const setToken = useCallback(
@@ -240,10 +241,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [fetchMe],
   );
 
-  const logout = useCallback(() => {
+  const logout = useCallback((opts?: { redirectTo?: string }) => {
     void setToken(null);
-    router.replace('/');
+    router.replace(opts?.redirectTo ?? '/');
   }, [setToken, router]);
+
+  useEffect(() => {
+    if (!me || !pathname || PUBLIC_AUTH_PATHS.has(pathname)) return;
+    if (typeof window === 'undefined') return;
+    rememberReturnPath(window.location.pathname + window.location.search);
+  }, [me, pathname]);
+
+  useEffect(() => {
+    if (!me) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        void setToken(null);
+        router.replace('/login?reason=idle');
+      }, IDLE_LOGOUT_MS);
+    };
+    const bump = () => arm();
+    const onVis = () => {
+      if (document.visibilityState === 'visible') bump();
+    };
+    const opts: AddEventListenerOptions = { passive: true };
+    window.addEventListener('mousedown', bump, opts);
+    window.addEventListener('keydown', bump, opts);
+    window.addEventListener('scroll', bump, opts);
+    window.addEventListener('touchstart', bump, opts);
+    document.addEventListener('visibilitychange', onVis);
+    arm();
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('mousedown', bump);
+      window.removeEventListener('keydown', bump);
+      window.removeEventListener('scroll', bump);
+      window.removeEventListener('touchstart', bump);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [me, setToken, router]);
 
   const refetchMe = useCallback(async (): Promise<Me | null> => {
     const t = getStoredToken();

@@ -69,7 +69,11 @@ export class ExamDutyGptService {
     const jsonSchema = {
       type: 'object',
       properties: {
-        baslangic: { type: 'string', description: 'İlk yayınlanma/duyuru tarihi. Yoksa null.' },
+        baslangic: {
+          type: 'string',
+          description:
+            'Metindeki ilk yayın/duyuru tarihi; yoksa null. Not: Yönetimde "Bşv. Açılış" duyurunun sisteme eklenme anıdır; bu alan o kutuyu doldurmaz.',
+        },
         son_basvuru: { type: 'string', description: 'Son başvuru veya son istek tarihi. Sınav günü DEĞİL.' },
         sinav_1_gunu: { type: 'string', description: 'İlk sınav günü (1. oturum veya tek gün).' },
         sinav_2_gunu: { type: 'string', description: 'İkinci/son sınav günü. Tek günlüyse sinav_1_gunu ile aynı veya null.' },
@@ -101,7 +105,7 @@ GÖREV: Aşağıdaki tabloyu doldur. Bulamadığın alan null.
 
 | Alan | Açıklama | Örnek |
 |------|----------|-------|
-| baslangic | İlk yayınlanma/duyuru tarihi (metinde varsa). "Yayın: 12.03.2026", "Duyuru tarihi" vb. | 2026-03-12 veya null |
+| baslangic | İlk yayınlanma/duyuru tarihi (metinde varsa). "Yayın: 12.03.2026", "Duyuru tarihi" vb. **Panel notu:** "Bşv. Açılış" kayıt/sync zamanıdır; baslangic yalnızca metin bilgisidir. | 2026-03-12 veya null |
 | son_basvuru | Son başvuru tarihi. "Son gün: 12 Mart", "Son İstek: 3 Mart 23:59", "Başvuru: 24.02-02.03" (bitiş) | 2026-03-12 veya 2026-03-12 23:59 |
 | sinav_1_gunu | İlk sınav günü. "Sınav: 4-5 Nisan" → 4 Nisan. "1. Oturum: 27 Aralık" → 27 Aralık. | 2026-04-04 |
 | sinav_2_gunu | Son sınav günü. "4-5 Nisan" → 5 Nisan. Tek günlüyse sinav_1_gunu ile aynı veya null. | 2026-04-05 |
@@ -109,9 +113,9 @@ GÖREV: Aşağıdaki tabloyu doldur. Bulamadığın alan null.
 
 KURALLAR:
 - Tüm tarihler YYYY-MM-DD veya YYYY-MM-DD HH:mm ( saat varsa ).
-- son_basvuru = "Son başvuru", "Son istek zamanı", "Başvuru son tarihi". Sınavın yapıldığı gün ASLA son_basvuru değildir.
+- son_basvuru = "Son başvuru", "Son istek zamanı", "Başvuru son tarihi", "Son işlem tarihi" (DD/MM/YYYY), "19 Nisan … saat 23.59'a kadar … görev talebi" gibi görev başvuru bitişi. Sınavın yapıldığı gün ASLA son_basvuru değildir.
 - Çoklu sınav: TUS+STS, 4 Adalet sınavı vb. → sinav_1_gunu en erken, sinav_2_gunu en geç, son_basvuru en geç başvuru bitişi.
-- baslangic metinde yoksa null dön.
+- baslangic metinde yoksa null dön. baslangic, yönetim arayüzündeki "Bşv. Açılış" (başvuru açılış) ile aynı değildir; Bşv. Açılış duyurunun eklendiği an olarak tutulur.
 - is_application_announcement: Yalnızca resmi başvuru/tercih çağrısı (yeni sınav görevi, son başvuru, görev tercihi) ise true. Olay haberi, köşe yazısı, disiplin/iptal/geç kalma/kare kod uygulaması, "bugün X ilinde oldu" gibi metinler başvuru duyurusu DEĞİLDİR → false ve tüm tarihler null.
 - Örnek FALSE: "Geç gelen öğretmenlerin görevleri iptal edildi", "kare kod ile bina girişi", haberde geçen saat (10.00, 09.00) sınav programı değil olay anlatımıdır; sinav_1_gunu/son_basvuru yazma.
 - Resmi duyuruda da son_basvuru ve sinav_* yoksa (sadece ücret tablosu vb.) is_application_announcement false.

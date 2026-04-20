@@ -14,6 +14,7 @@ import { AuthPageShell } from '@/components/auth/auth-page-shell';
 import { AuthCard } from '@/components/auth/auth-card';
 import { AuthFlowSubnav } from '@/components/auth/auth-flow-subnav';
 import { cn } from '@/lib/utils';
+import { getPostLoginRedirect } from '@/lib/post-login-redirect';
 
 type AuthResponse = { token: string };
 type OtpPurposeSchool = 'login_school' | 'register_school';
@@ -27,7 +28,7 @@ const inputBase =
 function SchoolLoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams?.get('redirect') || '/dashboard';
+  const redirectQuery = searchParams?.get('redirect') ?? null;
   const { setToken } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -42,6 +43,7 @@ function SchoolLoginForm() {
   const regHref = navQ ? `/register/okul?${navQ}` : '/register/okul';
   const teacherLoginHref = navQ ? `/login/ogretmen?${navQ}` : '/login/ogretmen';
   const [fromTeacherBanner, setFromTeacherBanner] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
 
   useEffect(() => {
     const wp = searchParams?.get('wrong_portal');
@@ -55,8 +57,7 @@ function SchoolLoginForm() {
 
   const setTokenAndRedirect = async (token: string) => {
     await setToken(token);
-    const target = redirectTo.startsWith('/') ? redirectTo : `/${redirectTo}`;
-    router.push(target);
+    router.push(getPostLoginRedirect(redirectQuery));
     router.refresh();
   };
 
@@ -72,7 +73,7 @@ function SchoolLoginForm() {
     try {
       const res = await apiFetch<LoginStepResponse>('/auth/school/login', {
         method: 'POST',
-        body: JSON.stringify({ email: e1, password }),
+        body: JSON.stringify({ email: e1, password, remember_me: rememberMe }),
       });
       if ('needs_verification_code' in res && res.needs_verification_code) {
         setPendingEmail(res.email);
@@ -116,7 +117,7 @@ function SchoolLoginForm() {
     try {
       const res = await apiFetch<AuthResponse>('/auth/school/login-verify', {
         method: 'POST',
-        body: JSON.stringify({ email: e1, code: otpCode.replace(/\s/g, '') }),
+        body: JSON.stringify({ email: e1, code: otpCode.replace(/\s/g, ''), remember_me: rememberMe }),
       });
       await setTokenAndRedirect(res.token);
     } catch (err) {
@@ -177,6 +178,15 @@ function SchoolLoginForm() {
             )}
           </CardHeader>
           <CardContent className="space-y-4 px-4 pb-5 pt-4 sm:px-6 sm:pb-6 sm:pt-5">
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground sm:text-sm">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="size-3.5 rounded border border-input accent-amber-600 sm:size-4"
+              />
+              Beni hatırla (bu cihazda uzun oturum)
+            </label>
             {fromTeacherBanner && (
               <Alert
                 message="Öğretmen giriş sayfasından yönlendirildiniz. Bu hesap okul yöneticisi — kurumsal e-posta ve şifre ile buradan giriş yapın."

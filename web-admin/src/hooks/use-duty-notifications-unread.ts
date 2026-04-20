@@ -29,12 +29,14 @@ export function emitNotificationsUpdated() {
   }
 }
 
-/** Okunmamış nöbet bildirimi sayısı. Teacher ve school_admin için. */
+const NOTIFICATION_ROLES = new Set(['teacher', 'school_admin', 'superadmin', 'moderator']);
+
+/** Okunmamış nöbet bildirimi sayısı. */
 export function useDutyNotificationsUnread(token: string | null, role: string | null) {
   const [count, setCount] = useState(0);
 
   const fetchCount = useCallback(() => {
-    if (!token || (role !== 'teacher' && role !== 'school_admin')) {
+    if (!token || !role || !NOTIFICATION_ROLES.has(role)) {
       setCount(0);
       return;
     }
@@ -62,12 +64,12 @@ export function useDutyNotificationsUnread(token: string | null, role: string | 
   return count;
 }
 
-/** Okunmamış toplam inbox sayısı (market, nöbet, destek vb. tüm türler). Teacher ve school_admin için. */
+/** Okunmamış toplam inbox sayısı (market, nöbet, destek vb. tüm türler). */
 export function useAllNotificationsUnread(token: string | null, role: string | null) {
   const [count, setCount] = useState(0);
 
   const fetchCount = useCallback(() => {
-    if (!token || (role !== 'teacher' && role !== 'school_admin')) {
+    if (!token || !role || !NOTIFICATION_ROLES.has(role)) {
       setCount(0);
       return;
     }

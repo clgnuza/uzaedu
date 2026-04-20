@@ -9,7 +9,7 @@ import { PaginationDto } from '../common/dtos/pagination.dto';
 
 @Controller('notifications')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.teacher, UserRole.school_admin)
+@Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 

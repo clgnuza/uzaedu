@@ -22,6 +22,7 @@ import { AuthCard } from '@/components/auth/auth-card';
 import { AuthCompactDetails } from '@/components/auth/auth-compact-details';
 import { ForgotPasswordGateDialog } from '@/components/auth/forgot-password-gate-dialog';
 import { cn } from '@/lib/utils';
+import { getPostLoginRedirect } from '@/lib/post-login-redirect';
 
 const RECAPTCHA_ID = 'recaptcha-phone';
 
@@ -37,7 +38,7 @@ const inputBase =
 export function TeacherLoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams?.get('redirect') || '/dashboard';
+  const redirectQuery = searchParams?.get('redirect') ?? null;
   const regQuery = searchParams?.toString();
   const registerHref = regQuery ? `/register/ogretmen?${regQuery}` : '/register/ogretmen';
   const forgotHref = regQuery ? `/forgot-password/ogretmen?${regQuery}` : '/forgot-password/ogretmen';
@@ -68,11 +69,11 @@ export function TeacherLoginForm() {
   const [otpCode, setOtpCode] = useState('');
   const [pendingEmail, setPendingEmail] = useState('');
   const [otpPurpose, setOtpPurpose] = useState<OtpPurposeTeacher>('login_teacher');
+  const [rememberMe, setRememberMe] = useState(false);
 
   const setTokenAndRedirect = async (token: string) => {
     await setToken(token);
-    const target = redirectTo.startsWith('/') ? redirectTo : `/${redirectTo}`;
-    router.push(target);
+    router.push(getPostLoginRedirect(redirectQuery));
     router.refresh();
   };
 
@@ -82,7 +83,7 @@ export function TeacherLoginForm() {
     try {
       const res = await apiFetch<AuthResponse>('/auth/firebase-token', {
         method: 'POST',
-        body: JSON.stringify({ id_token: idToken }),
+        body: JSON.stringify({ id_token: idToken, remember_me: rememberMe }),
       });
       await setTokenAndRedirect(res.token);
     } catch (err) {
@@ -106,7 +107,7 @@ export function TeacherLoginForm() {
     try {
       const res = await apiFetch<LoginStepResponse>('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email: e1, password: p1 }),
+        body: JSON.stringify({ email: e1, password: p1, remember_me: rememberMe }),
       });
       if ('needs_verification_code' in res && res.needs_verification_code) {
         setPendingEmail(res.email);
@@ -149,7 +150,7 @@ export function TeacherLoginForm() {
     try {
       const res = await apiFetch<AuthResponse>('/auth/teacher/login-verify', {
         method: 'POST',
-        body: JSON.stringify({ email: e1, code: otpCode.replace(/\s/g, '') }),
+        body: JSON.stringify({ email: e1, code: otpCode.replace(/\s/g, ''), remember_me: rememberMe }),
       });
       await setTokenAndRedirect(res.token);
     } catch (err) {
@@ -281,6 +282,15 @@ export function TeacherLoginForm() {
               </p>
             </CardHeader>
             <CardContent className="space-y-4 px-4 pb-5 pt-4 sm:space-y-5 sm:px-6 sm:pb-6 sm:pt-5">
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground sm:text-sm">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="size-3.5 rounded border border-input accent-violet-600 sm:size-4"
+                />
+                Beni hatırla (bu cihazda uzun oturum)
+              </label>
               {fromSchoolBanner && (
                 <Alert
                   message="Okul yöneticisi giriş sayfasından yönlendirildiniz. Öğretmen hesabınızla bu sayfada giriş yapın."

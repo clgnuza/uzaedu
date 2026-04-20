@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect, useCallback } from 'react';
 import { ScrollText, RotateCcw } from 'lucide-react';
@@ -11,7 +11,7 @@ import {
   DUTY_LOG_ACTION_HINTS,
   DUTY_LOG_ACTION_LABELS,
 } from '@/lib/duty-log-labels';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -74,17 +74,17 @@ export default function DutyLogsPage() {
     setUndoingId(logId);
     try {
       await apiFetch(`/duty/undo/${logId}`, { token, method: 'POST' });
-      toast.success('İşlem geri alındı.');
+      toast.success('��lem geri al�nd�.');
       await fetchLogs();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Geri alınamadı.');
+      toast.error(e instanceof Error ? e.message : 'Geri al�namad�.');
     } finally {
       setUndoingId(null);
     }
   };
 
   if (!isAdmin) {
-    return <p className="text-muted-foreground">Bu sayfaya erişim yetkiniz yok.</p>;
+    return <p className="text-muted-foreground">Bu sayfaya eri�im yetkiniz yok.</p>;
   }
 
   const glossaryEntries = Object.keys(DUTY_LOG_ACTION_LABELS).filter((k) => DUTY_LOG_ACTION_HINTS[k]);
@@ -93,22 +93,22 @@ export default function DutyLogsPage() {
     <div className="space-y-6">
       <DutyPageHeader
         icon={ScrollText}
-        title="İşlem kaydı"
-        description="Nöbet planı, ders görevi ve devamsızlıkla ilgili yapılan işlemlerin listesi."
+        title="��lem kayd�"
+        description="N�bet plan�, ders g�revi ve devams�zl�kla ilgili yap�lan i�lemlerin listesi."
         color="primary"
       />
 
       <Card>
         <CardHeader className="space-y-2">
           <CardTitle className="text-base">Terimler</CardTitle>
-          <CardDescription className="text-sm leading-relaxed space-y-1.5">
+          <div className="text-sm leading-relaxed text-muted-foreground space-y-1.5">
             {glossaryEntries.map((key) => (
               <p key={key}>
                 <span className="font-medium text-foreground">{DUTY_LOG_ACTION_LABELS[key]}:</span>{' '}
                 {DUTY_LOG_ACTION_HINTS[key]}
               </p>
             ))}
-          </CardDescription>
+          </div>
         </CardHeader>
       </Card>
 
@@ -117,7 +117,7 @@ export default function DutyLogsPage() {
           <LoadingSpinner />
         </div>
       ) : logs.length === 0 ? (
-        <EmptyState icon={<ScrollText className="size-10 text-muted-foreground" />} title="Kayıt yok" description="Henüz işlem kaydı bulunmuyor." />
+        <EmptyState icon={<ScrollText className="size-10 text-muted-foreground" />} title="Kay�t yok" description="Hen�z i�lem kayd� bulunmuyor." />
       ) : (
         <Card>
           <CardContent className="p-0">
@@ -126,9 +126,9 @@ export default function DutyLogsPage() {
                 <thead>
                   <tr className="border-b bg-muted/50">
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground whitespace-nowrap">Zaman</th>
-                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">İşlem</th>
-                    <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden md:table-cell">İlgili kişiler</th>
-                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">İşlemi yapan</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">��lem</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden md:table-cell">�lgili ki�iler</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">��lemi yapan</th>
                     <th className="px-4 py-3 text-right font-medium text-muted-foreground w-28">Durum</th>
                   </tr>
                 </thead>
@@ -153,19 +153,19 @@ export default function DutyLogsPage() {
                               ({log.action})
                             </span>
                           )}
-                          <p className="md:hidden mt-1 text-xs text-muted-foreground">{detail ?? '—'}</p>
+                          <p className="md:hidden mt-1 text-xs text-muted-foreground">{detail ?? '�'}</p>
                         </td>
                         <td className="px-4 py-3 text-muted-foreground align-top hidden md:table-cell max-w-[240px]">
-                          {detail ?? '—'}
+                          {detail ?? '�'}
                         </td>
                         <td className="px-4 py-3 align-top">
                           <span className="text-muted-foreground">
-                            {log.performedByUser?.display_name || log.performedByUser?.email || '—'}
+                            {log.performedByUser?.display_name || log.performedByUser?.email || '�'}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right align-top whitespace-nowrap">
                           {log.undone_at ? (
-                            <span className="text-xs text-muted-foreground italic">Geri alındı</span>
+                            <span className="text-xs text-muted-foreground italic">Geri al�nd�</span>
                           ) : canUndo ? (
                             <Button
                               variant="ghost"
@@ -178,7 +178,7 @@ export default function DutyLogsPage() {
                               Geri al
                             </Button>
                           ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
+                            <span className="text-xs text-muted-foreground">�</span>
                           )}
                         </td>
                       </tr>
@@ -188,7 +188,7 @@ export default function DutyLogsPage() {
               </table>
             </div>
             <p className="px-4 py-3 text-xs text-muted-foreground border-t bg-muted/20">
-              Son 100 kayıt gösterilir. <strong>Geri al</strong> yalnızca son 24 saat içindeki ve uygun işlem türleri için kullanılabilir.
+              Son 100 kay�t g�sterilir. <strong>Geri al</strong> yaln�zca son 24 saat i�indeki ve uygun i�lem t�rleri i�in kullan�labilir.
             </p>
           </CardContent>
         </Card>

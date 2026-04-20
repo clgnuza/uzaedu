@@ -118,6 +118,18 @@ export class ExamDuty {
   @Column({ name: 'date_validation_issues', type: 'text', nullable: true })
   dateValidationIssues: string | null;
 
+  /** Scrape sync: slider | list | recheck */
+  @Column({ name: 'source_list_section', type: 'varchar', length: 16, nullable: true })
+  sourceListSection: string | null;
+
+  /** Bölüm içi 0 tabanlı sıra (slayt: 0 = en üstteki öğe) */
+  @Column({ name: 'source_section_order', type: 'int', nullable: true })
+  sourceSectionOrder: number | null;
+
+  /** Sync anında slayt havuzundaki toplam öğe (örn. 15) */
+  @Column({ name: 'source_slider_pool_size', type: 'int', nullable: true })
+  sourceSliderPoolSize: number | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

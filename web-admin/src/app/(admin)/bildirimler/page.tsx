@@ -719,7 +719,11 @@ export default function BildirimlerPage() {
   const [filter, setFilter] = useState<FilterTab>(validFilter);
   const limit = 20;
 
-  const canAccess = me?.role === 'teacher' || me?.role === 'school_admin';
+  const canAccess =
+    me?.role === 'teacher' ||
+    me?.role === 'school_admin' ||
+    me?.role === 'superadmin' ||
+    me?.role === 'moderator';
 
   useEffect(() => {
     setFilter(validFilter);

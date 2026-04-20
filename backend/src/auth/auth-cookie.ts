@@ -28,10 +28,16 @@ function sessionCookieOpts(): {
   return d ? { ...base, domain: d } : base;
 }
 
-export function setSessionCookie(res: Response, token: string): void {
+/** Tarayıcı kapalıyken bile uzun oturum (Beni hatırla). */
+export const SESSION_COOKIE_MAX_AGE_LONG_MS = 7 * 24 * 60 * 60 * 1000;
+/** Kısa oturum — paylaşımlı cihaz / sunucu yükü için varsayılan. */
+export const SESSION_COOKIE_MAX_AGE_SHORT_MS = 12 * 60 * 60 * 1000;
+
+export function setSessionCookie(res: Response, token: string, opts?: { remember?: boolean }): void {
+  const maxAge = opts?.remember ? SESSION_COOKIE_MAX_AGE_LONG_MS : SESSION_COOKIE_MAX_AGE_SHORT_MS;
   res.cookie(AUTH_COOKIE_NAME, token, {
     ...sessionCookieOpts(),
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    maxAge,
   });
 }
 

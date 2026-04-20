@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import OpenAI from 'openai';
+import { AppConfigService } from '../app-config/app-config.service';
 import { School } from './entities/school.entity';
 import { PlacementGptExtractDto } from './dto/placement-gpt-extract.dto';
 import {
@@ -17,7 +18,10 @@ import { normalizeRawRowToPlacement, type PlacementFeedRow } from './school-plac
 export class PlacementGptExtractService {
   private readonly logger = new Logger(PlacementGptExtractService.name);
 
-  constructor(@InjectRepository(School) private readonly schoolRepo: Repository<School>) {}
+  constructor(
+    @InjectRepository(School) private readonly schoolRepo: Repository<School>,
+    private readonly appConfig: AppConfigService,
+  ) {}
 
   private model(): string {
     return process.env.PLACEMENT_GPT_MODEL?.trim() || 'gpt-4o-mini';
@@ -74,11 +78,12 @@ export class PlacementGptExtractService {
     model: string;
     context_school_ids: string[];
   }> {
-    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    const apiKey = (await this.appConfig.getExamDutyOpenAiKey())?.trim();
     if (!apiKey) {
       throw new BadRequestException({
         code: 'OPENAI_MISSING',
-        message: 'OPENAI_API_KEY tanımlı değil. backend/.env içine ekleyin.',
+        message:
+          'OpenAI API anahtarı yok. Süperadmin → Sınav görevi senkron ayarlarında API anahtarı girin veya sunucuda OPENAI_API_KEY tanımlayın.',
       });
     }
     const source = (dto.source_text ?? '').trim();

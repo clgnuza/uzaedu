@@ -75,7 +75,7 @@ export class AuthController {
     try {
       const step = await this.authService.teacherLoginStep(dto.email, dto.password);
       if ('token' in step) {
-        setSessionCookie(res, step.token);
+        setSessionCookie(res, step.token, { remember: dto.remember_me === true });
         await this.auditService.log({
           action: 'login',
           userId: step.user.id,
@@ -103,7 +103,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async teacherLoginVerify(@Body() dto: EmailCodeDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const { token, user } = await this.authService.teacherLoginVerify(dto.email, dto.code);
-    setSessionCookie(res, token);
+    setSessionCookie(res, token, { remember: dto.remember_me === true });
     await this.auditService.log({
       action: 'login',
       userId: user.id,
@@ -120,7 +120,7 @@ export class AuthController {
     try {
       const step = await this.authService.schoolLoginStep(dto.email, dto.password);
       if ('token' in step) {
-        setSessionCookie(res, step.token);
+        setSessionCookie(res, step.token, { remember: dto.remember_me === true });
         await this.auditService.log({
           action: 'login',
           userId: step.user.id,
@@ -149,7 +149,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async schoolLoginVerify(@Body() dto: EmailCodeDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const { token, user } = await this.authService.schoolLoginVerify(dto.email, dto.code);
-    setSessionCookie(res, token);
+    setSessionCookie(res, token, { remember: dto.remember_me === true });
     await this.auditService.log({
       action: 'login',
       userId: user.id,
@@ -309,7 +309,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async firebaseToken(@Body() dto: FirebaseTokenDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const { token, user } = await this.authService.exchangeFirebaseToken(dto.id_token);
-    setSessionCookie(res, token);
+    setSessionCookie(res, token, { remember: dto.remember_me === true });
     await this.auditService.log({
       action: 'login',
       userId: user.id,

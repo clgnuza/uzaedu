@@ -122,14 +122,14 @@ export const MENU_SIDEBAR: MenuConfig = [
     title: 'Günlük işler',
     titleByRole: { teacher: 'Günlük işler' },
     icon: Bell,
-    allowedRoles: ['teacher', 'school_admin'],
+    allowedRoles: ['teacher', 'school_admin', 'superadmin', 'moderator'],
     menuGroup: 'amber',
     children: [
       {
         title: 'Bildirimler',
         path: '/bildirimler',
         icon: Bell,
-        allowedRoles: ['teacher', 'school_admin'],
+        allowedRoles: ['teacher', 'school_admin', 'superadmin', 'moderator'],
         badgeKey: 'dutyNotificationsUnread',
       },
       {
@@ -751,7 +751,7 @@ export const MENU_SIDEBAR: MenuConfig = [
 export const ROUTE_ROLES: Record<string, ('school_admin' | 'superadmin' | 'teacher' | 'moderator')[]> = {
   '/dashboard': ['school_admin', 'superadmin', 'teacher', 'moderator'],
   '/profile': ['school_admin', 'superadmin', 'teacher', 'moderator'],
-  '/bildirimler': ['teacher', 'school_admin'],
+  '/bildirimler': ['teacher', 'school_admin', 'superadmin', 'moderator'],
   '/sinav-gorevlerim': ['teacher'],
   '/ek-ders-hesaplama': ['school_admin', 'superadmin', 'teacher', 'moderator'],
   '/hesaplamalar': ['school_admin', 'superadmin', 'teacher', 'moderator'],
