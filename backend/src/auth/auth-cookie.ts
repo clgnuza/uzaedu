@@ -5,9 +5,12 @@ import { env } from '../config/env';
 export const AUTH_COOKIE_NAME = 'ogp_session';
 
 function cookieSecure(): boolean {
-  return (
-    process.env.NODE_ENV === 'production' || env.nodeEnv === 'production'
-  );
+  if (process.env.COOKIE_SECURE === 'false' || process.env.COOKIE_SECURE === '0') return false;
+  if (process.env.NODE_ENV === 'production' || env.nodeEnv === 'production') return true;
+  const fe = env.frontendUrl?.trim().toLowerCase() ?? '';
+  if (fe.startsWith('https://')) return true;
+  if (process.env.SESSION_COOKIE_DOMAIN?.trim()) return true;
+  return false;
 }
 
 function sessionCookieOpts(): {

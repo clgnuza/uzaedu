@@ -15,6 +15,13 @@ function devApiHost(hostname: string): string {
   return hostname;
 }
 
+/** Canlı sitede env unutulursa tarayıcı 127.0.0.1’e istek atıp oturum asılı kalmasın (örn. www.uzaedu.com). */
+function defaultProdApiBaseForHost(hostname: string): string | null {
+  const h = hostname.toLowerCase();
+  if (h === 'uzaedu.com' || h === 'www.uzaedu.com') return 'https://api.uzaedu.com/api';
+  return null;
+}
+
 export function resolveDefaultApiBase(): string {
   const fromEnv = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
   if (fromEnv) return fromEnv;
@@ -24,6 +31,8 @@ export function resolveDefaultApiBase(): string {
     if (isLikelyDevMachineHost(h)) {
       return `http://${devApiHost(h)}:${p}/api`;
     }
+    const prod = defaultProdApiBaseForHost(h);
+    if (prod) return prod;
   }
   return 'http://127.0.0.1:4000/api';
 }

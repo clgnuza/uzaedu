@@ -2,7 +2,13 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { WebExtrasPublic } from '@/lib/web-extras-public';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:4000/api';
+function resolveMiddlewareApiBase(host: string | undefined): string {
+  const fromEnv = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  if (fromEnv) return fromEnv;
+  const h = (host ?? '').split(':')[0].toLowerCase();
+  if (h === 'uzaedu.com' || h === 'www.uzaedu.com') return 'https://api.uzaedu.com/api';
+  return 'http://127.0.0.1:4000/api';
+}
 
 /** Edge’de her istekte API çağrısını azaltır; TTL kısa tutuldu. */
 const MW_CACHE_MS = 12_000;
@@ -10,7 +16,7 @@ const MW_CACHE_MS = 12_000;
 const WEB_EXTRAS_FETCH_MS = 2500;
 let mwCache: { at: number; data: WebExtrasPublic | null } | null = null;
 
-async function getWebExtras(): Promise<WebExtrasPublic | null> {
+async function getWebExtras(apiBase: string): Promise<WebExtrasPublic | null> {
   const now = Date.now();
   if (mwCache && now - mwCache.at < MW_CACHE_MS) return mwCache.data;
   const signal =
@@ -18,7 +24,7 @@ async function getWebExtras(): Promise<WebExtrasPublic | null> {
       ? AbortSignal.timeout(WEB_EXTRAS_FETCH_MS)
       : undefined;
   try {
-    const res = await fetch(`${API_BASE.replace(/\/$/, '')}/content/web-extras`, {
+    const res = await fetch(`${apiBase.replace(/\/$/, '')}/content/web-extras`, {
       cache: 'no-store',
       signal,
     });
@@ -49,7 +55,7 @@ export async function middleware(request: NextRequest) {
     u.hostname = 'uzaedu.com';
     return NextResponse.redirect(u, 308);
   }
-  const extras = await getWebExtras();
+  const extras = await getWebExtras(resolveMiddlewareApiBase(host));
   if (!extras?.maintenance_enabled) return NextResponse.next();
   const pathname = request.nextUrl.pathname;
   if (pathname === '/bakim' || isAllowedPath(pathname, extras)) return NextResponse.next();

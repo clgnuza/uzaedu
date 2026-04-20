@@ -7,7 +7,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { WebSettingsTabs } from '@/components/web-settings/web-settings-tabs';
 
 export default function WebAyarlarPage() {
-  const { me } = useAuth();
+  const { me, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -16,7 +16,7 @@ export default function WebAyarlarPage() {
     }
   }, [me, router]);
 
-  if (!me) {
+  if (loading || !me) {
     return (
       <div className="flex justify-center py-12">
         <LoadingSpinner />

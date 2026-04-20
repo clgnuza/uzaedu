@@ -113,7 +113,10 @@ export function WebExtrasPanel() {
   const [prefixText, setPrefixText] = useState('');
 
   const fetchConfig = useCallback(async () => {
-    if (!token) return;
+    if (!token) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const data = await apiFetch<WebExtrasPublic>('/app-config/web-extras', { token });
