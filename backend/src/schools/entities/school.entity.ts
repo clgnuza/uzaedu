@@ -429,7 +429,7 @@ export class School {
 
   /** Son yıllar: { year, with_exam: merkezî LGS tabanı, without_exam: yerel göstergesi } — en fazla 4 satır */
   @Column({ name: 'review_placement_scores', type: 'jsonb', nullable: true })
-  review_placement_scores: { year: number; with_exam: number | null; without_exam: number | null }[] | null;
+  review_placement_scores: unknown;
 
   /** v2: alan/program bazlı LGS çizgi + OBP ATP/AMP aralık grafikleri (okul değerlendirme infografik) */
   @Column({ name: 'review_placement_charts', type: 'jsonb', nullable: true })

@@ -632,7 +632,7 @@ export function Header({
                         </span>
                         Profil
                       </Link>
-                      {(me?.role === 'superadmin' || me?.role === 'moderator') && (
+                      {me?.role === 'moderator' && (
                         <Link
                           href="/contact-inbox"
                           role="menuitem"

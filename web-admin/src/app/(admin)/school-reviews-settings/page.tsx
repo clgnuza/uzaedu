@@ -26,8 +26,11 @@ import {
   Upload,
   Sparkles,
   Download,
+  GraduationCap,
+  BookOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { PlacementFeedPanel } from './placement-feed-panel';
 
 type SchoolReviewCriteria = {
   id: string;
@@ -133,6 +136,12 @@ function canAccessSchoolReviewsSettings(role: string | undefined): boolean {
   return role === 'superadmin' || role === 'moderator';
 }
 
+/** LGS / OBP sekmeleri: API’de tablo ve DB alanı aynı kapsamda sabitlenir (karışmaz). */
+const PLACEMENT_GPT_TABLE_SCOPE = {
+  lgs: { update_scope: 'central_only' as const, source_scores_in_table: 'central_only' as const },
+  obp: { update_scope: 'local_only' as const, source_scores_in_table: 'local_only' as const },
+};
+
 export default function SchoolReviewsSettingsPage() {
   const router = useRouter();
   const { token, me, loading: authLoading } = useAuth();
@@ -144,7 +153,11 @@ export default function SchoolReviewsSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<Partial<SchoolReviewsConfig>>({});
   const [criteriaForm, setCriteriaForm] = useState<Partial<SchoolReviewCriteria> & { slug?: string } | null>(null);
-  const [activeTab, setActiveTab] = useState<'settings' | 'moderation' | 'reports' | 'rules'>('settings');
+  const [activeTab, setActiveTab] = useState<
+    'settings' | 'placement' | 'placement_obp' | 'moderation' | 'reports' | 'rules'
+  >('settings');
+  /** LGS sekmesi / OBP sekmesi — API gövdesi ile senkron (state gecikmesi yok) */
+  const placementGptKind = activeTab === 'placement_obp' ? 'obp' : 'lgs';
   const [rulesForm, setRulesForm] = useState<SchoolReviewsContentRules | null>(null);
   const [penaltyForm, setPenaltyForm] = useState<SchoolReviewsPenaltyRules | null>(null);
   const [rulesSaving, setRulesSaving] = useState(false);
@@ -178,12 +191,19 @@ export default function SchoolReviewsSettingsPage() {
   const [reportStrikeBusy, setReportStrikeBusy] = useState<string | null>(null);
   const [placementSyncing, setPlacementSyncing] = useState(false);
   const [placementCsvLoading, setPlacementCsvLoading] = useState(false);
-  const [gptSource, setGptSource] = useState('');
+  const [obpLocalCsvLoading, setObpLocalCsvLoading] = useState(false);
+  /** kazanabilirsin.com — LGS ve OBP için ayrı URL/metin (karışmaz). */
+  const [gptLgsImportUrl, setGptLgsImportUrl] = useState('');
+  const [gptLgsSource, setGptLgsSource] = useState('');
+  const [gptObpImportUrl, setGptObpImportUrl] = useState('');
+  const [gptObpSource, setGptObpSource] = useState('');
   const [gptLimit, setGptLimit] = useState(400);
-  const [gptBatch, setGptBatch] = useState(12);
+  const [gptBatch, setGptBatch] = useState(32);
   const [gptSchoolIds, setGptSchoolIds] = useState('');
   const [gptCity, setGptCity] = useState('');
   const [gptResultJson, setGptResultJson] = useState('');
+  const [gptPreviewRows, setGptPreviewRows] = useState<Record<string, unknown>[]>([]);
+  const [gptInstitutionNames, setGptInstitutionNames] = useState<Record<string, string>>({});
   const [gptWarnings, setGptWarnings] = useState<string[]>([]);
   const [gptMeta, setGptMeta] = useState<{
     schools_considered: number;
@@ -194,20 +214,79 @@ export default function SchoolReviewsSettingsPage() {
     city?: string;
     update_scope?: string;
     source_scores_in_table?: string;
+    replace_placement_scores?: boolean;
+    fetched_from_url?: string;
   } | null>(null);
   const [gptPreviewLoading, setGptPreviewLoading] = useState(false);
   const [gptApplyLoading, setGptApplyLoading] = useState(false);
   const [placementApplySummary, setPlacementApplySummary] = useState<PlacementApplySummary | null>(null);
-  /** Yerleştirme: merkezî / yerel beslemelerinin birbirine karışmaması için uygulama kapsamı */
+  /** Toplu CSV / URL JSON: hangi sütunlar güncellensin */
   const [placementUpdateScope, setPlacementUpdateScope] = useState<'both' | 'central_only' | 'local_only'>('both');
-  /** GPT önizleme/uygula: DB’ye hangi sütunların yazılacağı (CSV kapsamından bağımsız) */
-  const [placementGptUpdateScope, setPlacementGptUpdateScope] = useState<'both' | 'central_only' | 'local_only'>(
-    'both',
-  );
-  /** Yapıştırılan tabloda hangi puanlar var — GPT çıktısı ve sütun eşlemesi */
-  const [placementGptSourceTable, setPlacementGptSourceTable] = useState<'both' | 'central_only' | 'local_only'>(
-    'both',
-  );
+  /** LGS GPT uygula: tam değiştir / birleştir (OBP sekmesi ayrı state) */
+  const [lgsGptReplaceScores, setLgsGptReplaceScores] = useState(true);
+  const [obpGptReplaceScores, setObpGptReplaceScores] = useState(true);
+
+  const gptPreviewGrouped = useMemo(() => {
+    const rows = gptPreviewRows;
+    if (!rows.length) {
+      return [] as {
+        key: string;
+        institution_code: string;
+        trackLabel: string | null;
+        track_id: string | null;
+        rows: Record<string, unknown>[];
+      }[];
+    }
+    const map = new Map<string, Record<string, unknown>[]>();
+    for (const o of rows) {
+      const code = String(o.institution_code ?? o.kurum_kodu ?? '').trim() || '—';
+      const tid = String(o.track_id ?? '').trim();
+      const tt = String(o.track_title ?? o.alan ?? '').trim();
+      const pid = String(o.program ?? o.program_adi ?? '').trim();
+      const lang = String(o.language ?? o.dil ?? '').trim();
+      const trackKey = [tid, tt, pid, lang].filter(Boolean).join('|') || '_genel';
+      const key = `${code}::${trackKey}`;
+      const list = map.get(key) ?? [];
+      list.push(o);
+      map.set(key, list);
+    }
+    function oStr(x: unknown): string | null {
+      if (x == null || x === '') return null;
+      const s = String(x).trim();
+      return s || null;
+    }
+    return [...map.entries()]
+      .map(([key, list]) => {
+        const sep = key.indexOf('::');
+        const institution_code = (sep < 0 ? key : key.slice(0, sep)) || '—';
+        const trk = sep < 0 ? '' : key.slice(sep + 2);
+        const sorted = [...list].sort((a, b) => Number(a.year) - Number(b.year));
+        const one = list[0] ?? {};
+        const idRaw = oStr(one.track_id);
+        const title = oStr(one.track_title) ?? oStr((one as { alan?: unknown }).alan);
+        const prog = oStr(one.program) ?? oStr((one as { program_adi?: unknown }).program_adi);
+        const lng = oStr(one.language) ?? oStr((one as { dil?: unknown }).dil);
+        const labelParts = [title, idRaw && title !== idRaw ? idRaw : null, prog, lng].filter(Boolean);
+        return {
+          key,
+          institution_code,
+          track_id: idRaw,
+          trackLabel: trk === '_genel' ? null : labelParts.length ? labelParts.join(' · ') : trk,
+          rows: sorted,
+        };
+      })
+      .sort(
+        (a, b) =>
+          a.institution_code.localeCompare(b.institution_code, 'tr') ||
+          (a.trackLabel || a.track_id || '').localeCompare(b.trackLabel || b.track_id || '', 'tr'),
+      );
+  }, [gptPreviewRows]);
+
+  const fmtCell = (v: unknown) => {
+    if (v == null || v === '') return '—';
+    if (typeof v === 'number') return Number.isInteger(v) ? String(v) : String(v);
+    return String(v);
+  };
 
   const fetchConfig = useCallback(async () => {
     if (authLoading || !canAccessSchoolReviewsSettings(me?.role)) return;
@@ -419,6 +498,56 @@ export default function SchoolReviewsSettingsPage() {
     [token, placementUpdateScope],
   );
 
+  const handleObpLocalOnlyCsv = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const input = e.target;
+      const file = input.files?.[0];
+      input.value = '';
+      if (!file || !token) return;
+      setObpLocalCsvLoading(true);
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const res = await apiFetch<{
+          ok: boolean;
+          updated: number;
+          skipped_no_match: number;
+          row_errors: string[];
+          updated_schools?: PlacementUpdatedSchoolRow[];
+          updated_schools_truncated?: boolean;
+          update_scope?: string;
+        }>(
+          `/schools/placement-scores/import-csv?auto_enable_dual_track=true&update_scope=${encodeURIComponent('local_only')}`,
+          {
+            method: 'POST',
+            token,
+            body: fd,
+          },
+        );
+        setPlacementApplySummary({
+          source: 'csv',
+          at: Date.now(),
+          ok: res.ok,
+          updated: res.updated,
+          skipped_no_match: res.skipped_no_match,
+          row_errors: res.row_errors ?? [],
+          updated_schools: res.updated_schools,
+          updated_schools_truncated: res.updated_schools_truncated,
+          update_scope: res.update_scope ?? 'local_only',
+        });
+        toast.success(`Yerel CSV: ${res.updated} okul · eşleşmeyen: ${res.skipped_no_match}`);
+        if (res.row_errors?.length) {
+          toast.message('Satır uyarıları', { description: res.row_errors.slice(0, 8).join(' · ') });
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Yükleme başarısız');
+      } finally {
+        setObpLocalCsvLoading(false);
+      }
+    },
+    [token],
+  );
+
   const parseSchoolIdList = useCallback((raw: string): string[] | undefined => {
     const parts = raw
       .split(/[\s,;]+/)
@@ -430,18 +559,36 @@ export default function SchoolReviewsSettingsPage() {
 
   const runPlacementGptPreview = useCallback(async () => {
     if (!token) return;
+    const GPT_SOURCE_MAX = 150_000;
+    const scope = PLACEMENT_GPT_TABLE_SCOPE[placementGptKind];
+    const url = placementGptKind === 'lgs' ? gptLgsImportUrl.trim() : gptObpImportUrl.trim();
+    const pasted = placementGptKind === 'lgs' ? gptLgsSource.trim() : gptObpSource.trim();
+    if (url && pasted) {
+      toast.error('Ya kazanabilirsin URL’si ya da yapıştırılmış metin kullanın; ikisini birden göndermeyin.');
+      return;
+    }
+    if (!url && !pasted) {
+      toast.error('Kaynak URL veya kaynak metin girin.');
+      return;
+    }
+    if (pasted.length > GPT_SOURCE_MAX) {
+      toast.error(`Kaynak metin en fazla ${GPT_SOURCE_MAX} karakter olabilir.`);
+      return;
+    }
     setGptPreviewLoading(true);
     setGptWarnings([]);
     setGptMeta(null);
+    setGptPreviewRows([]);
+    setGptInstitutionNames({});
     try {
       const school_ids = parseSchoolIdList(gptSchoolIds);
       const city = gptCity.trim();
       const body = {
-        source_text: gptSource,
+        ...(url ? { source_url: url } : { source_text: pasted }),
         limit: Math.min(2000, Math.max(1, gptLimit || 400)),
-        batch_size: Math.min(30, Math.max(4, gptBatch || 12)),
-        update_scope: placementGptUpdateScope,
-        source_scores_in_table: placementGptSourceTable,
+        batch_size: Math.min(50, Math.max(4, gptBatch || 32)),
+        ...scope,
+        replace_placement_scores: placementGptKind === 'lgs' ? lgsGptReplaceScores : obpGptReplaceScores,
         ...(school_ids?.length ? { school_ids } : {}),
         ...(city ? { city } : {}),
       };
@@ -456,10 +603,14 @@ export default function SchoolReviewsSettingsPage() {
         source_scores_in_table?: string;
         city?: string;
         restrict_on_apply?: boolean;
+        replace_placement_scores?: boolean;
+        institution_names?: Record<string, string>;
+        fetched_from_url?: string;
         sample_payload: {
           auto_enable_dual_track: boolean;
           update_scope?: string;
           source_scores_in_table?: string;
+          replace_placement_scores?: boolean;
           rows: unknown[];
         };
       }>('/schools/placement-scores/gpt-preview', {
@@ -468,6 +619,8 @@ export default function SchoolReviewsSettingsPage() {
         body: JSON.stringify(body),
       });
       setGptResultJson(JSON.stringify(res.sample_payload ?? { auto_enable_dual_track: true, rows: res.rows }, null, 2));
+      setGptPreviewRows(Array.isArray(res.rows) ? (res.rows as Record<string, unknown>[]) : []);
+      setGptInstitutionNames(res.institution_names && typeof res.institution_names === 'object' ? res.institution_names : {});
       setGptWarnings(res.warnings ?? []);
       setGptMeta({
         schools_considered: res.schools_considered,
@@ -478,30 +631,49 @@ export default function SchoolReviewsSettingsPage() {
         city: res.city,
         update_scope: res.update_scope,
         source_scores_in_table: res.source_scores_in_table,
+        replace_placement_scores: res.replace_placement_scores,
+        fetched_from_url: res.fetched_from_url,
       });
       toast.success(`Önizleme: ${res.rows?.length ?? 0} satır · ${res.schools_considered} okul bağlamı`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Önizleme başarısız');
       setGptResultJson('');
+      setGptPreviewRows([]);
     } finally {
       setGptPreviewLoading(false);
     }
   }, [
     token,
-    gptSource,
+    activeTab,
+    gptLgsImportUrl,
+    gptLgsSource,
+    gptObpImportUrl,
+    gptObpSource,
     gptLimit,
     gptBatch,
     gptSchoolIds,
     gptCity,
     parseSchoolIdList,
-    placementGptUpdateScope,
-    placementGptSourceTable,
+    lgsGptReplaceScores,
+    obpGptReplaceScores,
   ]);
 
   const runPlacementGptApply = useCallback(async () => {
     if (!token) return;
-    if (!gptSource.trim()) {
-      toast.error('Önce kaynak metin girin veya önizleme üretin.');
+    const GPT_SOURCE_MAX = 150_000;
+    const scope = PLACEMENT_GPT_TABLE_SCOPE[placementGptKind];
+    const urlApply = placementGptKind === 'lgs' ? gptLgsImportUrl.trim() : gptObpImportUrl.trim();
+    const pastedApply = placementGptKind === 'lgs' ? gptLgsSource.trim() : gptObpSource.trim();
+    if (pastedApply.length > GPT_SOURCE_MAX) {
+      toast.error(`Kaynak metin en fazla ${GPT_SOURCE_MAX} karakter olabilir.`);
+      return;
+    }
+    if (urlApply && pastedApply) {
+      toast.error('Ya URL ya yapıştırılmış metin; ikisini birden kullanmayın.');
+      return;
+    }
+    if (!urlApply && !pastedApply) {
+      toast.error('Önce kaynak URL veya metin girin / önizleme üretin.');
       return;
     }
     const city = gptCity.trim();
@@ -510,20 +682,15 @@ export default function SchoolReviewsSettingsPage() {
       ? ' Yalnızca seçilen bağlamdaki (il filtresi ve/veya UUID listesi) okullar güncellenecek.'
       : '';
     const scopeLbl =
-      placementGptUpdateScope === 'central_only'
-        ? 'kayıt: yalnız merkezî'
-        : placementGptUpdateScope === 'local_only'
-          ? 'kayıt: yalnız yerel'
-          : 'kayıt: her iki sütun';
-    const tabLbl =
-      placementGptSourceTable === 'central_only'
-        ? 'tablo: yalnız merkezî'
-        : placementGptSourceTable === 'local_only'
-          ? 'tablo: yalnız yerel'
-          : 'tablo: ikisi';
+      placementGptKind === 'lgs' ? 'kayıt ve tablo: yalnız merkezî (LGS)' : 'kayıt ve tablo: yalnız yerel (OBP)';
+    const tabLbl = placementGptKind === 'lgs' ? 'LGS / sınavlı' : 'OBP / sınavsız';
+    const replaceCur = placementGptKind === 'lgs' ? lgsGptReplaceScores : obpGptReplaceScores;
+    const replaceHint = replaceCur
+      ? ' Güncellenen okullarda mevcut yerleştirme puanı kaydı silinip yalnız önizleme satırları yazılacak.'
+      : ' Mevcut iz/yıllarla birleştirilecek (yalnız gelen satırların alanları güncellenir).';
     if (
       !window.confirm(
-        `GPT çıktısı veritabanındaki eşleşen okulların yerleştirme puanlarını güncelleyecek (${tabLbl}, ${scopeLbl}).${scopeHint} Devam edilsin mi?`,
+        `GPT çıktısı veritabanındaki eşleşen okulların yerleştirme puanlarını güncelleyecek (${tabLbl} — ${scopeLbl}).${replaceHint}${scopeHint} Devam edilsin mi?`,
       )
     ) {
       return;
@@ -532,11 +699,11 @@ export default function SchoolReviewsSettingsPage() {
     try {
       const school_ids = parseSchoolIdList(gptSchoolIds);
       const body = {
-        source_text: gptSource,
+        ...(urlApply ? { source_url: urlApply } : { source_text: pastedApply }),
         limit: Math.min(2000, Math.max(1, gptLimit || 400)),
-        batch_size: Math.min(30, Math.max(4, gptBatch || 12)),
-        update_scope: placementGptUpdateScope,
-        source_scores_in_table: placementGptSourceTable,
+        batch_size: Math.min(50, Math.max(4, gptBatch || 32)),
+        ...scope,
+        replace_placement_scores: placementGptKind === 'lgs' ? lgsGptReplaceScores : obpGptReplaceScores,
         ...(school_ids?.length ? { school_ids } : {}),
         ...(city ? { city } : {}),
       };
@@ -565,7 +732,13 @@ export default function SchoolReviewsSettingsPage() {
         updated_schools_truncated: res.updated_schools_truncated,
         update_scope: res.update_scope,
       });
-      toast.success(`Uygulandı: ${res.updated} okul güncellendi · eşleşmeyen: ${res.skipped_no_match}`);
+      if (res.updated > 0) {
+        toast.success(`Uygulandı: ${res.updated} okul güncellendi · eşleşmeyen: ${res.skipped_no_match}`);
+      } else {
+        toast.message('Yerleştirme uygulaması', {
+          description: `Güncellenen: ${res.updated} · Eşleşmeyen satır: ${res.skipped_no_match}. Özet kartındaki uyarılara bakın.`,
+        });
+      }
       if (res.row_errors?.length) toast.message('Satır hataları', { description: res.row_errors.slice(0, 6).join(' · ') });
       if (res.gpt_warnings?.length) setGptWarnings(res.gpt_warnings);
     } catch (e) {
@@ -575,14 +748,18 @@ export default function SchoolReviewsSettingsPage() {
     }
   }, [
     token,
-    gptSource,
+    activeTab,
+    gptLgsImportUrl,
+    gptLgsSource,
+    gptObpImportUrl,
+    gptObpSource,
     gptLimit,
     gptBatch,
     gptSchoolIds,
     gptCity,
     parseSchoolIdList,
-    placementGptUpdateScope,
-    placementGptSourceTable,
+    lgsGptReplaceScores,
+    obpGptReplaceScores,
   ]);
 
   const downloadGptJson = useCallback(() => {
@@ -594,6 +771,14 @@ export default function SchoolReviewsSettingsPage() {
     a.click();
     URL.revokeObjectURL(a.href);
   }, [gptResultJson]);
+
+  const clearGptPreview = useCallback(() => {
+    setGptMeta(null);
+    setGptPreviewRows([]);
+    setGptResultJson('');
+    setGptWarnings([]);
+    setGptInstitutionNames({});
+  }, []);
 
   useEffect(() => {
     if (authLoading) return;
@@ -930,6 +1115,44 @@ export default function SchoolReviewsSettingsPage() {
         >
           Modül ayarları
         </button>
+        {isSuperadmin ? (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'placement'}
+            aria-controls="panel-sr-placement"
+            id="tab-sr-placement"
+            onClick={() => setActiveTab('placement')}
+            className={cn(
+              'inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
+              activeTab === 'placement'
+                ? 'bg-background text-foreground shadow-sm ring-1 ring-border'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <GraduationCap className="size-4 shrink-0 opacity-80" aria-hidden />
+            Yerleştirme puanları
+          </button>
+        ) : null}
+        {isSuperadmin ? (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'placement_obp'}
+            aria-controls="panel-sr-obp-local"
+            id="tab-sr-obp-local"
+            onClick={() => setActiveTab('placement_obp')}
+            className={cn(
+              'inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
+              activeTab === 'placement_obp'
+                ? 'bg-background text-foreground shadow-sm ring-1 ring-border'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <BookOpen className="size-4 shrink-0 opacity-80" aria-hidden />
+            Sınavsız (OBP / yerel)
+          </button>
+        ) : null}
         <button
           type="button"
           role="tab"
@@ -1013,350 +1236,6 @@ export default function SchoolReviewsSettingsPage() {
           )}
         </CardContent>
       </Card>
-
-      {isSuperadmin && (
-        <>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Ortaöğretime geçiş — otomatik / toplu besleme</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              MEB’de <strong>merkezî</strong> (LGS puanı) ve <strong>yerel</strong> (OBP, ikamet, devamsızlık) yerleştirme
-              ayrı süreçlerdir. JSON/CSV ile <code className="rounded bg-muted px-1">review_placement_scores</code> güncellenir;
-              eşleştirme: <strong>kurum_kodu</strong> / institution_code veya <strong>okul UUID</strong>.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4 text-sm">
-            <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
-              <p className="font-medium text-foreground">JSON örnek (URL yanıtı — takma adlar kabul edilir)</p>
-              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed">
-                {`{\n  "auto_enable_dual_track": true,\n  "update_scope": "central_only",\n  "rows": [\n    { "kurum_kodu": "709981", "yil": 2025, "merkezi_lgs": 450.5 },\n    { "kurum_kodu": "709981", "yil": 2025, "yerel_taban": 380 }\n  ]\n}`}
-              </pre>
-              <p className="mt-1 text-[11px] leading-snug">
-                <code className="rounded bg-background px-1">update_scope</code>:{' '}
-                <strong>both</strong> (varsayılan, iki sütun), <strong>central_only</strong> / <strong>merkezi_only</strong>{' '}
-                (yalnız LGS/merkezî — yerel korunur), <strong>local_only</strong> / <strong>yerel_only</strong> /{' '}
-                <strong>puansiz</strong> (yalnız yerel — merkezî korunur). İki ayrı JSON dosyasını sırayla yüklerken mutlaka
-                doğru kapsamı kullanın.
-              </p>
-              <p className="mt-2">
-                Ortam: <code className="rounded bg-background px-1">SCHOOL_PLACEMENT_SCORES_FEED_URL</code>
-                {', '}
-                <code className="rounded bg-background px-1">SCHOOL_PLACEMENT_SCORES_FEED_TOKEN</code> (Bearer, isteğe bağlı).
-                Zamanlama: her gün 04:00 (İstanbul).
-              </p>
-            </div>
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-muted-foreground">
-                Uygulama kapsamı (CSV yükleme ve URL JSON senkronu — GPT kartındaki ayarlardan ayrı)
-              </label>
-              <select
-                value={placementUpdateScope}
-                onChange={(e) => setPlacementUpdateScope(e.target.value as 'both' | 'central_only' | 'local_only')}
-                className="max-w-md rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="both">Her iki sütun (merkezî + yerel)</option>
-                <option value="central_only">Yalnız merkezî (LGS) — yerel puanlara dokunma</option>
-                <option value="local_only">Yalnız yerel — merkezî (LGS) puanlara dokunma</option>
-              </select>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={() => void runPlacementFeedSync()}
-                disabled={placementSyncing || !token}
-                className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"
-              >
-                {placementSyncing ? 'Senkron…' : 'URL’den şimdi senkronize et'}
-              </button>
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-primary bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">
-                <Upload className="size-4" aria-hidden />
-                {placementCsvLoading ? 'Yükleniyor…' : 'CSV yükle'}
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
-                  className="sr-only"
-                  disabled={placementCsvLoading || !token}
-                  onChange={(ev) => void handlePlacementCsvChange(ev)}
-                />
-              </label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              CSV sütunları (en az biri): kurum: <code className="rounded bg-muted px-1">institution_code</code> /{' '}
-              <code className="rounded bg-muted px-1">kurum_kodu</code>; okul: <code className="rounded bg-muted px-1">school_id</code> /{' '}
-              <code className="rounded bg-muted px-1">okul_id</code>; yıl: <code className="rounded bg-muted px-1">year</code> /{' '}
-              <code className="rounded bg-muted px-1">yil</code>; merkezî: <code className="rounded bg-muted px-1">with_exam</code>,{' '}
-              <code className="rounded bg-muted px-1">merkezi_lgs</code>, <code className="rounded bg-muted px-1">merkezi_taban</code>; yerel:{' '}
-              <code className="rounded bg-muted px-1">without_exam</code>, <code className="rounded bg-muted px-1">yerel_taban</code>,{' '}
-              <code className="rounded bg-muted px-1">yerel_obp</code> — ayırıcı <code className="rounded bg-muted px-1">;</code> veya{' '}
-              <code className="rounded bg-muted px-1">,</code>.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="size-5 text-violet-500" aria-hidden />
-              GPT ile tablodan taslak çıkarma
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              MEB / kılavuz tablosunu yapıştırın. GPT yalnızca metinde <strong>açıkça yazılı</strong> kurum kodu ve puanları
-              çıkarmaya çalışır; yine de <strong>insan kontrolü</strong> yapın. Önizleme DB yazmaz; uygulama CSV ile aynı
-              birleştirme mantığını kullanır. İl alanı <code className="rounded bg-muted px-1">schools.city</code> ile
-              eşleşir; doluysa liste ve uygulama yalnız o ildeki okullarla sınırlıdır. Aşağıda <strong>liste bağlamı</strong>{' '}
-              (hangi okullar GPT&apos;ye verilir) ile <strong>tablo / kayıt kapsamı</strong> (hangi puan türü) ayrı
-              ayarlanır. Backend: <code className="rounded bg-muted px-1">OPENAI_API_KEY</code>, isteğe bağlı{' '}
-              <code className="rounded bg-muted px-1">PLACEMENT_GPT_MODEL</code>.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4 text-sm">
-            <div className="rounded-lg border border-violet-200/50 bg-violet-500/6 p-3 dark:border-violet-900/50 dark:bg-violet-950/25">
-              <p className="mb-2 text-xs font-semibold text-foreground">Tablo ve kayıt kapsamı</p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-muted-foreground">
-                    Yapıştırdığınız tabloda hangi puanlar var (GPT + sunucu düzeltmesi)
-                  </label>
-                  <select
-                    value={placementGptSourceTable}
-                    onChange={(e) => setPlacementGptSourceTable(e.target.value as 'both' | 'central_only' | 'local_only')}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="both">İkisi de (merkezî + yerel sütunları)</option>
-                    <option value="central_only">Yalnız merkezî (LGS) — yerel sütunu yok say</option>
-                    <option value="local_only">Yalnız yerel — merkezî sütunu yok say</option>
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-muted-foreground">
-                    Veritabanına hangi sütunlar yazılsın (uygulama)
-                  </label>
-                  <select
-                    value={placementGptUpdateScope}
-                    onChange={(e) => setPlacementGptUpdateScope(e.target.value as 'both' | 'central_only' | 'local_only')}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="both">Her iki sütun</option>
-                    <option value="central_only">Yalnız merkezî (LGS) — yerel DB alanına dokunma</option>
-                    <option value="local_only">Yalnız yerel — merkezî DB alanına dokunma</option>
-                  </select>
-                </div>
-              </div>
-              <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
-                Tabloda tek tür puan varken GPT bazen yanlış JSON alanına yazar; ilk seçenek bunu sadeleştirir. İkinci seçenek
-                ise veritabanında hangi alanın güncelleneceğini belirler (CSV ile aynı <code className="rounded bg-muted px-0.5">update_scope</code>).
-              </p>
-            </div>
-
-            <div>
-              <p className="mb-2 text-xs font-semibold text-foreground">Liste bağlamı — hangi okullar GPT&apos;ye verilir</p>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">En fazla okul (kurum kodlu)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={2000}
-                    value={gptLimit}
-                    onChange={(e) => setGptLimit(parseInt(e.target.value, 10) || 400)}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Parti boyutu (GPT çağrısı başına okul)</label>
-                  <input
-                    type="number"
-                    min={4}
-                    max={30}
-                    value={gptBatch}
-                    onChange={(e) => setGptBatch(parseInt(e.target.value, 10) || 12)}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  />
-                </div>
-                <div className="sm:col-span-1" />
-              </div>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    İl filtresi (isteğe bağlı, okul kaydındaki il adı)
-                  </label>
-                  <input
-                    type="text"
-                    value={gptCity}
-                    onChange={(e) => setGptCity(e.target.value)}
-                    placeholder="Örn. Ankara — boşsa tüm iller (limit kadar)"
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Okul UUID filtre (isteğe bağlı, virgül veya satır ile)
-                  </label>
-                  <textarea
-                    value={gptSchoolIds}
-                    onChange={(e) => setGptSchoolIds(e.target.value)}
-                    rows={2}
-                    spellCheck={false}
-                    placeholder="Boş + il yoksa (limit kadar) kurum kodlu tüm okullar bağlamda kullanılır."
-                    className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">Kaynak metin (tablo / PDF metni)</label>
-              <textarea
-                value={gptSource}
-                onChange={(e) => setGptSource(e.target.value)}
-                rows={10}
-                spellCheck={false}
-                placeholder="Kurum kodları ve puanların geçtiği metni buraya yapıştırın…"
-                className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs leading-relaxed"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void runPlacementGptPreview()}
-                disabled={gptPreviewLoading || !token || !gptSource.trim()}
-                className="inline-flex items-center gap-2 rounded-lg border border-violet-600/40 bg-violet-600/10 px-4 py-2 text-sm font-medium text-violet-900 hover:bg-violet-600/15 disabled:opacity-50 dark:text-violet-100"
-              >
-                {gptPreviewLoading ? 'Önizleme…' : 'Önizleme üret'}
-              </button>
-              <button
-                type="button"
-                onClick={() => void runPlacementGptApply()}
-                disabled={gptApplyLoading || !token || !gptSource.trim()}
-                className="inline-flex items-center gap-2 rounded-lg border border-primary bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-              >
-                {gptApplyLoading ? 'Uygulanıyor…' : 'Veritabanına uygula'}
-              </button>
-              <button
-                type="button"
-                onClick={downloadGptJson}
-                disabled={!gptResultJson.trim()}
-                className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"
-              >
-                <Download className="size-4" aria-hidden />
-                JSON indir
-              </button>
-            </div>
-            {gptMeta && (
-              <p className="text-xs text-muted-foreground">
-                Model: <span className="font-mono">{gptMeta.model}</span> · Bağlam okul: {gptMeta.schools_considered} ·
-                Parti: {gptMeta.batches} · Satır: {gptMeta.row_count}
-                {gptMeta.city ? (
-                  <>
-                    {' '}
-                    · İl: <span className="font-medium text-foreground">{gptMeta.city}</span>
-                  </>
-                ) : null}
-                {gptMeta.restrict_on_apply ? (
-                  <span className="text-violet-700 dark:text-violet-300">
-                    {' '}
-                    · Uygulama yalnız bağlam okul kimlikleriyle sınırlı
-                  </span>
-                ) : null}
-                {gptMeta.update_scope ? (
-                  <>
-                    {' '}
-                    · Kayıt kapsamı: <span className="font-mono">{gptMeta.update_scope}</span>
-                  </>
-                ) : null}
-                {gptMeta.source_scores_in_table ? (
-                  <>
-                    {' '}
-                    · Tablo: <span className="font-mono">{gptMeta.source_scores_in_table}</span>
-                  </>
-                ) : null}
-              </p>
-            )}
-            {gptWarnings.length > 0 && (
-              <div className="max-h-32 overflow-auto rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-amber-950 dark:text-amber-100">
-                {gptWarnings.slice(0, 40).map((w, i) => (
-                  <div key={i}>{w}</div>
-                ))}
-                {gptWarnings.length > 40 && <div className="opacity-80">… +{gptWarnings.length - 40}</div>}
-              </div>
-            )}
-            {gptResultJson && (
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">Besleme JSON örneği (önizleme)</label>
-                <textarea
-                  readOnly
-                  value={gptResultJson}
-                  rows={8}
-                  className="w-full resize-y rounded-md border border-input bg-muted/30 px-3 py-2 font-mono text-[11px] leading-relaxed"
-                />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {placementApplySummary && (
-          <Card className="border-emerald-500/25 bg-emerald-500/[0.04] dark:bg-emerald-950/20">
-            <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2 space-y-0 pb-2">
-              <div>
-                <CardTitle className="text-base">Son yerleştirme işlemi — güncellenen okullar</CardTitle>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Kaynak:{' '}
-                  {placementApplySummary.source === 'feed'
-                    ? 'URL senkron'
-                    : placementApplySummary.source === 'csv'
-                      ? 'CSV'
-                      : 'GPT'}{' '}
-                  · {new Date(placementApplySummary.at).toLocaleString('tr-TR')} · Güncellenen:{' '}
-                  {placementApplySummary.updated} · Eşleşmeyen satır: {placementApplySummary.skipped_no_match}
-                  {placementApplySummary.update_scope
-                    ? ` · Kapsam: ${
-                        placementApplySummary.update_scope === 'central_only'
-                          ? 'yalnız merkezî'
-                          : placementApplySummary.update_scope === 'local_only'
-                            ? 'yalnız yerel'
-                            : 'her iki sütun'
-                      }`
-                    : ''}
-                  {placementApplySummary.updated_schools_truncated
-                    ? ' · Liste ilk 500 okulla sınırlı (tam sayı yukarıda)'
-                    : ''}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPlacementApplySummary(null)}
-                className="shrink-0 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium hover:bg-muted"
-              >
-                Özeti kapat
-              </button>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {placementApplySummary.updated_schools && placementApplySummary.updated_schools.length > 0 ? (
-                <ul className="max-h-64 list-none space-y-1 overflow-y-auto rounded-md border border-border bg-background/80 p-2 text-sm">
-                  {placementApplySummary.updated_schools.map((s) => (
-                    <li key={s.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-b border-border/60 py-1.5 last:border-0">
-                      <Link
-                        href={`/schools/${s.id}`}
-                        className="min-w-0 flex-1 font-medium text-primary hover:underline"
-                      >
-                        {s.name || 'İsimsiz okul'}
-                      </Link>
-                      {s.institution_code ? (
-                        <span className="shrink-0 font-mono text-xs text-muted-foreground">{s.institution_code}</span>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Bu işlemde veritabanında eşleşen okul kaydı güncellenmedi veya liste dönmedi.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        )}
-        </>
-      )}
 
       <Card>
         <CardHeader>
@@ -1792,6 +1671,102 @@ export default function SchoolReviewsSettingsPage() {
       />
       </div>
       </>
+      )}
+
+      {isSuperadmin && activeTab === 'placement' && (
+        <PlacementFeedPanel
+          section="feed_plus_lgs"
+          token={token ?? null}
+          placementUpdateScope={placementUpdateScope}
+          setPlacementUpdateScope={setPlacementUpdateScope}
+          placementSyncing={placementSyncing}
+          placementCsvLoading={placementCsvLoading}
+          runPlacementFeedSync={runPlacementFeedSync}
+          handlePlacementCsvChange={handlePlacementCsvChange}
+          placementGptKind={placementGptKind}
+          gptLgsImportUrl={gptLgsImportUrl}
+          setGptLgsImportUrl={setGptLgsImportUrl}
+          gptLgsSource={gptLgsSource}
+          setGptLgsSource={setGptLgsSource}
+          gptObpImportUrl={gptObpImportUrl}
+          setGptObpImportUrl={setGptObpImportUrl}
+          gptObpSource={gptObpSource}
+          setGptObpSource={setGptObpSource}
+          gptLimit={gptLimit}
+          setGptLimit={setGptLimit}
+          gptBatch={gptBatch}
+          setGptBatch={setGptBatch}
+          gptCity={gptCity}
+          setGptCity={setGptCity}
+          gptSchoolIds={gptSchoolIds}
+          setGptSchoolIds={setGptSchoolIds}
+          placementGptReplaceScores={lgsGptReplaceScores}
+          setPlacementGptReplaceScores={setLgsGptReplaceScores}
+          gptPreviewLoading={gptPreviewLoading}
+          gptApplyLoading={gptApplyLoading}
+          runPlacementGptPreview={runPlacementGptPreview}
+          runPlacementGptApply={runPlacementGptApply}
+          downloadGptJson={downloadGptJson}
+          gptMeta={gptMeta}
+          gptWarnings={gptWarnings}
+          gptResultJson={gptResultJson}
+          gptPreviewGrouped={gptPreviewGrouped}
+          gptInstitutionNames={gptInstitutionNames}
+          fmtCell={fmtCell}
+          placementApplySummary={placementApplySummary}
+          setPlacementApplySummary={setPlacementApplySummary}
+          clearGptPreview={clearGptPreview}
+        />
+      )}
+
+      {isSuperadmin && activeTab === 'placement_obp' && (
+        <PlacementFeedPanel
+          section="obp_gpt_only"
+          panelId="panel-sr-obp-local"
+          ariaLabelledBy="tab-sr-obp-local"
+          token={token ?? null}
+          placementUpdateScope={placementUpdateScope}
+          setPlacementUpdateScope={setPlacementUpdateScope}
+          placementSyncing={placementSyncing}
+          placementCsvLoading={placementCsvLoading}
+          runPlacementFeedSync={runPlacementFeedSync}
+          handlePlacementCsvChange={handlePlacementCsvChange}
+          placementGptKind={placementGptKind}
+          gptLgsImportUrl={gptLgsImportUrl}
+          setGptLgsImportUrl={setGptLgsImportUrl}
+          gptLgsSource={gptLgsSource}
+          setGptLgsSource={setGptLgsSource}
+          gptObpImportUrl={gptObpImportUrl}
+          setGptObpImportUrl={setGptObpImportUrl}
+          gptObpSource={gptObpSource}
+          setGptObpSource={setGptObpSource}
+          gptLimit={gptLimit}
+          setGptLimit={setGptLimit}
+          gptBatch={gptBatch}
+          setGptBatch={setGptBatch}
+          gptCity={gptCity}
+          setGptCity={setGptCity}
+          gptSchoolIds={gptSchoolIds}
+          setGptSchoolIds={setGptSchoolIds}
+          placementGptReplaceScores={obpGptReplaceScores}
+          setPlacementGptReplaceScores={setObpGptReplaceScores}
+          gptPreviewLoading={gptPreviewLoading}
+          gptApplyLoading={gptApplyLoading}
+          runPlacementGptPreview={runPlacementGptPreview}
+          runPlacementGptApply={runPlacementGptApply}
+          downloadGptJson={downloadGptJson}
+          gptMeta={gptMeta}
+          gptWarnings={gptWarnings}
+          gptResultJson={gptResultJson}
+          gptPreviewGrouped={gptPreviewGrouped}
+          gptInstitutionNames={gptInstitutionNames}
+          fmtCell={fmtCell}
+          placementApplySummary={placementApplySummary}
+          setPlacementApplySummary={setPlacementApplySummary}
+          clearGptPreview={clearGptPreview}
+          localOnlyCsvLoading={obpLocalCsvLoading}
+          onLocalOnlyCsvChange={handleObpLocalOnlyCsv}
+        />
       )}
 
       {activeTab === 'moderation' && (

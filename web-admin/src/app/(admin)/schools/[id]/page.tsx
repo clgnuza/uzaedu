@@ -28,6 +28,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { SchoolPlacementScoresCard, hasPlacementInfographic } from '@/components/school-reviews/school-placement-scores-card';
 import { TURKEY_CITIES, getDistrictsForCity } from '@/lib/turkey-addresses';
 import { Toolbar, ToolbarHeading, ToolbarPageTitle, ToolbarActions } from '@/components/layout/toolbar';
 import { ToolbarIconHints } from '@/components/layout/toolbar-icon-hints';
@@ -60,6 +61,36 @@ const ACTION_LABELS: Record<string, string> = {
   SMARTBOARD_TEACHER_AUTHORIZED: 'Akıllı tahta: öğretmen yetkisi verildi',
   SMARTBOARD_TEACHER_UNAUTHORIZED: 'Akıllı tahta: öğretmen yetkisi kaldırıldı',
 };
+
+function placementPreviewLooksLocalOnly(rows: unknown): boolean {
+  if (rows == null) return false;
+  if (Array.isArray(rows)) {
+    let anyWo = false;
+    for (const r of rows) {
+      if (!r || typeof r !== 'object') continue;
+      const o = r as { with_exam?: unknown; without_exam?: unknown };
+      if (o.with_exam != null && Number.isFinite(Number(o.with_exam))) return false;
+      if (o.without_exam != null && Number.isFinite(Number(o.without_exam))) anyWo = true;
+    }
+    return anyWo;
+  }
+  if (typeof rows !== 'object') return false;
+  const o = rows as { v?: unknown; tracks?: unknown[] };
+  if (Number(o.v) !== 3 || !Array.isArray(o.tracks)) return false;
+  let anyWo = false;
+  for (const tr of o.tracks) {
+    if (!tr || typeof tr !== 'object') continue;
+    const years = Array.isArray((tr as { years?: unknown }).years) ? (tr as { years: unknown[] }).years : [];
+    for (const y of years) {
+      if (!y || typeof y !== 'object') continue;
+      const row = y as { with_exam?: unknown; tbs?: unknown; without_exam?: unknown };
+      if (row.with_exam != null && Number.isFinite(Number(row.with_exam))) return false;
+      if (row.tbs != null && Number.isFinite(Number(row.tbs))) return false;
+      if (row.without_exam != null && Number.isFinite(Number(row.without_exam))) anyWo = true;
+    }
+  }
+  return anyWo;
+}
 
 const ACTION_FILTER_OPTIONS = [
   { value: '', label: 'Tümü' },
@@ -242,7 +273,7 @@ type SchoolDetail = {
   marketJetonBalance?: string | number | null;
   marketEkdersBalance?: string | number | null;
   review_placement_dual_track?: boolean;
-  review_placement_scores?: { year: number; with_exam: number | null; without_exam: number | null }[] | null;
+  review_placement_scores?: unknown;
   review_placement_charts?: unknown;
   created_at: string;
   updated_at: string;
@@ -276,13 +307,45 @@ function parseBalanceNum(n: unknown): number {
   return Number.isFinite(x) ? x : 0;
 }
 
+const PLACEMENT_LEGACY_MIN_ROWS = 4;
+const PLACEMENT_LEGACY_MAX_ROWS = 12;
+
 function emptyPlacementRows(): { year: string; with_exam: string; without_exam: string }[] {
-  return [
-    { year: '', with_exam: '', without_exam: '' },
-    { year: '', with_exam: '', without_exam: '' },
-    { year: '', with_exam: '', without_exam: '' },
-    { year: '', with_exam: '', without_exam: '' },
-  ];
+  return Array.from({ length: PLACEMENT_LEGACY_MIN_ROWS }, () => ({
+    year: '',
+    with_exam: '',
+    without_exam: '',
+  }));
+}
+
+function padLegacyPlacementRows(
+  mapped: { year: string; with_exam: string; without_exam: string }[],
+): { year: string; with_exam: string; without_exam: string }[] {
+  const empty = { year: '', with_exam: '', without_exam: '' };
+  const out = [...mapped.slice(0, PLACEMENT_LEGACY_MAX_ROWS)];
+  while (out.length < PLACEMENT_LEGACY_MIN_ROWS) out.push({ ...empty });
+  return out;
+}
+
+function legacyFormRowsToScoreArray(
+  rows: { year: string; with_exam: string; without_exam: string }[],
+): unknown {
+  const parsed = rows
+    .map((r) => {
+      const year = parseInt(String(r.year).trim(), 10);
+      const we = r.with_exam.trim().replace(',', '.');
+      const wo = r.without_exam.trim().replace(',', '.');
+      const with_exam = we === '' ? null : parseFloat(we);
+      const without_exam = wo === '' ? null : parseFloat(wo);
+      return { year, with_exam, without_exam };
+    })
+    .filter((r) => Number.isFinite(r.year) && r.year >= 1990 && r.year <= 2100);
+  const valid = parsed.filter(
+    (r) =>
+      (r.with_exam != null && Number.isFinite(r.with_exam)) ||
+      (r.without_exam != null && Number.isFinite(r.without_exam)),
+  );
+  return valid.length ? valid : null;
 }
 
 type AuditLogItem = {
@@ -342,11 +405,50 @@ export default function SchoolDetailPage() {
   const [addNote, setAddNote] = useState('');
   const [addingCredit, setAddingCredit] = useState(false);
   const [placementDual, setPlacementDual] = useState(false);
+  const [placementV3, setPlacementV3] = useState(false);
+  const [placementV3Json, setPlacementV3Json] = useState('');
   const [placementRows, setPlacementRows] = useState(emptyPlacementRows);
   const [placementChartsText, setPlacementChartsText] = useState('');
   const placementChartsTouched = useRef(false);
   const [savingPlacement, setSavingPlacement] = useState(false);
   const isSuperadmin = me?.role === 'superadmin';
+
+  const placementPreviewRows = useMemo((): unknown => {
+    if (placementV3) {
+      const raw = placementV3Json.trim();
+      if (!raw) return null;
+      try {
+        const o = JSON.parse(raw) as { v?: unknown; tracks?: unknown[] };
+        if (o && typeof o === 'object' && Number(o.v) === 3 && Array.isArray(o.tracks)) return o;
+      } catch {
+        return null;
+      }
+      return null;
+    }
+    return legacyFormRowsToScoreArray(placementRows);
+  }, [placementV3, placementV3Json, placementRows]);
+
+  const placementPreviewCharts = useMemo((): unknown => {
+    const t = placementChartsText.trim();
+    if (!t) return null;
+    try {
+      const o = JSON.parse(t) as { v?: unknown };
+      if (o && typeof o === 'object' && Number(o.v) === 2) return o;
+    } catch {
+      return null;
+    }
+    return null;
+  }, [placementChartsText]);
+
+  const showPlacementTeacherPreview = useMemo(
+    () => hasPlacementInfographic(placementPreviewCharts, placementPreviewRows),
+    [placementPreviewCharts, placementPreviewRows],
+  );
+
+  const placementPreviewLocalOnly = useMemo(
+    () => placementPreviewLooksLocalOnly(placementPreviewRows),
+    [placementPreviewRows],
+  );
 
   const fetchSchool = useCallback(async () => {
     if (!token || !id) return;
@@ -375,19 +477,34 @@ export default function SchoolDetailPage() {
       }
       setPlacementDual(!!(s as { review_placement_dual_track?: boolean }).review_placement_dual_track);
       const scores = (s as { review_placement_scores?: SchoolDetail['review_placement_scores'] }).review_placement_scores;
-      if (Array.isArray(scores) && scores.length > 0) {
-        const mapped = scores
-          .filter((r) => r && typeof r.year === 'number')
-          .map((r) => ({
-            year: String(r.year),
-            with_exam: r.with_exam != null && Number.isFinite(Number(r.with_exam)) ? String(r.with_exam) : '',
-            without_exam:
-              r.without_exam != null && Number.isFinite(Number(r.without_exam)) ? String(r.without_exam) : '',
-          }))
-          .sort((a, b) => parseInt(b.year, 10) - parseInt(a.year, 10));
-        setPlacementRows([0, 1, 2, 3].map((i) => mapped[i] ?? { year: '', with_exam: '', without_exam: '' }));
-      } else {
+      const sc = scores && typeof scores === 'object' && !Array.isArray(scores) ? (scores as { v?: unknown; tracks?: unknown }) : null;
+      const vNum = sc ? Number(sc.v) : NaN;
+      const looksV3 =
+        sc &&
+        (Number.isFinite(vNum) && vNum === 3
+          ? Array.isArray(sc.tracks)
+          : Array.isArray(sc.tracks) && sc.tracks.length > 0 && (sc.v === undefined || sc.v === null));
+      if (looksV3) {
+        setPlacementV3(true);
+        setPlacementV3Json(JSON.stringify(scores, null, 2));
         setPlacementRows(emptyPlacementRows());
+      } else {
+        setPlacementV3(false);
+        setPlacementV3Json('');
+        if (Array.isArray(scores) && scores.length > 0) {
+          const mapped = scores
+            .filter((r) => r && typeof r.year === 'number')
+            .map((r) => ({
+              year: String(r.year),
+              with_exam: r.with_exam != null && Number.isFinite(Number(r.with_exam)) ? String(r.with_exam) : '',
+              without_exam:
+                r.without_exam != null && Number.isFinite(Number(r.without_exam)) ? String(r.without_exam) : '',
+            }))
+            .sort((a, b) => parseInt(b.year, 10) - parseInt(a.year, 10));
+          setPlacementRows(padLegacyPlacementRows(mapped));
+        } else {
+          setPlacementRows(emptyPlacementRows());
+        }
       }
       const ch = (s as { review_placement_charts?: unknown }).review_placement_charts;
       placementChartsTouched.current = false;
@@ -546,7 +663,6 @@ export default function SchoolDetailPage() {
         }),
       });
       toast.success('Okul bilgileri kaydedildi');
-      setEditInfo(false);
       fetchSchool();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Kaydedilemedi');
@@ -559,24 +675,26 @@ export default function SchoolDetailPage() {
     if (!token || !id) return;
     setSavingPlacement(true);
     try {
-      const rows = placementRows
-        .map((r) => {
-          const year = parseInt(String(r.year).trim(), 10);
-          const we = r.with_exam.trim().replace(',', '.');
-          const wo = r.without_exam.trim().replace(',', '.');
-          const with_exam = we === '' ? null : parseFloat(we);
-          const without_exam = wo === '' ? null : parseFloat(wo);
-          return { year, with_exam, without_exam };
-        })
-        .filter((r) => Number.isFinite(r.year) && r.year >= 1990 && r.year <= 2100);
-      const valid = rows.filter(
-        (r) =>
-          (r.with_exam != null && Number.isFinite(r.with_exam)) ||
-          (r.without_exam != null && Number.isFinite(r.without_exam)),
-      );
+      let review_placement_scores: unknown = null;
+      if (placementV3) {
+        const raw = placementV3Json.trim();
+        if (raw === '') {
+          review_placement_scores = null;
+        } else {
+          try {
+            review_placement_scores = JSON.parse(raw) as unknown;
+          } catch {
+            toast.error('Yerleştirme puanı JSON ayrıştırılamadı');
+            setSavingPlacement(false);
+            return;
+          }
+        }
+      } else {
+        review_placement_scores = legacyFormRowsToScoreArray(placementRows);
+      }
       const body: Record<string, unknown> = {
         review_placement_dual_track: placementDual,
-        review_placement_scores: valid.length ? valid : null,
+        review_placement_scores,
       };
       if (placementChartsTouched.current) {
         const raw = placementChartsText.trim();
@@ -1105,71 +1223,181 @@ export default function SchoolDetailPage() {
                 className="mt-1 size-4 rounded border-input"
               />
               <span>
-                <span className="font-medium">Merkezî (LGS) + yerel yerleştirme göstergeleri</span>
+                <span className="font-medium">
+                  {placementPreviewLocalOnly
+                    ? 'Yerel yerleştirme göstergeleri'
+                    : 'Merkezî (LGS) + yerel yerleştirme göstergeleri'}
+                </span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">
-                  Açıkken okul değerlendirme sayfasında son yıllar gösterilir (en fazla 4 yıl). MEB’de merkezî yerleştirme
-                  LGS puanı ile; yerel yerleştirmede OBP ve ikamet gibi kriterler vardır.
+                  {placementPreviewLocalOnly
+                    ? 'Açıkken okul değerlendirme sayfasında son yıllar gösterilir (en fazla 4 yıl). Bu örnekte yalnızca yerel (OBP vb.) değerler vardır; merkezî LGS tabanı yoktur.'
+                    : 'Açıkken okul değerlendirme sayfasında son yıllar gösterilir (en fazla 4 yıl). MEB’de merkezî yerleştirme LGS puanı ile; yerel yerleştirmede OBP ve ikamet gibi kriterler vardır.'}
                 </span>
               </span>
             </label>
-            <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full min-w-[320px] text-left text-xs sm:text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/40">
-                    <th className="px-2 py-2 font-semibold">Yıl</th>
-                    <th className="px-2 py-2 font-semibold">Merkezî — LGS tabanı</th>
-                    <th className="px-2 py-2 font-semibold">Yerel — gösterge</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {placementRows.map((row, idx) => (
-                    <tr key={idx} className="border-b border-border last:border-0">
-                      <td className="p-1.5">
-                        <Input
-                          inputMode="numeric"
-                          placeholder="örn. 2025"
-                          value={row.year}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setPlacementRows((prev) => prev.map((r, i) => (i === idx ? { ...r, year: v } : r)));
-                          }}
-                          className="h-9 min-w-[4.5rem] text-xs sm:text-sm"
-                        />
-                      </td>
-                      <td className="p-1.5">
-                        <Input
-                          inputMode="decimal"
-                          placeholder="—"
-                          value={row.with_exam}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setPlacementRows((prev) => prev.map((r, i) => (i === idx ? { ...r, with_exam: v } : r)));
-                          }}
-                          className="h-9 text-xs sm:text-sm"
-                        />
-                      </td>
-                      <td className="p-1.5">
-                        <Input
-                          inputMode="decimal"
-                          placeholder="—"
-                          value={row.without_exam}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setPlacementRows((prev) => prev.map((r, i) => (i === idx ? { ...r, without_exam: v } : r)));
-                          }}
-                          className="h-9 text-xs sm:text-sm"
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="flex flex-wrap items-center gap-2">
+              {placementV3 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlacementV3(false);
+                    try {
+                      const o = JSON.parse(placementV3Json) as {
+                        tracks?: { years?: { year: number; with_exam: number | null; without_exam: number | null }[] }[];
+                      };
+                      const y0 = o.tracks?.[0]?.years;
+                      if (Array.isArray(y0) && y0.length) {
+                        const mapped = [...y0]
+                          .filter((r) => r && typeof r.year === 'number')
+                          .map((r) => ({
+                            year: String(r.year),
+                            with_exam:
+                              r.with_exam != null && Number.isFinite(Number(r.with_exam)) ? String(r.with_exam) : '',
+                            without_exam:
+                              r.without_exam != null && Number.isFinite(Number(r.without_exam))
+                                ? String(r.without_exam)
+                                : '',
+                          }))
+                          .sort((a, b) => parseInt(b.year, 10) - parseInt(a.year, 10));
+                        setPlacementRows(padLegacyPlacementRows(mapped));
+                      } else {
+                        setPlacementRows(emptyPlacementRows());
+                      }
+                    } catch {
+                      setPlacementRows(emptyPlacementRows());
+                    }
+                    setPlacementV3Json('');
+                  }}
+                  className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-muted/50"
+                >
+                  Basit 4 yıllık tablo
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlacementV3(true);
+                    setPlacementV3Json(
+                      JSON.stringify(
+                        { v: 3, tracks: [{ id: '_default', title: '', years: [] }] },
+                        null,
+                        2,
+                      ),
+                    );
+                  }}
+                  className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-muted/50"
+                >
+                  Çoklu program (v3 JSON)
+                </button>
+              )}
             </div>
-            <p className="text-[11px] text-muted-foreground">
-              Boş satırlar kaydedilmez. Yerel sütuna okulunuzda kullandığınız göstergeyi (ör. yerel taban) yazın; resmî
-              değerleri MEB/OGM kılavuzundan doğrulayın. Mesleki-teknik ve çok programlı okullarda program bazında fark
-              olabilir.
-            </p>
+            {placementV3 ? (
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">
+                  {`{ "v": 3, "tracks": [ { "id", "title", "program?", "language?", "years": [ { "year", "with_exam", "without_exam", "contingent", "tbs", "min_taban" } ] } ] }`}
+                </p>
+                <textarea
+                  className="min-h-[200px] w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-[11px] leading-relaxed sm:text-xs"
+                  value={placementV3Json}
+                  onChange={(e) => setPlacementV3Json(e.target.value)}
+                  spellCheck={false}
+                />
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPlacementRows((prev) =>
+                        prev.length >= PLACEMENT_LEGACY_MAX_ROWS
+                          ? prev
+                          : [...prev, { year: '', with_exam: '', without_exam: '' }],
+                      )
+                    }
+                    disabled={placementRows.length >= PLACEMENT_LEGACY_MAX_ROWS}
+                    className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-muted/50 disabled:opacity-50"
+                  >
+                    Yıl satırı ekle
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPlacementRows((prev) =>
+                        prev.length <= PLACEMENT_LEGACY_MIN_ROWS
+                          ? prev
+                          : prev.slice(0, -1),
+                      )
+                    }
+                    disabled={placementRows.length <= PLACEMENT_LEGACY_MIN_ROWS}
+                    className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-muted/50 disabled:opacity-50"
+                  >
+                    Son satırı kaldır
+                  </button>
+                  <span className="text-[11px] text-muted-foreground">
+                    En fazla {PLACEMENT_LEGACY_MAX_ROWS} yıl (tek program). Birden fazla alan için v3 JSON kullanın — önizlemede tablolar otomatik çoğalır.
+                  </span>
+                </div>
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <table className="w-full min-w-[320px] text-left text-xs sm:text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/40">
+                        <th className="px-2 py-2 font-semibold">Yıl</th>
+                        <th className="px-2 py-2 font-semibold">Merkezî — LGS tabanı</th>
+                        <th className="px-2 py-2 font-semibold">Yerel — gösterge</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {placementRows.map((row, idx) => (
+                        <tr key={idx} className="border-b border-border last:border-0">
+                          <td className="p-1.5">
+                            <Input
+                              inputMode="numeric"
+                              placeholder="örn. 2025"
+                              value={row.year}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setPlacementRows((prev) => prev.map((r, i) => (i === idx ? { ...r, year: v } : r)));
+                              }}
+                              className="h-9 min-w-[4.5rem] text-xs sm:text-sm"
+                            />
+                          </td>
+                          <td className="p-1.5">
+                            <Input
+                              inputMode="decimal"
+                              placeholder="—"
+                              value={row.with_exam}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setPlacementRows((prev) => prev.map((r, i) => (i === idx ? { ...r, with_exam: v } : r)));
+                              }}
+                              className="h-9 text-xs sm:text-sm"
+                            />
+                          </td>
+                          <td className="p-1.5">
+                            <Input
+                              inputMode="decimal"
+                              placeholder="—"
+                              value={row.without_exam}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setPlacementRows((prev) => prev.map((r, i) => (i === idx ? { ...r, without_exam: v } : r)));
+                              }}
+                              className="h-9 text-xs sm:text-sm"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Boş satırlar kaydedilmez. Yerel sütuna okulunuzda kullandığınız göstergeyi (ör. yerel taban) yazın; resmî
+                  değerleri MEB/OGM kılavuzundan doğrulayın. Mesleki-teknik ve çok programlı okullarda program bazında fark
+                  olabilir; çoklu alanlar için yukarıdaki v3 JSON’u kullanın.
+                </p>
+              </>
+            )}
             <div className="space-y-1.5">
               <p className="text-xs font-medium text-foreground">İnfografik grafikler (isteğe bağlı, v2 JSON)</p>
               <p className="text-[11px] text-muted-foreground">
@@ -1187,6 +1415,23 @@ export default function SchoolDetailPage() {
                 className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-[11px] leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 placeholder={`{\n  "v": 2,\n  "lgs": { "axisLabel": "LGS Taban Puanlar", "footer": "…", "series": [\n    { "label": "Alan A", "color": "#ef4444", "points": [{ "year": 2022, "score": 278.72 }] }\n  ]},\n  "obp": { "yMax": 200, "series": [\n    { "label": "Alan A", "color": "#ef4444", "programs": [\n      { "code": "ATP", "lower": 75, "upper": 96.72 }\n    ]}\n  ]}\n}`}
               />
+            </div>
+            <div className="rounded-lg border border-dashed border-sky-400/50 bg-sky-500/[0.04] p-3 dark:border-sky-500/35 dark:bg-sky-950/20">
+              <p className="mb-2 text-xs font-medium text-foreground">Önizleme (okul değerlendirme görünümü)</p>
+              <p className="mb-2 text-[11px] text-muted-foreground">
+                v3 JSON’da her <code className="rounded bg-muted px-0.5">tracks[]</code> öğesi ayrı alan; aşağıda özet + alan başına tablolar ve grafikler otomatik üretilir.
+              </p>
+              {showPlacementTeacherPreview ? (
+                <SchoolPlacementScoresCard
+                  schoolName={school.name || 'Okul'}
+                  charts={placementPreviewCharts}
+                  rows={placementPreviewRows}
+                />
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Geçerli v3 JSON, dolu yıl satırları veya v2 grafik girildiğinde önizleme burada belirir.
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>

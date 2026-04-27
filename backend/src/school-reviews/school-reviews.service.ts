@@ -39,8 +39,12 @@ import { ListContentReportsAdminDto } from './dto/list-content-reports-admin.dto
 import { ApplySchoolReviewsStrikeDto } from './dto/apply-school-reviews-strike.dto';
 import { ListModerationQueueDto } from './dto/list-moderation-queue.dto';
 import { paginate } from '../common/dtos/pagination.dto';
-import { normalizeReviewPlacementScoresJson } from '../schools/review-placement-scores.util';
-import { sanitizeReviewPlacementCharts } from '../schools/review-placement-charts.util';
+import {
+  normalizeReviewPlacementScoresJson,
+  placementBundleHasAnyPlacementNumbers,
+  placementBundleHasYearData,
+} from '../schools/review-placement-scores.util';
+import { mergePlacementChartsWithScores, sanitizeReviewPlacementCharts } from '../schools/review-placement-charts.util';
 
 /** Varsayılan kriterler — puanlama 1–10 (1: çok zayıf, 10: çok iyi). */
 const CRITERIA_SCORE_MIN = 1;
@@ -510,13 +514,17 @@ export class SchoolReviewsService implements OnModuleInit {
       const fav = await this.favoriteRepo.findOne({ where: { user_id: userId, school_id: schoolId } });
       is_favorited = !!fav;
     }
-    const placementOn = !!(school as School).review_placement_dual_track;
-    const placement_scores = placementOn
-      ? normalizeReviewPlacementScoresJson((school as School).review_placement_scores)
-      : null;
-    const placement_charts = placementOn
-      ? sanitizeReviewPlacementCharts((school as School).review_placement_charts)
-      : null;
+    const normalizedScores = normalizeReviewPlacementScoresJson((school as School).review_placement_scores);
+    const hasPlacementScores = placementBundleHasYearData(normalizedScores);
+    const placement_scores = hasPlacementScores ? normalizedScores : null;
+    const dualFromData = placementBundleHasAnyPlacementNumbers(normalizedScores);
+    const review_placement_dual_track =
+      !!(school as School).review_placement_dual_track || dualFromData;
+    const placement_charts =
+      mergePlacementChartsWithScores(
+        sanitizeReviewPlacementCharts((school as School).review_placement_charts),
+        normalizedScores,
+      ) ?? sanitizeReviewPlacementCharts((school as School).review_placement_charts);
 
     return {
       ...school,
@@ -528,7 +536,7 @@ export class SchoolReviewsService implements OnModuleInit {
       criteria_averages: Object.keys(criteriaAverages).length > 0 ? criteriaAverages : null,
       rating_distribution,
       is_favorited: userId ? is_favorited : undefined,
-      review_placement_dual_track: placementOn,
+      review_placement_dual_track,
       review_placement_scores: placement_scores,
       review_placement_charts: placement_charts,
     };

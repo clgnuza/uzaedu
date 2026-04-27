@@ -60,8 +60,13 @@ export enum SchoolType {
   imam_hatip_ortaokul = 'imam_hatip_ortaokul',
   imam_hatip_lise = 'imam_hatip_lise',
   ozel_egitim = 'ozel_egitim',
+  /** MEB: Özel eğitim uygulama merkezleri (okuldan ayrı) */
+  ozel_egitim_uygulama_merkezi = 'ozel_egitim_uygulama_merkezi',
   halk_egitim = 'halk_egitim',
   bilsem = 'bilsem',
+  rehberlik_merkezi = 'rehberlik_merkezi',
+  ogretmenevi_aksam_sanat = 'ogretmenevi_aksam_sanat',
+  mesleki_egitim_merkezi = 'mesleki_egitim_merkezi',
 }
 
 export enum SchoolSegment {

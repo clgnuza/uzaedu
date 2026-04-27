@@ -12,15 +12,12 @@ import {
   Matches,
   ValidateIf,
   IsEmail,
-  ArrayMaxSize,
-  ValidateNested,
   IsObject,
+  Allow,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { MARKET_MODULE_KEYS } from '../../app-config/market-policy.defaults';
 import { SchoolSegment, SchoolStatus, SchoolType } from '../../types/enums';
-import { ReviewPlacementScoreRowDto } from './review-placement-score-row.dto';
-
 export class UpdateSchoolDto {
   @IsOptional()
   @IsString()
@@ -407,13 +404,10 @@ export class UpdateSchoolDto {
   @IsBoolean()
   review_placement_dual_track?: boolean;
 
-  /** Son 4 yıl; with_exam=merkezî LGS tabanı, without_exam=yerel gösterge; null = veriyi sil */
+  /** v3 bundle veya eski dizi; normalizeReviewPlacementScoresJson ile uygulanır */
   @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(4)
-  @ValidateNested({ each: true })
-  @Type(() => ReviewPlacementScoreRowDto)
-  review_placement_scores?: ReviewPlacementScoreRowDto[] | null;
+  @Allow()
+  review_placement_scores?: unknown;
 
   /** v2 LGS/OBP infografik JSON; null = sil */
   @IsOptional()

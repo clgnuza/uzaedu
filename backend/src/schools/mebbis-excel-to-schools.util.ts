@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { SchoolSegment, SchoolStatus, SchoolType } from '../types/enums';
 import { ReconcileSourceSchoolDto } from './dto/reconcile-schools.dto';
+import { resolveTypeFromReconcileRow, schoolTypeFromMebKurumNameWithHeuristics } from './mebbis-kurum-type.util';
 
 function normHeader(s: string): string {
   return String(s ?? '')
@@ -77,27 +78,9 @@ function pick(row: Record<string, unknown>, keys: string[]): string {
   return '';
 }
 
+/** Excel tek hücre / kısa metin (MEBBİS kurum türü sütunu) */
 export function mapTypeLabel(label: string): SchoolType {
-  const L = label.toLowerCase();
-  if (L.includes('anaokul') || L.includes('okul öncesi')) return SchoolType.anaokul;
-  if (L.includes('ilkokul')) return SchoolType.ilkokul;
-  if (L.includes('ortaokul') && !L.includes('imam')) return SchoolType.ortaokul;
-  if (L.includes('imam') && L.includes('orta')) return SchoolType.imam_hatip_ortaokul;
-  if (L.includes('imam') && (L.includes('lise') || L.includes('lis'))) return SchoolType.imam_hatip_lise;
-  if (L.includes('meslek') || L.includes('mtal') || L.includes('mesleki')) return SchoolType.meslek_lisesi;
-  if (L.includes('bilsem')) return SchoolType.bilsem;
-  if (L.includes('halk') && L.includes('egitim')) return SchoolType.halk_egitim;
-  if (L.includes('özel eğitim') || L.includes('ozel egitim')) return SchoolType.ozel_egitim;
-  if (L.includes('fen lisesi') || L.includes('fenlisesi')) return SchoolType.fen_lisesi;
-  if (L.includes('sosyal bilim')) return SchoolType.sosyal_bilimler_lisesi;
-  if (L.includes('anadolu lise') && L.includes('çok')) return SchoolType.cok_programli_anadolu_lisesi;
-  if (L.includes('anadolu')) return SchoolType.anadolu_lisesi;
-  if (L.includes('açık öğretim') || L.includes('acik ogretim')) return SchoolType.acik_ogretim_lisesi;
-  if (L.includes('güzel sanat') || L.includes('guzel sanat')) return SchoolType.guzel_sanatlar_lisesi;
-  if (L.includes('spor lise')) return SchoolType.spor_lisesi;
-  if (L.includes('temel eğitim') || L.includes('temel egitim')) return SchoolType.temel_egitim;
-  if (L.includes('lise')) return SchoolType.lise;
-  return SchoolType.lise;
+  return schoolTypeFromMebKurumNameWithHeuristics(label);
 }
 
 function mapSegment(owner: '1' | '2' | '3'): SchoolSegment {
@@ -142,6 +125,7 @@ function normalizeWebUrl(raw: string | undefined): string | undefined {
 /**
  * MEBBİS’ten inen .xlsx buffer → reconcile satırları.
  * `owner`: formdaki Özel/Resmi (1 resmi, 2 özel, 3 meb dışı).
+ * Tür: önce tam okul adı, sonra «kurum türü» sütunu, sonra sözlük+sezgi.
  */
 export function mebbisWorkbookBufferToSchools(buf: Buffer, owner: '1' | '2' | '3'): ReconcileSourceSchoolDto[] {
   const wb = XLSX.read(buf, { type: 'buffer' });
@@ -158,7 +142,7 @@ export function mebbisWorkbookBufferToSchools(buf: Buffer, owner: '1' | '2' | '3
     const typeRaw = pick(row, ALIASES.type);
     const dto: ReconcileSourceSchoolDto = {
       name,
-      type: typeRaw ? mapTypeLabel(typeRaw) : SchoolType.lise,
+      type: resolveTypeFromReconcileRow(name, typeRaw),
       segment,
       city: pick(row, ALIASES.city) || undefined,
       district: pick(row, ALIASES.district) || undefined,

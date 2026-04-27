@@ -20,6 +20,10 @@ export const SCHOOL_TYPE_GROUP_MEMBERS: Record<SchoolTypeGroup, SchoolType[]> = 
     SchoolType.anaokul,
     SchoolType.imam_hatip_ortaokul,
     SchoolType.ozel_egitim,
+    SchoolType.ozel_egitim_uygulama_merkezi,
     SchoolType.halk_egitim,
+    SchoolType.rehberlik_merkezi,
+    SchoolType.ogretmenevi_aksam_sanat,
+    SchoolType.mesleki_egitim_merkezi,
   ],
 };

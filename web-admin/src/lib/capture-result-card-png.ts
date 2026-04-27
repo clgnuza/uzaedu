@@ -1,9 +1,13 @@
 import { toPng } from 'html-to-image';
 
+function isDarkCaptureRoot(el: HTMLElement): boolean {
+  return el.hasAttribute('data-capture-keep-dark');
+}
+
 /**
- * DOM → PNG (`html-to-image` → Blob; gerekirse html2canvas).
+ * DOM → PNG (önce html2canvas — Recharts / gradient; sonra `html-to-image` toPng).
  * Ekran dışı snapshot (`left: -9999px`) SVG foreignObject ile beyaz görüntü verebilir;
- * yakalama anında geçici olarak viewport köşesine alınır.
+ * yakalama anında geçici olarak viewport köşesine alınır (opacity 1 — 0.01 bazı tarayıcılarda boş raster).
  */
 export async function captureResultCardAsPng(
   visibleCard: HTMLElement | null,
@@ -76,7 +80,7 @@ export async function captureResultCardAsPng(
     s.setProperty('right', 'auto');
     s.setProperty('bottom', 'auto');
     s.setProperty('z-index', '2147483646');
-    s.setProperty('opacity', '0.01');
+    s.setProperty('opacity', '1');
     s.setProperty('pointer-events', 'none');
     s.setProperty('transform', 'none');
     s.setProperty('visibility', 'visible');
@@ -101,12 +105,14 @@ export async function captureResultCardAsPng(
     }
 
     try {
+      const dark = isDarkCaptureRoot(el);
       const dataUrl = await toPng(el, {
         pixelRatio: Math.min(2.5, Math.max(1.5, window.devicePixelRatio || 2)),
         cacheBust: true,
-        backgroundColor: '#ffffff',
+        backgroundColor: dark ? '#0b1220' : '#ffffff',
         style: { transform: 'none' },
-        filter: (node) => node instanceof HTMLElement && node.hasAttribute('data-html2canvas-ignore'),
+        filter: (node) =>
+          !(node instanceof HTMLElement && node.hasAttribute('data-html2canvas-ignore')),
       });
       const raw = await (await fetch(dataUrl)).blob();
       const blob =
@@ -132,10 +138,11 @@ export async function captureResultCardAsPng(
         { scale: 1.5, foreignObjectRendering: true },
         { scale: 1 },
       ];
+      const darkRoot = isDarkCaptureRoot(el);
       for (const a of attempts) {
         try {
           const canvas = await html2canvas(el, {
-            backgroundColor: '#ffffff',
+            backgroundColor: darkRoot ? '#0b1220' : '#ffffff',
             scale: a.scale,
             useCORS: true,
             logging: false,
@@ -144,9 +151,15 @@ export async function captureResultCardAsPng(
             foreignObjectRendering: a.foreignObjectRendering,
             ignoreElements: (node) =>
               node instanceof HTMLElement && node.hasAttribute('data-html2canvas-ignore'),
-            onclone: (clonedDoc) => {
-              clonedDoc.documentElement.classList.remove('dark');
-              clonedDoc.documentElement.style.colorScheme = 'light';
+            onclone: (clonedDoc, refEl) => {
+              const keepDark =
+                refEl instanceof HTMLElement &&
+                (refEl.hasAttribute('data-capture-keep-dark') ||
+                  Boolean(refEl.closest('[data-capture-keep-dark]')));
+              if (!keepDark) {
+                clonedDoc.documentElement.classList.remove('dark');
+                clonedDoc.documentElement.style.colorScheme = 'light';
+              }
               if (clonedDoc.body) stripBackdropOnClone(clonedDoc.body);
             },
           });
@@ -168,14 +181,10 @@ export async function captureResultCardAsPng(
   const suspiciouslySmall = (b: Blob) => b.size < 1800;
 
   for (const el of candidates) {
-    const png = await tryToPng(el);
-    if (png && !suspiciouslySmall(png)) return png;
-    if (png && suspiciouslySmall(png)) {
-      const h2 = await tryHtml2Canvas(el);
-      if (h2 && !suspiciouslySmall(h2)) return h2;
-    }
     const h2 = await tryHtml2Canvas(el);
     if (h2 && !suspiciouslySmall(h2)) return h2;
+    const png = await tryToPng(el);
+    if (png && !suspiciouslySmall(png)) return png;
     if (h2) return h2;
     if (png) return png;
   }

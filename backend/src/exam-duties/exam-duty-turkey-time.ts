@@ -3,6 +3,27 @@
 export const TURKEY_TZ = 'Europe/Istanbul';
 
 /**
+ * GPT’dan gelen `YYYY-MM-DD` veya `YYYY-MM-DD HH:mm` dizesini **Europe/Istanbul** duvar saatinde
+ * açık `Date` yapar. `new Date("...23:59")` sunucu UTC’de yorumlanıp İstanbul gününe +1 kaymasın diye
+ * tüm eşleşmeler `+03:00` ile biter. Saat yoksa (yalnız gün) öğlen TR (12:00) anchor kullanılır; böylece
+ * `applyExamDutyWallClockInTurkey` ile aynı takvim günü varsayılan saat uygulanır.
+ */
+export function parseExamDutyGptYmdHmsInTurkey(s: string | null | undefined): Date | null {
+  if (s == null || s === '') return null;
+  const t = String(s).trim();
+  if (!t || t.toLowerCase() === 'null') return null;
+  const m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{1,2}))?$/);
+  if (!m) return null;
+  const y = m[1]!.padStart(4, '0');
+  const mo = m[2]!.padStart(2, '0');
+  const d = m[3]!.padStart(2, '0');
+  if (m[4] != null && m[5] != null) {
+    return new Date(`${y}-${mo}-${d}T${m[4].padStart(2, '0')}:${m[5].padStart(2, '0')}:00+03:00`);
+  }
+  return new Date(`${y}-${mo}-${d}T12:00:00+03:00`);
+}
+
+/**
  * Takvim günü `d` (herhangi bir an) için, o günün İstanbul’daki tarihine superadmin HH:mm uygular.
  * DB’de tutulan an, o yerel saatte +03:00 ile eşlenir (setHours sunucu TZ’sine bağlı kalmaz).
  */

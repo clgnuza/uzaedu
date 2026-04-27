@@ -14,8 +14,11 @@ import { emailDomainFromInstitutional } from '../common/utils/institutional-emai
 import { MARKET_MODULE_KEYS } from '../app-config/market-policy.defaults';
 import { SCHOOL_TYPE_GROUP_MEMBERS } from './school-type-group.util';
 import { ReconcileApplyDto, ReconcileSourceSchoolDto } from './dto/reconcile-schools.dto';
-import { normalizeReviewPlacementScoresJson } from './review-placement-scores.util';
-import { sanitizeReviewPlacementCharts } from './review-placement-charts.util';
+import {
+  normalizeReviewPlacementScoresJson,
+  placementBundleHasAnyPlacementNumbers,
+} from './review-placement-scores.util';
+import { mergePlacementChartsWithScores, sanitizeReviewPlacementCharts } from './review-placement-charts.util';
 
 @Injectable()
 export class SchoolsService {
@@ -58,6 +61,12 @@ export class SchoolsService {
   async findById(id: string): Promise<School> {
     const school = await this.schoolRepo.findOne({ where: { id } });
     if (!school) throw new NotFoundException({ code: 'NOT_FOUND', message: 'İstediğiniz kayıt bulunamadı.' });
+    const placementNorm = normalizeReviewPlacementScoresJson(school.review_placement_scores);
+    if (placementNorm) {
+      school.review_placement_scores = placementNorm;
+    }
+    const chartsMerged = mergePlacementChartsWithScores(school.review_placement_charts, school.review_placement_scores);
+    if (chartsMerged) school.review_placement_charts = chartsMerged;
     return school;
   }
 
@@ -220,14 +229,23 @@ export class SchoolsService {
       if (dto.status !== undefined) school.status = dto.status;
       if (dto.teacher_limit !== undefined) school.teacher_limit = dto.teacher_limit;
       if (dto.enabled_modules !== undefined) school.enabled_modules = dto.enabled_modules;
-      if (dto.review_placement_dual_track !== undefined) {
-        school.review_placement_dual_track = dto.review_placement_dual_track === true;
-      }
       if (dto.review_placement_scores !== undefined) {
         school.review_placement_scores =
           dto.review_placement_scores === null
             ? null
             : normalizeReviewPlacementScoresJson(dto.review_placement_scores);
+        if (dto.review_placement_dual_track === undefined) {
+          school.review_placement_dual_track = placementBundleHasAnyPlacementNumbers(
+            normalizeReviewPlacementScoresJson(school.review_placement_scores),
+          );
+        }
+        if (dto.review_placement_charts === undefined) {
+          const m = mergePlacementChartsWithScores(school.review_placement_charts, school.review_placement_scores);
+          if (m) school.review_placement_charts = m;
+        }
+      }
+      if (dto.review_placement_dual_track !== undefined) {
+        school.review_placement_dual_track = dto.review_placement_dual_track === true;
       }
       if (dto.review_placement_charts !== undefined) {
         if (dto.review_placement_charts === null) {

@@ -66,6 +66,17 @@ export class ExamDutyGptService {
     const fullContent = [input.title, input.body].filter(Boolean).join('\n\n').trim();
     if (!fullContent || fullContent.length < 20) return { result: null, gptError: false };
 
+    /** 4o-mini: ~128k token; Türkçe metinde güvenli üst sınır (kısa makalelerden uzun rehberlere). */
+    const bodyMax = 100_000;
+    const titlePart = (input.title ?? '').trim();
+    const bodyPart = (input.body ?? '').trim();
+    const bodySliced = bodyPart.length > bodyMax ? bodyPart.slice(0, bodyMax) : bodyPart;
+    if (bodyPart.length > bodyMax) {
+      this.logger.warn(
+        `extractFromText: gövde ${bodyPart.length} karakter; GPT’ye ilk ${bodyMax} karakter gönderildi (başlık ayrı).`,
+      );
+    }
+
     const jsonSchema = {
       type: 'object',
       properties: {
@@ -99,7 +110,7 @@ export class ExamDutyGptService {
       additionalProperties: false,
     };
 
-    const systemPrompt = `Türkiye sınav görevi duyurularını analiz et. Verilen içeriğin TAMAMINI oku.
+    const systemPrompt = `Türkiye sınav görevi duyurularını analiz et. Aşağıdaki "İÇERİK" bölümü haberin gövde metnidir; başlıktan sonra tüm paragrafları, listeleri ve tabloları (ücret, son başvuru, sınav günü satırları) eksiksiz tara. Kesilmiş metin olsa da verilen bölümün tamamını kullan.
 
 GÖREV: Aşağıdaki tabloyu doldur. Bulamadığın alan null.
 
@@ -112,11 +123,11 @@ GÖREV: Aşağıdaki tabloyu doldur. Bulamadığın alan null.
 | sinav_oncesi_hatirlatma | Sonuç açıklanma, görev yerinin ilanı, katılım durumu, sınav öncesi evrak/son işlem tarihi. Son başvuru veya sınav oturum günü değil. | 2026-04-20 veya 2026-04-20 10:00 |
 
 KURALLAR:
-- Tüm tarihler YYYY-MM-DD veya YYYY-MM-DD HH:mm ( saat varsa ).
+- Tüm tarihler YYYY-MM-DD veya YYYY-MM-DD HH:mm ( saat varsa ) — bunlar **Türkiye (TR) takvimi** günüdür; bitiş 23:59 aynı gün kalır, sonraki güne kaydırma.
 - son_basvuru = "Son başvuru", "Son istek zamanı", "Başvuru son tarihi", "Son işlem tarihi" (DD/MM/YYYY), "19 Nisan … saat 23.59'a kadar … görev talebi" gibi görev başvuru bitişi. Sınavın yapıldığı gün ASLA son_basvuru değildir.
 - Çoklu sınav: TUS+STS, 4 Adalet sınavı vb. → sinav_1_gunu en erken, sinav_2_gunu en geç, son_basvuru en geç başvuru bitişi.
 - baslangic metinde yoksa null dön. baslangic, yönetim arayüzündeki "Bşv. Açılış" (başvuru açılış) ile aynı değildir; Bşv. Açılış duyurunun eklendiği an olarak tutulur.
-- is_application_announcement: Yalnızca resmi başvuru/tercih çağrısı (yeni sınav görevi, son başvuru, görev tercihi) ise true. Olay haberi, köşe yazısı, disiplin/iptal/geç kalma/kare kod uygulaması, "bugün X ilinde oldu" gibi metinler başvuru duyurusu DEĞİLDİR → false ve tüm tarihler null.
+- is_application_announcement: Resmi başvuru/tercih çağrısı veya **yeni sınav görevi/oturum/tercih dönemine ait duyuru** (tarih henüz netleşmese de) true. Olay haberi, köşe yazısı, disiplin/iptal/geç kalma/kare kod uygulaması, sadece ücret tablosu, "bugün X ilinde oldu" gibi metinler false ve tarihler null.
 - Örnek FALSE: "Geç gelen öğretmenlerin görevleri iptal edildi", "kare kod ile bina girişi", haberde geçen saat (10.00, 09.00) sınav programı değil olay anlatımıdır; sinav_1_gunu/son_basvuru yazma.
 - Resmi duyuruda da son_basvuru ve sinav_* yoksa (sadece ücret tablosu vb.) is_application_announcement false.
 - KRİTİK: RSS/feed yayın tarihi, "Yayın tarihi", "Güncelleme", haberin listedeki görünür tarihi = sınav günü veya son başvuru DEĞİLDİR. Bu tarihleri sinav_1_gunu, sinav_2_gunu veya son_basvuru alanına YAZMA; yalnızca metinde başvuru/sınav olarak açıkça geçiyorsa doldur. Şüphede sinav alanlarını null bırak.`;
@@ -125,12 +136,13 @@ KURALLAR:
       ? `\n(REFERANS — kullanma: Aşağıdaki tarih yalnızca RSS/liste yayın veya görünürlük tarihi olabilir; son_basvuru veya sinav_* alanlarına kopyalama. Metinde aynı gün sınav/başvuru olarak yazılmıyorsa yoksay.)\nYAYIN_REF: ${input.fallbackStartDate.trim()}\n`
       : '';
 
-    const userPrompt = `İçeriğin tamamını oku. Son başvuru, 1. ve 2. sınav günü (varsa), sonuç veya sınav öncesi hatırlatma tarihi (varsa), ilk yayınlanma (varsa) bul. Tablo olarak döndür.
+    const userPrompt = `Son başvuru, 1. ve 2. sınav günü (varsa), sonuç / sınav öncesi hatırlatma (varsa), ilk yayınlanma (varsa) bul. Tablo olarak döndür.
 ${pubHint}
-BAŞLIK: ${input.title}
+BAŞLIK:
+${titlePart}
 
-İÇERİK:
-${fullContent.slice(0, 14000)}`;
+İÇERİK (gövde, mümkün olduğunca tam; ${bodySliced.length} karakter):
+${bodySliced}`;
 
     const logGptUsage = await this.appConfig.getExamDutySyncOptions().then((o) => o.log_gpt_usage);
     let lastErr: unknown;

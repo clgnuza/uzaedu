@@ -83,7 +83,7 @@ type SchoolDetail = SchoolWithStats & {
   rating_distribution?: Record<number, number>;
   is_favorited?: boolean;
   review_placement_dual_track?: boolean;
-  review_placement_scores?: { year: number; with_exam: number | null; without_exam: number | null }[] | null;
+  review_placement_scores?: unknown;
   review_placement_charts?: unknown;
 };
 
@@ -2089,8 +2089,7 @@ function OkulDegerlendirmeleriContent() {
                             </figure>
                           </div>
                         ) : null}
-                        {selectedSchool.review_placement_dual_track &&
-                          hasPlacementInfographic(
+                        {hasPlacementInfographic(
                             selectedSchool.review_placement_charts,
                             selectedSchool.review_placement_scores,
                           ) && (

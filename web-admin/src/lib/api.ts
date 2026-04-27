@@ -149,7 +149,7 @@ export async function apiFetch<T>(
         details?: Record<string, unknown>;
       };
       const msg = body?.message;
-      const fromBody = Array.isArray(msg) ? msg[0] : msg;
+      const fromBody = Array.isArray(msg) ? msg.filter(Boolean).join(' · ') : msg;
       const fallback = res.statusText || 'İstek başarısız';
       const userMsg = HTTP_STATUS_USER_MESSAGE[res.status];
       const text = userMsg ?? fromBody ?? fallback;

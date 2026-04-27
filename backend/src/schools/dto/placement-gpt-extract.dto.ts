@@ -1,7 +1,8 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   ArrayMaxSize,
+  IsBoolean,
   IsInt,
   IsOptional,
   IsString,
@@ -12,15 +13,36 @@ import {
 } from 'class-validator';
 
 export class PlacementGptExtractDto {
+  /** Yapıştırılmış tablo / metin (boş bırakılabilir; o zaman `source_url` zorunlu). */
+  @Transform(({ value }) => {
+    if (value == null) return undefined;
+    const s = String(value).replace(/\u00a0/g, ' ').trim();
+    return s === '' ? undefined : s;
+  })
+  @IsOptional()
   @IsString()
-  @MaxLength(100_000)
-  source_text!: string;
+  @MaxLength(150_000)
+  source_text?: string;
+
+  /**
+   * kazanabilirsin.com LGS taban sayfası — sunucu HTML çeker, tabloyu ayrıştırır.
+   * Doluysa `source_text` ile birlikte göndermeyin.
+   */
+  @Transform(({ value }) => {
+    if (value == null) return undefined;
+    const s = String(value).replace(/\u00a0/g, ' ').trim();
+    return s === '' ? undefined : s;
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  source_url?: string;
 
   /** Boş veya yok: kurum kodlu tüm okullar (limit ile sınırlı) */
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(800)
-  @IsUUID('4', { each: true })
+  @IsUUID('all', { each: true })
   school_ids?: string[];
 
   @IsOptional()
@@ -34,7 +56,7 @@ export class PlacementGptExtractDto {
   @Type(() => Number)
   @IsInt()
   @Min(4)
-  @Max(30)
+  @Max(50)
   batch_size?: number;
 
   /** both | central_only (merkezî/LGS) | local_only (yerel) — takma adlar backend’de normalize edilir */
@@ -58,4 +80,12 @@ export class PlacementGptExtractDto {
   @IsString()
   @MaxLength(100)
   city?: string;
+
+  /**
+   * true: her okulda mevcut `review_placement_scores` yerine yalnız bu içe aktarılan satırlardan yeni demet (birleştirme yok).
+   * false/undefined: mevcut iz+yıllarla birleştir (varsayılan CSV davranışı).
+   */
+  @IsOptional()
+  @IsBoolean()
+  replace_placement_scores?: boolean;
 }

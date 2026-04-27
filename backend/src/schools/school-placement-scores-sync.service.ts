@@ -3,7 +3,13 @@ import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { School } from './entities/school.entity';
-import { normalizeReviewPlacementScoresJson, type ReviewPlacementScoreRow } from './review-placement-scores.util';
+import {
+  applyPlacementIncsToBundle,
+  normalizeReviewPlacementScoresJson,
+  placementBundleHasAnyPlacementNumbers,
+  type ReviewPlacementBundleV3,
+} from './review-placement-scores.util';
+import { mergePlacementChartsWithScores } from './review-placement-charts.util';
 import { env } from '../config/env';
 
 export type PlacementFeedRow = {
@@ -12,6 +18,15 @@ export type PlacementFeedRow = {
   year: number;
   with_exam?: number | null;
   without_exam?: number | null;
+  /** Aynı okulda birden fazla alan/program satırı (ör. MTAL farklı alanlar) */
+  track_id?: string | null;
+  track_title?: string | null;
+  program?: string | null;
+  language?: string | null;
+  contingent?: number | null;
+  /** Sınavlı: TBS / büyük sayı sütunu (kaynak adı: tbs, tbs_puani, …) */
+  tbs?: number | null;
+  min_taban?: number | null;
 };
 
 /** Besleme birleştirme kapsamı (JSON `update_scope` / CSV query). */
@@ -119,6 +134,37 @@ export function normalizeRawRowToPlacement(o: Record<string, unknown>, index: nu
       break;
     }
   }
+  const trackId = [strField(o.track_id), strField(o.iz), strField(o.alan_id)].find((x) => x.length > 0) ?? null;
+  if (trackId) row.track_id = trackId;
+  const trackTitle = [strField(o.track_title), strField(o.alan), strField(o.program_line), strField(o.program)].find(
+    (x) => x.length > 0,
+  );
+  if (trackTitle) row.track_title = trackTitle;
+  const prog = [strField(o.program), strField(o.program_adi), strField(o.program_turu)].find((x) => x.length > 0);
+  if (prog) row.program = prog;
+  const lang = [strField(o.language), strField(o.dil), strField(o.yabanci_dil), strField(o['yabancı_dil'])].find(
+    (x) => x.length > 0,
+  );
+  if (lang) row.language = lang;
+  const ck = ['contingent', 'kontenjan', 'kontenjan_sayisi'] as const;
+  for (const k of ck) {
+    if (Object.prototype.hasOwnProperty.call(o, k)) {
+      row.contingent = numOrNull(o[k]);
+      break;
+    }
+  }
+  for (const k of ['tbs', 'tbs_puani', 'toplam_tbs', 'siralama_puani_baz'] as const) {
+    if (Object.prototype.hasOwnProperty.call(o, k)) {
+      row.tbs = numOrNull(o[k]);
+      break;
+    }
+  }
+  for (const k of ['min_taban', 'taban', 'son_yerlesen'] as const) {
+    if (Object.prototype.hasOwnProperty.call(o, k)) {
+      row.min_taban = numOrNull(o[k]);
+      break;
+    }
+  }
   return row;
 }
 
@@ -186,6 +232,13 @@ export class SchoolPlacementScoresSyncService {
     const y = idxAny('year', 'yil');
     const we = idxAny('with_exam', 'merkezi_lgs', 'merkezi_taban', 'lgs_taban', 'merkezi');
     const wo = idxAny('without_exam', 'yerel_taban', 'yerel', 'yerel_obp', 'local');
+    const trackId = idxAny('track_id', 'iz', 'alan_id');
+    const trackTitle = idxAny('track_title', 'alan', 'program_line', 'program_adi', 'program');
+    const kProg = idxAny('program', 'program_adi', 'program_turu');
+    const kLang = idxAny('language', 'dil', 'yabanci_dil');
+    const kCont = idxAny('contingent', 'kontenjan', 'kontenjan_sayisi');
+    const kTbs = idxAny('tbs', 'tbs_puani', 'toplam_tbs', 'siralama_puani_baz');
+    const kMin = idxAny('min_taban', 'taban', 'son_yerlesen');
     if (y < 0) throw new Error('CSV: "year" veya "yil" sütunu gerekli.');
     if (ic < 0 && sid < 0) throw new Error('CSV: institution_code/kurum_kodu veya school_id/okul_id gerekli.');
     const rows: PlacementFeedRow[] = [];
@@ -199,6 +252,13 @@ export class SchoolPlacementScoresSyncService {
       const row: PlacementFeedRow = { institution_code, school_id, year };
       if (we >= 0 && p[we] !== '') Object.assign(row, { with_exam: numOrNull(p[we]) });
       if (wo >= 0 && p[wo] !== '') Object.assign(row, { without_exam: numOrNull(p[wo]) });
+      if (trackId >= 0 && p[trackId]) Object.assign(row, { track_id: p[trackId] });
+      if (trackTitle >= 0 && p[trackTitle]) Object.assign(row, { track_title: p[trackTitle] });
+      if (kProg >= 0 && p[kProg]) Object.assign(row, { program: p[kProg] });
+      if (kLang >= 0 && p[kLang]) Object.assign(row, { language: p[kLang] });
+      if (kCont >= 0 && p[kCont] !== '') Object.assign(row, { contingent: numOrNull(p[kCont]) });
+      if (kTbs >= 0 && p[kTbs] !== '') Object.assign(row, { tbs: numOrNull(p[kTbs]) });
+      if (kMin >= 0 && p[kMin] !== '') Object.assign(row, { min_taban: numOrNull(p[kMin]) });
       rows.push(row);
     }
     return rows;
@@ -226,14 +286,27 @@ export class SchoolPlacementScoresSyncService {
    * Aynı okula ait satırları birleştirir, mevcut json ile yıllık merge eder, normalize eder ve kaydeder.
    * @param opts.restrictToSchoolIds — GPT / kısmi liste: kurum kodu çakışmasında listede olmayan okul güncellenmesin
    *   (aynı `institution_code` birden fazla satırda varsa bu id kümesi içinde tek eşleşme aranır).
+   * @param opts.replacePlacementScores — true: okul başına mevcut yerleştirme puanı JSON’u silinip yalnız bu satırlardan üretilir (tam değiştirme).
    */
   async applyRows(
     rows: PlacementFeedRow[],
     autoEnableDualTrack = true,
     updateScope: PlacementUpdateScope = 'both',
-    opts?: { restrictToSchoolIds?: string[] },
+    opts?: { restrictToSchoolIds?: string[]; replacePlacementScores?: boolean },
   ): Promise<PlacementSyncResult> {
     const row_errors: string[] = [];
+    if (!rows.length) {
+      return {
+        ok: true,
+        feed_url_configured: this.isFeedConfigured(),
+        updated: 0,
+        skipped_no_match: 0,
+        row_errors: ['Girdi satırı yok (0 satır). Besleme boş veya tüm satırlar önceki aşamada elendi.'],
+        updated_schools: [],
+        updated_schools_truncated: false,
+        update_scope: updateScope,
+      };
+    }
     const bySchool = new Map<string, PlacementFeedRow[]>();
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
@@ -259,6 +332,12 @@ export class SchoolPlacementScoresSyncService {
     const updated_schools: PlacementUpdatedSchoolRef[] = [];
     const restrictIds = opts?.restrictToSchoolIds?.filter((x) => typeof x === 'string' && x.length > 0);
     const restrictSet = restrictIds?.length ? new Set(restrictIds) : null;
+
+    if (bySchool.size === 0 && rows.length > 0) {
+      row_errors.push(
+        `${rows.length} satırın hiçbirinde geçerli kurum kodu + yıl kombinasyonu oluşmadı; kurum_kodu / institution_code ve yıl alanlarını kontrol edin.`,
+      );
+    }
 
     for (const [key, incList] of bySchool) {
       let school: School | null = null;
@@ -298,33 +377,16 @@ export class SchoolPlacementScoresSyncService {
         continue;
       }
 
-      const yearMap = new Map<number, ReviewPlacementScoreRow>();
-      for (const ex of school.review_placement_scores ?? []) {
-        if (ex && typeof ex.year === 'number') yearMap.set(ex.year, { ...ex });
+      const existingBase = opts?.replacePlacementScores ? null : school.review_placement_scores;
+      const merged = applyPlacementIncsToBundle(existingBase, incList, updateScope) as
+        | ReviewPlacementBundleV3
+        | null;
+      school.review_placement_scores = merged ? normalizeReviewPlacementScoresJson(merged) : null;
+      if (autoEnableDualTrack && merged?.tracks?.length) {
+        school.review_placement_dual_track = placementBundleHasAnyPlacementNumbers(merged);
       }
-      for (const inc of incList) {
-        const y = inc.year;
-        const prev = yearMap.get(y) ?? { year: y, with_exam: null, without_exam: null };
-        const next: ReviewPlacementScoreRow = { ...prev };
-        if (updateScope === 'both' || updateScope === 'central_only') {
-          if (Object.prototype.hasOwnProperty.call(inc, 'with_exam')) {
-            next.with_exam = numOrNull(inc.with_exam);
-          }
-        }
-        if (updateScope === 'both' || updateScope === 'local_only') {
-          if (Object.prototype.hasOwnProperty.call(inc, 'without_exam')) {
-            next.without_exam = numOrNull(inc.without_exam);
-          }
-        }
-        yearMap.set(y, next);
-      }
-      const merged = normalizeReviewPlacementScoresJson([...yearMap.values()]);
-      school.review_placement_scores = merged;
-      if (autoEnableDualTrack && merged && merged.length > 0) {
-        const hasCentral = merged.some((x) => x.with_exam != null);
-        const hasLocal = merged.some((x) => x.without_exam != null);
-        if (hasCentral && hasLocal) school.review_placement_dual_track = true;
-      }
+      const chartsMerged = mergePlacementChartsWithScores(school.review_placement_charts, school.review_placement_scores);
+      if (chartsMerged) school.review_placement_charts = chartsMerged;
       await this.schoolRepo.save(school);
       updated += 1;
       if (updated_schools.length < PLACEMENT_UPDATED_SCHOOLS_MAX) {

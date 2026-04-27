@@ -1,4 +1,11 @@
-const MAX_SERIES = 8;
+import {
+  normalizeReviewPlacementScoresJson,
+  type ReviewPlacementBundleV3,
+  type ReviewPlacementTrack,
+} from './review-placement-scores.util';
+
+/** Çok alanlı okullarda tüm seriler API’ye sığsın (el ile v2 JSON). */
+const MAX_SERIES = 24;
 const MAX_POINTS = 24;
 const MAX_LABEL = 140;
 
@@ -101,4 +108,216 @@ export function sanitizeReviewPlacementCharts(raw: unknown): Record<string, unkn
 
   if (!out.lgs && !out.obp) return null;
   return out;
+}
+
+const M_SERIES_COLORS = [
+  '#f87171', '#fb923c', '#facc15', '#f472b6', '#a78bfa', '#2dd4bf', '#4ade80', '#38bdf8',
+  '#fb7185', '#fcd34d', '#a3e635', '#22d3ee', '#c084fc', '#34d399', '#60a5fa',
+];
+const Y_SERIES_COLORS = [
+  '#4ade80', '#22c55e', '#14b8a6', '#34d399', '#6ee7b7', '#86efac', '#2dd4bf', '#5eead4',
+  '#10b981', '#059669', '#0d9488', '#65a30d', '#84cc16', '#0ea5e9',
+];
+
+function programLegendSuffix(title: string): string {
+  const t = (title || '').trim();
+  const idx = t.lastIndexOf(' / ');
+  const seg = idx >= 0 ? t.slice(idx + 3).trim() : t;
+  const s = seg.length > 48 ? `${seg.slice(0, 46)}…` : seg;
+  return s || 'Alan';
+}
+
+/** Aynı kurumda birden fazla SBL/MTAL satırı: yol sonu aynı kalır; ayırt için `program` (okul türü) önceliklidir. */
+function chartTrackLegendSuffix(tr: ReviewPlacementTrack): string {
+  const prog = (tr.program || '').trim().replace(/\s+/g, ' ');
+  if (prog.length >= 6) {
+    return prog.length > 56 ? `${prog.slice(0, 54)}…` : prog;
+  }
+  return programLegendSuffix((tr.title || '').trim());
+}
+
+function dedupSeriesLabel(base: string, used: Map<string, number>): string {
+  const n = used.get(base) ?? 0;
+  used.set(base, n + 1);
+  return n === 0 ? base : `${base} (${n + 1})`;
+}
+
+/** `review_placement_scores` (v3) → v2 `lgs` çizgileri (web-admin mergePayload ile uyumlu). */
+export function buildLgsChartsFromScoresV3(bundle: ReviewPlacementBundleV3): {
+  axisLabel: string;
+  footer: string;
+  series: { label: string; color: string; points: { year: number; score: number }[] }[];
+} {
+  const series: { label: string; color: string; points: { year: number; score: number }[] }[] = [];
+  const n = Math.max(1, bundle.tracks.length);
+  const labelCounts = new Map<string, number>();
+  let anyMerkezi = false;
+  let anyYerel = false;
+  let anyTbs = false;
+  bundle.tracks.forEach((tr, i) => {
+    const suffix = chartTrackLegendSuffix(tr);
+    const merkezi = (tr.years ?? [])
+      .filter((r) => r && typeof r.year === 'number' && r.with_exam != null && Number.isFinite(Number(r.with_exam)))
+      .map((r) => ({ year: r.year, score: Number(r.with_exam) }))
+      .sort((a, b) => a.year - b.year);
+    const yerel = (tr.years ?? [])
+      .filter(
+        (r) => r && typeof r.year === 'number' && r.without_exam != null && Number.isFinite(Number(r.without_exam)),
+      )
+      .map((r) => ({ year: r.year, score: Number(r.without_exam) }))
+      .sort((a, b) => a.year - b.year);
+    const mBase = n > 1 ? `LGS · ${suffix}` : 'Sınavlı — LGS tabanı (merkezî yerleştirme)';
+    const yBase = n > 1 ? `Yerel · ${suffix}` : 'Sınavsız — yerel yerleştirme göstergesi';
+    if (merkezi.length) {
+      anyMerkezi = true;
+      series.push({
+        label: dedupSeriesLabel(mBase, labelCounts),
+        color: M_SERIES_COLORS[i % M_SERIES_COLORS.length]!,
+        points: merkezi,
+      });
+    }
+    if (yerel.length) {
+      anyYerel = true;
+      series.push({
+        label: dedupSeriesLabel(yBase, labelCounts),
+        color: Y_SERIES_COLORS[i % Y_SERIES_COLORS.length]!,
+        points: yerel,
+      });
+    }
+    const tbsPts = (tr.years ?? [])
+      .filter((r) => r && typeof r.year === 'number' && r.tbs != null && Number.isFinite(Number(r.tbs)))
+      .map((r) => ({ year: r.year, score: Number(r.tbs) }))
+      .sort((a, b) => a.year - b.year);
+    if (tbsPts.length) {
+      anyTbs = true;
+      series.push({
+        label: dedupSeriesLabel(n > 1 ? `TBS · ${suffix}` : 'Sınavlı — TBS / toplam puan sütunu', labelCounts),
+        color: M_SERIES_COLORS[(i + 3) % M_SERIES_COLORS.length]!,
+        points: tbsPts,
+      });
+    }
+  });
+  const onlyYerel = anyYerel && !anyMerkezi && !anyTbs;
+  const axisLabel = onlyYerel
+    ? 'Yerel yerleştirme göstergesi (program bazlı)'
+    : 'Sınavlı / sınavsız yerleştirme (alan/program bazlı)';
+  let footer: string;
+  if (onlyYerel) {
+    footer =
+      bundle.tracks.length > 1
+        ? 'Her çizgi ayrı program/alandır; değerler genelde OBP veya il–ilçe yerleştirme tabanıdır (LGS değil).'
+        : 'Yerel gösterge son yıllara göre çizilir (LGS merkezî tabanı yok).';
+  } else if (bundle.tracks.length > 1) {
+    footer =
+      'Her renkli çizgi ayrı alan veya programdır. LGS/TBS — sınavlı; yerel — genelde sınavsız programa giriş göstergesi.';
+  } else {
+    footer = 'Üst grafik sınavlı (merkezî / mesleki) yollar; alt grafik varsa sınavsız (yerel) yerleşme göstergesidir.';
+  }
+  return { axisLabel, footer, series };
+}
+
+type PlacementLgsLineSeries = {
+  label: string;
+  color: string;
+  points: { year: number; score: number }[];
+};
+
+/** `SchoolPlacementScoresCard` / mergePayload ile aynı: sınavsız (yerel/OBP çizgisi) lejantları. */
+function placementLgsSeriesIsSinavsizStyle(label: string): boolean {
+  const t = label.trim();
+  if (/^LGS ·/u.test(t)) return false;
+  if (/^TBS ·/u.test(t)) return false;
+  if (/^LGS \(sınavlı\)/u.test(t)) return false;
+  if (/^TBS \(sınavlı\)/u.test(t)) return false;
+  if (/^Yerel ·/u.test(t)) return true;
+  if (/^Y —/u.test(t)) return true;
+  if (/Yerel \(sınavsız\)/i.test(t)) return true;
+  if (/^Sınavsız[—\s–-]/u.test(t)) return true;
+  if (/Sınavsız/i.test(t) && /Yerel|gösterg|yerel/i.test(t)) return true;
+  if (t === 'Yerel yerleştirme (gösterge)') return true;
+  if (
+    /Yerel\s+yerleştirme|Yerel\s+.*gösterges/i.test(t) &&
+    !/LGS|merkez[îi]|TBS|LGS \(sınavlı\)|Sınavlı[—-]\s*LGS/i.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function partitionLgsLineSeries(series: PlacementLgsLineSeries[]): {
+  sinavli: PlacementLgsLineSeries[];
+  sinavsiz: PlacementLgsLineSeries[];
+} {
+  const sinavli: PlacementLgsLineSeries[] = [];
+  const sinavsiz: PlacementLgsLineSeries[] = [];
+  for (const s of series) {
+    if (!s?.label) continue;
+    if (placementLgsSeriesIsSinavsizStyle(s.label)) sinavsiz.push(s);
+    else sinavli.push(s);
+  }
+  return { sinavli, sinavsiz };
+}
+
+function isPlacementLgsLineSeries(x: unknown): x is PlacementLgsLineSeries {
+  if (!x || typeof x !== 'object') return false;
+  const o = x as Record<string, unknown>;
+  return typeof o.label === 'string' && typeof o.color === 'string' && Array.isArray(o.points);
+}
+
+/**
+ * Skordan gelen `built` yalnızca yerel veya yalnız merkezî seri ürettiğinde, mevcut grafikteki
+ * diğer taraftaki çizgileri korur (OBP uygulayınca DB’deki LGS çizgilerinin silinmesini önler).
+ */
+function mergeBuiltLgsBlockWithExisting(
+  built: ReturnType<typeof buildLgsChartsFromScoresV3>,
+  existingLgs: Record<string, unknown> | undefined,
+): ReturnType<typeof buildLgsChartsFromScoresV3> {
+  const exRaw = existingLgs?.series;
+  const exSeries: PlacementLgsLineSeries[] = Array.isArray(exRaw)
+    ? (exRaw.filter(isPlacementLgsLineSeries) as PlacementLgsLineSeries[])
+    : [];
+  const bp = partitionLgsLineSeries(built.series);
+  const ep = partitionLgsLineSeries(exSeries);
+  const sinavli = bp.sinavli.length > 0 ? bp.sinavli : ep.sinavli;
+  const sinavsiz = bp.sinavsiz.length > 0 ? bp.sinavsiz : ep.sinavsiz;
+  const series = [...sinavli, ...sinavsiz];
+  const hasM = sinavli.length > 0;
+  const hasY = sinavsiz.length > 0;
+  if (hasM && hasY) {
+    return {
+      axisLabel: 'Sınavlı / sınavsız yerleştirme (alan/program bazlı)',
+      footer:
+        'Her renkli çizgi ayrı alan veya programdır. LGS/TBS — sınavlı; yerel — genelde sınavsız programa giriş göstergesi.',
+      series,
+    };
+  }
+  if (hasY && !hasM) {
+    return { axisLabel: built.axisLabel, footer: built.footer, series };
+  }
+  return { axisLabel: built.axisLabel, footer: built.footer, series };
+}
+
+/**
+ * Puan paketinden LGS çizgilerini üretir; mevcut v2 grafikteki OBP bloğunu korur.
+ * Puanlardan gelen seriler, el ile girilmiş LGS serilerinin yerini alır (web ile aynı).
+ */
+export function mergePlacementChartsWithScores(
+  existingCharts: unknown,
+  scores: unknown,
+): Record<string, unknown> | null {
+  const norm = normalizeReviewPlacementScoresJson(scores);
+  const existing = sanitizeReviewPlacementCharts(existingCharts);
+  if (!norm?.tracks?.length) {
+    return existing;
+  }
+  const built = buildLgsChartsFromScoresV3(norm);
+  const out: Record<string, unknown> = { v: 2 };
+  if (built.series.length > 0) {
+    const rawLgs = existing?.lgs;
+    const existingLgs =
+      rawLgs && typeof rawLgs === 'object' && !Array.isArray(rawLgs) ? (rawLgs as Record<string, unknown>) : undefined;
+    out.lgs = existingLgs ? mergeBuiltLgsBlockWithExisting(built, existingLgs) : built;
+  } else if (existing?.lgs) out.lgs = existing.lgs;
+  if (existing?.obp) out.obp = existing.obp;
+  return sanitizeReviewPlacementCharts(out);
 }

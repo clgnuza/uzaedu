@@ -18,7 +18,11 @@ export const SCHOOL_TYPE_ORDER = [
   'imam_hatip_ortaokul',
   'imam_hatip_lise',
   'ozel_egitim',
+  'ozel_egitim_uygulama_merkezi',
   'halk_egitim',
+  'rehberlik_merkezi',
+  'ogretmenevi_aksam_sanat',
+  'mesleki_egitim_merkezi',
   'bilsem',
 ] as const;
 
@@ -41,7 +45,11 @@ export const SCHOOL_TYPE_LABELS: Record<string, string> = {
   imam_hatip_ortaokul: 'İmam Hatip Ortaokulu',
   imam_hatip_lise: 'İmam Hatip Lisesi',
   ozel_egitim: 'Özel Eğitim Uygulama Okulu',
+  ozel_egitim_uygulama_merkezi: 'Özel Eğitim Uygulama Merkezi',
   halk_egitim: 'Halk Eğitim Merkezi',
+  rehberlik_merkezi: 'Rehberlik ve Araştırma Merkezi',
+  ogretmenevi_aksam_sanat: 'Öğretmenevi ve Akşam Sanat Okulu',
+  mesleki_egitim_merkezi: 'Mesleki Eğitim Merkezi (MEM)',
   bilsem: 'Bilsem',
   /** Evrak şablonu / eski kod uyumu */
   gsl: 'Güzel Sanatlar Lisesi',

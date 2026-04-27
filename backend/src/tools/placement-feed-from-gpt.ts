@@ -12,6 +12,7 @@ import {
   chunkArray,
   mergeGptPlacementRows,
   runGptPlacementBatch,
+  type GptPlacementRawRow,
   type GptPlacementSchoolLine,
 } from '../schools/placement-gpt-extract-core';
 
@@ -104,7 +105,7 @@ async function main() {
 
   const openai = new OpenAI({ apiKey: key });
   const batches = chunkArray(schools, batchSize);
-  const raw: Parameters<typeof mergeGptPlacementRows>[0] = [];
+  const raw: GptPlacementRawRow[] = [];
   const warnings: string[] = [];
   console.log('Okul', schools.length, 'parti', batches.length, MODEL);
   for (let bi = 0; bi < batches.length; bi++) {
@@ -115,14 +116,22 @@ async function main() {
     console.log('→', rows.length);
   }
 
-  const merged = mergeGptPlacementRows(raw);
+  const { rows: merged, merge_warnings } = mergeGptPlacementRows(raw);
+  warnings.push(...merge_warnings.map((w) => `[merge] ${w}`));
   const payload = {
     auto_enable_dual_track: true,
     rows: merged.map((r) => ({
       institution_code: r.institution_code,
       year: r.year,
+      ...(r.track_id ? { track_id: r.track_id } : {}),
+      ...(r.track_title ? { track_title: r.track_title } : {}),
+      ...(r.program ? { program: r.program } : {}),
+      ...(r.language ? { language: r.language } : {}),
       with_exam: r.with_exam,
       without_exam: r.without_exam,
+      ...(r.contingent != null ? { contingent: r.contingent } : {}),
+      ...(r.tbs != null ? { tbs: r.tbs } : {}),
+      ...(r.min_taban != null ? { min_taban: r.min_taban } : {}),
     })),
   };
   if (warnings.length) console.warn(warnings.slice(0, 25).join('\n'));

@@ -3,7 +3,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { XMLParser } from 'fast-xml-parser';
 import * as cheerio from 'cheerio';
 import { ExamDutySyncSource } from './entities/exam-duty-sync-source.entity';
@@ -15,7 +15,11 @@ import {
   normalizeExamDutyCategorySlug,
   type DateValidationStatus,
 } from './entities/exam-duty.entity';
-import { applyExamDutyWallClockInTurkey, turkeyDayBeforeExamWithWallClock } from './exam-duty-turkey-time';
+import {
+  applyExamDutyWallClockInTurkey,
+  parseExamDutyGptYmdHmsInTurkey,
+  turkeyDayBeforeExamWithWallClock,
+} from './exam-duty-turkey-time';
 import { ExamDutyGptService, type ExamDutyExtractResult } from './exam-duty-gpt.service';
 import { ExamDutiesService } from './exam-duties.service';
 import { AppConfigService } from '../app-config/app-config.service';
@@ -382,16 +386,26 @@ export class ExamDutySyncService {
   }
 
   /**
-   * Sync test sıfırlama: `source_key` ile eşleşen tüm sınav görevi duyurularını kalıcı siler (taslak+yayın, silinmiş kayıt dahil),
-   * böylece sonraki sync geri yükleme yapmadan kaynaktan yeniden oluşturur. Kaynak satırı sync geçmişi yeni eklenmiş gibi sıfırlanır.
+   * Sync test sıfırlama: `source_key` ile eşleşen tüm sınav görevi duyurularını kalıcı siler (taslak+yayın, soft silinmiş dahil),
+   * böylece sonraki sync geri yükleme yapmadan kaynaktan yeniden oluşturur. Kaynak satırı sync geçmişi yeni eklenmiş gibi sıfırlanır;
+   * app_config’taki scrape slayt sırası (global “hafıza”) ve işlemci içi son sync özeti de temizlenir.
    */
-  async clearSyncData(sourceKey?: string): Promise<{ deleted: number; sources_reset: number }> {
+  async clearSyncData(sourceKey?: string): Promise<{
+    deleted: number;
+    sources_reset: number;
+    scrape_slider_reset: boolean;
+  }> {
     const allKeys = (await this.sourceRepo.find({ select: ['key'] })).map((s) => s.key);
     const trimmed = sourceKey?.trim();
     const keys = trimmed ? [trimmed] : allKeys;
     let deleted = 0;
     if (keys.length > 0) {
-      const r = await this.dutyRepo.delete({ sourceKey: In(keys) });
+      const r = await this.dutyRepo
+        .createQueryBuilder()
+        .delete()
+        .from(ExamDuty)
+        .where('source_key IN (:...keys)', { keys })
+        .execute();
       deleted = r.affected ?? 0;
     }
     let sourcesReset = 0;
@@ -407,6 +421,7 @@ export class ExamDutySyncService {
       await this.sourceRepo.save(src);
       sourcesReset++;
     }
+    await this.appConfig.updateExamDutySyncConfig({ sync_options: { scrape_slider_slot_index: 0 } });
     if (trimmed) {
       this.lastSkippedItems = this.lastSkippedItems.filter((i) => i.source_key !== trimmed);
     } else {
@@ -418,9 +433,9 @@ export class ExamDutySyncService {
     this.lastTotalRestored = 0;
     this.lastTotalGptErrors = 0;
     this.logger.log(
-      `[ExamDutySync] clearSyncData: ${deleted} duyuru kalıcı silindi, ${sourcesReset} kaynak sync alanları sıfırlandı`,
+      `[ExamDutySync] clearSyncData: ${deleted} duyuru kalıcı silindi, ${sourcesReset} kaynak sync alanları sıfırlandı, scrape slayt sırası=0`,
     );
-    return { deleted, sources_reset: sourcesReset };
+    return { deleted, sources_reset: sourcesReset, scrape_slider_reset: true };
   }
 
   /** Sync sağlık özeti – son sync zamanı, kaynak bazlı durum, toplam oluşturulan/geri yüklenen/GPT hata */
@@ -481,8 +496,17 @@ export class ExamDutySyncService {
         where: { role: UserRole.superadmin },
         select: ['id'],
       });
-      const title = 'Sınav görevi sync: kaynak hatası';
-      const body = `"${source.label}" (${source.key}) 3 kez üst üste hata verdi: ${errorMessage.slice(0, 200)}`;
+      const title = 'Otomatik sync · kaynak hatası (3x)';
+      const errNorm = errorMessage.replace(/\s+/g, ' ').trim();
+      const errShort = errNorm.slice(0, 220);
+      const body = [
+        `Kaynak: ${source.label}`,
+        `Anahtar: ${source.key}`,
+        'Aynı kaynak 3 kez üst üste hata verdi.',
+        errShort ? `Hata: ${errShort}${errNorm.length > 220 ? '…' : ''}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
       for (const sa of superadmins) {
         await this.notificationsService.createInboxEntry({
           user_id: sa.id,
@@ -516,13 +540,17 @@ export class ExamDutySyncService {
         .map((r) => {
           const c = r.created ?? 0;
           const rest = r.restored ?? 0;
-          return `• ${r.source_label}: ${c} yeni${rest > 0 ? `, ${rest} geri yükleme` : ''}`;
+          const restPart = rest > 0 ? ` · ${rest} geri yükleme` : '';
+          return `· ${r.source_label}: ${c} yeni${restPart}`;
         });
       const body =
         lines.length > 0
-          ? lines.join('\n')
-          : `Toplam ${totalCreated} yeni duyuru, ${totalRestored} geri yükleme.`;
-      const title = 'Sınav görevi sync: yeni duyurular işlendi';
+          ? ['Kaynaklara göre özet:', ...lines, '', `Toplam: ${totalCreated} yeni · ${totalRestored} geri yükleme`].join('\n')
+          : `Yeni veya geri yüklenen duyuru yok.\nToplam: ${totalCreated} yeni · ${totalRestored} geri yükleme`;
+      const title =
+        totalCreated + totalRestored > 0
+          ? `Otomatik sync · ${totalCreated} yeni, ${totalRestored} geri yükleme`
+          : 'Otomatik sync bitti (değişiklik yok)';
       for (const sa of superadmins) {
         await this.notificationsService.createInboxEntry({
           user_id: sa.id,
@@ -583,9 +611,12 @@ export class ExamDutySyncService {
         where: { role: UserRole.superadmin },
         select: ['id'],
       });
-      const title = 'Sınav görevi otomatik yayında';
-      const src = duty.sourceUrl ? ` Kaynak: ${duty.sourceUrl.slice(0, 120)}${duty.sourceUrl.length > 120 ? '…' : ''}` : '';
-      const body = `GPT sync ile oluşturulan duyuru yayına alındı: ${duty.title}.${src}`;
+      const title = 'Otomatik sync · duyuru yayında';
+      const titleShort = duty.title.length > 100 ? `${duty.title.slice(0, 100)}…` : duty.title;
+      const srcLine = duty.sourceUrl
+        ? `Kaynak: ${duty.sourceUrl.slice(0, 100)}${duty.sourceUrl.length > 100 ? '…' : ''}`
+        : '';
+      const body = ['GPT senk. ile üretilen kayıt yayınlandı.', `Başlık: ${titleShort}`, srcLine].filter(Boolean).join('\n');
       for (const sa of superadmins) {
         await this.notificationsService.createInboxEntry({
           user_id: sa.id,
@@ -722,7 +753,7 @@ export class ExamDutySyncService {
         source_label: source.label,
         title: title.slice(0, 512),
         url: linkUrl.slice(0, 1024),
-        reason,
+        reason: reason.length > 1000 ? `${reason.slice(0, 998)}…` : reason,
         list_section: placement?.list_section,
         section_order: placement?.section_order,
       });
@@ -784,7 +815,13 @@ export class ExamDutySyncService {
 
       const rawDesc = extractText(e.description ?? e.summary ?? e.content ?? e['content:encoded']);
       const pubDate = parseRssDate(e.pubDate ?? e.published ?? e.updated ?? e['dc:date']);
-      let parsed: { application_end?: Date; exam_date?: Date; exam_date_end?: Date; result_date?: Date } = {};
+      let parsed: {
+        application_end?: Date;
+        application_end_has_time?: boolean;
+        exam_date?: Date;
+        exam_date_end?: Date;
+        result_date?: Date;
+      } = {};
       let categorySlug = source.categorySlug;
 
       let rssHadGptResult = false;
@@ -799,7 +836,11 @@ export class ExamDutySyncService {
         const gptResult = gptResponse.result ?? null;
         if (gptResult) rssHadGptResult = true;
         if (gptResult) {
-          if (!gptResult.is_application_announcement) {
+          const treatRssAsApplication =
+            gptResult.is_application_announcement ||
+            this.bodySuggestsApplication(cleanedDesc) ||
+            this.bodyOrTitleSuggestsExamAnnouncement(rawDesc, title);
+          if (!treatRssAsApplication) {
             skipped++;
             addSkipped(title, link, 'GPT: Başvuru duyurusu değil', rssPlace);
             continue;
@@ -817,7 +858,8 @@ export class ExamDutySyncService {
           );
           if (
             hasGptDates === false &&
-            this.isLikelyNonApplication(title)
+            this.isLikelyNonApplication(title) &&
+            !this.bodyOrTitleSuggestsExamAnnouncement(rawDesc, title)
           ) {
             skipped++;
             addSkipped(title, link, 'Sadece ücret haberi; başvuru/sınav tarihi yok', rssPlace);
@@ -831,13 +873,38 @@ export class ExamDutySyncService {
             fallbackSlug: source.categorySlug,
             mode: 'rss',
           });
-          if (gptResult.son_basvuru) parsed.application_end = new Date(gptResult.son_basvuru);
-          if (gptResult.sinav_1_gunu) parsed.exam_date = new Date(gptResult.sinav_1_gunu);
-          if (gptResult.sinav_2_gunu) parsed.exam_date_end = new Date(gptResult.sinav_2_gunu);
-          if (gptResult.sinav_oncesi_hatirlatma) {
-            const rd = new Date(gptResult.sinav_oncesi_hatirlatma);
-            if (!isNaN(rd.getTime())) parsed.result_date = rd;
+          if (gptResult.son_basvuru) {
+            const ad = parseExamDutyGptYmdHmsInTurkey(gptResult.son_basvuru);
+            if (ad) {
+              parsed.application_end = ad;
+              parsed.application_end_has_time = /^\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}/.test(
+                gptResult.son_basvuru.trim(),
+              );
+            }
           }
+          if (gptResult.sinav_1_gunu) {
+            const ed = parseExamDutyGptYmdHmsInTurkey(gptResult.sinav_1_gunu);
+            if (ed) parsed.exam_date = ed;
+          }
+          if (gptResult.sinav_2_gunu) {
+            const eed = parseExamDutyGptYmdHmsInTurkey(gptResult.sinav_2_gunu);
+            if (eed) parsed.exam_date_end = eed;
+          }
+          if (gptResult.sinav_oncesi_hatirlatma) {
+            const rd = parseExamDutyGptYmdHmsInTurkey(gptResult.sinav_oncesi_hatirlatma);
+            if (rd) parsed.result_date = rd;
+          }
+        }
+      }
+      if (rawDesc) {
+        const fb = this.parseDatesFromBodyFallback(rawDesc);
+        if (fb) {
+          if (!parsed.application_end && fb.application_end) {
+            parsed.application_end = fb.application_end;
+            if (fb.application_end_has_time) parsed.application_end_has_time = true;
+          }
+          if (!parsed.exam_date && fb.exam_date) parsed.exam_date = fb.exam_date;
+          if (!parsed.exam_date_end && fb.exam_date_end) parsed.exam_date_end = fb.exam_date_end;
         }
       }
       const applicationUrl = getApplicationUrlForCategory(categorySlug);
@@ -870,7 +937,12 @@ export class ExamDutySyncService {
         continue;
       }
 
-      const rssApplicationEnd = applyTime(parsed.application_end ?? null, 'application_end');
+      const rawAppEnd = parsed.application_end ?? null;
+      const rssApplicationEnd = rawAppEnd
+        ? parsed.application_end_has_time
+          ? rawAppEnd
+          : applyTime(rawAppEnd, 'application_end')
+        : null;
       const dedupeSched = examSyncOpts.dedupe_exam_schedule !== false;
       const scheduleDupRss = dedupeSched
         ? await this.findDuplicateDutyByExamSchedule(
@@ -985,6 +1057,10 @@ export class ExamDutySyncService {
       max_process_per_sync?: number;
       /** Liste havuzundan “en güncel” N link GPT/içerik kontrolünden geçer (1–80, varsayılan 15) */
       latest_content_check_limit?: number;
+      /**
+       * `skip_title_keywords: true` olsa bile başlık anahtarlarını uygula (Güncel Eğitim #headline’da SONDAKİKA gürültüsünü ele).
+       */
+      force_title_keyword_filter?: boolean;
     } | null;
 
     const maxProcessPerSync = config?.max_process_per_sync ?? 0;
@@ -1031,7 +1107,7 @@ export class ExamDutySyncService {
     const titleSelector = config?.title_selector ?? 'a';
     const dateSelector = config?.date_selector ?? '';
 
-    const candidates: {
+    let candidates: {
       title: string;
       href: string;
       dateStr: string;
@@ -1137,7 +1213,7 @@ export class ExamDutySyncService {
     // Silinen duyuruları tekrar kontrol et: recheck adayları ekle (aynı kaynaksa).
     const bodySelectors =
       config?.article_body_selector ??
-      'article, .post-content, .content, .entry-content, main, .haber-detay, .haber-content';
+      'article, .post-content, .content, .entry-content, main, .haber-detay, .haber-content, [itemprop=articleBody], .yazi-icerik, .news-content';
     let recheckSectionOrder = 0;
     for (const recheckDuty of recheckDuties) {
       if (recheckDuty.sourceKey !== source.key || !recheckDuty.sourceUrl?.trim()) continue;
@@ -1157,6 +1233,21 @@ export class ExamDutySyncService {
         section_order: recheckSectionOrder++,
       });
       this.logger.log(`[${source.key}] Recheck: silinen duyuru linki eklendi (${recheckUrl.slice(0, 60)}…)`);
+    }
+
+    if (
+      (source.key === 'exam_duty_guncelegitim' || config?.force_title_keyword_filter === true) &&
+      source.titleKeywords?.trim()
+    ) {
+      const beforeN = candidates.length;
+      candidates = candidates.filter(
+        (c) => c.fromRecheck || matchesKeywords(c.title, source.titleKeywords),
+      );
+      if (beforeN !== candidates.length) {
+        this.logger.log(
+          `[${source.key}] Başlık anahtar süzgeci: ${beforeN - candidates.length} aday elendi (ör. SONDAKİKA gürültüsü), kalan ${candidates.length}`,
+        );
+      }
     }
 
     const candidatesPoolSize = candidates.length;
@@ -1241,7 +1332,7 @@ export class ExamDutySyncService {
         source_label: source.label,
         title: title.slice(0, 512),
         url: hrefUrl.slice(0, 1024),
-        reason,
+        reason: reason.length > 1000 ? `${reason.slice(0, 998)}…` : reason,
         list_section: sec,
         section_order: placement?.section_order,
         slider_pool_size: sec === 'slider' && sliderPoolSizeMeta > 0 ? sliderPoolSizeMeta : undefined,
@@ -1302,7 +1393,7 @@ export class ExamDutySyncService {
       if (!bodyText && fetchArticle) {
         const bodySelectors =
           config?.article_body_selector ??
-          'article, .post-content, .content, .entry-content, main, .haber-detay, .haber-content';
+          'article, .post-content, .content, .entry-content, main, .haber-detay, .haber-content, [itemprop=articleBody], .yazi-icerik, .news-content';
         bodyText = await this.fetchArticleBody(c.href, bodySelectors, options.timeoutMs);
         if (!bodyText) {
           skipped++;
@@ -1330,6 +1421,9 @@ export class ExamDutySyncService {
         gptResult = gptResponse.result ?? null;
       }
 
+      /** Metin+regex: GPT’den önce de hesapla; aksi halde gövde “Son başvuru” olsa hasAnyDate yalan → boş taslak / hatalı atlama. */
+      const fallbackDates = bodyText ? this.parseDatesFromBodyFallback(bodyText) : null;
+
       if (filterNonApplication) {
         const bodySuggestsApp = bodyText ? this.bodySuggestsApplication(bodyText) : false;
         const bodyFeeOnly = bodyText
@@ -1344,13 +1438,19 @@ export class ExamDutySyncService {
           /** GPT false dediyse metin "sınav tarihi" geçse bile başvuru duyurusu sayma (olay haberi yanlış pozitif). */
           const treatAsApplication =
             gptResult.is_application_announcement ||
-            (gptResult.is_application_announcement !== false && bodySuggestsApp && hasBody);
+            (gptResult.is_application_announcement !== false && bodySuggestsApp && hasBody) ||
+            this.bodyOrTitleSuggestsExamAnnouncement(bodyText ?? null, c.title);
+          const hasFallbackDate = !!(
+            fallbackDates?.application_end ||
+            fallbackDates?.exam_date ||
+            fallbackDates?.exam_date_end
+          );
           const hasAnyDate = !!(
             gptResult.son_basvuru ||
             gptResult.sinav_1_gunu ||
             gptResult.sinav_2_gunu ||
             gptResult.sinav_oncesi_hatirlatma
-          );
+          ) || hasFallbackDate;
           if (
             !isExamAnnouncement &&
             !treatAsApplication
@@ -1360,7 +1460,7 @@ export class ExamDutySyncService {
             addSkipped(
               c.title,
               c.href,
-              'GPT: Başvuru duyurusu değil',
+              `GPT: is_application_announcement=false; model bu metni resmi başvuru/sınav duyurusu saymadı (kategori: ${gptResult.category_slug ?? '—'}). Olay, yalnız ücret, köşe metni ihtimali.`,
               skipPlacement,
             );
             continue;
@@ -1368,10 +1468,17 @@ export class ExamDutySyncService {
           if (treatAsApplication && !hasAnyDate && !options.addDraftWithoutDates) {
             skipped++;
             skippedGpt++;
+            const gptFlags = [
+              gptResult.son_basvuru ? 'son_b' : null,
+              gptResult.sinav_1_gunu ? 's1' : null,
+              gptResult.sinav_2_gunu ? 's2' : null,
+            ]
+              .filter(Boolean)
+              .join(',');
             addSkipped(
               c.title,
               c.href,
-              'GPT: İçerikte sınav tarihi veya başvuru tarihi bulunamadı (tam metin kontrol edildi)',
+              `GPT+regex: Tarih yok (kayıt açılamaz). GPT alan: ${gptFlags || 'hepsi boş'}. Regex/gövde: ${hasFallbackDate ? 'kısmi tarih bulundu' : 'tarih satırı yok'}. Haber metni: ${bodyText ? `${bodyText.length} karakter` : 'yok'}.`,
               skipPlacement,
             );
             continue;
@@ -1398,19 +1505,18 @@ export class ExamDutySyncService {
       const externalId = normHref;
       existingIds.add(externalId);
 
-      const fallbackDates = bodyText ? this.parseDatesFromBodyFallback(bodyText) : null;
       const useGptForDates = gptEnabled && gptAvailable && gptResult;
 
       const parseGptDate = (dateStr: string | null | undefined): { date: Date | null, hasTime: boolean } => {
-        if (!dateStr) return { date: null, hasTime: false };
-        const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2}))?/);
+        if (!dateStr?.trim()) return { date: null, hasTime: false };
+        const m = dateStr.trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{1,2}))?/);
         if (!m) return { date: null, hasTime: false };
-        const y = parseInt(m[1], 10), mo = parseInt(m[2], 10) - 1, d = parseInt(m[3], 10);
+        const y = parseInt(m[1], 10);
         if (y < 2024 || y > 2030) return { date: null, hasTime: false };
-        if (m[4] && m[5]) {
-          return { date: new Date(y, mo, d, parseInt(m[4], 10), parseInt(m[5], 10)), hasTime: true };
-        }
-        return { date: new Date(y, mo, d), hasTime: false };
+        const hasTime = !!(m[4] && m[5]);
+        const d = parseExamDutyGptYmdHmsInTurkey(dateStr.trim());
+        if (!d) return { date: null, hasTime: false };
+        return { date: d, hasTime };
       };
 
       const gptSonBasvuru = parseGptDate(gptResult?.son_basvuru);
@@ -1444,12 +1550,12 @@ export class ExamDutySyncService {
       let examDate: Date | null;
       let examDateEnd: Date | null;
       if (useGptForDates && gptResult) {
-        if (gptHasExamStrings) {
-          examDate = gptSinav1.date;
-          examDateEnd = gptSinav2.date ?? gptSinav1.date;
+        if (gptHasExamStrings && (gptSinav1.date != null || gptSinav2.date != null)) {
+          examDate = gptSinav1.date ?? gptSinav2.date;
+          examDateEnd = (gptSinav2.date ?? gptSinav1.date) ?? null;
         } else {
-          examDate = null;
-          examDateEnd = null;
+          examDate = fallbackDates?.exam_date ?? null;
+          examDateEnd = fallbackDates?.exam_date_end ?? null;
         }
         resultDate = gptSinavOncesi.date;
       } else {
@@ -1932,17 +2038,43 @@ export class ExamDutySyncService {
       const html = this.decodeHtmlWithCharset(Buffer.from(buffer), res.headers.get('content-type'));
       const $ = cheerio.load(html);
       const parts = selectors.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+      /** İlk 80+ karakterlik blok yeterli değil: bazı sitede kısa <article> önce gelir, asıl “Son başvuru” alanı kaybolur; en uzun eşleşmeyi al. */
+      let best: string | null = null;
+      let bestLen = 0;
       for (const sel of parts) {
         const $el = $(sel).first();
-        if ($el.length) {
-          const txt = $el.text().trim();
-          if (txt.length >= 80) return txt;
+        if (!$el.length) continue;
+        const txt = $el.text().trim();
+        if (txt.length >= 40 && txt.length > bestLen) {
+          best = txt;
+          bestLen = txt.length;
         }
       }
+      if (best) return best;
     } catch {
       // ignore
     }
     return null;
+  }
+
+  /**
+   * Haber metninde 2025 / 2026 yılı gibi yıl; yoksa 2024–2030 arası ilk 4 haneli yıl (ör. paragrafta).
+   * Gün+ay+yıl aynı satırda yokken (Güncel Eğitim: "Son başvuru: 21 Nisan saat 14.00") kullanılır.
+   */
+  private inferExamDutyYearFromBody(norm: string): number {
+    const yil = norm.match(/(?:\b(20[2-3][0-9]))\s*yıl/i);
+    if (yil) {
+      const y = parseInt(yil[1]!, 10);
+      if (y >= 2024 && y <= 2030) return y;
+    }
+    const any = norm.match(/\b(20[2-3][0-9])\b/);
+    if (any) {
+      const y = parseInt(any[1]!, 10);
+      if (y >= 2024 && y <= 2030) return y;
+    }
+    const y0 = new Date().getFullYear();
+    if (y0 >= 2024 && y0 <= 2030) return y0;
+    return 2026;
   }
 
   /** Body'den tarih çıkar (GPT null döndüğünde fallback). Başvuru: DD.MM.YYYY - DD.MM.YYYY, Sınav Tarihi : DD.MM.YYYY, Son gün: DD Ay YYYY */
@@ -1969,6 +2101,12 @@ export class ExamDutySyncService {
       ocak: 1, şubat: 2, mart: 3, nisan: 4, mayıs: 5, haziran: 6,
       temmuz: 7, ağustos: 8, eylül: 9, ekim: 10, kasım: 11, aralık: 12,
     };
+    const norm = body
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\*+/g, ' ')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n');
+    const inferY = (): number => this.inferExamDutyYearFromBody(norm);
     const out: {
       application_start?: Date;
       application_end?: Date;
@@ -1976,7 +2114,6 @@ export class ExamDutySyncService {
       exam_date?: Date;
       exam_date_end?: Date;
     } = {};
-    const norm = body.replace(/<[^>]+>/g, ' ').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
     /** "19 Nisan 2026 Pazar günü saat 23.59'a kadar … görev talebi" (AÖF / üniversite duyuruları). Önce (saatli). */
     const gorevSonGunKadarMatch = norm.match(
@@ -2055,6 +2192,28 @@ export class ExamDutySyncService {
       if (m && d && y) {
         const dt = toDate(d, m, y);
         if (dt) out.application_end = dt;
+      }
+    }
+
+    /** Güncel Eğitim vb.: "Son başvuru: 21 Nisan saat 14.00" (satırda yıl yok; yıl metinden), birden çok varsa en erkeni */
+    if (!out.application_end) {
+      const re = /son\s*başvuru\s*:\s*(\d{1,2})\s+(ocak|şubat|mart|nisan|mayıs|haziran|temmuz|ağustos|eylül|ekim|kasım|aralık)\s+saat\s+(\d{1,2})[.:](\d{2})/gi;
+      const y0 = inferY();
+      const candidates: Date[] = [];
+      for (const m of norm.matchAll(re)) {
+        const d = parseInt(m[1]!, 10);
+        const mo = months[m[2]!.toLowerCase()] ?? 0;
+        const hh = parseInt(m[3]!, 10);
+        const min = parseInt(m[4]!, 10);
+        if (d && mo) {
+          const dt = toDateTime(d, mo, y0, hh, min);
+          if (dt) candidates.push(dt);
+        }
+      }
+      if (candidates.length) {
+        candidates.sort((a, b) => a.getTime() - b.getTime());
+        out.application_end = candidates[0]!;
+        out.application_end_has_time = true;
       }
     }
 
@@ -2396,6 +2555,7 @@ export class ExamDutySyncService {
   /** Ücret/uyarı/ek gelir haberi mi (başvuru duyurusu değil) – kural tabanlı; tarihsiz genel bilgi atlanır */
   private isLikelyNonApplication(title: string): boolean {
     const t = title.toLowerCase();
+    if (/\bsınav\s*görev/.test(t) && /\b(ücret|tablo|gözetmen|salon\s*baş)/i.test(t)) return false;
     const hasBaşvuruSignal =
       /başvuru|yeni.*görev|görev.*başvuru|tercih.*süreci|oturum.*görev|görev.*oturum|sınav\s*görevi\s*başvuru/i.test(
         t,

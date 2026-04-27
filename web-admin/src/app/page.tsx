@@ -15,8 +15,9 @@ export const metadata: Metadata = {
 };
 
 import Link from 'next/link';
-import { LogIn, UserPlus } from 'lucide-react';
+import { UserPlus } from 'lucide-react';
 import { AuthTransitionLink } from '@/components/landing/auth-transition-link';
+import { LandingLoginLink } from '@/components/landing/landing-login-link';
 import { SealHub } from '@/components/landing/seal-hub';
 import { CookiePreferencesLink } from '@/components/cookie-preferences-link';
 
@@ -67,13 +68,7 @@ export default function HomePage() {
       >
         <p className="text-[10px] font-bold uppercase tracking-[0.32em] text-zinc-600">Uzaedu Öğretmen</p>
         <nav className="flex items-center gap-2" aria-label="Hesap">
-          <AuthTransitionLink
-            href="/login"
-            className="flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-950/70 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition hover:border-zinc-600 hover:text-white sm:px-4 sm:py-2"
-          >
-            <LogIn className="size-3.5" strokeWidth={2} />
-            Giriş
-          </AuthTransitionLink>
+          <LandingLoginLink />
           <AuthTransitionLink
             href="/register"
             className="flex items-center gap-1.5 rounded-full bg-linear-to-r from-red-700 to-red-800 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-red-950/50 transition hover:from-red-600 hover:to-red-700 sm:px-4 sm:py-2"

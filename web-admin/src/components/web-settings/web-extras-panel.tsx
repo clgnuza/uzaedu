@@ -66,6 +66,16 @@ const REF_MAINT_PREFIXES = [
   '/storage',
 ].join('\n');
 
+function normalizeGoogleVerificationInput(v: string): string | null {
+  let s = v.trim();
+  if (!s) return null;
+  const p = 'google-site-verification=';
+  if (s.slice(0, p.length).toLowerCase() === p.toLowerCase()) s = s.slice(p.length).trim();
+  s = s.slice(0, 128);
+  if (!/^[A-Za-z0-9_-]+$/.test(s)) return null;
+  return s;
+}
+
 function MaintenancePathHint({ body }: { body: string }) {
   return (
     <div className="space-y-1.5">
@@ -91,6 +101,7 @@ const empty: WebExtrasPublic = {
   global_robots_noindex: false,
   default_og_image_url: null,
   meta_description: null,
+  google_site_verification: null,
   recaptcha_site_key: null,
   pwa_short_name: null,
   theme_color: null,
@@ -154,6 +165,7 @@ export function WebExtrasPanel() {
         token,
         body: JSON.stringify({
           ...form,
+          google_site_verification: normalizeGoogleVerificationInput(String(form.google_site_verification ?? '')),
           maintenance_allowed_exact: exact,
           maintenance_allowed_prefixes: prefixes,
         }),
@@ -402,6 +414,30 @@ export function WebExtrasPanel() {
               />
               robots.txt tüm siteyi disallow (noindex benzeri)
             </label>
+            <div className="mb-5 grid gap-5 sm:max-w-xl">
+              <WebSettingsField
+                label="Google Search Console doğrulama"
+                hint="İçerik kısmı veya google-site-verification=… yapıştırın. Kayıtta normalize edilir."
+                htmlFor="wx-gsc"
+              >
+                <Input
+                  id="wx-gsc"
+                  className={WEB_SETTINGS_INPUT}
+                  value={form.google_site_verification ?? ''}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, google_site_verification: e.target.value || null }))
+                  }
+                  onBlur={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      google_site_verification: normalizeGoogleVerificationInput(e.target.value),
+                    }))
+                  }
+                  placeholder="L4vQq9O…"
+                  spellCheck={false}
+                />
+              </WebSettingsField>
+            </div>
             <div className="grid gap-5 sm:max-w-xl">
               <WebSettingsField
                 label="Varsayılan OG görsel URL"

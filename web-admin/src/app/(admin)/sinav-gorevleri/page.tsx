@@ -61,7 +61,6 @@ import {
   SkipForward,
   CalendarPlus,
   CalendarX,
-  CalendarOff,
   FileCheck,
   Bell,
   Megaphone,
@@ -835,12 +834,14 @@ export default function SinavGorevleriPage() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
-  const [mainView, setMainView] = useState<'list' | 'flow-calendar' | 'skipped' | 'no-dates' | 'no-exam'>('list');
+  const [mainView, setMainView] = useState<'list' | 'flow-calendar' | 'skipped'>('list');
   const systemTimeTurkey = useTurkeyClock();
   const [skippedItems, setSkippedItems] = useState<SkippedItem[]>([]);
   const [skippedSyncedAt, setSkippedSyncedAt] = useState<string | null>(null);
   const [skippedLoading, setSkippedLoading] = useState(false);
   const skippedItemsSorted = useMemo(() => [...skippedItems].sort(compareSkippedItems), [skippedItems]);
+  const [issueDutyRows, setIssueDutyRows] = useState<{ item: ExamDutyItem; reason: string }[]>([]);
+  const [issueDutyLoading, setIssueDutyLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<ExamDutyItem | null>(null);
   const [bodyEditRaw, setBodyEditRaw] = useState(false);
@@ -945,17 +946,62 @@ export default function SinavGorevleriPage() {
   }, [token, isSuperadmin]);
 
   const effectiveLimit = mainView === 'flow-calendar' ? 500 : limit;
+  const fetchIssueDutyRows = useCallback(async () => {
+    if (!token || !isSuperadmin) return;
+    setIssueDutyLoading(true);
+    try {
+      const pNoSource = new URLSearchParams({ missing_source_dates: '1', limit: '100', page: '1' });
+      const pNoExam = new URLSearchParams({ missing_exam_date: '1', limit: '100', page: '1' });
+      const [r1, r2] = await Promise.all([
+        apiFetch<ListResponse>(`/admin/exam-duties?${pNoSource}`, { token }),
+        apiFetch<ListResponse>(`/admin/exam-duties?${pNoExam}`, { token }),
+      ]);
+      const fromSource = r1?.items ?? [];
+      const fromExam = r2?.items ?? [];
+      const byId = new Map<string, { item: ExamDutyItem; fromNoSource: boolean; fromNoExam: boolean }>();
+      for (const it of fromSource) {
+        byId.set(it.id, { item: it, fromNoSource: true, fromNoExam: true });
+      }
+      for (const it of fromExam) {
+        const ex = byId.get(it.id);
+        if (ex) ex.fromNoExam = true;
+        else byId.set(it.id, { item: it, fromNoSource: false, fromNoExam: true });
+      }
+      const rows: { item: ExamDutyItem; reason: string }[] = [];
+      for (const { item, fromNoSource } of byId.values()) {
+        const app = item.application_end ?? item.applicationEnd;
+        if (fromNoSource) {
+          rows.push({
+            item,
+            reason:
+              'Hem son başvuru hem sınav alanları boş. GPT+regex tüm metni taramış olmalı; “tarihsiz taslak ekle” ile de açılmış olabilir. Kaynağı açıp Düzenle veya yeni sync dene.',
+          });
+        } else {
+          rows.push({
+            item,
+            reason: `Sınav başlangıç/bitiş yok. Son başvuru kayıtta: ${app ? 'dolu' : 'boş'}. Haber çoğunlukla ücret/son başvuru listesi; sınav günü ayrı ilan. Kaynak linkinden kontrol, Düzenle veya re-sync.`,
+          });
+        }
+      }
+      rows.sort((a, b) => a.item.title.localeCompare(b.item.title, 'tr'));
+      setIssueDutyRows(rows);
+    } catch {
+      setIssueDutyRows([]);
+    } finally {
+      setIssueDutyLoading(false);
+    }
+  }, [token, isSuperadmin]);
+
   const fetchList = useCallback(async (opts?: { forCalendar?: boolean }) => {
     if (!token || !isSuperadmin) return;
     const forCalendar = opts?.forCalendar ?? false;
+    if (mainView === 'skipped' && !forCalendar) return;
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (categoryFilter) params.set('category_slug', categoryFilter);
       if (statusFilter && !forCalendar) params.set('status', statusFilter);
       if (forCalendar || mainView === 'list') params.set('has_exam_date', '1');
-      if (!forCalendar && mainView === 'no-dates') params.set('missing_source_dates', '1');
-      if (!forCalendar && mainView === 'no-exam') params.set('missing_exam_date', '1');
       params.set('page', String(forCalendar ? 1 : page));
       params.set('limit', String(forCalendar ? 100 : limit));
       const res = await apiFetch<ListResponse>(`/admin/exam-duties?${params}`, { token });
@@ -996,11 +1042,16 @@ export default function SinavGorevleriPage() {
     void fetchList();
   }, [isSuperadmin, token, fetchList]);
 
+  const refreshAtlananlar = useCallback(() => {
+    void fetchSkippedItems();
+    void fetchIssueDutyRows();
+  }, [fetchSkippedItems, fetchIssueDutyRows]);
+
   useEffect(() => {
     if (mainView === 'skipped' && isSuperadmin && token) {
-      fetchSkippedItems();
+      refreshAtlananlar();
     }
-  }, [mainView, isSuperadmin, token, fetchSkippedItems]);
+  }, [mainView, isSuperadmin, token, refreshAtlananlar]);
 
   // Akış Takvimi açıldığında sadece takvim için veri çek (limit 100, backend max; status yok); yayınlanan duyurular dahil tüm tarihler görünsün
   useEffect(() => {
@@ -1109,6 +1160,7 @@ export default function SinavGorevleriPage() {
       }
       setShowForm(false);
       fetchList();
+      if (mainView === 'skipped') void fetchIssueDutyRows();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Kaydedilemedi');
     } finally {
@@ -1122,6 +1174,7 @@ export default function SinavGorevleriPage() {
       await apiFetch(`/admin/exam-duties/${id}`, { method: 'DELETE', token });
       toast.success('Silindi');
       fetchList();
+      if (mainView === 'skipped') void fetchIssueDutyRows();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Silinemedi');
     }
@@ -1154,6 +1207,7 @@ export default function SinavGorevleriPage() {
       await apiFetch(`/admin/exam-duties/${id}/publish`, { method: 'POST', token });
       toast.success('Yayınlandı');
       fetchList();
+      if (mainView === 'skipped') void fetchIssueDutyRows();
       setSelectedIds((s) => {
         const next = new Set(s);
         next.delete(id);
@@ -1206,6 +1260,7 @@ export default function SinavGorevleriPage() {
       }
       setSelectedIds(new Set());
       fetchList();
+      if (mainView === 'skipped') void fetchIssueDutyRows();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Toplu yayınlama başarısız');
     } finally {
@@ -1229,6 +1284,7 @@ export default function SinavGorevleriPage() {
       }
       setSelectedIds(new Set());
       fetchList();
+      if (mainView === 'skipped') void fetchIssueDutyRows();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Toplu silme başarısız');
     } finally {
@@ -1253,6 +1309,7 @@ export default function SinavGorevleriPage() {
       setBulkDateForm({ field: 'application_end', value: '' });
       setSelectedIds(new Set());
       fetchList();
+      if (mainView === 'skipped') void fetchIssueDutyRows();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Toplu tarih güncelleme başarısız');
     } finally {
@@ -1310,6 +1367,7 @@ export default function SinavGorevleriPage() {
       setSkippedItems(Array.isArray(res.skipped_items) ? res.skipped_items : []);
       setSkippedSyncedAt(new Date().toISOString());
       fetchList();
+      void fetchIssueDutyRows();
       fetchSyncSources();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Sync başarısız');
@@ -1322,23 +1380,30 @@ export default function SinavGorevleriPage() {
     if (!token) return;
     if (
       !confirm(
-        'Kaynaklara bağlı TÜM sınav görevi duyuruları kalıcı silinecek (taslak ve yayın), sync geçmişi sıfırlanacak; sonraki sync silinen kayıtları geri yüklemez. Devam?',
+        'Kaynaklara bağlı TÜM sınav görevi duyuruları kalıcı silinecek (taslak, yayın, admin soft silinmiş), kaynak satırlarının sync geçmişi ve slayt adımı (0) sıfırlanacak; işlemcideki son atlananlar listesi de temizlenir. Devam?',
       )
     )
       return;
     setSyncing(true);
     try {
-      const res = await apiFetch<{ deleted: number; sources_reset: number }>('/admin/exam-duties/clear-sync-data', {
+      const res = await apiFetch<{
+        deleted: number;
+        sources_reset: number;
+        scrape_slider_reset?: boolean;
+      }>('/admin/exam-duties/clear-sync-data', {
         method: 'POST',
         token,
         body: JSON.stringify({}),
       });
+      const sliderNote = res.scrape_slider_reset ? ' Slayt sırası (küresel) sıfırlandı.' : '';
       toast.success(
         res.deleted > 0
-          ? `${res.deleted} duyuru silindi, ${res.sources_reset} kaynak sync sıfırlandı`
-          : `Silinecek kayıt yok; ${res.sources_reset} kaynak sync sıfırlandı`,
+          ? `${res.deleted} duyuru silindi, ${res.sources_reset} kaynak sync sıfırlandı.${sliderNote}`
+          : `Silinecek kayıt yok; ${res.sources_reset} kaynak sync sıfırlandı.${sliderNote}`,
       );
       fetchList();
+      void fetchIssueDutyRows();
+      void fetchSkippedItems();
       fetchSyncSources();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Temizleme başarısız');
@@ -1354,15 +1419,11 @@ export default function SinavGorevleriPage() {
   const statsScopeLabel =
     mainView === 'list'
       ? 'Sınav tarihi olan duyurular'
-      : mainView === 'no-dates'
-        ? 'Kaynakta başvuru/sınav tarihi yok'
-        : mainView === 'no-exam'
-          ? 'Sınav tarihi eksik'
-          : mainView === 'flow-calendar'
-            ? 'Takvim (sınav tarihi olan)'
-            : mainView === 'skipped'
-              ? 'Kurum/durum + gizleme kuralları (görünüm sekmesi filtresiz)'
-              : 'Filtreye göre';
+      : mainView === 'flow-calendar'
+        ? 'Takvim (sınav tarihi olan)'
+        : mainView === 'skipped'
+          ? 'Sync atlananları + kayıtta tarihi eksik taslaklar (Atlananlar sekmesi)'
+          : 'Filtreye göre';
 
   if (!isSuperadmin) return null;
 
@@ -1520,9 +1581,9 @@ export default function SinavGorevleriPage() {
           <button
             type="button"
             onClick={() => setMainView('skipped')}
-            title="Sync sırasında eklenmeyen kayıtlar"
+            title="Sync’te neden atlandığı + kayıtta tarih eksik taslaklar (tek sayfa)"
             className={cn(
-              'flex min-h-[48px] w-full flex-col items-start gap-0.5 rounded-xl border px-4 py-3 text-left transition-all sm:min-w-[120px] sm:w-auto',
+              'flex min-h-[48px] w-full flex-col items-start gap-0.5 rounded-xl border px-4 py-3 text-left transition-all sm:min-w-[140px] sm:w-auto',
               mainView === 'skipped'
                 ? 'bg-primary text-primary-foreground border-primary shadow-md'
                 : 'bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent'
@@ -1533,45 +1594,7 @@ export default function SinavGorevleriPage() {
               Atlananlar
             </span>
             <span className={cn('text-xs', mainView === 'skipped' ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
-              Eklenmeyen kayıtlar
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setMainView('no-dates')}
-            title="GPT veya kaynak metninden başvuru/sınav tarihi çıkarılamayan sync duyuruları"
-            className={cn(
-              'flex min-h-[48px] w-full flex-col items-start gap-0.5 rounded-xl border px-4 py-3 text-left transition-all sm:min-w-[120px] sm:w-auto',
-              mainView === 'no-dates'
-                ? 'bg-primary text-primary-foreground border-primary shadow-md'
-                : 'bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent'
-            )}
-          >
-            <span className="flex items-center gap-2 font-medium">
-              <CalendarX className="size-4 shrink-0" />
-              Tarihsiz
-            </span>
-            <span className={cn('text-xs', mainView === 'no-dates' ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
-              Kaynakta tarih yok
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setMainView('no-exam')}
-            title="Sınav başlangıç/bitiş tarihi kayıtta olmayan duyurular"
-            className={cn(
-              'flex min-h-[48px] w-full flex-col items-start gap-0.5 rounded-xl border px-4 py-3 text-left transition-all sm:min-w-[120px] sm:w-auto',
-              mainView === 'no-exam'
-                ? 'bg-primary text-primary-foreground border-primary shadow-md'
-                : 'bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent'
-            )}
-          >
-            <span className="flex items-center gap-2 font-medium">
-              <CalendarOff className="size-4 shrink-0" />
-              Sınav tarihi yok
-            </span>
-            <span className={cn('text-xs', mainView === 'no-exam' ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
-              Tespit edilemeyen
+              Atlanan + tarihsiz / sınav yok
             </span>
           </button>
         </div>
@@ -1586,8 +1609,10 @@ export default function SinavGorevleriPage() {
                   <SkipForward className="size-5 text-primary" />
                 </div>
                 <div>
-                  <CardTitle className="text-base font-semibold">Atlanan içerik</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-0.5">Slayt → sayfa listesi → RSS; slaytta x/y (sync anındaki havuz) ve atlama nedeni</p>
+                  <CardTitle className="text-base font-semibold">Atlananlar ve eksik tarih</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    (1) Sync’te neden haber alınmadı, (2) alındıysa kayıtta hangi alan boş kaldı — tüm nedenler bu sayfada
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -1599,67 +1624,153 @@ export default function SinavGorevleriPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => fetchSkippedItems()}
-                  disabled={skippedLoading}
+                  onClick={() => refreshAtlananlar()}
+                  disabled={skippedLoading || issueDutyLoading}
                   className="gap-1.5"
                 >
-                  <RefreshCw className={skippedLoading ? 'size-4 animate-spin' : 'size-4'} />
+                  <RefreshCw className={skippedLoading || issueDutyLoading ? 'size-4 animate-spin' : 'size-4'} />
                   Yenile
                 </Button>
               </div>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Liste önce slayt sırasına göre; slayt satırında x/y toplam slayt sayısı (örn. 15). Yeni özet için &quot;Şimdi Sync&quot; çalıştırın.
+              Üst bölüm: son sync’te atlanan RSS/Slayt satırları. Alt bölüm: veritabanındaki taslak/yayın kayıtları; “tarihsiz” ve
+              “sınav yok” filtreleri yönetimden kaldırıldı, hepsi burada birleşir. Yeni özet için &quot;Şimdi Sync&quot; çalıştırın.
             </p>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="p-0 space-y-0">
+            <div className="border-b border-border/60 bg-muted/15 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              1. Sync’te hiç eklenmeyen (kaynak satırı)
+            </div>
             {skippedLoading ? (
-              <div className="flex min-h-[200px] items-center justify-center py-12">
-                <LoadingSpinner className="size-8" />
+              <div className="flex min-h-[120px] items-center justify-center py-8">
+                <LoadingSpinner className="size-6" />
               </div>
             ) : skippedItemsSorted.length === 0 ? (
-              <EmptyState
-                icon={<SkipForward className="size-12 text-muted-foreground" />}
-                title="Atlanan kayıt yok"
-                description="Henüz sync yapılmadı veya son sync'te atlanan içerik bulunmadı. Şimdi Sync ile güncel atlananları görebilirsiniz."
-                className="py-16"
-              />
+              <p className="px-4 py-8 text-sm text-muted-foreground">Son sync’te atlanan satır yok (veya henüz sync yapılmadı).</p>
             ) : (
               <div className="table-x-scroll">
-                <table className="w-full min-w-[720px] text-sm">
+                  <table className="w-full min-w-[900px] text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/30">
+                        <th className="px-4 py-3 text-left font-semibold">Kaynak</th>
+                        <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">Sayfadaki yer</th>
+                        <th className="px-4 py-3 text-left font-semibold">Başlık</th>
+                        <th className="px-4 py-3 text-left font-semibold min-w-[220px]">Haber linki</th>
+                        <th className="px-4 py-3 text-left font-semibold">Neden atlandı</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {skippedItemsSorted.map((row, idx) => (
+                        <tr key={`${row.source_key}-${row.url}-${idx}`} className="border-b border-border/50 hover:bg-muted/20">
+                          <td className="px-4 py-2.5 font-medium text-foreground/90">{row.source_label}</td>
+                          <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap" title={formatSkippedListPlace(row)}>
+                            {formatSkippedListPlace(row)}
+                          </td>
+                          <td className="px-4 py-2.5 text-foreground line-clamp-2" title={row.title}>{row.title}</td>
+                          <td className="px-4 py-2.5 text-xs break-all max-w-[min(28rem,40vw)]">
+                            {row.url ? (
+                              <a
+                                href={row.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary underline font-medium"
+                                title={row.url}
+                              >
+                                {row.url}
+                              </a>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 text-muted-foreground text-xs leading-relaxed">{row.reason}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+              </div>
+            )}
+
+            <div className="border-b border-t border-border/60 bg-muted/15 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              2. Kayıtta tamamlanmamış tarih (Tarihsiz / Sınav yok — aynı liste)
+            </div>
+            <p className="px-4 py-2 text-xs text-muted-foreground border-b border-border/40">
+              Bölüm 1 boşken burada satır olabilir: haber sync’te atlanmadan kayda alınmış; tarihler GPT/kaynakta
+              bulunamadı veya <span className="whitespace-nowrap">“tarihsiz taslak ekle”</span> açıkken eklendi.
+            </p>
+            {issueDutyLoading && issueDutyRows.length === 0 ? (
+              <div className="flex min-h-[120px] items-center justify-center py-8">
+                <LoadingSpinner className="size-6" />
+              </div>
+            ) : issueDutyRows.length === 0 ? (
+              <p className="px-4 py-8 text-sm text-muted-foreground">
+                Bu aralıktaki taslakta eksik alan yok (veya kayıt yok).
+              </p>
+            ) : (
+              <div className="table-x-scroll">
+                <table className="w-full min-w-[960px] text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
-                      <th className="px-4 py-3 text-left font-semibold">Kaynak</th>
-                      <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">Sayfadaki yer</th>
+                      <th className="px-4 py-3 text-left font-semibold">Kategori</th>
+                      <th className="px-4 py-3 text-left font-semibold">Durum</th>
                       <th className="px-4 py-3 text-left font-semibold">Başlık</th>
-                      <th className="px-4 py-3 text-left font-semibold">Neden atlandı</th>
-                      <th className="w-20 px-4 py-3 text-right font-semibold">Link</th>
+                      <th className="px-4 py-3 text-left font-semibold min-w-[200px]">Kaynak linki</th>
+                      <th className="px-4 py-3 text-left font-semibold">Açıklama (neden)</th>
+                      <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">Kaynak yeri</th>
+                      <th className="w-24 px-4 py-3 text-right font-semibold">İşlem</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {skippedItemsSorted.map((row, idx) => (
-                      <tr key={`${row.source_key}-${row.url}-${idx}`} className="border-b border-border/50 hover:bg-muted/20">
-                        <td className="px-4 py-2.5 font-medium text-foreground/90">{row.source_label}</td>
-                        <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap" title={formatSkippedListPlace(row)}>
-                          {formatSkippedListPlace(row)}
-                        </td>
-                        <td className="px-4 py-2.5 text-foreground line-clamp-2" title={row.title}>{row.title}</td>
-                        <td className="px-4 py-2.5 text-muted-foreground">{row.reason}</td>
-                        <td className="px-4 py-2.5 text-right">
-                          {row.url && (
-                            <a
-                              href={row.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                              title="Kaynağı aç"
+                    {issueDutyRows.map(({ item: r, reason }) => {
+                      const n = normalizeItem(r, defaultTimes);
+                      const cat = n.category_slug ?? n.categorySlug ?? '';
+                      const srcUrl = r.source_url ?? r.sourceUrl ?? '';
+                      return (
+                        <tr key={r.id} className="border-b border-border/50 hover:bg-muted/20">
+                          <td className="px-4 py-2.5">
+                            <span
+                              className={cn(
+                                'inline-flex rounded-full px-2 py-0.5 text-xs font-medium',
+                                CATEGORY_COLORS[cat] ?? 'bg-muted text-muted-foreground',
+                              )}
                             >
-                              <ExternalLink className="size-4" />
-                            </a>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                              {EXAM_DUTY_CATEGORIES.find((c) => c.value === cat)?.label ?? cat}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-xs">
+                            {r.status === 'published' ? 'Yayında' : 'Taslak'}
+                          </td>
+                          <td className="px-4 py-2.5 font-medium text-foreground line-clamp-2" title={r.title}>
+                            {r.title}
+                          </td>
+                          <td className="px-4 py-2.5 text-xs break-all max-w-[min(20rem,35vw)]">
+                            {srcUrl ? (
+                              <a
+                                href={srcUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary underline"
+                                title={srcUrl}
+                              >
+                                {srcUrl}
+                              </a>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 text-muted-foreground text-xs leading-snug max-w-md">{reason}</td>
+                          <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap" title={formatDutySourcePlace(n)}>
+                            {formatDutySourcePlace(n)}
+                          </td>
+                          <td className="px-4 py-2.5 text-right">
+                            <Button type="button" variant="ghost" size="sm" className="gap-1" onClick={() => openEdit(r)}>
+                              <Pencil className="size-3.5" />
+                              Düzenle
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1813,31 +1924,20 @@ export default function SinavGorevleriPage() {
         </Card>
       )}
 
-      {(mainView === 'list' || mainView === 'no-dates' || mainView === 'no-exam') && (
+      {mainView === 'list' && (
       <Card className="overflow-hidden rounded-xl border-border/80 shadow-sm">
         <CardHeader className="border-b border-border/50 bg-muted/20">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
                 <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
-                  {mainView === 'no-dates' ? (
-                    <CalendarX className="size-5 text-amber-600 dark:text-amber-400" />
-                  ) : mainView === 'no-exam' ? (
-                    <CalendarOff className="size-5 text-rose-600 dark:text-rose-400" />
-                  ) : (
-                    <ClipboardList className="size-5 text-primary" />
-                  )}
+                  <ClipboardList className="size-5 text-primary" />
                 </div>
                 <div>
-                  <CardTitle className="text-base font-semibold">
-                    {mainView === 'no-dates' ? 'Kaynakta tarih yok' : mainView === 'no-exam' ? 'Sınav tarihi yok' : 'Liste'}
-                  </CardTitle>
+                  <CardTitle className="text-base font-semibold">Liste</CardTitle>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {mainView === 'no-dates'
-                      ? 'Sync ile gelen, GPT/kaynak metninden başvuru bitişi ve sınav tarihleri tespit edilemeyen duyurular (elle tarih girin veya yayınlamayın).'
-                      : mainView === 'no-exam'
-                        ? 'Kayıtta sınav başlangıç ve bitiş tarihi olmayan duyurular (başvuru tarihi olsa bile). Elle sınav tarihi girin veya yayınlamayın.'
-                        : 'Scrape kaynaklarda 1. slayt her sync’te kontrol edilir; tur ile diğer slaytlar sırayla işlenir. Kaynak yeri sütunu sync anındaki slayt sırasını gösterir (örn. Slayt 3/15).'}
+                    Sınav tarihi olan duyurular. Tarih eksik taslak ve sync’te atlanan satırlar &quot;Atlananlar&quot; sekmesinde birleşir. Scrape kaynaklarda 1. slayt
+                    her sync’te kontrol edilir; kaynak yeri sütunu slayt/liste/RSS sırasını gösterir.
                   </p>
                 </div>
                 <Button

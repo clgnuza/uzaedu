@@ -117,7 +117,7 @@ export class SchoolsController {
   @Roles(UserRole.superadmin)
   @RequireModule('schools')
   async previewPlacementGpt(@Body() dto: PlacementGptExtractDto) {
-    const { rows, warnings, schools_considered, batches, model, context_school_ids } =
+    const { rows, warnings, schools_considered, batches, model, context_school_ids, institution_names, fetched_from_url } =
       await this.placementGptExtract.extractRows(dto);
     const update_scope = normalizePlacementUpdateScope(dto.update_scope);
     const source_scores_in_table = normalizePlacementUpdateScope(dto.source_scores_in_table);
@@ -131,12 +131,21 @@ export class SchoolsController {
       schools_considered,
       batches,
       model,
+      institution_names,
+      fetched_from_url: fetched_from_url ?? undefined,
       update_scope,
       source_scores_in_table,
       city: city_trim || undefined,
       context_school_ids_count: context_school_ids.length,
       restrict_on_apply,
-      sample_payload: { auto_enable_dual_track: true, update_scope, source_scores_in_table, rows },
+      replace_placement_scores: dto.replace_placement_scores === true,
+      sample_payload: {
+        auto_enable_dual_track: true,
+        update_scope,
+        source_scores_in_table,
+        replace_placement_scores: dto.replace_placement_scores === true,
+        rows,
+      },
     };
   }
 
@@ -147,6 +156,14 @@ export class SchoolsController {
   @RequireModule('schools')
   async applyPlacementGpt(@Body() dto: PlacementGptExtractDto, @Query('auto_enable_dual_track') autoRaw?: string) {
     const { rows, warnings, context_school_ids } = await this.placementGptExtract.extractRows(dto);
+    if (!rows.length) {
+      throw new BadRequestException({
+        code: 'PLACEMENT_APPLY_EMPTY',
+        message:
+          'Uygulanacak 0 satır. Kaynak metin silinmiş olabilir veya tüm satırlar kaynak kanıtı filtresinden geçmedi. Aynı metinle «Önizleme üret» ile satır geldiğini doğrulayıp, kaynağı değiştirmeden uygulayın.',
+        warnings: warnings.slice(0, 80),
+      });
+    }
     const auto = autoRaw !== 'false' && autoRaw !== '0';
     const scope = normalizePlacementUpdateScope(dto.update_scope);
     const city_trim = (dto.city ?? '').trim();
@@ -155,6 +172,7 @@ export class SchoolsController {
     const restrict = restrictOnContext ? context_school_ids : undefined;
     const result = await this.placementScoresSync.applyRows(rows, auto, scope, {
       restrictToSchoolIds: restrict,
+      replacePlacementScores: dto.replace_placement_scores === true,
     });
     return {
       ...result,

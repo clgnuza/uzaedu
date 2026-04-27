@@ -28,6 +28,7 @@ export type WebExtrasPublic = {
   global_robots_noindex: boolean;
   default_og_image_url: string | null;
   meta_description: string | null;
+  google_site_verification: string | null;
   recaptcha_site_key: string | null;
   pwa_short_name: string | null;
   theme_color: string | null;

@@ -10,41 +10,20 @@ import * as cheerio from 'cheerio';
 import { MebbisFetchDto, MebbisIlceQueryDto, MebbisTypeQueryDto } from './dto/mebbis-fetch.dto';
 import { MEBBIS_IL_OPTIONS } from './mebbis-il-options.constants';
 import { mapTypeLabel } from './mebbis-excel-to-schools.util';
+import { mebbisKurumFilterLabelFromKurumAdiWithHeuristics } from './mebbis-kurum-type.util';
 import { ReconcileSourceSchoolDto } from './dto/reconcile-schools.dto';
 import { SchoolSegment, SchoolStatus, SchoolType } from '../types/enums';
 
 const PUBLIC_MEB_SCHOOLS_URL = 'https://www.meb.gov.tr/baglantilar/okullar/index.php';
-const PUBLIC_INSTITUTION_TYPE_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
-  { label: 'Öğretmenevi ve Akşam Sanat Okulu', pattern: /ogretmenevi ve aksam sanat okulu$/ },
-  { label: 'Rehberlik ve Araştırma Merkezi', pattern: /rehberlik ve arastirma merkezi$/ },
-  { label: 'Bilim ve Sanat Merkezi', pattern: /bilim ve sanat merkezi$/ },
-  { label: 'Halk Eğitimi Merkezi', pattern: /halk egitimi merkezi$/ },
-  { label: 'Mesleki Eğitim Merkezi', pattern: /mesleki egitim merkezi$/ },
-  { label: 'Özel Eğitim Uygulama Merkezi', pattern: /ozel egitim uygulama merkezi(?:si)?(?:.*kademe)?$/ },
-  { label: 'Özel Eğitim Uygulama Okulu', pattern: /ozel egitim uygulama okulu(?:.*kademe)?$/ },
-  { label: 'Çok Programlı Anadolu Lisesi', pattern: /cok programli anadolu lisesi$/ },
-  { label: 'Anadolu İmam Hatip Lisesi', pattern: /anadolu imam hatip lisesi$/ },
-  { label: 'İmam Hatip Ortaokulu', pattern: /imam hatip ortaokulu$/ },
-  { label: 'Mesleki ve Teknik Anadolu Lisesi', pattern: /mesleki ve teknik anadolu lisesi$/ },
-  { label: 'Sosyal Bilimler Lisesi', pattern: /sosyal bilimler lisesi$/ },
-  { label: 'Güzel Sanatlar Lisesi', pattern: /guzel sanatlar lisesi$/ },
-  { label: 'Spor Lisesi', pattern: /spor lisesi$/i },
-  { label: 'Fen Lisesi', pattern: /fen lisesi$/ },
-  { label: 'Anadolu Lisesi', pattern: /anadolu lisesi$/ },
-  { label: 'Açık Öğretim Lisesi', pattern: /acik ogretim lisesi$/ },
-  { label: 'Anaokulu', pattern: /anaokulu$/ },
-  { label: 'İlkokulu', pattern: /ilkokulu$/ },
-  { label: 'Ortaokulu', pattern: /ortaokulu$/ },
-  { label: 'Lise', pattern: /lisesi$/ },
-];
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** MEB okul dizini: büyük illerde tablo çizimi ve HTTP istekleri uzun sürebilir */
 const MEB_NAV_TIMEOUT_MS = 180_000;
 const MEB_PLAYWRIGHT_DEFAULT_MS = 600_000;
-const MEB_DATATABLE_READY_MS = 420_000;
 const MEB_DETAIL_FETCH_MS = 55_000;
+/** MEB DataTables serverSide: tek istekte çekilecek satır (okullar_ajax.php) */
+const MEB_AJAX_PAGE_SIZE = 500;
 
 @Injectable()
 export class MebbisKurumlistesiService {
@@ -103,16 +82,13 @@ export class MebbisKurumlistesiService {
 
     return this.withChromiumPage(async (page) => {
       await this.preparePublicListPage(page, dto.il_kodu);
-      const labels = await page.evaluate(() => {
-        const rows = Array.from(document.querySelectorAll('#icerik-listesi tbody tr'));
-        return rows
-          .map((tr) => {
-            const text = (tr.querySelector('td a')?.textContent || '').trim();
-            const parts = text.split(' - ').map((x) => x.trim()).filter(Boolean);
-            return parts.length >= 3 ? parts[1] : '';
-          })
-          .filter(Boolean);
-      });
+      const rawRows = await this.readPublicRowsFromMebAjax(page, dto.il_kodu);
+      const labels = rawRows
+        .map((row) => {
+          const parsed = this.parsePublicRowTitle(row.title);
+          return parsed ? parsed.district : '';
+        })
+        .filter(Boolean);
       const uniq = [...new Set(labels)].sort((a, b) => a.localeCompare(b, 'tr'));
       return { items: uniq.map((label) => ({ label })) };
     });
@@ -124,7 +100,7 @@ export class MebbisKurumlistesiService {
 
     return this.withChromiumPage(async (page) => {
       await this.preparePublicListPage(page, dto.il_kodu);
-      const rawRows = await this.readPublicRows(page);
+      const rawRows = await this.readPublicRowsFromMebAjax(page, dto.il_kodu);
       const items = [...new Set(
         rawRows
           .map((row) => this.parsePublicRowTitle(row.title))
@@ -134,7 +110,7 @@ export class MebbisKurumlistesiService {
               this.normalizeText(parsed.city) === this.normalizeText(il.label) &&
               this.normalizeText(parsed.district) === this.normalizeText(dto.ilce_label),
           )
-          .map((parsed) => this.inferPublicInstitutionTypeLabel(parsed.name))
+          .map((parsed) => mebbisKurumFilterLabelFromKurumAdiWithHeuristics(parsed.name))
           .filter((value): value is string => !!value),
       )].sort((a, b) => a.localeCompare(b, 'tr'));
       return { items: items.map((label) => ({ label, value: label })) };
@@ -158,7 +134,7 @@ export class MebbisKurumlistesiService {
 
     return this.withChromiumPage(async (page) => {
       await this.preparePublicListPage(page, dto.il_kodu);
-      const rawRows = await this.readPublicRows(page);
+      const rawRows = await this.readPublicRowsFromMebAjax(page, dto.il_kodu);
 
       const schools: ReconcileSourceSchoolDto[] = [];
       for (const row of rawRows) {
@@ -225,26 +201,21 @@ export class MebbisKurumlistesiService {
       .join(' ');
   }
 
-  private inferPublicInstitutionTypeLabel(name: string): string | null {
-    const normalizedName = this.normalizeText(name);
-    if (!normalizedName) return null;
-    for (const candidate of PUBLIC_INSTITUTION_TYPE_PATTERNS) {
-      if (candidate.pattern.test(normalizedName)) return candidate.label;
-    }
-    return null;
-  }
-
   private inferSchoolTypeFilter(rawFilter: string): SchoolType | null {
     const filter = this.normalizeText(rawFilter);
     if (!filter) return null;
     if ((Object.values(SchoolType) as string[]).includes(rawFilter)) return rawFilter as SchoolType;
+    if (filter.includes('rehberlik') && filter.includes('arastirma')) return SchoolType.rehberlik_merkezi;
+    if (filter.includes('ogretmenevi') || filter.includes('aksam sanat')) return SchoolType.ogretmenevi_aksam_sanat;
+    if (filter.includes('mesleki egitim merkezi') && !filter.includes('lise') && !filter.includes('lisesi')) return SchoolType.mesleki_egitim_merkezi;
+    if (filter.includes('ozel egitim uygulama merkez')) return SchoolType.ozel_egitim_uygulama_merkezi;
     if (filter.includes('anaokul')) return SchoolType.anaokul;
     if (filter.includes('ilkokul')) return SchoolType.ilkokul;
     if (filter.includes('ortaokul') && !filter.includes('imam')) return SchoolType.ortaokul;
     if (filter.includes('imam') && filter.includes('orta')) return SchoolType.imam_hatip_ortaokul;
-    if (filter.includes('imam') && (filter.includes('lise') || filter.includes('lis'))) return SchoolType.imam_hatip_lise;
-    if (filter.includes('meslek') || filter.includes('mtal') || filter.includes('mesleki')) return SchoolType.meslek_lisesi;
-    if (filter.includes('bilsem')) return SchoolType.bilsem;
+    if (filter.includes('imam') && filter.includes('lise')) return SchoolType.imam_hatip_lise;
+    if (filter.includes('meslek') || filter.includes('mtal') || filter.includes('mesleki ve teknik')) return SchoolType.meslek_lisesi;
+    if (filter.includes('bilsem') || (filter.includes('bilim ve sanat') && filter.includes('merkez'))) return SchoolType.bilsem;
     if (filter.includes('halk') && filter.includes('egitim')) return SchoolType.halk_egitim;
     if (filter.includes('ozel egitim')) return SchoolType.ozel_egitim;
     if (filter.includes('fen lisesi') || filter.includes('fenlisesi')) return SchoolType.fen_lisesi;
@@ -254,7 +225,7 @@ export class MebbisKurumlistesiService {
     if (filter.includes('acik ogretim')) return SchoolType.acik_ogretim_lisesi;
     if (filter.includes('guzel sanat')) return SchoolType.guzel_sanatlar_lisesi;
     if (filter.includes('spor lise')) return SchoolType.spor_lisesi;
-    if (filter.includes('temel egitim')) return SchoolType.temel_egitim;
+    if (filter.includes('temel egitim') || filter.includes('ilkogretim')) return SchoolType.temel_egitim;
     if (filter.includes('lise')) return SchoolType.lise;
     return null;
   }
@@ -262,38 +233,12 @@ export class MebbisKurumlistesiService {
   private matchesTypeFilter(name: string, rawFilter: string): boolean {
     const filter = this.normalizeText(rawFilter);
     if (!filter) return true;
-    const inferredPublicType = this.inferPublicInstitutionTypeLabel(name);
+    const inferredPublicType = mebbisKurumFilterLabelFromKurumAdiWithHeuristics(name);
     if (inferredPublicType && this.normalizeText(inferredPublicType) === filter) return true;
     const inferredFilterType = this.inferSchoolTypeFilter(rawFilter);
     const inferredNameType = mapTypeLabel(name);
     if (inferredFilterType) return inferredFilterType === inferredNameType;
     return this.normalizeText(name).includes(filter);
-  }
-
-  /** DataTables tüm satırları çizene kadar bekle (uzun illerde kısa sleep yetersiz kalıyordu). */
-  private async waitForPublicDataTableRowsReady(page: import('playwright').Page, timeoutMs: number): Promise<void> {
-    try {
-      await page.waitForFunction(
-        () => {
-          const jq = (window as unknown as { jQuery?: (sel: string) => any }).jQuery;
-          if (!jq) return false;
-          const $t = jq('#icerik-listesi');
-          if (!$t.length) return false;
-          const wrap = $t.closest('.dataTables_wrapper');
-          if (wrap.find('.dataTables_processing:visible').length) return false;
-          const dt = $t.DataTable?.();
-          if (!dt) return false;
-          const info = dt.page.info();
-          const target = Math.max(info.recordsTotal ?? 0, info.recordsDisplay ?? 0);
-          const rows = document.querySelectorAll('#icerik-listesi tbody tr').length;
-          if (target <= 0) return rows >= 1;
-          return rows >= target;
-        },
-        { timeout: timeoutMs, polling: 500 },
-      );
-    } catch {
-      await sleep(12_000);
-    }
   }
 
   private async preparePublicListPage(page: import('playwright').Page, ilKodu: string) {
@@ -302,48 +247,77 @@ export class MebbisKurumlistesiService {
       timeout: MEB_NAV_TIMEOUT_MS,
     });
     await page.selectOption('#ILADI', ilKodu);
-    await sleep(2800);
-    await page.evaluate(() => {
-      const jq = (window as typeof window & { jQuery?: CallableFunction }).jQuery as any;
-      const dt = jq?.('#icerik-listesi')?.DataTable?.();
-      if (!dt) return;
-      const info = dt.page.info();
-      const total = Math.max(info.recordsTotal ?? 0, info.recordsDisplay ?? 0, 100);
-      const want = Math.min(Math.max(total, 100), 25_000);
-      try {
-        dt.page.len(want).draw(false);
-      } catch {
-        try {
-          dt.page.len(-1).draw(false);
-        } catch {
-          dt.page.len(10_000).draw(false);
-        }
-      }
-    });
-    await this.waitForPublicDataTableRowsReady(page, MEB_DATATABLE_READY_MS);
-    await sleep(600);
+    await sleep(1200);
   }
 
-  private async readPublicRows(page: import('playwright').Page): Promise<
-    Array<{ title: string; website_url: string | null; about_url: string | null; map_url: string | null }>
-  > {
-    return page.evaluate(() => {
-      const rows = Array.from(document.querySelectorAll('#icerik-listesi tbody tr'));
-      return rows.map((tr) => {
-        const links = Array.from(tr.querySelectorAll('a'));
-        return {
-          title: (links[0]?.textContent || '').trim(),
-          website_url: (links[0] as HTMLAnchorElement | undefined)?.href || null,
-          about_url: (links[1] as HTMLAnchorElement | undefined)?.href || null,
-          map_url: (links[2] as HTMLAnchorElement | undefined)?.href || null,
-        };
-      });
-    });
+  /**
+   * MEB sayfası DataTables `serverSide: true` kullanıyor; DOM’da yalnızca bir sayfa satırı kalıyor.
+   * Aynı origin üzerinden `okullar_ajax.php` ile tüm kayıtları sayfalayarak okur.
+   */
+  private async readPublicRowsFromMebAjax(
+    page: import('playwright').Page,
+    ilKodu: string,
+  ): Promise<Array<{ title: string; website_url: string | null; about_url: string | null; map_url: string | null }>> {
+    return page.evaluate(
+      async ({ il, pageSize }) => {
+        type Row = { title: string; website_url: string | null; about_url: string | null; map_url: string | null };
+        const out: Row[] = [];
+        let start = 0;
+        for (;;) {
+          const body = new URLSearchParams({
+            draw: '1',
+            start: String(start),
+            length: String(pageSize),
+            il: String(il),
+            ilce: '0',
+          });
+          const res = await fetch('/baglantilar/okullar/okullar_ajax.php', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+              'X-Requested-With': 'XMLHttpRequest',
+            },
+            body,
+            credentials: 'include',
+          });
+          const text = await res.text();
+          const trimmed = text.trim();
+          if (!trimmed.startsWith('{')) {
+            throw new Error(trimmed.slice(0, 240) || `HTTP ${res.status}`);
+          }
+          const j = JSON.parse(trimmed) as {
+            data?: { OKUL_ADI: string; HOST: string; YOL: string }[];
+            recordsTotal?: number;
+            recordsFiltered?: number;
+          };
+          const chunk = j.data ?? [];
+          const total = Math.max(j.recordsFiltered ?? 0, j.recordsTotal ?? 0, 0);
+          for (const row of chunk) {
+            const host = String(row.HOST ?? '').trim();
+            const yol = String(row.YOL ?? '').trim();
+            const okulAdi = String(row.OKUL_ADI ?? '').trim();
+            if (!okulAdi || !host) continue;
+            const website = `https://${host}.meb.k12.tr`;
+            const about = yol ? `${website}/meb_iys_dosyalar/${yol}/okulumuz_hakkinda.html` : null;
+            out.push({
+              title: okulAdi,
+              website_url: website,
+              about_url: about,
+              map_url: `${website}/tema/harita.php`,
+            });
+          }
+          start += chunk.length;
+          if (!chunk.length || (total > 0 && start >= total)) break;
+        }
+        return out;
+      },
+      { il: ilKodu, pageSize: MEB_AJAX_PAGE_SIZE },
+    );
   }
 
   private parsePublicRowTitle(title: string): { city: string; district: string; name: string } | null {
-    const parts = title
-      .split(' - ')
+    const parts = String(title ?? '')
+      .split(/\s*[-\u2013\u2014\u2212]\s*/)
       .map((x) => x.trim())
       .filter(Boolean);
     if (parts.length < 3) return null;

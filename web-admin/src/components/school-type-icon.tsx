@@ -20,7 +20,11 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   imam_hatip_ortaokul: Landmark,
   imam_hatip_lise: Landmark,
   ozel_egitim: HeartHandshake,
+  ozel_egitim_uygulama_merkezi: HeartHandshake,
   halk_egitim: Library,
+  rehberlik_merkezi: Library,
+  ogretmenevi_aksam_sanat: Library,
+  mesleki_egitim_merkezi: Wrench,
   bilsem: GraduationCap,
   default: Building2,
 };

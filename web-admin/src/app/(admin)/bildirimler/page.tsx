@@ -85,9 +85,9 @@ const EVENT_LABELS: Record<string, string> = {
   'exam_duty.examday': 'Sınav görevi sınav günü',
   'exam_duty.reminder': 'Sınav görevi hatırlatma',
   'exam_duty.exam_day_morning': 'Sınav günü sabah hatırlatması',
-  'exam_duty.sync_source_error': 'Sınav görevi sync (kaynak hatası)',
-  'exam_duty.sync_items_processed': 'Sınav görevi sync (işlenen duyurular)',
-  'exam_duty.sync_auto_published': 'Sınav görevi otomatik yayın (sync)',
+  'exam_duty.sync_source_error': 'Sync · kaynak',
+  'exam_duty.sync_items_processed': 'Sync · özet',
+  'exam_duty.sync_auto_published': 'Sync · yayın',
   'support.ticket.created': 'Yeni destek talebi',
   'support.ticket.replied': 'Talebinize yanıt verildi',
   'support.ticket.assigned': 'Size destek talebi atandı',
@@ -106,6 +106,11 @@ const EVENT_LABELS: Record<string, string> = {
 
 const SWAP_EVENT_TYPES = ['duty.swap_requested', 'duty.swap_approved', 'duty.swap_rejected', 'duty.swap_teacher2_approved'];
 const EXAM_DUTY_EVENT_TYPES = ['exam_duty.open', 'exam_duty.lastday', 'exam_duty.approval_day', 'exam_duty.examday', 'exam_duty.reminder', 'exam_duty.exam_day_morning'];
+const EXAM_DUTY_SYNC_EVENT_TYPES = [
+  'exam_duty.sync_source_error',
+  'exam_duty.sync_items_processed',
+  'exam_duty.sync_auto_published',
+];
 const SUPPORT_EVENT_TYPES = ['support.ticket.created', 'support.ticket.replied', 'support.ticket.assigned', 'support.ticket.escalated'];
 const TIMETABLE_EVENT_TYPES = ['timetable.published'];
 const DUTY_PLAN_EVENT_TYPES = ['duty.published', 'duty.changed'];
@@ -331,6 +336,9 @@ function getNotificationRowAccentClass(item: NotificationItem): string | null {
   if (isSupportNotification(item.event_type)) {
     return 'border-l-[3px] border-l-fuchsia-500 bg-fuchsia-50/40 dark:border-l-fuchsia-400 dark:bg-fuchsia-950/20';
   }
+  if (item.event_type === 'exam_duty.sync_source_error') {
+    return 'border-l-[3px] border-l-red-500 bg-red-50/50 dark:border-l-red-400 dark:bg-red-950/25';
+  }
   if (isExamDutyNotification(item.event_type)) {
     return 'border-l-[3px] border-l-sky-500 bg-sky-50/40 dark:border-l-sky-400 dark:bg-sky-950/20';
   }
@@ -487,6 +495,9 @@ function getChipClass(item: NotificationItem): string {
   }
   if (isSupportNotification(item.event_type)) {
     return 'border border-fuchsia-300/50 bg-fuchsia-200/80 font-medium text-purple-950 dark:border-fuchsia-500/35 dark:bg-fuchsia-950/50 dark:text-fuchsia-100';
+  }
+  if (item.event_type === 'exam_duty.sync_source_error') {
+    return 'border border-red-300/60 bg-red-200/90 font-semibold text-red-950 dark:border-red-500/40 dark:bg-red-950/50 dark:text-red-50';
   }
   if (isExamDutyNotification(item.event_type)) {
     return 'border border-sky-300/50 bg-sky-200/80 font-medium text-sky-950 dark:border-sky-500/35 dark:bg-sky-900/45 dark:text-sky-100';
@@ -1211,7 +1222,7 @@ export default function BildirimlerPage() {
               </div>
             </div>
           ) : (
-            <ul className="divide-y divide-border">
+            <ul className="list-none space-y-1.5 bg-muted/25 p-1.5 sm:space-y-2 sm:p-2">
               {items.map((item) => {
                 const isSwap = SWAP_EVENT_TYPES.includes(item.event_type);
                 const isTimetable = TIMETABLE_EVENT_TYPES.includes(item.event_type);
@@ -1221,28 +1232,32 @@ export default function BildirimlerPage() {
                 const isBelirliHighlight = isBelirliGunReminderHighlight(item);
                 const { icon, bgClass } = getNotificationIcon(item);
                 const rowAccent = getNotificationRowAccentClass(item);
+                const isExamDutySync = EXAM_DUTY_SYNC_EVENT_TYPES.includes(item.event_type);
                 return (
                   <li
                     key={item.id}
                     className={cn(
-                      'flex flex-col gap-2 px-2.5 py-2 transition-colors hover:bg-muted/30 sm:flex-row sm:items-start sm:gap-3 sm:px-4 sm:py-3.5',
-                      'mx-0 my-0 rounded-none sm:mx-1 sm:my-0.5 sm:rounded-lg',
-                      !item.read_at && !rowAccent && !isToday && !isBelirliHighlight && 'bg-primary/6',
-                      isToday && !item.read_at && 'border-l-4 border-l-indigo-500 pl-2 sm:pl-3',
-                      isBelirliHighlight && 'border-l-4 border-l-amber-500 pl-2 sm:pl-3',
-                      rowAccent && !isToday && !isBelirliHighlight && 'pl-2.5 sm:pl-3.5',
-                      rowAccent && !isToday && !isBelirliHighlight,
+                      'group flex flex-col overflow-hidden rounded-lg border shadow-sm transition-shadow hover:shadow-md',
+                      rowAccent
+                        ? rowAccent
+                        : isToday && !item.read_at
+                          ? 'border-l-4 border-l-indigo-500 bg-indigo-50/30 dark:border-l-indigo-400 dark:bg-indigo-950/20'
+                          : isBelirliHighlight
+                            ? 'border-l-4 border-l-amber-500 bg-amber-50/35 dark:border-l-amber-400 dark:bg-amber-950/20'
+                            : item.read_at
+                              ? 'border-border/50 bg-muted/25'
+                              : 'border-border/60 bg-card ring-1 ring-primary/10',
                     )}
                   >
                     <Link
                       href={getNotificationLink(item)}
-                      className="min-w-0 flex-1"
+                      className="min-w-0 flex-1 rounded-t-[inherit] px-2.5 py-2 transition-colors hover:bg-muted/25 sm:px-3 sm:py-2"
                       onClick={(e) => handleLinkClick(e, item)}
                     >
-                      <div className="flex items-start gap-2 sm:gap-3">
+                      <div className="flex items-start gap-2 sm:gap-2.5">
                         <div
                           className={cn(
-                            'mt-0 flex size-9 shrink-0 items-center justify-center rounded-xl sm:mt-0.5 sm:size-11 sm:rounded-2xl',
+                            'mt-0 flex size-8 shrink-0 items-center justify-center rounded-lg sm:mt-0.5 sm:size-9 sm:rounded-xl',
                             bgClass,
                             'ring-1 sm:ring-2',
                           )}
@@ -1250,45 +1265,79 @@ export default function BildirimlerPage() {
                           {icon}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="flex min-w-0 flex-nowrap items-center gap-1.5 sm:flex-wrap sm:gap-x-2 sm:gap-y-1">
-                            <span
-                              className={cn(
-                                'min-w-0 flex-1 truncate text-[13px] font-semibold leading-tight sm:flex-none sm:text-sm sm:leading-snug',
-                                !item.read_at && 'text-foreground',
-                                item.read_at && 'text-muted-foreground',
+                          {isExamDutySync ? (
+                            <div className="min-w-0 space-y-0.5">
+                              <div className="flex min-w-0 items-start gap-1.5">
+                                <span
+                                  className={cn(
+                                    'min-w-0 flex-1 break-words text-[12px] font-semibold leading-tight sm:text-[13px]',
+                                    !item.read_at && 'text-foreground',
+                                    item.read_at && 'text-muted-foreground',
+                                  )}
+                                >
+                                  {item.title}
+                                </span>
+                                {!item.read_at && (
+                                  <span className="mt-0.5 size-1.5 shrink-0 rounded-full bg-primary sm:mt-1 sm:size-2" aria-hidden />
+                                )}
+                              </div>
+                              <span
+                                className={cn(
+                                  'inline-flex w-fit max-w-full items-center rounded px-1.5 py-px text-[9px] font-semibold leading-none [word-break:break-word] sm:rounded-md sm:px-2 sm:py-0.5 sm:text-[11px] sm:font-medium',
+                                  getChipClass(item),
+                                )}
+                              >
+                                {EVENT_LABELS[item.event_type] ?? item.event_type}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex min-w-0 flex-nowrap items-center gap-1 sm:flex-wrap sm:gap-x-1.5 sm:gap-y-0.5">
+                              <span
+                                className={cn(
+                                  'min-w-0 flex-1 truncate text-[12px] font-semibold leading-tight sm:flex-none sm:text-[13px] sm:leading-snug',
+                                  !item.read_at && 'text-foreground',
+                                  item.read_at && 'text-muted-foreground',
+                                )}
+                              >
+                                {item.title}
+                              </span>
+                              <span
+                                className={cn(
+                                  'inline-flex max-w-[46%] shrink-0 items-center truncate rounded px-1.5 py-px text-[9px] font-semibold leading-none sm:max-w-none sm:rounded-md sm:px-2 sm:py-0.5 sm:text-[11px] sm:font-medium',
+                                  getChipClass(item),
+                                )}
+                              >
+                                {EVENT_LABELS[item.event_type] ?? item.event_type}
+                              </span>
+                              {!item.read_at && (
+                                <span className="size-1.5 shrink-0 rounded-full bg-primary sm:size-2" aria-hidden />
                               )}
-                            >
-                              {item.title}
-                            </span>
-                            <span
-                              className={cn(
-                                'inline-flex max-w-[46%] shrink-0 items-center truncate rounded px-1.5 py-px text-[9px] font-semibold leading-none sm:max-w-none sm:rounded-md sm:px-2 sm:py-0.5 sm:text-[11px] sm:font-medium',
-                                getChipClass(item),
-                              )}
-                            >
-                              {EVENT_LABELS[item.event_type] ?? item.event_type}
-                            </span>
-                            {!item.read_at && (
-                              <span className="size-1.5 shrink-0 rounded-full bg-primary sm:size-2" aria-hidden />
-                            )}
-                          </div>
+                            </div>
+                          )}
                           {item.body && (
-                            <p className="mt-0.5 text-xs leading-snug text-muted-foreground line-clamp-2 sm:mt-1 sm:text-sm sm:leading-normal">
+                            <p
+                              className={cn(
+                                'mt-0.5 text-[11px] leading-snug sm:mt-0.5 sm:text-xs',
+                                isExamDutySync
+                                  ? 'max-h-18 overflow-y-auto whitespace-pre-wrap break-words text-muted-foreground/95 [scrollbar-width:thin] sm:max-w-xl'
+                                  : 'line-clamp-2 text-muted-foreground',
+                              )}
+                            >
                               {item.body}
                             </p>
                           )}
-                          <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums sm:mt-1.5 sm:text-xs">
+                          <p className="mt-0.5 text-[10px] text-muted-foreground tabular-nums sm:text-[11px]">
                             {formatDate(item.created_at)}
                           </p>
                         </div>
                       </div>
                     </Link>
-                    <div className="flex w-full shrink-0 flex-nowrap items-center gap-1 overflow-x-auto overflow-y-hidden border-t border-border/30 pt-1.5 [-ms-overflow-style:none] [scrollbar-width:none] sm:w-auto sm:flex-wrap sm:justify-end sm:gap-1.5 sm:border-0 sm:pt-0 [&::-webkit-scrollbar]:hidden">
+                    <div className="flex w-full shrink-0 flex-nowrap items-center gap-0.5 overflow-x-auto overflow-y-hidden border-t border-border/50 bg-muted/20 px-2 py-1.5 [-ms-overflow-style:none] [scrollbar-width:none] sm:w-auto sm:flex-wrap sm:justify-end sm:gap-1 sm:px-2.5 sm:py-1.5 [&::-webkit-scrollbar]:hidden">
                       {isSwap && (
                         <Button
                           variant="outline"
                           size="sm"
-                          className="min-h-10 flex-1 gap-1.5 text-xs max-sm:min-h-8 max-sm:gap-1 max-sm:px-2 max-sm:text-[11px] sm:min-h-9 sm:flex-initial"
+                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
                           onClick={(e) => {
                             e.preventDefault();
                             handleLinkClick(e, item);
@@ -1302,7 +1351,7 @@ export default function BildirimlerPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="min-h-10 flex-1 gap-1.5 text-xs max-sm:min-h-8 max-sm:gap-1 max-sm:px-2 max-sm:text-[11px] sm:min-h-9 sm:flex-initial"
+                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
                           onClick={(e) => {
                             e.preventDefault();
                             handleLinkClick(e, item);
@@ -1316,7 +1365,7 @@ export default function BildirimlerPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="min-h-10 flex-1 gap-1.5 text-xs max-sm:min-h-8 max-sm:gap-1 max-sm:px-2 max-sm:text-[11px] sm:min-h-9 sm:flex-initial"
+                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
                           onClick={(e) => {
                             e.preventDefault();
                             handleLinkClick(e, item);
@@ -1330,7 +1379,7 @@ export default function BildirimlerPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="min-h-10 flex-1 gap-1.5 text-xs max-sm:min-h-8 max-sm:gap-1 max-sm:px-2 max-sm:text-[11px] sm:min-h-9 sm:flex-initial"
+                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
                           onClick={(e) => {
                             e.preventDefault();
                             handleLinkClick(e, item);
@@ -1344,7 +1393,7 @@ export default function BildirimlerPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="min-h-10 flex-1 gap-1.5 text-xs max-sm:min-h-8 max-sm:gap-1 max-sm:px-2 max-sm:text-[11px] sm:min-h-9 sm:flex-initial"
+                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
                           onClick={(e) => {
                             e.preventDefault();
                             handleLinkClick(e, item);
@@ -1358,7 +1407,7 @@ export default function BildirimlerPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="min-h-10 flex-1 gap-1.5 text-xs max-sm:min-h-8 max-sm:gap-1 max-sm:px-2 max-sm:text-[11px] sm:min-h-9 sm:flex-initial"
+                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
                           onClick={(e) => {
                             e.preventDefault();
                             handleLinkClick(e, item);
@@ -1372,7 +1421,7 @@ export default function BildirimlerPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="min-h-10 flex-1 gap-1.5 text-xs max-sm:min-h-8 max-sm:gap-1 max-sm:px-2 max-sm:text-[11px] sm:min-h-9 sm:flex-initial"
+                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
                           onClick={(e) => {
                             e.preventDefault();
                             handleLinkClick(e, item);
@@ -1382,11 +1431,25 @@ export default function BildirimlerPage() {
                           Talebe git
                         </Button>
                       )}
+                      {isExamDutySync && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleLinkClick(e, item);
+                          }}
+                        >
+                          <ClipboardList className="size-3.5" />
+                          Sınav görevleri
+                        </Button>
+                      )}
                       {EXAM_DUTY_EVENT_TYPES.includes(item.event_type) && (
                         <Button
                           variant="outline"
                           size="sm"
-                          className="min-h-10 flex-1 gap-1.5 text-xs max-sm:min-h-8 max-sm:gap-1 max-sm:px-2 max-sm:text-[11px] sm:min-h-9 sm:flex-initial"
+                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
                           onClick={(e) => {
                             e.preventDefault();
                             handleLinkClick(e, item);
@@ -1400,7 +1463,7 @@ export default function BildirimlerPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="min-h-10 flex-1 gap-1.5 text-xs max-sm:min-h-8 max-sm:gap-1 max-sm:px-2 max-sm:text-[11px] sm:min-h-9 sm:flex-initial"
+                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
                           onClick={(e) => {
                             e.preventDefault();
                             handleLinkClick(e, item);
@@ -1414,7 +1477,7 @@ export default function BildirimlerPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="min-h-10 flex-1 gap-1.5 text-xs max-sm:min-h-8 max-sm:gap-1 max-sm:px-2 max-sm:text-[11px] sm:min-h-9 sm:flex-initial"
+                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
                           onClick={(e) => {
                             e.preventDefault();
                             handleLinkClick(e, item);
@@ -1428,7 +1491,7 @@ export default function BildirimlerPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="min-h-10 flex-1 gap-1.5 text-xs max-sm:min-h-8 max-sm:gap-1 max-sm:px-2 max-sm:text-[11px] sm:min-h-9 sm:flex-initial"
+                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
                           onClick={(e) => {
                             e.preventDefault();
                             handleLinkClick(e, item);
@@ -1442,7 +1505,7 @@ export default function BildirimlerPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="min-h-10 min-w-10 shrink-0 max-sm:min-h-8 max-sm:min-w-8 sm:min-h-9 sm:min-w-9"
+                          className="min-h-8 min-w-8 shrink-0 max-sm:min-h-7 max-sm:min-w-7 sm:min-h-8 sm:min-w-8"
                           onClick={(e) => {
                             e.preventDefault();
                             handleMarkRead(item.id);
@@ -1460,7 +1523,7 @@ export default function BildirimlerPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="min-h-10 min-w-10 shrink-0 text-muted-foreground hover:text-destructive max-sm:min-h-8 max-sm:min-w-8 sm:min-h-9 sm:min-w-9"
+                        className="min-h-8 min-w-8 shrink-0 text-muted-foreground hover:text-destructive max-sm:min-h-7 max-sm:min-w-7 sm:min-h-8 sm:min-w-8"
                         onClick={(e) => {
                           e.preventDefault();
                           handleDeleteOne(item.id);

@@ -70,6 +70,9 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     alternates:  { canonical: SITE_URL },
     icons:       extras?.favicon_url ? { icon: extras.favicon_url } : undefined,
+    ...(extras?.google_site_verification?.trim()
+      ? { verification: { google: extras.google_site_verification.trim() } }
+      : {}),
   };
   return base;
 }
