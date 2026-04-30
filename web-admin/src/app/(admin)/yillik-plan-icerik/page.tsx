@@ -477,11 +477,11 @@ function DersAyGroupedTable({
 
 export type YillikPlanIcerikPageProps = { curriculumModel?: 'bilsem' | null };
 
-export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) {
+export default function YillikPlanIcerikPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { token, me, loading: authLoading } = useAuth();
-  const isBilsem = props?.curriculumModel === 'bilsem';
+  const isBilsem = false;
   const [items, setItems] = useState<YillikPlanIcerikItem[]>([]);
   const [workCalendarRows, setWorkCalendarRows] = useState<WorkCalendarRow[]>([]);
   const [loading, setLoading] = useState(true);
