@@ -475,9 +475,9 @@ function DersAyGroupedTable({
   );
 }
 
-export type YillikPlanIcerikPageProps = { curriculumModel?: 'bilsem' | null };
+type YillikPlanIcerikPageProps = { curriculumModel?: 'bilsem' | null };
 
-export function YillikPlanIcerikPageView(props?: YillikPlanIcerikPageProps) {
+export default function YillikPlanIcerikPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { token, me, loading: authLoading } = useAuth();
@@ -2358,8 +2358,4 @@ export function YillikPlanIcerikPageView(props?: YillikPlanIcerikPageProps) {
       )}
     </div>
   );
-}
-
-export default function YillikPlanIcerikPage() {
-  return <YillikPlanIcerikPageView />;
 }

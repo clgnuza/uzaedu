@@ -51,10 +51,8 @@ function getAcademicYears(): string[] {
   return years.sort((a, b) => b.localeCompare(a));
 }
 
-export type BilsemSablonTakvimPageProps = { embedded?: boolean };
-
-export function BilsemSablonTakvimPageView(props?: BilsemSablonTakvimPageProps) {
-  const embedded = props?.embedded === true;
+export default function BilsemSablonTakvimPage() {
+  const embedded = false;
   const router = useRouter();
   const { token, me, loading: authLoading } = useAuth();
   const [weeks, setWeeks] = useState<BilsemWeek[]>([]);
@@ -498,8 +496,4 @@ export function BilsemSablonTakvimPageView(props?: BilsemSablonTakvimPageProps) 
       </Dialog>
     </div>
   );
-}
-
-export default function BilsemSablonTakvimPage() {
-  return <BilsemSablonTakvimPageView />;
 }

@@ -55,10 +55,8 @@ function getInitialAcademicYear(): string {
   return getAcademicYears()[0] ?? '2025-2026';
 }
 
-export type WorkCalendarPageProps = { embedded?: boolean };
-
-export function WorkCalendarPageView(props?: WorkCalendarPageProps) {
-  const embedded = props?.embedded === true;
+export default function WorkCalendarPage() {
+  const embedded = false;
   const router = useRouter();
   const { token, me, loading: authLoading } = useAuth();
   const [items, setItems] = useState<WorkCalendarItem[]>([]);
@@ -712,8 +710,4 @@ export function WorkCalendarPageView(props?: WorkCalendarPageProps) {
       )}
     </div>
   );
-}
-
-export default function WorkCalendarPage() {
-  return <WorkCalendarPageView />;
 }
