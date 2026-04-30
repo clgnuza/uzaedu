@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hetzner /opt/uzaedu: git pull, backend+web build, pm2. Panel POST /api/deploy ile ayni betik.
+# Hetzner /opt/uzaedu: git pull, backend+web build, pm2. Same as panel POST /api/deploy.
 set -euo pipefail
 
 ROOT="${UZAEDU_REPO_ROOT:-${DEPLOY_REMOTE_ROOT:-/opt/uzaedu}}"
@@ -29,10 +29,10 @@ echo "[deploy] web-admin npm ci + build"
   npm run build
 )
 
-echo "[deploy] pm2 restart"
-pm2 restart uzaedu-api --update-env 2>/dev/null || pm2 restart uzaedu-api || true
+echo "[deploy] pm2 reload"
+pm2 reload uzaedu-api --update-env 2>/dev/null || pm2 restart uzaedu-api --update-env 2>/dev/null || pm2 restart uzaedu-api || true
 if pm2 describe uzaedu-web >/dev/null 2>&1; then
-  pm2 restart uzaedu-web --update-env || pm2 restart uzaedu-web || true
+  pm2 reload uzaedu-web --update-env || pm2 restart uzaedu-web --update-env || pm2 restart uzaedu-web || true
 fi
 pm2 save 2>/dev/null || true
 echo "[deploy] OK"
