@@ -63,12 +63,12 @@ if not user or not db:
 cmd = 'cat ' + shlex.quote(_SQL) + ' | docker exec -i ogretmenpro-db psql -v ON_ERROR_STOP=1 -U ' + shlex.quote(user) + ' -d ' + shlex.quote(db)
 subprocess.check_call(cmd, shell=True)
 subprocess.check_call('rm -f ' + shlex.quote(_SQL), shell=True)
-subprocess.check_call('pm2 restart uzaedu-api --update-env', shell=True)
+subprocess.check_call('pm2 reload uzaedu-api --update-env || pm2 restart uzaedu-api --update-env', shell=True)
 subprocess.check_call('pm2 save', shell=True)
 print('IMPORT_OK')
 "@
 $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($importPy))
 
-Write-Host "Import + pm2 restart..."
+Write-Host "Import + pm2 reload..."
 & ssh -i $key -o BatchMode=yes $sshTarget "echo $b64 | base64 -d | python3"
 Write-Host "Tamam."

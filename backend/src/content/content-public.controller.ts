@@ -19,7 +19,7 @@ export class ContentPublicController {
   @Get('yayin-seo')
   async getYayinSeo(@Res({ passthrough: true }) res: Response) {
     const maxAge = await this.appConfig.getPublicCacheMaxAge('yayin_seo');
-    res.setHeader('Cache-Control', `public, max-age=${maxAge}`);
+    res.setHeader('Cache-Control', `public, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=600`);
     return this.appConfig.getYayinSeoConfig();
   }
 
@@ -27,7 +27,7 @@ export class ContentPublicController {
   @Get('web-public')
   async getWebPublic(@Res({ passthrough: true }) res: Response) {
     const maxAge = await this.appConfig.getPublicCacheMaxAge('web_public');
-    res.setHeader('Cache-Control', `public, max-age=${maxAge}`);
+    res.setHeader('Cache-Control', `public, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=600`);
     return this.appConfig.getWebPublicConfig();
   }
 
@@ -35,56 +35,62 @@ export class ContentPublicController {
   @Get('legal-pages')
   async getLegalPages(@Res({ passthrough: true }) res: Response) {
     const maxAge = await this.appConfig.getPublicCacheMaxAge('legal_pages');
-    res.setHeader('Cache-Control', `public, max-age=${maxAge}`);
+    res.setHeader('Cache-Control', `public, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=600`);
     return this.appConfig.getLegalPagesConfig();
   }
 
   /** Public: analitik, bakım, önbellek TTL, robots, OG, mağaza linkleri */
   @Get('web-extras')
   async getWebExtras(@Res({ passthrough: true }) res: Response) {
-    const maxAge = await this.appConfig.getPublicCacheMaxAge('web_extras');
-    res.setHeader('Cache-Control', `public, max-age=${maxAge}`);
-    return this.appConfig.getWebExtrasConfig();
+    const cfg = await this.appConfig.getWebExtrasConfig();
+    const maxAge = cfg.cache_ttl_web_extras;
+    res.setHeader('Cache-Control', `public, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=600`);
+    return cfg;
   }
 
   /** Public: CAPTCHA (site key, sağlayıcı — gizli anahtar yok) */
   @Get('captcha')
   async getCaptchaPublic(@Res({ passthrough: true }) res: Response) {
-    const maxAge = await this.appConfig.getPublicCacheMaxAge('captcha');
-    res.setHeader('Cache-Control', `public, max-age=${maxAge}`);
-    return this.appConfig.getCaptchaPublic();
+    const c = await this.appConfig.getCaptchaConfig();
+    const maxAge = c.cache_ttl_captcha;
+    res.setHeader('Cache-Control', `public, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=600`);
+    return this.appConfig.captchaConfigToPublic(c);
   }
 
   /** Public: çerez banner / GDPR yapılandırması */
   @Get('gdpr')
   async getGdpr(@Res({ passthrough: true }) res: Response) {
-    const maxAge = await this.appConfig.getPublicCacheMaxAge('gdpr');
-    res.setHeader('Cache-Control', `public, max-age=${maxAge}`);
-    return this.appConfig.getGdprConfig();
+    const g = await this.appConfig.getGdprConfig();
+    const maxAge = g.cache_ttl_gdpr;
+    res.setHeader('Cache-Control', `public, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=600`);
+    return g;
   }
 
   /** Public: iOS/Android uzaktan yapılandırma (sürüm, mağaza, bayraklar) */
   @Get('mobile-config')
   async getMobileConfig(@Res({ passthrough: true }) res: Response) {
-    const maxAge = await this.appConfig.getPublicCacheMaxAge('mobile_config');
-    res.setHeader('Cache-Control', `public, max-age=${maxAge}`);
-    return this.appConfig.getMobileAppConfig();
+    const m = await this.appConfig.getMobileAppConfig();
+    const maxAge = m.cache_ttl_mobile_config;
+    res.setHeader('Cache-Control', `public, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=600`);
+    return m;
   }
 
   /** Public: modül fiyatları (jeton/ek ders) + Android/iOS IAP ürün listeleri */
   @Get('market-policy')
   async getMarketPolicy(@Res({ passthrough: true }) res: Response) {
-    const maxAge = await this.appConfig.getPublicCacheMaxAge('market_policy');
-    res.setHeader('Cache-Control', `public, max-age=${maxAge}`);
-    return this.appConfig.getMarketPolicyConfig();
+    const mp = await this.appConfig.getMarketPolicyConfig();
+    const maxAge = mp.cache_ttl_market_policy;
+    res.setHeader('Cache-Control', `public, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=600`);
+    return mp;
   }
 
   /** Kamu: bugünün hoşgeldin / motive mesajı (Türkiye takvimi). */
   @Get('welcome-today')
   async getWelcomeToday(@Res({ passthrough: true }) res: Response) {
-    const maxAge = await this.appConfig.getWelcomeModulePublicCacheMaxAge();
-    res.setHeader('Cache-Control', `public, max-age=${maxAge}`);
-    return this.appConfig.getWelcomeTodayPublic();
+    const cfg = await this.appConfig.getWelcomeModuleConfig();
+    const maxAge = this.appConfig.getWelcomeModulePublicMaxAge(cfg);
+    res.setHeader('Cache-Control', `public, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=600`);
+    return this.appConfig.getWelcomeTodayPublic(cfg);
   }
 
   /** Giriş yapmadan haber listesi (web anasayfa → Haberler). */

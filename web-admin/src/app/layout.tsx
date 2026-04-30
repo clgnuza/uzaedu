@@ -2,21 +2,31 @@ import type { Metadata, Viewport } from 'next';
 import Script from 'next/script';
 import { SafeThemeProvider } from '@/components/safe-theme-provider';
 import { StorageGuard } from '@/components/storage-guard';
-import { Toaster } from 'sonner';
-import { Inter } from 'next/font/google';
+import { ClientShellWidgets } from '@/components/layout/client-shell-widgets';
+import localFont from 'next/font/local';
 import { cn } from '@/lib/utils';
-import { CookieBanner } from '@/components/cookie-banner';
 import { AuthProvider } from '@/providers/auth-provider';
 import { QueryProvider } from '@/providers/query-provider';
 import { fetchWebExtrasPublic } from '@/lib/web-extras-public';
 import { normalizePublicSiteUrl } from '@/lib/site-url';
 import './globals.css';
 
-const inter = Inter({
-  subsets: ['latin', 'latin-ext'],
+const inter = localFont({
+  src: [
+    {
+      path: '../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2',
+      weight: '100 900',
+      style: 'normal',
+    },
+    {
+      path: '../../node_modules/@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2',
+      weight: '100 900',
+      style: 'normal',
+    },
+  ],
   display: 'swap',
-  adjustFontFallback: true,
-  preload: true,
+  variable: '--font-inter',
+  adjustFontFallback: 'Arial',
 });
 
 const SITE_URL = normalizePublicSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
@@ -114,7 +124,7 @@ export default async function RootLayout({
         {gtm && (
           <Script
             id="gtm-init"
-            strategy="afterInteractive"
+            strategy="lazyOnload"
             dangerouslySetInnerHTML={{
               __html: `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${gtm}');`,
             }}
@@ -123,12 +133,12 @@ export default async function RootLayout({
         {ga4 && (
           <>
             <Script
-              strategy="afterInteractive"
+              strategy="lazyOnload"
               src={`https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(ga4)}`}
             />
             <Script
               id="ga4-init"
-              strategy="afterInteractive"
+              strategy="lazyOnload"
               dangerouslySetInnerHTML={{
                 __html: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${ga4}');`,
               }}
@@ -207,8 +217,7 @@ export default async function RootLayout({
                 <div className="min-h-full w-full">{children}</div>
               </QueryProvider>
             </AuthProvider>
-            <CookieBanner />
-            <Toaster position="top-right" richColors closeButton />
+            <ClientShellWidgets />
           </SafeThemeProvider>
         </StorageGuard>
       </body>

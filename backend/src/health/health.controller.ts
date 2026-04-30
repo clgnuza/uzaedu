@@ -9,6 +9,19 @@ export class HealthController {
     return { status: 'ok', service: 'ogretmenpro-backend' };
   }
 
+  /** Uptime / bellek — dış izleme (Prometheus vb.) için hafif uç. */
+  @Get('metrics')
+  metrics() {
+    const m = process.memoryUsage();
+    return {
+      status: 'ok',
+      uptime_sec: Math.round(process.uptime()),
+      rss_mb: Math.round(m.rss / 1048576),
+      heap_used_mb: Math.round(m.heapUsed / 1048576),
+      heap_total_mb: Math.round(m.heapTotal / 1048576),
+    };
+  }
+
   /** Canlı doğrulama: git kısa hash (DEPLOY_GIT_SHA), ortam, /me oturumsuz davranışı */
   @Get('deployment')
   deployment() {

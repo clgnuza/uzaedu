@@ -66,7 +66,6 @@ import {
   useWelcomeMotivationQuote,
   WelcomeMotivationQuoteEmbedded,
 } from '@/components/dashboard/welcome-motivation-banner';
-import { WelcomeZodiacModal } from '@/components/dashboard/welcome-zodiac-modal';
 import { TeacherSchoolJoinBanner } from '@/components/dashboard/teacher-school-join-banner';
 
 function greetingTr(): string {
@@ -843,15 +842,6 @@ export function TeacherHome({
             </nav>
           </div>
         </div>
-        {welcomeQuote.isTeacherPopup && welcomeQuote.popupOpen && welcomeQuote.data?.message && (
-          <WelcomeZodiacModal
-            open={welcomeQuote.popupOpen}
-            onOpenChange={welcomeQuote.handlePopupOpenChange}
-            dateKey={welcomeQuote.data.date_key}
-            message={welcomeQuote.data.message}
-            zodiacKey={welcomeQuote.data.zodiac_key}
-          />
-        )}
         {welcomeQuote.showEmbeddedPanel && welcomeQuote.data?.message && (
           <WelcomeMotivationQuoteEmbedded
             message={welcomeQuote.data.message}

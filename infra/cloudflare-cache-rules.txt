@@ -1,0 +1,15 @@
+Cloudflare (proxy acikken) — ornek kurallar
+============================================
+
+1) Cache Rules → URI Path starts with /_next/static/
+   - Edge TTL: 1 year (veya Respect Origin / Browser TTL: use origin Cache-Control)
+   - Cache eligibility: Eligible
+
+2) api.uzaedu.com → Cache Level: Bypass (veya yalnizca GET /api/content/* icin kisa TTL)
+   - Oturum / POST asla cache lenmesin.
+
+3) uzaedu.com → HTML (/) dusuk TTL veya Bypass; statik uzantilar icin ayri kural opsiyonel.
+
+4) Rocket Loader / Auto Minify: Next.js ile genelde kapali tutun (kirilma riski).
+
+5) HTTP/2 + HTTP/3 (QUIC): DNS proxy acikken Cloudflare tarafinda etkin.

@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
@@ -18,6 +19,8 @@ export type BilsemPlanSubmissionStatus =
   | 'withdrawn';
 
 @Entity('bilsem_plan_submission')
+@Index('idx_bps_author_updated_at', ['authorUserId', 'updatedAt'])
+@Index('idx_bps_author_status', ['authorUserId', 'status'])
 export class BilsemPlanSubmission {
   @PrimaryGeneratedColumn('uuid')
   id: string;

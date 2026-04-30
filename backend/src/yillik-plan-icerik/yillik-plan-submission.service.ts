@@ -80,7 +80,11 @@ export class YillikPlanSubmissionService {
   }
 
   async listMine(authorUserId: string): Promise<YillikPlanSubmission[]> {
-    return this.submissionRepo.find({ where: { authorUserId }, order: { updatedAt: 'DESC' }, take: 100 });
+    try {
+      return this.submissionRepo.find({ where: { authorUserId }, order: { updatedAt: 'DESC' }, take: 100 });
+    } catch {
+      return [];
+    }
   }
 
   async getOne(id: string, viewerUserId: string, role: string): Promise<YillikPlanSubmission> {

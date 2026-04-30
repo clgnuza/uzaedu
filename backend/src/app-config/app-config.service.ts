@@ -1476,8 +1476,7 @@ export class AppConfigService {
     return rest;
   }
 
-  async getCaptchaPublic(): Promise<CaptchaPublic> {
-    const c = await this.getCaptchaConfig();
+  captchaConfigToPublic(c: CaptchaConfig): CaptchaPublic {
     const p = this.toCaptchaPublic(c);
     if (!c.enabled || c.provider === 'none') {
       return {
@@ -1488,6 +1487,11 @@ export class AppConfigService {
       };
     }
     return p;
+  }
+
+  async getCaptchaPublic(): Promise<CaptchaPublic> {
+    const c = await this.getCaptchaConfig();
+    return this.captchaConfigToPublic(c);
   }
 
   async updateCaptchaConfig(dto: Partial<CaptchaConfig & { secret_key?: string | null }>): Promise<void> {
@@ -1661,7 +1665,7 @@ export class AppConfigService {
       const c = await this.getCaptchaConfig();
       return c.cache_ttl_captcha;
     }
-    const cfg = await this.getWebExtrasConfig();
+    const cfg = await this.getWebExtrasStoredOnly();
     if (kind === 'yayin_seo') return cfg.cache_ttl_yayin_seo;
     if (kind === 'web_public') return cfg.cache_ttl_web_public;
     if (kind === 'legal_pages') return cfg.cache_ttl_legal_pages;
@@ -2326,8 +2330,12 @@ export class AppConfigService {
     return s.slice(5);
   }
 
-  async getWelcomeTodayPublic(): Promise<WelcomeTodayPublic> {
-    const cfg = await this.getWelcomeModuleConfig();
+  getWelcomeModulePublicMaxAge(cfg: WelcomeModuleConfig): number {
+    return clampCacheTtl(cfg.cache_ttl_welcome, DEFAULT_WELCOME_MODULE.cache_ttl_welcome);
+  }
+
+  async getWelcomeTodayPublic(module?: WelcomeModuleConfig): Promise<WelcomeTodayPublic> {
+    const cfg = module ?? (await this.getWelcomeModuleConfig());
     const date_key = AppConfigService.dateKeyIstanbul();
     const zodiac_key = getWelcomeZodiacKey(date_key);
     if (!cfg.enabled) {
@@ -2355,7 +2363,7 @@ export class AppConfigService {
 
   async getWelcomeModulePublicCacheMaxAge(): Promise<number> {
     const c = await this.getWelcomeModuleConfig();
-    return clampCacheTtl(c.cache_ttl_welcome, DEFAULT_WELCOME_MODULE.cache_ttl_welcome);
+    return this.getWelcomeModulePublicMaxAge(c);
   }
 
   /** Haber içerik senkronu – zamanlayıcı (cron) aralığı ve aç/kapa */

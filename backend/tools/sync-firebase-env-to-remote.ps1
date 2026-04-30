@@ -80,8 +80,8 @@ Write-Host "SCP Firebase patch -> $sshTarget"
 & scp -i $key -o BatchMode=yes -o StrictHostKeyChecking=accept-new $patchTmp "${sshTarget}:${patchRemote}"
 & scp -i $key -o BatchMode=yes -o StrictHostKeyChecking=accept-new $applyPy "${sshTarget}:${applyRemote}"
 
-$remoteCmd = "python3 $applyRemote $patchRemote $remoteEnv && rm -f $patchRemote $applyRemote && pm2 restart uzaedu-api --update-env && pm2 save"
-Write-Host "Uygula + pm2 restart uzaedu-api..."
+$remoteCmd = "python3 $applyRemote $patchRemote $remoteEnv && rm -f $patchRemote $applyRemote && (pm2 reload uzaedu-api --update-env || pm2 restart uzaedu-api --update-env) && pm2 save"
+Write-Host "Uygula + pm2 reload uzaedu-api..."
 & ssh -i $key -o BatchMode=yes $sshTarget $remoteCmd
 
 Remove-Item $patchTmp -Force -ErrorAction SilentlyContinue

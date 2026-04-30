@@ -37,4 +37,11 @@ CANLI DEPLOY_SECRET (panel ile ayni)
   Ortam: DEPLOY_SSH_HOST, DEPLOY_SSH_USER, DEPLOY_SSH_KEY, DEPLOY_REMOTE_ROOT (opsiyonel)
   Sunucuda python3 gerekir; sonra pm2 restart uzaedu-api calisir.
 
+PM2 (cluster opsiyonel)
+- Sablon: backend/tools/pm2-ecosystem.config.cjs -> sunucuda kopyala, pm2 startOrReload ... --update-env
+- Ornek: PM2_API_INSTANCES=2 (otomatik cluster), bellek yeterliyse.
+
+DB (plan submission sorgu hizi)
+- backend/migrations/add-plan-submission-author-indexes.sql -> canli psql ile (tablolar varsa).
+
 Dosya: DEPLOY-LOCAL-TO-PROD.txt

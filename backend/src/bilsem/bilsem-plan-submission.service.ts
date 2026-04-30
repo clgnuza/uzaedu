@@ -373,12 +373,16 @@ export class BilsemPlanSubmissionService {
   }
 
   async listMine(authorUserId: string): Promise<BilsemPlanSubmissionMineRow[]> {
-    const rows = await this.submissionRepo.find({
-      where: { authorUserId },
-      order: { updatedAt: 'DESC' },
-      take: 100,
-    });
-    return rows.map((s) => this.toMineRow(s));
+    try {
+      const rows = await this.submissionRepo.find({
+        where: { authorUserId },
+        order: { updatedAt: 'DESC' },
+        take: 100,
+      });
+      return rows.map((s) => this.toMineRow(s));
+    } catch {
+      return [];
+    }
   }
 
   async listPending(filters?: {
@@ -576,20 +580,29 @@ export class BilsemPlanSubmissionService {
   }
 
   async getAuthorSummary(authorUserId: string): Promise<BilsemPlanAuthorSummary> {
-    const [draft, pending, published, rejected, withdrawn, reward] = await Promise.all([
-      this.submissionRepo.count({ where: { authorUserId, status: 'draft' } }),
-      this.submissionRepo.count({ where: { authorUserId, status: 'pending_review' } }),
-      this.submissionRepo.count({ where: { authorUserId, status: 'published' } }),
-      this.submissionRepo.count({ where: { authorUserId, status: 'rejected' } }),
-      this.submissionRepo.count({ where: { authorUserId, status: 'withdrawn' } }),
-      this.planCreatorReward.getCreatorRewardSummary(authorUserId),
-    ]);
-    return {
-      counts: { draft, pending_review: pending, published, rejected, withdrawn },
-      planWordUsageCount: reward.planWordUsageCount,
-      totalJetonCredited: reward.totalJetonCredited,
-      bySubmission: reward.bySubmission,
-    };
+    try {
+      const [draft, pending, published, rejected, withdrawn, reward] = await Promise.all([
+        this.submissionRepo.count({ where: { authorUserId, status: 'draft' } }),
+        this.submissionRepo.count({ where: { authorUserId, status: 'pending_review' } }),
+        this.submissionRepo.count({ where: { authorUserId, status: 'published' } }),
+        this.submissionRepo.count({ where: { authorUserId, status: 'rejected' } }),
+        this.submissionRepo.count({ where: { authorUserId, status: 'withdrawn' } }),
+        this.planCreatorReward.getCreatorRewardSummary(authorUserId),
+      ]);
+      return {
+        counts: { draft, pending_review: pending, published, rejected, withdrawn },
+        planWordUsageCount: reward.planWordUsageCount,
+        totalJetonCredited: reward.totalJetonCredited,
+        bySubmission: reward.bySubmission,
+      };
+    } catch {
+      return {
+        counts: { draft: 0, pending_review: 0, published: 0, rejected: 0, withdrawn: 0 },
+        planWordUsageCount: 0,
+        totalJetonCredited: '0',
+        bySubmission: [],
+      };
+    }
   }
 
   async getModerationDashboard(): Promise<BilsemModerationDashboard> {

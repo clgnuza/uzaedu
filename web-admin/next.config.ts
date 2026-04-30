@@ -6,6 +6,12 @@ const extraDevOrigins =
     .filter(Boolean) ?? [];
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
+  compress: true,
+  images: {
+    formats: ["image/avif", "image/webp"],
+    minimumCacheTTL: 60,
+  },
   /** Emülatör / LAN IP’den next dev (HMR, Server Actions) — farklı origin izni */
   allowedDevOrigins: [
     "http://10.0.2.2:3000",
@@ -15,11 +21,28 @@ const nextConfig: NextConfig = {
   ],
   /** Tree-shake: yalnızca kullanılan ikonlar bundle’a girer */
   experimental: {
-    optimizePackageImports: ["lucide-react"],
+    optimizePackageImports: [
+      "lucide-react",
+      "date-fns",
+      "@tanstack/react-query",
+      "recharts",
+    ],
   },
   /** Firebase Google popup: window.closed için COOP gevşetilir */
   async headers() {
     return [
+      {
+        source: "/_next/static/:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+      {
+        source: "/:path*.(css|js|mjs|map|png|jpg|jpeg|gif|svg|webp|ico|woff2|woff|ttf|otf)",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=2592000" },
+        ],
+      },
       {
         source: "/tv/:path*",
         headers: [

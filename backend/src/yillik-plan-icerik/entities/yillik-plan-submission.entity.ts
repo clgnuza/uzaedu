@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
@@ -13,6 +14,8 @@ import { School } from '../../schools/entities/school.entity';
 export type YillikPlanSubmissionStatus = 'draft' | 'pending_review' | 'published' | 'rejected' | 'withdrawn';
 
 @Entity('yillik_plan_submission')
+@Index('idx_yps_author_updated_at', ['authorUserId', 'updatedAt'])
+@Index('idx_yps_author_status', ['authorUserId', 'status'])
 export class YillikPlanSubmission {
   @PrimaryGeneratedColumn('uuid')
   id: string;
