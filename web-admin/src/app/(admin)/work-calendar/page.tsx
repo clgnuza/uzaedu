@@ -55,8 +55,8 @@ function getInitialAcademicYear(): string {
   return getAcademicYears()[0] ?? '2025-2026';
 }
 
-export default function WorkCalendarPage(props?: { embedded?: boolean }) {
-  const embedded = props?.embedded === true;
+export default function WorkCalendarPage() {
+  const embedded = false;
   const router = useRouter();
   const { token, me, loading: authLoading } = useAuth();
   const [items, setItems] = useState<WorkCalendarItem[]>([]);
