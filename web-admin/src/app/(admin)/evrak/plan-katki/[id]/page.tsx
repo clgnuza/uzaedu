@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
@@ -112,7 +112,7 @@ export default function EvrakPlanKatkiDetailPage() {
 
   if (!me || (me.role !== 'teacher' && me.role !== 'school_admin')) return null;
 
-  const statusMeta: Record<string, { label: string; chip: string; card: string; icon: JSX.Element }> = {
+  const statusMeta: Record<string, { label: string; chip: string; card: string; icon: ReactNode }> = {
     draft: {
       label: 'Taslak',
       chip: 'bg-slate-100 text-slate-700 dark:bg-slate-900/50 dark:text-slate-300',
