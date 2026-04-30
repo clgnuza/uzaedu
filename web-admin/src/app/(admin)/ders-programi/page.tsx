@@ -30,6 +30,9 @@ import {
   Building2,
   FolderKanban,
   Share2,
+  Archive,
+  Files,
+  Trash2,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useSchoolTimetableSettings } from '@/hooks/use-school-timetable-settings';
@@ -43,17 +46,20 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { LessonCellCard } from '@/components/ders-programi/lesson-cell-card';
 import { TEACHER_WEEK_THEME } from '@/components/ders-programi/timetable-pastel-theme';
 import { DersProgramiTeacherContextCard } from '@/components/ders-programi/ders-programi-teacher-context-card';
+import { SchoolTimetableDraftsPanel } from '@/components/ders-programi/school-timetable-drafts-panel';
 import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { displayNameForTimetableRowKey, timetableTeacherRowKey } from '@/lib/timetable-teacher-key';
 import { buildDersProgramiIcs, shareOrDownloadIcs } from '@/lib/ders-programi-ics';
 import { resolveSchoolSubjectDisplay } from '@/lib/school-subject-display';
 
 type TimetableEntry = {
-  user_id: string;
+  user_id: string | null;
+  teacher_name_raw?: string | null;
   day_of_week: number;
   lesson_num: number;
   class_section: string;
@@ -437,13 +443,18 @@ export default function DersProgramiAnaPage() {
   const [adminByDateData, setAdminByDateData] = useState<ByDateData | null>(null);
   const [adminByDateLoading, setAdminByDateLoading] = useState(false);
   const [adminTeachers, setAdminTeachers] = useState<TeacherInfo[]>([]);
-  const [adminViewTab, setAdminViewTab] = useState<'summary' | 'daily' | 'calendar'>('summary');
+  const [adminViewTab, setAdminViewTab] = useState<'summary' | 'daily' | 'calendar' | 'archive' | 'drafts'>('summary');
+  const [archivingPlanId, setArchivingPlanId] = useState<string | null>(null);
+  const [deletingArchivedPlanId, setDeletingArchivedPlanId] = useState<string | null>(null);
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [archiveTargetPlan, setArchiveTargetPlan] = useState<TimetablePlan | null>(null);
+  const [adminReloadTick, setAdminReloadTick] = useState(0);
   const [adminCalendarMonth, setAdminCalendarMonth] = useState(() => {
     const d = new Date();
     return { year: d.getFullYear(), month: d.getMonth() };
   });
 
-  const setAdminViewTabWithCalendarSync = (tab: 'summary' | 'daily' | 'calendar') => {
+  const setAdminViewTabWithCalendarSync = (tab: 'summary' | 'daily' | 'calendar' | 'archive' | 'drafts') => {
     setAdminViewTab(tab);
     if (tab === 'calendar') {
       const [y, m] = adminSelectedDate.split('-').map(Number);
@@ -470,7 +481,6 @@ export default function DersProgramiAnaPage() {
           setAdminPlans(
             Array.isArray(plansList)
               ? plansList
-                  .filter((p) => p.status === 'published' || p.status === 'archived')
                   .sort((a, b) => a.valid_from.localeCompare(b.valid_from))
               : [],
           );
@@ -500,7 +510,43 @@ export default function DersProgramiAnaPage() {
       }
     };
     fetchData();
-  }, [token, isAdmin, me?.school_id]);
+  }, [token, isAdmin, me?.school_id, adminReloadTick]);
+
+  const handleArchivePlan = async (planId: string) => {
+    if (!token || !planId || archivingPlanId) return;
+    setArchivingPlanId(planId);
+    try {
+      await apiFetch(`/teacher-timetable/plans/${planId}/archive`, { token, method: 'POST' });
+      toast.success('Plan arşive gönderildi.');
+      setAdminPlans((prev) => prev.map((p) => (p.id === planId ? { ...p, status: 'archived' } : p)));
+      setAdminReloadTick((v) => v + 1);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Arşivleme başarısız');
+    } finally {
+      setArchivingPlanId(null);
+    }
+  };
+
+  const openArchiveConfirm = (plan: TimetablePlan) => {
+    setArchiveTargetPlan(plan);
+    setArchiveConfirmOpen(true);
+  };
+
+  const handleDeleteArchivedPlan = async (planId: string) => {
+    if (!token) return;
+    const ok = window.confirm('Bu arşiv planını kalıcı olarak silmek istiyor musunuz?');
+    if (!ok) return;
+    setDeletingArchivedPlanId(planId);
+    try {
+      await apiFetch(`/teacher-timetable/plans/${planId}`, { token, method: 'DELETE' });
+      toast.success('Arşiv planı silindi.');
+      setAdminReloadTick((x) => x + 1);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Plan silinemedi.');
+    } finally {
+      setDeletingArchivedPlanId(null);
+    }
+  };
 
   useEffect(() => {
     if (!isTeacher) return;
@@ -599,7 +645,15 @@ export default function DersProgramiAnaPage() {
     return d === 0 ? 7 : d;
   }, [adminSelectedDate]);
 
-  const publishedPlans = adminPlans;
+  const publishedPlans = useMemo(
+    () => adminPlans.filter((p) => p.status === 'published'),
+    [adminPlans],
+  );
+  const archivedPlans = useMemo(
+    () => adminPlans.filter((p) => p.status === 'archived'),
+    [adminPlans],
+  );
+  const draftPlansCount = useMemo(() => adminPlans.filter((p) => p.status === 'draft').length, [adminPlans]);
   const currentPlanIndex = publishedPlans.findIndex((p) => {
     const sel = adminSelectedDate;
     return p.valid_from <= sel && (!p.valid_until || p.valid_until >= sel);
@@ -608,8 +662,8 @@ export default function DersProgramiAnaPage() {
   const nextPlan = currentPlanIndex >= 0 && currentPlanIndex < publishedPlans.length - 1 ? publishedPlans[currentPlanIndex + 1] : null;
   const goToPlan = (plan: TimetablePlan) => setAdminSelectedDate(plan.valid_from);
 
-  const getTeacherName = (userId: string) =>
-    adminTeachers.find((t) => t.id === userId)?.display_name || adminTeachers.find((t) => t.id === userId)?.email || '—';
+  const getTeacherName = (key: string) =>
+    displayNameForTimetableRowKey(key, (id) => adminTeachers.find((t) => t.id === id)?.display_name ?? adminTeachers.find((t) => t.id === id)?.email);
 
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -640,7 +694,7 @@ export default function DersProgramiAnaPage() {
 
   const teacherCount = useMemo(() => {
     if (!entries?.length) return 0;
-    return new Set(entries.map((e) => e.user_id)).size;
+    return new Set(entries.map((e) => timetableTeacherRowKey(e))).size;
   }, [entries]);
 
   const isClassTime = useMemo(() => {
@@ -850,63 +904,108 @@ export default function DersProgramiAnaPage() {
         {isAdmin ? (
           <CardHeader className="min-w-0 space-y-1.5 overflow-hidden border-b border-border/70 bg-linear-to-r from-sky-500/6 via-muted/20 to-transparent px-2.5 py-2 print:hidden sm:space-y-3 sm:px-6 sm:py-4">
             <nav className="w-full min-w-0" aria-label="Okul programı görünümü">
-              <div
-                role="tablist"
-                className="flex w-full min-w-0 gap-1 overflow-x-auto overflow-y-hidden rounded-xl border-2 border-sky-200/90 bg-sky-50/90 p-1 shadow-sm [-ms-overflow-style:none] [scrollbar-width:none] dark:border-sky-900/60 dark:bg-sky-950/35 [&::-webkit-scrollbar]:hidden sm:gap-1 sm:overflow-visible"
-              >
+              <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-2">
+                <div
+                  role="tablist"
+                  className="flex min-h-[40px] min-w-0 flex-1 gap-1 overflow-x-auto overflow-y-hidden rounded-xl border-2 border-sky-200/90 bg-sky-50/90 p-1 shadow-sm [-ms-overflow-style:none] [scrollbar-width:none] dark:border-sky-900/60 dark:bg-sky-950/35 [&::-webkit-scrollbar]:hidden sm:gap-1 sm:overflow-visible"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={adminViewTab === 'summary'}
+                    onClick={() => setAdminViewTabWithCalendarSync('summary')}
+                    className={cn(
+                      'flex min-h-9 min-w-0 flex-1 basis-0 items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-center text-xs font-bold transition-all sm:min-h-10 sm:gap-2 sm:px-3 sm:text-sm',
+                      adminViewTab === 'summary'
+                        ? 'bg-sky-600 text-white shadow-md ring-2 ring-sky-500/40 dark:bg-sky-500 dark:ring-sky-300/30'
+                        : 'border border-transparent bg-white/70 text-sky-900/75 hover:border-sky-300/80 hover:bg-white dark:bg-sky-950/50 dark:text-sky-100/80 dark:hover:border-sky-700',
+                    )}
+                  >
+                    <LayoutDashboard className="size-3.5 shrink-0 opacity-90 sm:size-4" aria-hidden />
+                    <span className="min-w-0 truncate leading-tight">Özet</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={adminViewTab === 'daily'}
+                    onClick={() => setAdminViewTabWithCalendarSync('daily')}
+                    className={cn(
+                      'flex min-h-9 min-w-0 flex-1 basis-0 items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-center text-xs font-bold transition-all sm:min-h-10 sm:gap-2 sm:px-3 sm:text-sm',
+                      adminViewTab === 'daily'
+                        ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-500/40 dark:bg-emerald-500 dark:ring-emerald-300/30'
+                        : 'border border-transparent bg-white/70 text-emerald-900/75 hover:border-emerald-300/80 hover:bg-white dark:bg-emerald-950/40 dark:text-emerald-100/80 dark:hover:border-emerald-800',
+                    )}
+                  >
+                    <Clock className="size-3.5 shrink-0 opacity-90 sm:size-4" aria-hidden />
+                    <span className="min-w-0 truncate leading-tight">
+                      <span className="sm:hidden">Günlük</span>
+                      <span className="hidden sm:inline">Günlük tablo</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={adminViewTab === 'calendar'}
+                    onClick={() => setAdminViewTabWithCalendarSync('calendar')}
+                    className={cn(
+                      'flex min-h-9 min-w-0 flex-1 basis-0 items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-center text-xs font-bold transition-all sm:min-h-10 sm:gap-2 sm:px-3 sm:text-sm',
+                      adminViewTab === 'calendar'
+                        ? 'bg-violet-600 text-white shadow-md ring-2 ring-violet-500/40 dark:bg-violet-500 dark:ring-violet-300/30'
+                        : 'border border-transparent bg-white/70 text-violet-900/75 hover:border-violet-300/80 hover:bg-white dark:bg-violet-950/40 dark:text-violet-100/80 dark:hover:border-violet-800',
+                    )}
+                  >
+                    <CalendarRange className="size-3.5 shrink-0 opacity-90 sm:size-4" aria-hidden />
+                    <span className="min-w-0 truncate leading-tight">Takvim</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={adminViewTab === 'archive'}
+                    onClick={() => setAdminViewTabWithCalendarSync('archive')}
+                    className={cn(
+                      'flex min-h-9 min-w-0 flex-1 basis-0 items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-center text-xs font-bold transition-all sm:min-h-10 sm:gap-2 sm:px-3 sm:text-sm',
+                      adminViewTab === 'archive'
+                        ? 'bg-amber-600 text-white shadow-md ring-2 ring-amber-500/40 dark:bg-amber-500 dark:ring-amber-300/30'
+                        : 'border border-transparent bg-white/70 text-amber-900/75 hover:border-amber-300/80 hover:bg-white dark:bg-amber-950/40 dark:text-amber-100/80 dark:hover:border-amber-800',
+                    )}
+                  >
+                    <Archive className="size-3.5 shrink-0 opacity-90 sm:size-4" aria-hidden />
+                    <span className="min-w-0 truncate leading-tight">Arşiv</span>
+                  </button>
+                </div>
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={adminViewTab === 'summary'}
-                  onClick={() => setAdminViewTabWithCalendarSync('summary')}
+                  aria-selected={adminViewTab === 'drafts'}
+                  onClick={() => setAdminViewTabWithCalendarSync('drafts')}
+                  title="Yayımlanmamış taslaklar"
                   className={cn(
-                    'flex min-h-9 min-w-0 flex-1 basis-0 items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-center text-xs font-bold transition-all sm:min-h-10 sm:gap-2 sm:px-3 sm:text-sm',
-                    adminViewTab === 'summary'
-                      ? 'bg-sky-600 text-white shadow-md ring-2 ring-sky-500/40 dark:bg-sky-500 dark:ring-sky-300/30'
-                      : 'border border-transparent bg-white/70 text-sky-900/75 hover:border-sky-300/80 hover:bg-white dark:bg-sky-950/50 dark:text-sky-100/80 dark:hover:border-sky-700',
+                    'flex min-h-9 shrink-0 items-center justify-center gap-1.5 self-stretch rounded-xl border-2 px-3 py-2 text-center text-xs font-bold shadow-sm transition-all sm:min-h-10 sm:min-w-[8.5rem] sm:text-sm',
+                    adminViewTab === 'drafts'
+                      ? 'border-slate-500 bg-slate-600 text-white ring-2 ring-slate-400/35 dark:bg-slate-500 dark:ring-slate-300/25'
+                      : 'border-slate-200/90 bg-slate-50/95 text-slate-800 hover:border-slate-300 hover:bg-white dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:hover:border-slate-600',
                   )}
                 >
-                  <LayoutDashboard className="size-3.5 shrink-0 opacity-90 sm:size-4" aria-hidden />
-                  <span className="min-w-0 truncate leading-tight">Özet</span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={adminViewTab === 'daily'}
-                  onClick={() => setAdminViewTabWithCalendarSync('daily')}
-                  className={cn(
-                    'flex min-h-9 min-w-0 flex-1 basis-0 items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-center text-xs font-bold transition-all sm:min-h-10 sm:gap-2 sm:px-3 sm:text-sm',
-                    adminViewTab === 'daily'
-                      ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-500/40 dark:bg-emerald-500 dark:ring-emerald-300/30'
-                      : 'border border-transparent bg-white/70 text-emerald-900/75 hover:border-emerald-300/80 hover:bg-white dark:bg-emerald-950/40 dark:text-emerald-100/80 dark:hover:border-emerald-800',
-                  )}
-                >
-                  <Clock className="size-3.5 shrink-0 opacity-90 sm:size-4" aria-hidden />
-                  <span className="min-w-0 truncate leading-tight">
-                    <span className="sm:hidden">Günlük</span>
-                    <span className="hidden sm:inline">Günlük tablo</span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={adminViewTab === 'calendar'}
-                  onClick={() => setAdminViewTabWithCalendarSync('calendar')}
-                  className={cn(
-                    'flex min-h-9 min-w-0 flex-1 basis-0 items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-center text-xs font-bold transition-all sm:min-h-10 sm:gap-2 sm:px-3 sm:text-sm',
-                    adminViewTab === 'calendar'
-                      ? 'bg-violet-600 text-white shadow-md ring-2 ring-violet-500/40 dark:bg-violet-500 dark:ring-violet-300/30'
-                      : 'border border-transparent bg-white/70 text-violet-900/75 hover:border-violet-300/80 hover:bg-white dark:bg-violet-950/40 dark:text-violet-100/80 dark:hover:border-violet-800',
-                  )}
-                >
-                  <CalendarRange className="size-3.5 shrink-0 opacity-90 sm:size-4" aria-hidden />
-                  <span className="min-w-0 truncate leading-tight">Takvim</span>
+                  <Files className="size-3.5 shrink-0 opacity-90 sm:size-4" aria-hidden />
+                  <span className="whitespace-nowrap">Taslaklar</span>
+                  {draftPlansCount > 0 ? (
+                    <span
+                      className={cn(
+                        'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+                        adminViewTab === 'drafts' ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-100',
+                      )}
+                    >
+                      {draftPlansCount}
+                    </span>
+                  ) : null}
                 </button>
               </div>
               <p className="mt-1.5 hidden text-[11px] leading-snug text-muted-foreground sm:block">
                 {adminViewTab === 'summary' && 'Yayınlanan planlar ve kısayollar.'}
                 {adminViewTab === 'daily' && 'Seçilen gün için saatlik öğretmen dağılımı.'}
                 {adminViewTab === 'calendar' && 'Ay görünümü; güne tıklayınca detay aşağıda.'}
+                {adminViewTab === 'archive' && 'Arşive alınan planlar ve tarihleri.'}
+                {adminViewTab === 'drafts' && 'Excel ile yüklenen, henüz yayınlanmamış okul planı taslakları.'}
               </p>
             </nav>
 
@@ -1164,7 +1263,7 @@ export default function DersProgramiAnaPage() {
               {/* Özet sekmesi */}
               {adminViewTab === 'summary' && (
                 <div className="min-w-0 space-y-4">
-                  <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                  <div className="grid min-w-0 gap-3 lg:grid-cols-3">
                     {planInfo && (
                       <div className="rounded-2xl border border-sky-200/60 bg-linear-to-br from-sky-500/10 via-background to-transparent p-4 shadow-sm ring-1 ring-sky-500/10 dark:border-sky-800/50 dark:from-sky-950/40">
                         <div className="flex items-start gap-3">
@@ -1187,28 +1286,40 @@ export default function DersProgramiAnaPage() {
                         </div>
                       </div>
                     )}
-                    <div className="flex flex-col justify-center rounded-2xl border border-border/70 bg-muted/20 p-4">
+                    <div className="flex flex-col justify-center rounded-2xl border border-violet-200/60 bg-linear-to-br from-violet-500/10 to-transparent p-4 shadow-sm ring-1 ring-violet-500/10 dark:border-violet-900/50 dark:from-violet-950/35">
                       <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Hızlı erişim</p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Button size="sm" className="gap-2" asChild>
+                      <div className="mt-3 grid gap-2">
+                        <Button size="sm" className="justify-start gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700" asChild>
                           <Link href="/ders-programi/olustur">
                             <Upload className="size-4" />
                             Excel yükle
                           </Link>
                         </Button>
-                        <Button variant="outline" size="sm" className="gap-2" asChild>
+                        <Button variant="outline" size="sm" className="justify-start gap-2 rounded-xl border-sky-300/70 hover:bg-sky-500/10" asChild>
                           <Link href="/ders-programi/programlarim">
                             <Users className="size-4" />
                             Öğretmen programları
                           </Link>
                         </Button>
+                        <Button variant="outline" size="sm" className="justify-start gap-2 rounded-xl border-amber-300/70 hover:bg-amber-500/10" onClick={() => setAdminViewTabWithCalendarSync('summary')}>
+                          <Archive className="size-4" />
+                          Yayınlanmış planlar
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="flex flex-col justify-center rounded-2xl border border-emerald-200/60 bg-linear-to-br from-emerald-500/8 to-transparent p-4 shadow-sm ring-1 ring-emerald-500/10 dark:border-emerald-900/50 dark:from-emerald-950/35">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">Planlar durumu</p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                        <span className="rounded-full bg-primary/10 px-2 py-1 font-semibold text-primary">Yayın: {publishedPlans.length}</span>
+                        <span className="rounded-full bg-amber-500/15 px-2 py-1 font-semibold text-amber-700 dark:text-amber-300">Arşiv: {archivedPlans.length}</span>
+                        <span className="rounded-full bg-slate-500/15 px-2 py-1 font-semibold text-slate-700 dark:text-slate-300">Taslak: {draftPlansCount}</span>
                       </div>
                     </div>
                   </div>
                   {publishedPlans.length > 0 && (
                     <div className="min-w-0 space-y-2">
                       <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Yayınlanmış planlar</p>
-                      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:overflow-x-auto sm:pb-1">
+                      <div className="grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-3">
                         {prevPlan && (
                           <Button variant="outline" size="sm" onClick={() => goToPlan(prevPlan)} className="w-full shrink-0 gap-1 sm:w-auto">
                             <ChevronLeft className="size-3.5" /> Önceki
@@ -1216,28 +1327,59 @@ export default function DersProgramiAnaPage() {
                         )}
                         {publishedPlans.map((p) => {
                           const isActive = planInfo?.plan_id === p.id;
-                          const dateFrom = new Date(p.valid_from + 'T12:00:00').toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: '2-digit' });
-                          const dateTo = p.valid_until ? new Date(p.valid_until + 'T12:00:00').toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' }) : 'Devam ediyor';
+                          const dateFrom = new Date(p.valid_from + 'T12:00:00').toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' });
+                          const dateTo = p.valid_until ? new Date(p.valid_until + 'T12:00:00').toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Devam ediyor';
                           return (
-                            <button
+                            <div
                               key={p.id}
-                              type="button"
-                              onClick={() => goToPlan(p)}
-                              title={p.name ? `${p.name} (${dateFrom} – ${dateTo})` : undefined}
                               className={cn(
-                                'w-full max-w-full rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition-all sm:w-auto sm:min-w-[168px] sm:max-w-[280px] sm:shrink-0 md:min-w-[180px]',
+                                'rounded-2xl border p-3 text-left shadow-sm ring-1 transition-all bg-linear-to-br',
                                 isActive
-                                  ? 'border-primary bg-primary text-primary-foreground shadow-md ring-1 ring-primary/30'
-                                  : 'border-border/80 bg-card hover:border-primary/40 hover:bg-muted/40',
+                                  ? 'border-primary/60 from-violet-500/18 via-indigo-500/10 to-fuchsia-500/12 ring-primary/30'
+                                  : 'border-violet-200/60 from-violet-500/10 via-sky-500/8 to-emerald-500/8 ring-violet-300/20 dark:border-violet-900/50',
                               )}
                             >
-                              <span className="block wrap-break-word">
-                                {p.name || 'Plan'}
-                              </span>
-                              <span className="mt-0.5 block text-xs opacity-90">
-                                {dateFrom} – {dateTo}
-                              </span>
-                            </button>
+                              <button
+                                type="button"
+                                onClick={() => goToPlan(p)}
+                                title={p.name ? `${p.name} (${dateFrom} – ${dateTo})` : undefined}
+                                className="w-full text-left"
+                              >
+                                <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-violet-800 dark:text-violet-200">
+                                  <CalendarDays className="size-3" />
+                                  Plan
+                                </span>
+                                <span className="mt-1.5 block wrap-break-word text-base font-bold leading-tight text-foreground">
+                                  {p.name || 'Plan'}
+                                </span>
+                                <div className="mt-2 grid grid-cols-2 gap-1.5">
+                                  <span className="rounded-lg border border-emerald-300/70 bg-emerald-500/15 px-2 py-1 text-[11px] font-semibold text-emerald-800 dark:border-emerald-800 dark:text-emerald-200">
+                                    Başlangıç<br />{dateFrom}
+                                  </span>
+                                  <span className="rounded-lg border border-amber-300/70 bg-amber-500/15 px-2 py-1 text-[11px] font-semibold text-amber-800 dark:border-amber-800 dark:text-amber-200">
+                                    Bitiş<br />{dateTo}
+                                  </span>
+                                </div>
+                              </button>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" asChild>
+                                  <Link href="/ders-programi/programlarim">
+                                    <Pencil className="size-3.5" />
+                                    Düzenle
+                                  </Link>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 border-amber-300/80 px-2.5 text-xs text-amber-700 hover:bg-amber-500/10 dark:text-amber-300"
+                                  disabled={!!archivingPlanId}
+                                  onClick={() => openArchiveConfirm(p)}
+                                >
+                                  <Archive className="size-3.5" />
+                                  {archivingPlanId === p.id ? '...' : 'Arşive gönder'}
+                                </Button>
+                              </div>
+                            </div>
                           );
                         })}
                         {nextPlan && (
@@ -1248,10 +1390,31 @@ export default function DersProgramiAnaPage() {
                       </div>
                     </div>
                   )}
+                  {archivedPlans.length > 0 && (
+                    <div className="min-w-0 space-y-2">
+                      <p className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">Arşivlenmiş planlar</p>
+                      <div className="grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                        {archivedPlans.map((p) => {
+                          const dateFrom = new Date(p.valid_from + 'T12:00:00').toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' });
+                          const dateTo = p.valid_until ? new Date(p.valid_until + 'T12:00:00').toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Devam ediyor';
+                          return (
+                            <div key={p.id} className="rounded-2xl border border-amber-300/70 bg-linear-to-br from-amber-500/10 via-background to-orange-500/10 p-3 shadow-sm ring-1 ring-amber-500/20">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-800 dark:text-amber-200">
+                                <Archive className="size-3" />
+                                Arşiv
+                              </span>
+                              <p className="mt-1.5 text-sm font-bold">{p.name || 'Plan'}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{dateFrom} – {dateTo}</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   <div className="rounded-2xl border border-dashed border-border/80 bg-muted/15 px-4 py-3">
                     <p className="text-sm leading-relaxed text-muted-foreground">
                       {entries && entries.length > 0
-                        ? 'Öğretmen bazlı haftalık tabloyu Programlarım üzerinden açın. Günlük Tablo’da seçtiğiniz gün için saatlik dağılımı görün; Takvim’de ise tarih seçerek aynı bilgiye ay görünümünden ulaşın.'
+                        ? 'Öğretmen bazlı haftalık tabloyu Programlarım üzerinden açın. Plan kartlarından düzenleme/arşiv işlemlerini yapın; Günlük Tablo ve Takvim ile anlık görünümü izleyin.'
                         : 'Excel ile program yükleyerek başlayın. Yükleme sonrası planlar burada özetlenir.'}
                     </p>
                   </div>
@@ -1384,6 +1547,76 @@ export default function DersProgramiAnaPage() {
                   todayYMD={todayYMD}
                   subjectDisplay={(s) => resolveSchoolSubjectDisplay(s, schoolSubjects)}
                 />
+              )}
+
+              {adminViewTab === 'archive' && (
+                <div className="min-w-0 space-y-4">
+                  <div className="rounded-2xl border border-amber-200/60 bg-linear-to-br from-amber-500/10 via-background to-orange-500/10 p-4 shadow-sm ring-1 ring-amber-500/15 dark:border-amber-900/50">
+                    <div className="flex items-center gap-2">
+                      <div className="flex size-9 items-center justify-center rounded-xl bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                        <Archive className="size-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-bold">Arşivlenmiş Planlar</h3>
+                        <p className="text-xs text-muted-foreground">Yayından kaldırılmış eski okul planları</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {archivedPlans.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-amber-300/60 bg-amber-500/5 py-12 text-center">
+                      <Archive className="mx-auto mb-3 size-10 text-amber-500/40" />
+                      <p className="text-sm font-medium text-foreground">Arşivde plan yok</p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {archivedPlans.map((p) => {
+                        const dateFrom = new Date(p.valid_from + 'T12:00:00').toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' });
+                        const dateTo = p.valid_until ? new Date(p.valid_until + 'T12:00:00').toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Devam ediyor';
+                        return (
+                          <div key={p.id} className="rounded-2xl border border-amber-300/70 bg-linear-to-br from-amber-500/10 via-background to-orange-500/10 p-4 shadow-sm ring-1 ring-amber-500/20">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-800 dark:text-amber-200">
+                              <Archive className="size-3" />
+                              Arşiv
+                            </span>
+                            <p className="mt-2 text-sm font-bold">{p.name || 'Plan'}</p>
+                            <div className="mt-2 grid grid-cols-2 gap-1.5">
+                              <span className="rounded-lg border border-emerald-300/70 bg-emerald-500/15 px-2 py-1 text-[11px] font-semibold text-emerald-800 dark:border-emerald-800 dark:text-emerald-200">
+                                Başlangıç<br />{dateFrom}
+                              </span>
+                              <span className="rounded-lg border border-amber-300/70 bg-amber-500/15 px-2 py-1 text-[11px] font-semibold text-amber-800 dark:border-amber-800 dark:text-amber-200">
+                                Bitiş<br />{dateTo}
+                              </span>
+                            </div>
+                            <div className="mt-3">
+                              <div className="flex items-center gap-1.5">
+                                <Button size="sm" variant="outline" className="h-8 flex-1 gap-1.5" asChild>
+                                  <Link href="/ders-programi/programlarim">
+                                    <Pencil className="size-3.5" />
+                                    Düzenleme / Geri Al
+                                  </Link>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 px-2.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                  disabled={deletingArchivedPlanId === p.id}
+                                  onClick={() => handleDeleteArchivedPlan(p.id)}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                  {deletingArchivedPlanId === p.id ? '...' : 'Sil'}
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+              {adminViewTab === 'drafts' && (
+                <SchoolTimetableDraftsPanel embedded onChanged={() => setAdminReloadTick((x) => x + 1)} />
               )}
               </div>
           ) : loading ? (
@@ -1632,6 +1865,45 @@ export default function DersProgramiAnaPage() {
                   </>
                 )}
                 Takvime aktar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={archiveConfirmOpen} onOpenChange={setArchiveConfirmOpen}>
+        <DialogContent className="max-w-md overflow-hidden p-0 [&>div]:p-0">
+          <div className="bg-linear-to-r from-amber-500 to-orange-500 px-4 py-3 text-white">
+            <h3 className="text-base font-bold">Arşive Gönder</h3>
+            <p className="mt-0.5 text-xs text-white/90">Bu işlem sonrası plan yayından kalkar.</p>
+          </div>
+          <div className="space-y-3 p-4">
+            <div className="rounded-xl border border-amber-300/70 bg-amber-500/10 px-3 py-2 text-sm">
+              <p className="font-semibold text-foreground">{archiveTargetPlan?.name || 'Plan'}</p>
+              <p className="text-xs text-muted-foreground">
+                {archiveTargetPlan
+                  ? `${new Date(archiveTargetPlan.valid_from + 'T12:00:00').toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' })} – ${archiveTargetPlan.valid_until ? new Date(archiveTargetPlan.valid_until + 'T12:00:00').toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Devam ediyor'}`
+                  : ''}
+              </p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Onaylarsanız program arşivlenir ve yayınlanmış planlar listesinden kaldırılır.
+            </p>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" onClick={() => setArchiveConfirmOpen(false)}>
+                Vazgeç
+              </Button>
+              <Button
+                className="bg-amber-600 hover:bg-amber-700"
+                disabled={!archiveTargetPlan || !!archivingPlanId}
+                onClick={async () => {
+                  if (!archiveTargetPlan) return;
+                  await handleArchivePlan(archiveTargetPlan.id);
+                  setArchiveConfirmOpen(false);
+                  setArchiveTargetPlan(null);
+                }}
+              >
+                {archivingPlanId ? 'Gönderiliyor…' : 'Evet, Arşive Gönder'}
               </Button>
             </div>
           </div>

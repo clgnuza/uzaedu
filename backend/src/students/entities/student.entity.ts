@@ -27,6 +27,18 @@ export class Student {
   @Column({ name: 'student_number', type: 'varchar', length: 64, nullable: true })
   studentNumber: string | null;
 
+  @Column({ name: 'first_name', type: 'varchar', length: 128, nullable: true })
+  firstName: string | null;
+
+  @Column({ name: 'last_name', type: 'varchar', length: 128, nullable: true })
+  lastName: string | null;
+
+  @Column({ name: 'gender', type: 'varchar', length: 16, nullable: true })
+  gender: string | null;
+
+  @Column({ name: 'birth_date', type: 'date', nullable: true })
+  birthDate: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

@@ -10,10 +10,12 @@ import type { Device } from '../types';
 
 export function EditDeviceDialog({
   device,
+  classSections,
   onClose,
   onSave,
 }: {
   device: Device;
+  classSections: string[];
   onClose: () => void;
   onSave: (name: string, roomOrLocation: string, classSection: string) => void;
 }) {
@@ -41,18 +43,34 @@ export function EditDeviceDialog({
               className="mt-1"
             />
           </div>
-          <div>
-            <Label htmlFor="edit-device-class" className="flex items-center gap-1.5">
+          <div className="rounded-xl border border-sky-500/25 bg-linear-to-br from-sky-500/12 via-cyan-500/8 to-indigo-500/10 p-2.5">
+            <Label htmlFor="edit-device-class" className="flex items-center gap-1.5 text-sky-900 dark:text-sky-200">
               <BookOpen className="size-4 text-primary" />
-              Sınıf (Ders programından otomatik)
+              Sınıf (Kayıtlı sınıf listesinden)
             </Label>
-            <Input
-              id="edit-device-class"
-              value={classSection}
-              onChange={(e) => setClassSection(e.target.value)}
-              placeholder="Örn. 9-A"
-              className="mt-1"
-            />
+            {classSections.length > 0 ? (
+              <select
+                id="edit-device-class"
+                value={classSection}
+                onChange={(e) => setClassSection(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-input bg-background px-2.5 py-2 text-sm"
+              >
+                <option value="">Sınıf seçin</option>
+                {classSections.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <Input
+                id="edit-device-class"
+                value={classSection}
+                onChange={(e) => setClassSection(e.target.value)}
+                placeholder="Örn. 9-A"
+                className="mt-1"
+              />
+            )}
             <p className="mt-1 text-xs text-muted-foreground">
               Ders Programı ayarlarınızdan otomatik ders/öğretmen bilgisi alınır.
             </p>

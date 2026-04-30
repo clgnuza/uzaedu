@@ -97,8 +97,9 @@ function getAy(d: Date): string {
 }
 
 /**
- * Öğretim yılı için MEB uyumlu 36 haftalık çalışma takvimi üretir.
- * Tatil ve seminer blokları week_order=0 ile ayrı kayıtlar olarak döner.
+ * Öğretim yılı için MEB uyumlu çalışma takvimi: öğretim numaraları 1..38
+ * (1. dönem ara, yarıyıl, 2. dönem ara tatil takvimde ayrı blok; bu haftalar week_order=0, öğretim numarası atlanır).
+ * Seminer/uyum haftaları week_order=0.
  */
 export function generateMebWorkCalendar(academicYear: string): WorkCalendarWeek[] {
   const config = MEB_CALENDAR[academicYear];

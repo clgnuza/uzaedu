@@ -11,6 +11,7 @@ import {
 } from 'class-validator';
 
 export class BilsemPlanSubmissionWeekItemDto {
+  /** 1–38 = öğretim haftası (tatil satırları Excel’de kalır; API’ye gönderilmez). */
   @IsInt()
   @Min(1)
   @Max(38)
@@ -98,10 +99,11 @@ export class CreateBilsemPlanSubmissionDto {
   @MaxLength(16)
   academic_year!: string;
 
+  @IsOptional()
   @IsInt()
   @Min(1)
   @Max(12)
-  plan_grade!: number;
+  plan_grade?: number;
 
   @IsOptional()
   @IsString()

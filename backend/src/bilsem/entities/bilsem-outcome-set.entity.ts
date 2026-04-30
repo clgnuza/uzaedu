@@ -5,7 +5,10 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { User } from '../../users/entities/user.entity';
 import { BilsemOutcomeItem } from './bilsem-outcome-item.entity';
 
 @Entity('bilsem_outcome_set')
@@ -33,6 +36,13 @@ export class BilsemOutcomeSet {
 
   @Column({ name: 'subject_label', type: 'varchar', length: 256, nullable: true })
   subjectLabel: string | null;
+
+  @Column({ name: 'owner_user_id', type: 'uuid', nullable: true })
+  ownerUserId: string | null;
+
+  @ManyToOne(() => User, { onDelete: 'CASCADE', nullable: true })
+  @JoinColumn({ name: 'owner_user_id' })
+  ownerUser: User | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

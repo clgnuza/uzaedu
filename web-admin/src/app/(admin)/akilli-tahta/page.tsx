@@ -1116,6 +1116,7 @@ export default function AkilliTahtaPage() {
                     open={addDeviceOpen}
                     onOpenChange={setAddDeviceOpen}
                     onAdd={handleAddDevice}
+                    classSections={classSections}
                     onDeviceCreated={(device) => {
                       setDevices((d) => [...d, device]);
                       toast.success('Tahta eklendi. Eşleme kodu: ' + device.pairing_code);
@@ -1443,6 +1444,7 @@ export default function AkilliTahtaPage() {
       {editDevice && (
         <EditDeviceDialog
           device={editDevice}
+          classSections={classSections}
           onClose={() => setEditDevice(null)}
           onSave={(name, roomOrLocation, classSection) => {
             handleUpdateDevice(editDevice.id, name, roomOrLocation, classSection);

@@ -60,7 +60,6 @@ export class BilsemPlanCreatorRewardService {
     if (!academicYear) return;
 
     const anaGrup = str(formData.ana_grup);
-    if (!anaGrup) return;
     const altGrupRaw = str(formData.alt_grup);
     const altGrup = altGrupRaw || null;
 
@@ -70,11 +69,13 @@ export class BilsemPlanCreatorRewardService {
       .where('yp.subjectCode = :sc', { sc: subjectCode })
       .andWhere('yp.academicYear = :ay', { ay: academicYear })
       .andWhere('yp.curriculumModel = :cm', { cm: 'bilsem' })
-      .andWhere('yp.anaGrup = :ana', { ana: anaGrup })
       .andWhere('yp.submissionId IS NOT NULL');
+    if (anaGrup) {
+      qb.andWhere('yp.anaGrup = :ana', { ana: anaGrup });
+    }
     if (altGrup) {
       qb.andWhere('yp.altGrup = :alt', { alt: altGrup });
-    } else {
+    } else if (anaGrup) {
       qb.andWhere('(yp.altGrup IS NULL OR yp.altGrup = :empty)', { empty: '' });
     }
     const raw = await qb.distinct(true).getRawMany();
@@ -129,5 +130,64 @@ export class BilsemPlanCreatorRewardService {
     } catch (e) {
       this.logger.warn(`Plan ödülü bakiyeye eklenemedi: ${e instanceof Error ? e.message : e}`);
     }
+  }
+
+  /** Plan katkı: başka öğretmenlerin Word üretiminde kullanması (ledger) — özet. */
+  async getCreatorRewardSummary(creatorUserId: string): Promise<{
+    planWordUsageCount: number;
+    totalJetonCredited: string;
+    bySubmission: Array<{ submissionId: string; usageCount: number; totalJeton: string }>;
+  }> {
+    const byRaw = await this.ledgerRepo.query<
+      { submissionId: string; usageCount: string; totalJeton: string }[]
+    >(
+      `SELECT submission_id AS "submissionId",
+              COUNT(*)::int AS "usageCount",
+              COALESCE(SUM(jeton_credit::numeric), 0)::text AS "totalJeton"
+       FROM market_plan_creator_reward_ledger
+       WHERE creator_user_id = $1
+       GROUP BY submission_id
+       ORDER BY 3 DESC`,
+      [creatorUserId],
+    );
+    const bySubmission = (byRaw ?? []).map((r) => ({
+      submissionId: r.submissionId,
+      usageCount: parseInt(String(r.usageCount), 10) || 0,
+      totalJeton: String(r.totalJeton),
+    }));
+    const tot = await this.ledgerRepo.query<{ c: string; s: string }[]>(
+      `SELECT COUNT(*)::text AS c, COALESCE(SUM(jeton_credit::numeric), 0)::text AS s
+       FROM market_plan_creator_reward_ledger
+       WHERE creator_user_id = $1`,
+      [creatorUserId],
+    );
+    const t = tot?.[0];
+    return {
+      planWordUsageCount: parseInt(t?.c ?? '0', 10) || 0,
+      totalJetonCredited: String(t?.s ?? '0'),
+      bySubmission,
+    };
+  }
+
+  /** Tek yayınlanmış gönderi için katalog kullanım + jeton (sadece yazar doğrulaması). */
+  async getUsageForPublishedSubmission(
+    submissionId: string,
+    authorUserId: string,
+  ): Promise<{ usageCount: number; totalJeton: string } | null> {
+    const s = await this.submissionRepo.findOne({
+      where: { id: submissionId, authorUserId, status: 'published' },
+    });
+    if (!s) return null;
+    const r = await this.ledgerRepo.query<{ c: string; s: string }[]>(
+      `SELECT COUNT(*)::text AS c, COALESCE(SUM(jeton_credit::numeric), 0)::text AS s
+       FROM market_plan_creator_reward_ledger
+       WHERE submission_id = $1`,
+      [submissionId],
+    );
+    const x = r?.[0];
+    return {
+      usageCount: parseInt(x?.c ?? '0', 10) || 0,
+      totalJeton: String(x?.s ?? '0'),
+    };
   }
 }

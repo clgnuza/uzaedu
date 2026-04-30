@@ -16,8 +16,11 @@ export class SchoolTimetablePlanEntry {
   @Column({ name: 'plan_id', type: 'uuid' })
   plan_id: string;
 
-  @Column({ name: 'user_id', type: 'uuid' })
-  user_id: string;
+  @Column({ name: 'user_id', type: 'uuid', nullable: true })
+  user_id: string | null;
+
+  @Column({ name: 'teacher_name_raw', type: 'varchar', length: 160, nullable: true })
+  teacher_name_raw: string | null;
 
   @Column({ name: 'day_of_week', type: 'smallint' })
   day_of_week: number;
@@ -35,7 +38,7 @@ export class SchoolTimetablePlanEntry {
   @JoinColumn({ name: 'plan_id' })
   plan: SchoolTimetablePlan;
 
-  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'user_id' })
-  user: User;
+  user: User | null;
 }

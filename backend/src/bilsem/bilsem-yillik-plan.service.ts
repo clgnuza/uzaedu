@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
@@ -12,6 +17,9 @@ import { getAyForWeek, hasMebCalendar, mebTeachingWeeksAsWorkCalendar } from '..
 import { BilsemOutcomeSet } from './entities/bilsem-outcome-set.entity';
 import { BilsemOutcomeItem } from './entities/bilsem-outcome-item.entity';
 import { repairBilsemCografyaPuyItemIfCorrupt } from './bilsem-cografya-puy-canonical';
+import { UserRole } from '../types/enums';
+import { BilsemGeneratedPlan } from './entities/bilsem-generated-plan.entity';
+import { YillikPlanIcerikService } from '../yillik-plan-icerik/yillik-plan-icerik.service';
 
 export type BilsemPlanScope = 'yillik' | 'donem_1' | 'donem_2';
 
@@ -40,6 +48,8 @@ export type BilsemOutcomeItemInput = {
   belirliGunHafta?: string | null;
   programlar_arasi?: string | null;
   programlarArasi?: string | null;
+  zenginlestirme?: string | null;
+  okul_temelli_planlama?: string | null;
 };
 
 export interface BilsemYillikDraftInput {
@@ -59,18 +69,48 @@ export class BilsemYillikPlanService {
     private readonly setRepo: Repository<BilsemOutcomeSet>,
     @InjectRepository(BilsemOutcomeItem)
     private readonly itemRepo: Repository<BilsemOutcomeItem>,
+    @InjectRepository(BilsemGeneratedPlan)
+    private readonly generatedPlanRepo: Repository<BilsemGeneratedPlan>,
     private readonly workCalendarService: WorkCalendarService,
+    private readonly yillikPlanIcerikService: YillikPlanIcerikService,
   ) {}
+
+  private buildSubjectCodeAliases(subjectCode: string): string[] {
+    const sc = subjectCode.trim();
+    if (!sc) return [];
+    const out = new Set<string>([sc]);
+    const withoutBilsem = sc.replace(/^bilsem_/, '');
+    const withoutAlan = sc.replace(/_alan$/, '');
+    const plain = withoutBilsem.replace(/_alan$/, '');
+    out.add(withoutBilsem);
+    out.add(withoutAlan);
+    out.add(plain);
+    out.add(`bilsem_${plain}`);
+    out.add(`bilsem_${plain}_alan`);
+    out.delete('');
+    return [...out];
+  }
 
   async listOutcomeSets(filters: {
     subject_code?: string;
     academic_year?: string;
     grade?: number;
+    viewerUserId?: string;
+    viewerRole?: UserRole;
   }): Promise<BilsemOutcomeSet[]> {
     const qb = this.setRepo.createQueryBuilder('s').orderBy('s.created_at', 'DESC');
+    if (filters.viewerRole && filters.viewerRole !== UserRole.superadmin) {
+      const uid = filters.viewerUserId?.trim();
+      if (uid) {
+        qb.andWhere('(s.owner_user_id IS NULL OR s.owner_user_id = :vuid)', { vuid: uid });
+      }
+    }
     const sc = filters.subject_code?.trim();
     if (sc) {
-      qb.andWhere('(s.subject_code = :sc OR s.subject_code IS NULL OR s.subject_code = \'\')', { sc });
+      const subjectCodes = this.buildSubjectCodeAliases(sc);
+      qb.andWhere('(s.subject_code IN (:...subjectCodes) OR s.subject_code IS NULL OR s.subject_code = \'\')', {
+        subjectCodes,
+      });
     }
     const ay = filters.academic_year?.trim();
     if (ay) qb.andWhere('(s.academic_year IS NULL OR s.academic_year = :ay)', { ay });
@@ -80,9 +120,38 @@ export class BilsemYillikPlanService {
     return qb.getMany();
   }
 
-  async getOutcomeSetWithItems(id: string): Promise<BilsemOutcomeSet & { items: BilsemOutcomeItem[] }> {
+  private assertOutcomeSetReadable(
+    set: BilsemOutcomeSet,
+    viewer: { userId: string; role: UserRole },
+  ): void {
+    if (viewer.role === UserRole.superadmin) return;
+    if (!set.ownerUserId) return;
+    if (set.ownerUserId === viewer.userId) return;
+    throw new ForbiddenException({ code: 'OUTCOME_SET_FORBIDDEN', message: 'Bu kazanım şablonuna erişim yetkiniz yok.' });
+  }
+
+  private assertOutcomeSetWritable(
+    set: BilsemOutcomeSet,
+    viewer: { userId: string; role: UserRole },
+  ): void {
+    if (viewer.role === UserRole.superadmin) return;
+    if (set.ownerUserId && set.ownerUserId === viewer.userId) return;
+    if (!set.ownerUserId) {
+      throw new ForbiddenException({
+        code: 'OUTCOME_SET_READ_ONLY',
+        message: 'Hazır şablonları yalnızca süper yönetici düzenleyebilir.',
+      });
+    }
+    throw new ForbiddenException({ code: 'OUTCOME_SET_FORBIDDEN', message: 'Bu şablonu düzenleme yetkiniz yok.' });
+  }
+
+  async getOutcomeSetWithItems(
+    id: string,
+    viewer?: { userId: string; role: UserRole },
+  ): Promise<BilsemOutcomeSet & { items: BilsemOutcomeItem[] }> {
     const set = await this.setRepo.findOne({ where: { id } });
     if (!set) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Kazanım şablonu bulunamadı.' });
+    if (viewer) this.assertOutcomeSetReadable(set, viewer);
     const items = await this.itemRepo.find({
       where: { bilsemOutcomeSetId: id },
       order: { sortOrder: 'ASC', createdAt: 'ASC' },
@@ -110,7 +179,10 @@ export class BilsemYillikPlanService {
     subject_code?: string | null;
     subject_label?: string | null;
     items?: BilsemOutcomeItemInput[];
+    /** Yalnızca içe aktarma; süper yönetici genel API’sinde set edilmez. */
+    owner_user_id?: string | null;
   }): Promise<BilsemOutcomeSet & { items: BilsemOutcomeItem[] }> {
+    const ownerRaw = body.owner_user_id?.trim();
     const entity = this.setRepo.create({
       yetenekAlani: body.yetenek_alani?.trim() ?? '',
       yetenekLabel: body.yetenek_label?.trim() || null,
@@ -119,6 +191,7 @@ export class BilsemYillikPlanService {
       academicYear: body.academic_year?.trim() || null,
       subjectCode: body.subject_code?.trim() || null,
       subjectLabel: body.subject_label?.trim() || null,
+      ownerUserId: ownerRaw || null,
     });
     const saved = await this.setRepo.save(entity);
     const itemsIn = body.items ?? [];
@@ -139,7 +212,9 @@ export class BilsemYillikPlanService {
         degerler: it.degerler?.trim() || null,
         okuryazarlik: it.okuryazarlik?.trim() || null,
         belirliGunHafta: (it.belirli_gun_hafta ?? it.belirliGunHafta)?.trim() || null,
-        programlarArasi: (it.programlar_arasi ?? it.programlarArasi)?.trim() || null,
+        programlarArasi:
+          (it.programlar_arasi ?? it.programlarArasi ?? it.okul_temelli_planlama ?? it.zenginlestirme)
+            ?.trim() || null,
       }),
     );
     const savedItems = itemEntities.length ? await this.itemRepo.save(itemEntities) : [];
@@ -157,9 +232,11 @@ export class BilsemYillikPlanService {
       subject_code: string | null;
       subject_label: string | null;
     }>,
+    viewer?: { userId: string; role: UserRole },
   ): Promise<BilsemOutcomeSet> {
     const set = await this.setRepo.findOne({ where: { id } });
     if (!set) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Kazanım şablonu bulunamadı.' });
+    if (viewer) this.assertOutcomeSetWritable(set, viewer);
     if (body.yetenek_alani !== undefined) set.yetenekAlani = body.yetenek_alani.trim();
     if (body.yetenek_label !== undefined) set.yetenekLabel = body.yetenek_label?.trim() || null;
     if (body.grup_adi !== undefined) set.grupAdi = body.grup_adi?.trim() || null;
@@ -170,14 +247,25 @@ export class BilsemYillikPlanService {
     return this.setRepo.save(set);
   }
 
-  async deleteOutcomeSet(id: string): Promise<void> {
+  async deleteOutcomeSet(
+    id: string,
+    viewer?: { userId: string; role: UserRole },
+  ): Promise<void> {
+    const set = await this.setRepo.findOne({ where: { id } });
+    if (!set) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Kazanım şablonu bulunamadı.' });
+    if (viewer) this.assertOutcomeSetWritable(set, viewer);
     const res = await this.setRepo.delete({ id });
     if (!res.affected) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Kazanım şablonu bulunamadı.' });
   }
 
-  async upsertItems(setId: string, items: BilsemOutcomeItemInput[]): Promise<BilsemOutcomeItem[]> {
+  async upsertItems(
+    setId: string,
+    items: BilsemOutcomeItemInput[],
+    viewer?: { userId: string; role: UserRole },
+  ): Promise<BilsemOutcomeItem[]> {
     const set = await this.setRepo.findOne({ where: { id: setId } });
     if (!set) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Kazanım şablonu bulunamadı.' });
+    if (viewer) this.assertOutcomeSetWritable(set, viewer);
     await this.itemRepo.delete({ bilsemOutcomeSetId: setId });
     const itemEntities = (items ?? []).map((it, idx) =>
       this.itemRepo.create({
@@ -196,7 +284,9 @@ export class BilsemYillikPlanService {
         degerler: it.degerler?.trim() || null,
         okuryazarlik: it.okuryazarlik?.trim() || null,
         belirliGunHafta: (it.belirli_gun_hafta ?? it.belirliGunHafta)?.trim() || null,
-        programlarArasi: (it.programlar_arasi ?? it.programlarArasi)?.trim() || null,
+        programlarArasi:
+          (it.programlar_arasi ?? it.programlarArasi ?? it.okul_temelli_planlama ?? it.zenginlestirme)
+            ?.trim() || null,
       }),
     );
     return itemEntities.length ? this.itemRepo.save(itemEntities) : [];
@@ -240,9 +330,12 @@ export class BilsemYillikPlanService {
     };
   }
 
-  async buildHaftalarFromDraft(input: BilsemYillikDraftInput): Promise<Record<string, unknown>[]> {
+  async buildHaftalarFromDraft(
+    input: BilsemYillikDraftInput,
+    viewer: { userId: string; role: UserRole },
+  ): Promise<Record<string, unknown>[]> {
     const { outcome_set_id, selected_outcome_item_ids, academic_year, plan_scope, weekly_lesson_hours } = input;
-    const set = await this.getOutcomeSetWithItems(outcome_set_id);
+    const set = await this.getOutcomeSetWithItems(outcome_set_id, viewer);
     const byId = new Map(set.items.map((i) => [i.id, i]));
     const selected: BilsemOutcomeItem[] = [];
     for (const id of selected_outcome_item_ids) {
@@ -367,11 +460,13 @@ export class BilsemYillikPlanService {
       start = Math.min(start, n - 1);
       end = Math.min(end, n);
       const slice = selected.slice(start, end);
-      const parts = slice.length > 0 ? slice : [selected[Math.min(Math.max(0, start), n - 1)]];
+      const parts: BilsemOutcomeItem[] =
+        slice.length > 0 ? slice : [selected[Math.min(Math.max(0, start), n - 1)]];
       const ogrenme = parts
         .map((it) => {
           const c = (it.code ?? '').trim();
           const d = (it.description ?? '').trim();
+          if (/^W\d+$/i.test(c)) return d;
           return c ? `${c}\n${d}` : d;
         })
         .filter(Boolean)
@@ -390,7 +485,7 @@ export class BilsemYillikPlanService {
         okuryazarlik_becerileri: this.joinField(parts, 'okuryazarlik'),
         belirli_gun_haftalar: this.joinField(parts, 'belirliGunHafta'),
         zenginlestirme: this.joinField(parts, 'programlarArasi'),
-        okul_temelli_planlama: '',
+        okul_temelli_planlama: this.joinField(parts, 'programlarArasi'),
         ders_saati: String(defaultHours),
       };
     };
@@ -528,5 +623,143 @@ export class BilsemYillikPlanService {
     }
     if (unite && !konu && descAll.length > unite.length) konu = descAll.slice(unite.length).trim() || descAll;
     return { unite, konu };
+  }
+
+  async replaceOutcomeSetFromBilsemPlan(params: {
+    subject_code: string;
+    subject_label?: string | null;
+    academic_year: string;
+    ana_grup: string;
+    items: Array<{
+      week_order: number;
+      unite?: string | null;
+      konu?: string | null;
+      kazanimlar?: string | null;
+      ders_saati?: number | null;
+      surec_bilesenleri?: string | null;
+      olcme_degerlendirme?: string | null;
+      sosyal_duygusal?: string | null;
+      degerler?: string | null;
+      okuryazarlik_becerileri?: string | null;
+      belirli_gun_haftalar?: string | null;
+      zenginlestirme?: string | null;
+      okul_temelli_planlama?: string | null;
+    }>;
+  }): Promise<BilsemOutcomeSet & { items: BilsemOutcomeItem[] }> {
+    const subjectCode = String(params.subject_code ?? '').trim();
+    const academicYear = String(params.academic_year ?? '').trim();
+    const anaGrup = String(params.ana_grup ?? '').trim();
+    if (!subjectCode || !academicYear || !anaGrup) {
+      throw new BadRequestException({ code: 'BILSEM_OUTCOME_SYNC_INVALID', message: 'Ders, yıl ve ana grup zorunludur.' });
+    }
+    const rawItems = Array.isArray(params.items) ? params.items : [];
+    if (!rawItems.length) {
+      throw new BadRequestException({ code: 'BILSEM_OUTCOME_SYNC_EMPTY', message: 'Set üretimi için en az bir satır gerekir.' });
+    }
+    const sortedItems = [...rawItems].sort((a, b) => Number(a.week_order ?? 0) - Number(b.week_order ?? 0));
+    const created = await this.createOutcomeSet({
+      yetenek_alani: anaGrup,
+      grup_adi: anaGrup,
+      academic_year: academicYear,
+      subject_code: subjectCode,
+      subject_label: params.subject_label?.trim() || subjectCode,
+      items: sortedItems.map((r, idx) => {
+        const desc =
+          String(r.kazanimlar ?? '').trim() ||
+          String(r.konu ?? '').trim() ||
+          String(r.unite ?? '').trim() ||
+          `Hafta ${String(r.week_order ?? idx + 1)}`;
+        return {
+          week_order: Number(r.week_order ?? idx + 1),
+          sort_order: idx,
+          code: Number.isFinite(Number(r.week_order)) ? `W${Number(r.week_order)}` : null,
+          unite: r.unite ?? null,
+          konu: r.konu ?? null,
+          description: desc,
+          ders_saati: Number(r.ders_saati ?? 2) || 2,
+          surec_bilesenleri: r.surec_bilesenleri ?? null,
+          olcme_degerlendirme: r.olcme_degerlendirme ?? null,
+          sosyal_duygusal: r.sosyal_duygusal ?? null,
+          degerler: r.degerler ?? null,
+          okuryazarlik: r.okuryazarlik_becerileri ?? null,
+          belirli_gun_hafta: r.belirli_gun_haftalar ?? null,
+          programlar_arasi: r.okul_temelli_planlama ?? r.zenginlestirme ?? null,
+        } satisfies BilsemOutcomeItemInput;
+      }),
+    });
+    const oldSets = await this.setRepo
+      .createQueryBuilder('s')
+      .select('s.id', 'id')
+      .where('s.id != :newId', { newId: created.id })
+      .andWhere('s.owner_user_id IS NULL')
+      .andWhere('(s.subject_code = :sc OR s.subject_code IS NULL OR s.subject_code = \'\')', { sc: subjectCode })
+      .andWhere('(s.academic_year IS NULL OR s.academic_year = :ay)', { ay: academicYear })
+      .andWhere('(s.grup_adi IS NULL OR s.grup_adi = :ga)', { ga: anaGrup })
+      .getRawMany<{ id: string }>();
+    const oldIds = oldSets.map((x) => x.id).filter(Boolean);
+    if (oldIds.length) {
+      await this.generatedPlanRepo
+        .createQueryBuilder()
+        .update(BilsemGeneratedPlan)
+        .set({ outcomeSetId: created.id })
+        .where('outcome_set_id IN (:...oldIds)', { oldIds })
+        .execute();
+      await this.setRepo.delete(oldIds);
+    }
+    return created;
+  }
+
+  async syncOutcomeSetFromBilsemYillikPlan(params: {
+    subject_code: string;
+    academic_year: string;
+    ana_grup: string;
+    alt_grup?: string | null;
+    subject_label?: string | null;
+  }): Promise<BilsemOutcomeSet & { items: BilsemOutcomeItem[] }> {
+    const subjectCode = String(params.subject_code ?? '').trim();
+    const academicYear = String(params.academic_year ?? '').trim();
+    const anaGrup = String(params.ana_grup ?? '').trim();
+    const altGrup = params.alt_grup == null ? undefined : String(params.alt_grup).trim();
+    if (!subjectCode || !academicYear || !anaGrup) {
+      throw new BadRequestException({
+        code: 'BILSEM_OUTCOME_SYNC_INVALID',
+        message: 'Ders, yıl ve ana grup zorunludur.',
+      });
+    }
+    const rows = await this.yillikPlanIcerikService.findAll({
+      subject_code: subjectCode,
+      academic_year: academicYear,
+      curriculum_model: 'bilsem',
+      ana_grup: anaGrup,
+      ...(altGrup !== undefined ? { alt_grup: altGrup } : {}),
+    });
+    if (!rows.length) {
+      throw new BadRequestException({
+        code: 'BILSEM_OUTCOME_SYNC_EMPTY',
+        message: 'Bu seçim için Bilsem yıllık plan satırı bulunamadı.',
+      });
+    }
+    this.yillikPlanIcerikService.attachBilsemPuyDisplayDefaults(rows);
+    return this.replaceOutcomeSetFromBilsemPlan({
+      subject_code: subjectCode,
+      subject_label: params.subject_label?.trim() || rows[0]?.subjectLabel || subjectCode,
+      academic_year: academicYear,
+      ana_grup: anaGrup,
+      items: rows.map((r) => ({
+        week_order: r.weekOrder,
+        unite: r.unite,
+        konu: r.konu,
+        kazanimlar: r.kazanimlar,
+        ders_saati: r.dersSaati,
+        surec_bilesenleri: r.surecBilesenleri,
+        olcme_degerlendirme: r.olcmeDegerlendirme,
+        sosyal_duygusal: r.sosyalDuygusal,
+        degerler: r.degerler,
+        okuryazarlik_becerileri: r.okuryazarlikBecerileri,
+        belirli_gun_haftalar: r.belirliGunHaftalar,
+        zenginlestirme: r.zenginlestirme,
+        okul_temelli_planlama: r.okulTemelliPlanlama,
+      })),
+    });
   }
 }

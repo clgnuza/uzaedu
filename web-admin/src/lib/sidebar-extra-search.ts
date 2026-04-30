@@ -60,6 +60,20 @@ export const SIDEBAR_EXTRA_SEARCH_ROUTES: SidebarExtraSearchRoute[] = [
     requiredSchoolModule: 'bilsem',
   },
   {
+    path: '/evrak/plan-katki',
+    title: 'Evrak plan katkısı',
+    keywords: ['plan katkı', 'katki', 'excel plan yükle', 'yıllık plan onay', 'moderasyona gönder'],
+    allowedRoles: ['teacher', 'school_admin'],
+    requiredSchoolModule: 'document',
+  },
+  {
+    path: '/evrak/plan-katki-moderasyon',
+    title: 'Evrak plan katkı moderasyonu',
+    keywords: ['plan katkı moderasyon', 'plan onay kuyruğu', 'evrak moderasyon'],
+    allowedRoles: ['superadmin', 'moderator'],
+    requiredModule: 'document_templates',
+  },
+  {
     path: '/web-ayarlar?tab=seo',
     title: 'Web · SEO',
     keywords: ['seo', 'sitemap', 'meta', 'robots', 'yayın seo'],

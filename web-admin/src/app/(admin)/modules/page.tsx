@@ -10,6 +10,7 @@ import { ToolbarIconHints } from '@/components/layout/toolbar-icon-hints';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { ForbiddenView } from '@/components/errors/forbidden-view';
 import { Puzzle, ChevronRight, Search, School, Layers } from 'lucide-react';
 import { TURKEY_CITIES, getDistrictsForCity } from '@/lib/turkey-addresses';
 import {
@@ -154,11 +155,7 @@ export default function ModulesPage() {
   };
 
   if (!isSuperadmin) {
-    return (
-      <div className="space-y-6">
-        <Alert message="Bu sayfaya erişim yetkiniz yok. Sadece superadmin modül ayarlarını yönetebilir." />
-      </div>
-    );
+    return <ForbiddenView description="Sadece superadmin modül ayarlarini yonetebilir." />;
   }
 
   return (

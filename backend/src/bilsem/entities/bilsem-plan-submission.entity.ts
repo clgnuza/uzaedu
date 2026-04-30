@@ -54,8 +54,8 @@ export class BilsemPlanSubmission {
   @Column({ name: 'academic_year', type: 'varchar', length: 16 })
   academicYear: string;
 
-  @Column({ name: 'plan_grade', type: 'int' })
-  planGrade: number;
+  @Column({ name: 'plan_grade', type: 'int', nullable: true })
+  planGrade: number | null;
 
   @Column({ name: 'tablo_alti_not', type: 'text', nullable: true })
   tabloAltiNot: string | null;

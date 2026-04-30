@@ -7,6 +7,116 @@ import { CreateYillikPlanIcerikDto } from './dto/create-yillik-plan-icerik.dto';
 import { UpdateYillikPlanIcerikDto } from './dto/update-yillik-plan-icerik.dto';
 import { applyBilsemPuyMergeRowDefaults } from '../bilsem/bilsem-puy-plan-constants';
 
+type BilsemBulkItem = {
+  week_order: number;
+  unite?: string;
+  konu?: string;
+  kazanimlar?: string;
+  ders_saati?: number;
+  belirli_gun_haftalar?: string;
+  surec_bilesenleri?: string;
+  olcme_degerlendirme?: string;
+  sosyal_duygusal?: string;
+  degerler?: string;
+  okuryazarlik_becerileri?: string;
+  zenginlestirme?: string;
+  okul_temelli_planlama?: string;
+};
+
+/** Şablondan gelen tekrarlayan hafta / week_order:0 — tek satır (1–38) ve metin alanları birleşik. */
+function mergeBilsemPlanItemsForStorage(items: BilsemBulkItem[]): BilsemBulkItem[] {
+  const mergeField = (a?: string, b?: string): string | undefined => {
+    const ta = (a ?? '').trim();
+    const tb = (b ?? '').trim();
+    if (!tb) return ta || undefined;
+    if (!ta) return tb;
+    if (ta === tb) return ta;
+    return `${ta}\n${tb}`;
+  };
+  const byWeek = new Map<number, BilsemBulkItem>();
+  for (const raw of items) {
+    const w = Math.round(Number(raw.week_order));
+    if (!Number.isFinite(w) || w < 1 || w > 38) continue;
+    const cur: BilsemBulkItem = { ...raw, week_order: w };
+    const prev = byWeek.get(w);
+    if (!prev) {
+      byWeek.set(w, cur);
+      continue;
+    }
+    const ders = (() => {
+      const da = Number(prev.ders_saati);
+      const db = Number(cur.ders_saati);
+      if (Number.isFinite(db) && db > 0) return db;
+      if (Number.isFinite(da) && da > 0) return da;
+      return 2;
+    })();
+    byWeek.set(w, {
+      week_order: w,
+      unite: mergeField(prev.unite, cur.unite),
+      konu: mergeField(prev.konu, cur.konu),
+      kazanimlar: mergeField(prev.kazanimlar, cur.kazanimlar),
+      ders_saati: ders,
+      belirli_gun_haftalar: mergeField(prev.belirli_gun_haftalar, cur.belirli_gun_haftalar),
+      surec_bilesenleri: mergeField(prev.surec_bilesenleri, cur.surec_bilesenleri),
+      olcme_degerlendirme: mergeField(prev.olcme_degerlendirme, cur.olcme_degerlendirme),
+      sosyal_duygusal: mergeField(prev.sosyal_duygusal, cur.sosyal_duygusal),
+      degerler: mergeField(prev.degerler, cur.degerler),
+      okuryazarlik_becerileri: mergeField(prev.okuryazarlik_becerileri, cur.okuryazarlik_becerileri),
+      zenginlestirme: mergeField(prev.zenginlestirme, cur.zenginlestirme),
+      okul_temelli_planlama: mergeField(prev.okul_temelli_planlama, cur.okul_temelli_planlama),
+    });
+  }
+  return [...byWeek.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, v]) => v);
+}
+
+/** Bilsem toplu kayıt ile aynı birleştirme kuralı; publish öncesi moderasyon. */
+export function validateBilsemMergedPlanItems(
+  items: BilsemBulkItem[],
+  ctx: { ana_grup: string; plan_grade: number | null },
+): { ok: boolean; errors: string[]; warnings: string[] } {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  if (!String(ctx.ana_grup ?? '').trim()) {
+    errors.push('Ana grup zorunludur.');
+  }
+  const pg = ctx.plan_grade;
+  if (pg != null && (!Number.isFinite(Number(pg)) || Number(pg) < 1 || Number(pg) > 12)) {
+    errors.push('Plan sınıfı (plan_grade) 1–12 aralığında olmalıdır.');
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    errors.push('Hafta satırı yok.');
+  }
+  const merged =
+    Array.isArray(items) && items.length > 0 ? mergeBilsemPlanItemsForStorage(items) : [];
+  if (items.length > 0 && merged.length === 0) {
+    errors.push(
+      'Geçerli öğretim haftası (1–38) kalmadı; yalnızca tatil veya geçersiz satırlar olabilir.',
+    );
+  }
+  if (merged.length > 0) {
+    const weeks = merged.map((m) => m.week_order).sort((a, b) => a - b);
+    const minW = weeks[0]!;
+    const maxW = weeks[weeks.length - 1]!;
+    if (minW > 1) {
+      warnings.push(`Hafta 1–${minW - 1} aralığında satır yok.`);
+    }
+    const set = new Set(weeks);
+    let gapCount = 0;
+    for (let w = minW; w <= maxW && gapCount < 6; w++) {
+      if (!set.has(w)) {
+        warnings.push(`Hafta ${w} eksik (ardışık dizide boşluk).`);
+        gapCount++;
+      }
+    }
+    if (weeks.length < 4) {
+      warnings.push('Hafta sayısı az; tüm yıl kapsanmıyor olabilir.');
+    }
+  }
+  return { ok: errors.length === 0, errors, warnings };
+}
+
 @Injectable()
 export class YillikPlanIcerikService {
   constructor(
@@ -611,6 +721,23 @@ export class YillikPlanIcerikService {
     return result.affected ?? 0;
   }
 
+  /**
+   * Bilsem topluluk onayıyla yazılan satırları toplu sil (yayından kaldırma).
+   * Sadece `curriculum_model = 'bilsem'` ve verilen `submission_id` eşleşen kayıtlar silinir.
+   */
+  async deleteBilsemRowsBySubmissionId(submissionId: string): Promise<number> {
+    const sid = String(submissionId ?? '').trim();
+    if (!sid) return 0;
+    const r = await this.repo
+      .createQueryBuilder()
+      .delete()
+      .from(YillikPlanIcerik)
+      .where('submission_id = :sid', { sid })
+      .andWhere('curriculum_model = :cm', { cm: 'bilsem' })
+      .execute();
+    return r.affected ?? 0;
+  }
+
   /** GPT taslağından veya MEB import'tan toplu kayıt oluştur. Aynı ders/sınıf/yıl için mevcut kayıtlar silinir. */
   async bulkCreate(params: {
     subject_code: string;
@@ -655,21 +782,40 @@ export class YillikPlanIcerikService {
     }
     const cm = params.curriculum_model?.trim() === 'bilsem' ? 'bilsem' : null;
     const isBilsem = !!cm;
-    const scaffoldGrade = Number(
-      isBilsem ? (params.plan_grade ?? params.grade) : params.grade,
-    );
-    if (!Number.isFinite(scaffoldGrade) || scaffoldGrade < 1 || scaffoldGrade > 12) {
-      throw new BadRequestException({
-        code: 'INVALID_GRADE',
-        message: isBilsem
-          ? 'Bilsem toplu kayıt için plan_grade veya grade ile geçerli sınıf (1-12) gerekir (takvim eşlemesi).'
-          : 'Geçerli sınıf (1-12) girin.',
-      });
+    const rawGrade = isBilsem ? (params.plan_grade ?? params.grade) : params.grade;
+    const scaffoldGrade = Number(rawGrade);
+    if (isBilsem) {
+      if (rawGrade != null && String(rawGrade).trim() !== '') {
+        if (!Number.isFinite(scaffoldGrade) || scaffoldGrade < 1 || scaffoldGrade > 12) {
+          throw new BadRequestException({
+            code: 'INVALID_GRADE',
+            message: 'Bilsem için verilen plan_grade / grade 1–12 aralığında olmalı.',
+          });
+        }
+      }
+    } else {
+      if (!Number.isFinite(scaffoldGrade) || scaffoldGrade < 1 || scaffoldGrade > 12) {
+        throw new BadRequestException({
+          code: 'INVALID_GRADE',
+          message: 'Geçerli sınıf (1-12) girin.',
+        });
+      }
     }
     if (isBilsem && !String(params.ana_grup ?? '').trim()) {
       throw new BadRequestException({ code: 'ANA_GRUP_REQUIRED', message: 'Bilsem toplu kayıt için ana_grup zorunludur.' });
     }
-    const sortedItems = [...params.items].sort((a, b) => {
+    let workItems: typeof params.items = params.items;
+    if (isBilsem) {
+      workItems = mergeBilsemPlanItemsForStorage(params.items as BilsemBulkItem[]);
+      if (!workItems.length) {
+        throw new BadRequestException({
+          code: 'EMPTY_ITEMS',
+          message:
+            'Bilsem planında geçerli hafta (1–38) yok. Tatil satırları veritabanına yazılmaz; yalnızca öğretim haftaları kaydedilir.',
+        });
+      }
+    }
+    const sortedItems = [...workItems].sort((a, b) => {
       const wa = Number(a.week_order);
       const wb = Number(b.week_order);
       const na = Number.isFinite(wa) ? wa : 0;
@@ -710,6 +856,13 @@ export class YillikPlanIcerikService {
     const entities = sortedItems.map((item, idx) => {
       const wo = Number(item.week_order);
       const ds = Number(item.ders_saati);
+      const weekForRow = !isBilsem
+        ? Number.isFinite(wo) && wo >= 0 && wo <= 38
+          ? Math.round(wo)
+          : idx + 1
+        : Number.isFinite(wo) && wo >= 1 && wo <= 38
+          ? Math.round(wo)
+          : idx + 1;
       return this.repo.create({
         subjectCode,
         subjectLabel: String(params.subject_label ?? '').trim() || subjectCode,
@@ -718,7 +871,7 @@ export class YillikPlanIcerikService {
         altGrup: isBilsem ? (params.alt_grup?.trim() ? params.alt_grup.trim() : null) : null,
         section: params.section ?? null,
         academicYear,
-        weekOrder: Number.isFinite(wo) && wo >= 1 && wo <= 38 ? Math.round(wo) : idx + 1,
+        weekOrder: weekForRow,
         unite: trunc(item.unite, 256),
         konu: trunc(item.konu, 512),
         kazanimlar: item.kazanimlar?.trim() || null,

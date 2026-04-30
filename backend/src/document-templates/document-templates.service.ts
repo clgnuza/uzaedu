@@ -42,6 +42,7 @@ export class DocumentTemplatesService implements OnModuleInit {
     await this.ensureYillikPlanTemplate();
     await this.ensureMaarifYillikPlanTemplates();
     await this.ensureBilsemYillikPlanTemplate();
+    await this.ensureMebTemplateFromBilsemTemplate();
     this.checkRequiredTemplatesExist();
   }
 
@@ -68,15 +69,21 @@ export class DocumentTemplatesService implements OnModuleInit {
     }
   }
 
-  /** Tek yıllık plan şablonu (Coğrafya). Superadmin takvim + plan içeriği girer; öğretmen üretir, indirir. */
+  /** MEB için tek ortak yıllık plan şablonu. */
   private async ensureYillikPlanTemplate(): Promise<void> {
     const fileUrl = YILLIK_PLAN_DOCX_LOCAL_REF;
     const fileUrlLocal = YILLIK_PLAN_DOCX_LOCAL_REF;
 
-    const all = await this.repo.find({
-      where: { type: 'yillik_plan', subjectCode: 'cografya' },
-      order: { createdAt: 'ASC' },
-    });
+    const all = await this.repo
+      .createQueryBuilder('t')
+      .where('t.type = :type', { type: 'yillik_plan' })
+      .andWhere('t.curriculum_model IS NULL')
+      .andWhere('(t.subject_code IS NULL OR t.subject_code = :empty OR t.subject_code = :legacy)', {
+        empty: '',
+        legacy: 'cografya',
+      })
+      .orderBy('t.created_at', 'ASC')
+      .getMany();
     if (all.length > 1) {
       for (let i = 1; i < all.length; i++) await this.repo.remove(all[i]);
     }
@@ -86,6 +93,18 @@ export class DocumentTemplatesService implements OnModuleInit {
       if (existing.section !== null || existing.schoolType !== null) {
         existing.section = null;
         existing.schoolType = null;
+        changed = true;
+      }
+      if (existing.subjectCode !== null) {
+        existing.subjectCode = null;
+        changed = true;
+      }
+      if (existing.subjectLabel !== 'MEB yıllık plan (ortak şablon)') {
+        existing.subjectLabel = 'MEB yıllık plan (ortak şablon)';
+        changed = true;
+      }
+      if (existing.curriculumModel !== null) {
+        existing.curriculumModel = null;
         changed = true;
       }
       if (existing.fileUrl !== fileUrl) {
@@ -129,8 +148,8 @@ export class DocumentTemplatesService implements OnModuleInit {
         schoolType: null,
         grade: null,
         section: null,
-        subjectCode: 'cografya',
-        subjectLabel: 'Coğrafya',
+        subjectCode: null,
+        subjectLabel: 'MEB yıllık plan (ortak şablon)',
         curriculumModel: null,
         academicYear: null,
         version: '1',
@@ -153,85 +172,15 @@ export class DocumentTemplatesService implements OnModuleInit {
   }
 
   private async ensureMaarifYillikPlanTemplates(): Promise<void> {
-    const variants = [
-      { subjectCode: 'cografya_maarif_al', subjectLabel: 'Coğrafya - Maarif M. (A.L.)', sortOrder: 11 },
-      { subjectCode: 'cografya_maarif_fl', subjectLabel: 'Coğrafya - Maarif M. (F.L.)', sortOrder: 12 },
-      { subjectCode: 'cografya_maarif_sbl', subjectLabel: 'Coğrafya - Maarif M. (S.B.L.)', sortOrder: 13 },
-    ] as const;
-    const fileUrl = YILLIK_PLAN_DOCX_LOCAL_REF;
-    const fileUrlLocal = YILLIK_PLAN_DOCX_LOCAL_REF;
-    const formSchema = [
-      { key: 'ogretim_yili', label: 'Öğretim Yılı', type: 'text', required: true },
-      { key: 'sinif', label: 'Sınıf', type: 'text', required: true },
-      { key: 'okul_adi', label: 'Çalıştığınız Okulun Tam Adı', type: 'text', required: true },
-      { key: 'mudur_adi', label: 'Müdür Adı', type: 'text', required: true },
-      { key: 'onay_tarihi', label: 'Onay Tarihi', type: 'text', required: true },
-      { key: 'zumre_ogretmenleri', label: 'Zümre Öğretmenleri (virgülle ayırın)', type: 'textarea', required: false },
-    ];
-
-    for (const variant of variants) {
-      const all = await this.repo.find({
-        where: { type: 'yillik_plan', subjectCode: variant.subjectCode },
-        order: { createdAt: 'ASC' },
-      });
-      if (all.length > 1) {
-        for (let i = 1; i < all.length; i++) await this.repo.remove(all[i]);
-      }
-      const existing = all[0] ?? null;
-      if (existing) {
-        let changed = false;
-        if (existing.section !== null || existing.schoolType !== null) {
-          existing.section = null;
-          existing.schoolType = null;
-          changed = true;
-        }
-        if (existing.fileUrl !== fileUrl) {
-          existing.fileUrl = fileUrl;
-          changed = true;
-        }
-        if (existing.fileUrlLocal !== fileUrlLocal) {
-          existing.fileUrlLocal = fileUrlLocal;
-          changed = true;
-        }
-        if (existing.fileFormat !== 'docx') {
-          existing.fileFormat = 'docx';
-          changed = true;
-        }
-        if (!existing.requiresMerge) {
-          existing.requiresMerge = true;
-          changed = true;
-        }
-        const hasZumreField = Array.isArray(existing.formSchema) &&
-          existing.formSchema.some((item: any) => item?.key === 'zumre_ogretmenleri');
-        if (!hasZumreField) {
-          existing.formSchema = formSchema;
-          changed = true;
-        }
-        if (changed) await this.repo.save(existing);
-        continue;
-      }
-      await this.repo.save(
-        this.repo.create({
-          type: 'yillik_plan',
-          subType: null,
-          schoolType: null,
-          grade: null,
-          section: null,
-          subjectCode: variant.subjectCode,
-          subjectLabel: variant.subjectLabel,
-          curriculumModel: null,
-          academicYear: null,
-          version: '1',
-          fileUrl,
-          fileUrlLocal,
-          fileFormat: 'docx',
-          isActive: true,
-          requiresMerge: true,
-          formSchema,
-          sortOrder: variant.sortOrder,
-        }),
-      );
+    const legacyMaarifCodes = ['cografya_maarif_al', 'cografya_maarif_fl', 'cografya_maarif_sbl'];
+    const rows = await this.repo.find({
+      where: legacyMaarifCodes.map((code) => ({ type: 'yillik_plan', subjectCode: code })),
+    });
+    if (rows.length === 0) return;
+    for (const row of rows) {
+      await this.repo.remove(row);
     }
+    this.logger.log(`MEB tek şablon için ${rows.length} adet eski Maarif şablonu temizlendi.`);
   }
 
   /**
@@ -330,6 +279,54 @@ export class DocumentTemplatesService implements OnModuleInit {
       }),
     );
     this.logger.log('Bilsem yıllık plan şablonu (genel) oluşturuldu veya güncellendi.');
+  }
+
+  private async ensureMebTemplateFromBilsemTemplate(): Promise<void> {
+    const mebExists = await this.repo
+      .createQueryBuilder('t')
+      .where('t.type = :type', { type: 'yillik_plan' })
+      .andWhere('t.curriculum_model IS NULL')
+      .andWhere('t.subject_code IS NULL')
+      .getOne();
+    if (mebExists) return;
+
+    const bilsemTemplate = await this.repo
+      .createQueryBuilder('t')
+      .where('t.type = :type', { type: 'yillik_plan' })
+      .andWhere('t.curriculum_model = :cm', { cm: 'bilsem' })
+      .andWhere('t.subject_code IS NULL')
+      .orderBy('t.created_at', 'ASC')
+      .getOne();
+    if (!bilsemTemplate) return;
+
+    await this.repo.save(
+      this.repo.create({
+        type: 'yillik_plan',
+        subType: null,
+        schoolType: null,
+        grade: null,
+        section: null,
+        subjectCode: null,
+        subjectLabel: 'MEB yıllık plan (ortak şablon)',
+        curriculumModel: null,
+        academicYear: null,
+        version: bilsemTemplate.version ?? '1',
+        fileUrl: bilsemTemplate.fileUrl || YILLIK_PLAN_DOCX_LOCAL_REF,
+        fileUrlLocal: bilsemTemplate.fileUrlLocal || YILLIK_PLAN_DOCX_LOCAL_REF,
+        fileFormat: bilsemTemplate.fileFormat || 'docx',
+        isActive: true,
+        requiresMerge: true,
+        formSchema: [
+          { key: 'ogretim_yili', label: 'Öğretim Yılı', type: 'text', required: true },
+          { key: 'sinif', label: 'Sınıf', type: 'text', required: true },
+          { key: 'okul_adi', label: 'Çalıştığınız Okulun Tam Adı', type: 'text', required: true },
+          { key: 'mudur_adi', label: 'Müdür Adı', type: 'text', required: true },
+          { key: 'onay_tarihi', label: 'Onay Tarihi', type: 'text', required: true },
+          { key: 'zumre_ogretmenleri', label: 'Zümre Öğretmenleri (virgülle ayırın)', type: 'textarea', required: false },
+        ],
+        sortOrder: 10,
+      }),
+    );
   }
 
   async getSubjects(
@@ -440,6 +437,13 @@ export class DocumentTemplatesService implements OnModuleInit {
     limit: number;
     items: DocumentTemplate[];
   }> {
+    const anyTemplateCount = await this.repo.count();
+    if (anyTemplateCount === 0) {
+      await this.ensureYillikPlanTemplate();
+      await this.ensureBilsemYillikPlanTemplate();
+      await this.ensureMebTemplateFromBilsemTemplate();
+    }
+
     const page = Math.max(1, dto.page ?? 1);
     const limit = Math.min(100, Math.max(1, dto.limit ?? 20));
 
@@ -460,9 +464,21 @@ export class DocumentTemplatesService implements OnModuleInit {
     if (dto.section) qb.andWhere('(t.section IS NULL OR t.section = :section)', { section: dto.section });
     // Derse özel şablon VEYA subject_code NULL/'' (birleşik/genel şablon) – öğretmen her zaman en az bir şablon görsün
     if (dto.subject_code?.trim()) {
-      qb.andWhere("(t.subject_code = :subject_code OR t.subject_code IS NULL OR t.subject_code = '')", {
-        subject_code: dto.subject_code.trim(),
-      });
+      const requestedSubject = dto.subject_code.trim();
+      const isMebYillik = dto.type === 'yillik_plan' && (dto.curriculum_model ?? '').trim() !== 'bilsem';
+      if (isMebYillik) {
+        qb.andWhere(
+          "(t.subject_code = :subject_code OR t.subject_code IS NULL OR t.subject_code = '' OR t.subject_code = :legacy_fallback)",
+          {
+            subject_code: requestedSubject,
+            legacy_fallback: 'cografya',
+          },
+        );
+      } else {
+        qb.andWhere("(t.subject_code = :subject_code OR t.subject_code IS NULL OR t.subject_code = '')", {
+          subject_code: requestedSubject,
+        });
+      }
     }
     // academic_year=null şablonlar tüm öğretim yıllarına uygulanır
     if (dto.academic_year) qb.andWhere('(t.academic_year IS NULL OR t.academic_year = :academic_year)', { academic_year: dto.academic_year });
@@ -477,10 +493,19 @@ export class DocumentTemplatesService implements OnModuleInit {
     }
     if (dto.active_only !== false) qb.andWhere('t.is_active = true');
 
-    const [items, total] = await qb
+    let [items, total] = await qb
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
+
+    if (total === 0) {
+      await this.ensureYillikPlanTemplate();
+      await this.ensureMebTemplateFromBilsemTemplate();
+      [items, total] = await qb
+        .skip((page - 1) * limit)
+        .take(limit)
+        .getManyAndCount();
+    }
 
     return { total, page, limit, items };
   }

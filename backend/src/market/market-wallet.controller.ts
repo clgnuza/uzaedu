@@ -1,4 +1,6 @@
 import { Body, Controller, ForbiddenException, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { MarketRewardedAdSsvService } from './market-rewarded-ad-ssv.service';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -13,6 +15,7 @@ import { MarketSchoolCreditService } from './market-school-credit.service';
 import { MarketUserCreditService } from './market-user-credit.service';
 import { MarketEntitlementExchangeService } from './market-entitlement-exchange.service';
 import { ExchangeEntitlementDto } from './dto/exchange-entitlement.dto';
+import { MarketPlanCreatorRewardLedger } from '../bilsem/entities/market-plan-creator-reward-ledger.entity';
 
 function parseUtcDayInclusive(s: string | undefined): Date | null {
   if (!s?.trim()) return null;
@@ -45,6 +48,8 @@ function parseUtcDayEndInclusive(s: string | undefined): Date | null {
 @Controller('market')
 export class MarketWalletController {
   constructor(
+    @InjectRepository(MarketPlanCreatorRewardLedger)
+    private readonly planCreatorRewardLedgerRepo: Repository<MarketPlanCreatorRewardLedger>,
     private readonly wallet: MarketWalletService,
     private readonly schoolCredits: MarketSchoolCreditService,
     private readonly userCredits: MarketUserCreditService,
@@ -179,5 +184,61 @@ export class MarketWalletController {
       limit: l,
     });
     return { ...res, page: p, limit: l };
+  }
+
+  /** Öğretmen: Bilsem plan katkıdan gelen jeton hareketleri */
+  @Get('wallet/bilsem-plan-credits')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.teacher)
+  async bilsemPlanCredits(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const p = Math.max(1, parseInt(page || '1', 10) || 1);
+    const lim = Math.min(50, Math.max(1, parseInt(limit || '20', 10) || 20));
+
+    const items = await this.planCreatorRewardLedgerRepo
+      .createQueryBuilder('ledger')
+      .leftJoin('ledger.submission', 's')
+      .leftJoin('ledger.consumer', 'consumer')
+      .where('ledger.creatorUserId = :uid', { uid: payload.userId })
+      .orderBy('ledger.createdAt', 'DESC')
+      .skip((p - 1) * lim)
+      .take(lim)
+      .select([
+        'ledger.id AS id',
+        'ledger.jetonCredit AS jeton_credit',
+        'ledger.createdAt AS created_at',
+        'ledger.submissionId AS submission_id',
+        's.subjectLabel AS subject_label',
+        's.subjectCode AS subject_code',
+        's.anaGrup AS ana_grup',
+        'consumer.display_name AS consumer_display_name',
+        'consumer.email AS consumer_email',
+      ])
+      .getRawMany();
+
+    const totalCount = await this.planCreatorRewardLedgerRepo
+      .createQueryBuilder('ledger')
+      .where('ledger.creatorUserId = :uid', { uid: payload.userId })
+      .getCount();
+
+    return {
+      page: p,
+      limit: lim,
+      total: totalCount,
+      items: (items ?? []).map((r: any) => ({
+        id: r.id,
+        jeton_credit: r.jeton_credit,
+        created_at: r.created_at ? new Date(r.created_at).toISOString() : null,
+        submission_id: r.submission_id ?? null,
+        subject_label: r.subject_label ?? null,
+        subject_code: r.subject_code ?? null,
+        ana_grup: r.ana_grup ?? null,
+        consumer_display_name: r.consumer_display_name ?? null,
+        consumer_email: r.consumer_email ?? null,
+      })),
+    };
   }
 }

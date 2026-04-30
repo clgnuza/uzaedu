@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
@@ -30,6 +30,31 @@ export class BilsemPlanSubmissionController {
   @Roles(UserRole.teacher, UserRole.school_admin)
   async listMine(@CurrentUser() me: CurrentUserPayload) {
     return this.service.listMine(me.userId);
+  }
+
+  /** Jeton / Word kullanım özeti (plan katkı raporlama). */
+  @Get('author/summary')
+  @UseGuards(JwtAuthGuard, RolesGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
+  @RequireSchoolModule('bilsem')
+  @Roles(UserRole.teacher, UserRole.school_admin)
+  async authorSummary(@CurrentUser() me: CurrentUserPayload) {
+    return this.service.getAuthorSummary(me.userId);
+  }
+
+  @Get('meta/subjects')
+  @UseGuards(JwtAuthGuard, RolesGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
+  @RequireSchoolModule('bilsem')
+  @Roles(UserRole.teacher, UserRole.school_admin)
+  async listBilsemPlanDraftSubjects() {
+    return this.service.listBilsemPlanDraftSubjects();
+  }
+
+  @Get(':id/usage')
+  @UseGuards(JwtAuthGuard, RolesGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
+  @RequireSchoolModule('bilsem')
+  @Roles(UserRole.teacher, UserRole.school_admin)
+  async submissionUsage(@Param('id') id: string, @CurrentUser() me: CurrentUserPayload) {
+    return this.service.getSubmissionUsageForAuthor(id, me.userId);
   }
 
   @Get(':id')

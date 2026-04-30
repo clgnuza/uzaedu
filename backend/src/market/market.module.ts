@@ -10,6 +10,7 @@ import { MarketUsageLedger } from './entities/market-usage-ledger.entity';
 import { MarketSchoolCreditLedger } from './entities/market-school-credit-ledger.entity';
 import { MarketUserCreditLedger } from './entities/market-user-credit-ledger.entity';
 import { MarketRewardedAdLedger } from './entities/market-rewarded-ad-ledger.entity';
+import { MarketPlanCreatorRewardLedger } from '../bilsem/entities/market-plan-creator-reward-ledger.entity';
 import { MarketPurchaseService } from './market-purchase.service';
 import { MarketSchoolCreditService } from './market-school-credit.service';
 import { MarketUserCreditService } from './market-user-credit.service';
@@ -38,6 +39,7 @@ import { RequireModuleActivationGuard } from './guards/require-module-activation
       MarketSchoolCreditLedger,
       MarketUserCreditLedger,
       MarketRewardedAdLedger,
+      MarketPlanCreatorRewardLedger,
       ModulePeriodActivation,
       User,
       School,

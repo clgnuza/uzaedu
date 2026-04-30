@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Clock, Save, Trash2, Sun, Moon, UtensilsCrossed, Sparkles, CalendarDays, CalendarRange } from 'lucide-react';
+import { Clock, Save, Trash2, Sun, Moon, UtensilsCrossed, CalendarDays, CalendarRange } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -50,14 +50,24 @@ function autoCalculateLessons(
   const end = timeToMinutes(schoolEnd);
   const lunchS = timeToMinutes(lunchStart);
   const lunchE = timeToMinutes(lunchEnd);
+  if (curr <= 0 || end <= 0 || curr >= end) {
+    return buildLessonSlots(n);
+  }
   const result: LessonSlot[] = [];
   for (let i = 1; i <= n; i++) {
-    if (curr >= end) {
+    if (lunchActive && lunchS > 0 && lunchE > lunchS && curr >= lunchS && curr < lunchE) {
+      curr = lunchE;
+    }
+    if (curr >= end || curr + lessonDuration > end) {
       result.push({ lesson_num: i, start_time: '', end_time: '' });
       continue;
     }
     if (lunchActive && lunchS > 0 && lunchE > lunchS && curr < lunchS && curr + lessonDuration > lunchS) {
       curr = lunchE;
+      if (curr >= end || curr + lessonDuration > end) {
+        result.push({ lesson_num: i, start_time: '', end_time: '' });
+        continue;
+      }
     }
     const startTime = minutesToTime(curr);
     curr += lessonDuration;
@@ -80,18 +90,6 @@ type SchoolDefaultTimesData = {
   lesson_schedule_weekend?: LessonSlot[];
   lesson_schedule_weekend_pm?: LessonSlot[];
 };
-
-const STANDARD_SCHEDULE: LessonSlot[] = [
-  { lesson_num: 1, start_time: '08:30', end_time: '09:10' },
-  { lesson_num: 2, start_time: '09:20', end_time: '10:00' },
-  { lesson_num: 3, start_time: '10:10', end_time: '10:50' },
-  { lesson_num: 4, start_time: '11:00', end_time: '11:40' },
-  { lesson_num: 5, start_time: '13:40', end_time: '14:20' },
-  { lesson_num: 6, start_time: '14:30', end_time: '15:10' },
-  { lesson_num: 7, start_time: '15:20', end_time: '16:00' },
-  { lesson_num: 8, start_time: '16:10', end_time: '16:50' },
-  { lesson_num: 9, start_time: '17:00', end_time: '17:40' },
-];
 
 export function ZamanCizelgesiForm() {
   const { token } = useAuth();
@@ -294,12 +292,30 @@ export function ZamanCizelgesiForm() {
     );
   }
 
+  const filledCount = currentSchedule.filter((s) => s.start_time && s.end_time).length;
+  const currentStart = activeShift === 'afternoon' ? dutyStartTimePm : dutyStartTime;
+  const currentEnd = activeShift === 'afternoon' ? dutyEndTimePm : dutyEndTime;
+
   const runAutoCalc = () => {
     const schoolStart = activeShift === 'afternoon' ? dutyStartTimePm : dutyStartTime;
     const schoolEnd = activeShift === 'afternoon' ? dutyEndTimePm : dutyEndTime;
     if (!schoolStart || !schoolEnd) {
       toast.error('Önce okul başlangıç ve bitiş saatini girin.');
       return;
+    }
+    const startM = timeToMinutes(schoolStart);
+    const endM = timeToMinutes(schoolEnd);
+    if (!startM || !endM || startM >= endM) {
+      toast.warning('Okul başlangıç/bitiş saati hatalı.');
+      return;
+    }
+    if (lunchActive) {
+      const ls = timeToMinutes(lunchStart);
+      const le = timeToMinutes(lunchEnd);
+      if (!ls || !le || ls >= le) {
+        toast.warning('Öğle arası saatleri hatalı.');
+        return;
+      }
     }
     const schedule = autoCalculateLessons(schoolStart, schoolEnd, lessonDuration, breakDuration, lunchActive, lunchStart, lunchEnd, maxLessons);
     if (activeShift === 'afternoon') {
@@ -316,7 +332,15 @@ export function ZamanCizelgesiForm() {
       else setDutyEndTimePm(lastFilled.end_time);
     }
     const filled = schedule.filter((s) => s.start_time).length;
-    toast.success(filled === schedule.length ? 'Ders saatleri otomatik hesaplandı.' : `${filled} ders hesaplandı. Son ${schedule.length - filled} ders için okul bitiş saatini uzatın.`);
+    if (filled === 0) {
+      toast.warning('Bu ayarlarla ders üretilemedi.');
+      return;
+    }
+    if (filled < schedule.length) {
+      toast.warning(`${filled} ders hesaplandı. Son ${schedule.length - filled} ders için okul bitiş saatini uzatın.`);
+      return;
+    }
+    toast.success('Ders saatleri otomatik hesaplandı.');
   };
 
   const runClearSlots = () => {
@@ -347,24 +371,6 @@ export function ZamanCizelgesiForm() {
     setLessonSchedulePm((prev) => extend(prev));
     setLessonScheduleWeekend((prev) => extend(prev));
     setLessonScheduleWeekendPm((prev) => extend(prev));
-  };
-
-  const loadStandard = () => {
-    setLessonSchedule(STANDARD_SCHEDULE);
-    setLessonSchedulePm(buildLessonSlots(9));
-    setLessonScheduleWeekend(buildLessonSlots(9));
-    setLessonScheduleWeekendPm(buildLessonSlots(9));
-    setWeekendOverride(false);
-    setWeekPartTab('weekday');
-    setMaxLessons(9);
-    setDutyStartTime('08:30');
-    setDutyEndTime('17:40');
-    setLessonDuration(40);
-    setBreakDuration(10);
-    setLunchActive(true);
-    setLunchStart('12:30');
-    setLunchEnd('13:30');
-    toast.success('Standart 2025-2026 programı yüklendi (9 ders, 40 dk, öğle 12:30–13:30).');
   };
 
   const removeLessonRow = (lessonNum: number) => {
@@ -399,7 +405,30 @@ export function ZamanCizelgesiForm() {
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 pb-20 md:pb-0">
+      <Card className="overflow-hidden rounded-xl border-border/80 bg-linear-to-br from-primary/5 via-background to-background shadow-sm">
+        <CardContent className="p-3 sm:p-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="rounded-lg border border-border/70 bg-background/90 px-2.5 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Gün tipi</p>
+              <p className="mt-0.5 text-xs font-semibold">{isWeekendPanel ? 'Hafta sonu' : 'Hafta içi'}</p>
+            </div>
+            <div className="rounded-lg border border-border/70 bg-background/90 px-2.5 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Öğretim</p>
+              <p className="mt-0.5 text-xs font-semibold">{educationMode === 'double' ? (activeShift === 'morning' ? 'Sabah' : 'Öğle') : 'Tekli'}</p>
+            </div>
+            <div className="rounded-lg border border-border/70 bg-background/90 px-2.5 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Saat aralığı</p>
+              <p className="mt-0.5 text-xs font-semibold">{currentStart || '--:--'} - {currentEnd || '--:--'}</p>
+            </div>
+            <div className="rounded-lg border border-border/70 bg-background/90 px-2.5 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Dolu ders</p>
+              <p className="mt-0.5 text-xs font-semibold">{filledCount} / {currentSchedule.length}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card className="overflow-hidden rounded-xl border-border/80 shadow-sm">
         <CardHeader className="border-b border-border/60 bg-muted/20 px-3 py-2.5 sm:px-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -409,9 +438,9 @@ export function ZamanCizelgesiForm() {
                 Otomatik hesaplama ve ders listesi için kullanılır.
               </CardDescription>
             </div>
-            <Button type="button" variant="secondary" size="sm" onClick={loadStandard} className="h-8 w-full shrink-0 gap-1 sm:w-auto">
-              <Sparkles className="size-4" aria-hidden />
-              Standart yükle
+            <Button type="button" variant="secondary" size="sm" onClick={runAutoCalc} disabled={useManualLessonTimes} className="h-8 w-full shrink-0 gap-1 rounded-lg sm:w-auto">
+              <Clock className="size-4" aria-hidden />
+              Otomatik hesapla
             </Button>
           </div>
         </CardHeader>
@@ -724,7 +753,7 @@ export function ZamanCizelgesiForm() {
             </label>
           </div>
 
-          <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap">
+          <div className="grid grid-cols-1 gap-1.5 sm:flex sm:flex-row sm:flex-wrap">
             <Button type="button" variant="secondary" size="sm" className="h-9 w-full rounded-lg sm:w-auto" disabled={useManualLessonTimes} onClick={runAutoCalc}>
               Otomatik hesapla
             </Button>

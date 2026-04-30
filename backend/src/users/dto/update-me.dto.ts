@@ -79,6 +79,15 @@ export class UpdateMeDto {
   @IsOptional()
   school_id?: string | null;
 
+  /** Öğretmen: görevlendirme ile başka okulda çalışma durumu */
+  @IsOptional()
+  @IsBoolean()
+  teacher_assignment_active?: boolean;
+
+  /** Öğretmen: görevlendirme okulu */
+  @IsOptional()
+  teacher_assignment_school_id?: string | null;
+
   /** Öğretmen: branş (örn. Coğrafya, Matematik) */
   @IsOptional()
   @IsString()

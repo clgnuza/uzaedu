@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert } from '@/components/ui/alert';
+import { ForbiddenView } from '@/components/errors/forbidden-view';
 import {
   Calendar,
   ListTodo,
@@ -1043,11 +1044,7 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
   const isSchoolAdmin = me?.role === 'school_admin';
 
   if (!me || (me.role !== 'teacher' && me.role !== 'school_admin')) {
-    return (
-      <div className="space-y-6">
-        <Alert message="Bu sayfaya erişim yetkiniz yok." />
-      </div>
-    );
+    return <ForbiddenView />;
   }
 
   const isTeacher = me.role === 'teacher';

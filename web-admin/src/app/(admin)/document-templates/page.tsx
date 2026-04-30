@@ -9,6 +9,7 @@ import { FileText, CalendarClock, BookOpen, Settings, Layers, ExternalLink } fro
 import { SablonlarTab } from './sablonlar-tab';
 import { AyarlarTab } from './ayarlar-tab';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { PlanIcerikKatkiModerasyonPanel } from '@/components/yillik-plan/plan-katki-moderasyon-panel';
 
 const WorkCalendarTab = dynamic(
   () => import('../work-calendar/page').then((m) => ({ default: m.default })),
@@ -23,6 +24,7 @@ const YillikPlanIcerikTab = dynamic(
 const TABS = [
   { id: 'calisma-takvimi', label: 'Çalışma Takvimi', icon: CalendarClock },
   { id: 'yillik-plan-icerik', label: 'Yıllık Plan İçerikleri', icon: BookOpen },
+  { id: 'plan-katki-moderasyon', label: 'Plan katkı moderasyonu', icon: Layers },
   { id: 'sablonlar', label: 'Şablonlar', icon: FileText },
   { id: 'ayarlar', label: 'Ayarlar', icon: Settings, superadminOnly: true },
 ] as const;
@@ -168,6 +170,7 @@ export default function DocumentTemplatesPage() {
       {tab === 'sablonlar' && <SablonlarTab excludeCurriculumModel="bilsem" />}
       {tab === 'calisma-takvimi' && <WorkCalendarTab />}
       {tab === 'yillik-plan-icerik' && <YillikPlanIcerikTab />}
+      {tab === 'plan-katki-moderasyon' && <PlanIcerikKatkiModerasyonPanel embedded />}
       {tab === 'ayarlar' && <AyarlarTab />}
     </div>
   );

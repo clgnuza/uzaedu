@@ -824,24 +824,45 @@ DİĞER KURALLAR:
 
     const parsed = JSON.parse(content) as { items?: Array<Partial<ParsedPlanRow>> };
     const out: ParsedPlanRow[] = [];
+    const tatilSet = new Set(
+      (params.tatilWeeks ?? []).filter((x) => Number.isFinite(x) && x >= 1 && x <= capped),
+    );
     for (const item of parsed.items ?? []) {
       const wo = Number(item.week_order);
       if (!Number.isFinite(wo) || wo < 1 || wo > capped) continue;
-      out.push({
-        week_order: Math.round(wo),
-        unite: String(item.unite ?? '').trim() || null,
-        konu: String(item.konu ?? '').trim() || null,
-        kazanimlar: String(item.kazanimlar ?? '').trim() || null,
-        ders_saati: Number.isFinite(Number(item.ders_saati)) ? Math.round(Number(item.ders_saati)) : expectedHour,
-        belirli_gun_haftalar: String(item.belirli_gun_haftalar ?? '').trim() || null,
-        surec_bilesenleri: String(item.surec_bilesenleri ?? '').trim() || null,
-        olcme_degerlendirme: String(item.olcme_degerlendirme ?? '').trim() || null,
-        sosyal_duygusal: String(item.sosyal_duygusal ?? '').trim() || null,
-        degerler: String(item.degerler ?? '').trim() || null,
-        okuryazarlik_becerileri: String(item.okuryazarlik_becerileri ?? '').trim() || null,
-        zenginlestirme: String(item.zenginlestirme ?? '').trim() || null,
-        okul_temelli_planlama: String(item.okul_temelli_planlama ?? '').trim() || null,
-      });
+      out.push(
+        tatilSet.has(Math.round(wo))
+          ? {
+              week_order: Math.round(wo),
+              unite: String(item.unite ?? '').trim() || null,
+              konu: String(item.konu ?? '').trim() || null,
+              kazanimlar: String(item.kazanimlar ?? '').trim() || null,
+              ders_saati: Number.isFinite(Number(item.ders_saati)) ? Math.round(Number(item.ders_saati)) : 0,
+              belirli_gun_haftalar: null,
+              surec_bilesenleri: null,
+              olcme_degerlendirme: null,
+              sosyal_duygusal: null,
+              degerler: null,
+              okuryazarlik_becerileri: null,
+              zenginlestirme: null,
+              okul_temelli_planlama: null,
+            }
+          : {
+              week_order: Math.round(wo),
+              unite: String(item.unite ?? '').trim() || null,
+              konu: String(item.konu ?? '').trim() || null,
+              kazanimlar: String(item.kazanimlar ?? '').trim() || null,
+              ders_saati: Number.isFinite(Number(item.ders_saati)) ? Math.round(Number(item.ders_saati)) : expectedHour,
+              belirli_gun_haftalar: String(item.belirli_gun_haftalar ?? '').trim() || null,
+              surec_bilesenleri: String(item.surec_bilesenleri ?? '').trim() || null,
+              olcme_degerlendirme: String(item.olcme_degerlendirme ?? '').trim() || null,
+              sosyal_duygusal: String(item.sosyal_duygusal ?? '').trim() || null,
+              degerler: String(item.degerler ?? '').trim() || null,
+              okuryazarlik_becerileri: String(item.okuryazarlik_becerileri ?? '').trim() || null,
+              zenginlestirme: String(item.zenginlestirme ?? '').trim() || null,
+              okul_temelli_planlama: String(item.okul_temelli_planlama ?? '').trim() || null,
+            },
+      );
     }
     return { items: out.sort((a, b) => a.week_order - b.week_order), warnings: [] };
   }
@@ -876,7 +897,7 @@ DİĞER KURALLAR:
     const grade = params.grade;
     const gradeCode = grade === 1 ? '1' : String(grade);
     const systemPrompt = `Sen bir MEB ${params.subject_label} ${grade}. sınıf yıllık plan Excel parserısın. Verilen tablo metninden SADECE ${grade}. SINIF veri satırlarını çevir.
-Alanlar: week_order (1-36 veya takvim 38 ise 1-38), unite, konu, kazanimlar, ders_saati, belirli_gun_haftalar, surec_bilesenleri, olcme_degerlendirme, sosyal_duygusal, degerler, okuryazarlik_becerileri, zenginlestirme, okul_temelli_planlama.
+Alanlar: week_order (1-38 öğretim haftası; takvimde tatiller ayrı), unite, konu, kazanimlar, ders_saati, belirli_gun_haftalar, surec_bilesenleri, olcme_degerlendirme, sosyal_duygusal, degerler, okuryazarlik_becerileri, zenginlestirme, okul_temelli_planlama.
 
 ZORUNLU KURALLAR:
 1) Hafta 39, 40 ÜRETME. Maksimum 38. Üniteler KAYNAK sırasına göre takvimsel 1, 2, 3... devam et. Hafta ATLAMA.
@@ -886,7 +907,7 @@ ZORUNLU KURALLAR:
 5) okul_temelli_planlama: "Zümre öğretmenler kurulu tarafından ders kapsamında..." gibi UZUN dipnot metni bu sütuna KONMA. Bu metin plan_notu'da. okul_temelli_planlama'da sadece "" veya çok kısa not (örn. "Okul temelli planlama haftası").
 6) plan_notu: Tablo altı yıldızlı açıklamalar ve "Zümre öğretmenler kurulu..." metnini buraya yaz.
 7) ders_saati: Excel Saat sütunundaki değeri AYNEN yaz. ${params.subject_label} ${grade}. sınıf normal haftalarda ${getDersSaatiStatic(params.subject_code, grade)} saat; tatil/okul temelli planlama/boş haftalarda 2. Kaynağı DEĞİŞTİRME – 2 ise 2, 10 ise 10.
-8) HİÇBİR HAFTA ATLAMA. 1–36 (veya 38) arası TÜM haftaları sırayla çıkar. Boş satır varsa week_order ile sıra koru.
+8) HİÇBİR HAFTA ATLAMA. 1–38 öğretim haftasını sırayla çıkar (MEB: ara tatil/yarıyıl takvimde ayrı; numara atlaması yok). Boş satır varsa week_order ile sıra koru.
 9) Başlık satırları atla. Hafta belirsizse satır sırasına göre ata.`;
 
     const jsonSchema = {
@@ -1015,7 +1036,7 @@ ZORUNLU KURALLAR:
 
   /**
    * Yalnızca JSON/CSV veya kazanim_plan: GPT/TYMM/MEB otomatik tamamlama yok.
-   * Hafta ve tatil çerçevesi çalışma takviminden (veya yedek MEB 36 hafta) gelir.
+   * Hafta çerçevesi çalışma takviminden; eksikse MEB (öğretim 1..38, tatiller ayrı satır).
    */
   async importPlanDraftNoGpt(params: {
     subject_code: string;
@@ -1039,7 +1060,7 @@ ZORUNLU KURALLAR:
       );
       const mebWeeks = generateMebWorkCalendar(params.academic_year);
       teachingWeeks = mebWeeks
-        .filter((w) => w.week_order >= 1 && w.week_order <= 36)
+        .filter((w) => w.week_order >= 1 && w.week_order <= MAX_WEEKS)
         .map((w) => ({
           weekOrder: w.week_order,
           weekStart: w.week_start,
@@ -1054,7 +1075,7 @@ ZORUNLU KURALLAR:
       .map((w) => w.weekOrder);
 
     const totalWeeks = Math.min(
-      teachingWeeks.length > 0 ? Math.max(...teachingWeeks.map((w) => w.weekOrder)) : 36,
+      teachingWeeks.length > 0 ? Math.max(...teachingWeeks.map((w) => w.weekOrder)) : MAX_WEEKS,
       MAX_WEEKS,
     );
     const calendarWeekOrders = new Set(
@@ -1185,7 +1206,7 @@ ZORUNLU KURALLAR:
       );
       const mebWeeks = generateMebWorkCalendar(params.academic_year);
       teachingWeeks = mebWeeks
-        .filter((w) => w.week_order >= 1 && w.week_order <= 36)
+        .filter((w) => w.week_order >= 1 && w.week_order <= MAX_WEEKS)
         .map((w) => ({
           weekOrder: w.week_order,
           weekStart: w.week_start,
@@ -1207,7 +1228,7 @@ ZORUNLU KURALLAR:
     }
 
     const totalWeeks = Math.min(
-      teachingWeeks.length > 0 ? Math.max(...teachingWeeks.map((w) => w.weekOrder)) : 36,
+      teachingWeeks.length > 0 ? Math.max(...teachingWeeks.map((w) => w.weekOrder)) : MAX_WEEKS,
       MAX_WEEKS,
     );
     const calendarWeekOrders = new Set(
@@ -1494,11 +1515,11 @@ ${tatilLines ? `\n## TATİL / SEMİNER (bu haftalarda ders_saati=0; unite, konu,
       .sortWeeksLikeFindAll(calendar.filter((w) => w.weekOrder >= 1 && w.weekOrder <= MAX_WEEKS))
       .map((w) => ({ weekOrder: w.weekOrder, weekStart: w.weekStart, weekEnd: w.weekEnd, ay: w.ay, haftaLabel: w.haftaLabel }));
 
-    // DB takvimi boş/eksikse ve MEB takvimi tanımlıysa (2024-2025, 2025-2026) MEB config kullan (36 hafta)
+    // DB takvimi boş/eksikse MEB: öğretim haftaları 1..38, ara tatiller/yarıyıl week_order=0
     if (teachingWeeks.length < 36 && hasMebCalendar(params.academic_year)) {
       const mebWeeks = generateMebWorkCalendar(params.academic_year);
       teachingWeeks = mebWeeks
-        .filter((w) => w.week_order >= 1 && w.week_order <= 36)
+        .filter((w) => w.week_order >= 1 && w.week_order <= MAX_WEEKS)
         .map((w) => ({
           weekOrder: w.week_order,
           weekStart: w.week_start,
@@ -1521,7 +1542,7 @@ ${tatilLines ? `\n## TATİL / SEMİNER (bu haftalarda ders_saati=0; unite, konu,
       });
     }
 
-    // Tatil: DB takviminde isTatil=true olan haftalar. MEB config'ten 36 hafta geldiyse tatil yok (tatil blokları week_order=0 ile ayrı).
+    // Tatil: DB'de isTatil. MEB yedek: tatiller ayrı satır (week_order=0), öğretim 1..38'de yok.
     const tatilWeeks = calendar
       .filter((w) => w.isTatil && w.weekOrder >= 1 && w.weekOrder <= MAX_WEEKS)
       .map((w) => w.weekOrder);
@@ -1534,7 +1555,7 @@ ${tatilLines ? `\n## TATİL / SEMİNER (bu haftalarda ders_saati=0; unite, konu,
     }
 
     const totalWeeks = Math.min(
-      teachingWeeks.length > 0 ? Math.max(...teachingWeeks.map((w) => w.weekOrder)) : 36,
+      teachingWeeks.length > 0 ? Math.max(...teachingWeeks.map((w) => w.weekOrder)) : MAX_WEEKS,
       MAX_WEEKS,
     );
     const calendarWeekOrders = new Set(
@@ -1601,7 +1622,7 @@ ${tatilLines ? `\n## TATİL / SEMİNER (bu haftalarda ders_saati=0; unite, konu,
     const sonHaftalarBlock = totalWeeks >= 37
       ? `
 SON HAFTALAR KURALI (Hafta ${totalWeeks >= 38 ? '37-38' : '37'}):
-- Çalışma takvimi ${totalWeeks} hafta ise, ünite içeriği 36 haftaya dağıtılır.
+- Çalışma takvimi ${totalWeeks} hafta ise, ünite içeriği bu ${totalWeeks} öğretim haftasına dağıtılır.
 - Hafta ${totalWeeks >= 38 ? '37' : totalWeeks === 37 ? '37' : '36'}: unite="OKUL TEMELLİ PLANLAMA*" konu="Zümre öğretmenler kurulu kararıyla araştırma, proje, yerel çalışmalar vb." kazanimlar="Okul temelli planlama; zümre öğretmenler kurulu tarafından ders kapsamında gerçekleştirilmesi kararlaştırılan araştırma ve gözlem, sosyal etkinlikler, proje çalışmaları, yerel çalışmalar, okuma çalışmaları vb. çalışmaları kapsamaktadır."
 ${totalWeeks >= 38 ? '- Hafta 38: unite="SOSYAL ETKİNLİK" konu="Yıl sonu etkinlikleri, sosyal etkinlik çalışmaları" kazanimlar="Sosyal etkinlik çalışmaları kapsamında yapılan faaliyetler."' : ''}
 - Bu haftalarda da surec_bilesenleri (DB/SDB), olcme_degerlendirme vb. kısa doldur.`
@@ -1747,14 +1768,14 @@ KURALLAR: Kendi metin üretme, uydurma kesinlikle yasak. Verilen TYMM Excel veri
 3) TATİL HAFTALARI (listede belirtilen): unite="—" konu="—" kazanimlar="—" ders_saati=0; diğer alanlar "".
 4) YASAK: Tatil dışı haftalarda unite/konu/kazanimlar "—" bırakmak. TYMM'de boş hafta varsa önceki hafta sürekliliği veya OKUL TEMELLİ PLANLAMA kullan.
 5) ders_saati: TYMM değerini KULLAN (çoğunlukla ${haftalikDersSaati}). Tatilde 0.${sonHaftalarBlock}`
-      : `1) ÇALIŞMA TAKVİMİ (EN ÖNEMLİ): Verilen takvimde TAM ${totalWeeks} hafta var. items dizisinde TAM ${totalWeeks} öğe üret; week_order 1, 2, 3, ... ${totalWeeks} SIRAYLA. HİÇBİR HAFTA ATLAMA. EN AZ 36 HAFTA zorunlu.
+      : `1) ÇALIŞMA TAKVİMİ (EN ÖNEMLİ): Verilen takvimde TAM ${totalWeeks} öğretim haftası var. items dizisinde TAM ${totalWeeks} öğe üret; week_order 1, 2, 3, ... ${totalWeeks} SIRAYLA. HİÇBİR HAFTA ATLAMA. (Ara tatil/yarıyıl takvimde ayrı; 1..${totalWeeks} numaralar atlanmaz.)
 2) İÇERİK DAĞILIMI: Ünite ve kazanımları ${totalWeeks} haftaya EŞİT dağıt. Her öğretim haftasında (tatil değilse) unite, konu, kazanimlar MUTLAKA dolu. "—" SADECE tatil haftalarında.
 3) BOŞ HAFTA YASAK: Tatil dışı hiçbir haftada unite/konu/kazanimlar "—" olmasın. Boş kalacaksa önceki hafta sürekliliği veya OKUL TEMELLİ PLANLAMA kullan.
 4) ${kazanimRule}
 5) ders_saati: Her öğretim haftasında ${haftalikDersSaati}; tatilde 0.
 6) Ünite geçişleri mantıklı; belirli gün/hafta (29 Ekim, 10 Kasım vb.) uygun etiket; surec_bilesenleri (DB1.1, SDB2.2 vb.) her satırda; olcme_degerlendirme, sosyal_duygusal, degerler kısa (max 80 karakter).${sonHaftalarBlock}`;
 
-    const systemPrompt = `Sen bir MEB ${params.subject_label} dersi ${params.grade}. sınıf yıllık plan uzmanısın. Çıktı, verilen çalışma takvimine TAM uyumlu olmalı; EN AZ 36 hafta zorunludur.
+    const systemPrompt = `Sen bir MEB ${params.subject_label} dersi ${params.grade}. sınıf yıllık plan uzmanısın. Çıktı, verilen çalışma takvimine TAM uyumlu olmalı; öğretim haftası sayısı takvimdeki TAM ${totalWeeks} haftadır (MEB: tatil haftaları ayrı, öğretim 1..38).
 
 ## ALAN KURALLARI
 ${alanKurallariBlock}

@@ -217,6 +217,13 @@ export class TeacherTimetableController {
     return this.service.getPlanById(id, payload.schoolId ?? null);
   }
 
+  @Delete('plans/:id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.school_admin)
+  async deleteDraftPlan(@CurrentUser() payload: CurrentUserPayload, @Param('id') id: string) {
+    return this.service.deleteDraftPlan(id, payload.schoolId ?? null);
+  }
+
   @Post('plans/:id/publish')
   @UseGuards(RolesGuard)
   @Roles(UserRole.school_admin)
@@ -237,12 +244,39 @@ export class TeacherTimetableController {
   async updatePlan(
     @CurrentUser() payload: CurrentUserPayload,
     @Param('id') id: string,
+    @Body() body: { valid_from?: string; valid_until?: string | null; name?: string | null },
+  ) {
+    return this.service.patchSchoolPlan(id, payload.schoolId ?? null, body);
+  }
+
+  @Post('plans/:id/restore')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.school_admin)
+  async restorePlan(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Param('id') id: string,
     @Body() body: { valid_from: string; valid_until?: string | null },
   ) {
     if (!body.valid_from) {
       throw new BadRequestException({ code: 'INVALID_INPUT', message: 'valid_from gereklidir.' });
     }
-    return this.service.updatePlanDates(id, payload.schoolId ?? null, body.valid_from, body.valid_until ?? null);
+    return this.service.restoreArchivedPlan(
+      id,
+      payload.schoolId ?? null,
+      payload.userId,
+      body.valid_from,
+      body.valid_until ?? null,
+    );
+  }
+
+  @Post('plans/:id/archive')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.school_admin)
+  async archivePlan(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Param('id') id: string,
+  ) {
+    return this.service.archivePublishedPlan(id, payload.schoolId ?? null);
   }
 
   @Post('upload')
@@ -253,9 +287,10 @@ export class TeacherTimetableController {
       limits: { fileSize: 5 * 1024 * 1024 },
       fileFilter: (_req, file, cb) => {
         const ext = (path.extname(file.originalname ?? '') || '').toLowerCase();
-        const ok = ext === '.xlsx' || ext === '.xls' ||
+        const ok = ext === '.xlsx' || ext === '.xls' || ext === '.pdf' ||
           file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-          file.mimetype === 'application/vnd.ms-excel';
+          file.mimetype === 'application/vnd.ms-excel' ||
+          file.mimetype === 'application/pdf';
         cb(null, !!ok);
       },
     }),
@@ -265,14 +300,15 @@ export class TeacherTimetableController {
     @CurrentUser() payload: CurrentUserPayload,
   ) {
     if (!file?.buffer) {
-      throw new BadRequestException({ code: 'FILE_REQUIRED', message: 'Excel dosyası (.xlsx veya .xls) yükleyin.' });
+      throw new BadRequestException({ code: 'FILE_REQUIRED', message: 'Excel (.xlsx/.xls) veya e-Okul PDF dosyası yükleyin.' });
     }
     const schoolId = payload.schoolId ?? null;
     if (!schoolId) throw new BadRequestException({ code: 'FORBIDDEN', message: 'Okul bilgisi bulunamadı.' });
-    const tempPath = path.join(os.tmpdir(), `tt-${Date.now()}.xlsx`);
+    const ext = (path.extname(file.originalname ?? '') || '.xlsx').toLowerCase();
+    const tempPath = path.join(os.tmpdir(), `tt-${Date.now()}${ext}`);
     try {
       fs.writeFileSync(tempPath, file.buffer);
-      return this.service.uploadFromExcel(schoolId, tempPath);
+      return await this.service.uploadFromExcel(schoolId, tempPath);
     } finally {
       try {
         if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);

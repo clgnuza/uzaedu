@@ -11,12 +11,11 @@ export const ENTITLEMENT_YILLIK_PLAN_URETIM = 'yillik_plan_uretim';
 const DEFAULT_EVRAK_QUANTITY = 10;
 const DEFAULT_YILLIK_PLAN_QUANTITY = 10;
 
-/** Development’ta veya EVRAK_SKIP_TEACHER_QUOTA=1 iken öğretmen evrak kotası düşmez / 402 verilmez. */
+/** EVRAK_SKIP_TEACHER_QUOTA=1 iken öğretmen evrak kotası düşmez / 402 verilmez. */
 function isTeacherEvrakQuotaSkipped(): boolean {
   const v = process.env.EVRAK_SKIP_TEACHER_QUOTA?.trim().toLowerCase();
   if (v === '1' || v === 'true' || v === 'yes') return true;
-  if (v === '0' || v === 'false' || v === 'no') return false;
-  return process.env.NODE_ENV !== 'production';
+  return false;
 }
 
 function defaultQuantityFor(entitlementType: string): number {

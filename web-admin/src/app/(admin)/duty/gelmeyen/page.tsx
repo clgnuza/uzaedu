@@ -13,6 +13,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Alert } from '@/components/ui/alert';
 import { DutyPageHeader } from '@/components/duty/duty-page-header';
 import { cn } from '@/lib/utils';
+import { ForbiddenView } from '@/components/errors/forbidden-view';
 import * as XLSX from 'xlsx';
 
 type UserItem = { id: string; display_name: string | null; email: string };
@@ -291,7 +292,7 @@ export default function DutyGelmeyenPage() {
   };
 
   if (!isAdmin) {
-    return <Alert variant="error" message="Bu sayfaya erişim yetkiniz yok." />;
+    return <ForbiddenView />;
   }
 
   const ABSENCE_CONFIG = {

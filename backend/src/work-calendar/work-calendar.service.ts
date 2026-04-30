@@ -53,21 +53,29 @@ export class WorkCalendarService {
     weekRange?: { min: number; max: number },
   ): { maxPlanWeek: number; weeks: WorkCalendar[] } {
     const cap = YILLIK_PLAN_MAX_WEEK_ORDER;
+    const isExplicitWindow = !!weekRange;
     let resolvedRange = weekRange;
     if (!resolvedRange) {
       const b = weekOrderBoundsFromCalendar(planCalWeeks);
       if (b) resolvedRange = b;
     }
     const min = Math.max(1, resolvedRange?.min ?? 1);
-    const maxR = Math.min(cap, resolvedRange?.max ?? cap);
-    const relevant = planCalWeeks.filter((w) => w.weekOrder >= min && w.weekOrder <= maxR);
-    const calMax = relevant.length ? Math.max(...relevant.map((w) => w.weekOrder)) : 0;
-    const maxPlanWeek = Math.min(maxR, Math.max(calMax, itemsMaxWeekOrder));
+    const calWindowMax = Math.min(cap, resolvedRange?.max ?? cap);
+    const calPool = isExplicitWindow
+      ? planCalWeeks.filter((w) => w.weekOrder >= min && w.weekOrder <= calWindowMax)
+      : planCalWeeks.filter((w) => w.weekOrder >= 1 && w.weekOrder <= cap);
+    const calMax = calPool.length ? Math.max(...calPool.map((w) => w.weekOrder)) : 0;
+    /** Eski: Math.min(maxR, …) tüm yılda 37–38’i kesiyordu. Tam yılda plandaki son haftalar tüm takvim satırından büyük olabilir. */
+    let maxPlanWeek: number;
+    if (isExplicitWindow) {
+      maxPlanWeek = Math.min(calWindowMax, Math.max(calMax, itemsMaxWeekOrder, min));
+    } else {
+      maxPlanWeek = Math.min(cap, Math.max(calMax, itemsMaxWeekOrder, min, calWindowMax));
+    }
     const byWo = new Map<number, WorkCalendar>();
-    for (const w of relevant) {
-      if (w.weekOrder >= min && w.weekOrder <= maxPlanWeek) {
-        byWo.set(w.weekOrder, w);
-      }
+    for (const w of calPool) {
+      if (w.weekOrder < min || w.weekOrder > maxPlanWeek) continue;
+      byWo.set(w.weekOrder, w);
     }
     const weeks: WorkCalendar[] = [];
     for (let wo = min; wo <= maxPlanWeek; wo++) {

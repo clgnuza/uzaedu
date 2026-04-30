@@ -6,6 +6,13 @@ export const BILSEM_ANA_GRUPLAR = [
   { value: 'DIGERLERI', label: 'Diğerleri' },
 ] as const;
 
+const ANA_MAP = new Map<string, string>(BILSEM_ANA_GRUPLAR.map((g) => [g.value, g.label]));
+
+export function bilsemAnaGrupLabel(code: string | null | undefined): string {
+  if (code == null || String(code).trim() === '') return '—';
+  return ANA_MAP.get(code) ?? code;
+}
+
 /** Bilsem Ek-1 Program aşamaları – alt grup */
 export const BILSEM_ALT_GRUPLAR = [
   { value: 'UYUM', label: 'Uyum' },

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, BookOpen, Sparkles, Check, Circle } from 'lucide-react';
+import { Plus, Pencil, Trash2, BookOpen, Sparkles, Check, Circle, ExternalLink } from 'lucide-react';
 import { Alert } from '@/components/ui/alert';
 import { filterBilsemCatalogSubjects } from '@/lib/bilsem-catalog-subjects';
 import { BILSEM_ALT_GRUPLAR, BILSEM_ANA_GRUPLAR } from '@/lib/bilsem-groups';
@@ -49,6 +49,15 @@ type YillikPlanIcerikItem = {
   zenginlestirme?: string | null;
   okul_temelli_planlama?: string | null;
   sort_order: number | null;
+  is_holiday_row?: boolean;
+};
+
+type WorkCalendarRow = {
+  week_order: number;
+  ay?: string | null;
+  hafta_label?: string | null;
+  is_tatil?: boolean;
+  tatil_label?: string | null;
 };
 
 function getAcademicYears(): string[] {
@@ -153,6 +162,15 @@ function getAySortIndex(ay: string): number {
   return idx >= 0 ? idx : 999;
 }
 
+function extractAyFromLabel(label: string): string | null {
+  const t = String(label ?? '').toUpperCase();
+  const months = ['EYLÜL', 'EKİM', 'KASIM', 'ARALIK', 'OCAK', 'ŞUBAT', 'MART', 'NİSAN', 'MAYIS', 'HAZİRAN'];
+  for (const m of months) {
+    if (t.includes(m)) return m;
+  }
+  return null;
+}
+
 function SmartTextCell({
   value,
   previewChars = 120,
@@ -252,6 +270,16 @@ function DersAyGroupedTable({
   onDelete: (id: string) => void;
   isBilsem?: boolean;
 }) {
+  const haftaStartDay = (item: YillikPlanIcerikItem): number | null => {
+    const i = item as Record<string, unknown>;
+    const label = String(i.hafta_label ?? i.haftaLabel ?? '').trim();
+    if (!label) return null;
+    const m = label.match(/(\d{1,2})\s*[-–—]\s*\d{1,2}\s*[A-Za-zÇĞİÖŞÜçğıöşü]+/u);
+    if (!m) return null;
+    const d = parseInt(m[1], 10);
+    return Number.isFinite(d) ? d : null;
+  };
+
   const byDers = items.reduce<Record<string, YillikPlanIcerikItem[]>>((acc, item) => {
     const i = item as Record<string, unknown>;
     const code = i.subject_code ?? i.subjectCode ?? '';
@@ -315,6 +343,9 @@ function DersAyGroupedTable({
                 const rawRows = byAy[ayLabel];
                 const rows = Array.isArray(rawRows)
                   ? [...rawRows].sort((a, b) => {
+                      const dA = haftaStartDay(a);
+                      const dB = haftaStartDay(b);
+                      if (dA != null && dB != null && dA !== dB) return dA - dB;
                       const woA = (a as Record<string, unknown>).week_order ?? (a as Record<string, unknown>).weekOrder ?? 0;
                       const woB = (b as Record<string, unknown>).week_order ?? (b as Record<string, unknown>).weekOrder ?? 0;
                       return (woA as number) - (woB as number);
@@ -330,9 +361,10 @@ function DersAyGroupedTable({
                       <table className="evrak-admin-table w-full text-sm">
                         <thead>
                           <tr>
+                            <th className="min-w-[88px] text-xs">Ay</th>
                             <th className="min-w-[110px] text-xs">Hafta</th>
-                            <th className="min-w-[100px] text-xs">Ünite/Tema</th>
-                            <th className="w-12 text-xs">Saat</th>
+                            <th className="w-12 text-xs">Ders saati</th>
+                            <th className="min-w-[100px] text-xs">Ünite / tema</th>
                             <th className="min-w-[140px] text-xs">Konu</th>
                             <th className="min-w-[180px] text-xs">Öğrenme Çıktıları</th>
                             <th className="min-w-[100px] text-xs">Süreç Bileş.</th>
@@ -354,16 +386,23 @@ function DersAyGroupedTable({
                             const konu = (i.konu as string) || '—';
                             const kazanimlar = (i.kazanimlar as string) || '—';
                             const haftaLabel = (i.hafta_label ?? (i.haftaLabel as string)) as string | null;
+                            const ayCell =
+                              String(i.ay ?? i.Ay ?? '')
+                                .trim() || (ayLabel === '_' ? '—' : displayAy);
+                            const isHolidayRow = Boolean(i.is_holiday_row);
                             return (
                               <tr key={item.id}>
+                                <td className="px-2 py-1.5 align-top text-xs text-muted-foreground">
+                                  {ayCell}
+                                </td>
                                 <td className="px-2 py-1.5 align-top whitespace-nowrap text-muted-foreground text-xs">
                                   {String(haftaLabel || `${i.week_order ?? i.weekOrder}. Hafta`)}
                                 </td>
-                                <td className="px-2 py-2 max-w-[130px] align-top text-xs">
-                                  <SmartTextCell value={String(i.unite ?? i.Unite ?? '').trim() || '—'} previewChars={90} />
-                                </td>
                                 <td className="px-2 py-1.5 align-top text-xs">
                                   {Number(i.ders_saati ?? i.dersSaati ?? 0) || 0}
+                                </td>
+                                <td className="px-2 py-2 max-w-[130px] align-top text-xs">
+                                  <SmartTextCell value={String(i.unite ?? i.Unite ?? '').trim() || '—'} previewChars={90} />
                                 </td>
                         <td className="px-2 py-2 max-w-[170px] align-top text-xs">
                           <SmartTextCell value={konu} previewChars={120} />
@@ -396,24 +435,28 @@ function DersAyGroupedTable({
                           <SmartTextCell value={cell('okul_temelli_planlama', 'okulTemelliPlanlama')} previewChars={100} />
                         </td>
                         <td className="px-2 py-1.5 text-right align-top">
-                          <div className="flex justify-end gap-1">
-                            <button
-                              type="button"
-                              onClick={() => onEdit(item)}
-                              title="Düzenle"
-                              className="rounded p-1.5 hover:bg-muted"
-                            >
-                              <Pencil className="size-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onDelete(item.id)}
-                              title="Sil"
-                              className="rounded p-1.5 text-destructive hover:bg-destructive/10"
-                            >
-                              <Trash2 className="size-4" />
-                            </button>
-                          </div>
+                          {isHolidayRow ? (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          ) : (
+                            <div className="flex justify-end gap-1">
+                              <button
+                                type="button"
+                                onClick={() => onEdit(item)}
+                                title="Düzenle"
+                                className="rounded p-1.5 hover:bg-muted"
+                              >
+                                <Pencil className="size-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onDelete(item.id)}
+                                title="Sil"
+                                className="rounded p-1.5 text-destructive hover:bg-destructive/10"
+                              >
+                                <Trash2 className="size-4" />
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -440,6 +483,7 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
   const { token, me, loading: authLoading } = useAuth();
   const isBilsem = props?.curriculumModel === 'bilsem';
   const [items, setItems] = useState<YillikPlanIcerikItem[]>([]);
+  const [workCalendarRows, setWorkCalendarRows] = useState<WorkCalendarRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
     subject_code: '',
@@ -490,6 +534,7 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
   const [gptDraft, setGptDraft] = useState<{
     items: Array<{
       week_order: number;
+      ay?: string;
       unite: string;
       konu: string;
       kazanimlar: string;
@@ -527,8 +572,6 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
   const listRequestKeyRef = useRef<string>('');
   const summaryRequestKeyRef = useRef<string>('');
 
-  /** Bilsem: getDersSaati(subject, grade) için kademe; plan satırına yazılmaz, varsayılan 4. */
-  const [bilsemPlanGrade, setBilsemPlanGrade] = useState('4');
   const [pastePayload, setPastePayload] = useState('');
   const [pasteMode, setPasteMode] = useState<'structured' | 'gpt'>('structured');
 
@@ -652,9 +695,11 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
           `/work-calendar?academic_year=${encodeURIComponent(year)}`,
           { token }
         );
-        const items = res.items ?? [];
-        setWorkCalendarEmptyForYear(items.length === 0 ? year : null);
+        const rows = (res.items ?? []) as WorkCalendarRow[];
+        setWorkCalendarRows(rows);
+        setWorkCalendarEmptyForYear(rows.length === 0 ? year : null);
       } catch {
+        setWorkCalendarRows([]);
         setWorkCalendarEmptyForYear(null);
       }
     },
@@ -856,6 +901,67 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
   };
 
   const hasGroupFilter = isBilsem ? filters.ana_grup : filters.grade;
+  const itemsForTable = useMemo(() => {
+    if (!items.length || !filters.academic_year || !workCalendarRows.length) return items;
+    const holidayRows = workCalendarRows.filter((w) => {
+      if (!w.is_tatil) return false;
+      const label = String(w.hafta_label ?? w.tatil_label ?? '').trim();
+      return label.length > 0;
+    });
+    if (!holidayRows.length) return items;
+    const grouped = new Map<string, YillikPlanIcerikItem[]>();
+    for (const it of items) {
+      const key = isBilsem
+        ? `${it.subject_code}|${it.subject_label}|${it.ana_grup ?? ''}|${it.alt_grup ?? ''}|${it.academic_year}`
+        : `${it.subject_code}|${it.subject_label}|${it.grade ?? ''}|${it.academic_year}`;
+      const arr = grouped.get(key) ?? [];
+      arr.push(it);
+      grouped.set(key, arr);
+    }
+    const out: YillikPlanIcerikItem[] = [];
+    for (const [, groupItems] of grouped) {
+      out.push(...groupItems);
+      const seenHoliday = new Set<string>();
+      for (let i = 0; i < holidayRows.length; i++) {
+        const h = holidayRows[i];
+        const hKey = `${String(h.hafta_label ?? '').trim()}|${String(h.tatil_label ?? '').trim()}`;
+        if (seenHoliday.has(hKey)) continue;
+        seenHoliday.add(hKey);
+        const first = groupItems[0];
+        if (!first) continue;
+        out.push({
+          id: `holiday-${first.id}-${i}`,
+          subject_code: first.subject_code,
+          subject_label: first.subject_label,
+          grade: first.grade,
+          ana_grup: first.ana_grup ?? null,
+          alt_grup: first.alt_grup ?? null,
+          section: first.section,
+          academic_year: first.academic_year,
+          week_order: 0,
+          hafta_label: h.hafta_label || h.tatil_label || 'Tatil',
+          ay:
+            (String(h.ay ?? '').trim() || extractAyFromLabel(String(h.hafta_label ?? h.tatil_label ?? ''))) ??
+            null,
+          unite: null,
+          konu: h.tatil_label || 'Tatil',
+          kazanimlar: null,
+          ders_saati: 0,
+          belirli_gun_haftalar: null,
+          surec_bilesenleri: null,
+          olcme_degerlendirme: null,
+          sosyal_duygusal: null,
+          degerler: null,
+          okuryazarlik_becerileri: null,
+          zenginlestirme: null,
+          okul_temelli_planlama: null,
+          sort_order: null,
+          is_holiday_row: true,
+        });
+      }
+    }
+    return out;
+  }, [items, filters.academic_year, workCalendarRows, isBilsem]);
   const isLiseGrade = !isBilsem && (() => {
     const gradeNum = parseInt(filters.grade, 10);
     return Number.isFinite(gradeNum) && gradeNum >= 9 && gradeNum <= 12;
@@ -890,11 +996,6 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
   ]
     .filter(Boolean)
     .join(' · ');
-  const importBilsemAnaLabel =
-    BILSEM_ANA_GRUPLAR.find((g) => g.value === filters.ana_grup)?.label ?? (filters.ana_grup?.trim() || '—');
-  const importBilsemAltLabel = filters.alt_grup?.trim()
-    ? BILSEM_ALT_GRUPLAR.find((g) => g.value === filters.alt_grup)?.label ?? filters.alt_grup
-    : '—';
   const hasRequiredSelection = Boolean(filters.subject_code && hasGroupFilter && filters.academic_year);
   const activePlanCount = planSummary.length;
   const totalWeekCount = items.length;
@@ -994,11 +1095,12 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
     }
   };
 
-  const canImportPlan =
+  const canPasteImportPlan =
+    !isBilsem &&
     filters.subject_code &&
     filters.academic_year &&
     subjects.some((s) => s.code === filters.subject_code) &&
-    (isBilsem ? !!filters.ana_grup : !!filters.grade);
+    !!filters.grade;
 
   useEffect(() => {
     if (isBilsem || !filters.subject_code) return;
@@ -1008,7 +1110,7 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
   }, [filters.subject_code, visibleFilterSubjects, isBilsem]);
 
   const handlePreviewPaste = async () => {
-    if (!token || !canImportPlan) return;
+    if (!token || !canPasteImportPlan) return;
     const raw = pastePayload.trim();
     if (!raw) {
       toast.error(pasteMode === 'gpt' ? 'Tam plan metnini yapıştırın.' : 'JSON veya CSV yapıştırın.');
@@ -1019,9 +1121,9 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
       toast.error('Ders seçin.');
       return;
     }
-    const gradeNum = parseInt(isBilsem ? bilsemPlanGrade : filters.grade, 10);
+    const gradeNum = parseInt(filters.grade, 10);
     if (!Number.isFinite(gradeNum) || gradeNum < 1 || gradeNum > 12) {
-      toast.error(isBilsem ? 'Ders saati için referans düzey 1–12 seçin.' : 'Sınıf seçin.');
+      toast.error('Sınıf seçin.');
       return;
     }
     setGptGenerating(true);
@@ -1069,13 +1171,6 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
           academic_year: filters.academic_year,
           payload: raw,
           paste_mode: pasteMode,
-          ...(pasteMode === 'gpt' && isBilsem
-            ? {
-                curriculum_model: 'bilsem',
-                ana_grup: filters.ana_grup.trim(),
-                alt_grup: filters.alt_grup?.trim() ? filters.alt_grup.trim() : undefined,
-              }
-            : {}),
           ...(pasteMode === 'gpt' ? { school_profile: schoolProfile || undefined } : {}),
         }),
       });
@@ -1113,19 +1208,16 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
 
   const handleSaveDraft = async () => {
     if (!token || !gptDraft) return;
+    if (isBilsem) return;
     if (gptDraft.can_save === false) {
       toast.error(gptDraft.save_block_reason || 'Taslak kalite kontrolünden geçmedi.');
       return;
     }
     const subject = subjects.find((s) => s.code === filters.subject_code);
     if (!subject) return;
-    if (isBilsem && !String(filters.ana_grup ?? '').trim()) {
-      toast.error('Bilsem kaydı için ana grup seçin.');
-      return;
-    }
-    const planGradeNum = parseInt(isBilsem ? bilsemPlanGrade : filters.grade, 10);
+    const planGradeNum = parseInt(filters.grade, 10);
     if (!Number.isFinite(planGradeNum) || planGradeNum < 1 || planGradeNum > 12) {
-      toast.error(isBilsem ? 'Ders saati için referans düzey 1–12 seçin.' : 'Sınıf seçin.');
+      toast.error('Sınıf seçin.');
       return;
     }
     if (
@@ -1145,17 +1237,9 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
           subject_code: filters.subject_code,
           subject_label: subject.label,
           grade: planGradeNum,
-          plan_grade: isBilsem ? planGradeNum : undefined,
           section: 'ders',
           academic_year: filters.academic_year,
           items: gptDraft.items,
-          ...(isBilsem
-            ? {
-                curriculum_model: 'bilsem',
-                ana_grup: filters.ana_grup.trim(),
-                alt_grup: filters.alt_grup?.trim() ? filters.alt_grup.trim() : null,
-              }
-            : {}),
         }),
       });
       toast.success(`${gptDraft.items.length} haftalık plan kaydedildi.`);
@@ -1181,7 +1265,7 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
   const academicYears = getAcademicYears();
 
   return (
-    <div className="space-y-8">
+    <div className={isBilsem ? 'space-y-4' : 'space-y-8'}>
       {workCalendarEmptyForYear && (
         <Alert variant="warning">
           <strong>Çalışma Takvimi boş.</strong> {workCalendarEmptyForYear} öğretim yılı için hafta tanımı yok.
@@ -1196,16 +1280,74 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
         </Alert>
       )}
       <div className="space-y-4">
+        {isBilsem ? (
+          <div className="flex flex-col gap-3 border-b border-border/70 pb-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 space-y-1">
+              <h1 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">Bilsem — Yıllık plan içerikleri</h1>
+              <p className="text-xs text-muted-foreground">
+                Ana/alt grup, ders, yıl seçin; haftalar aya göre listelenir. Toplu plan için{' '}
+                <Link href="/bilsem/plan-katki" className="font-medium text-primary underline-offset-2 hover:underline">
+                  Plan katkı
+                </Link>
+                <span className="text-muted-foreground"> · </span>
+                <Link
+                  href="/bilsem-sablon"
+                  className="inline-flex items-center gap-0.5 font-medium text-muted-foreground underline-offset-2 hover:underline"
+                >
+                  İş planı <ExternalLink className="size-3" />
+                </Link>
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              <div
+                className="flex items-center gap-1.5 rounded-md border border-border/80 bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground"
+                title="Özet: kaç derse plan var, açık hafta satırı, seçili kapsamda plansız ders"
+              >
+                <span>
+                  <strong className="text-foreground">{activePlanCount}</strong> plan
+                </span>
+                <span className="text-border">|</span>
+                <span>
+                  <strong className="text-foreground">{totalWeekCount}</strong> satır
+                </span>
+                {hasGroupFilter && filters.academic_year ? (
+                  <>
+                    <span className="text-border">|</span>
+                    <span>
+                      <strong className="text-foreground">{pendingSubjectCount}</strong> eksik
+                    </span>
+                  </>
+                ) : null}
+              </div>
+              {canBulkDelete && (
+                <button
+                  type="button"
+                  onClick={handleBulkDelete}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/5 px-2.5 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="size-3.5" />
+                  Planı sil
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={openCreate}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                <Plus className="size-4" />
+                Yeni satır
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="rounded-2xl border border-border/80 bg-linear-to-br from-primary/8 via-background to-muted/40 p-6 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-2">
               <h1 className="text-2xl font-semibold text-foreground md:text-3xl">
-                {isBilsem ? 'Bilsem — Yıllık Plan İçerikleri' : 'Yıllık Plan İçerikleri'}
+                Yıllık Plan İçerikleri
               </h1>
               <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                {isBilsem
-                  ? 'Bilsem için haftalık plan satırlarını tek ekrandan yönetin; grup, ders ve yıl bazında hızlıca filtreleyin.'
-                  : 'Sınıf, ders ve öğretim yılına göre planları seçin; taslak oluşturun, eksik dersleri görün ve kayıtları tek ekrandan yönetin.'}
+                Sınıf, ders ve öğretim yılına göre planları seçin; taslak oluşturun, eksik dersleri görün ve kayıtları tek ekrandan yönetin.
               </p>
             </div>
             <button
@@ -1233,7 +1375,7 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
           </div>
           <div className="mt-5 flex flex-wrap gap-2">
             <span className="rounded-full border border-border bg-background px-3 py-1 text-xs text-muted-foreground">
-              {isBilsem ? 'Grup bazlı düzen' : 'Sınıf bazlı düzen'}
+              Sınıf bazlı düzen
             </span>
             <span className="rounded-full border border-border bg-background px-3 py-1 text-xs text-muted-foreground">
               Ay bazlı görünüm
@@ -1248,9 +1390,11 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
             )}
           </div>
         </div>
+        )}
 
+        {(canPasteImportPlan || (canBulkDelete && !isBilsem)) && (
         <div className="flex flex-col gap-4 xl:flex-row xl:items-stretch">
-          {canImportPlan && (
+          {canPasteImportPlan && (
             <div className="min-w-0 flex-1 rounded-2xl border border-primary/25 bg-primary/5 p-6 shadow-sm md:p-8">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2 text-base font-semibold text-primary md:text-lg">
@@ -1275,26 +1419,6 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
                 </div>
               </div>
 
-              {isBilsem ? (
-                <div className="mb-5 grid gap-3 rounded-xl border border-border/80 bg-background/90 p-4 sm:grid-cols-2">
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Ana grup</p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">{importBilsemAnaLabel}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Alt grup</p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">{importBilsemAltLabel}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Ders</p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">{selectedSubjectLabel}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Öğretim yılı</p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">{filters.academic_year || '—'}</p>
-                  </div>
-                </div>
-              ) : (
                 <div className="mb-5 grid gap-3 rounded-xl border border-border/80 bg-background/90 p-4 sm:grid-cols-3">
                   <div>
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Sınıf</p>
@@ -1311,34 +1435,6 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
                     <p className="mt-1 text-sm font-semibold text-foreground">{filters.academic_year || '—'}</p>
                   </div>
                 </div>
-              )}
-
-              {isBilsem && (
-                <div className="mb-4 max-w-xl">
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Haftalık ders saati için referans düzeyi (1–12)
-                  </label>
-                  <p className="mb-2 text-xs leading-relaxed text-muted-foreground">
-                    <strong className="text-foreground">Plan kaydında düzey yok.</strong> Bu seçim yalnızca MEB
-                    ders-saat tablosundan bu dersin haftalık saatinin hangi kademe aralığına göre
-                    okunacağını belirler (önizleme, GPT, doğrulama). Buraya saat sayısı girilmez. Kademeye göre saat
-                    değişmeyen derslerde varsayılan <strong className="text-foreground">4</strong> çoğu zaman yeter;
-                    örneğin matematikte 5–8 ile 9–12 farklıysa uygun düzeyi seçin.
-                  </p>
-                  <select
-                    value={bilsemPlanGrade}
-                    onChange={(e) => setBilsemPlanGrade(e.target.value)}
-                    className="w-full max-w-md rounded-lg border border-input bg-background px-3 py-2.5 text-sm"
-                    title="MEB ders saati tablosu için kademe (1–12)"
-                  >
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((g) => (
-                      <option key={g} value={String(g)}>
-                        {g}. düzey
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
 
               <p className="mb-4 text-sm leading-6 text-muted-foreground">
                 {pasteMode === 'gpt' ? (
@@ -1391,7 +1487,7 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
             </div>
           )}
 
-          {canBulkDelete && (
+          {canBulkDelete && !isBilsem && (
             <div className="shrink-0 rounded-2xl border border-destructive/30 bg-destructive/8 p-5 xl:max-w-sm xl:self-start">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between xl:flex-col xl:items-stretch">
                 <div>
@@ -1410,36 +1506,42 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
             </div>
           )}
         </div>
+        )}
       </div>
 
       {gptError && (
         <Alert variant="error" message={gptError} className="max-w-2xl" />
       )}
 
-      <Card className="overflow-hidden border-border/80 shadow-sm">
-        <CardHeader className="border-b border-border/70 bg-muted/20">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <BookOpen className="size-5" />
-            Plan İçerikleri
+      <Card className={`overflow-hidden border-border/80 shadow-sm ${isBilsem ? 'border-violet-200/60 dark:border-violet-900/40' : ''}`}>
+        <CardHeader className={`border-b border-border/70 bg-muted/20 ${isBilsem ? 'py-3' : ''}`}>
+          <CardTitle className={`flex items-center gap-2 ${isBilsem ? 'text-sm font-medium' : 'text-base'}`}>
+            <BookOpen className={isBilsem ? 'size-4 text-violet-600 dark:text-violet-400' : 'size-5'} />
+            {isBilsem ? 'Filtre ve tablo' : 'Plan İçerikleri'}
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <CardContent className={isBilsem ? 'space-y-3 pt-3' : 'space-y-4'}>
+          <div className={`rounded-lg border border-border/70 bg-muted/20 ${isBilsem ? 'p-3' : 'p-4'}`}>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-sm font-medium text-foreground">Filtreler</p>
                 <p className="text-xs text-muted-foreground">
-                  Görüntülemek istediğiniz planı seçin. Sonuçlar öğretim yılına göre aylar halinde sıralanır.
+                  {isBilsem
+                    ? 'Grup, ders, yıl — liste aylara göre gruplu.'
+                    : 'Görüntülemek istediğiniz planı seçin. Sonuçlar öğretim yılına göre aylar halinde sıralanır.'}
                 </p>
               </div>
               {selectedSummary && (
-                <div className="rounded-lg border border-primary/15 bg-background px-3 py-2 text-xs font-medium text-primary">
-                  Aktif seçim: {selectedSummary}
+                <div
+                  className={`rounded-md border border-primary/15 bg-background text-xs font-medium text-primary ${isBilsem ? 'max-w-[min(100%,20rem)] truncate px-2 py-1' : 'px-3 py-2'}`}
+                  title={selectedSummary}
+                >
+                  {isBilsem ? selectedSummary : `Aktif seçim: ${selectedSummary}`}
                 </div>
               )}
             </div>
             <div
-              className={`mt-4 grid gap-3 md:grid-cols-2 ${isBilsem ? 'xl:grid-cols-4' : 'xl:grid-cols-5'}`}
+              className={`mt-3 grid gap-2 sm:grid-cols-2 ${isBilsem ? 'md:grid-cols-2 lg:grid-cols-4' : 'md:grid-cols-2 xl:grid-cols-5'}`}
             >
               {isBilsem ? (
                 <>
@@ -1541,10 +1643,11 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
               </div>
             </div>
             {!hasGroupFilter && (
-              <p className="mt-3 text-xs text-muted-foreground">
+              <p className="mt-2 text-xs text-muted-foreground">
                 {isBilsem ? 'Ders listesinin daralması için önce ana grup seçin.' : 'Ders listesinin daralması için önce sınıf seçin.'}
               </p>
             )}
+            {!isBilsem && (
             <div className="mt-4 rounded-xl border border-border/70 bg-background p-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="space-y-1">
@@ -1552,9 +1655,7 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
                   <p className="text-xs text-muted-foreground">
                     {hasRequiredSelection
                       ? `${selectedSummary} için işlem seçin.`
-                      : isBilsem
-                        ? 'Önce ana grup, ders ve öğretim yılı seçin.'
-                        : 'Önce sınıf, ders ve öğretim yılı seçin.'}
+                      : 'Önce sınıf, ders ve öğretim yılı seçin.'}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -1570,15 +1671,16 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
                 </div>
               </div>
             </div>
+            )}
           </div>
           {(planSummary.length > 0 || (hasGroupFilter && filters.academic_year)) && (
             <div className="space-y-4">
               {planSummary.length > 0 && (
                 <div className="rounded-lg border border-border overflow-hidden">
-                  <p className="bg-muted/50 px-4 py-2 text-xs font-medium text-muted-foreground border-b border-border">
-                    Yapılan planlar — sıralı liste (tıklayarak filtreleyebilirsiniz)
+                  <p className="bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground border-b border-border">
+                    Yapılan planlar {isBilsem ? '— tıkla, filtre dolsun' : '— sıralı (tıklayarak filtre)'}
                   </p>
-                  <div className="max-h-[240px] overflow-y-auto">
+                  <div className={`overflow-y-auto ${isBilsem ? 'max-h-[min(12rem,40vh)]' : 'max-h-[240px]'}`}>
                     <table className="evrak-admin-table w-full text-sm">
                       <thead>
                         <tr>
@@ -1701,8 +1803,23 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
                         <span className="text-muted-foreground dark:text-amber-200/70">öğretim yılı</span>
                       </p>
                       <p className="mt-1.5 text-[11px] text-amber-800/75 dark:text-amber-200/70">
-                        Henüz plan kaydı yok — <span className="font-medium">Seç</span>; içe aktarma üstteki JSON/CSV
-                        alanından.
+                        {isBilsem ? (
+                          <>
+                            Henüz plan kaydı yok — <span className="font-medium">Seç</span> veya{' '}
+                            <Link
+                              href="/bilsem/plan-katki"
+                              className="font-medium underline underline-offset-2 hover:text-amber-950 dark:hover:text-amber-50"
+                            >
+                              Plan katkı
+                            </Link>{' '}
+                            (Excel şablon); süper yönetici burada manuel ekleyebilir.
+                          </>
+                        ) : (
+                          <>
+                            Henüz plan kaydı yok — <span className="font-medium">Seç</span>; içe aktarma üstteki JSON/CSV
+                            alanından.
+                          </>
+                        )}
                       </p>
                     </div>
                     <div className="max-h-[160px] overflow-y-auto">
@@ -1819,9 +1936,10 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
                   <table className="evrak-admin-table w-full text-sm">
                     <thead>
                       <tr>
+                        <th className="min-w-[72px] text-xs">Ay</th>
                         <th className="w-14 text-xs">Hafta</th>
-                        <th className="min-w-[110px] text-xs">Ünite/Tema</th>
-                        <th className="w-12 text-xs">Saat</th>
+                        <th className="w-12 text-xs">Ders saati</th>
+                        <th className="min-w-[110px] text-xs">Ünite / tema</th>
                         <th className="min-w-[100px] text-xs">Konu</th>
                         <th className="min-w-[140px] text-xs">Öğrenme Çıktıları</th>
                         <th className="min-w-[80px] text-xs">Süreç Bileş.</th>
@@ -1837,11 +1955,14 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
                     <tbody>
                       {gptDraft.items.slice(0, 12).map((row, idx) => (
                         <tr key={idx}>
+                          <td className="px-2 py-1.5 text-xs text-muted-foreground">
+                            {row.ay?.trim() || '—'}
+                          </td>
                           <td className="px-2 py-1.5">{row.week_order}</td>
+                          <td className="px-2 py-1.5">{row.ders_saati ?? 2}</td>
                           <td className="px-2 py-2 max-w-[150px] align-top text-xs">
                             <SmartTextCell value={row.unite || '—'} previewChars={90} />
                           </td>
-                          <td className="px-2 py-1.5">{row.ders_saati ?? 2}</td>
                           <td className="px-2 py-2 max-w-[150px] align-top text-xs">
                             <SmartTextCell value={row.konu || '—'} previewChars={90} />
                           </td>
@@ -1890,14 +2011,14 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
               title="Henüz kayıt yok"
               description={
                 isBilsem
-                  ? 'Ana grup, ders ve öğretim yılı seçerek plan içeriklerini ekleyin. Kazanım modülü bu veriyi kullanacak.'
+                  ? 'Filtreleri doldurup «Yeni satır» veya aşağıdaki «Seç» ile başlayın. Toplu yük: Plan katkı.'
                   : 'Ders, sınıf ve öğretim yılı seçerek plan içeriklerini ekleyin. Kazanım modülü bu veriyi kullanacak.'
               }
             />
           ) : (
             <>
               <DersAyGroupedTable
-                items={items}
+                items={itemsForTable}
                 onEdit={openEdit}
                 onDelete={handleDelete}
                 isBilsem={isBilsem}
@@ -1961,7 +2082,9 @@ export default function YillikPlanIcerikPage(props?: YillikPlanIcerikPageProps) 
             <div>
               <CardTitle>{editing ? 'Kayıt Düzenle' : 'Yeni Kayıt Ekle'}</CardTitle>
               <p className="mt-1 text-xs text-muted-foreground">
-                Bu form tek haftalık manuel kayıt içindir. Tüm planı tek seferde yüklemek için üstteki JSON/CSV içe aktarma alanını kullanın.
+                {isBilsem
+                  ? 'Bu form tek haftalık manuel kayıt içindir. Toplu yüklemeyi Excel şablonuyla öğretmenler Plan katkı üzerinden yapar.'
+                  : 'Bu form tek haftalık manuel kayıt içindir. Tüm planı tek seferde yüklemek için üstteki JSON/CSV içe aktarma alanını kullanın.'}
               </p>
             </div>
             <button

@@ -18,6 +18,7 @@ import type { WebAdminRole } from '@/config/types';
 
 /** Etkileşim yoksa oturumu kapatır; arka planda /me isteği birikmez. */
 const IDLE_LOGOUT_MS = 30 * 60 * 1000;
+const IDLE_LOGOUT_ROLES = new Set<WebAdminRole>(['teacher', 'school_admin']);
 
 const TOKEN_KEY = 'ogretmenpro_token';
 const meRequestCache = new Map<string, Promise<Me | null>>();
@@ -58,6 +59,16 @@ export type Me = {
   avatar_url?: string | null;
   role: string;
   school_id: string | null;
+  teacher_assignment_active?: boolean;
+  teacher_assignment_school_id?: string | null;
+  teacher_assignment_school?: {
+    id: string;
+    name: string;
+    city?: string | null;
+    district?: string | null;
+    type?: string;
+    status?: string;
+  } | null;
   teacher_branch?: string | null;
   school: {
     id: string;
@@ -253,7 +264,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [me, pathname]);
 
   useEffect(() => {
-    if (!me) return;
+    if (!me || !IDLE_LOGOUT_ROLES.has(me.role as WebAdminRole)) return;
     let timer: ReturnType<typeof setTimeout>;
     const arm = () => {
       clearTimeout(timer);

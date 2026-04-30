@@ -293,6 +293,8 @@ type MealEntry = { day_of_week?: number; date?: string; title: string; menu: str
 type DutyEntry = { day_of_week?: number; date?: string; title: string; info: string };
 type SpecialDayEntry = { date: string; title: string; responsible: string; description?: string; image_url?: string };
 type BirthdayEntry = { date: string; name: string; type: 'teacher' | 'student'; class_section?: string };
+type SchoolClassLite = { id: string; name: string; grade?: number | null; section?: string | null };
+type StudentLite = { id: string; name: string; birthDate?: string | null; classId?: string | null };
 type TimetableLessonTime = { num: number; start: string; end: string };
 type TimetableEntry = { day: number; lesson: number; class: string; subject: string };
 const DAY_NAMES = ['', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
@@ -2288,6 +2290,14 @@ function TvSettingsForm({
       return [];
     }
   });
+  const [birthdayUseStudentList, setBirthdayUseStudentList] = useState(false);
+  const [birthdayClassOptions, setBirthdayClassOptions] = useState<SchoolClassLite[]>([]);
+  const [birthdaySelectedClassIds, setBirthdaySelectedClassIds] = useState<Set<string>>(new Set());
+  const [birthdayClassFilter, setBirthdayClassFilter] = useState('');
+  const [birthdayImportedFilter, setBirthdayImportedFilter] = useState('');
+  const [birthdayTStarList, setBirthdayTStarList] = useState(false);
+  const [birthdayLoadingClasses, setBirthdayLoadingClasses] = useState(false);
+  const [birthdayImportingStudents, setBirthdayImportingStudents] = useState(false);
   const [countdownTargets, setCountdownTargets] = useState<CountdownTarget[]>(() => {
     try {
       const raw = school.tv_countdown_targets?.trim();
@@ -2320,6 +2330,110 @@ function TvSettingsForm({
   } | null>(null);
   const [timetablePreviewLoading, setTimetablePreviewLoading] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'genel' | 'görünüm' | 'alt' | 'sag' | 'takvim'>('genel');
+
+  const normalizeBirthDateForTv = useCallback((raw: string): string | null => {
+    const t = String(raw ?? '').trim();
+    const m = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    const month = Number(m[2]);
+    const day = Number(m[3]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const y = new Date().getFullYear();
+    const d = new Date(y, month - 1, day);
+    if (d.getMonth() !== month - 1 || d.getDate() !== day) {
+      if (month === 2 && day === 29) return `${y}-02-28`;
+      return null;
+    }
+    return `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }, []);
+
+  const maskNameForKvkk = useCallback((rawName: string): string => {
+    const parts = rawName
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (parts.length === 0) return '***';
+    return parts.map((p) => `${p.charAt(0).toUpperCase()}***`).join(' ');
+  }, []);
+
+  const parseClassSection = useCallback((className: string | null | undefined): string | undefined => {
+    const t = String(className ?? '').trim();
+    if (!t) return undefined;
+    const m = t.match(/(\d{1,2}\s*\/\s*[A-ZÇĞİÖŞÜ])/i);
+    if (!m?.[1]) return t;
+    return m[1].replace(/\s+/g, '').toUpperCase();
+  }, []);
+
+  const loadBirthdayClassOptions = useCallback(async () => {
+    if (!token) return;
+    setBirthdayLoadingClasses(true);
+    try {
+      const classes = await apiFetch<SchoolClassLite[]>('/classes-subjects/classes', { token });
+      const sorted = [...classes].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'tr'));
+      setBirthdayClassOptions(sorted);
+      setBirthdaySelectedClassIds(new Set(sorted.map((c) => c.id)));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Sınıf listesi alınamadı');
+    } finally {
+      setBirthdayLoadingClasses(false);
+    }
+  }, [token]);
+
+  const importBirthdaysFromStudentLists = useCallback(async () => {
+    if (!token) return;
+    const classIds = Array.from(birthdaySelectedClassIds);
+    if (classIds.length === 0) {
+      toast.error('En az 1 sınıf seçin');
+      return;
+    }
+    setBirthdayImportingStudents(true);
+    try {
+      const classMap = new Map(birthdayClassOptions.map((c) => [c.id, c]));
+      const results = await Promise.all(
+        classIds.map((classId) =>
+          apiFetch<StudentLite[]>(`/classes-subjects/classes/${classId}/students`, { token }),
+        ),
+      );
+      const entries: BirthdayEntry[] = [];
+      for (let i = 0; i < classIds.length; i++) {
+        const classId = classIds[i];
+        const cls = classMap.get(classId);
+        const classSection = parseClassSection(cls?.name);
+        for (const s of results[i] ?? []) {
+          const date = s.birthDate ? normalizeBirthDateForTv(s.birthDate) : null;
+          const name = String(s.name ?? '').trim();
+          if (!date || !name) continue;
+          entries.push({
+            date,
+            name: birthdayTStarList ? maskNameForKvkk(name) : name,
+            type: 'student',
+            class_section: classSection,
+          });
+        }
+      }
+      if (entries.length === 0) {
+        toast.error('Seçili sınıflarda doğum tarihi olan öğrenci bulunamadı');
+        return;
+      }
+      const uniq = new Map<string, BirthdayEntry>();
+      for (const e of entries) {
+        const key = `${e.date}|${e.name.toLocaleLowerCase('tr')}|${e.class_section ?? ''}`;
+        if (!uniq.has(key)) uniq.set(key, e);
+      }
+      const merged = [...birthdayEntries, ...uniq.values()];
+      const finalMap = new Map<string, BirthdayEntry>();
+      for (const e of merged) {
+        const key = `${e.date}|${e.name.toLocaleLowerCase('tr')}|${e.type}|${e.class_section ?? ''}`;
+        finalMap.set(key, e);
+      }
+      setBirthdayEntries([...finalMap.values()]);
+      toast.success(`${uniq.size} öğrenci doğum günü eklendi`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Öğrenci listesi alınamadı');
+    } finally {
+      setBirthdayImportingStudents(false);
+    }
+  }, [token, birthdaySelectedClassIds, birthdayClassOptions, birthdayEntries, normalizeBirthDateForTv, parseClassSection, birthdayTStarList, maskNameForKvkk]);
 
   useEffect(() => {
     setAllowedIps(school.tv_allowed_ips ?? '');
@@ -2426,6 +2540,12 @@ function TvSettingsForm({
     } catch {
       setBirthdayEntries([]);
     }
+    setBirthdayUseStudentList(false);
+    setBirthdayClassOptions([]);
+    setBirthdaySelectedClassIds(new Set());
+    setBirthdayClassFilter('');
+    setBirthdayImportedFilter('');
+    setBirthdayTStarList(false);
     try {
       const raw = school.tv_timetable_schedule?.trim();
       if (!raw) {
@@ -2742,6 +2862,22 @@ function TvSettingsForm({
     birthdayEntries.length > 0 ||
     (timetableEntries.length > 0 && !timetableUseSchoolPlan) ||
     countdownTargets.length > 0;
+
+  const filteredBirthdayClassOptions = birthdayClassOptions.filter((cls) =>
+    !birthdayClassFilter.trim() ||
+    cls.name.toLocaleLowerCase('tr').includes(birthdayClassFilter.trim().toLocaleLowerCase('tr')),
+  );
+  const filteredBirthdayEntries = birthdayEntries
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry: e }) => {
+    const q = birthdayImportedFilter.trim().toLocaleLowerCase('tr');
+    if (!q) return true;
+    return (
+      (e.name ?? '').toLocaleLowerCase('tr').includes(q) ||
+      (e.class_section ?? '').toLocaleLowerCase('tr').includes(q) ||
+      (e.type ?? '').toLocaleLowerCase('tr').includes(q)
+    );
+  });
 
   const TV_SETTINGS_TABS = [
     { id: 'genel' as const, label: 'Genel', icon: <Settings className="size-4" />, active: 'bg-indigo-500 text-white shadow-md border-indigo-600 dark:bg-indigo-600 dark:border-indigo-500' },
@@ -3235,10 +3371,10 @@ function TvSettingsForm({
               value={gununSozuRssUrl}
               onChange={(e) => setGununSozuRssUrl(e.target.value)}
               className="mb-2 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
-              placeholder="https://panel-adresiniz.com/gunun-sozu.xml"
+              placeholder="https://uzaedu.com/gunun-sozu-kapsamli.xml"
             />
             <p className="mb-3 text-xs text-muted-foreground">
-              Dahili örnek: panel kök URL + <code className="rounded bg-muted px-1">/gunun-sozu.xml</code> (içerik: <code className="rounded bg-muted px-1">src/app/gunun-sozu.xml/route.ts</code>). Harici RSS (Webnode vb.) da kullanılabilir; söz + yazar ayrıştırılır.
+              Canlı varsayılan: <code className="rounded bg-muted px-1">https://uzaedu.com/gunun-sozu-kapsamli.xml</code>. Harici RSS (Webnode vb.) da kullanılabilir; söz + yazar ayrıştırılır.
             </p>
             <div className="flex flex-wrap items-center gap-4">
               <div className="flex items-center gap-2">
@@ -3887,12 +4023,28 @@ function TvSettingsForm({
                         const utc = (serial - 25569) * 86400 * 1000;
                         return toLocalDateStr(new Date(utc));
                       };
+                      const normalizeAnyDate = (value: string): string => {
+                        const v = value.trim();
+                        const iso = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                        if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+                        const tr = v.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+                        if (tr) {
+                          const d = Number(tr[1]);
+                          const m = Number(tr[2]);
+                          let y = Number(tr[3]);
+                          if (y < 100) y += 2000;
+                          if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+                            return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                          }
+                        }
+                        return v;
+                      };
                       const getCol = (row: (string | number | Date)[], i: number) => {
                         if (i >= 0 && i < row.length) {
                           const v = row[i];
                           if (v instanceof Date) return toLocalDateStr(v);
                           if (typeof v === 'number' && v > 1000 && v < 100000) return excelSerialToDate(v);
-                          return String(v ?? '').trim();
+                          return normalizeAnyDate(String(v ?? ''));
                         }
                         return '';
                       };
@@ -4321,7 +4473,8 @@ function TvSettingsForm({
                         const name = (nameIdx >= 0 ? getCol(row, nameIdx) : getCol(row, 1)) || '';
                         const typeRaw = typeIdx >= 0 ? getCol(row, typeIdx).toLowerCase() : '';
                         const type: 'teacher' | 'student' = typeRaw.includes('öğrenci') || typeRaw === 'ogrenci' || typeRaw === 'student' ? 'student' : 'teacher';
-                        const classSection = classIdx >= 0 ? getCol(row, classIdx) : '';
+                        const classRaw = classIdx >= 0 ? getCol(row, classIdx) : '';
+                        const classSection = parseClassSection(classRaw) ?? classRaw;
                         if (date && name) {
                           const dateStr = date.includes('-') && date.length >= 10 ? date.slice(0, 10) : date;
                           entries.push({ date: dateStr, name, type, class_section: classSection || undefined });
@@ -4354,29 +4507,124 @@ function TvSettingsForm({
             )}
           </div>
         </div>
+        <div className="mb-4 rounded-lg border border-emerald-300/70 bg-emerald-50/40 p-4 dark:border-emerald-800/70 dark:bg-emerald-950/20">
+          <label className="mb-3 flex cursor-pointer items-start gap-3 rounded-lg border border-emerald-300/50 bg-background/70 p-3 dark:border-emerald-800/60">
+            <input
+              type="checkbox"
+              checked={birthdayUseStudentList}
+              onChange={(e) => {
+                const enabled = e.target.checked;
+                setBirthdayUseStudentList(enabled);
+                if (enabled && birthdayClassOptions.length === 0) {
+                  void loadBirthdayClassOptions();
+                }
+              }}
+              className="mt-1 size-4 rounded border-input"
+            />
+            <span>
+              <span className="text-sm font-medium text-foreground">Okul grup/sınıf öğrenci listesinden doğum günlerini al</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">Şablon ve Excel yükleme aynen kalır. İsterseniz seçili sınıflardaki öğrencilerin doğum tarihlerini bu listeye ekleyebilirsiniz.</span>
+            </span>
+          </label>
+          {birthdayUseStudentList && (
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">Sınıflar (gruplar)</p>
+              <input
+                type="text"
+                value={birthdayClassFilter}
+                onChange={(e) => setBirthdayClassFilter(e.target.value)}
+                placeholder="Sınıf filtrele (örn: 12/A)"
+                className="w-full rounded border border-input bg-background px-2.5 py-1.5 text-xs sm:max-w-xs"
+              />
+              <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={birthdayTStarList}
+                  onChange={(e) => setBirthdayTStarList(e.target.checked)}
+                  className="size-4 rounded border-input"
+                />
+                KVKK maskeleme (ad soyad yerine A*** B***)
+              </label>
+              <div className="max-h-40 overflow-auto rounded border border-border bg-background p-2">
+                {birthdayLoadingClasses ? (
+                  <p className="px-1 py-2 text-xs text-muted-foreground">Sınıflar yükleniyor...</p>
+                ) : filteredBirthdayClassOptions.length === 0 ? (
+                  <p className="px-1 py-2 text-xs text-muted-foreground">Sınıf bulunamadı.</p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                    {filteredBirthdayClassOptions.map((cls) => (
+                      <label key={cls.id} className="flex items-center gap-2 rounded px-1.5 py-1 hover:bg-muted/60">
+                        <input
+                          type="checkbox"
+                          checked={birthdaySelectedClassIds.has(cls.id)}
+                          onChange={(e) => {
+                            setBirthdaySelectedClassIds((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(cls.id);
+                              else next.delete(cls.id);
+                              return next;
+                            });
+                          }}
+                          className="size-4 rounded border-input"
+                        />
+                        <span className="text-xs">{cls.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void loadBirthdayClassOptions()}
+                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium hover:bg-muted"
+                >
+                  Sınıfları yenile
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void importBirthdaysFromStudentLists()}
+                  disabled={birthdayImportingStudents || birthdayLoadingClasses || birthdayClassOptions.length === 0}
+                  className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-800 hover:bg-emerald-500/15 disabled:opacity-50 dark:text-emerald-200"
+                >
+                  {birthdayImportingStudents ? 'Ekleniyor...' : 'Öğrenci listesinden ekle'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
         <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">Manuel kayıtlar ({birthdayEntries.length})</p>
-          {birthdayEntries.map((entry, i) => (
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-medium text-muted-foreground">Manuel kayıtlar ({filteredBirthdayEntries.length})</p>
+            <input
+              type="text"
+              value={birthdayImportedFilter}
+              onChange={(e) => setBirthdayImportedFilter(e.target.value)}
+              placeholder="Kayıt filtrele (ad/sınıf/tür)"
+              className="w-full rounded border border-input bg-background px-2.5 py-1.5 text-xs sm:w-64"
+            />
+          </div>
+          {filteredBirthdayEntries.map(({ entry, index }) => (
             <div
-              key={i}
+              key={`${entry.date}-${entry.name}-${entry.class_section ?? ''}-${entry.type}-${index}`}
               className="flex flex-wrap items-center gap-2 rounded border border-border bg-background/50 p-2"
             >
               <input
                 type="date"
                 value={entry.date}
-                onChange={(e) => setBirthdayEntries((prev) => prev.map((x, j) => (j === i ? { ...x, date: e.target.value } : x)))}
+                onChange={(e) => setBirthdayEntries((prev) => prev.map((x, j) => (j === index ? { ...x, date: e.target.value } : x)))}
                 className="rounded border border-input bg-background px-2 py-1.5 text-sm"
               />
               <input
                 type="text"
                 value={entry.name}
-                onChange={(e) => setBirthdayEntries((prev) => prev.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
+                onChange={(e) => setBirthdayEntries((prev) => prev.map((x, j) => (j === index ? { ...x, name: e.target.value } : x)))}
                 placeholder="Ad"
                 className="w-full min-w-0 rounded border border-input bg-background px-2 py-1.5 text-sm sm:w-auto sm:min-w-[120px]"
               />
               <select
                 value={entry.type}
-                onChange={(e) => setBirthdayEntries((prev) => prev.map((x, j) => (j === i ? { ...x, type: e.target.value as 'teacher' | 'student' } : x)))}
+                onChange={(e) => setBirthdayEntries((prev) => prev.map((x, j) => (j === index ? { ...x, type: e.target.value as 'teacher' | 'student' } : x)))}
                 className="rounded border border-input bg-background px-2 py-1.5 text-sm"
               >
                 <option value="teacher">Öğretmen</option>
@@ -4385,13 +4633,13 @@ function TvSettingsForm({
               <input
                 type="text"
                 value={entry.class_section ?? ''}
-                onChange={(e) => setBirthdayEntries((prev) => prev.map((x, j) => (j === i ? { ...x, class_section: e.target.value || undefined } : x)))}
+                onChange={(e) => setBirthdayEntries((prev) => prev.map((x, j) => (j === index ? { ...x, class_section: e.target.value || undefined } : x)))}
                 placeholder="Sınıf (ops.)"
                 className="w-16 rounded border border-input bg-background px-2 py-1.5 text-sm"
               />
               <button
                 type="button"
-                onClick={() => setBirthdayEntries((prev) => prev.filter((_, j) => j !== i))}
+                onClick={() => setBirthdayEntries((prev) => prev.filter((_, j) => j !== index))}
                 className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                 title="Kaldır"
               >

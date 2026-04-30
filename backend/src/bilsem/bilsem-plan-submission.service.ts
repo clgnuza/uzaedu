@@ -11,11 +11,21 @@ import { BilsemPlanSubmission, BilsemPlanSubmissionStatus } from './entities/bil
 import { BilsemPlanSubmissionEvent } from './entities/bilsem-plan-submission-event.entity';
 import { CreateBilsemPlanSubmissionDto } from './dto/create-bilsem-plan-submission.dto';
 import { UpdateBilsemPlanSubmissionDto } from './dto/update-bilsem-plan-submission.dto';
-import { YillikPlanIcerikService } from '../yillik-plan-icerik/yillik-plan-icerik.service';
+import { validateBilsemMergedPlanItems, YillikPlanIcerikService } from '../yillik-plan-icerik/yillik-plan-icerik.service';
+import { DocumentCatalog } from '../document-templates/entities/document-catalog.entity';
 import { User } from '../users/entities/user.entity';
 import type { ParsedPlanRow } from '../meb/meb-fetch.service';
 import { parsePlanPastePayload } from '../yillik-plan-icerik/plan-paste-parser';
-import type { BilsemPlanSubmissionMineRow, BilsemPlanSubmissionModerationQueueRow } from './bilsem-plan-submission-list.types';
+import { BilsemPlanCreatorRewardService } from './bilsem-plan-creator-reward.service';
+import { BilsemYillikPlanService } from './bilsem-yillik-plan.service';
+import type {
+  BilsemModerationDashboard,
+  BilsemModerationHistoryRow,
+  BilsemPlanAuthorSummary,
+  BilsemModerationValidationResult,
+  BilsemPlanSubmissionMineRow,
+  BilsemPlanSubmissionModerationQueueRow,
+} from './bilsem-plan-submission-list.types';
 
 @Injectable()
 export class BilsemPlanSubmissionService {
@@ -24,8 +34,34 @@ export class BilsemPlanSubmissionService {
     private readonly submissionRepo: Repository<BilsemPlanSubmission>,
     @InjectRepository(BilsemPlanSubmissionEvent)
     private readonly eventRepo: Repository<BilsemPlanSubmissionEvent>,
+    @InjectRepository(DocumentCatalog)
+    private readonly catalogRepo: Repository<DocumentCatalog>,
     private readonly yillikPlanIcerikService: YillikPlanIcerikService,
+    private readonly bilsemYillikPlanService: BilsemYillikPlanService,
+    private readonly planCreatorReward: BilsemPlanCreatorRewardService,
   ) {}
+
+  /** Superadmin’in BİLSEM ders kataloğu (yalnızca ana_grup tanımlı aktif dersler). */
+  async listBilsemPlanDraftSubjects(): Promise<{
+    items: { code: string; label: string; ana_grup: string }[];
+  }> {
+    const rows = await this.catalogRepo
+      .createQueryBuilder('c')
+      .where('c.category = :cat', { cat: 'subject' })
+      .andWhere('c.is_active = true')
+      .andWhere('c.ana_grup IS NOT NULL')
+      .andWhere("TRIM(c.ana_grup) != ''")
+      .orderBy('c.sort_order', 'ASC')
+      .addOrderBy('c.label', 'ASC')
+      .getMany();
+    return {
+      items: rows.map((c) => ({
+        code: c.code,
+        label: c.label,
+        ana_grup: c.anaGrup!,
+      })),
+    };
+  }
 
   private itemsJsonFromImportOrItems(dto: {
     items_import?: string;
@@ -94,15 +130,108 @@ export class BilsemPlanSubmissionService {
       });
     }
     if (out.length === 0) {
-      throw new BadRequestException({ code: 'ITEMS_INVALID', message: 'Geçerli week_order (1–38) içeren satır yok.' });
+      throw new BadRequestException({
+        code: 'ITEMS_INVALID',
+        message: 'Geçerli week_order (1–38 öğretim haftası) içeren satır yok. Tatil satırları kayda alınmaz.',
+      });
     }
     return out;
+  }
+
+  private static badRequestMessage(e: unknown): string {
+    if (e instanceof BadRequestException) {
+      const r = e.getResponse();
+      if (typeof r === 'object' && r && 'message' in r) {
+        const m = (r as { message?: string | string[] }).message;
+        if (Array.isArray(m)) return m.join(' ');
+        if (typeof m === 'string') return m;
+      }
+    }
+    return e instanceof Error ? e.message : String(e);
+  }
+
+  private parsedPlanRowsToBulkItems(
+    parsed: ParsedPlanRow[],
+  ): Array<{
+    week_order: number;
+    unite?: string;
+    konu?: string;
+    kazanimlar?: string;
+    ders_saati?: number;
+    belirli_gun_haftalar?: string;
+    surec_bilesenleri?: string;
+    olcme_degerlendirme?: string;
+    sosyal_duygusal?: string;
+    degerler?: string;
+    okuryazarlik_becerileri?: string;
+    zenginlestirme?: string;
+    okul_temelli_planlama?: string;
+  }> {
+    return parsed.map((r) => ({
+      week_order: r.week_order,
+      unite: r.unite ?? undefined,
+      konu: r.konu ?? undefined,
+      kazanimlar: r.kazanimlar ?? undefined,
+      ders_saati: r.ders_saati,
+      belirli_gun_haftalar: r.belirli_gun_haftalar ?? undefined,
+      surec_bilesenleri: r.surec_bilesenleri ?? undefined,
+      olcme_degerlendirme: r.olcme_degerlendirme ?? undefined,
+      sosyal_duygusal: r.sosyal_duygusal ?? undefined,
+      degerler: r.degerler ?? undefined,
+      okuryazarlik_becerileri: r.okuryazarlik_becerileri ?? undefined,
+      zenginlestirme: r.zenginlestirme ?? undefined,
+      okul_temelli_planlama: r.okul_temelli_planlama ?? undefined,
+    }));
+  }
+
+  /** Katalog + items_json (yıllık plan içe aktarma kuralları) — yayın öncesi. */
+  async buildValidationForPublish(s: BilsemPlanSubmission): Promise<BilsemModerationValidationResult> {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    let parsed: ParsedPlanRow[] = [];
+    try {
+      parsed = this.parseItemsJson(s.itemsJson);
+    } catch (e) {
+      errors.push(BilsemPlanSubmissionService.badRequestMessage(e));
+      return { ok: false, errors, warnings, catalogMatch: false };
+    }
+    const bulk = this.parsedPlanRowsToBulkItems(parsed);
+    const v = validateBilsemMergedPlanItems(bulk, {
+      ana_grup: s.anaGrup,
+      plan_grade: s.planGrade,
+    });
+    errors.push(...v.errors);
+    warnings.push(...v.warnings);
+    const { items: catItems } = await this.listBilsemPlanDraftSubjects();
+    const catalogMatch = catItems.some(
+      (c) =>
+        c.code.trim() === s.subjectCode.trim() &&
+        c.ana_grup.trim().toLowerCase() === s.anaGrup.trim().toLowerCase(),
+    );
+    if (!catalogMatch) {
+      errors.push('Ders kodu ve ana grup BİLSEM ders kataloğunda eşleşmiyor (güncel kataloga bakın).');
+    }
+    return { ok: errors.length === 0, errors, warnings, catalogMatch };
+  }
+
+  async validateForModeration(id: string): Promise<BilsemModerationValidationResult> {
+    const s = await this.submissionRepo.findOne({ where: { id } });
+    if (!s) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Gönderim bulunamadı.' });
+    }
+    return this.buildValidationForPublish(s);
   }
 
   private weekCountFromItemsJson(raw: string): number {
     try {
       const j = JSON.parse(raw) as unknown;
-      return Array.isArray(j) ? j.length : 0;
+      if (!Array.isArray(j)) return 0;
+      return j.filter((el) => {
+        if (!el || typeof el !== 'object') return false;
+        const o = el as Record<string, unknown>;
+        const wo = Number(o.week_order ?? o.weekOrder ?? o.hafta);
+        return Number.isFinite(wo) && wo >= 1 && wo <= 38;
+      }).length;
     } catch {
       return 0;
     }
@@ -120,9 +249,18 @@ export class BilsemPlanSubmissionService {
       planGrade: s.planGrade,
       weekCount: this.weekCountFromItemsJson(s.itemsJson),
       submittedAt: s.submittedAt ? s.submittedAt.toISOString() : null,
+      decidedAt: s.decidedAt ? s.decidedAt.toISOString() : null,
+      publishedAt: s.publishedAt ? s.publishedAt.toISOString() : null,
+      rewardJetonPerGeneration:
+        s.status === 'published' ? String(s.rewardJetonPerGeneration ?? '0.25') : null,
       updatedAt: s.updatedAt.toISOString(),
       createdAt: s.createdAt.toISOString(),
     };
+  }
+
+  private static reviewerLabel(u: User | null | undefined): string | null {
+    if (!u) return null;
+    return u.display_name?.trim() || u.email || null;
   }
 
   private async appendEvent(
@@ -158,7 +296,7 @@ export class BilsemPlanSubmissionService {
       anaGrup: dto.ana_grup.trim(),
       altGrup: dto.alt_grup?.trim() ? dto.alt_grup.trim() : null,
       academicYear: dto.academic_year.trim(),
-      planGrade: dto.plan_grade,
+      planGrade: dto.plan_grade != null ? dto.plan_grade : null,
       tabloAltiNot: dto.tablo_alti_not?.trim() || null,
       itemsJson,
       rewardJetonPerGeneration: '0.25',
@@ -243,13 +381,29 @@ export class BilsemPlanSubmissionService {
     return rows.map((s) => this.toMineRow(s));
   }
 
-  async listPending(): Promise<BilsemPlanSubmissionModerationQueueRow[]> {
-    const rows = await this.submissionRepo.find({
-      where: { status: 'pending_review' },
-      relations: ['author'],
-      order: { submittedAt: 'ASC' },
-      take: 200,
-    });
+  async listPending(filters?: {
+    academic_year?: string;
+    ana_grup?: string;
+    q?: string;
+  }): Promise<BilsemPlanSubmissionModerationQueueRow[]> {
+    const qb = this.submissionRepo
+      .createQueryBuilder('s')
+      .leftJoinAndSelect('s.author', 'author')
+      .where('s.status = :st', { st: 'pending_review' });
+    if (filters?.academic_year?.trim()) {
+      qb.andWhere('s.academicYear = :ay', { ay: filters.academic_year.trim() });
+    }
+    if (filters?.ana_grup?.trim()) {
+      qb.andWhere('s.anaGrup = :ana', { ana: filters.ana_grup.trim() });
+    }
+    if (filters?.q?.trim()) {
+      const l = `%${filters.q.trim()}%`;
+      qb.andWhere('(s.subjectLabel ILIKE :l OR s.subjectCode ILIKE :l OR author.email ILIKE :l OR author.display_name ILIKE :l)', {
+        l,
+      });
+    }
+    qb.orderBy('s.submittedAt', 'ASC').addOrderBy('s.createdAt', 'ASC').take(200);
+    const rows = await qb.getMany();
     return rows.map((s) => ({
       ...this.toMineRow(s),
       authorUserId: s.authorUserId,
@@ -277,6 +431,15 @@ export class BilsemPlanSubmissionService {
     if (!s) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Gönderim bulunamadı.' });
     if (s.status !== 'pending_review') {
       throw new ConflictException({ code: 'INVALID_STATE', message: 'Yalnızca incelemedeki gönderimler yayınlanır.' });
+    }
+    const check = await this.buildValidationForPublish(s);
+    if (!check.ok) {
+      throw new BadRequestException({
+        code: 'PUBLISH_VALIDATION_FAILED',
+        message: check.errors[0] ?? 'Yayın öncesi doğrulama başarısız.',
+        errors: check.errors,
+        warnings: check.warnings,
+      });
     }
     const items = this.parseItemsJson(s.itemsJson);
     const reward =
@@ -320,6 +483,27 @@ export class BilsemPlanSubmissionService {
         s.altGrup ?? null,
       );
     }
+    await this.bilsemYillikPlanService.replaceOutcomeSetFromBilsemPlan({
+      subject_code: s.subjectCode,
+      subject_label: s.subjectLabel,
+      academic_year: s.academicYear,
+      ana_grup: s.anaGrup,
+      items: rows.map((r) => ({
+        week_order: r.weekOrder,
+        unite: r.unite,
+        konu: r.konu,
+        kazanimlar: r.kazanimlar,
+        ders_saati: r.dersSaati,
+        surec_bilesenleri: r.surecBilesenleri,
+        olcme_degerlendirme: r.olcmeDegerlendirme,
+        sosyal_duygusal: r.sosyalDuygusal,
+        degerler: r.degerler,
+        okuryazarlik_becerileri: r.okuryazarlikBecerileri,
+        belirli_gun_haftalar: r.belirliGunHaftalar,
+        zenginlestirme: r.zenginlestirme,
+        okul_temelli_planlama: r.okulTemelliPlanlama,
+      })),
+    });
     const prev = s.status;
     s.status = 'published';
     s.reviewerUserId = reviewerUserId;
@@ -330,6 +514,49 @@ export class BilsemPlanSubmissionService {
     const saved = await this.submissionRepo.save(s);
     await this.appendEvent(saved.id, reviewerUserId, prev, 'published', s.reviewNote);
     return { submission: saved, imported_weeks: rows.length };
+  }
+
+  async unpublish(
+    id: string,
+    actorUserId: string,
+    body: { note?: string | null },
+  ): Promise<{ submission: BilsemPlanSubmission; removed_rows: number }> {
+    const s = await this.submissionRepo.findOne({ where: { id } });
+    if (!s) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Gönderim bulunamadı.' });
+    if (s.status !== 'published') {
+      throw new ConflictException({ code: 'INVALID_STATE', message: 'Yalnızca yayındaki plan yayından kaldırılabilir.' });
+    }
+    const removed = await this.yillikPlanIcerikService.deleteBilsemRowsBySubmissionId(s.id);
+    const tablo = s.tabloAltiNot?.trim() || null;
+    if (tablo) {
+      const current = await this.yillikPlanIcerikService.getMeta(
+        s.subjectCode,
+        s.anaGrup,
+        s.academicYear,
+        'bilsem',
+        s.altGrup ?? null,
+      );
+      if (current != null && current.trim() === tablo) {
+        await this.yillikPlanIcerikService.upsertMeta(
+          s.subjectCode,
+          s.anaGrup,
+          s.academicYear,
+          null,
+          'bilsem',
+          s.altGrup ?? null,
+        );
+      }
+    }
+    const prev = s.status;
+    s.status = 'pending_review';
+    s.publishedAt = null;
+    s.decidedAt = null;
+    s.reviewerUserId = null;
+    s.reviewNote = null;
+    const note = body.note?.trim() || null;
+    const saved = await this.submissionRepo.save(s);
+    await this.appendEvent(saved.id, actorUserId, prev, 'pending_review', note);
+    return { submission: saved, removed_rows: removed };
   }
 
   async reject(id: string, reviewerUserId: string, reviewNote?: string | null): Promise<BilsemPlanSubmission> {
@@ -346,5 +573,76 @@ export class BilsemPlanSubmissionService {
     const saved = await this.submissionRepo.save(s);
     await this.appendEvent(saved.id, reviewerUserId, prev, 'rejected', s.reviewNote);
     return saved;
+  }
+
+  async getAuthorSummary(authorUserId: string): Promise<BilsemPlanAuthorSummary> {
+    const [draft, pending, published, rejected, withdrawn, reward] = await Promise.all([
+      this.submissionRepo.count({ where: { authorUserId, status: 'draft' } }),
+      this.submissionRepo.count({ where: { authorUserId, status: 'pending_review' } }),
+      this.submissionRepo.count({ where: { authorUserId, status: 'published' } }),
+      this.submissionRepo.count({ where: { authorUserId, status: 'rejected' } }),
+      this.submissionRepo.count({ where: { authorUserId, status: 'withdrawn' } }),
+      this.planCreatorReward.getCreatorRewardSummary(authorUserId),
+    ]);
+    return {
+      counts: { draft, pending_review: pending, published, rejected, withdrawn },
+      planWordUsageCount: reward.planWordUsageCount,
+      totalJetonCredited: reward.totalJetonCredited,
+      bySubmission: reward.bySubmission,
+    };
+  }
+
+  async getModerationDashboard(): Promise<BilsemModerationDashboard> {
+    const [pending, published, rejected, withdrawn] = await Promise.all([
+      this.submissionRepo.count({ where: { status: 'pending_review' } }),
+      this.submissionRepo.count({ where: { status: 'published' } }),
+      this.submissionRepo.count({ where: { status: 'rejected' } }),
+      this.submissionRepo.count({ where: { status: 'withdrawn' } }),
+    ]);
+    return { pending, published, rejected, withdrawn };
+  }
+
+  async listModerationHistory(
+    rawLimit?: number,
+    filters?: { academic_year?: string; ana_grup?: string; q?: string },
+  ): Promise<BilsemModerationHistoryRow[]> {
+    const limit = Math.min(100, Math.max(1, rawLimit ?? 30));
+    const qb = this.submissionRepo
+      .createQueryBuilder('s')
+      .leftJoinAndSelect('s.author', 'author')
+      .leftJoinAndSelect('s.reviewer', 'reviewer')
+      .where('s.status IN (:...st)', { st: ['published', 'rejected'] as const });
+    if (filters?.academic_year?.trim()) {
+      qb.andWhere('s.academicYear = :ay', { ay: filters.academic_year.trim() });
+    }
+    if (filters?.ana_grup?.trim()) {
+      qb.andWhere('s.anaGrup = :ana', { ana: filters.ana_grup.trim() });
+    }
+    if (filters?.q?.trim()) {
+      const l = `%${filters.q.trim()}%`;
+      qb.andWhere('(s.subjectLabel ILIKE :l OR s.subjectCode ILIKE :l OR author.email ILIKE :l OR author.display_name ILIKE :l)', {
+        l,
+      });
+    }
+    qb.orderBy('s.decidedAt', 'DESC', 'NULLS LAST').addOrderBy('s.updatedAt', 'DESC').take(limit);
+    const rows = await qb.getMany();
+    return rows.map((s) => {
+      const rev = s.reviewer as User | null | undefined;
+      return {
+        ...this.toMineRow(s),
+        authorUserId: s.authorUserId,
+        authorEmail: s.author?.email ?? null,
+        authorDisplayName: s.author ? s.author.display_name?.trim() || null : null,
+        reviewerUserId: s.reviewerUserId,
+        reviewerLabel: BilsemPlanSubmissionService.reviewerLabel(rev),
+      };
+    });
+  }
+
+  async getSubmissionUsageForAuthor(
+    submissionId: string,
+    authorUserId: string,
+  ): Promise<{ usageCount: number; totalJeton: string } | null> {
+    return this.planCreatorReward.getUsageForPublishedSubmission(submissionId, authorUserId);
   }
 }

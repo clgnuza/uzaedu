@@ -41,6 +41,14 @@ export class User {
   @Column({ type: 'uuid', nullable: true })
   school_id: string | null;
 
+  /** Öğretmen: kendi okulu dışında görevlendirme ile çalışıyor mu */
+  @Column({ name: 'teacher_assignment_active', type: 'boolean', default: false })
+  teacherAssignmentActive: boolean;
+
+  /** Öğretmen: görevlendirme ile çalıştığı okul */
+  @Column({ name: 'teacher_assignment_school_id', type: 'uuid', nullable: true })
+  teacherAssignmentSchoolId: string | null;
+
   /** Okul seçimi / admin onayı (none + school_id dolu eski kayıtlar API’de approved sayılır) */
   @Column({
     name: 'teacher_school_membership',
@@ -165,4 +173,8 @@ export class User {
   @ManyToOne(() => School, (s) => s.users, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'school_id' })
   school: School | null;
+
+  @ManyToOne(() => School, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'teacher_assignment_school_id' })
+  teacherAssignmentSchool: School | null;
 }

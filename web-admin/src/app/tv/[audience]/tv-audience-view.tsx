@@ -922,8 +922,21 @@ export default function TvAudienceContent() {
       };
       const entries = Array.isArray(cal.entries) ? cal.entries : [];
       if (entries.length === 0) return announcementBirthday;
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      const todayEntries = entries.filter((e) => (e.date ?? '').slice(0, 10) === todayStr && (e.name ?? '').trim());
+      const todayMd = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const todayEntries = entries.filter((e) => {
+        const raw = String(e.date ?? '').trim();
+        const nameOk = (e.name ?? '').trim().length > 0;
+        if (!nameOk || !raw) return false;
+        const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (iso) return `${iso[2]}-${iso[3]}` === todayMd;
+        const tr = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+        if (tr) {
+          const d = String(Number(tr[1])).padStart(2, '0');
+          const m = String(Number(tr[2])).padStart(2, '0');
+          return `${m}-${d}` === todayMd;
+        }
+        return raw.slice(5, 10) === todayMd;
+      });
       if (todayEntries.length === 0) return announcementBirthday;
       return todayEntries.map((e, i) => ({
         id: `bday-cal-${i}`,

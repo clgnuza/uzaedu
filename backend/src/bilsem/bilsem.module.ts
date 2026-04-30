@@ -21,10 +21,16 @@ import { BilsemPlanSubmission } from './entities/bilsem-plan-submission.entity';
 import { BilsemPlanSubmissionEvent } from './entities/bilsem-plan-submission-event.entity';
 import { MarketPlanCreatorRewardLedger } from './entities/market-plan-creator-reward-ledger.entity';
 import { YillikPlanIcerik } from '../yillik-plan-icerik/entities/yillik-plan-icerik.entity';
+import { DocumentCatalog } from '../document-templates/entities/document-catalog.entity';
 import { BilsemPlanSubmissionService } from './bilsem-plan-submission.service';
 import { BilsemPlanSubmissionController } from './bilsem-plan-submission.controller';
 import { BilsemPlanSubmissionModerationController } from './bilsem-plan-submission-moderation.controller';
 import { BilsemPlanCreatorRewardService } from './bilsem-plan-creator-reward.service';
+import { BilsemPlanSubmissionLike } from './entities/bilsem-plan-submission-like.entity';
+import { BilsemPlanSubmissionComment } from './entities/bilsem-plan-submission-comment.entity';
+import { BilsemPlanEngagementService } from './bilsem-plan-engagement.service';
+import { BilsemPlanEngagementController } from './bilsem-plan-engagement.controller';
+import { BilsemGeneratedPlan } from './entities/bilsem-generated-plan.entity';
 
 @Module({
   imports: [
@@ -41,21 +47,31 @@ import { BilsemPlanCreatorRewardService } from './bilsem-plan-creator-reward.ser
       BilsemPlanSubmissionEvent,
       MarketPlanCreatorRewardLedger,
       YillikPlanIcerik,
+      DocumentCatalog,
+      BilsemPlanSubmissionLike,
+      BilsemPlanSubmissionComment,
+      BilsemGeneratedPlan,
     ]),
     WorkCalendarModule,
     NotificationsModule,
     MarketModule,
     YillikPlanIcerikModule,
   ],
-  controllers: [BilsemController, BilsemPlanSubmissionController, BilsemPlanSubmissionModerationController],
+  controllers: [
+    BilsemController,
+    BilsemPlanSubmissionController,
+    BilsemPlanSubmissionModerationController,
+    BilsemPlanEngagementController,
+  ],
   providers: [
     BilsemService,
     BilsemYillikPlanService,
     BilsemCalendarReminderService,
     BilsemPlanSubmissionService,
     BilsemPlanCreatorRewardService,
+    BilsemPlanEngagementService,
     RequireSchoolModuleGuard,
   ],
-  exports: [BilsemService, BilsemYillikPlanService, BilsemPlanCreatorRewardService],
+  exports: [BilsemService, BilsemYillikPlanService, BilsemPlanCreatorRewardService, BilsemPlanEngagementService],
 })
 export class BilsemModule {}

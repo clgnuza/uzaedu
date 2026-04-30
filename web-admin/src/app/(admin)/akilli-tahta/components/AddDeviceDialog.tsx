@@ -14,12 +14,14 @@ export function AddDeviceDialog({
   onOpenChange,
   onAdd,
   onDeviceCreated,
+  classSections,
   trigger,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAdd: (data: { name: string; class_section: string; room_or_location: string }) => Promise<Device | null>;
   onDeviceCreated?: (device: Device) => void;
+  classSections: string[];
   trigger: React.ReactNode;
 }) {
   const [createdDevice, setCreatedDevice] = useState<Device | null>(null);
@@ -96,18 +98,34 @@ export function AddDeviceDialog({
                 className="mt-1"
               />
             </div>
-            <div>
+            <div className="rounded-xl border border-sky-500/25 bg-linear-to-br from-sky-500/12 via-cyan-500/8 to-indigo-500/10 p-2.5">
               <Label htmlFor="add-class" className="flex items-center gap-1.5 text-primary">
                 <BookOpen className="size-4" />
-                Sınıf (Ders programından otomatik)
+                Sınıf (Kayıtlı sınıf listesinden)
               </Label>
-              <Input
-                id="add-class"
-                value={form.class_section}
-                onChange={(e) => setForm((f) => ({ ...f, class_section: e.target.value }))}
-                placeholder="Örn. 9-A"
-                className="mt-1"
-              />
+              {classSections.length > 0 ? (
+                <select
+                  id="add-class"
+                  value={form.class_section}
+                  onChange={(e) => setForm((f) => ({ ...f, class_section: e.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-input bg-background px-2.5 py-2 text-sm"
+                >
+                  <option value="">Sınıf seçin</option>
+                  {classSections.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  id="add-class"
+                  value={form.class_section}
+                  onChange={(e) => setForm((f) => ({ ...f, class_section: e.target.value }))}
+                  placeholder="Örn. 9-A"
+                  className="mt-1"
+                />
+              )}
               <p className="mt-1 text-xs text-muted-foreground">
                 Ders Programı ayarlarınızdan ders ve öğretmen bilgisi otomatik gelir.
               </p>

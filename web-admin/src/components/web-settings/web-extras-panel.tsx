@@ -417,7 +417,21 @@ export function WebExtrasPanel() {
             <div className="mb-5 grid gap-5 sm:max-w-xl">
               <WebSettingsField
                 label="Google Search Console doğrulama"
-                hint="İçerik kısmı veya google-site-verification=… yapıştırın. Kayıtta normalize edilir."
+                hint={
+                  <>
+                    <p className="text-[11px] leading-snug text-muted-foreground">
+                      Önerilen: Search Console’da doğrulama yöntemi olarak <strong className="font-medium text-foreground/85">HTML etiketi</strong> seçin;
+                      verilen jetonu (veya <code className="rounded bg-muted px-0.5 font-mono text-[10px]">google-site-verification=…</code> satırını) buraya yapıştırıp kaydedin — canlı sitede{' '}
+                      <code className="rounded bg-muted px-0.5 font-mono text-[10px]">meta name=&quot;google-site-verification&quot;</code> oluşur; DNS gerekmez.
+                    </p>
+                    <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+                      Yine de alan adı sağlayıcı (TXT) kullanacaksanız: tür <strong className="text-foreground/85">TXT</strong>, ad çoğu panelde kök için{' '}
+                      <code className="rounded bg-muted px-0.5 font-mono text-[10px]">@</code> veya boş; değer tam olarak tek satır{' '}
+                      <code className="break-all rounded bg-muted px-0.5 font-mono text-[10px]">google-site-verification=JETON</code>. Yayılım gecikebilir;{' '}
+                      <code className="rounded bg-muted px-0.5 font-mono text-[10px]">nslookup -type=txt alanadiniz.com</code> ile kontrol edin.
+                    </p>
+                  </>
+                }
                 htmlFor="wx-gsc"
               >
                 <Input

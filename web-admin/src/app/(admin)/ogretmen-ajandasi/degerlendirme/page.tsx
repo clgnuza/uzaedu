@@ -46,6 +46,7 @@ import { DegerlendirmeHero } from './components/DegerlendirmeHero';
 import { PrintReportModal } from './components/print-report-modal';
 import { GridStudentScoreSheet } from './components/GridStudentScoreSheet';
 import { StudentEvalQuickCards, evalQuickKindTags, type EvalQuickKind } from './components/student-eval-quick-cards';
+import { ForbiddenView } from '@/components/errors/forbidden-view';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
@@ -425,11 +426,7 @@ export default function DegerlendirmePage() {
   };
 
   if (!me || me.role !== 'teacher') {
-    return (
-      <div className="space-y-6">
-        <p className="text-muted-foreground">Bu sayfaya erişim yetkiniz yok.</p>
-      </div>
-    );
+    return <ForbiddenView />;
   }
 
   type TabDef = {

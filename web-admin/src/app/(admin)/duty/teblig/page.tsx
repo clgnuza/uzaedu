@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { DutyPageHeader } from '@/components/duty/duty-page-header';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { cn } from '@/lib/utils';
+import { ForbiddenView } from '@/components/errors/forbidden-view';
 
 const DEFAULT_BOS_DERS_PARAGRAF = `Okulumuz öğretmenlerinin değişik mazeretlerle görevinin başında olmamasından dolayı nöbet görev süreniz boyunca dersi boş geçecek olan sınıflardan sorumluluğu uhdenize verilenler aşağıda gösterilmiştir. Belirtilen ders saatlerinde bizzat sınıflarda bulunarak öğrencilere nezaret etmeniz hususunda, gereğini rica ederim.`;
 
@@ -760,11 +761,7 @@ export default function DutyTebligPage() {
   }, [bosDersData]);
 
   if (!isAdmin) {
-    return (
-      <div className="space-y-6">
-        <p className="text-muted-foreground">Bu sayfaya erişim yetkiniz yok.</p>
-      </div>
-    );
+    return <ForbiddenView />;
   }
 
   if (loading) {

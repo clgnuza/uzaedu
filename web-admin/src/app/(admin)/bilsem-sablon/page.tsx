@@ -6,7 +6,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useAuth } from '@/hooks/use-auth';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { CalendarClock, BookOpen, Settings, FileText, ClipboardList } from 'lucide-react';
+import { CalendarClock, BookOpen, Settings, FileText, ClipboardList, Gavel } from 'lucide-react';
 import { SablonlarTab } from '../document-templates/sablonlar-tab';
 import { AyarlarTab } from '../document-templates/ayarlar-tab';
 
@@ -37,10 +37,19 @@ const YillikPlanBilsemTab = dynamic(
   { ssr: false },
 );
 
+const PlanKatkiModerasyonTab = dynamic(
+  () =>
+    import('@/components/bilsem/plan-katki-moderasyon-panel').then((m) => {
+      return { default: function M() { return <m.PlanKatkiModerasyonPanel embedded />; } };
+    }),
+  { ssr: false },
+);
+
 const TABS = [
   { id: 'calisma-takvimi', label: 'Çalışma Takvimi', icon: CalendarClock },
   { id: 'is-plani', label: 'Bilsem İş Planı', icon: BookOpen },
   { id: 'yillik-plan', label: 'Yıllık Plan İçerikleri', icon: ClipboardList },
+  { id: 'plan-katki-moderasyon', label: 'Plan katkı moderasyonu', icon: Gavel },
   { id: 'sablonlar', label: 'Şablonlar', icon: FileText },
   { id: 'ayarlar', label: 'Ayarlar', icon: Settings },
 ] as const;
@@ -130,6 +139,7 @@ export default function BilsemSablonPage() {
       {tab === 'calisma-takvimi' && <WorkCalendarEmbedded />}
       {tab === 'is-plani' && <BilsemTakvimEmbedded />}
       {tab === 'yillik-plan' && <YillikPlanBilsemTab />}
+      {tab === 'plan-katki-moderasyon' && <PlanKatkiModerasyonTab />}
       {tab === 'sablonlar' && <SablonlarTab fixedCurriculumModel="bilsem" />}
       {tab === 'ayarlar' && <AyarlarTab variant="bilsem" />}
     </div>

@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import {
   Table2,
   PlusCircle,
   Pencil,
+  Trash2,
   Building2,
   Users,
   CalendarDays,
@@ -26,6 +27,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { cn } from '@/lib/utils';
+import { displayNameForTimetableRowKey, timetableTeacherRowKey } from '@/lib/timetable-teacher-key';
 import { resolveSchoolSubjectDisplay } from '@/lib/school-subject-display';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LessonCellCard } from '@/components/ders-programi/lesson-cell-card';
@@ -35,7 +37,8 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 
 type TimetableEntry = {
-  user_id: string;
+  user_id: string | null;
+  teacher_name_raw?: string | null;
   day_of_week: number;
   lesson_num: number;
   class_section: string;
@@ -114,10 +117,14 @@ export default function ProgramlarimPage() {
   const today = new Date().toISOString().slice(0, 10);
   const [selectedView, setSelectedView] = useState<string>(() => 'today');
   const [editPlanOpen, setEditPlanOpen] = useState(false);
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState<'dates' | 'restore'>('dates');
+  const [editPlanName, setEditPlanName] = useState('');
   const [editValidFrom, setEditValidFrom] = useState('');
   const [editValidUntil, setEditValidUntil] = useState('');
   const [editOpenEnded, setEditOpenEnded] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
+  const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [adminSectionTab, setAdminSectionTab] = useState<'programs' | 'archive'>('programs');
   const [teacherQuery, setTeacherQuery] = useState('');
@@ -219,8 +226,11 @@ export default function ProgramlarimPage() {
 
   const openEditDialog = () => {
     if (!planInfo) return;
-    setEditValidFrom(planInfo.valid_from);
+    setEditMode('dates');
+    setEditingPlanId(planInfo.plan_id);
     const currentPlan = publishedPlans.find((p) => p.id === planInfo.plan_id);
+    setEditPlanName(planInfo.name ?? currentPlan?.name ?? '');
+    setEditValidFrom(planInfo.valid_from);
     const isOpenEnded = !(currentPlan?.valid_until);
     setEditOpenEnded(isOpenEnded);
     setEditValidUntil(currentPlan?.valid_until ?? (() => {
@@ -230,8 +240,24 @@ export default function ProgramlarimPage() {
     setEditPlanOpen(true);
   };
 
+  const openRestoreDialog = (plan: TimetablePlan) => {
+    setEditMode('restore');
+    setEditingPlanId(plan.id);
+    setEditPlanName(plan.name ?? '');
+    setEditValidFrom(plan.valid_from);
+    setEditOpenEnded(!plan.valid_until);
+    setEditValidUntil(
+      plan.valid_until ??
+        (() => {
+          const d = new Date();
+          return d.getMonth() < 6 ? `${d.getFullYear()}-01-31` : `${d.getFullYear()}-06-30`;
+        })(),
+    );
+    setEditPlanOpen(true);
+  };
+
   const handleEditSave = async () => {
-    if (!token || !planInfo) return;
+    if (!token || !editingPlanId) return;
     if (!editOpenEnded) {
       if (!editValidUntil.trim()) {
         toast.error('Bitiş tarihi girin veya "açık uçlu" seçin.');
@@ -244,16 +270,35 @@ export default function ProgramlarimPage() {
     }
     setEditSaving(true);
     try {
-      await apiFetch(`/teacher-timetable/plans/${planInfo.plan_id}`, {
-        token,
-        method: 'PATCH',
-        body: JSON.stringify({
-          valid_from: editValidFrom,
-          valid_until: editOpenEnded ? null : editValidUntil,
-        }),
-        headers: { 'Content-Type': 'application/json' },
-      });
-      toast.success('Geçerlilik tarihleri güncellendi.');
+      if (editMode === 'restore') {
+        await apiFetch(`/teacher-timetable/plans/${editingPlanId}/restore`, {
+          token,
+          method: 'POST',
+          body: JSON.stringify({
+            valid_from: editValidFrom,
+            valid_until: editOpenEnded ? null : editValidUntil,
+          }),
+          headers: { 'Content-Type': 'application/json' },
+        });
+        await apiFetch(`/teacher-timetable/plans/${editingPlanId}`, {
+          token,
+          method: 'PATCH',
+          body: JSON.stringify({ name: editPlanName.trim() || null }),
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } else {
+        await apiFetch(`/teacher-timetable/plans/${editingPlanId}`, {
+          token,
+          method: 'PATCH',
+          body: JSON.stringify({
+            valid_from: editValidFrom,
+            valid_until: editOpenEnded ? null : editValidUntil,
+            name: editPlanName.trim() || null,
+          }),
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      toast.success(editMode === 'restore' ? 'Plan arşivden geri alındı ve yayınlandı.' : 'Plan güncellendi.');
       setEditPlanOpen(false);
       setRefreshTrigger((t) => t + 1);
     } catch (err) {
@@ -263,12 +308,29 @@ export default function ProgramlarimPage() {
     }
   };
 
+  const handleDeletePlan = async (planId: string) => {
+    if (!token) return;
+    const ok = window.confirm('Bu arşiv planını kalıcı olarak silmek istiyor musunuz?');
+    if (!ok) return;
+    setDeletingPlanId(planId);
+    try {
+      await apiFetch(`/teacher-timetable/plans/${planId}`, { token, method: 'DELETE' });
+      toast.success('Plan silindi.');
+      setRefreshTrigger((t) => t + 1);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Silme başarısız.');
+    } finally {
+      setDeletingPlanId(null);
+    }
+  };
+
   const buildTimetableMap = () => {
     if (!entries) return { map: new Map<string, Map<string, { class_section: string; subject: string }>>(), maxLesson: 8 };
     let maxLesson = 6;
     const map = new Map<string, Map<string, { class_section: string; subject: string }>>();
     for (const e of entries) {
-      const key = `${e.user_id}-${e.day_of_week}`;
+      const rk = timetableTeacherRowKey(e);
+      const key = `${rk}-${e.day_of_week}`;
       if (!map.has(key)) map.set(key, new Map());
       map.get(key)!.set(String(e.lesson_num), { class_section: e.class_section, subject: e.subject });
       if (e.lesson_num > maxLesson) maxLesson = e.lesson_num;
@@ -276,36 +338,50 @@ export default function ProgramlarimPage() {
     return { map, maxLesson: Math.max(maxLesson, 6) };
   };
 
-  const teachersWithEntries = entries ? [...new Set(entries.map((e) => e.user_id))] : [];
+  const teacherRowKeysWithEntries = useMemo(
+    () => (entries ? [...new Set(entries.map((e) => timetableTeacherRowKey(e)))] : []),
+    [entries],
+  );
   const teacherMap = new Map(teachers.map((t) => [t.id, t]));
+
+  const resolveRowLabel = useCallback(
+    (rowKey: string) =>
+      displayNameForTimetableRowKey(rowKey, (id) => {
+        const t = teachers.find((x) => x.id === id);
+        return t?.display_name ?? t?.email;
+      }),
+    [teachers],
+  );
 
   const lessonCountByTeacher = useMemo(() => {
     const m = new Map<string, number>();
     for (const e of entries ?? []) {
-      m.set(e.user_id, (m.get(e.user_id) ?? 0) + 1);
+      const rk = timetableTeacherRowKey(e);
+      m.set(rk, (m.get(rk) ?? 0) + 1);
     }
     return m;
   }, [entries]);
 
   const visibleTeacherIds = useMemo(() => {
-    let list = [...teachersWithEntries];
+    let list = [...teacherRowKeysWithEntries];
     const q = teacherQuery.trim().toLowerCase();
     if (q) {
-      list = list.filter((uid) => {
-        const t = teacherMap.get(uid);
+      list = list.filter((rowKey) => {
+        const label = resolveRowLabel(rowKey).toLowerCase();
+        const t = rowKey.startsWith('raw:') ? null : teacherMap.get(rowKey);
         const name = (t?.display_name ?? '').toLowerCase();
         const email = (t?.email ?? '').toLowerCase();
-        return name.includes(q) || email.includes(q);
+        return label.includes(q) || name.includes(q) || email.includes(q);
       });
     }
     if (exemptFilter !== 'all') {
-      list = list.filter((uid) => {
-        const ex = teacherMap.get(uid)?.duty_exempt;
+      list = list.filter((rowKey) => {
+        if (rowKey.startsWith('raw:')) return exemptFilter === 'not_exempt';
+        const ex = teacherMap.get(rowKey)?.duty_exempt;
         return exemptFilter === 'exempt' ? !!ex : !ex;
       });
     }
-    const sortKey = (uid: string) =>
-      (teacherMap.get(uid)?.display_name || teacherMap.get(uid)?.email || uid).toLowerCase();
+    const sortKey = (rowKey: string) => resolveRowLabel(rowKey).toLowerCase();
     list.sort((a, b) => {
       if (teacherSort === 'name_asc' || teacherSort === 'name_desc') {
         const cmp = sortKey(a).localeCompare(sortKey(b), 'tr');
@@ -316,9 +392,9 @@ export default function ProgramlarimPage() {
       return teacherSort === 'lessons_desc' ? cb - ca : ca - cb;
     });
     return list;
-  }, [teachersWithEntries, teacherMap, teacherQuery, exemptFilter, teacherSort, lessonCountByTeacher]);
-  const { map } = buildTimetableMap();
-  const lessonNums = Array.from({ length: schoolMaxLessons }, (_, i) => i + 1);
+  }, [teacherRowKeysWithEntries, teacherMap, teacherQuery, exemptFilter, teacherSort, lessonCountByTeacher, resolveRowLabel]);
+  const { map, maxLesson } = buildTimetableMap();
+  const lessonNums = Array.from({ length: Math.max(schoolMaxLessons, maxLesson) }, (_, i) => i + 1);
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-2 sm:space-y-4">
@@ -446,7 +522,7 @@ export default function ProgramlarimPage() {
               <CardHeader className="space-y-1 px-3 pb-2 pt-3 sm:px-6 sm:pt-6">
                 <CardTitle className="text-sm sm:text-base">Arşivlenmiş programlar</CardTitle>
                 <p className="line-clamp-3 text-[11px] leading-snug text-muted-foreground sm:line-clamp-none sm:text-xs">
-                  Yeni program yayınlandığında çakışan eski yayınlar burada tutulur; tabloda görmek için Programlar sekmesinden plan seçin.
+                  Süresi dolan veya yeni yayınla çakıştığı için arşivlenen planlar.
                 </p>
               </CardHeader>
               <CardContent className="pt-0">
@@ -461,6 +537,7 @@ export default function ProgramlarimPage() {
                           <th className="py-2 pr-3">Başlangıç</th>
                           <th className="py-2 pr-3">Bitiş</th>
                           <th className="py-2 text-right">Ders</th>
+                          <th className="py-2 text-right">İşlem</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -470,6 +547,23 @@ export default function ProgramlarimPage() {
                             <td className="py-2 pr-3 text-muted-foreground">{fmtDate(p.valid_from)}</td>
                             <td className="py-2 pr-3 text-muted-foreground">{fmtUntil(p.valid_until)}</td>
                             <td className="py-2 text-right tabular-nums">{p.entry_count}</td>
+                            <td className="py-2 text-right">
+                              <div className="inline-flex items-center gap-1.5">
+                                <Button size="sm" variant="outline" className="h-7 px-2.5" onClick={() => openRestoreDialog(p)}>
+                                  Geri Al
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 px-2.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                  disabled={deletingPlanId === p.id}
+                                  onClick={() => handleDeletePlan(p.id)}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                  {deletingPlanId === p.id ? '...' : 'Sil'}
+                                </Button>
+                              </div>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -563,8 +657,20 @@ export default function ProgramlarimPage() {
 
           {/* Geçerlilik tarihi düzenleme modal */}
           <Dialog open={editPlanOpen} onOpenChange={setEditPlanOpen}>
-            <DialogContent title="Geçerlilik Tarihlerini Düzenle">
+            <DialogContent title={editMode === 'restore' ? 'Arşivden Geri Al' : 'Planı Düzenle'}>
               <div className="space-y-3 p-4 sm:space-y-4 sm:p-6">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-plan-name">Program adı</Label>
+                  <Input
+                    id="edit-plan-name"
+                    type="text"
+                    value={editPlanName}
+                    onChange={(e) => setEditPlanName(e.target.value)}
+                    placeholder="Örn. 2025–2026 Güz"
+                    maxLength={128}
+                    className="w-full"
+                  />
+                </div>
                 <div className="space-y-2">
                   <Label htmlFor="edit-valid-from">Başlangıç tarihi</Label>
                   <Input
@@ -603,7 +709,7 @@ export default function ProgramlarimPage() {
                     İptal
                   </Button>
                   <Button onClick={handleEditSave} disabled={editSaving}>
-                    {editSaving ? 'Kaydediliyor…' : 'Kaydet'}
+                    {editSaving ? 'Kaydediliyor…' : editMode === 'restore' ? 'Yayınla' : 'Kaydet'}
                   </Button>
                 </div>
               </div>
@@ -898,8 +1004,8 @@ export default function ProgramlarimPage() {
                         <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 font-medium text-primary">
                           <Users className="size-3.5" />
                           {visibleTeacherIds.length}
-                          {visibleTeacherIds.length !== teachersWithEntries.length
-                            ? ` / ${teachersWithEntries.length}`
+                          {visibleTeacherIds.length !== teacherRowKeysWithEntries.length
+                            ? ` / ${teacherRowKeysWithEntries.length}`
                             : ''}{' '}
                           öğretmen
                         </span>
@@ -1025,15 +1131,15 @@ export default function ProgramlarimPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {visibleTeacherIds.flatMap((uid, teacherIdx) => {
-                          const t = teacherMap.get(uid);
-                          const name = t?.display_name || t?.email || uid.slice(0, 8);
+                        {visibleTeacherIds.flatMap((rowKey, teacherIdx) => {
+                          const t = rowKey.startsWith('raw:') ? undefined : teacherMap.get(rowKey);
+                          const name = resolveRowLabel(rowKey);
                           const isExempt = t?.duty_exempt;
                           const accent = TEACHER_ACCENT[teacherIdx % TEACHER_ACCENT.length];
                           const rowBg = teacherIdx % 2 === 0 ? 'bg-white dark:bg-zinc-900/60' : 'bg-zinc-50 dark:bg-zinc-800/40';
                           return lessonNums.map((ln, lessonIdx) => (
                             <tr
-                              key={`${uid}-${ln}`}
+                              key={`${rowKey}-${ln}`}
                               className={cn(
                                 lessonIdx === 0 && teacherIdx > 0 && 'border-t-2 border-t-zinc-300 dark:border-t-zinc-600',
                                 rowBg,
@@ -1062,7 +1168,7 @@ export default function ProgramlarimPage() {
                                 {ln}
                               </td>
                               {[1, 2, 3, 4, 5, 6, 7].map((dayNum, dayIdx) => {
-                                const key = `${uid}-${dayNum}`;
+                                const key = `${rowKey}-${dayNum}`;
                                 const dayLessons = map.get(key);
                                 const entry = dayLessons?.get(String(ln));
                                 return (
@@ -1118,14 +1224,14 @@ export default function ProgramlarimPage() {
                             <th className="sticky left-0 z-10 bg-zinc-200/80 dark:bg-zinc-800/80 w-8 px-2 py-2 text-center font-semibold text-zinc-600 dark:text-zinc-400 border-b border-r border-zinc-300 dark:border-zinc-700">
                               #
                             </th>
-                            {visibleTeacherIds.map((uid, colIdx) => {
-                              const t = teacherMap.get(uid);
-                              const name = t?.display_name || t?.email || uid.slice(0, 8);
+                            {visibleTeacherIds.map((rowKey, colIdx) => {
+                              const t = rowKey.startsWith('raw:') ? undefined : teacherMap.get(rowKey);
+                              const name = resolveRowLabel(rowKey);
                               const isExempt = t?.duty_exempt;
                               const accent = TEACHER_ACCENT[colIdx % TEACHER_ACCENT.length];
                               return (
                                 <th
-                                  key={uid}
+                                  key={rowKey}
                                   className={cn(
                                     'px-2 py-2 text-center border-b border-r border-zinc-300 dark:border-zinc-700 min-w-[88px]',
                                     colIdx > 0 && 'border-l-2',
@@ -1149,13 +1255,13 @@ export default function ProgramlarimPage() {
                               <td className="sticky left-0 z-10 px-2 py-1.5 border-b border-r border-zinc-200 dark:border-zinc-700 text-center text-zinc-500 dark:text-zinc-400 bg-inherit">
                                 {ln}
                               </td>
-                              {visibleTeacherIds.map((uid, colIdx) => {
-                                const key = `${uid}-${selectedDay}`;
+                              {visibleTeacherIds.map((rowKey, colIdx) => {
+                                const key = `${rowKey}-${selectedDay}`;
                                 const entry = map.get(key)?.get(String(ln));
                                 const accent = TEACHER_ACCENT[colIdx % TEACHER_ACCENT.length];
                                 return (
                                   <td
-                                    key={uid}
+                                    key={rowKey}
                                     className={cn(
                                       'px-1.5 py-1.5 border-b border-r border-zinc-200 dark:border-zinc-700 align-top min-w-[88px] bg-inherit',
                                       colIdx > 0 && 'border-l-2',

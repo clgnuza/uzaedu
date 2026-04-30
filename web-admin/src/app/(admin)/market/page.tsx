@@ -205,6 +205,18 @@ type RewardedAdCreditRow = {
   created_at: string | null;
 };
 
+type BilsemPlanCreditRow = {
+  id: string;
+  jeton_credit: string;
+  created_at: string | null;
+  submission_id: string | null;
+  subject_label: string | null;
+  subject_code: string | null;
+  ana_grup: string | null;
+  consumer_display_name: string | null;
+  consumer_email: string | null;
+};
+
 type TeacherCreditAdminRow = {
   id: string;
   target_user_id: string;
@@ -851,6 +863,10 @@ export default function MarketPage() {
     total: number;
     items: RewardedAdCreditRow[];
   } | null>(null);
+  const [bilsemPlanCredits, setBilsemPlanCredits] = useState<{
+    total: number;
+    items: BilsemPlanCreditRow[];
+  } | null>(null);
   const [teacherInvite, setTeacherInvite] = useState<TeacherInviteSummary | null>(null);
   const [teacherInviteRedemptions, setTeacherInviteRedemptions] = useState<{
     total: number;
@@ -954,9 +970,13 @@ export default function MarketPage() {
         if (isTeacher) {
           setTeacherInviteLoading(true);
           try {
-            const [rad, inv, red] = await Promise.all([
+            const [rad, bilsem, inv, red] = await Promise.all([
               apiFetch<{ total: number; items: RewardedAdCreditRow[] }>(
                 '/market/wallet/rewarded-ad-credits?limit=30',
+                { token },
+              ).catch(() => null),
+              apiFetch<{ total: number; items: BilsemPlanCreditRow[] }>(
+                '/market/wallet/bilsem-plan-credits?limit=30',
                 { token },
               ).catch(() => null),
               apiFetch<TeacherInviteSummary>('/teacher-invite/me', { token }).catch(() => null),
@@ -966,6 +986,9 @@ export default function MarketPage() {
               ).catch(() => null),
             ]);
             setRewardedAdCredits(rad ? { total: rad.total, items: Array.isArray(rad.items) ? rad.items : [] } : null);
+            setBilsemPlanCredits(
+              bilsem ? { total: bilsem.total, items: Array.isArray(bilsem.items) ? bilsem.items : [] } : null,
+            );
             setTeacherInvite(inv);
             setTeacherInviteRedemptions(
               red ? { total: red.total, items: Array.isArray(red.items) ? red.items : [] } : null,
@@ -975,6 +998,7 @@ export default function MarketPage() {
           }
         } else {
           setRewardedAdCredits(null);
+          setBilsemPlanCredits(null);
           setTeacherInvite(null);
           setTeacherInviteRedemptions(null);
         }
@@ -984,6 +1008,7 @@ export default function MarketPage() {
         setActivationStatus(null);
         setActivationLedger([]);
         setRewardedAdCredits(null);
+        setBilsemPlanCredits(null);
       } finally {
         setLoading(false);
       }
@@ -2424,6 +2449,91 @@ export default function MarketPage() {
                 </div>
               </>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {isTeacher && (
+        <Card className="overflow-hidden border-2 border-emerald-500/45 bg-linear-to-br from-emerald-500/12 via-card to-card shadow-md ring-2 ring-emerald-500/20 dark:border-emerald-600/45">
+          <CardHeader className="border-b border-border/50 pb-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-600/15 text-emerald-800 dark:text-emerald-200 sm:size-11 sm:rounded-xl">
+                  <Sparkles className="size-5 sm:size-6" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <CardTitle className="text-base">Bilsem plan katkı jetonları</CardTitle>
+                    <InfoHintDialog label="Bilsem plan katkı ödülü" title="Bilsem plan katkı jeton hareketleri">
+                      <p>
+                        Başka öğretmenler sizin yayınlanmış Bilsem planınızı Word üretimde kullandıkça bu listeye jeton
+                        hareketi düşer.
+                      </p>
+                    </InfoHintDialog>
+                  </div>
+                </div>
+              </div>
+              <div className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-900 dark:text-emerald-200">
+                <Coins className="size-3.5" />
+                Toplam{' '}
+                {fmtNum(
+                  (bilsemPlanCredits?.items ?? []).reduce(
+                    (sum, x) => sum + (Number.parseFloat(x.jeton_credit || '0') || 0),
+                    0,
+                  ),
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3 pt-3 text-sm text-muted-foreground sm:space-y-4 sm:pt-4">
+            <div className="rounded-xl border border-emerald-500/20 bg-background/80">
+              <p className="border-b border-border/60 px-4 py-2 text-xs font-medium text-foreground">
+                Plan katkıdan kazanılan jetonlar
+              </p>
+              {bilsemPlanCredits && bilsemPlanCredits.items.length > 0 ? (
+                <div className="table-x-scroll">
+                  <table className="w-full min-w-[420px] text-sm">
+                    <thead>
+                      <tr className="border-b border-border/60 bg-muted/30 text-left text-xs text-muted-foreground">
+                        <th className="px-4 py-2">Tarih / saat</th>
+                        <th className="px-4 py-2">Plan</th>
+                        <th className="px-4 py-2">Kullanan</th>
+                        <th className="px-4 py-2 text-right">Kazanılan jeton</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {bilsemPlanCredits.items.map((row) => {
+                        const planLabel = row.subject_label || row.subject_code || 'Bilsem plan';
+                        const consumer = row.consumer_display_name || row.consumer_email || '—';
+                        return (
+                          <tr key={row.id} className="hover:bg-muted/40">
+                            <td className="whitespace-nowrap px-4 py-2 text-foreground">
+                              {row.created_at ? fmtDate(row.created_at) : '—'}
+                            </td>
+                            <td className="px-4 py-2">
+                              <div className="flex flex-col">
+                                <span className="font-medium text-foreground">{planLabel}</span>
+                                {row.ana_grup ? (
+                                  <span className="text-[11px] text-muted-foreground">{row.ana_grup}</span>
+                                ) : null}
+                              </div>
+                            </td>
+                            <td className="px-4 py-2 text-muted-foreground">{consumer}</td>
+                            <td className="px-4 py-2 text-right font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
+                              +{fmtNum(Number.parseFloat(row.jeton_credit || '0') || 0)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="px-4 py-6 text-center text-xs text-muted-foreground">
+                  Henüz kayıt yok. Planınız kullanıldığında jeton kazanımları burada listelenir.
+                </p>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}

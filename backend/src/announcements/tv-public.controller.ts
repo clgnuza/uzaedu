@@ -19,6 +19,7 @@ import { TvDevicesService } from '../tv-devices/tv-devices.service';
 import { SmartBoardService } from '../smart-board/smart-board.service';
 import { TeacherTimetableService } from '../teacher-timetable/teacher-timetable.service';
 import { School } from '../schools/entities/school.entity';
+import { env } from '../config/env';
 import {
   getTvAnnouncementsCacheEntry,
   pruneTvAnnouncementsCache,
@@ -84,6 +85,12 @@ function toTvItems(items: Array<{
     creator_display_name: a.creator?.display_name ?? null,
   }));
 }
+
+const DEFAULT_GUNUN_SOZU_RSS_URL =
+  (env.nodeEnv === 'production'
+    ? 'https://uzaedu.com'
+    : env.frontendUrl
+  ).replace(/\/$/, '') + '/gunun-sozu-kapsamli.xml';
 
 @Controller('tv')
 export class TvPublicController {
@@ -271,7 +278,7 @@ export class TvPublicController {
       tv_duty_card_title: s.tv_duty_card_title,
       tv_duty_font_size: s.tv_duty_font_size,
       tv_duty_schedule: s.tv_duty_schedule,
-      tv_gunun_sozu_rss_url: s.tv_gunun_sozu_rss_url,
+      tv_gunun_sozu_rss_url: s.tv_gunun_sozu_rss_url || DEFAULT_GUNUN_SOZU_RSS_URL,
       tv_gunun_sozu_font_size: s.tv_gunun_sozu_font_size,
       tv_gunun_sozu_marquee_duration: s.tv_gunun_sozu_marquee_duration,
       tv_gunun_sozu_text_transform: s.tv_gunun_sozu_text_transform,
@@ -495,7 +502,7 @@ export class TvPublicController {
       where: { id: schoolId.trim() },
       select: ['tv_gunun_sozu_rss_url'],
     });
-    const url = school?.tv_gunun_sozu_rss_url?.trim();
+    const url = school?.tv_gunun_sozu_rss_url?.trim() || DEFAULT_GUNUN_SOZU_RSS_URL;
     if (!url) return { items: [] };
     try {
       const res = await fetch(url, {

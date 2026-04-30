@@ -183,6 +183,14 @@ export const MENU_SIDEBAR: MenuConfig = [
         requiredSchoolModule: 'document',
       },
       {
+        title: 'Plan katkısı',
+        titleByRole: { teacher: 'Plan katkısı (onay)' },
+        path: '/evrak/plan-katki',
+        icon: ClipboardList,
+        allowedRoles: ['teacher', 'school_admin'],
+        requiredSchoolModule: 'document',
+      },
+      {
         title: 'Akademik Takvim',
         path: '/akademik-takvim',
         icon: Calendar,
@@ -369,7 +377,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     title: 'Bilsem',
     titleByRole: { teacher: 'Bilsem modülü' },
     icon: Sparkles,
-    allowedRoles: ['teacher', 'school_admin'],
+    allowedRoles: ['teacher', 'school_admin', 'superadmin'],
     requiredSchoolModule: 'bilsem',
     menuGroup: 'violet',
     children: [
@@ -395,6 +403,13 @@ export const MENU_SIDEBAR: MenuConfig = [
         path: '/bilsem/plan-katki',
         icon: ClipboardList,
         allowedRoles: ['school_admin', 'teacher'],
+        requiredSchoolModule: 'bilsem',
+      },
+      {
+        title: 'Kazanım setleri',
+        path: '/bilsem/yillik-plan/kazanim-sablonlari',
+        icon: Target,
+        allowedRoles: ['school_admin', 'teacher', 'superadmin'],
         requiredSchoolModule: 'bilsem',
       },
     ],
@@ -707,16 +722,16 @@ export const MENU_SIDEBAR: MenuConfig = [
         requiredModule: 'document_templates',
       },
       {
-        title: 'Kazanım Setleri',
-        path: '/outcome-sets',
-        icon: Target,
+        title: 'Plan katkı moderasyonu',
+        path: '/evrak/plan-katki-moderasyon',
+        icon: ClipboardList,
         allowedRoles: ['superadmin', 'moderator'],
         requiredModule: 'document_templates',
       },
       {
-        title: 'Bilsem plan katkı moderasyonu',
-        path: '/bilsem/plan-katki-moderasyon',
-        icon: ClipboardCheck,
+        title: 'Kazanım Setleri',
+        path: '/outcome-sets',
+        icon: Target,
         allowedRoles: ['superadmin', 'moderator'],
         requiredModule: 'document_templates',
       },
@@ -738,6 +753,12 @@ export const MENU_SIDEBAR: MenuConfig = [
         title: 'Bilsem Altyapısı',
         path: '/bilsem-sablon',
         icon: FileText,
+        allowedRoles: ['superadmin'],
+      },
+      {
+        title: 'Bilsem Kazanım Setleri',
+        path: '/bilsem/yillik-plan/kazanim-sablonlari',
+        icon: Target,
         allowedRoles: ['superadmin'],
       },
       {
@@ -773,6 +794,8 @@ export const ROUTE_ROLES: Record<string, ('school_admin' | 'superadmin' | 'teach
   '/sinav-gorev-ucretleri': ['school_admin', 'superadmin', 'teacher', 'moderator'],
   '/favoriler': ['teacher', 'moderator'],
   '/evrak': ['teacher', 'superadmin', 'moderator'],
+  '/evrak/plan-katki': ['teacher', 'school_admin'],
+  '/evrak/plan-katki-moderasyon': ['superadmin', 'moderator'],
   '/market': ['teacher', 'school_admin', 'superadmin', 'moderator'],
   '/market/rewarded-ad': ['teacher'],
   '/kazanim-takip': ['teacher'],
@@ -825,6 +848,7 @@ export const ROUTE_ROLES: Record<string, ('school_admin' | 'superadmin' | 'teach
   '/akademik-takvim-ayarlar': ['school_admin'],
   '/bilsem/takvim': ['teacher', 'school_admin'],
   '/bilsem/yillik-plan': ['school_admin', 'teacher'],
+  '/bilsem/yillik-plan/kazanim-sablonlari': ['school_admin', 'teacher', 'superadmin'],
   '/bilsem/plan-katki': ['school_admin', 'teacher'],
   '/bilsem/plan-katki-moderasyon': ['superadmin', 'moderator'],
   '/akademik-takvim-sablonu': ['superadmin'],
@@ -883,6 +907,7 @@ export const ROUTE_SCHOOL_MODULES: Record<string, string | undefined> = {
   '/okul-degerlendirmeleri': 'school_reviews',
   '/favoriler': 'school_reviews',
   '/evrak': 'document',
+  '/evrak/plan-katki': 'document',
   '/kazanim-takip': 'outcome',
   '/duty': 'duty',
   '/tv': 'tv',
@@ -892,6 +917,7 @@ export const ROUTE_SCHOOL_MODULES: Record<string, string | undefined> = {
   '/optik-formlar': 'optical',
   '/bilsem/takvim': 'bilsem',
   '/bilsem/yillik-plan': 'bilsem',
+  '/bilsem/yillik-plan/kazanim-sablonlari': 'bilsem',
   '/bilsem/plan-katki': 'bilsem',
   '/kelebek-sinav': 'butterfly_exam',
   '/kelebek-sinav/ogrenci-sorgu': 'butterfly_exam',
@@ -936,6 +962,7 @@ export const ROUTE_MODULES: Record<string, ModeratorModuleKey | undefined> = {
   '/okul-degerlendirmeleri': 'school_reviews',
   '/favoriler': 'school_reviews',
   '/evrak': 'document_templates',
+  '/evrak/plan-katki-moderasyon': 'document_templates',
   '/send-announcement': 'announcements',
   '/schools': 'schools',
   '/users': 'users',
@@ -1034,6 +1061,20 @@ function menuBreadcrumbLabel(entry: MenuItem, role?: WebAdminRole): string {
   return entry.title ?? entry.path ?? '';
 }
 
+function menuPathMatchScore(normalized: string, fullPath: string): number {
+  if (fullPath === normalized) return fullPath.length + 1_000_000;
+  const base = fullPath.split('?')[0];
+  if (normalized === base) {
+    let s = base.length * 1_000;
+    if (!fullPath.includes('?')) s += 1;
+    return s;
+  }
+  if (normalized.startsWith(base + '/')) {
+    return base.length * 1_000;
+  }
+  return -1;
+}
+
 /** pathname için menüde eşleşen üst öğe + yaprak zinciri (en uzun path öncelikli; /support vs /support/platform). */
 function findMenuChainForPath(normalized: string, entries: MenuItem[], role?: WebAdminRole): MenuItem[] | null {
   let best: { chain: MenuItem[]; len: number } | null = null;
@@ -1045,15 +1086,12 @@ function findMenuChainForPath(normalized: string, entries: MenuItem[], role?: We
       for (const child of entry.children) {
         if (!child.path) continue;
         if (role && !child.allowedRoles.includes(role)) continue;
-        const p = child.path;
-        if (normalized === p || normalized.startsWith(p + '/')) {
-          const len = p.length;
-          if (!best || len > best.len) best = { chain: [entry, child], len };
-        }
+        const len = menuPathMatchScore(normalized, child.path);
+        if (len >= 0 && (!best || len > best.len)) best = { chain: [entry, child], len };
       }
-    } else if (entry.path && (normalized === entry.path || normalized.startsWith(entry.path + '/'))) {
-      const len = entry.path.length;
-      if (!best || len > best.len) best = { chain: [entry], len };
+    } else if (entry.path) {
+      const len = menuPathMatchScore(normalized, entry.path);
+      if (len >= 0 && (!best || len > best.len)) best = { chain: [entry], len };
     }
   }
   return best?.chain ?? null;
@@ -1095,6 +1133,12 @@ export function getBreadcrumbs(pathname: string, role?: WebAdminRole): Breadcrum
     } else if (normalized.startsWith('/bilsem/plan-katki/') && normalized !== '/bilsem/plan-katki/yeni') {
       items.push({ label: 'Detay' });
     } else if (normalized === '/bilsem/plan-katki-moderasyon') {
+      items.push({ label: 'Moderasyon' });
+    } else if (normalized === '/evrak/plan-katki/yeni') {
+      items.push({ label: 'Yeni taslak' });
+    } else if (normalized.startsWith('/evrak/plan-katki/') && normalized !== '/evrak/plan-katki/yeni') {
+      items.push({ label: 'Detay' });
+    } else if (normalized === '/evrak/plan-katki-moderasyon') {
       items.push({ label: 'Moderasyon' });
     } else if (normalized.startsWith('/bilsem-sablon/')) {
       /* menü etiketi yeterli */

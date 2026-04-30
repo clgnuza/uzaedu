@@ -55,29 +55,29 @@ export function EvrakWizardHero({
   defaultsIncomplete: boolean;
 }) {
   return (
-    <Card className="mb-1 overflow-hidden border-sky-200/55 bg-linear-to-br from-sky-500/8 via-background to-cyan-500/5 shadow-sm ring-1 ring-sky-500/10 dark:border-sky-900/45 sm:mb-2">
-      <CardContent className="space-y-3 p-3 sm:p-4">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="flex min-w-0 flex-1 gap-3 sm:items-center">
-            <div className="flex size-13 shrink-0 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-700 ring-1 ring-sky-500/20 dark:bg-sky-500/10 dark:text-sky-300 sm:size-16">
-              <EvrakHeroIcon size={44} />
+    <Card className="mb-1 overflow-hidden border-sky-200/50 bg-linear-to-br from-sky-500/6 via-background to-cyan-500/4 shadow-sm ring-1 ring-sky-500/10 dark:border-sky-900/45">
+      <CardContent className="space-y-2 p-2.5 sm:p-3">
+        <div className="flex flex-wrap items-start justify-between gap-1.5">
+          <div className="flex min-w-0 flex-1 gap-2 sm:items-center">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/12 text-sky-700 ring-1 ring-sky-500/20 dark:bg-sky-500/10 dark:text-sky-300 sm:size-12">
+              <EvrakHeroIcon size={30} />
             </div>
-            <div className="min-w-0 flex-1 space-y-2">
-              <h1 className="text-base font-bold tracking-tight sm:text-lg">Evrak</h1>
-              <p className="text-[11px] leading-snug text-muted-foreground sm:text-xs">
+            <div className="min-w-0 flex-1 space-y-1">
+              <h1 className="text-sm font-bold tracking-tight sm:text-base">Evrak</h1>
+              <p className="text-[10px] leading-snug text-muted-foreground sm:text-xs">
                 Sınıf ve ders seçin; şablonu açıp üretin. İndirdikleriniz arşivde kalır.
               </p>
-              <div className="flex flex-wrap gap-2">
-                <span className="inline-flex items-center rounded-full border border-amber-300/50 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-950 dark:border-amber-800 dark:text-amber-100 sm:text-xs">
+              <div className="flex flex-wrap gap-1.5">
+                <span className="inline-flex items-center rounded-full border border-amber-300/50 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-950 dark:border-amber-800 dark:text-amber-100 sm:text-xs">
                   Arşiv {archiveCount}
                 </span>
-                <span className="inline-flex items-center rounded-full border border-emerald-300/50 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-900 dark:border-emerald-800 dark:text-emerald-100 sm:text-xs">
+                <span className="inline-flex items-center rounded-full border border-emerald-300/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-900 dark:border-emerald-800 dark:text-emerald-100 sm:text-xs">
                   {templatesTotal === null ? 'Şablon —' : `Liste ${templatesTotal}`}
                 </span>
                 {showQuota && planUretimKota !== null && (
                   <span
                     className={cn(
-                      'inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold sm:text-xs',
+                      'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold sm:text-xs',
                       noPlanKota || planUretimKota <= 0
                         ? 'border-rose-300/50 bg-rose-500/10 text-rose-900 dark:border-rose-800 dark:text-rose-100'
                         : 'border-violet-300/50 bg-violet-500/10 text-violet-900 dark:border-violet-800 dark:text-violet-100',
@@ -106,7 +106,7 @@ export function EvrakWizardHero({
               )}
             </div>
           </div>
-          <Button type="button" variant="outline" size="sm" className="h-8 shrink-0 gap-1.5 rounded-xl text-xs sm:h-9 sm:text-sm" onClick={onOpenGuide}>
+          <Button type="button" variant="outline" size="sm" className="h-7 shrink-0 gap-1 rounded-lg px-2 text-[11px] sm:h-8 sm:text-xs" onClick={onOpenGuide}>
             <HelpCircle className="size-3.5 sm:size-4" />
             Rehber
           </Button>

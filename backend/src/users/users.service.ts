@@ -48,13 +48,19 @@ export class UsersService {
     });
   }
 
-  async findById(id: string, relations: ('school')[] = ['school']): Promise<User> {
+  async findById(
+    id: string,
+    relations: ('school' | 'teacherAssignmentSchool')[] = ['school', 'teacherAssignmentSchool'],
+  ): Promise<User> {
     const user = await this.userRepo.findOne({ where: { id }, relations });
     if (!user) throw new NotFoundException({ code: 'NOT_FOUND', message: 'İstediğiniz kayıt bulunamadı.' });
     return user;
   }
 
-  async findByIdOrNull(id: string, relations: ('school')[] = ['school']): Promise<User | null> {
+  async findByIdOrNull(
+    id: string,
+    relations: ('school' | 'teacherAssignmentSchool')[] = ['school', 'teacherAssignmentSchool'],
+  ): Promise<User | null> {
     return this.userRepo.findOne({ where: { id }, relations });
   }
 
@@ -326,6 +332,44 @@ export class UsersService {
       } else {
         user.school_id = next;
       }
+    }
+    if (dto.teacher_assignment_active !== undefined || dto.teacher_assignment_school_id !== undefined) {
+      if (user.role !== UserRole.teacher) {
+        throw new ForbiddenException({
+          code: 'FORBIDDEN',
+          message: 'Görevlendirme alanları yalnızca öğretmen hesapları için değiştirilebilir.',
+        });
+      }
+    }
+    if (dto.teacher_assignment_active !== undefined) {
+      user.teacherAssignmentActive = dto.teacher_assignment_active;
+      if (!dto.teacher_assignment_active) {
+        user.teacherAssignmentSchoolId = null;
+      }
+    }
+    if (dto.teacher_assignment_school_id !== undefined) {
+      const next = dto.teacher_assignment_school_id ? String(dto.teacher_assignment_school_id).trim() : null;
+      if (!next) {
+        user.teacherAssignmentSchoolId = null;
+      } else {
+        const school = await this.schoolsService.findById(next);
+        if (school.status !== SchoolStatus.aktif) {
+          throw new BadRequestException({
+            code: 'SCHOOL_NOT_ACTIVE',
+            message: 'Seçilen görevlendirme okulu aktif değil veya bulunamadı.',
+          });
+        }
+        user.teacherAssignmentSchoolId = next;
+      }
+    }
+    if (user.teacherAssignmentSchoolId && user.school_id && user.teacherAssignmentSchoolId === user.school_id) {
+      throw new BadRequestException({
+        code: 'ASSIGNMENT_SCHOOL_SAME_AS_PRIMARY',
+        message: 'Görevlendirme okulu asıl okul ile aynı olamaz.',
+      });
+    }
+    if (!user.teacherAssignmentActive) {
+      user.teacherAssignmentSchoolId = null;
     }
     if (dto.status !== undefined) user.status = dto.status;
     if (dto.teacher_branch !== undefined) user.teacherBranch = dto.teacher_branch;

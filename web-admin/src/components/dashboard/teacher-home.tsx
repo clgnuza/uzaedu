@@ -211,6 +211,14 @@ function buildTeacherQuickSections(enabledModules: string[] | null | undefined):
           schoolModule: 'document',
         },
         {
+          href: '/evrak/plan-katki',
+          title: 'Plan katkısı',
+          desc: 'Excel plan yükle, moderasyon akışı',
+          icon: ClipboardList,
+          accent: 'from-violet-500/20 to-fuchsia-500/10 text-violet-700 dark:text-violet-300',
+          schoolModule: 'document',
+        },
+        {
           href: '/ogretmen-ajandasi',
           title: 'Öğretmen ajandası',
           desc: 'Ajanda kayıtları',
@@ -548,6 +556,13 @@ export function TeacherHome({
         label: 'Evrak',
         icon: FolderOpen,
         ring: 'bg-teal-100 text-teal-900 dark:bg-teal-950/50 dark:text-teal-100',
+        marketKey: 'document',
+      });
+      moduleStrip.push({
+        href: '/evrak/plan-katki',
+        label: 'Katkı',
+        icon: ClipboardList,
+        ring: 'bg-violet-100 text-violet-900 dark:bg-violet-950/50 dark:text-violet-100',
         marketKey: 'document',
       });
     }

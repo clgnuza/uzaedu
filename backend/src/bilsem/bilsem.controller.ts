@@ -21,6 +21,7 @@ import { RequireModuleActivationGuard } from '../market/guards/require-module-ac
 import { UserRole } from '../types/enums';
 import { BilsemService } from './bilsem.service';
 import { BilsemYillikPlanService } from './bilsem-yillik-plan.service';
+import { YillikPlanIcerikService } from '../yillik-plan-icerik/yillik-plan-icerik.service';
 import { CreateBilsemCalendarItemDto } from './dto/create-calendar-item.dto';
 import { UpdateBilsemCalendarItemDto } from './dto/update-calendar-item.dto';
 import { PatchBilsemCalendarOverridesDto } from './dto/school-overrides.dto';
@@ -33,6 +34,7 @@ export class BilsemController {
   constructor(
     private readonly service: BilsemService,
     private readonly yillikPlan: BilsemYillikPlanService,
+    private readonly yillikPlanIcerikService: YillikPlanIcerikService,
   ) {}
 
   private getAcademicYear(academicYear: string | undefined): string {
@@ -166,6 +168,7 @@ export class BilsemController {
   @Get('yillik-plan/outcome-sets')
   @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin)
   async listBilsemOutcomeSets(
+    @CurrentUser() me: CurrentUserPayload,
     @Query('subject_code') subjectCode?: string,
     @Query('academic_year') academicYear?: string,
     @Query('grade') gradeStr?: string,
@@ -175,38 +178,135 @@ export class BilsemController {
       subject_code: subjectCode,
       academic_year: academicYear,
       grade: g != null && Number.isFinite(g) ? g : undefined,
+      viewerUserId: me.userId,
+      viewerRole: me.role as UserRole,
     });
+  }
+
+  @Get('yillik-plan/plan-summaries')
+  @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin)
+  async listBilsemPlanSummaries() {
+    const rows = await this.yillikPlanIcerikService.findSummary('bilsem');
+    return {
+      items: rows.filter((x) => String(x.ana_grup ?? '').trim()),
+    };
+  }
+
+  @Get('yillik-plan/plan-rows')
+  @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin)
+  async listBilsemPlanRows(
+    @Query('subject_code') subjectCode?: string,
+    @Query('academic_year') academicYear?: string,
+    @Query('ana_grup') anaGrup?: string,
+    @Query('alt_grup') altGrup?: string,
+  ) {
+    const ay = String(academicYear ?? '').trim();
+    const items = await this.yillikPlanIcerikService.findAll({
+      subject_code: String(subjectCode ?? '').trim(),
+      academic_year: ay,
+      curriculum_model: 'bilsem',
+      ana_grup: String(anaGrup ?? '').trim(),
+      ...(altGrup != null ? { alt_grup: String(altGrup).trim() } : {}),
+    });
+    const weekMeta = new Map<
+      number,
+      { haftaLabel?: string | null; weekStart?: string | null; weekEnd?: string | null }
+    >();
+    if (ay) {
+      const weeks = await this.service.getWorkWeeksForPlan(ay);
+      for (const w of weeks) {
+        if (!Number.isFinite(Number(w.weekOrder))) continue;
+        weekMeta.set(Number(w.weekOrder), {
+          haftaLabel: `${Number(w.weekOrder)}. Hafta`,
+          weekStart: w.weekStart ?? null,
+          weekEnd: w.weekEnd ?? null,
+        });
+      }
+    }
+    this.yillikPlanIcerikService.attachBilsemPuyDisplayDefaults(items);
+    return {
+      items: items.map((r) => ({
+        id: r.id,
+        week_order: r.weekOrder,
+        hafta_label: weekMeta.get(r.weekOrder)?.haftaLabel ?? null,
+        week_start: weekMeta.get(r.weekOrder)?.weekStart ?? null,
+        week_end: weekMeta.get(r.weekOrder)?.weekEnd ?? null,
+        unite: r.unite,
+        konu: r.konu,
+        kazanimlar: r.kazanimlar,
+        ders_saati: r.dersSaati,
+        surec_bilesenleri: r.surecBilesenleri,
+        olcme_degerlendirme: r.olcmeDegerlendirme,
+        sosyal_duygusal: r.sosyalDuygusal,
+        degerler: r.degerler,
+        okuryazarlik_becerileri: r.okuryazarlikBecerileri,
+        belirli_gun_haftalar: r.belirliGunHaftalar,
+        zenginlestirme: r.zenginlestirme,
+        okul_temelli_planlama: r.okulTemelliPlanlama,
+      })),
+    };
   }
 
   @Get('yillik-plan/outcome-sets/:id')
   @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin)
-  async getBilsemOutcomeSet(@Param('id') id: string) {
-    return this.yillikPlan.getOutcomeSetWithItems(id);
+  async getBilsemOutcomeSet(@Param('id') id: string, @CurrentUser() me: CurrentUserPayload) {
+    return this.yillikPlan.getOutcomeSetWithItems(id, { userId: me.userId, role: me.role as UserRole });
   }
 
   @Post('yillik-plan/outcome-sets')
   @Roles(UserRole.superadmin)
   async createBilsemOutcomeSet(@Body() body: Record<string, unknown>) {
-    return this.yillikPlan.createOutcomeSet(body as any);
+    const b = { ...body } as Record<string, unknown> & { owner_user_id?: unknown };
+    delete b.owner_user_id;
+    return this.yillikPlan.createOutcomeSet(b as any);
   }
 
   @Patch('yillik-plan/outcome-sets/:id')
-  @Roles(UserRole.superadmin)
-  async patchBilsemOutcomeSet(@Param('id') id: string, @Body() body: Record<string, unknown>) {
-    return this.yillikPlan.updateOutcomeSetMeta(id, body as any);
+  @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin)
+  async patchBilsemOutcomeSet(
+    @Param('id') id: string,
+    @CurrentUser() me: CurrentUserPayload,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.yillikPlan.updateOutcomeSetMeta(id, body as any, { userId: me.userId, role: me.role as UserRole });
   }
 
   @Delete('yillik-plan/outcome-sets/:id')
-  @Roles(UserRole.superadmin)
-  async deleteBilsemOutcomeSet(@Param('id') id: string) {
-    await this.yillikPlan.deleteOutcomeSet(id);
+  @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin)
+  async deleteBilsemOutcomeSet(@Param('id') id: string, @CurrentUser() me: CurrentUserPayload) {
+    await this.yillikPlan.deleteOutcomeSet(id, { userId: me.userId, role: me.role as UserRole });
     return { success: true };
   }
 
   @Put('yillik-plan/outcome-sets/:id/items')
-  @Roles(UserRole.superadmin)
-  async putBilsemOutcomeItems(@Param('id') id: string, @Body() body: { items?: unknown[] }) {
+  @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin)
+  async putBilsemOutcomeItems(
+    @Param('id') id: string,
+    @CurrentUser() me: CurrentUserPayload,
+    @Body() body: { items?: unknown[] },
+  ) {
     const items = (body.items ?? []) as any[];
-    return this.yillikPlan.upsertItems(id, items);
+    return this.yillikPlan.upsertItems(id, items, { userId: me.userId, role: me.role as UserRole });
+  }
+
+  @Post('yillik-plan/outcome-sets/import-from-yillik-plan')
+  @Roles(UserRole.superadmin)
+  async importBilsemOutcomeSetFromYillikPlan(
+    @Body()
+    body: {
+      subject_code?: string;
+      subject_label?: string;
+      academic_year?: string;
+      ana_grup?: string;
+      alt_grup?: string | null;
+    },
+  ) {
+    return this.yillikPlan.syncOutcomeSetFromBilsemYillikPlan({
+      subject_code: String(body.subject_code ?? ''),
+      subject_label: body.subject_label,
+      academic_year: String(body.academic_year ?? ''),
+      ana_grup: String(body.ana_grup ?? ''),
+      alt_grup: body.alt_grup ?? undefined,
+    });
   }
 }

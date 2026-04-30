@@ -44,7 +44,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { getYillikPlanEvrakStorage, type YillikPlanEvrakVariant } from '@/config/yillik-plan-evrak-variants';
 import { filterBilsemCatalogSubjects } from '@/lib/bilsem-catalog-subjects';
 import { BILSEM_ALT_GRUPLAR, BILSEM_ANA_GRUPLAR } from '@/lib/bilsem-groups';
-import { BilsemYillikPlanHeroCard } from '@/components/bilsem/bilsem-yillik-plan-hero-card';
+import { BilsemPlanSourceEngagement } from '@/components/bilsem/bilsem-plan-source-engagement';
 import { EvrakWizardHero } from '@/components/evrak/evrak-wizard-hero';
 
 type FormSchemaField = { key: string; label: string; type: string; required?: boolean };
@@ -88,6 +88,8 @@ type BilsemOutcomeSetRow = {
   grade?: number | null;
   yetenekLabel?: string | null;
   yetenek_label?: string | null;
+  ownerUserId?: string | null;
+  owner_user_id?: string | null;
 };
 
 type BilsemOutcomeItemRow = {
@@ -98,6 +100,51 @@ type BilsemOutcomeItemRow = {
   konu?: string | null;
   sortOrder?: number;
 };
+
+type BilsemPlanContentRow = {
+  id: string;
+  week_order?: number;
+  unite?: string | null;
+  konu?: string | null;
+  kazanimlar?: string | null;
+};
+
+type ZumreItem = { isim: string; unvan: string };
+
+function parseZumreRaw(raw: string): ZumreItem[] {
+  return String(raw ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((t) => {
+      const pipe = t.indexOf('|');
+      if (pipe >= 0) return { isim: t.slice(0, pipe).trim(), unvan: t.slice(pipe + 1).trim() };
+      return { isim: t, unvan: '' };
+    })
+    .filter((x) => x.isim.length > 0);
+}
+
+function dedupeZumre(items: ZumreItem[]): ZumreItem[] {
+  const map = new Map<string, ZumreItem>();
+  for (const item of items) {
+    const key = item.isim.toLocaleLowerCase('tr-TR');
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, item);
+      continue;
+    }
+    if (!prev.unvan && item.unvan) map.set(key, item);
+  }
+  return [...map.values()];
+}
+
+function serializeZumre(items: ZumreItem[]): string {
+  return items.map((x) => (x.unvan ? `${x.isim}|${x.unvan}` : x.isim)).join(', ');
+}
+
+function mudurFromZumre(items: ZumreItem[]): string {
+  return items.find((x) => x.unvan === 'Okul Müdürü')?.isim ?? '';
+}
 
 type PreviewResponse =
   | { format: 'xlsx'; sheet_name: string; sheet_html: string; preview_url?: string }
@@ -339,7 +386,8 @@ function formatYillikPlanGradeLabel(grade: string | number | null | undefined, b
 function labelBilsemOutcomeSetOption(
   s: BilsemOutcomeSetRow,
   catalog: Array<{ code: string; label: string }>,
-  catalogFallback: Array<{ code: string; label: string }> | undefined
+  catalogFallback: Array<{ code: string; label: string }> | undefined,
+  currentUserId?: string | null,
 ): string {
   const yetenek = (s.yetenekLabel ?? s.yetenek_label ?? '').trim();
   const subj = (s.subjectLabel ?? s.subject_label ?? '').trim();
@@ -348,15 +396,17 @@ function labelBilsemOutcomeSetOption(
   const g = s.grade;
   const gradePart = g != null && Number.isFinite(Number(g)) ? formatYillikPlanGradeLabel(g, true) : '';
   const parts = [yetenek, subj, grup, year, gradePart].filter(Boolean);
-  if (parts.length) return parts.join(' · ');
+  const mine =
+    currentUserId && (s.ownerUserId ?? s.owner_user_id) === currentUserId ? ' (sizin)' : '';
+  if (parts.length) return parts.join(' · ') + mine;
   const sc = (s.subjectCode ?? s.subject_code ?? '').trim();
   if (sc) {
     const lab =
       catalog.find((x) => x.code === sc)?.label?.trim() ||
       catalogFallback?.find((x) => x.code === sc)?.label?.trim();
-    return lab || sc;
+    return (lab || sc) + mine;
   }
-  return 'Kazanım şablonu';
+  return 'Öğrenme Çıktıları' + mine;
 }
 
 /** Bilsem: sonner toast — minimal, küçük, violet ton */
@@ -431,9 +481,12 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
   const [bilsemPlanScope, setBilsemPlanScope] = useState<'yillik' | 'donem_1' | 'donem_2'>('yillik');
   const [bilsemWeeklyHours, setBilsemWeeklyHours] = useState('2');
   const [bilsemSetsLoading, setBilsemSetsLoading] = useState(false);
+  const bilsemSetListReqRef = useRef(0);
+  const bilsemSetDetailReqRef = useRef(0);
 
   const mods = (me as { moderator_modules?: string[] } | undefined)?.moderator_modules;
   const isBilsemYillikPlan = scope === 'bilsem';
+  const useBilsemPlanContentSource = false;
   const canAccess = isBilsemYillikPlan
     ? me?.role === 'teacher' || me?.role === 'school_admin' || me?.role === 'superadmin'
     : me?.role === 'teacher' ||
@@ -684,6 +737,9 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
       evrakDefaults = (me as { evrak_defaults?: Record<string, string> })?.evrak_defaults;
     }
     const defaults = (evrakDefaults ?? (me as { evrak_defaults?: Record<string, string> })?.evrak_defaults ?? {}) as Record<string, string>;
+    const zumreItems = dedupeZumre(parseZumreRaw(defaults.zumre_ogretmenleri ?? defaults.zumreler ?? ''));
+    const normalizedZumre = serializeZumre(zumreItems);
+    const mudurAdi = mudurFromZumre(zumreItems).trim() || (defaults.mudur_adi ?? '').trim() || school?.principalName || '';
     const ogretimYiliFallback = filters.academic_year || options?.academic_years?.[0] || '2024-2025';
     const bilsemAnaLabel = BILSEM_ANA_GRUPLAR.find((g) => g.value === filters.ana_grup)?.label ?? filters.ana_grup;
     const bilsemAltLabel = filters.alt_grup
@@ -723,11 +779,11 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
       } else if (k === 'okul_adi') {
         initial[k] = defaults.okul_adi || school?.name || '';
       } else if (k === 'mudur_adi') {
-        initial[k] = defaults.mudur_adi || school?.principalName || '';
+        initial[k] = mudurAdi;
       } else if (k === 'zumre_ogretmenleri') {
-        initial[k] = defaults.zumre_ogretmenleri ?? defaults.zumreler ?? '';
+        initial[k] = normalizedZumre;
       } else if (k === 'zumreler') {
-        initial[k] = defaults.zumreler ?? defaults.zumre_ogretmenleri ?? '';
+        initial[k] = normalizedZumre;
       } else if (k === 'ogretmen_unvani') {
         initial[k] = defaults.ogretmen_unvani ?? '';
       } else if (k) {
@@ -737,8 +793,9 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
     if (isBilsemYillikPlan) {
       initial.ana_grup = filters.ana_grup?.trim() ?? '';
       initial.alt_grup = filters.alt_grup?.trim() ?? '';
+      initial.bilsem_plan_scope = bilsemPlanScope;
       const ay = String(filters.academic_year || initial.ogretim_yili || '').trim();
-      if (bilsemSelectedSetId && bilsemSelectedItemIds.size > 0 && ay) {
+      if (!useBilsemPlanContentSource && bilsemSelectedSetId && bilsemSelectedItemIds.size > 0 && ay) {
         initial.bilsem_yillik_draft_json = JSON.stringify({
           outcome_set_id: bilsemSelectedSetId,
           selected_outcome_item_ids: orderedBilsemSelectedItemIds,
@@ -798,11 +855,13 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
 
   useEffect(() => {
     if (!isBilsemYillikPlan || !token) {
+      bilsemSetListReqRef.current += 1;
       setBilsemOutcomeSets([]);
       setBilsemSetsLoading(false);
       return;
     }
     if (!filters.subject_code?.trim() || !filters.academic_year?.trim()) {
+      bilsemSetListReqRef.current += 1;
       setBilsemOutcomeSets([]);
       setBilsemSelectedSetId('');
       setBilsemSelectedItemIds(new Set());
@@ -810,35 +869,183 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
       setBilsemSetsLoading(false);
       return;
     }
+    const reqId = bilsemSetListReqRef.current + 1;
+    bilsemSetListReqRef.current = reqId;
+    const wantedSubjectCode = filters.subject_code.trim().toLowerCase();
+    const wantedAnaGrup = String(filters.ana_grup ?? '').trim().toLowerCase();
     setBilsemSetsLoading(true);
-    const params = new URLSearchParams();
-    params.set('subject_code', filters.subject_code.trim());
-    params.set('academic_year', filters.academic_year.trim());
     setBilsemSelectedSetId('');
     setBilsemSelectedItemIds(new Set());
     setBilsemSetDetail(null);
+    if (useBilsemPlanContentSource) {
+      const params = new URLSearchParams();
+      params.set('curriculum_model', 'bilsem');
+      params.set('subject_code', filters.subject_code.trim());
+      params.set('academic_year', filters.academic_year.trim());
+      if (filters.ana_grup?.trim()) params.set('ana_grup', filters.ana_grup.trim());
+      if (filters.alt_grup?.trim()) params.set('alt_grup', filters.alt_grup.trim());
+      apiFetch<{ items: BilsemPlanContentRow[] }>(`/yillik-plan-icerik?${params}`, { token })
+        .then(async (res) => {
+          if (bilsemSetListReqRef.current !== reqId) return;
+          const rows = Array.isArray(res?.items) ? res.items : [];
+          const mapped: BilsemOutcomeItemRow[] = rows
+            .sort((a, b) => Number(a.week_order ?? 0) - Number(b.week_order ?? 0))
+            .map((r) => ({
+              id: r.id,
+              code: r.week_order ? `W${r.week_order}` : null,
+              unite: r.unite ?? null,
+              konu: r.konu ?? null,
+              description:
+                String(r.kazanimlar ?? '').trim() ||
+                String(r.konu ?? '').trim() ||
+                String(r.unite ?? '').trim() ||
+                `Hafta ${String(r.week_order ?? '')}`,
+              sortOrder: Number(r.week_order ?? 0) || 0,
+            }));
+          if (!mapped.length) {
+            const setParams = new URLSearchParams();
+            setParams.set('subject_code', filters.subject_code.trim());
+            setParams.set('academic_year', filters.academic_year.trim());
+            const setRows = await apiFetch<BilsemOutcomeSetRow[]>(`/bilsem/yillik-plan/outcome-sets?${setParams}`, { token });
+            if (bilsemSetListReqRef.current !== reqId) return;
+            const list = Array.isArray(setRows) ? setRows : [];
+            const filtered = list.filter((s) => {
+              const sc = String(s.subjectCode ?? s.subject_code ?? '').trim().toLowerCase();
+              if (sc && sc !== wantedSubjectCode) return false;
+              if (!wantedAnaGrup) return true;
+              const ga = String(s.grupAdi ?? s.grup_adi ?? '').trim().toLowerCase();
+              return !ga || ga === wantedAnaGrup;
+            });
+            setBilsemOutcomeSets(filtered);
+            setBilsemSetDetail(null);
+            setBilsemSelectedSetId(filtered.length === 1 ? filtered[0].id : '');
+            setBilsemSelectedItemIds(new Set());
+            return;
+          }
+          const sourceSetId = `plan-content:${filters.subject_code}:${filters.academic_year}:${filters.ana_grup ?? ''}:${filters.alt_grup ?? ''}`;
+          setBilsemOutcomeSets([
+            {
+              id: sourceSetId,
+              subject_code: filters.subject_code,
+              subject_label: subjects?.items?.find((s) => s.code === filters.subject_code)?.label ?? filters.subject_code,
+              grup_adi: filters.ana_grup || null,
+              academic_year: filters.academic_year,
+            },
+          ]);
+          setBilsemSetDetail({ id: sourceSetId, items: mapped });
+          setBilsemSelectedSetId(sourceSetId);
+          setBilsemSelectedItemIds(new Set(mapped.map((m) => m.id)));
+        })
+        .catch(() => {
+          if (bilsemSetListReqRef.current !== reqId) return;
+          setBilsemOutcomeSets([]);
+          setBilsemSetDetail(null);
+          setBilsemSelectedSetId('');
+          setBilsemSelectedItemIds(new Set());
+        })
+        .finally(() => {
+          if (bilsemSetListReqRef.current !== reqId) return;
+          setBilsemSetsLoading(false);
+        });
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set('subject_code', filters.subject_code.trim());
+    params.set('academic_year', filters.academic_year.trim());
     apiFetch<BilsemOutcomeSetRow[]>(`/bilsem/yillik-plan/outcome-sets?${params}`, { token })
       .then((rows) => {
+        if (bilsemSetListReqRef.current !== reqId) return;
         const list = Array.isArray(rows) ? rows : [];
-        setBilsemOutcomeSets(list);
-        if (list.length === 1) setBilsemSelectedSetId(list[0].id);
+        const filtered = list.filter((s) => {
+          const sc = String(s.subjectCode ?? s.subject_code ?? '').trim().toLowerCase();
+          if (sc && sc !== wantedSubjectCode) return false;
+          if (!wantedAnaGrup) return true;
+          const ga = String(s.grupAdi ?? s.grup_adi ?? '').trim().toLowerCase();
+          return !ga || ga === wantedAnaGrup;
+        });
+        setBilsemOutcomeSets(filtered);
+        if (filtered.length === 1) setBilsemSelectedSetId(filtered[0].id);
       })
-      .catch(() => setBilsemOutcomeSets([]))
-      .finally(() => setBilsemSetsLoading(false));
-  }, [isBilsemYillikPlan, token, filters.subject_code, filters.academic_year]);
+      .catch(() => {
+        if (bilsemSetListReqRef.current !== reqId) return;
+        setBilsemOutcomeSets([]);
+      })
+      .finally(() => {
+        if (bilsemSetListReqRef.current !== reqId) return;
+        setBilsemSetsLoading(false);
+      });
+  }, [
+    isBilsemYillikPlan,
+    useBilsemPlanContentSource,
+    token,
+    filters.subject_code,
+    filters.academic_year,
+    filters.ana_grup,
+    filters.alt_grup,
+    subjects?.items,
+  ]);
 
   useEffect(() => {
     if (!token || !bilsemSelectedSetId || !isBilsemYillikPlan) {
+      bilsemSetDetailReqRef.current += 1;
       setBilsemSetDetail(null);
       return;
     }
+    if (useBilsemPlanContentSource) return;
+    const reqId = bilsemSetDetailReqRef.current + 1;
+    bilsemSetDetailReqRef.current = reqId;
     apiFetch<{ id: string; items: BilsemOutcomeItemRow[] }>(
       `/bilsem/yillik-plan/outcome-sets/${encodeURIComponent(bilsemSelectedSetId)}`,
       { token },
     )
-      .then((d) => setBilsemSetDetail(d))
-      .catch(() => setBilsemSetDetail(null));
-  }, [token, bilsemSelectedSetId, isBilsemYillikPlan]);
+      .then((d) => {
+        if (bilsemSetDetailReqRef.current !== reqId) return;
+        setBilsemSetDetail(d);
+      })
+      .catch(() => {
+        if (bilsemSetDetailReqRef.current !== reqId) return;
+        setBilsemSetDetail(null);
+      });
+  }, [token, bilsemSelectedSetId, isBilsemYillikPlan, useBilsemPlanContentSource]);
+
+  useEffect(() => {
+    if (!isBilsemYillikPlan || useBilsemPlanContentSource) return;
+    if (!generateModal) return;
+    const ay = String(filters.academic_year || generateForm.ogretim_yili || '').trim();
+    const hasSelection = !!bilsemSelectedSetId && bilsemSelectedItemIds.size > 0 && !!ay;
+    const nextDraft = hasSelection
+      ? JSON.stringify({
+          outcome_set_id: bilsemSelectedSetId,
+          selected_outcome_item_ids: orderedBilsemSelectedItemIds,
+          academic_year: ay,
+          plan_scope: bilsemPlanScope,
+          weekly_lesson_hours: Math.max(1, Math.min(20, parseInt(bilsemWeeklyHours, 10) || 2)),
+        })
+      : '';
+    setGenerateForm((prev) => {
+      const prevDraft = String(prev.bilsem_yillik_draft_json ?? '');
+      const prevScope = String(prev.bilsem_plan_scope ?? '');
+      if (prevDraft === nextDraft && prevScope === bilsemPlanScope) return prev;
+      return {
+        ...prev,
+        bilsem_plan_scope: bilsemPlanScope,
+        ...(nextDraft
+          ? { bilsem_yillik_draft_json: nextDraft }
+          : { bilsem_yillik_draft_json: '' }),
+      };
+    });
+  }, [
+    isBilsemYillikPlan,
+    useBilsemPlanContentSource,
+    generateModal,
+    bilsemSelectedSetId,
+    bilsemSelectedItemIds,
+    orderedBilsemSelectedItemIds,
+    bilsemPlanScope,
+    bilsemWeeklyHours,
+    filters.academic_year,
+    generateForm.ogretim_yili,
+  ]);
 
   const handleGenerateSubmit = async () => {
     if (!token || !generateModal) return;
@@ -926,7 +1133,10 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
       if (step === 0) return !!filters.academic_year?.trim();
       if (step === 1) return !!filters.ana_grup?.trim();
       if (step === bilsemSubjectStep) return !!filters.subject_code?.trim();
-      if (step === bilsemOutcomesStep) return !!bilsemSelectedSetId && bilsemSelectedItemIds.size > 0;
+      if (step === bilsemOutcomesStep) {
+        if (useBilsemPlanContentSource) return (bilsemSetDetail?.items?.length ?? 0) > 0;
+        return !!bilsemSelectedSetId && bilsemSelectedItemIds.size > 0;
+      }
       return false;
     }
     if (step === 0) return !!filters.grade;
@@ -1044,13 +1254,13 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
           { label: 'Yıl', step: 0 },
           { label: 'Grup', step: 1 },
           { label: 'Ders', step: bilsemSubjectStep },
-          { label: 'Kazanımlar', step: bilsemOutcomesStep },
+          { label: 'Öğrenme Çıktıları', step: bilsemOutcomesStep },
         ]
       : [
           { label: 'Öğretim yılı', step: 0 },
           { label: 'Ana / alt grup', step: 1 },
           { label: 'Ders', step: bilsemSubjectStep },
-          { label: 'Kazanımlar', step: bilsemOutcomesStep },
+          { label: 'Öğrenme Çıktıları', step: bilsemOutcomesStep },
         ]
     : [
         { label: 'Sınıf', step: 0 },
@@ -1128,17 +1338,13 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
   const hasDefaults = !!(evrakDefaults?.okul_adi?.trim() || evrakDefaults?.mudur_adi?.trim());
   const schoolFallback = !!(me?.school?.name || (me?.school as { principalName?: string })?.principalName);
   const defaultsIncomplete = me?.role === 'teacher' && !hasDefaults && !schoolFallback;
-  const teacherEvrakUiEnforced =
-    process.env.NODE_ENV === 'production' &&
-    process.env.NEXT_PUBLIC_EVRAK_SKIP_TEACHER_QUOTA !== '1';
   const noPlanKota =
-    teacherEvrakUiEnforced &&
     me?.role === 'teacher' &&
     planUretimKota !== null &&
     planUretimKota <= 0;
 
   const shellClass = isBilsemYillikPlan
-    ? 'relative isolate space-y-2 overflow-hidden rounded-lg border border-violet-300/35 bg-gradient-to-br from-violet-500/[0.09] via-background to-fuchsia-500/[0.06] p-2.5 shadow-[0_16px_40px_-14px_rgba(109,40,217,0.16)] dark:border-violet-500/25 dark:from-violet-950/50 dark:via-background dark:to-fuchsia-950/30 sm:space-y-6 sm:rounded-2xl sm:p-5 md:space-y-8 md:p-8'
+    ? 'relative isolate space-y-1 overflow-hidden rounded-md border border-violet-300/35 bg-gradient-to-br from-violet-500/[0.09] via-background to-fuchsia-500/[0.06] p-1.5 shadow-[0_16px_40px_-14px_rgba(109,40,217,0.16)] dark:border-violet-500/25 dark:from-violet-950/50 dark:via-background dark:to-fuchsia-950/30 sm:space-y-6 sm:rounded-2xl sm:p-5 md:space-y-8 md:p-8'
     : 'relative isolate space-y-3 overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-b from-sky-500/[0.06] via-background to-muted/25 p-3 shadow-[0_16px_40px_-18px_rgba(14,116,144,0.14)] sm:space-y-4 sm:p-4 md:space-y-5 md:p-6';
 
   return (
@@ -1156,10 +1362,135 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
         />
       )}
       {hideHeader && isBilsemYillikPlan && (
-        <BilsemYillikPlanHeroCard
-          onOpenGuide={() => setShowGuideModal(true)}
-          role={me?.role === 'teacher' ? 'teacher' : 'admin'}
-        />
+        <Card className="overflow-hidden border-violet-400/30 bg-gradient-to-r from-violet-500/[0.08] via-background to-fuchsia-500/[0.05] shadow-sm dark:border-violet-500/25 dark:from-violet-950/40 dark:to-fuchsia-950/25">
+          <CardContent className="space-y-2 p-2 sm:space-y-3 sm:p-4">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <Link
+                  href="/bilsem/plan-katki"
+                  title="Plan katkısı (topluluk)"
+                  aria-label="Plan katkısı (topluluk)"
+                  className="inline-flex items-center gap-1 rounded-md border border-violet-500/35 bg-violet-500/10 px-1.5 py-1 text-violet-700 transition-colors hover:bg-violet-500/15 dark:border-violet-400/35 dark:bg-violet-950/45 dark:text-violet-300"
+                >
+                  <Sparkles className="size-3.5" />
+                </Link>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <span
+                    title="Bilsem · Word yıllık plan"
+                    className="inline-flex items-center rounded-md border border-violet-500/30 bg-violet-500/10 px-1.5 py-1 text-violet-700 dark:border-violet-400/35 dark:bg-violet-950/45 dark:text-violet-200"
+                  >
+                    <FileText className="size-3.5" />
+                  </span>
+                  <span
+                    title="Bilsem yıllık plan"
+                    className="inline-flex items-center rounded-md border border-violet-500/30 bg-violet-500/10 px-1.5 py-1 text-violet-700 dark:border-violet-400/35 dark:bg-violet-950/45 dark:text-violet-200"
+                  >
+                    <BookOpen className="size-3.5" />
+                  </span>
+                  <span
+                    title="Yıl ve grup -> ders -> kazanımlar -> Word şablonu ve indir. Dosyalar Arşiv'de kalır."
+                    className="inline-flex items-center rounded-md border border-violet-500/30 bg-violet-500/10 px-1.5 py-1 text-violet-700 dark:border-violet-400/35 dark:bg-violet-950/45 dark:text-violet-200"
+                  >
+                    <ListChecks className="size-3.5" />
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowGuideModal(true)}
+                className="inline-flex shrink-0 items-center justify-center gap-1 rounded-md border border-violet-500/40 bg-background/95 px-2 py-1 text-[10px] font-semibold text-violet-900 shadow-sm transition-colors hover:bg-violet-500/10 dark:border-violet-400/35 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-950 sm:rounded-xl sm:px-4 sm:py-2 sm:text-sm"
+                aria-label="Adım adım rehberi aç"
+              >
+                <HelpCircle className="size-3 shrink-0 sm:size-4" />
+                Rehberi aç
+              </button>
+            </div>
+
+            <div className="mobile-tab-scroll akilli-tahta-tabnav w-full min-w-0 snap-x snap-mandatory sm:w-auto">
+              <div
+                role="tablist"
+                aria-label="Plan oluşturma ve arşiv"
+                className="flex w-max max-w-full gap-0.5 rounded-xl border border-violet-400/45 bg-gradient-to-r from-violet-500/12 via-fuchsia-500/10 to-violet-500/12 p-0.5 shadow-inner shadow-violet-500/10 dark:border-violet-500/40 dark:from-violet-950/50 dark:via-fuchsia-950/40 dark:to-violet-950/50 sm:w-full sm:flex-wrap sm:justify-start sm:gap-1.5 sm:rounded-2xl sm:p-1.5 sm:shadow-sm sm:overflow-visible"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={mainTab === 'plan'}
+                  onClick={() => setMainTab('plan')}
+                  className={cn(
+                    'flex min-w-0 shrink-0 snap-start items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-all sm:min-h-[44px] sm:flex-1 sm:gap-1.5 sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm',
+                    mainTab === 'plan'
+                      ? 'border-transparent bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-md shadow-violet-500/25 ring-1 ring-white/20 dark:from-violet-600 dark:to-fuchsia-600'
+                      : 'border-transparent bg-transparent text-violet-900/80 hover:bg-white/50 dark:text-violet-100/90 dark:hover:bg-violet-950/40',
+                  )}
+                >
+                  <FileEdit className="size-4 shrink-0" />
+                  Plan oluştur
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={mainTab === 'archive'}
+                  onClick={() => setMainTab('archive')}
+                  className={cn(
+                    'relative flex min-w-0 shrink-0 snap-start items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-all sm:min-h-[44px] sm:flex-1 sm:gap-1.5 sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm',
+                    mainTab === 'archive'
+                      ? 'border-transparent bg-gradient-to-r from-fuchsia-600 to-violet-600 text-white shadow-md shadow-fuchsia-500/20 ring-1 ring-white/20 dark:from-fuchsia-600 dark:to-violet-600'
+                      : 'border-transparent bg-transparent text-violet-900/80 hover:bg-white/50 dark:text-violet-100/90 dark:hover:bg-violet-950/40',
+                  )}
+                >
+                  <Archive className="size-4 shrink-0" />
+                  Arşiv
+                  {archiveItems.length > 0 && (
+                    <span
+                      className={cn(
+                        'min-w-[1.35rem] rounded-full px-1.5 py-0.5 text-center text-[10px] font-bold tabular-nums sm:text-xs',
+                        mainTab === 'archive' ? 'bg-white/25 text-white' : 'bg-fuchsia-500/25 text-fuchsia-900 dark:bg-fuchsia-400/20 dark:text-fuchsia-100',
+                      )}
+                    >
+                      {archiveItems.length}
+                    </span>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {me?.role === 'teacher' && (
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-violet-500/20 bg-violet-500/[0.05] px-2 py-1.5 dark:border-violet-500/25 dark:bg-violet-950/35">
+                <div className="flex items-center gap-1.5">
+                  <span
+                    title="Plan üretirken okul adı, müdür ve zümre öğretmenleri otomatik doldurulur. Ayarlardan düzenleyebilirsiniz."
+                    className="inline-flex items-center rounded-md border border-violet-500/30 bg-violet-500/10 px-1.5 py-1 text-violet-700 dark:border-violet-400/35 dark:bg-violet-950/45 dark:text-violet-200"
+                  >
+                    <Settings className="size-3.5" />
+                  </span>
+                  {planUretimKota !== null && (
+                    <span
+                      title={`Yıllık plan üretim kotanız: ${planUretimKota} adet`}
+                      className={cn(
+                        'inline-flex items-center gap-1 rounded-md border px-1.5 py-1 text-[10px] font-semibold',
+                        planUretimKota > 0
+                          ? 'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:border-violet-400/35 dark:bg-violet-950/45 dark:text-violet-200'
+                          : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:border-amber-500/35 dark:bg-amber-950/45 dark:text-amber-300',
+                      )}
+                    >
+                      <Clock className="size-3.5" />
+                      {planUretimKota} adet
+                    </span>
+                  )}
+                </div>
+                <Link
+                  href="/settings"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-violet-500/40 bg-violet-500/10 px-2 py-1 text-[10px] font-medium text-violet-900 transition-colors hover:bg-violet-500/15 dark:border-violet-400/35 dark:bg-violet-950/50 dark:text-violet-100 dark:hover:bg-violet-950/70 sm:rounded-xl sm:px-3 sm:py-2 sm:text-xs"
+                >
+                  <Settings className="size-3.5" />
+                  Varsayılanlara git
+                  <ArrowRight className="size-3.5" />
+                </Link>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
       {!hideHeader && isBilsemYillikPlan && (
         <div className="relative flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
@@ -1227,7 +1558,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-foreground sm:text-sm">1. Öğretim yılı</p>
                     <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground sm:mt-1 sm:text-xs">
-                      Listeden çalıştığınız akademik yılı seçin. Kazanım ve şablon listeleri bu yıla göre gelir.
+                      Listeden çalıştığınız akademik yılı seçin. Öğrenme çıktıları ve Word şablon listeleri bu yıla göre gelir.
                     </p>
                   </div>
                 </div>
@@ -1251,9 +1582,9 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                     <BookOpen className="size-3.5 sm:size-4" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs font-semibold text-foreground sm:text-sm">3. Ders ve kazanımlar</p>
+                    <p className="text-xs font-semibold text-foreground sm:text-sm">3. Ders ve öğrenme çıktıları</p>
                     <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground sm:mt-1 sm:text-xs">
-                      Dersinizi seçin. Kazanım listesinden haftaya yansıyacak maddeleri işaretleyin; tüm yıl veya dönem kapsamı ile haftalık ders saatini ayarlayın.{' '}
+                      Dersinizi seçin. Öğrenme çıktıları listesinden haftaya yansıyacak maddeleri işaretleyin; tüm yıl veya dönem kapsamı ile haftalık ders saatini ayarlayın.{' '}
                       <strong className="font-medium text-foreground">Şablonları göster</strong> ile bir sonraki adıma geçin.
                     </p>
                   </div>
@@ -1371,7 +1702,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
         </DialogContent>
       </Dialog>
 
-      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+      <div className={cn('flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2', hideHeader && isBilsemYillikPlan && 'hidden')}>
         <div className="mobile-tab-scroll akilli-tahta-tabnav w-full min-w-0 snap-x snap-mandatory sm:w-auto">
           <div
             role="tablist"
@@ -1449,11 +1780,40 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
 
       {mainTab === 'plan' && (
         <>
+      {noPlanKota && (
+        <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-rose-500 via-orange-500 to-amber-500 text-white shadow-[0_16px_40px_-20px_rgba(244,63,94,0.6)]">
+          <div aria-hidden className="pointer-events-none absolute -right-10 -top-10 size-28 rounded-full bg-white/20 blur-2xl" />
+          <CardContent className="relative z-10 p-3 sm:p-4">
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/20">
+                <ShoppingBag className="size-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold leading-tight sm:text-base">
+                  Plan üretim krediniz bitti
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-white/90 sm:text-sm">
+                  Marketten kredi alıp üretime hemen devam edebilirsiniz.
+                </p>
+              </div>
+              <Link
+                href="/market"
+                className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-rose-700 shadow-sm transition hover:bg-white/95 sm:text-sm"
+              >
+                <Sparkles className="size-4" />
+                Markete git
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Öğretmen: plan kotası ve varsayılanlar */}
-      {me?.role === 'teacher' && (
+      {me?.role === 'teacher' && !(hideHeader && isBilsemYillikPlan) && (
         <Card
           className={cn(
-            'relative overflow-hidden shadow-md',
+            'relative overflow-hidden shadow-sm',
+            (hideHeader && isBilsemYillikPlan) || (isBilsemYillikPlan && 'max-sm:hidden'),
             isBilsemYillikPlan
               ? 'border-violet-400/35 border-l-4 border-l-violet-500 bg-gradient-to-r from-violet-500/[0.08] via-transparent to-fuchsia-500/[0.04] dark:border-violet-500/30 dark:from-violet-950/40'
               : cn(
@@ -1463,26 +1823,26 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
           )}
         >
           {!isBilsemYillikPlan && (
-            <CardHeader className={cn('flex flex-row items-center gap-3 space-y-0 border-0 py-3 sm:py-3.5', EVRAK_UI_PANEL.settings.head)}>
-              <span className="flex size-8 items-center justify-center rounded-lg bg-sky-500/15">
-                <Settings className="size-4 text-sky-800 dark:text-sky-300" />
+            <CardHeader className={cn('flex flex-row items-center gap-2 space-y-0 border-0 py-2.5 sm:py-3', EVRAK_UI_PANEL.settings.head)}>
+              <span className="flex size-7 items-center justify-center rounded-md bg-sky-500/15">
+                <Settings className="size-3.5 text-sky-800 dark:text-sky-300" />
               </span>
-              <CardTitle className="text-sm font-semibold leading-tight sm:text-base">Varsayılanlar ve kota</CardTitle>
+              <CardTitle className="text-xs font-semibold leading-tight sm:text-sm">Varsayılanlar ve kota</CardTitle>
             </CardHeader>
           )}
           <CardContent
             className={cn(
-              'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between',
-              !isBilsemYillikPlan ? 'pt-0 pb-4 sm:px-6' : 'px-3 py-3 sm:px-6 sm:py-4',
+              'flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between',
+              !isBilsemYillikPlan ? 'pt-0 pb-3 sm:px-6' : 'px-2 py-1.5 sm:px-6 sm:py-3',
             )}
           >
             <div className="min-w-0">
-              <p className={cn('text-foreground', isBilsemYillikPlan ? 'text-xs sm:text-sm' : 'text-sm')}>
+              <p className={cn('text-foreground', isBilsemYillikPlan ? 'text-[10px] leading-snug sm:text-xs' : 'text-xs sm:text-sm')}>
                 Plan üretirken okul adı, müdür ve zümre öğretmenleri otomatik doldurulur.
                 <span className="ml-1 text-muted-foreground">Ayarlardan düzenleyebilirsiniz.</span>
               </p>
               {planUretimKota !== null && (
-                <p className={cn('mt-2', isBilsemYillikPlan ? 'text-xs sm:text-sm' : 'text-sm')}>
+                <p className={cn('mt-1', isBilsemYillikPlan ? 'text-[10px] leading-snug sm:text-xs' : 'text-xs sm:text-sm')}>
                   <span className="font-medium text-foreground">Yıllık plan üretim kotanız:</span>{' '}
                   <span
                     className={
@@ -1499,7 +1859,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                     <Link
                       href="/market"
                       className={cn(
-                        'ml-2 inline-flex items-center gap-1 text-sm font-medium hover:underline',
+                        'ml-1 inline-flex items-center gap-1 text-[10px] font-medium hover:underline sm:text-xs',
                         isBilsemYillikPlan ? 'text-violet-700 dark:text-violet-300' : 'text-primary',
                       )}
                     >
@@ -1510,7 +1870,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                 </p>
               )}
               {defaultsIncomplete && (
-                <p className="mt-2 text-sm font-medium text-amber-600 dark:text-amber-500">
+                <p className="mt-1 text-[10px] font-medium leading-snug text-amber-600 dark:text-amber-500 sm:text-xs">
                   Önerilen: Okul adı ve müdür bilgisini varsayılanlara ekleyin; evraklarda otomatik görünür.
                 </p>
               )}
@@ -1518,9 +1878,9 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
             <Link
               href="/settings"
               className={cn(
-                'inline-flex shrink-0 items-center gap-2 self-start rounded-xl border font-medium transition-colors sm:self-center',
+                'inline-flex shrink-0 items-center gap-1 self-start rounded-md border font-medium transition-colors sm:self-center sm:gap-2 sm:rounded-xl',
                 isBilsemYillikPlan
-                  ? 'border-violet-500/40 bg-violet-500/10 px-3 py-2 text-xs text-violet-900 hover:bg-violet-500/15 dark:border-violet-400/35 dark:bg-violet-950/50 dark:text-violet-100 dark:hover:bg-violet-950/70 sm:px-4 sm:py-2.5 sm:text-sm'
+                  ? 'border-violet-500/40 bg-violet-500/10 px-2 py-1 text-[10px] text-violet-900 hover:bg-violet-500/15 dark:border-violet-400/35 dark:bg-violet-950/50 dark:text-violet-100 dark:hover:bg-violet-950/70 sm:px-4 sm:py-2.5 sm:text-sm'
                   : 'border-primary/40 bg-primary/10 px-4 py-2.5 text-sm text-primary hover:bg-primary/20',
               )}
             >
@@ -1606,7 +1966,8 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
               {step === 0 && (me?.role === 'teacher' ? 'Öğretim yılı' : 'Öğretim yılı seçin')}
               {step === 1 && (me?.role === 'teacher' ? 'Grup seçimi' : 'Ana ve alt grup seçin')}
               {step === bilsemSubjectStep && 'Ders seçin'}
-              {step === bilsemOutcomesStep && (me?.role === 'teacher' ? 'Kazanımlar' : 'Kazanımlar ve plan kapsamı')}
+              {step === bilsemOutcomesStep &&
+                (me?.role === 'teacher' ? 'Öğrenme Çıktıları' : 'Öğrenme Çıktıları ve plan kapsamı')}
             </CardTitle>
           ) : (
             <div className="flex items-start gap-3">
@@ -1646,7 +2007,9 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
               <div>
                 <label className="block text-xs font-medium sm:text-sm">Öğretim yılı</label>
                 <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground sm:text-xs">
-                  {me?.role === 'teacher' ? 'Listeden seçin.' : 'Örn: 2024-2025 — kazanım şablonları ve liste bu yıla göre filtrelenir.'}
+                  {me?.role === 'teacher'
+                    ? 'Listeden seçin.'
+                    : 'Örn: 2024-2025 — öğrenme çıktıları şablonları ve liste bu yıla göre filtrelenir.'}
                 </p>
               </div>
               <select
@@ -1822,26 +2185,26 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                   <Layers className="size-3 sm:size-3.5" />
                 </span>
                 <div>
-                  <p className="text-xs font-medium text-foreground sm:text-sm">Kazanım şablonu</p>
+                  <p className="text-xs font-medium text-foreground sm:text-sm">Öğrenme Çıktıları</p>
                   <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground sm:text-[11px] sm:leading-relaxed">
                     İşaretlediğiniz maddeler haftalara yayılır; tatil haftaları ayrı kalır.
                   </p>
                 </div>
               </div>
               {bilsemSetsLoading ? (
-                <p className="text-sm text-muted-foreground">Şablonlar yükleniyor…</p>
+                <p className="text-sm text-muted-foreground">Öğrenme çıktıları yükleniyor…</p>
               ) : bilsemOutcomeSets.length === 0 ? (
                 <Alert
                   message={
                     me?.role === 'teacher'
-                      ? 'Bu ders ve yıl için kazanım listesi henüz yok. Okul yöneticinize danışın.'
-                      : 'Bu ders ve yıl için kazanım şablonu tanımlı değil. Bilsem kazanım şablonları üzerinden eklenebilir.'
+                      ? 'Bu ders ve yıl için öğrenme çıktıları listesi henüz yok. Okul yöneticinize danışın.'
+                      : 'Bu ders ve yıl için öğrenme çıktıları şablonu tanımlı değil. Yönetim ekranından (öğrenme çıktıları) eklenebilir.'
                   }
                   variant="warning"
                 />
               ) : (
                 <>
-                  <label className="block text-xs font-medium sm:text-sm">Şablon</label>
+                  <label className="block text-xs font-medium sm:text-sm">Tanımlı set</label>
                   <select
                     value={bilsemSelectedSetId}
                     onChange={(e) => {
@@ -1853,7 +2216,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                     <option value="">Seçiniz</option>
                     {bilsemOutcomeSets.map((s) => (
                       <option key={s.id} value={s.id}>
-                        {labelBilsemOutcomeSetOption(s, bilsemSubjectItems, subjects?.items)}
+                        {labelBilsemOutcomeSetOption(s, bilsemSubjectItems, subjects?.items, me?.id)}
                       </option>
                     ))}
                   </select>
@@ -1903,7 +2266,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                       </div>
                     </>
                   ) : bilsemSelectedSetId ? (
-                    <p className="text-sm text-muted-foreground">Kazanımlar yükleniyor…</p>
+                    <p className="text-sm text-muted-foreground">Öğrenme çıktıları yükleniyor…</p>
                   ) : null}
                   <div className="flex flex-wrap gap-2 pt-1.5 sm:gap-4 sm:pt-2">
                     {(
@@ -2027,6 +2390,17 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
             </CardTitle>
           </CardHeader>
           <CardContent className={cn(isBilsemYillikPlan ? 'p-3 sm:p-6' : 'p-4 sm:p-6')}>
+            {isBilsemYillikPlan && (
+              <div className="mb-3 sm:mb-4">
+                <BilsemPlanSourceEngagement
+                  token={token}
+                  subjectCode={filters.subject_code}
+                  anaGrup={filters.ana_grup}
+                  altGrup={filters.alt_grup}
+                  academicYear={filters.academic_year}
+                />
+              </div>
+            )}
             {loading ? (
               <div className="space-y-3">
                 {[1, 2, 3, 4].map((i) => (
@@ -2286,13 +2660,13 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
       )}
 
       {generateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
+        <div className="fixed inset-0 z-[300] flex items-center justify-center overflow-y-auto bg-black/45 px-3 py-4 backdrop-blur-[2px] sm:px-4 sm:py-6">
           <Card
-            className={`mx-4 flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden shadow-2xl ${
+            className={`my-2 w-full max-w-2xl flex-col overflow-hidden shadow-2xl sm:my-0 ${
               isBilsemYillikPlan
                 ? 'border-violet-500/25 ring-1 ring-violet-500/10 dark:border-violet-500/30'
                 : 'border-border'
-            }`}
+            } flex max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-3rem)]`}
           >
             <CardHeader
               className={`shrink-0 flex flex-row items-start justify-between gap-3 border-b ${
@@ -2300,7 +2674,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
               } ${
                 isBilsemYillikPlan
                   ? 'border-violet-500/15 bg-gradient-to-r from-violet-500/[0.06] to-transparent dark:from-violet-950/40'
-                  : 'border-border'
+                  : 'border-sky-200/60 bg-linear-to-r from-sky-500/10 via-cyan-500/6 to-indigo-500/6 dark:border-sky-800/40 dark:from-sky-950/40'
               }`}
             >
               <div className={`min-w-0 ${isBilsemYillikPlan ? 'space-y-0.5' : 'space-y-1'}`}>
@@ -2313,7 +2687,9 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                       {templateDisplayName(generateModal)}
                     </span>
                   ) : (
-                    `${filters.grade && `${filters.grade}. `}Sınıf ${templateDisplayName(generateModal)} Yıllık Plan`
+                    <span className="bg-linear-to-r from-sky-700 via-cyan-700 to-indigo-700 bg-clip-text text-transparent dark:from-sky-300 dark:via-cyan-300 dark:to-indigo-300">
+                      {`${filters.grade && `${filters.grade}. `}Sınıf ${templateDisplayName(generateModal)} Yıllık Plan`}
+                    </span>
                   )}
                 </CardTitle>
                 <p className={isBilsemYillikPlan ? 'text-[11px] leading-snug text-muted-foreground' : 'text-xs text-muted-foreground'}>
@@ -2330,24 +2706,30 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                   setGenerateModal(null);
                   setGenerateSuccess(false);
                 }}
-                className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className={`rounded-full p-1.5 transition-colors ${
+                  isBilsemYillikPlan
+                    ? 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                    : 'text-sky-700/80 hover:bg-sky-500/15 hover:text-sky-900 dark:text-sky-300 dark:hover:bg-sky-900/40'
+                }`}
                 aria-label="Kapat"
               >
                 ×
               </button>
             </CardHeader>
-            <CardContent className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden p-0">
+            <CardContent className="flex min-h-0 flex-1 flex-col gap-0 overflow-y-auto p-0">
               {generateSuccess ? (
                 <div
                   className={`flex flex-1 flex-col items-center justify-center gap-3 px-5 py-8 ${
-                    isBilsemYillikPlan ? 'bg-gradient-to-b from-violet-500/[0.04] to-transparent' : ''
+                    isBilsemYillikPlan
+                      ? 'bg-linear-to-b from-violet-500/4 to-transparent'
+                      : 'bg-linear-to-b from-sky-500/10 via-cyan-500/5 to-transparent'
                   }`}
                 >
                   <div
                     className={`flex size-11 items-center justify-center rounded-full ${
                       isBilsemYillikPlan
                         ? 'bg-violet-500/15 text-violet-600 dark:bg-violet-500/20 dark:text-violet-300'
-                        : 'bg-primary/10 text-primary'
+                        : 'bg-sky-500/20 text-sky-700 ring-1 ring-sky-500/30 dark:bg-sky-900/40 dark:text-sky-300'
                     }`}
                   >
                     <CheckCircle2 className="size-6" />
@@ -2368,7 +2750,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                       className={`rounded-lg px-4 py-2 text-xs font-medium text-primary-foreground shadow-sm ${
                         isBilsemYillikPlan
                           ? 'bg-violet-600 hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500'
-                          : 'bg-primary hover:bg-primary/90'
+                          : 'bg-linear-to-r from-sky-600 to-cyan-600 hover:from-sky-500 hover:to-cyan-500'
                       }`}
                     >
                       Yeni üret
@@ -2379,7 +2761,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                         setGenerateModal(null);
                         setGenerateSuccess(false);
                       }}
-                      className="rounded-lg border border-border bg-background px-4 py-2 text-xs hover:bg-muted"
+                      className="rounded-lg border border-sky-300/50 bg-sky-500/5 px-4 py-2 text-xs text-sky-800 hover:bg-sky-500/10 dark:border-sky-700/40 dark:bg-sky-950/30 dark:text-sky-200"
                     >
                       Kapat
                     </button>
@@ -2404,6 +2786,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                       : 'inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90';
                     const readOnlyKeys = ['ogretim_yili', 'sinif', 'ders_kodu', 'dersKodu', 'ders-kodu', 'subject_code', 'ders_adi', 'dersAdi', 'ders-adi', 'subject_label'];
                     const zumreKeys = ['zumre_ogretmenleri', 'zumreler'];
+                    const profileLockedKeys = ['onay_tarihi', 'tarih', 'onay_tarihi_alt', 'mudur_adi', 'zumre_ogretmenleri', 'zumreler', 'ogretmen_unvani'];
                     const summaryLine = [
                       generateForm.sinif && formatYillikPlanGradeLabel(generateForm.sinif, isBilsemYillikPlan),
                       generateForm.ders_adi ?? generateForm.dersAdi,
@@ -2430,11 +2813,16 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                             variant="warning"
                           />
                         )}
+                        <Alert
+                          message="Tarih, müdür, zümre ve öğretmen unvanı Profil > Zümre sekmesinden alınır."
+                          variant="info"
+                        />
                         {schema.map((f, fi) => {
                           if (readOnlyKeys.includes(f.key)) return null;
                           if (f.key === 'zumreler' && schema.some((x) => x.key === 'zumre_ogretmenleri')) return null;
                           if (f.key === 'tarih' && schema.some((x) => x.key === 'onay_tarihi')) return null;
                           const isZumre = zumreKeys.includes(f.key);
+                          const isProfileLocked = profileLockedKeys.includes(f.key);
                           const zumreValue = generateForm[f.key] ?? generateForm.zumre_ogretmenleri ?? generateForm.zumreler ?? '';
                           const zumreList = zumreValue ? zumreValue.split(',').map((s) => s.trim()).filter(Boolean) : [];
                           const placeholders: Record<string, string> = {
@@ -2443,28 +2831,14 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                             onay_tarihi: 'GG.AA.YYYY',
                           };
                           if (isZumre) {
-                            // zumreList: "Ahmet|Coğrafya Öğretmeni, Mehmet" → [{isim,unvan},...]
-                            const parseZumre = (raw: string): { isim: string; unvan: string }[] => {
-                              return raw
-                                ? raw.split(',').map((s) => {
-                                    const t = s.trim();
-                                    const pipe = t.indexOf('|');
-                                    if (pipe >= 0) {
-                                      return { isim: t.slice(0, pipe).trim(), unvan: t.slice(pipe + 1).trim() };
-                                    }
-                                    return { isim: t, unvan: '' };
-                                  }).filter((x) => x.isim.length > 0)
-                                : [];
-                            };
-                            const serializeZumre = (items: { isim: string; unvan: string }[]) =>
-                              items.map((x) => (x.unvan ? `${x.isim}|${x.unvan}` : x.isim)).join(', ');
-                            const zumreItems = parseZumre(zumreValue);
+                            const zumreItems = dedupeZumre(parseZumreRaw(zumreValue));
                             return (
                               <div key={f.key}>
                                 <label className={lbl}>
                                   Zümre öğretmenleri (isim ve branş/unvan ile ekleyin) {f.required && '*'}
                                 </label>
-                                <div className={c ? 'flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-end' : 'flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end'}>
+                                {!isProfileLocked && (
+                                  <div className={c ? 'flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-end' : 'flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end'}>
                                   <input
                                     type="text"
                                     id="zumre-isim-input"
@@ -2520,6 +2894,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                                     Ekle
                                   </button>
                                 </div>
+                                )}
                                 {zumreItems.length > 0 && (
                                   <div className={c ? 'mt-1.5 flex flex-wrap gap-1' : 'mt-2 flex flex-wrap gap-1.5'}>
                                     {zumreItems.map((item, i) => (
@@ -2532,21 +2907,22 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                                         }
                                       >
                                         {item.unvan ? `${item.isim} · ${item.unvan}` : item.isim}
-                                        <button
-                                          type="button"
-                                          className="rounded-full p-0.5 hover:bg-primary/30"
-                                          onClick={() => {
-                                            const next = zumreItems.filter((_, j) => j !== i);
-                                            setGenerateForm((prev) => ({
-                                              ...prev,
-                                              zumre_ogretmenleri: serializeZumre(next),
-                                              zumreler: serializeZumre(next),
-                                            }));
-                                          }
-                                        }
-                                        >
-                                          <X className="size-3.5" />
-                                        </button>
+                                        {!isProfileLocked && (
+                                          <button
+                                            type="button"
+                                            className="rounded-full p-0.5 hover:bg-primary/30"
+                                            onClick={() => {
+                                              const next = zumreItems.filter((_, j) => j !== i);
+                                              setGenerateForm((prev) => ({
+                                                ...prev,
+                                                zumre_ogretmenleri: serializeZumre(next),
+                                                zumreler: serializeZumre(next),
+                                              }));
+                                            }}
+                                          >
+                                            <X className="size-3.5" />
+                                          </button>
+                                        )}
                                       </span>
                                     ))}
                                   </div>
@@ -2572,6 +2948,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                                     return '';
                                   })()}
                                   onChange={(e) => {
+                                    if (isProfileLocked) return;
                                     const v = e.target.value;
                                     const tr = v ? new Date(v).toLocaleDateString('tr-TR') : '';
                                     const trAlt = tr.replace(/\./g, ' / ');
@@ -2583,14 +2960,19 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                                     }));
                                   }}
                                   className={inp}
+                                  disabled={isProfileLocked}
                                 />
                               ) : (
                                 <input
                                   type="text"
                                   value={generateForm[f.key] ?? ''}
-                                  onChange={(e) => setGenerateForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                                  onChange={(e) => {
+                                    if (isProfileLocked) return;
+                                    setGenerateForm((prev) => ({ ...prev, [f.key]: e.target.value }));
+                                  }}
                                   placeholder={placeholders[f.key]}
                                   className={inp}
+                                  disabled={isProfileLocked}
                                 />
                               )}
                             </div>
@@ -2683,7 +3065,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                   </div>
               <div
                 className={`shrink-0 border-t border-border bg-background ${
-                  isBilsemYillikPlan ? 'px-3 py-2' : 'px-4 py-3'
+                  isBilsemYillikPlan ? 'px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]' : 'px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]'
                 }`}
               >
                 <div className={`flex justify-end ${isBilsemYillikPlan ? 'gap-2' : 'gap-3'}`}>
@@ -2707,7 +3089,9 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
                     disabled={
                       generateLoading ||
                       noPlanKota ||
-                      (isBilsemYillikPlan && !String(generateForm.bilsem_yillik_draft_json ?? '').trim())
+                      (isBilsemYillikPlan &&
+                        !useBilsemPlanContentSource &&
+                        !String(generateForm.bilsem_yillik_draft_json ?? '').trim())
                     }
                     title={noPlanKota ? 'Plan üretim kotanız bitti. Marketten hak alın.' : undefined}
                     className={

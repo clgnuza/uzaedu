@@ -9,12 +9,22 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Database, Layers3, Library, Upload } from 'lucide-react';
+import { Plus, Pencil, Trash2, Layers3, Library, Upload } from 'lucide-react';
 import { ToolbarIconHints } from '@/components/layout/toolbar-icon-hints';
 import { cn } from '@/lib/utils';
 import type { SchoolClass, SchoolSubject } from '@/hooks/use-school-classes-subjects';
 
-type TabId = 'classes' | 'subjects';
+type TabId = 'classes' | 'subjects' | 'studentLists';
+type SchoolStudent = {
+  id: string;
+  name: string;
+  studentNumber: string | null;
+  classId: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  gender: string | null;
+  birthDate: string | null;
+};
 
 const ClassIcon = ({ className }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -54,6 +64,471 @@ function BulkImportSettingsPanel({ variant, isBilsem }: { variant: TabId; isBils
   );
 }
 
+function EokulPdfImportPanel({ token, onDone }: { token: string | null; onDone: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [errorText, setErrorText] = useState<string | null>(null);
+
+  const handleUpload = useCallback(async () => {
+    if (!token) return;
+    if (!file) {
+      toast.error('Dosya seçin.');
+      setErrorText('Önce e-Okul veri raporu seçin: OOG01001R010 Sınıf Şube Öğrenci Sayıları (PDF/Excel).');
+      return;
+    }
+    setErrorText(null);
+    const body = new FormData();
+    body.append('file', file);
+    setLoading(true);
+    try {
+      const res = await apiFetch<{ ok: boolean; parsed_rows: number; classes_added: number; classes_updated: number; classes_skipped: number }>(
+        '/classes-subjects/classes/import/eokul-pdf',
+        {
+          method: 'POST',
+          token,
+          body,
+        },
+      );
+      if (!res.ok) {
+        toast.error('Dosya içeriği çözümlenemedi.');
+        setErrorText('Dosya okundu ama sınıf/şube satırları çözümlenemedi. Rapor formatını kontrol edin.');
+        return;
+      }
+      toast.success(
+        `Aktarım tamamlandı: +${res.classes_added} yeni, ${res.classes_updated} güncellendi, ${res.classes_skipped} atlandı.`,
+      );
+      setFile(null);
+      onDone();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Dosya yüklenemedi';
+      toast.error(msg);
+      setErrorText(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, [token, file, onDone]);
+
+  return (
+    <div className="space-y-1.5 border-t border-border/70 bg-emerald-500/[0.05] px-2 py-2 sm:px-3 sm:py-3">
+      <div className="rounded-xl border border-sky-500/25 bg-linear-to-br from-sky-500/12 via-cyan-500/8 to-emerald-500/10 p-2 shadow-sm">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200 sm:text-[11px]">
+          e-Okul veri raporu yükleme akışı (OOG01001R010)
+        </div>
+        <div className="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-3">
+          <div className="rounded-lg border border-sky-400/30 bg-background/80 px-2 py-1">
+            <p className="text-[10px] font-semibold text-foreground">1) Raporu seç</p>
+            <p className="text-[10px] text-muted-foreground">Sınıf Şube Öğrenci Sayıları PDF/XLS</p>
+          </div>
+          <div className="rounded-lg border border-cyan-400/30 bg-background/80 px-2 py-1">
+            <p className="text-[10px] font-semibold text-foreground">2) Dosyayı doğrula</p>
+            <p className="text-[10px] text-muted-foreground">e-Okul veri raporu zorunlu: OOG01001R010</p>
+          </div>
+          <div className="rounded-lg border border-emerald-400/30 bg-background/80 px-2 py-1">
+            <p className="text-[10px] font-semibold text-foreground">3) İçe aktar</p>
+            <p className="text-[10px] text-muted-foreground">Yeni kayıtlar eklenir</p>
+          </div>
+        </div>
+      </div>
+      <input
+        type="file"
+          accept="application/pdf,.pdf,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+        className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-xs sm:text-sm"
+      />
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] text-muted-foreground sm:text-xs">
+          Zorunlu rapor: e-Okul OOG01001R010 Sınıf Şube Öğrenci Sayıları
+        </p>
+        <button
+          type="button"
+          disabled={!file || loading}
+          onClick={handleUpload}
+          className="rounded-lg bg-emerald-600 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 sm:text-xs"
+        >
+          {loading ? 'Yükleniyor…' : 'Dosya ile içe aktar'}
+        </button>
+      </div>
+      {errorText && (
+        <div className="rounded-lg border border-destructive/35 bg-destructive/10 px-2 py-1.5 text-[10px] text-destructive sm:text-xs">
+          {errorText}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EokulSubjectsXlsImportPanel({ token, onDone }: { token: string | null; onDone: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [errorText, setErrorText] = useState<string | null>(null);
+
+  const handleUpload = useCallback(async () => {
+    if (!token) return;
+    if (!file) {
+      setErrorText('e-Okul Excel veri raporu seçin: OOK11003R010 Öğretmen Ders Programları.');
+      return;
+    }
+    setErrorText(null);
+    const body = new FormData();
+    body.append('file', file);
+    setLoading(true);
+    try {
+      const res = await apiFetch<{ ok: boolean; parsed_rows: number; subjects_added: number; subjects_skipped: number }>(
+        '/classes-subjects/subjects/import/eokul-program-xls',
+        { method: 'POST', token, body },
+      );
+      if (!res.ok) {
+        setErrorText('Excel çözümlenemedi.');
+        return;
+      }
+      toast.success(`Ders aktarımı: +${res.subjects_added} yeni, ${res.subjects_skipped} tekrar atlandı.`);
+      setFile(null);
+      onDone();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Excel yüklenemedi';
+      toast.error(msg);
+      setErrorText(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, [token, file, onDone]);
+
+  return (
+    <div className="space-y-1.5 border-t border-border/70 bg-sky-500/5 px-2 py-2 sm:px-3 sm:py-3">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200 sm:text-[11px]">
+        e-Okul Excel veri raporu ile toplu ders yükleme (OOK11003R010)
+      </div>
+      <input
+        type="file"
+        accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+        className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-xs sm:text-sm"
+      />
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] text-muted-foreground sm:text-xs">Zorunlu rapor: e-Okul Excel veri raporu OOK11003R010. Tekrarlı dersler birleştirilir.</p>
+        <button
+          type="button"
+          disabled={!file || loading}
+          onClick={handleUpload}
+          className="rounded-lg bg-sky-600 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-sky-700 disabled:opacity-50 sm:text-xs"
+        >
+          {loading ? 'Yükleniyor…' : 'Excel ile ders yükle'}
+        </button>
+      </div>
+      {errorText && <div className="rounded-lg border border-destructive/35 bg-destructive/10 px-2 py-1.5 text-[10px] text-destructive sm:text-xs">{errorText}</div>}
+    </div>
+  );
+}
+
+function ClassStudentsPanel({
+  token,
+  classes,
+  canManage,
+}: {
+  token: string | null;
+  classes: SchoolClass[];
+  canManage: boolean;
+}) {
+  const [selectedClassId, setSelectedClassId] = useState<string>('');
+  const [students, setStudents] = useState<SchoolStudent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ firstName: '', lastName: '', studentNumber: '', gender: '', birthDate: '' });
+  const [importing, setImporting] = useState(false);
+
+  const loadStudents = useCallback(async () => {
+    if (!token || !selectedClassId) {
+      setStudents([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await apiFetch<SchoolStudent[]>(`/classes-subjects/classes/${selectedClassId}/students`, { token });
+      setStudents(data);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Öğrenciler alınamadı');
+    } finally {
+      setLoading(false);
+    }
+  }, [token, selectedClassId]);
+
+  useEffect(() => {
+    if (!selectedClassId && classes.length) setSelectedClassId(classes[0].id);
+  }, [selectedClassId, classes]);
+
+  useEffect(() => {
+    loadStudents();
+  }, [loadStudents]);
+
+  const saveStudent = useCallback(async () => {
+    if (!token || !selectedClassId || !form.firstName.trim() || !form.lastName.trim()) return;
+    try {
+        await apiFetch(`/classes-subjects/classes/${selectedClassId}/students`, {
+        method: 'POST',
+        token,
+          body: JSON.stringify({
+            firstName: form.firstName.trim(),
+            lastName: form.lastName.trim(),
+            studentNumber: form.studentNumber.trim() || undefined,
+            gender: form.gender.trim() || undefined,
+            birthDate: form.birthDate.trim() || undefined,
+          }),
+      });
+      setForm({ firstName: '', lastName: '', studentNumber: '', gender: '', birthDate: '' });
+      setAdding(false);
+      await loadStudents();
+      toast.success('Öğrenci eklendi');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Eklenemedi');
+    }
+  }, [token, selectedClassId, form, loadStudents]);
+
+  const updateStudent = useCallback(
+    async (id: string, patch: { name?: string; studentNumber?: string | null; firstName?: string; lastName?: string; gender?: string | null; birthDate?: string | null }) => {
+      if (!token) return;
+      try {
+        await apiFetch(`/classes-subjects/students/${id}`, {
+          method: 'PATCH',
+          token,
+          body: JSON.stringify(patch),
+        });
+        await loadStudents();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Güncellenemedi');
+      }
+    },
+    [token, loadStudents],
+  );
+
+  const deleteStudent = useCallback(
+    async (id: string) => {
+      if (!token) return;
+      if (!confirm('Öğrenci silinsin mi?')) return;
+      try {
+        await apiFetch(`/classes-subjects/students/${id}`, { method: 'DELETE', token });
+        await loadStudents();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Silinemedi');
+      }
+    },
+    [token, loadStudents],
+  );
+
+  const deleteAllStudents = useCallback(async () => {
+    if (!token || !selectedClassId) return;
+    if (!confirm('Bu sınıftaki tüm öğrenciler silinsin mi?')) return;
+    try {
+      await apiFetch(`/classes-subjects/classes/${selectedClassId}/students`, { method: 'DELETE', token });
+      await loadStudents();
+      toast.success('Sınıf öğrenci listesi temizlendi');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Toplu silinemedi');
+    }
+  }, [token, selectedClassId, loadStudents]);
+
+  const importXls = useCallback(
+    async (file: File | null) => {
+      if (!token || !file) return;
+      const body = new FormData();
+      body.append('file', file);
+      setImporting(true);
+      try {
+        const res = await apiFetch<{ ok: boolean; imported_students: number; skipped_students: number }>(
+          '/classes-subjects/students/import/eokul-class-list-xls',
+          { method: 'POST', token, body },
+        );
+        if (res.ok) {
+          toast.success(`Öğrenci aktarımı: +${res.imported_students}, atlanan ${res.skipped_students}`);
+          await loadStudents();
+        } else {
+          toast.error('Excel içeriği çözümlenemedi');
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Excel yüklenemedi');
+      } finally {
+        setImporting(false);
+      }
+    },
+    [token, loadStudents],
+  );
+
+  return (
+    <Card className="overflow-hidden rounded-xl border border-violet-500/20 bg-linear-to-br from-violet-500/5 via-card to-card shadow-sm ring-1 ring-violet-500/10 sm:rounded-2xl">
+      <CardHeader className="border-b border-violet-200/35 bg-linear-to-r from-violet-500/10 via-transparent to-sky-500/6 px-2.5 py-2 dark:border-violet-900/40 sm:px-3 sm:py-2.5">
+        <CardTitle className="text-xs font-bold sm:text-base">Sınıf Listeleri</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2 p-2.5 sm:p-3">
+        <div className="rounded-xl border border-violet-500/25 bg-linear-to-br from-violet-500/12 via-fuchsia-500/8 to-sky-500/10 p-2 shadow-sm">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-900 dark:text-violet-200 sm:text-[11px]">
+            e-Okul Excel veri raporu ile tüm sınıflara toplu öğrenci yükleme (OOG01001R070)
+          </div>
+          <div className="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-3">
+            <div className="rounded-lg border border-violet-400/30 bg-background/80 px-2 py-1">
+              <p className="text-[10px] font-semibold text-foreground">1) Excel seç</p>
+              <p className="text-[10px] text-muted-foreground">Zorunlu: e-Okul OOG01001R070 Şube Listesi (Doğum Tarihi Yaş)</p>
+            </div>
+            <div className="rounded-lg border border-fuchsia-400/30 bg-background/80 px-2 py-1">
+              <p className="text-[10px] font-semibold text-foreground">2) Tüm sınıfları eşleştir</p>
+              <p className="text-[10px] text-muted-foreground">Sınıf + şube ile tekilleştirme</p>
+            </div>
+            <div className="rounded-lg border border-sky-400/30 bg-background/80 px-2 py-1">
+              <p className="text-[10px] font-semibold text-foreground">3) Listeyi güncelle</p>
+              <p className="text-[10px] text-muted-foreground">No, adı, soyadı, cinsiyet, doğum</p>
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <select
+            value={selectedClassId}
+            onChange={(e) => setSelectedClassId(e.target.value)}
+            className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-xs sm:text-sm"
+          >
+            {classes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          {canManage && (
+            <label className="inline-flex cursor-pointer items-center justify-center rounded-lg border border-input bg-background px-2 py-1.5 text-[10px] font-medium hover:bg-muted sm:text-xs">
+              {importing ? 'Yükleniyor…' : 'Tüm Sınıflara Excel Yükle'}
+              <input
+                type="file"
+                accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                className="hidden"
+                onChange={(e) => importXls(e.target.files?.[0] ?? null)}
+              />
+            </label>
+          )}
+        </div>
+        <p className="text-[10px] text-muted-foreground sm:text-xs">
+          Toplu yükleme için e-Okul Excel veri raporu zorunludur. Seçili sınıfa değil dosyadaki tüm sınıflara göre işler.
+        </p>
+
+        {canManage && (
+          <div className="flex gap-1">
+            {!adding ? (
+              <>
+                <button type="button" onClick={() => setAdding(true)} className="rounded-lg bg-violet-600 px-2.5 py-1 text-[10px] font-semibold text-white sm:text-xs">
+                  Öğrenci Ekle
+                </button>
+                <button type="button" onClick={deleteAllStudents} className="rounded-lg border border-destructive/40 px-2.5 py-1 text-[10px] font-semibold text-destructive sm:text-xs">
+                  Toplu Sil
+                </button>
+              </>
+            ) : (
+              <>
+                <input
+                  value={form.studentNumber}
+                  onChange={(e) => setForm((f) => ({ ...f, studentNumber: e.target.value }))}
+                  placeholder="No"
+                  className="w-20 rounded-lg border border-input bg-background px-2 py-1 text-xs"
+                />
+                <input
+                  value={form.firstName}
+                  onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))}
+                  placeholder="Adı"
+                  className="min-w-0 flex-1 rounded-lg border border-input bg-background px-2 py-1 text-xs"
+                />
+                <input
+                  value={form.lastName}
+                  onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))}
+                  placeholder="Soyadı"
+                  className="min-w-0 flex-1 rounded-lg border border-input bg-background px-2 py-1 text-xs"
+                />
+                <input
+                  value={form.gender}
+                  onChange={(e) => setForm((f) => ({ ...f, gender: e.target.value }))}
+                  placeholder="Cinsiyet"
+                  className="w-24 rounded-lg border border-input bg-background px-2 py-1 text-xs"
+                />
+                <input
+                  value={form.birthDate}
+                  onChange={(e) => setForm((f) => ({ ...f, birthDate: e.target.value }))}
+                  placeholder="YYYY-MM-DD"
+                  className="w-32 rounded-lg border border-input bg-background px-2 py-1 text-xs"
+                />
+                <button type="button" onClick={saveStudent} className="rounded-lg bg-violet-600 px-2.5 py-1 text-[10px] font-semibold text-white">
+                  Kaydet
+                </button>
+                <button type="button" onClick={() => setAdding(false)} className="rounded-lg border border-input px-2.5 py-1 text-[10px]">
+                  İptal
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        <ul className="divide-y divide-border/60 rounded-lg border border-border/60 bg-background/60">
+          <li className="grid grid-cols-[72px_minmax(120px,1fr)_minmax(120px,1fr)_88px_120px_auto] gap-2 px-2 py-1 text-[10px] font-semibold text-muted-foreground">
+            <span>No</span>
+            <span>Adı</span>
+            <span>Soyadı</span>
+            <span>Cinsiyet</span>
+            <span>Doğum Tarihi</span>
+            <span />
+          </li>
+          {loading ? (
+            <li className="px-2 py-2 text-xs text-muted-foreground">Yükleniyor…</li>
+          ) : students.length === 0 ? (
+            <li className="px-2 py-2 text-xs text-muted-foreground">Bu sınıfta öğrenci yok.</li>
+          ) : (
+            students.map((s) => (
+              <li key={s.id} className="grid grid-cols-[72px_minmax(120px,1fr)_minmax(120px,1fr)_88px_120px_auto] items-center gap-2 px-2 py-1.5">
+                <input
+                  defaultValue={s.studentNumber ?? ''}
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (v !== (s.studentNumber ?? '')) void updateStudent(s.id, { studentNumber: v || null });
+                  }}
+                  className="w-20 rounded border border-input bg-background px-1.5 py-1 text-[11px]"
+                />
+                <input
+                  defaultValue={s.firstName ?? s.name.split(' ').slice(0, -1).join(' ')}
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (v !== (s.firstName ?? '')) void updateStudent(s.id, { firstName: v || '' });
+                  }}
+                  className="min-w-0 flex-1 rounded border border-input bg-background px-1.5 py-1 text-[11px]"
+                />
+                <input
+                  defaultValue={s.lastName ?? s.name.split(' ').slice(-1).join(' ')}
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (v !== (s.lastName ?? '')) void updateStudent(s.id, { lastName: v || '' });
+                  }}
+                  className="min-w-0 flex-1 rounded border border-input bg-background px-1.5 py-1 text-[11px]"
+                />
+                <input
+                  defaultValue={s.gender ?? ''}
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (v !== (s.gender ?? '')) void updateStudent(s.id, { gender: v || null });
+                  }}
+                  className="rounded border border-input bg-background px-1.5 py-1 text-[11px]"
+                />
+                <input
+                  defaultValue={s.birthDate ?? ''}
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (v !== (s.birthDate ?? '')) void updateStudent(s.id, { birthDate: v || null });
+                  }}
+                  className="rounded border border-input bg-background px-1.5 py-1 text-[11px]"
+                />
+                {canManage && (
+                  <button type="button" onClick={() => deleteStudent(s.id)} className="rounded border border-destructive/35 px-2 py-1 text-[10px] text-destructive">
+                    Sil
+                  </button>
+                )}
+              </li>
+            ))
+          )}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function ClassesSubjectsPage() {
   const router = useRouter();
   const pathname = usePathname();
@@ -66,10 +541,9 @@ export default function ClassesSubjectsPage() {
   const [editingClass, setEditingClass] = useState<SchoolClass | null>(null);
   const [editingSubject, setEditingSubject] = useState<SchoolSubject | null>(null);
   const [saving, setSaving] = useState(false);
-  const [seeding, setSeeding] = useState(false);
 
   const tabParam = searchParams.get('tab');
-  const tab: TabId = tabParam === 'subjects' ? 'subjects' : 'classes';
+  const tab: TabId = tabParam === 'subjects' ? 'subjects' : tabParam === 'studentLists' ? 'studentLists' : 'classes';
 
   const setTab = useCallback(
     (next: TabId) => {
@@ -81,7 +555,7 @@ export default function ClassesSubjectsPage() {
   );
 
   useEffect(() => {
-    if (tabParam !== 'subjects' && tabParam !== 'classes' && tabParam !== null) {
+    if (tabParam !== 'subjects' && tabParam !== 'classes' && tabParam !== 'studentLists' && tabParam !== null) {
       const p = new URLSearchParams(searchParams.toString());
       p.set('tab', 'classes');
       router.replace(`${pathname}?${p.toString()}`, { scroll: false });
@@ -194,25 +668,6 @@ export default function ClassesSubjectsPage() {
     [token, refetch],
   );
 
-  const handleSeedDefaults = useCallback(async () => {
-    if (!token || !canManage) return;
-    setSeeding(true);
-    try {
-      const res = await apiFetch<{ ok: boolean; classes_added: number; subjects_added: number }>('/classes-subjects/seed-defaults', {
-        method: 'POST',
-        token,
-      });
-      const { classes_added = 0, subjects_added = 0 } = res;
-      toast.success(
-        isBilsem ? `${classes_added} grup, ${subjects_added} ders eklendi.` : `${classes_added} sınıf, ${subjects_added} ders eklendi.`,
-      );
-      refetch();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Yüklenemedi');
-    } finally {
-      setSeeding(false);
-    }
-  }, [token, canManage, refetch, isBilsem]);
 
   if (me?.role !== 'school_admin') {
     router.replace('/403');
@@ -228,8 +683,9 @@ export default function ClassesSubjectsPage() {
   }
 
   const tabDefs: { id: TabId; label: string; short: string; count: number; Icon: typeof Layers3 }[] = [
-    { id: 'classes', label: isBilsem ? 'Gruplar' : 'Sınıflar', short: isBilsem ? 'Grup' : 'Sınıf', count: classes.length, Icon: Layers3 },
+    { id: 'classes', label: 'Sınıflar/Gruplar', short: 'Sınıf/Grup', count: classes.length, Icon: Layers3 },
     { id: 'subjects', label: isBilsem ? 'Alan / dersler' : 'Dersler', short: 'Ders', count: subjects.length, Icon: Library },
+    { id: 'studentLists', label: 'Sınıf Listeleri', short: 'Öğrenci', count: classes.length, Icon: Layers3 },
   ];
 
   const inp = 'w-full rounded-lg border border-input bg-background px-2 py-1.5 text-xs sm:px-2.5 sm:py-2 sm:text-sm';
@@ -276,17 +732,6 @@ export default function ClassesSubjectsPage() {
                 {m}
               </span>
             ))}
-            {canManage && (
-              <button
-                type="button"
-                onClick={handleSeedDefaults}
-                disabled={seeding}
-                className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-900 hover:bg-emerald-500/16 disabled:opacity-50 dark:text-emerald-100 sm:text-xs"
-              >
-                <Database className="size-3 sm:size-3.5" aria-hidden />
-                {seeding ? '…' : 'Varsayılan 36+23'}
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -296,10 +741,28 @@ export default function ClassesSubjectsPage() {
       <div
         role="tablist"
         aria-label="Liste sekmeleri"
-        className="grid grid-cols-2 gap-1 rounded-xl border border-border/70 bg-muted/25 p-1 shadow-sm ring-1 ring-black/[0.03] dark:ring-white/[0.06] sm:max-w-md"
+        className="grid grid-cols-3 gap-1 rounded-xl border border-border/70 bg-linear-to-r from-emerald-500/10 via-sky-500/10 to-violet-500/10 p-1 shadow-sm ring-1 ring-black/[0.03] dark:ring-white/[0.06] sm:max-w-xl"
       >
         {tabDefs.map(({ id, label, short, count, Icon }) => {
           const active = tab === id;
+          const tone =
+            id === 'classes'
+              ? {
+                  active: 'bg-emerald-500/18 text-emerald-900 ring-1 ring-emerald-500/40 dark:text-emerald-100',
+                  badge: 'bg-emerald-500/20 text-emerald-900 dark:text-emerald-200',
+                  idle: 'hover:bg-emerald-500/12',
+                }
+              : id === 'subjects'
+                ? {
+                    active: 'bg-sky-500/18 text-sky-900 ring-1 ring-sky-500/40 dark:text-sky-100',
+                    badge: 'bg-sky-500/20 text-sky-900 dark:text-sky-200',
+                    idle: 'hover:bg-sky-500/12',
+                  }
+                : {
+                    active: 'bg-violet-500/18 text-violet-900 ring-1 ring-violet-500/40 dark:text-violet-100',
+                    badge: 'bg-violet-500/20 text-violet-900 dark:text-violet-200',
+                    idle: 'hover:bg-violet-500/12',
+                  };
           return (
             <button
               key={id}
@@ -310,8 +773,8 @@ export default function ClassesSubjectsPage() {
               className={cn(
                 'flex min-h-10 items-center justify-center gap-1.5 rounded-lg px-1.5 py-1.5 text-center transition-colors sm:min-h-11 sm:gap-2 sm:px-2',
                 active
-                  ? 'bg-background font-semibold text-foreground shadow-sm ring-1 ring-border/60'
-                  : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
+                  ? cn('font-semibold shadow-sm', tone.active)
+                  : cn('text-muted-foreground hover:text-foreground', tone.idle),
               )}
             >
               <Icon className="size-3.5 shrink-0 opacity-80 sm:size-4" aria-hidden />
@@ -320,7 +783,7 @@ export default function ClassesSubjectsPage() {
               <span
                 className={cn(
                   'shrink-0 rounded-md px-1 py-px text-[9px] font-bold tabular-nums sm:text-[10px]',
-                  active ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-200' : 'bg-muted text-muted-foreground',
+                  active ? tone.badge : 'bg-muted text-muted-foreground',
                 )}
               >
                 {count}
@@ -454,7 +917,7 @@ export default function ClassesSubjectsPage() {
                 ))
               )}
             </ul>
-            <BulkImportSettingsPanel variant="classes" isBilsem={isBilsem} />
+            {canManage ? <EokulPdfImportPanel token={token} onDone={refetch} /> : <BulkImportSettingsPanel variant="classes" isBilsem={isBilsem} />}
           </CardContent>
         </Card>
       )}
@@ -567,10 +1030,12 @@ export default function ClassesSubjectsPage() {
                 ))
               )}
             </ul>
-            <BulkImportSettingsPanel variant="subjects" isBilsem={isBilsem} />
+            {canManage ? <EokulSubjectsXlsImportPanel token={token} onDone={refetch} /> : <BulkImportSettingsPanel variant="subjects" isBilsem={isBilsem} />}
           </CardContent>
         </Card>
       )}
+
+      {tab === 'studentLists' && <ClassStudentsPanel token={token} classes={classes} canManage={canManage} />}
     </div>
   );
 }

@@ -1,9 +1,12 @@
 import { Injectable, ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import * as XLSX from 'xlsx';
 import * as path from 'path';
 import * as os from 'os';
+import * as fs from 'fs';
+import { PDFParse } from 'pdf-parse';
+import { extractEokulTeacherScheduleFromPdf } from './eokul-teacher-pdf-layout';
 import { TeacherTimetable } from './entities/teacher-timetable.entity';
 import { TeacherPersonalProgram } from './entities/teacher-personal-program.entity';
 import { TeacherPersonalProgramEntry } from './entities/teacher-personal-program-entry.entity';
@@ -35,9 +38,10 @@ const DAY_ALIASES: Record<string, number> = {
 export interface TimetableEntry {
   day_of_week: number;
   lesson_num: number;
-  user_id: string;
+  user_id: string | null;
   class_section: string;
   subject: string;
+  teacher_name_raw?: string | null;
 }
 
 export interface UploadResult {
@@ -92,6 +96,57 @@ export class TeacherTimetableService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
+  private normalizeTeacherRawName(raw: string): string {
+    let s = String(raw ?? '').replace(/\s+/g, ' ').trim();
+    if (!s) return '';
+    s = s.replace(/\s+\d{4}-\d{4}.*$/i, '').trim();
+    s = s.replace(/\s+I{1,3}\.?\s*D[ÖO]NEM.*$/i, '').trim();
+    s = s.replace(/\s*Bran[şs]?[ıi]?\s*:.*$/i, '').trim();
+    s = s.replace(/\s*Bran[şs]?[ıi]?.*$/i, '').trim();
+    return s;
+  }
+
+  private async resolvePendingTeacherAssignments(schoolId: string): Promise<number> {
+    const pending = await this.planEntryRepo
+      .createQueryBuilder('e')
+      .innerJoin('e.plan', 'p')
+      .where('p.school_id = :schoolId', { schoolId })
+      .andWhere('e.user_id IS NULL')
+      .andWhere('e.teacher_name_raw IS NOT NULL')
+      .getMany();
+    if (pending.length === 0) return 0;
+
+    const cache = new Map<string, string | null>();
+    let resolved = 0;
+    for (const row of pending) {
+      const raw = String(row.teacher_name_raw ?? '').trim();
+      if (!raw) continue;
+      if (!cache.has(raw)) {
+        cache.set(raw, await this.matchTeacher(schoolId, raw));
+      }
+      const userId = cache.get(raw) ?? null;
+      if (!userId) continue;
+      row.user_id = userId;
+      row.teacher_name_raw = null;
+      resolved++;
+    }
+    if (resolved > 0) await this.planEntryRepo.save(pending);
+    return resolved;
+  }
+
+  private async autoArchiveExpiredPlans(schoolId: string, date: string): Promise<void> {
+    const d = date.slice(0, 10);
+    await this.planRepo
+      .createQueryBuilder()
+      .update(SchoolTimetablePlan)
+      .set({ status: 'archived' })
+      .where('school_id = :schoolId', { schoolId })
+      .andWhere('status IN (:...statuses)', { statuses: ['published', 'draft'] })
+      .andWhere('valid_until IS NOT NULL')
+      .andWhere('valid_until < :today', { today: d })
+      .execute();
+  }
+
   /** Okulun Nöbet/Ders Programı ayarlarındaki max ders saati (6–12). Yoksa 8. */
   async getSchoolConfigMaxLessons(schoolId: string): Promise<number> {
     const school = await this.schoolRepo.findOne({
@@ -105,11 +160,12 @@ export class TeacherTimetableService {
 
   /** Tarih için geçerli plan id (yayınlanmış, valid_from <= date, valid_until null veya >= date). Yoksa null. */
   private async getActivePlanIdForDate(schoolId: string, date: string): Promise<string | null> {
+    await this.autoArchiveExpiredPlans(schoolId, date);
     const plan = await this.planRepo
       .createQueryBuilder('p')
       .select('p.id')
       .where('p.school_id = :schoolId', { schoolId })
-      .andWhere('p.status IN (:...statuses)', { statuses: ['published', 'archived'] })
+      .andWhere('p.status IN (:...statuses)', { statuses: ['published'] })
       .andWhere('p.valid_from <= :date', { date })
       .andWhere('(p.valid_until IS NULL OR p.valid_until >= :date)', { date })
       .orderBy(`CASE WHEN p.status = 'published' THEN 0 ELSE 1 END`, 'ASC')
@@ -118,15 +174,37 @@ export class TeacherTimetableService {
     return plan?.id ?? null;
   }
 
+  private async hasAnyPlanHistory(schoolId: string): Promise<boolean> {
+    const n = await this.planRepo.count({ where: { school_id: schoolId } });
+    return n > 0;
+  }
+
+  private async getPlanEntriesAsTimetableEntries(planId: string): Promise<TimetableEntry[]> {
+    const rows = await this.planEntryRepo.find({
+      where: { plan_id: planId },
+      select: ['day_of_week', 'lesson_num', 'user_id', 'class_section', 'subject', 'teacher_name_raw'],
+      order: { day_of_week: 'ASC', lesson_num: 'ASC', class_section: 'ASC' },
+    });
+    return rows.map((r) => ({
+      day_of_week: r.day_of_week,
+      lesson_num: r.lesson_num,
+      user_id: r.user_id,
+      class_section: r.class_section,
+      subject: r.subject,
+      teacher_name_raw: r.teacher_name_raw ?? null,
+    }));
+  }
+
   /** Tarih için geçerli plan bilgisi (yayınlanmış). valid_until null = açık uçlu. */
   async getActivePlanInfo(schoolId: string | null, date?: string): Promise<{ plan_id: string; name: string | null; valid_from: string; valid_until: string | null } | null> {
     if (!schoolId) return null;
     const dateStr = (date ?? new Date().toISOString().slice(0, 10)).slice(0, 10);
+    await this.autoArchiveExpiredPlans(schoolId, dateStr);
     const plan = await this.planRepo
       .createQueryBuilder('p')
       .select(['p.id', 'p.name', 'p.valid_from', 'p.valid_until'])
       .where('p.school_id = :schoolId', { schoolId })
-      .andWhere('p.status IN (:...statuses)', { statuses: ['published', 'archived'] })
+      .andWhere('p.status IN (:...statuses)', { statuses: ['published'] })
       .andWhere('p.valid_from <= :date', { date: dateStr })
       .andWhere('(p.valid_until IS NULL OR p.valid_until >= :date)', { date: dateStr })
       .orderBy(`CASE WHEN p.status = 'published' THEN 0 ELSE 1 END`, 'ASC')
@@ -137,25 +215,26 @@ export class TeacherTimetableService {
 
   async getBySchool(schoolId: string | null, date?: string): Promise<TimetableEntry[]> {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    await this.resolvePendingTeacherAssignments(schoolId);
     const dateStr = (date ?? new Date().toISOString().slice(0, 10)).slice(0, 10);
     const planId = await this.getActivePlanIdForDate(schoolId, dateStr);
-    const where: Record<string, unknown> = { school_id: schoolId };
-    if (planId) {
-      where.plan_id = planId;
-    } else {
-      where.plan_id = null;
-    }
+    if (!planId) return [];
+    const where: Record<string, unknown> = { school_id: schoolId, plan_id: planId };
     const rows = await this.repo.find({
       where,
-      select: ['day_of_week', 'lesson_num', 'user_id', 'class_section', 'subject'],
+      select: ['day_of_week', 'lesson_num', 'user_id', 'class_section', 'subject', 'teacher_name_raw'],
       order: { day_of_week: 'ASC', lesson_num: 'ASC', class_section: 'ASC' },
     });
+    if (rows.length === 0 && planId) {
+      return this.getPlanEntriesAsTimetableEntries(planId);
+    }
     return rows.map((r) => ({
       day_of_week: r.day_of_week,
       lesson_num: r.lesson_num,
       user_id: r.user_id,
       class_section: r.class_section,
       subject: r.subject,
+      teacher_name_raw: r.teacher_name_raw ?? null,
     }));
   }
 
@@ -226,14 +305,11 @@ export class TeacherTimetableService {
   /** Öğretmenin kendi ders programı (scope: sadece kendi user_id). */
   async getByMe(schoolId: string | null, userId: string, date?: string): Promise<TimetableEntry[]> {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    await this.resolvePendingTeacherAssignments(schoolId);
     const dateStr = (date ?? new Date().toISOString().slice(0, 10)).slice(0, 10);
     const planId = await this.getActivePlanIdForDate(schoolId, dateStr);
-    const where: Record<string, unknown> = { school_id: schoolId, user_id: userId };
-    if (planId) {
-      where.plan_id = planId;
-    } else {
-      where.plan_id = null;
-    }
+    if (!planId) return [];
+    const where: Record<string, unknown> = { school_id: schoolId, user_id: userId, plan_id: planId };
     const rows = await this.repo.find({
       where,
       select: ['day_of_week', 'lesson_num', 'user_id', 'class_section', 'subject'],
@@ -260,21 +336,38 @@ export class TeacherTimetableService {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     const dateStr = date.slice(0, 10);
     const planId = await this.getActivePlanIdForDate(schoolId, dateStr);
+    if (!planId) return {};
     const dayOfWeek = this.getDayOfWeekFromDate(dateStr);
     const turkishDay = dayOfWeek >= 1 && dayOfWeek <= 5 ? dayOfWeek : 1;
-    const where: Record<string, unknown> = { school_id: schoolId, day_of_week: turkishDay };
-    if (planId) where.plan_id = planId;
-    else where.plan_id = null;
+    const where: Record<string, unknown> = { school_id: schoolId, day_of_week: turkishDay, plan_id: planId };
     const rows = await this.repo.find({
       where,
-      select: ['user_id', 'lesson_num', 'class_section', 'subject'],
+      select: ['user_id', 'lesson_num', 'class_section', 'subject', 'teacher_name_raw'],
     });
+    if (rows.length === 0 && planId) {
+      const planRows = await this.planEntryRepo.find({
+        where: { plan_id: planId, day_of_week: turkishDay },
+        select: ['user_id', 'teacher_name_raw', 'lesson_num', 'class_section', 'subject'],
+      });
+      const outFromPlan: Record<string, Record<number, { class_section: string; subject: string }>> = {};
+      for (const r of planRows) {
+        const key =
+          r.user_id != null && String(r.user_id).trim()
+            ? String(r.user_id)
+            : `raw:${encodeURIComponent((r.teacher_name_raw ?? '').trim() || 'bilinmeyen')}`;
+        if (!outFromPlan[key]) outFromPlan[key] = {};
+        outFromPlan[key][r.lesson_num] = { class_section: r.class_section?.trim() ?? '', subject: r.subject ?? '' };
+      }
+      return outFromPlan;
+    }
     const out: Record<string, Record<number, { class_section: string; subject: string }>> = {};
     for (const r of rows) {
-      const uid = String(r.user_id ?? '');
-      if (!uid) continue;
-      if (!out[uid]) out[uid] = {};
-      out[uid][r.lesson_num] = { class_section: r.class_section?.trim() ?? '', subject: r.subject ?? '' };
+      const key =
+        r.user_id != null && String(r.user_id).trim()
+          ? String(r.user_id)
+          : `raw:${encodeURIComponent((r.teacher_name_raw ?? '').trim() || 'bilinmeyen')}`;
+      if (!out[key]) out[key] = {};
+      out[key][r.lesson_num] = { class_section: r.class_section?.trim() ?? '', subject: r.subject ?? '' };
     }
     return out;
   }
@@ -293,6 +386,7 @@ export class TeacherTimetableService {
     const dayOfWeek = this.getDayOfWeekFromDate(dateStr);
     if (dayOfWeek < 1 || dayOfWeek > 5) return null;
     const planId = await this.getActivePlanIdForDate(schoolId, dateStr);
+    if (!planId && (await this.hasAnyPlanHistory(schoolId))) return null;
     const cs = (classSection || '').trim();
     if (!cs) return null;
     const qb = this.repo
@@ -326,6 +420,7 @@ export class TeacherTimetableService {
     if (!cs) return [];
     const today = new Date().toISOString().slice(0, 10);
     const planId = await this.getActivePlanIdForDate(schoolId, today);
+    if (!planId && (await this.hasAnyPlanHistory(schoolId))) return [];
     const maxLessons = await this.getMaxLessons(schoolId);
     const qb = this.repo
       .createQueryBuilder('t')
@@ -351,6 +446,7 @@ export class TeacherTimetableService {
     if (!schoolId) return [];
     const today = new Date().toISOString().slice(0, 10);
     const planId = await this.getActivePlanIdForDate(schoolId, today);
+    if (!planId && (await this.hasAnyPlanHistory(schoolId))) return [];
     const qb = this.repo
       .createQueryBuilder('t')
       .select('DISTINCT TRIM(t.class_section)', 'class_section')
@@ -369,6 +465,7 @@ export class TeacherTimetableService {
     if (!schoolId) return [];
     const today = new Date().toISOString().slice(0, 10);
     const planId = await this.getActivePlanIdForDate(schoolId, today);
+    if (!planId && (await this.hasAnyPlanHistory(schoolId))) return [];
     const qb = this.repo
       .createQueryBuilder('t')
       .select('DISTINCT TRIM(t.class_section)', 'class_section')
@@ -386,6 +483,7 @@ export class TeacherTimetableService {
     if (!schoolId) return 8;
     const today = new Date().toISOString().slice(0, 10);
     const planId = await this.getActivePlanIdForDate(schoolId, today);
+    if (!planId && (await this.hasAnyPlanHistory(schoolId))) return 8;
     const qb = this.repo
       .createQueryBuilder('t')
       .select('MAX(t.lesson_num)', 'max')
@@ -477,6 +575,7 @@ export class TeacherTimetableService {
 
     const today = new Date().toISOString().slice(0, 10);
     const planId = await this.getActivePlanIdForDate(schoolId, today);
+    if (!planId && (await this.hasAnyPlanHistory(schoolId))) return result;
     const qb = this.repo
       .createQueryBuilder('t')
       .select(['t.user_id', 't.day_of_week'])
@@ -555,13 +654,17 @@ export class TeacherTimetableService {
   /** Türkçe karaktersiz normalize (eşleştirme için) */
   private normalizeForMatch(s: string): string {
     return s
-      .toLowerCase()
+      .toLocaleLowerCase('tr-TR')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
       .replace(/ı/g, 'i')
       .replace(/ş/g, 's')
       .replace(/ç/g, 'c')
       .replace(/ğ/g, 'g')
       .replace(/ü/g, 'u')
       .replace(/ö/g, 'o')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
       .trim();
   }
 
@@ -570,21 +673,37 @@ export class TeacherTimetableService {
     const trim = String(raw ?? '').trim();
     if (!trim) return null;
     const normalized = this.normalizeForMatch(trim);
+    const compact = normalized.replace(/\s+/g, '');
+    const normalizedTokens = normalized.split(' ').filter(Boolean);
     const users = await this.userRepo
       .createQueryBuilder('u')
       .select(['u.id', 'u.email', 'u.display_name'])
-      .where('u.school_id = :schoolId', { schoolId })
+      .where('(u.school_id = :schoolId OR u.teacher_assignment_school_id = :schoolId)', { schoolId })
       .andWhere('u.role IN (:...roles)', { roles: ['teacher', 'school_admin'] })
       .getMany();
 
+    let best: { id: string; score: number } | null = null;
     for (const u of users) {
-      const email = (u.email ?? '').toLowerCase();
+      const email = this.normalizeForMatch(u.email ?? '');
       const name = this.normalizeForMatch(u.display_name ?? '');
-      const nTrim = normalized;
-      if (email === trim || email === nTrim || name === nTrim) return u.id;
-      if (name.includes(nTrim) || nTrim.includes(name)) return u.id;
-      if (email.startsWith(nTrim) || nTrim.startsWith(email)) return u.id;
+      const emailLocal = email.includes('@') ? email.split('@')[0]! : email;
+      const nameCompact = name.replace(/\s+/g, '');
+      if (email === normalized || emailLocal === normalized || name === normalized || nameCompact === compact) return u.id;
+      if (name.includes(normalized) || normalized.includes(name)) return u.id;
+      if (email.includes(normalized) || normalized.includes(email) || emailLocal.includes(normalized) || normalized.includes(emailLocal)) return u.id;
+
+      // Token tabanli en yakin adayi sec (ozellikle orta ad/soyad farklarinda)
+      const nameTokens = new Set(name.split(' ').filter(Boolean));
+      let hit = 0;
+      for (const t of normalizedTokens) {
+        if (nameTokens.has(t)) hit++;
+      }
+      if (hit > 0) {
+        const score = hit / Math.max(normalizedTokens.length, nameTokens.size || 1);
+        if (!best || score > best.score) best = { id: u.id, score };
+      }
     }
+    if (best && best.score >= 0.6) return best.id;
     return null;
   }
 
@@ -606,20 +725,509 @@ export class TeacherTimetableService {
   }
 
   /** Hücre değerinden "7A-MAT" veya "7A - Matematik" → { class_section, subject } */
-  private parseCellToClassSubject(val: unknown): { class_section: string; subject: string } | null {
+  private parseCellToClassSubject(val: unknown): Array<{ class_section: string; subject: string }> {
     const s = String(val ?? '').trim();
-    if (!s) return null;
-    if (s.includes(' - ')) {
-      const [a, b] = s.split(' - ').map((x) => x.trim());
-      if (a && b) return { class_section: a, subject: b };
+    if (!s) return [];
+    const parts = s
+      .split(/[,\n;]+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const out: Array<{ class_section: string; subject: string }> = [];
+    const seen = new Set<string>();
+    for (const part of parts) {
+      let parsed: { class_section: string; subject: string } | null = null;
+      if (part.includes(' - ')) {
+        const [a, b] = part.split(' - ').map((x) => x.trim());
+        if (a && b) parsed = { class_section: a, subject: b };
+      }
+      if (!parsed && part.includes('-')) {
+        const idx = part.indexOf('-');
+        const a = part.slice(0, idx).trim();
+        const b = part.slice(idx + 1).trim();
+        if (a && b) parsed = { class_section: a, subject: b };
+      }
+      if (!parsed) continue;
+      const key = `${parsed.class_section}|${parsed.subject}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(parsed);
     }
-    if (s.includes('-')) {
-      const idx = s.indexOf('-');
-      const a = s.slice(0, idx).trim();
-      const b = s.slice(idx + 1).trim();
-      if (a && b) return { class_section: a, subject: b };
+    return out;
+  }
+
+  private parseEokulCellToClassSubjects(val: string): Array<{ class_section: string; subject: string }> {
+    const s = String(val ?? '').replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!s) return [];
+
+    const out: Array<{ class_section: string; subject: string }> = [];
+    const seen = new Set<string>();
+
+    const classRe = /(\d{1,2})\.\s*S[ıi]n[ıi]f\s*\/\s*([A-ZÇĞİÖŞÜ0-9]{1,6})\s*(?:Şubesi|Subesi|Şube|Sube)/gi;
+    const matches = Array.from(s.matchAll(classRe));
+
+    for (let i = 0; i < matches.length; i++) {
+      const m = matches[i];
+      const grade = String(m[1] ?? '').trim();
+      const section = String(m[2] ?? '').toUpperCase().trim();
+      if (!grade || !section) continue;
+
+      const start = i === 0 ? 0 : (matches[i - 1].index ?? 0) + String(matches[i - 1][0] ?? '').length;
+      const end = m.index ?? 0;
+      let subject = s.slice(start, end)
+        .replace(/<->\s*.+$/g, '')
+        .replace(/[-–—]\s*$/g, '')
+        .replace(/^,\s*/, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!subject && i === 0) {
+        subject = s
+          .replace(/<->\s*.+$/g, '')
+          .replace(/[-–—]\s*$/g, '')
+          .replace(/^,\s*/, '')
+          .trim();
+      }
+      if (!subject) continue;
+
+      const key = `${grade}${section}|${subject}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ class_section: `${grade}${section}`, subject });
     }
-    return null;
+
+    if (out.length > 0) return out;
+
+    const legacy = /(.+?)\s*<->\s*.+?-\s*(\d{1,2})\.\s*S[ıi]n[ıi]f\s*\/\s*([A-ZÇĞİÖŞÜ0-9]{1,6})\s*(?:Şubesi|Subesi|Şube|Sube)/gi;
+    let lm: RegExpExecArray | null = null;
+    while ((lm = legacy.exec(s)) !== null) {
+      const subject = String(lm[1] ?? '').replace(/\s+/g, ' ').trim();
+      const grade = String(lm[2] ?? '').trim();
+      const section = String(lm[3] ?? '').toUpperCase().trim();
+      if (!subject || !grade || !section) continue;
+      const key = `${grade}${section}|${subject}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ class_section: `${grade}${section}`, subject });
+    }
+    if (out.length > 0) return out;
+
+    // Son şans: metindeki ilk "<->" öncesini ders adı kabul et; tüm sınıf eşleşmelerine uygula.
+    const firstArrow = s.indexOf('<->');
+    const fallbackSubject = (firstArrow >= 0 ? s.slice(0, firstArrow) : s)
+      .replace(/[-–—]\s*$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!fallbackSubject) return out;
+    for (const m of matches) {
+      const grade = String(m[1] ?? '').trim();
+      const section = String(m[2] ?? '').toUpperCase().trim();
+      if (!grade || !section) continue;
+      const key = `${grade}${section}|${fallbackSubject}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ class_section: `${grade}${section}`, subject: fallbackSubject });
+    }
+    return out;
+  }
+
+  /** Hücre metni tamamlandı mı (Şubesi satır kırığı, çoklu ders, vb.) */
+  private eokulCellBufferIncompleteTail(buffer: string): boolean {
+    const t = buffer.trim();
+    if (!t) return true;
+    if (!t.includes('<->')) return true;
+    if (/\d{1,2}\.\s*S[ıi]n[ıi]f\s*\/\s*$/i.test(t)) return true;
+    if (/<->\s*AMP\s*-\s*\d{1,2}\.\s*S[ıi]n[ıi]f\s*\/\s*$/i.test(t)) return true;
+    const lastComma = t.lastIndexOf(',');
+    if (lastComma >= 0) {
+      const after = t.slice(lastComma + 1).trim();
+      if (after.includes('<->') && !/(?:Şubesi|Şube|Subesi)\b/i.test(after)) return true;
+    }
+    if (this.parseEokulCellToClassSubjects(t).length === 0) return true;
+    return false;
+  }
+
+  /**
+   * Bir ders satırındaki (Pzt–Cuma) ham satırlardan 5 hücre üretir.
+   * PDF satır kırıklarında <-> veya "12. Sınıf /" + "A Şubesi" ayrı satırlarda olabilir.
+   */
+  private extractEokulLessonRowCells(rawLines: string[]): string[] {
+    const lines = rawLines.map((x) => String(x ?? '').replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim());
+    const cells: string[] = [];
+    let buf = '';
+
+    for (const line of lines) {
+      if (!line) {
+        if (!buf.trim() && cells.length < 5) cells.push('');
+        continue;
+      }
+
+      if (!buf.trim()) {
+        buf = line;
+        if (!this.eokulCellBufferIncompleteTail(buf)) {
+          cells.push(buf.trim());
+          buf = '';
+        }
+        continue;
+      }
+
+      if (this.eokulCellBufferIncompleteTail(buf)) {
+        buf = `${buf} ${line}`.replace(/\s+/g, ' ').trim();
+        if (!this.eokulCellBufferIncompleteTail(buf)) {
+          cells.push(buf.trim());
+          buf = '';
+        }
+        continue;
+      }
+
+      const hasArrow = line.includes('<->');
+      if (hasArrow && /^\s*,\s*.+/.test(line)) {
+        buf = `${buf} ${line}`.replace(/\s+/g, ' ').trim();
+        if (!this.eokulCellBufferIncompleteTail(buf)) {
+          cells.push(buf.trim());
+          buf = '';
+        }
+        continue;
+      }
+
+      if (hasArrow) {
+        cells.push(buf.trim());
+        buf = line;
+        if (!this.eokulCellBufferIncompleteTail(buf)) {
+          cells.push(buf.trim());
+          buf = '';
+        }
+        continue;
+      }
+
+      cells.push(buf.trim());
+      buf = line;
+      if (!this.eokulCellBufferIncompleteTail(buf)) {
+        cells.push(buf.trim());
+        buf = '';
+      }
+    }
+
+    if (buf.trim()) {
+      cells.push(buf.trim());
+    }
+
+    while (cells.length < 5) cells.push('');
+    if (cells.length > 5) {
+      for (let i = 5; i < cells.length; i++) {
+        cells[4] = `${cells[4] ?? ''} ${cells[i] ?? ''}`.replace(/\s+/g, ' ').trim();
+      }
+    }
+    return cells.slice(0, 5);
+  }
+
+  /**
+   * PDF bazen boş sütun için hiç satır vermez → 4 satır kalır ve günler sola kayar (Salı → Pazartesi).
+   * Açık boş satır yoksa ve tam 4 satır varsa başa bir eksik Pzt sütunu eklenir (e-Okul tablosu Pzt–Cu).
+   */
+  private normalizeEokulLessonAccColumnPad(lessonAcc: string[]): string[] {
+    const acc = lessonAcc.slice();
+    const hasExplicitBlank = acc.some((l) => !String(l ?? '').trim());
+    if (hasExplicitBlank) return acc;
+    const nonempty = acc.filter((l) => String(l ?? '').trim());
+    if (nonempty.length === 4) acc.unshift('');
+    return acc;
+  }
+
+  /** Dikey birleşik hücre: sonraki ders saatinde boş görünen sütun bir önceki saatin devamı olabilir. */
+  private applyEokulMergedColumnCarry(prev: string[] | null, curr: string[]): string[] {
+    const out = curr.slice(0, 5);
+    while (out.length < 5) out.push('');
+    if (!prev || prev.length === 0) return out;
+    for (let i = 0; i < 5; i++) {
+      if ((out[i] ?? '').trim()) continue;
+      const p = (prev[i] ?? '').trim();
+      if (p) out[i] = prev[i] ?? '';
+    }
+    return out;
+  }
+
+  private async parseEokulPdfToEntries(schoolId: string, filePath: string): Promise<{ entries: TimetableEntry[]; errors: string[] }> {
+    const buf = fs.readFileSync(filePath);
+    const plain = await this.parseEokulPdfFromPlainTextBuffer(schoolId, buf);
+    if (plain.entries.length > 0) {
+      return plain;
+    }
+    try {
+      const layoutPages = await extractEokulTeacherScheduleFromPdf(buf);
+      if (layoutPages.length > 0 && layoutPages.some((p) => p.lessons.length > 0)) {
+        return await this.buildTimetableFromEokulLayout(schoolId, layoutPages);
+      }
+    } catch {
+      /* yok */
+    }
+    return plain;
+  }
+
+  private async buildTimetableFromEokulLayout(
+    schoolId: string,
+    pages: import('./eokul-teacher-pdf-layout').EokulLayoutTeacherPage[],
+  ): Promise<{ entries: TimetableEntry[]; errors: string[] }> {
+    const errors: string[] = [];
+    const toInsert: TimetableEntry[] = [];
+    const teacherCache = new Map<string, string | null>();
+    const dedupe = new Set<string>();
+
+    const seenTeachers = new Set<string>();
+    const matchedTeachers = new Set<string>();
+    let lessonBlocks = 0;
+    let lessonBlocksWithData = 0;
+    let unparsableCellCount = 0;
+    let prevLessonCellsRaw: string[] | null = null;
+    let lastEokulTeacherName: string | null = null;
+
+    for (const pg of pages) {
+      const rawName = this.normalizeTeacherRawName(pg.teacherNameRaw);
+      if (!rawName) continue;
+      if (rawName !== lastEokulTeacherName) {
+        prevLessonCellsRaw = null;
+      }
+      lastEokulTeacherName = rawName;
+      seenTeachers.add(rawName);
+
+      if (!teacherCache.has(rawName)) {
+        teacherCache.set(rawName, await this.matchTeacher(schoolId, rawName));
+      }
+      const currentTeacherId = teacherCache.get(rawName) ?? null;
+      if (!currentTeacherId) {
+        errors.push(`Öğretmen eşleşmedi (${rawName})`);
+      } else {
+        matchedTeachers.add(rawName);
+      }
+
+      for (const row of pg.lessons) {
+        lessonBlocks++;
+        let cells = this.applyEokulMergedColumnCarry(prevLessonCellsRaw, row.cells);
+        prevLessonCellsRaw = cells.slice();
+        let hasAnyParsed = false;
+        for (let i = 0; i < Math.min(cells.length, 5); i++) {
+          const day = i + 1;
+          const parsed = this.parseEokulCellToClassSubjects(cells[i] ?? '');
+          if ((cells[i] ?? '').includes('<->') && parsed.length === 0) {
+            unparsableCellCount++;
+          }
+          for (const p of parsed) {
+            const teacherKey = currentTeacherId ?? `raw:${rawName}`;
+            const key = `${teacherKey}|${day}|${row.lessonNum}|${p.class_section}|${p.subject}`;
+            if (dedupe.has(key)) continue;
+            dedupe.add(key);
+            hasAnyParsed = true;
+            toInsert.push({
+              day_of_week: day,
+              lesson_num: row.lessonNum,
+              user_id: currentTeacherId ?? null,
+              class_section: p.class_section,
+              subject: p.subject,
+              teacher_name_raw: currentTeacherId ? null : rawName,
+            });
+          }
+        }
+        if (hasAnyParsed) lessonBlocksWithData++;
+      }
+    }
+
+    if (seenTeachers.size === 0) {
+      errors.push('PDF içinde öğretmen blokları bulunamadı.');
+    } else {
+      errors.push(
+        `PDF (konum): ${seenTeachers.size} öğretmen, ${matchedTeachers.size} eşleşen öğretmen, ${lessonBlocks} ders satırı, ${lessonBlocksWithData} dolu satır.`,
+      );
+    }
+    if (unparsableCellCount > 0) {
+      errors.push(`Çözümlenemeyen ${unparsableCellCount} hücre bulundu (konum çıkarımı).`);
+    }
+    return { entries: toInsert, errors };
+  }
+
+  private async parseEokulPdfFromPlainTextBuffer(schoolId: string, buf: Buffer): Promise<{ entries: TimetableEntry[]; errors: string[] }> {
+    const parser = new PDFParse({ data: buf }) as unknown as {
+      getText?: () => Promise<{ text?: string } | string>;
+      parse?: () => Promise<{ text?: string } | string>;
+      destroy?: () => Promise<void> | void;
+    };
+    let text = '';
+    try {
+      if (typeof parser.getText === 'function') {
+        const parsed = await parser.getText();
+        text = typeof parsed === 'string' ? parsed : (parsed?.text ?? '');
+      } else if (typeof parser.parse === 'function') {
+        const parsed = await parser.parse();
+        text = typeof parsed === 'string' ? parsed : (parsed?.text ?? '');
+      } else {
+        throw new BadRequestException({
+          code: 'INVALID_FILE',
+          message: 'PDF dosyası okunamadı. Farklı bir e-Okul çıktısı deneyin.',
+        });
+      }
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException({
+        code: 'INVALID_FILE',
+        message: 'PDF dosyası çözümlenemedi. Dosya bozuk veya format desteklenmiyor olabilir.',
+      });
+    } finally {
+      if (typeof parser.destroy === 'function') {
+        await Promise.resolve(parser.destroy()).catch(() => undefined);
+      }
+    }
+
+    const errors: string[] = [];
+    const toInsert: TimetableEntry[] = [];
+    const teacherCache = new Map<string, string | null>();
+    const dedupe = new Set<string>();
+
+    const seenTeachers = new Set<string>();
+    const matchedTeachers = new Set<string>();
+    let lessonBlocks = 0;
+    let lessonBlocksWithData = 0;
+    let unparsableCellCount = 0;
+    const normalizedText = text
+      .replace(/\r\n/g, '\n')
+      .replace(/\n?\s*--\s*\d+\s+of\s+\d+\s*--\s*\n?/gi, '\f');
+    const pageBlocks = normalizedText
+      .split(/\f+|(?=\n\s*Öğretmen\s+Ad[ıi]\s+Soyad[ıi]\s*:)/i)
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    let prevLessonCellsRaw: string[] | null = null;
+    let lastEokulTeacherName: string | null = null;
+    let currentTeacherRaw: string | null = null;
+    let currentTeacherId: string | null = null;
+    let currentLesson: number | null = null;
+    let lessonAcc: string[] = [];
+
+    for (const page of pageBlocks) {
+      const lines = page.split(/\n/).map((x) => x.replace(/\s+/g, ' ').trim());
+
+      const flushLessonAccumulator = () => {
+        if (!currentTeacherRaw || currentLesson == null || lessonAcc.length === 0) {
+          lessonAcc = [];
+          return;
+        }
+        lessonBlocks++;
+        const padded = this.normalizeEokulLessonAccColumnPad(lessonAcc);
+        lessonAcc = [];
+        let cells: string[];
+        if (
+          padded.length === 5 &&
+          padded.every((l) => !String(l ?? '').trim() || String(l ?? '').includes('<->'))
+        ) {
+          cells = padded.map((l) => String(l ?? '').trim());
+        } else {
+          cells = this.extractEokulLessonRowCells(padded);
+        }
+        cells = this.applyEokulMergedColumnCarry(prevLessonCellsRaw, cells);
+        prevLessonCellsRaw = cells.slice();
+        let hasAnyParsed = false;
+        for (let i = 0; i < Math.min(cells.length, 5); i++) {
+          const day = i + 1;
+          const parsed = this.parseEokulCellToClassSubjects(cells[i] ?? '');
+          if ((cells[i] ?? '').includes('<->') && parsed.length === 0) {
+            unparsableCellCount++;
+          }
+          for (const p of parsed) {
+            const teacherKey = currentTeacherId ?? `raw:${currentTeacherRaw}`;
+            const key = `${teacherKey}|${day}|${currentLesson}|${p.class_section}|${p.subject}`;
+            if (dedupe.has(key)) continue;
+            dedupe.add(key);
+            hasAnyParsed = true;
+            toInsert.push({
+              day_of_week: day,
+              lesson_num: currentLesson,
+              user_id: currentTeacherId ?? null,
+              class_section: p.class_section,
+              subject: p.subject,
+              teacher_name_raw: currentTeacherId ? null : currentTeacherRaw,
+            });
+          }
+        }
+        if (hasAnyParsed) lessonBlocksWithData++;
+      };
+
+      const flushCurrentLesson = () => {
+        flushLessonAccumulator();
+        currentLesson = null;
+      };
+
+      for (const line of lines) {
+        if (!line) {
+          if (currentLesson != null) lessonAcc.push('');
+          continue;
+        }
+        if (/^Varsa Öğretmenin Seçmeli Dersleri:/i.test(line)) {
+          flushCurrentLesson();
+          prevLessonCellsRaw = null;
+          lastEokulTeacherName = null;
+          continue;
+        }
+        if (/\(\s*\d+\s*Saat\s*\)/i.test(line)) {
+          continue;
+        }
+        if (/^OKUL\s+MÜDÜRÜ/i.test(line) || /^MÜDÜR(\s+YARDIMCISI)?\s*$/i.test(line)) {
+          flushCurrentLesson();
+          prevLessonCellsRaw = null;
+          lastEokulTeacherName = null;
+          continue;
+        }
+        if (/^\d{1,2}:\d{1,2}:\d{1,2}$/.test(line) || /^(\d{1,2})\s*\/\s*(\d{1,2})\/(\d{4})$/.test(line)) {
+          continue;
+        }
+        const teacherMatch = line.match(/^Öğretmen\s+Ad[ıi]\s+Soyad[ıi]\s*:\s*(.+?)(?=\s+Bran[şs]?[ıi]?\s*:|\s+\d{4}-\d{4}|$)/i);
+        if (teacherMatch) {
+          flushCurrentLesson();
+          const nextTeacherName = this.normalizeTeacherRawName(String(teacherMatch[1] ?? '').trim());
+          if (nextTeacherName !== lastEokulTeacherName) {
+            prevLessonCellsRaw = null;
+          }
+          lastEokulTeacherName = nextTeacherName || null;
+          currentTeacherRaw = nextTeacherName;
+          if (currentTeacherRaw) seenTeachers.add(currentTeacherRaw);
+          if (!teacherCache.has(currentTeacherRaw)) {
+            teacherCache.set(currentTeacherRaw, await this.matchTeacher(schoolId, currentTeacherRaw));
+          }
+          currentTeacherId = teacherCache.get(currentTeacherRaw) ?? null;
+          if (!currentTeacherId) {
+            errors.push(`Öğretmen eşleşmedi (${currentTeacherRaw})`);
+          } else {
+            matchedTeachers.add(currentTeacherRaw);
+          }
+          continue;
+        }
+        if (!currentTeacherRaw) continue;
+        if (/^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$/.test(line)) continue;
+        const lessonMatch = line.match(/(?:^|\s)(\d{1,2})\.\s*DERS(?:\b|$)/i);
+        if (lessonMatch) {
+          flushLessonAccumulator();
+          const lessonNum = parseInt(lessonMatch[1] ?? '', 10);
+          currentLesson = Number.isFinite(lessonNum) && lessonNum >= 1 && lessonNum <= 12 ? lessonNum : null;
+          if (currentLesson == null) {
+            errors.push(`Öğretmen ${currentTeacherRaw ?? '-'}: geçersiz ders numarası (${lessonMatch[1]}).`);
+          }
+          const lessonToken = lessonMatch[0] ?? '';
+          const rest = line.replace(lessonToken, '').trim();
+          lessonAcc = [];
+          if (rest) lessonAcc.push(rest);
+          continue;
+        }
+        if (currentLesson == null) continue;
+        lessonAcc.push(line);
+      }
+      flushCurrentLesson();
+    }
+    if (seenTeachers.size === 0) {
+      errors.push('PDF içinde öğretmen blokları bulunamadı.');
+    } else {
+      errors.push(
+        `PDF analizi: ${seenTeachers.size} öğretmen, ${matchedTeachers.size} eşleşen öğretmen, ${lessonBlocks} ders bloğu, ${lessonBlocksWithData} ders bloğu aktarıldı.`,
+      );
+    }
+    if (unparsableCellCount > 0) {
+      errors.push(`Çözümlenemeyen ${unparsableCellCount} hücre bulundu. Satır düzenini kontrol edin.`);
+    }
+    return { entries: toInsert, errors };
   }
 
   /**
@@ -661,128 +1269,121 @@ export class TeacherTimetableService {
 
   async uploadFromExcel(schoolId: string | null, filePath: string): Promise<UploadResult> {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
-
-    const maxLessons = await this.getSchoolConfigMaxLessons(schoolId);
-    const wb = XLSX.readFile(filePath, { cellDates: false });
-    // 'DersProgram' sayfasını önce ara; yoksa Kılavuz dışındaki ilk sayfayı al
-    const sheetName =
-      wb.SheetNames.find((s) => /ders.?program/i.test(s)) ??
-      wb.SheetNames.find((s) => !/k[iı]lavuz/i.test(s)) ??
-      wb.SheetNames[0];
-    const sheet = wb.Sheets[sheetName];
-    if (!sheet) throw new BadRequestException({ code: 'INVALID_FILE', message: 'Excel dosyası boş.' });
-
-    const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as unknown[][];
-    if (json.length < 2) throw new BadRequestException({ code: 'INVALID_FILE', message: 'En az başlık ve bir veri satırı gerekli.' });
-
-    // '#' ile başlayan yorum satırlarını atla, gerçek başlık satırını bul
-    let headerRowIdx = 0;
-    for (let i = 0; i < json.length; i++) {
-      const firstCell = String((json[i] as unknown[])[0] ?? '').trim();
-      if (!firstCell.startsWith('#') && firstCell !== '') {
-        headerRowIdx = i;
-        break;
-      }
-    }
-
-    const headerRow = (json[headerRowIdx] as unknown[]).map((c) => String(c ?? '').trim());
-    const headerLower = headerRow.map((c) => c.toLowerCase());
-
-    const wideCols: { colIndex: number; day: number; lesson: number }[] = [];
-    let teacherCol = -1;
-    for (let i = 0; i < headerRow.length; i++) {
-      const h = headerRow[i];
-      const parsed = this.parseWideColumnName(h);
-      if (parsed) wideCols.push({ colIndex: i, day: parsed.day, lesson: parsed.lesson });
-      if (/ad_soyad|ad soyad|adsoyad|öğretmen|ogretmen|teacher|isim|^ad$/.test(headerLower[i])) teacherCol = i;
-    }
-
+    const ext = path.extname(filePath).toLowerCase();
     const errors: string[] = [];
     const toInsert: TimetableEntry[] = [];
 
-    if (wideCols.length > 0 && teacherCol >= 0) {
-      for (let rowIdx = headerRowIdx + 1; rowIdx < json.length; rowIdx++) {
-        const row = json[rowIdx] as unknown[];
-        const teacherRaw = row[teacherCol];
-        const teacherStr = String(teacherRaw ?? '').trim();
-        if (!teacherStr) continue;
+    if (ext === '.pdf') {
+      const parsed = await this.parseEokulPdfToEntries(schoolId, filePath);
+      toInsert.push(...parsed.entries);
+      errors.push(...parsed.errors);
+    } else {
+      const wb = XLSX.readFile(filePath, { cellDates: false });
+      const sheetName =
+        wb.SheetNames.find((s) => /ders.?program/i.test(s)) ??
+        wb.SheetNames.find((s) => !/k[iı]lavuz/i.test(s)) ??
+        wb.SheetNames[0];
+      const sheet = wb.Sheets[sheetName];
+      if (!sheet) throw new BadRequestException({ code: 'INVALID_FILE', message: 'Excel dosyası boş.' });
 
-        const userId = await this.matchTeacher(schoolId, teacherStr);
-        if (!userId) {
-          errors.push(`Satır ${rowIdx + 1}: Öğretmen eşleşmedi (${teacherStr})`);
-          continue;
+      const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as unknown[][];
+      if (json.length < 2) throw new BadRequestException({ code: 'INVALID_FILE', message: 'En az başlık ve bir veri satırı gerekli.' });
+
+      let headerRowIdx = 0;
+      for (let i = 0; i < json.length; i++) {
+        const firstCell = String((json[i] as unknown[])[0] ?? '').trim();
+        if (!firstCell.startsWith('#') && firstCell !== '') {
+          headerRowIdx = i;
+          break;
         }
+      }
 
-        for (const { colIndex, day, lesson } of wideCols) {
-          const cellVal = row[colIndex];
-          const parsed = this.parseCellToClassSubject(cellVal);
-          if (parsed) {
-            toInsert.push({
-              day_of_week: day,
-              lesson_num: lesson,
-              user_id: userId,
-              class_section: parsed.class_section,
-              subject: parsed.subject,
-            });
+      const headerRow = (json[headerRowIdx] as unknown[]).map((c) => String(c ?? '').trim());
+      const headerLower = headerRow.map((c) => c.toLowerCase());
+
+      const wideCols: { colIndex: number; day: number; lesson: number }[] = [];
+      let teacherCol = -1;
+      for (let i = 0; i < headerRow.length; i++) {
+        const h = headerRow[i];
+        const parsed = this.parseWideColumnName(h);
+        if (parsed) wideCols.push({ colIndex: i, day: parsed.day, lesson: parsed.lesson });
+        if (/ad_soyad|ad soyad|adsoyad|öğretmen|ogretmen|teacher|isim|^ad$/.test(headerLower[i])) teacherCol = i;
+      }
+
+      if (wideCols.length > 0 && teacherCol >= 0) {
+        for (let rowIdx = headerRowIdx + 1; rowIdx < json.length; rowIdx++) {
+          const row = json[rowIdx] as unknown[];
+          const teacherRaw = row[teacherCol];
+          const teacherStr = String(teacherRaw ?? '').trim();
+          if (!teacherStr) continue;
+
+          const userId = await this.matchTeacher(schoolId, teacherStr);
+          if (!userId) errors.push(`Satır ${rowIdx + 1}: Öğretmen eşleşmedi (${teacherStr}) - sonradan otomatik eşleşecek.`);
+
+          for (const { colIndex, day, lesson } of wideCols) {
+            const cellVal = row[colIndex];
+            const parsedList = this.parseCellToClassSubject(cellVal);
+            for (const parsed of parsedList) {
+              toInsert.push({
+                day_of_week: day,
+                lesson_num: lesson,
+                user_id: userId ?? null,
+                class_section: parsed.class_section,
+                subject: parsed.subject,
+                teacher_name_raw: userId ? null : teacherStr,
+              });
+            }
           }
         }
-      }
-    } else {
-      const colMap: Record<string, number> = {};
-      const aliases: [string[], string][] = [
-        [['gün', 'gun', 'day'], 'day'],
-        [['saat', 'ders', 'lesson', 'ders no', 'dersno'], 'lesson'],
-        [['öğretmen', 'ogretmen', 'teacher', 'email', 'ad', 'isim'], 'teacher'],
-        [['sınıf', 'sinif', 'class', 'sube'], 'class'],
-        [['ders adı', 'ders adi', 'dersadı', 'dersadi', 'subject', 'branş', 'brans'], 'subject'],
-      ];
-      for (let i = 0; i < headerLower.length; i++) {
-        const h = headerLower[i];
-        for (const [keys, field] of aliases) {
-          if (keys.some((k) => h.includes(k))) colMap[field] = i;
-        }
-      }
-
-      if (!colMap.teacher || !colMap.class || !colMap.subject) {
-        throw new BadRequestException({
-          code: 'INVALID_FORMAT',
-          message: 'Excel\'de Öğretmen (veya Ad_Soyad), Sınıf ve Ders sütunları veya wide format (Pazartesi_ders1 vb.) bulunmalı.',
-        });
-      }
-
-      for (let rowIdx = headerRowIdx + 1; rowIdx < json.length; rowIdx++) {
-        const row = json[rowIdx] as unknown[];
-        const teacherRaw = row[colMap.teacher];
-        const classSection = String(row[colMap.class] ?? '').trim();
-        const subject = String(row[colMap.subject] ?? '').trim();
-        if (!classSection || !subject) continue;
-
-        const day = colMap.day != null ? this.parseDay(row[colMap.day]) : 1;
-        const lesson = colMap.lesson != null ? this.parseLessonNum(row[colMap.lesson]) : 1;
-        if (day == null || lesson == null) {
-          errors.push(`Satır ${rowIdx + 1}: Geçersiz gün/saat`);
-          continue;
+      } else {
+        const colMap: Record<string, number> = {};
+        const aliases: [string[], string][] = [
+          [['gün', 'gun', 'day'], 'day'],
+          [['saat', 'ders', 'lesson', 'ders no', 'dersno'], 'lesson'],
+          [['öğretmen', 'ogretmen', 'teacher', 'email', 'ad', 'isim'], 'teacher'],
+          [['sınıf', 'sinif', 'class', 'sube'], 'class'],
+          [['ders adı', 'ders adi', 'dersadı', 'dersadi', 'subject', 'branş', 'brans'], 'subject'],
+        ];
+        for (let i = 0; i < headerLower.length; i++) {
+          const h = headerLower[i];
+          for (const [keys, field] of aliases) {
+            if (keys.some((k) => h.includes(k))) colMap[field] = i;
+          }
         }
 
-        const userId = await this.matchTeacher(schoolId, String(teacherRaw ?? ''));
-        if (!userId) {
-          errors.push(`Satır ${rowIdx + 1}: Öğretmen eşleşmedi (${teacherRaw})`);
-          continue;
+        if (!colMap.teacher || !colMap.class || !colMap.subject) {
+          throw new BadRequestException({
+            code: 'INVALID_FORMAT',
+            message: 'Excel\'de Öğretmen (veya Ad_Soyad), Sınıf ve Ders sütunları veya wide format (Pazartesi_ders1 vb.) bulunmalı.',
+          });
         }
-        toInsert.push({ day_of_week: day, lesson_num: lesson, user_id: userId, class_section: classSection, subject });
-      }
-    }
 
-    // Okul max ders saati dışındaki kayıtları atla (farklı ayarlı okullardan karışmayı önler)
-    const overMax = toInsert.filter((e) => e.lesson_num > maxLessons);
-    const valid = toInsert.filter((e) => e.lesson_num <= maxLessons);
-    toInsert.length = 0;
-    toInsert.push(...valid);
-    if (overMax.length > 0) {
-      const hours = [...new Set(overMax.map((x) => x.lesson_num))].sort((a, b) => a - b);
-      errors.push(
-        `Okul ayarlarına göre en fazla ${maxLessons} ders saati. ${overMax.length} kayıt atlandı (ders saatleri: ${hours.join(', ')}).`,
-      );
+        for (let rowIdx = headerRowIdx + 1; rowIdx < json.length; rowIdx++) {
+          const row = json[rowIdx] as unknown[];
+          const teacherRaw = row[colMap.teacher];
+          const classSection = String(row[colMap.class] ?? '').trim();
+          const subject = String(row[colMap.subject] ?? '').trim();
+          if (!classSection || !subject) continue;
+
+          const day = colMap.day != null ? this.parseDay(row[colMap.day]) : 1;
+          const lesson = colMap.lesson != null ? this.parseLessonNum(row[colMap.lesson]) : 1;
+          if (day == null || lesson == null) {
+            errors.push(`Satır ${rowIdx + 1}: Geçersiz gün/saat`);
+            continue;
+          }
+
+          const userId = await this.matchTeacher(schoolId, String(teacherRaw ?? ''));
+          if (!userId) errors.push(`Satır ${rowIdx + 1}: Öğretmen eşleşmedi (${teacherRaw}) - sonradan otomatik eşleşecek.`);
+          toInsert.push({
+            day_of_week: day,
+            lesson_num: lesson,
+            user_id: userId ?? null,
+            class_section: classSection,
+            subject,
+            teacher_name_raw: userId ? null : String(teacherRaw ?? '').trim() || null,
+          });
+        }
+      }
     }
 
     if (toInsert.length === 0) {
@@ -794,13 +1395,14 @@ export class TeacherTimetableService {
 
     const today = new Date();
     const dateStr = today.toISOString().slice(0, 10);
+    const timeStr = today.toTimeString().slice(0, 8).replace(/:/g, '');
     const year = today.getFullYear();
     const nextYear = year + 1;
     const academicYear = `${year}-${String(nextYear).slice(-2)}`;
 
     const plan = this.planRepo.create({
       school_id: schoolId,
-      name: `Taslak ${dateStr}`,
+      name: `Taslak ${dateStr} ${timeStr}`,
       valid_from: dateStr,
       valid_until: `${year + 1}-06-30`,
       status: 'draft',
@@ -814,6 +1416,7 @@ export class TeacherTimetableService {
       this.planEntryRepo.create({
         plan_id: plan.id,
         user_id: e.user_id,
+        teacher_name_raw: e.teacher_name_raw ?? null,
         day_of_week: e.day_of_week,
         lesson_num: e.lesson_num,
         class_section: e.class_section,
@@ -828,6 +1431,8 @@ export class TeacherTimetableService {
   /** Taslak plan listesi (school_admin); son taslaklar önce. */
   async listPlans(schoolId: string | null): Promise<TimetablePlanDto[]> {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    await this.resolvePendingTeacherAssignments(schoolId);
+    await this.autoArchiveExpiredPlans(schoolId, new Date().toISOString().slice(0, 10));
     const plans = await this.planRepo.find({
       where: { school_id: schoolId },
       relations: ['entries'],
@@ -858,6 +1463,7 @@ export class TeacherTimetableService {
     entries: TimetableEntry[];
   }> {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    await this.resolvePendingTeacherAssignments(schoolId);
     const plan = await this.planRepo.findOne({
       where: { id: planId, school_id: schoolId },
       relations: ['entries'],
@@ -869,6 +1475,7 @@ export class TeacherTimetableService {
       user_id: e.user_id,
       class_section: e.class_section,
       subject: e.subject,
+      teacher_name_raw: e.teacher_name_raw,
     }));
     return {
       id: plan.id,
@@ -882,6 +1489,23 @@ export class TeacherTimetableService {
     };
   }
 
+  /** Taslak veya arşiv planını siler (school_admin). */
+  async deleteDraftPlan(planId: string, schoolId: string | null): Promise<{ success: boolean }> {
+    if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    const plan = await this.planRepo.findOne({ where: { id: planId, school_id: schoolId } });
+    if (!plan) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Plan bulunamadı.' });
+    if (plan.status === 'published') {
+      throw new BadRequestException({ code: 'NOT_DELETABLE', message: 'Yayınlanan plan silinemez. Önce arşive alın.' });
+    }
+    await this.planRepo.remove(plan);
+    const remainingPlanCount = await this.planRepo.count({ where: { school_id: schoolId } });
+    if (remainingPlanCount === 0) {
+      // Tüm planlar silindiyse eski (plan_id null) legacy kayıtları da temizle.
+      await this.repo.delete({ school_id: schoolId, plan_id: IsNull() });
+    }
+    return { success: true };
+  }
+
   /** Taslak planı yayınlar: overlap kontrolü, teacher_timetable güncellemesi, bildirim. valid_until null = açık uçlu. */
   async publishPlan(
     planId: string,
@@ -891,6 +1515,7 @@ export class TeacherTimetableService {
     validUntil: string | null,
   ): Promise<{ success: boolean; plan_id: string }> {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    await this.resolvePendingTeacherAssignments(schoolId);
 
     const plan = await this.planRepo.findOne({
       where: { id: planId, school_id: schoolId },
@@ -937,7 +1562,8 @@ export class TeacherTimetableService {
       this.repo.create({
         school_id: schoolId,
         plan_id: planId,
-        user_id: e.user_id,
+        user_id: e.user_id ?? null,
+        teacher_name_raw: e.teacher_name_raw ?? null,
         day_of_week: e.day_of_week,
         lesson_num: e.lesson_num,
         class_section: e.class_section,
@@ -981,6 +1607,66 @@ export class TeacherTimetableService {
     return { success: true, plan_id: planId };
   }
 
+  /** Plan adı ve/veya geçerlilik tarihleri (taslak veya yayında). */
+  async patchSchoolPlan(
+    planId: string,
+    schoolId: string | null,
+    dto: { valid_from?: string; valid_until?: string | null; name?: string | null },
+  ): Promise<{ success: boolean }> {
+    if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    if (dto.valid_from === undefined && dto.name === undefined) {
+      throw new BadRequestException({ code: 'INVALID_INPUT', message: 'En az valid_from veya name gönderin.' });
+    }
+
+    const plan = await this.planRepo.findOne({ where: { id: planId, school_id: schoolId } });
+    if (!plan) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Plan bulunamadı.' });
+
+    if (dto.name !== undefined) {
+      const raw = dto.name === null ? '' : String(dto.name).trim();
+      plan.name = raw.length ? raw.slice(0, 128) : null;
+    }
+
+    if (dto.valid_from !== undefined) {
+      if (plan.status !== 'published' && plan.status !== 'draft') {
+        throw new BadRequestException({ code: 'NOT_EDITABLE', message: 'Bu planın tarihleri güncellenemez.' });
+      }
+
+      const vFrom = dto.valid_from.slice(0, 10);
+      const vUntil =
+        dto.valid_until !== undefined ? (dto.valid_until ? dto.valid_until.slice(0, 10) : null) : plan.valid_until;
+
+      if (vUntil && vFrom > vUntil) {
+        throw new BadRequestException({ code: 'INVALID_DATES', message: 'Bitiş tarihi başlangıçtan önce olamaz.' });
+      }
+
+      if (plan.status === 'published') {
+        const vUntilMax = vUntil ?? '9999-12-31';
+        const conflict = await this.planRepo
+          .createQueryBuilder('p')
+          .where('p.school_id = :schoolId', { schoolId })
+          .andWhere('p.status = :status', { status: 'published' })
+          .andWhere('p.id != :planId', { planId })
+          .andWhere('(p.valid_until IS NULL OR p.valid_until >= :vFrom)', { vFrom })
+          .andWhere('p.valid_from <= :vUntilMax', { vUntilMax })
+          .getOne();
+
+        if (conflict) {
+          const untilStr = conflict.valid_until ?? 'açık uçlu';
+          throw new BadRequestException({
+            code: 'TIMETABLE_PLAN_OVERLAP',
+            message: `Bu tarih aralığı başka bir programla çakışıyor: ${conflict.name ?? '(adsız)'} (${conflict.valid_from} – ${untilStr}).`,
+          });
+        }
+      }
+
+      plan.valid_from = vFrom;
+      plan.valid_until = vUntil;
+    }
+
+    await this.planRepo.save(plan);
+    return { success: true };
+  }
+
   /** Yayınlanmış planın geçerlilik tarihlerini günceller. valid_until null = açık uçlu. */
   async updatePlanDates(
     planId: string,
@@ -988,12 +1674,21 @@ export class TeacherTimetableService {
     validFrom: string,
     validUntil: string | null,
   ): Promise<{ success: boolean }> {
-    if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    return this.patchSchoolPlan(planId, schoolId, { valid_from: validFrom, valid_until: validUntil });
+  }
 
+  async restoreArchivedPlan(
+    planId: string,
+    schoolId: string | null,
+    userId: string,
+    validFrom: string,
+    validUntil: string | null,
+  ): Promise<{ success: boolean; plan_id: string }> {
+    if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     const plan = await this.planRepo.findOne({ where: { id: planId, school_id: schoolId } });
     if (!plan) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Plan bulunamadı.' });
-    if (plan.status !== 'published') {
-      throw new BadRequestException({ code: 'NOT_PUBLISHED', message: 'Sadece yayınlanmış planların tarihleri güncellenebilir.' });
+    if (plan.status !== 'archived') {
+      throw new BadRequestException({ code: 'NOT_ARCHIVED', message: 'Sadece arşivlenmiş plan geri alınabilir.' });
     }
 
     const vFrom = validFrom.slice(0, 10);
@@ -1003,27 +1698,49 @@ export class TeacherTimetableService {
     }
 
     const vUntilMax = vUntil ?? '9999-12-31';
-    const conflict = await this.planRepo
+    const toArchive = await this.planRepo
       .createQueryBuilder('p')
       .where('p.school_id = :schoolId', { schoolId })
       .andWhere('p.status = :status', { status: 'published' })
       .andWhere('p.id != :planId', { planId })
       .andWhere('(p.valid_until IS NULL OR p.valid_until >= :vFrom)', { vFrom })
       .andWhere('p.valid_from <= :vUntilMax', { vUntilMax })
-      .getOne();
+      .getMany();
 
-    if (conflict) {
-      const untilStr = conflict.valid_until ?? 'açık uçlu';
-      throw new BadRequestException({
-        code: 'TIMETABLE_PLAN_OVERLAP',
-        message: `Bu tarih aralığı başka bir programla çakışıyor: ${conflict.name ?? '(adsız)'} (${conflict.valid_from} – ${untilStr}).`,
-      });
+    const dayBefore = new Date(vFrom + 'T12:00:00');
+    dayBefore.setDate(dayBefore.getDate() - 1);
+    const dayBeforeStr = dayBefore.toISOString().slice(0, 10);
+    for (const p of toArchive) {
+      p.status = 'archived';
+      if (p.valid_from < vFrom) {
+        const pEnd = p.valid_until ?? '9999-12-31';
+        let nu = pEnd <= dayBeforeStr ? pEnd : dayBeforeStr;
+        if (nu < p.valid_from) nu = p.valid_from;
+        p.valid_until = nu;
+      }
     }
+    if (toArchive.length) await this.planRepo.save(toArchive);
 
     plan.valid_from = vFrom;
     plan.valid_until = vUntil;
+    plan.status = 'published';
+    plan.published_at = new Date();
+    plan.created_by = userId;
     await this.planRepo.save(plan);
+    return { success: true, plan_id: plan.id };
+  }
 
+  async archivePublishedPlan(planId: string, schoolId: string | null): Promise<{ success: boolean }> {
+    if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    const plan = await this.planRepo.findOne({ where: { id: planId, school_id: schoolId } });
+    if (!plan) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Plan bulunamadı.' });
+    if (plan.status === 'archived') return { success: true };
+    const today = new Date().toISOString().slice(0, 10);
+    plan.status = 'archived';
+    if (!plan.valid_until || plan.valid_until > today) {
+      plan.valid_until = today;
+    }
+    await this.planRepo.save(plan);
     return { success: true };
   }
 

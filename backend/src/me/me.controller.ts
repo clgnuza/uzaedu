@@ -41,6 +41,18 @@ export class MeController {
       avatar_url: user.avatarUrl ?? null,
       role: user.role,
       school_id: user.school_id,
+      teacher_assignment_active: !!user.teacherAssignmentActive,
+      teacher_assignment_school_id: user.teacherAssignmentSchoolId ?? null,
+      teacher_assignment_school: user.teacherAssignmentSchool
+        ? {
+            id: user.teacherAssignmentSchool.id,
+            name: user.teacherAssignmentSchool.name,
+            city: user.teacherAssignmentSchool.city ?? null,
+            district: user.teacherAssignmentSchool.district ?? null,
+            type: user.teacherAssignmentSchool.type,
+            status: user.teacherAssignmentSchool.status,
+          }
+        : null,
       teacher_school_membership: eff,
       school_verified: eff === TeacherSchoolMembershipStatus.approved && !!user.school_id,
       school_join_stage: schoolJoinStage(user),
@@ -97,6 +109,8 @@ export class MeController {
       avatar_url: user.avatarUrl ?? null,
       role: user.role,
       school_id: user.school_id,
+      teacher_assignment_active: !!user.teacherAssignmentActive,
+      teacher_assignment_school_id: user.teacherAssignmentSchoolId ?? null,
       teacher_school_membership: eff,
       school_verified: eff === TeacherSchoolMembershipStatus.approved && !!user.school_id,
       school_join_stage: schoolJoinStage(user),

@@ -110,6 +110,8 @@ export function TeacherAccountTabs() {
   const [savingPassword, setSavingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [schoolId, setSchoolId] = useState(me?.school_id ?? '');
+  const [assignmentActive, setAssignmentActive] = useState(!!me?.teacher_assignment_active);
+  const [assignmentSchoolId, setAssignmentSchoolId] = useState(me?.teacher_assignment_school_id ?? '');
   const [branchSelect, setBranchSelect] = useState(me?.teacher_branch ?? '');
   const [savingOkul, setSavingOkul] = useState(false);
   const [okulError, setOkulError] = useState<string | null>(null);
@@ -130,8 +132,10 @@ export function TeacherAccountTabs() {
 
   useEffect(() => {
     setSchoolId(me?.school_id ?? '');
+    setAssignmentActive(!!me?.teacher_assignment_active);
+    setAssignmentSchoolId(me?.teacher_assignment_school_id ?? '');
     setBranchSelect(me?.teacher_branch ?? '');
-  }, [me?.school_id, me?.teacher_branch]);
+  }, [me?.school_id, me?.teacher_assignment_active, me?.teacher_assignment_school_id, me?.teacher_branch]);
 
   useEffect(() => {
     setNameMasked(me?.teacher_public_name_masked !== false);
@@ -231,6 +235,8 @@ export function TeacherAccountTabs() {
         token,
         body: JSON.stringify({
           school_id: schoolId || null,
+          teacher_assignment_active: assignmentActive,
+          teacher_assignment_school_id: assignmentActive ? assignmentSchoolId || null : null,
           teacher_branch: branchSelect.trim() || null,
         }),
       });
@@ -534,6 +540,29 @@ export function TeacherAccountTabs() {
                   initialCity={school?.city}
                   initialDistrict={school?.district}
                 />
+              </div>
+              <div className="space-y-2 rounded-lg border border-border/60 bg-linear-to-r from-muted/10 via-muted/5 to-muted/10 p-2.5 dark:border-zinc-700/60 dark:from-zinc-800/30 dark:via-zinc-800/20 dark:to-zinc-800/30 sm:rounded-xl sm:p-4">
+                <label className="flex cursor-pointer items-start gap-2 sm:gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={assignmentActive}
+                    onChange={(e) => setAssignmentActive(e.target.checked)}
+                    className="mt-0.5 size-3.5 shrink-0 rounded border-input"
+                  />
+                  <span className="text-xs text-muted-foreground leading-snug">
+                    Kendi okulum dışında görevlendirme ile çalışıyorum.
+                  </span>
+                </label>
+                {assignmentActive && (
+                  <SchoolSelectWithFilter
+                    value={assignmentSchoolId}
+                    onChange={setAssignmentSchoolId}
+                    token={token}
+                    placeholder="Görevlendirme okulu seçin"
+                    initialCity={me?.teacher_assignment_school?.city ?? undefined}
+                    initialDistrict={me?.teacher_assignment_school?.district ?? undefined}
+                  />
+                )}
               </div>
               <div className="space-y-1 rounded-lg border border-border/60 bg-linear-to-br from-muted/15 via-muted/10 to-muted/15 p-2.5 sm:rounded-xl sm:p-4">
                 <label className={cn(lblRow, 'mb-0')}>

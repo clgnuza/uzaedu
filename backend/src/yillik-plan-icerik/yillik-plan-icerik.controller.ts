@@ -1,6 +1,3 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import {
   BadRequestException,
   Controller,
@@ -11,13 +8,9 @@ import {
   Body,
   Param,
   Query,
-  UploadedFile,
   UseGuards,
-  UseInterceptors,
-  InternalServerErrorException,
 } from '@nestjs/common';
-import { SkipThrottle, Throttle } from '@nestjs/throttler';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { SkipThrottle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
 import { RequireSchoolModule } from '../common/decorators/require-school-module.decorator';
@@ -27,17 +20,13 @@ import { RequireModule } from '../common/decorators/require-module.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UserRole } from '../types/enums';
 import { YillikPlanIcerikService } from './yillik-plan-icerik.service';
-import { YillikPlanGptService, GPT_TASLAK_MODELS } from './yillik-plan-gpt.service';
 import { WorkCalendarService } from '../work-calendar/work-calendar.service';
 import { CreateYillikPlanIcerikDto } from './dto/create-yillik-plan-icerik.dto';
 import { UpdateYillikPlanIcerikDto } from './dto/update-yillik-plan-icerik.dto';
-import { GenerateDraftDto } from './dto/generate-draft.dto';
-import { GenerateDraftFromExcelDto } from './dto/generate-draft-from-excel.dto';
-import { ImportMebTaslakDto } from './dto/import-meb-taslak.dto';
-import { PreviewDraftFromPasteDto } from './dto/preview-draft-from-paste.dto';
 import { MebFetchService, ParsedPlanRow } from '../meb/meb-fetch.service';
 import { generateMebWorkCalendar, hasMebCalendar } from '../config/meb-calendar';
 import { getDersSaatiStatic } from '../config/ders-saati';
+import { resolveAyForYillikPlanRow } from './resolve-ay-for-plan-row.util';
 
 /** Admin sayfası çoklu GET (liste, özet, meta, MEB listesi…) + React Strict Mode çift çağrı; global throttle 429 üretmesin. */
 @Controller('yillik-plan-icerik')
@@ -47,7 +36,6 @@ import { getDersSaatiStatic } from '../config/ders-saati';
 export class YillikPlanIcerikController {
   constructor(
     private readonly service: YillikPlanIcerikService,
-    private readonly gptService: YillikPlanGptService,
     private readonly workCalendarService: WorkCalendarService,
     private readonly mebFetchService: MebFetchService,
   ) {}
@@ -196,6 +184,21 @@ export class YillikPlanIcerikController {
     return !this.isPlaceholderText(u) || !this.isPlaceholderText(k) || !this.isPlaceholderText(z);
   }
 
+  /** Takvimde tatil işaretli haftalarda şablon/GPT taşmasını engelle (süreç, S-D, değer, okuryazarlık vb. boş). */
+  private clearTatilSupplementaryFields(r: ParsedPlanRow): ParsedPlanRow {
+    return {
+      ...r,
+      belirli_gun_haftalar: null,
+      surec_bilesenleri: null,
+      olcme_degerlendirme: null,
+      sosyal_duygusal: null,
+      degerler: null,
+      okuryazarlik_becerileri: null,
+      zenginlestirme: null,
+      okul_temelli_planlama: null,
+    };
+  }
+
   private rowQualityScore(r: ParsedPlanRow | null | undefined): number {
     if (!r) return -100;
     let score = 0;
@@ -342,6 +345,9 @@ export class YillikPlanIcerikController {
         row = { ...row, ders_saati: isTatil ? 2 : validRaw == null ? expectedHour : validRaw };
       }
 
+      if (isTatil) {
+        row = this.clearTatilSupplementaryFields(row);
+      }
       if (this.looksLikeLongOkulTemelliNote((row.okul_temelli_planlama ?? '').trim())) {
         row = { ...row, okul_temelli_planlama: null };
       }
@@ -558,8 +564,14 @@ export class YillikPlanIcerikController {
     const enriched = items.map((i) => {
       const plain = { ...i };
       const key = `${i.academicYear}:${i.weekOrder}`;
-      (plain as Record<string, unknown>).hafta_label = weekLabelMap.get(key) ?? `${i.weekOrder}. Hafta`;
-      (plain as Record<string, unknown>).ay = weekAyMap.get(key) ?? '';
+      const haftaLabel = weekLabelMap.get(key) ?? `${i.weekOrder}. Hafta`;
+      (plain as Record<string, unknown>).hafta_label = haftaLabel;
+      (plain as Record<string, unknown>).ay = resolveAyForYillikPlanRow({
+        haftaLabel,
+        calendarAy: weekAyMap.get(key),
+        weekOrder: i.weekOrder,
+        academicYear: i.academicYear,
+      });
       return plain;
     });
     return { items: enriched };
@@ -591,15 +603,6 @@ export class YillikPlanIcerikController {
         label: this.mebFetchService.getSubjectLabel(code),
       })),
     };
-  }
-
-  /** Kullanılabilir GPT modelleri listesi (taslak oluşturma için) */
-  @Get('gpt-models')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.superadmin, UserRole.moderator)
-  @RequireModule('document_templates')
-  gptModels() {
-    return { models: GPT_TASLAK_MODELS };
   }
 
   /** Teacher, superadmin, moderator: Kazanım / Plan – mevcut planlar listesi. ?q= ile plan içeriğinde arama. */
@@ -681,7 +684,12 @@ export class YillikPlanIcerikController {
       const key = `${i.academicYear}:${i.weekOrder}`;
       const range = weekRangeMap.get(key);
       const haftaLabel = weekLabelMap.get(key) ?? `${i.weekOrder}. Hafta`;
-      const ay = weekAyMap.get(key) ?? '';
+      const ay = resolveAyForYillikPlanRow({
+        haftaLabel,
+        calendarAy: weekAyMap.get(key),
+        weekOrder: i.weekOrder,
+        academicYear: i.academicYear,
+      });
       return {
         ...i,
         hafta_label: haftaLabel,
@@ -707,372 +715,6 @@ export class YillikPlanIcerikController {
   @RequireModule('document_templates')
   async getOne(@Param('id') id: string) {
     return this.service.findOne(id);
-  }
-
-  /** Superadmin, moderator: GPT ile taslak oluştur */
-  @Post('generate-draft')
-  @Throttle({ default: { limit: 30, ttl: 60000 } })
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.superadmin, UserRole.moderator)
-  @RequireModule('document_templates')
-  async generateDraft(@Body() dto: GenerateDraftDto) {
-    return this.gptService.generateDraft({
-      subject_code: dto.subject_code,
-      subject_label: dto.subject_label,
-      grade: dto.grade,
-      section: dto.section,
-      school_profile: dto.school_profile,
-      academic_year: dto.academic_year,
-      model: dto.model,
-    });
-  }
-
-  /** structured: JSON/CSV / kazanim_plan (GPT yok). gpt: payload = tam plan metni → GPT + takvim. */
-  @Post('preview-draft-from-paste')
-  @Throttle({ default: { limit: 25, ttl: 60000 } })
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.superadmin, UserRole.moderator)
-  @RequireModule('document_templates')
-  async previewDraftFromPaste(@Body() dto: PreviewDraftFromPasteDto) {
-    if (dto.paste_mode === 'gpt') {
-      return this.gptService.generateDraftFromPastedFullText({
-        subject_code: dto.subject_code,
-        subject_label: dto.subject_label,
-        grade: dto.grade,
-        section: dto.section,
-        school_profile: dto.school_profile,
-        academic_year: dto.academic_year,
-        model: dto.model,
-        pasted_text: dto.payload,
-        curriculum_model: dto.curriculum_model,
-        ana_grup: dto.ana_grup,
-        alt_grup: dto.alt_grup,
-      });
-    }
-    return this.gptService.importPlanDraftNoGpt({
-      subject_code: dto.subject_code,
-      subject_label: dto.subject_label,
-      grade: dto.grade,
-      section: dto.section,
-      academic_year: dto.academic_year,
-      payload: dto.payload,
-    });
-  }
-
-  /** Superadmin, moderator: Excel yükleyerek GPT taslak oluştur (kaynak olarak yüklenen dosya kullanılır) */
-  @Post('generate-draft-from-excel')
-  @Throttle({ default: { limit: 20, ttl: 60000 } })
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.superadmin, UserRole.moderator)
-  @RequireModule('document_templates')
-  @UseInterceptors(
-    FileInterceptor('excel_file', {
-      limits: { fileSize: 10 * 1024 * 1024 },
-      fileFilter: (_, file, cb) => {
-        const ok =
-          file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-          file.mimetype === 'application/vnd.ms-excel' ||
-          file.originalname?.toLowerCase().endsWith('.xlsx') ||
-          file.originalname?.toLowerCase().endsWith('.xls');
-        cb(null, !!ok);
-      },
-    }),
-  )
-  async generateDraftFromExcel(
-    @UploadedFile() file: Express.Multer.File | undefined,
-    @Body() dto: GenerateDraftFromExcelDto & { target_sheet_name?: string },
-  ) {
-    if (!file || !file.buffer) {
-      throw new BadRequestException({
-        code: 'EXCEL_REQUIRED',
-        message: 'Excel dosyası (.xlsx veya .xls) yükleyin.',
-      });
-    }
-    const subjectCode = String(dto.subject_code ?? '').trim();
-    const subjectLabel = String(dto.subject_label ?? '').trim();
-    const grade = Number.isFinite(dto.grade) ? dto.grade : parseInt(String(dto.grade ?? ''), 10);
-    const academicYear = String(dto.academic_year ?? '').trim();
-    if (!subjectCode || !subjectLabel || !academicYear || !Number.isFinite(grade) || grade < 1 || grade > 12) {
-      throw new BadRequestException({
-        code: 'FORM_INVALID',
-        message: 'subject_code, subject_label, grade (1-12) ve academic_year zorunludur.',
-      });
-    }
-    let tempPath: string | null = null;
-    try {
-      tempPath = path.join(os.tmpdir(), `excel-${Date.now()}.xlsx`);
-      fs.writeFileSync(tempPath, file.buffer);
-      
-      const targetSheetName = dto.target_sheet_name?.trim() || undefined;
-      const { items } = this.mebFetchService.parseExcelPlan(tempPath, grade, subjectCode, targetSheetName);
-      
-      if (items.length === 0) {
-        const availableSheets = this.mebFetchService.getExcelSheetNames(tempPath);
-        throw new BadRequestException({
-          code: 'EXCEL_PARSE_EMPTY',
-          message: 'Excel dosyasından plan satırı çıkarılamadı. Hafta, ünite, konu sütunlarını kontrol edin.',
-          details: { availableSheets }
-        });
-      }
-      return this.gptService.generateDraft({
-        subject_code: subjectCode,
-        subject_label: subjectLabel,
-        grade,
-        section: dto.section ?? undefined,
-        school_profile: dto.school_profile ?? undefined,
-        academic_year: academicYear,
-        model: dto.model ?? undefined,
-        customSourceRows: items,
-      });
-    } finally {
-      if (tempPath && fs.existsSync(tempPath)) {
-        try {
-          fs.unlinkSync(tempPath);
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  }
-
-  @Post('parse-excel-sheets')
-  @Throttle({ default: { limit: 30, ttl: 60000 } })
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.superadmin, UserRole.moderator)
-  @RequireModule('document_templates')
-  @UseInterceptors(
-    FileInterceptor('excel_file', {
-      limits: { fileSize: 10 * 1024 * 1024 },
-      fileFilter: (_, file, cb) => {
-        const ok =
-          file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-          file.mimetype === 'application/vnd.ms-excel' ||
-          file.originalname?.toLowerCase().endsWith('.xlsx') ||
-          file.originalname?.toLowerCase().endsWith('.xls');
-        cb(null, !!ok);
-      },
-    }),
-  )
-  async parseExcelSheets(@UploadedFile() file: Express.Multer.File | undefined) {
-    if (!file || !file.buffer) {
-      throw new BadRequestException({
-        code: 'EXCEL_REQUIRED',
-        message: 'Excel dosyası (.xlsx veya .xls) yükleyin.',
-      });
-    }
-    let tempPath: string | null = null;
-    try {
-      tempPath = path.join(os.tmpdir(), `excel-sheets-${Date.now()}.xlsx`);
-      fs.writeFileSync(tempPath, file.buffer);
-      const sheets = this.mebFetchService.getExcelSheetNames(tempPath);
-      return { sheets };
-    } finally {
-      if (tempPath && fs.existsSync(tempPath)) {
-        try {
-          fs.unlinkSync(tempPath);
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  }
-
-  /** Superadmin, moderator: MEB TYMM taslak planından otomatik içe aktar */
-  @Post('import-meb-taslak')
-  @Throttle({ default: { limit: 15, ttl: 60000 } })
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.superadmin, UserRole.moderator)
-  @RequireModule('document_templates')
-  async importMebTaslak(@Body() dto: ImportMebTaslakDto) {
-    let tempDir: string | null = null;
-    let rows: ParsedPlanRow[] = [];
-    try {
-      const extractResult = await this.mebFetchService.fetchRarAndExtract({
-        subject_code: dto.subject_code,
-        grade: dto.grade,
-      });
-      tempDir = extractResult.tempDir;
-      const { xlsxPaths } = extractResult;
-      const subjectLabel = this.mebFetchService.getSubjectLabel(dto.subject_code);
-      const gptAvailable = this.gptService.isAvailable();
-
-      const [gptResult, parseResult] = await Promise.all([
-        gptAvailable
-          ? (async () => {
-              for (const p of xlsxPaths) {
-                const out = await this.gptService.parseExcelFileToPlan(p, {
-                  subject_code: dto.subject_code,
-                  subject_label: subjectLabel,
-                  grade: dto.grade,
-                  model: dto.model,
-                });
-                if (out.items.length > 0) return out;
-              }
-              return { items: [] as ParsedPlanRow[], planNotu: null };
-            })()
-          : Promise.resolve({ items: [] as ParsedPlanRow[], planNotu: null }),
-        (async () => {
-          for (const p of xlsxPaths) {
-            const out = this.mebFetchService.parseExcelPlan(p, dto.grade, dto.subject_code);
-            if (out.items.length > 0) return out;
-          }
-          return { items: [] as ParsedPlanRow[], planNotu: null };
-        })(),
-      ]);
-
-      const targetWeeks = await this.getTargetWeeksForYear(dto.academic_year);
-      const calendar = await this.workCalendarService.findAll(dto.academic_year);
-      const tatilWeeks = new Set(
-        calendar
-          .filter((w) => w.isTatil && w.weekOrder >= 1 && w.weekOrder <= 38)
-          .map((w) => w.weekOrder),
-      );
-
-      const parseRows = this.sanitizeImportedRows(parseResult.items);
-      const gptRows = this.sanitizeImportedRows(gptResult.items);
-      const mergedRows = this.mergeParseAndGptRows(parseRows, gptRows);
-      const baseRows = this.repairMisalignedRows(
-        this.normalizeImportedHours(
-          mergedRows.length > 0 ? mergedRows : parseRows.length > 0 ? parseRows : gptRows,
-          dto.subject_code,
-          dto.grade,
-        ),
-      );
-      const filledBaseRows = this.fillMissingWeeks(baseRows, targetWeeks);
-
-      const plannerResult =
-        gptAvailable && parseRows.length > 0
-          ? await this.gptService.planFromParsedRows({
-              subject_code: dto.subject_code,
-              subject_label: subjectLabel,
-              grade: dto.grade,
-              academic_year: dto.academic_year,
-              targetWeeks,
-              tatilWeeks: [...tatilWeeks],
-              sourceRows: filledBaseRows,
-              model: dto.model,
-            })
-          : { items: [] as ParsedPlanRow[], warnings: [] as string[] };
-      const plannedRows = this.sanitizeImportedRows(plannerResult.items);
-      const strictRows = this.strictValidatePlanRows(
-        plannedRows.length > 0 ? plannedRows : filledBaseRows,
-        filledBaseRows,
-        targetWeeks,
-        tatilWeeks,
-        dto.subject_code,
-        dto.grade,
-      );
-      rows = this.hydrateEmptyWeeks(strictRows, gptRows, dto.subject_code, dto.grade, tatilWeeks);
-      const planNotu = parseResult.planNotu ?? gptResult.planNotu ?? null;
-      if (rows.length === 0) {
-        const gptHint = this.gptService.isAvailable()
-          ? ' GPT (öncelikli) ve doğrudan Excel parse ile denendi, sonuç alınamadı.'
-          : ' OPENAI_API_KEY tanımlanırsa GPT önce devreye girer ve daha iyi sonuç verebilir.';
-        throw new BadRequestException({
-          code: 'MEB_PARSE_EMPTY',
-          message:
-            'TYMM Excel dosyası bulundu ancak uygun plan satırı çıkarılamadı.' + gptHint,
-        });
-      }
-
-      rows = this.fillMissingWeeks(rows, targetWeeks);
-      if (planNotu) {
-        try {
-          await this.service.upsertMeta(dto.subject_code, dto.grade, dto.academic_year, planNotu);
-        } catch (metaErr) {
-          // eslint-disable-next-line no-console
-          console.warn('[import-meb-taslak] Plan meta (tablo altı not) kaydedilemedi:', metaErr);
-        }
-      }
-      const created = await this.service.bulkCreate({
-        subject_code: dto.subject_code,
-        subject_label: subjectLabel,
-        grade: dto.grade,
-        section: dto.section ?? 'ders',
-        academic_year: dto.academic_year,
-        items: rows.map((r) => ({
-          week_order: r.week_order,
-          unite: r.unite ?? undefined,
-          konu: r.konu ?? undefined,
-          kazanimlar: r.kazanimlar ?? undefined,
-          ders_saati: r.ders_saati,
-          belirli_gun_haftalar: r.belirli_gun_haftalar ?? undefined,
-          surec_bilesenleri: r.surec_bilesenleri ?? undefined,
-          olcme_degerlendirme: r.olcme_degerlendirme ?? undefined,
-          sosyal_duygusal: r.sosyal_duygusal ?? undefined,
-          degerler: r.degerler ?? undefined,
-          okuryazarlik_becerileri: r.okuryazarlik_becerileri ?? undefined,
-          zenginlestirme: r.zenginlestirme ?? undefined,
-          okul_temelli_planlama: r.okul_temelli_planlama ?? undefined,
-        })),
-      });
-      return { imported: created.length, items: created };
-    } catch (e) {
-      if (e instanceof BadRequestException) throw e;
-      const msg = e instanceof Error ? e.message : String(e);
-      const stack = e instanceof Error ? e.stack : '';
-      // eslint-disable-next-line no-console
-      console.error('[import-meb-taslak]', msg, stack || '');
-      throw new InternalServerErrorException(`MEB planı içe aktarılırken hata: ${msg}`);
-    } finally {
-      if (tempDir) {
-        try {
-          fs.rmSync(tempDir, { recursive: true, force: true });
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  }
-
-  /** Superadmin, moderator: GPT taslağını kaydet */
-  @Post('save-draft')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.superadmin, UserRole.moderator)
-  @RequireModule('document_templates')
-  async saveDraft(
-    @Body()
-    body: {
-      subject_code: string;
-      subject_label: string;
-      grade: number;
-      section?: string;
-      academic_year: string;
-      items: Array<{
-        week_order: number;
-        unite?: string;
-        konu?: string;
-        kazanimlar?: string;
-        ders_saati?: number;
-        belirli_gun_haftalar?: string;
-        surec_bilesenleri?: string;
-        olcme_degerlendirme?: string;
-        sosyal_duygusal?: string;
-        degerler?: string;
-        okuryazarlik_becerileri?: string;
-        zenginlestirme?: string;
-        okul_temelli_planlama?: string;
-      }>;
-      curriculum_model?: string | null;
-      ana_grup?: string | null;
-      alt_grup?: string | null;
-      /** Bilsem: takvim üretimi için sınıf (DB’de grade null). */
-      plan_grade?: number;
-    },
-  ) {
-    const created = await this.service.bulkCreate({
-      subject_code: body.subject_code,
-      subject_label: body.subject_label,
-      grade: body.grade,
-      plan_grade: body.plan_grade,
-      section: body.section,
-      academic_year: body.academic_year,
-      curriculum_model: body.curriculum_model,
-      ana_grup: body.ana_grup,
-      alt_grup: body.alt_grup,
-      items: body.items,
-    });
-    return { created: created.length, items: created };
   }
 
   /** Superadmin, moderator: Yeni kayıt */

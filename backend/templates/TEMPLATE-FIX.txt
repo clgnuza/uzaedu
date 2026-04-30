@@ -1,0 +1,28 @@
+Template Fix Instructions
+============================
+
+## Problem
+The template "ornek-yillik-plan-modern.docx" contains hardcoded text:
+"İçerik paylaşımı: Test Öğretmen (onaylı katkısı)"
+
+This text should NOT be in the template. It should only come from data when generating documents.
+
+## Steps to Fix
+1. Open "ornek-yillik-plan-modern.docx" in Microsoft Word
+2. Press Ctrl+H to open Find & Replace
+3. Search for "İçerik paylaşımı"
+4. Delete the entire paragraph containing this text
+5. Also check that "{mudur_adi}" appears only ONCE in the document
+6. Save the file (this will overwrite the existing template)
+
+## Alternative: Create New Template
+1. Create a new Word document
+2. Add placeholders: {okul_adi}, {ogretim_yili}, {sinif}, {ders_adi}
+3. Create table with proper headers (AY, HAFTA, DERS SAATİ, etc.)
+4. Add approval section: {mudur_adi} (ONLY ONCE), "Okul Müdürü"
+5. Save as "yillik-plan-meb.docx" in templates folder
+
+## Verify Fix
+After fixing, generate a new document and check that:
+- "İçerik paylaşımı" text does NOT appear
+- Müdür name appears only ONCE

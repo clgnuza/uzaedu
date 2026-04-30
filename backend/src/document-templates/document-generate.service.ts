@@ -20,7 +20,6 @@ import {
   Document as DocxDocument,
   Footer,
   Packer,
-  PageBreak,
   PageNumber,
   PageOrientation,
   Paragraph,
@@ -33,6 +32,7 @@ import {
   VerticalAlign,
   WidthType,
   convertInchesToTwip,
+  VerticalMergeType,
 } from 'docx';
 import { DocumentTemplate } from './entities/document-template.entity';
 import { User } from '../users/entities/user.entity';
@@ -43,6 +43,7 @@ import { DocumentGeneration } from './entities/document-generation.entity';
 import { BilsemPlanCreatorRewardService } from '../bilsem/bilsem-plan-creator-reward.service';
 import { getAcademicYearOptions } from '../config/document-template-options';
 import { getAyForWeek, hasMebCalendar, mebTeachingWeeksAsWorkCalendar } from '../config/meb-calendar';
+import { resolveAyForYillikPlanRow } from '../yillik-plan-icerik/resolve-ay-for-plan-row.util';
 import { GenerateDocumentDto } from './dto/generate-document.dto';
 import { YillikPlanIcerikService } from '../yillik-plan-icerik/yillik-plan-icerik.service';
 import { YillikPlanIcerik } from '../yillik-plan-icerik/entities/yillik-plan-icerik.entity';
@@ -54,6 +55,13 @@ import {
   isBilsemSubjectCode,
 } from '../bilsem/bilsem-puy-plan-constants';
 import { EntitlementService } from '../entitlements/entitlement.service';
+import {
+  TABLE_STYLES,
+  HEADER_STYLES,
+  TABLE_LAYOUT,
+  TEXT_STYLES,
+  ORIENTATION,
+} from './document-template-defaults';
 
 @Injectable()
 export class DocumentGenerateService {
@@ -177,6 +185,7 @@ export class DocumentGenerateService {
         template,
         formData,
         mergeData as Record<string, string>,
+        user,
       );
       const zumreOgretmenleriArray = this.parseZumreOgretmenleri(
         formData,
@@ -293,7 +302,7 @@ export class DocumentGenerateService {
     formData: Record<string, string | number>,
   ): Promise<Buffer> {
     const base = this.buildMergeData(user, formData, template);
-    const haftalar = await this.fetchHaftalarForMerge(template, formData, base);
+    const haftalar = await this.fetchHaftalarForMerge(template, formData, base, user);
     const zumreList = this.parseZumreOgretmenleri(formData, user, template); // [{isim}]
 
     const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '') || '';
@@ -312,6 +321,7 @@ export class DocumentGenerateService {
         str((formData as any).subject_code) ||
         'bilsem_cografya';
     }
+    const bilsemPlanScopeForDoc = isBilsemPlan ? this.readBilsemPlanScopeFromForm(formData) : null;
     const gradeNum = base.sinif ? parseInt(String(base.sinif), 10) : template.grade ?? 9;
     const academicYear = base.ogretim_yili ?? '2024-2025';
     let tabloAltiNot: string | null = null;
@@ -339,39 +349,72 @@ export class DocumentGenerateService {
     const mudurAdi = base.mudur_adi ?? '';
     const onayTarihiAlt = base.onay_tarihi_alt ?? '';
 
-    // Üst seviye (açık yeşil) ve alt seviye (açık gri) başlık – kısaltılmış, dikey metin, düşük yükseklik
+    /** MEB/Excel yıllık plan: AY… OKUL TEMELLİ ayrı sütun; FARK/OKUL başlığı yatay, satır başına içerik */
     const HEADER_ROW1: { text: string; columnSpan: number }[] = [
       { text: 'SÜRE', columnSpan: 2 },
-      { text: 'ÜNİTE / SAAT / KONU', columnSpan: 3 },
-      { text: 'ÖĞR.CIKT./SÜREÇ', columnSpan: 2 },
-      { text: 'ÖLÇME', columnSpan: 1 },
-      { text: 'PROG.ARASI', columnSpan: 3 },
-      { text: 'BELİRLİ GÜN/HAFTA', columnSpan: 1 },
+      { text: 'DERS SAATİ · ÜNİTE/TEMA · KONU', columnSpan: 3 },
+      { text: 'ÖĞRENME ÇIKTILARI / SÜREÇ BİLEŞENLERİ', columnSpan: 2 },
+      { text: 'ÖLÇME VE DEĞERLENDİRME', columnSpan: 1 },
+      { text: 'PROGRAMLAR ARASI BİLEŞENLER', columnSpan: 3 },
+      { text: 'BELİRLİ GÜN VE HAFTALAR', columnSpan: 1 },
       { text: 'FARKLILAŞTIRMA', columnSpan: 1 },
-      { text: 'OKUL TEMELLİ', columnSpan: 1 },
+      { text: 'OKUL TEMELLİ PLANLAMA', columnSpan: 1 },
     ];
-    // İkinci satır – yönetim paneli (yıllık plan içeriği) ile aynı sütun sırası: … Ünite/Tema, Saat, Konu …
-    const headers = [
+    const topHeaderRow1 = HEADER_ROW1;
+    // 2. satır — MEB xlsx şablonu (yiillik-plan-sablon) 2. satırla uyum; dar sütunlarda dikey
+    const headersMeb = [
       'AY',
       'HAFTA',
-      'ÜNİTE/T.',
-      'SAAT',
+      'DERS SAATİ',
+      'ÜNİTE / TEMA',
       'KONU',
-      'ÖĞR.CIKT.',
+      'ÖĞRENME\nÇIKTILARI',
+      'SÜREÇ\nBİLEŞENLERİ',
+      'ÖLÇME / DEĞERLENDİRME',
+      'SOSYAL-DUYG.\nÖĞR.',
+      'DEĞERLER',
+      'OKURYAZAR.\nBECERİ',
+      'BELİRLİ GÜN\n/ HAFTA',
+      'FARKLILAŞTIRMA',
+      'OKUL TEM.\nPLANL.',
+    ];
+    const headersBilsem = [
+      'AY',
+      'HAFTA',
+      'DERS SAATİ',
+      'ÜNİTE / TEMA',
+      'KONU',
+      'ÖĞRENME\nÇIKTILARI',
       'SÜREÇ',
-      'ÖLÇME',
-      'S-D BEC.',   // dar sütun
-      'DEĞER',     // dar sütun
-      'OKUR.',     // dar sütun
-      'BEL.G/H',
-      'FARKLI.',
-      'OKUL TEM.',
+      'ÖLÇME / DEĞERLENDİRME',
+      'SOSYAL-DUYG.\nÖĞR.',
+      'DEĞERLER',
+      'OKURYAZAR.\nBECERİ',
+      'BELİRLİ GÜN\n/ HAFTA',
+      'FARKLILAŞTIRMA',
+      'OKUL TEM.\nPLANL.',
+    ];
+    const headers = isBilsemPlan ? headersBilsem : headersMeb;
+
+    const CONTENT_KEYS = [
+      'unite',
+      'konu',
+      'ogrenme_ciktilari',
+      'surec_bilesenleri',
+      'olcme_degerlendirme',
+      'sosyal_duygusal',
+      'degerler',
+      'okuryazarlik_becerileri',
+      'belirli_gun_haftalar',
+      'zenginlestirme',
+      'okul_temelli_planlama',
     ];
 
-    // Sütun genişlikleri (twips) – Ay, Hafta, Ünite, Saat, Konu, …
-    const colWidths = [
-      240, 260, 260, 220, 340, 1500, 1000, 1280,
-      400, 350, 420, 450, 650, 700,
+    const colWidthsBilsem = [
+      240, 260, 220, 280, 360, 1000, 600, 2180, 400, 350, 420, 450, 380, 400,
+    ];
+    const colWidthsMeb = [
+      300, 320, 280, 700, 860, 1300, 900, 1900, 520, 480, 560, 620, 700, 720,
     ];
 
     const normalizeAy = (s: string) => {
@@ -391,6 +434,33 @@ export class DocumentGenerateService {
     };
 
     const EMPTY_PLACEHOLDER = '–';
+
+    const weeksArr = (haftalar ?? []) as Record<string, unknown>[];
+    let colWidthsMebLive = colWidthsMeb;
+    let CELL_SIZE = 14;
+    let CELL_SIZE_SMALL = 12;
+    if (!isBilsemPlan && weeksArr.length) {
+      const totalChars = weeksArr.reduce(
+        (sum, h) =>
+          sum +
+          CONTENT_KEYS.reduce(
+            (s, k) => s + String((h as Record<string, unknown>)[k] ?? '').length,
+            0,
+          ),
+        0,
+      );
+      if (totalChars > 14000 || weeksArr.length > 36) {
+        CELL_SIZE = 12;
+        CELL_SIZE_SMALL = 10;
+        colWidthsMebLive = colWidthsMeb.map((w, i) =>
+          Math.max(i < 5 ? 200 : 180, Math.floor(w * (i <= 4 ? 0.9 : 0.94))),
+        );
+      } else if (totalChars > 8000) {
+        CELL_SIZE_SMALL = 11;
+        colWidthsMebLive = colWidthsMeb.map((w) => Math.max(220, Math.floor(w * 0.98)));
+      }
+    }
+    const colWidths = isBilsemPlan ? colWidthsBilsem : colWidthsMebLive;
 
     const runsFromText = (raw: string, size: number) => {
       const { lines, addBullets } = splitToLines(raw);
@@ -457,6 +527,33 @@ export class DocumentGenerateService {
       return baseSize;
     };
 
+    /** Dikey gövde metnini en fazla 2 satıra böl; kısaltma yok, tüm metin korunur. */
+    const wrapForVerticalBody = (raw: string, colWidthTwips: number): string => {
+      const t = String(raw ?? '').replace(/\s+/g, ' ').trim();
+      if (!t) return t;
+      const target = Math.max(10, Math.floor(t.length / 2));
+      let splitAt = -1;
+      for (let i = target; i >= 1; i--) {
+        if (t[i] === ' ') {
+          splitAt = i;
+          break;
+        }
+      }
+      if (splitAt < 0) {
+        for (let i = target + 1; i < t.length - 1; i++) {
+          if (t[i] === ' ') {
+            splitAt = i;
+            break;
+          }
+        }
+      }
+      if (splitAt < 0) {
+        const forceAt = Math.max(1, Math.min(t.length - 1, Math.floor(colWidthTwips / 82)));
+        return `${t.slice(0, forceAt)}\n${t.slice(forceAt)}`;
+      }
+      return `${t.slice(0, splitAt).trim()}\n${t.slice(splitAt + 1).trim()}`;
+    };
+
     const createCell = (
       text: string,
       opts?: {
@@ -473,6 +570,7 @@ export class DocumentGenerateService {
         borders?: Partial<{ left: { style: any; size: number; color: string } }>;
         columnSpan?: number;
         margins?: { top?: number; bottom?: number; left?: number; right?: number };
+        verticalMerge?: (typeof VerticalMergeType)[keyof typeof VerticalMergeType];
       },
     ) => {
       const baseSize = opts?.size ?? 20;
@@ -482,28 +580,39 @@ export class DocumentGenerateService {
           ? effectiveSizeForContent(text, baseSize, opts.colWidthTwips)
           : baseSize;
       const isVertical = !!opts?.textDirection;
+      const vmContinue = opts?.verticalMerge === VerticalMergeType.CONTINUE;
       return new TableCell({
         columnSpan: opts?.columnSpan,
         textDirection: opts?.textDirection,
+        verticalMerge: opts?.verticalMerge,
         children: [
           new Paragraph({
-            children: [
-              ...(opts?.listify
-                ? runsFromText(text, size).map((r) => {
-                    (r as any).bold = opts?.bold ?? false;
-                    return r;
-                  })
-                : [
-                    new TextRun({
-                      text: (text ?? '').trim() || EMPTY_PLACEHOLDER,
-                      bold: opts?.bold ?? false,
-                      size,
-                      font: 'Calibri',
-                    }),
-                  ]),
-            ],
+            children: vmContinue
+              ? [new TextRun({ text: ' ', size: 2, font: 'Calibri' })]
+              : [
+                  ...(
+                    opts?.listify
+                    ? runsFromText(text, size).map((r) => {
+                        (r as any).bold = opts?.bold ?? false;
+                        return r;
+                      })
+                    : [
+                        new TextRun({
+                          text: (text ?? '').trim() || EMPTY_PLACEHOLDER,
+                          bold: opts?.bold ?? false,
+                          size,
+                          font: 'Calibri',
+                        }),
+                      ]
+                  ),
+                ],
             alignment: opts?.align ?? AlignmentType.LEFT,
-            spacing: { after: 0, line: isVertical ? 150 : 200, lineRule: 'atLeast' as any },
+            spacing: {
+              after: 0,
+              before: 0,
+              line: isVertical ? 220 : 200,
+              lineRule: (isVertical ? 'exactly' : 'atLeast') as any,
+            },
           }),
         ],
         shading: opts?.shading ? { fill: opts.shading } : undefined,
@@ -513,25 +622,21 @@ export class DocumentGenerateService {
       });
     };
 
-    const LIGHT_GREEN = 'D4EDDA'; // MEB TYMM üst kategori
-    const LIGHT_GREY = 'E8ECF0'; // MEB TYMM alt sütun
-    const HEADER_SIZE = 16; // 8 punto, yatay metin
-    const HEADER_MARGINS = { top: 50, bottom: 50, left: 50, right: 50 };
     const header1StartCols = [0, 2, 5, 7, 8, 11, 12, 13];
     const headerRow1 = new TableRow({
       tableHeader: false,
       cantSplit: true,
-      children: HEADER_ROW1.map((item, i) => {
+      children: topHeaderRow1.map((item, i) => {
         const start = header1StartCols[i];
         const colW = colWidths.slice(start, start + item.columnSpan).reduce((a, b) => a + b, 0);
         return createCell(item.text.replace(/\n/g, ' '), {
           bold: true,
           align: AlignmentType.CENTER,
-          shading: LIGHT_GREEN,
-          size: HEADER_SIZE,
+          shading: TABLE_STYLES.LIGHT_GREEN,
+          size: HEADER_STYLES.HEADER_SIZE,
           vAlign: VerticalAlign.CENTER,
           columnSpan: item.columnSpan,
-          margins: HEADER_MARGINS,
+          margins: HEADER_STYLES.HEADER_MARGINS,
           colWidthTwips: colW,
           autoShrinkHeader: true,
         });
@@ -542,36 +647,23 @@ export class DocumentGenerateService {
       tableHeader: false,
       cantSplit: true,
       children: headers.map((h, i) => {
-        const isNarrowCol = i < 5 || i >= 8; // Sol 5 + S-D, DEĞER, OKUR, BEL, FARKLI, OKUL TEM.
-        const isWideCol = i >= 5 && i < 8;   // ÖĞR.CIKT., SÜREÇ, ÖLÇME – yatay
+        const isWideCol = i >= 5 && i < 8;
+        const isTightMargins = i < 5 || i === 6 || (i >= 8 && i <= 13);
+        const useVerticalHeader = i <= 4 || (i >= 8 && i <= 13);
         return createCell(h.replace(/\n/g, ' '), {
           bold: true,
           align: AlignmentType.CENTER,
-          shading: LIGHT_GREY,
-          size: isNarrowCol ? 14 : HEADER_SIZE,
+          shading: TABLE_STYLES.LIGHT_GRAY,
+          size: isTightMargins && !isWideCol ? 14 : HEADER_STYLES.HEADER_SIZE,
           vAlign: VerticalAlign.CENTER,
-          margins: isNarrowCol ? { top: 25, bottom: 25, left: 25, right: 25 } : HEADER_MARGINS,
+          margins: isTightMargins ? { top: 25, bottom: 25, left: 25, right: 25 } : HEADER_STYLES.HEADER_MARGINS,
           colWidthTwips: colWidths[i],
-          ...(isNarrowCol && { textDirection: TextDirection.BOTTOM_TO_TOP_LEFT_TO_RIGHT }),
+          ...(useVerticalHeader && { textDirection: TextDirection.BOTTOM_TO_TOP_LEFT_TO_RIGHT }),
           ...(isWideCol && { autoShrinkHeader: true }),
         });
       }),
       height: { value: 420, rule: 'atLeast' as any },
     });
-
-    const CONTENT_KEYS = [
-      'unite',
-      'konu',
-      'ogrenme_ciktilari',
-      'surec_bilesenleri',
-      'olcme_degerlendirme',
-      'sosyal_duygusal',
-      'degerler',
-      'okuryazarlik_becerileri',
-      'belirli_gun_haftalar',
-      'zenginlestirme',
-      'okul_temelli_planlama',
-    ];
 
     const rowHeightFromContent = (h: Record<string, unknown>): number => {
       const totalChars = CONTENT_KEYS.reduce((sum, k) => sum + String(h?.[k] ?? '').length, 0);
@@ -584,43 +676,273 @@ export class DocumentGenerateService {
       if (score > 800) base = 700;
       else if (score > 500) base = 560;
       else if (score > 250) base = 500;
-      // Dikey metin sütunları için yeterli yükseklik
-      const verticalKeys = ['ay', 'hafta_label', 'unite', 'konu', 'sosyal_duygusal', 'degerler', 'okuryazarlik_becerileri', 'belirli_gun_haftalar', 'zenginlestirme', 'okul_temelli_planlama'];
-      const maxVerticalLen = Math.max(...verticalKeys.map((k) => String(h?.[k] ?? '').length));
-      const verticalHeight = maxVerticalLen * 88;
-      return Math.max(base, Math.min(verticalHeight, 2000));
+      const shortVerticalKeys = ['ay', 'hafta_label', 'ders_saati'];
+      const maxShort = Math.max(0, ...shortVerticalKeys.map((k) => String(h?.[k] ?? '').length));
+      const verticalNeed = Math.min(420, maxShort * 44);
+      return Math.min(2200, Math.max(base, verticalNeed));
     };
 
-    const CELL_SIZE = 14; // 7 punto – sayfa azaltma
-    const CELL_SIZE_SMALL = 12; // 6 punto – Farklılaştırma, Okul Temelli
-    const SPECIAL_ROW_SHADE = 'FEF3C7'; // açık amber – tatil, sınav, özel tarih
     const VERTICAL_TEXT = TextDirection.BOTTOM_TO_TOP_LEFT_TO_RIGHT; // dikey yukarı
-    const VERTICAL_CELL_MARGINS = { top: 25, bottom: 25, left: 25, right: 25 }; // dikey metin tam görünsün, ortada
-    const dataRows = (haftalar ?? []).map((h, rowIdx) => {
+    const MERGED_FARK_OKUL_SHADE = 'F3F4F6';
+    const singlePlanCol = (key: 'zenginlestirme' | 'okul_temelli_planlama'): string => {
+      for (const row of weeksArr) {
+        const v = String((row as any)?.[key] ?? '').trim();
+        if (v) return v;
+      }
+      return '';
+    };
+    const aggZenginlestirme = singlePlanCol('zenginlestirme');
+    const aggOkulTemelli = singlePlanCol('okul_temelli_planlama');
+    const useMergedRightCols = isBilsemPlan;
+    const mebDonemVertMerge = !isBilsemPlan;
+    const mebGroupAtRowIdx = (idx: number): 1 | 2 => {
+      const wo = Number((weeksArr[idx] as any)?.week_order ?? 0);
+      return wo >= 19 ? 2 : 1;
+    };
+    const mebIdxByDonem: [number[], number[]] = [[], []];
+    for (let ix = 0; ix < weeksArr.length; ix++) {
+      mebIdxByDonem[mebGroupAtRowIdx(ix) - 1].push(ix);
+    }
+    const mebBuildDonemAgg = (donemIx: 0 | 1, key: 'zenginlestirme' | 'okul_temelli_planlama'): string => {
+      for (const idx of mebIdxByDonem[donemIx]) {
+        const r = weeksArr[idx] as any;
+        const v = String(r[key] ?? '').trim();
+        if (v) return v;
+      }
+      return EMPTY_PLACEHOLDER;
+    };
+    const mebDonemZ: [string, string] = [
+      mebBuildDonemAgg(0, 'zenginlestirme'),
+      mebBuildDonemAgg(1, 'zenginlestirme'),
+    ];
+    const mebDonemO: [string, string] = [
+      mebBuildDonemAgg(0, 'okul_temelli_planlama'),
+      mebBuildDonemAgg(1, 'okul_temelli_planlama'),
+    ];
+
+    const dataRows = weeksArr.map((h, rowIdx) => {
       const get = (k: string) => String((h as any)?.[k] ?? '');
       const ay = normalizeAy(get('ay'));
       const isSpecial = !!(h as any)?.is_special;
-      const rowShade = isSpecial ? SPECIAL_ROW_SHADE : (rowIdx % 2 === 1 ? 'F8FAFC' : undefined);
+      const rowShade = isSpecial ? TABLE_STYLES.SPECIAL_ROW_SHADE : (rowIdx % 2 === 1 ? 'F8FAFC' : undefined);
       const rowHeight = rowHeightFromContent(h as Record<string, unknown>);
-      const vCenter = VerticalAlign.CENTER; // dikey metin sütun/satıra göre ortala
-      const vertOpts = { textDirection: VERTICAL_TEXT, vAlign: vCenter, margins: VERTICAL_CELL_MARGINS };
+      const vCenter = VerticalAlign.CENTER;
+      const bodyCellOpts = {
+        vAlign: vCenter,
+        margins: { top: 80, bottom: 80, left: 80, right: 80 },
+      };
+      const vmFirst = rowIdx === 0 ? VerticalMergeType.RESTART : VerticalMergeType.CONTINUE;
+      const zMerged = rowIdx === 0 ? (aggZenginlestirme.trim() || EMPTY_PLACEHOLDER) : '';
+      const oMerged = rowIdx === 0 ? (aggOkulTemelli.trim() || EMPTY_PLACEHOLDER) : '';
+      const zPerRow = get('zenginlestirme').trim() || EMPTY_PLACEHOLDER;
+      const oPerRow = get('okul_temelli_planlama').trim() || EMPTY_PLACEHOLDER;
+      const mebG = mebDonemVertMerge ? mebGroupAtRowIdx(rowIdx) : 1;
+      const mebFirstDonem =
+        !mebDonemVertMerge || rowIdx === 0 || mebGroupAtRowIdx(rowIdx - 1) !== mebG;
+      const zVm = useMergedRightCols
+        ? vmFirst
+        : mebDonemVertMerge
+          ? mebFirstDonem
+            ? VerticalMergeType.RESTART
+            : VerticalMergeType.CONTINUE
+          : undefined;
+      const oVm = zVm;
+      const zDisplay = useMergedRightCols
+        ? zMerged
+        : mebDonemVertMerge
+          ? mebFirstDonem
+            ? mebDonemZ[mebG - 1]
+            : ''
+          : zPerRow;
+      const oDisplay = useMergedRightCols
+        ? oMerged
+        : mebDonemVertMerge
+          ? mebFirstDonem
+            ? mebDonemO[mebG - 1]
+            : ''
+          : oPerRow;
+      const zListify = useMergedRightCols
+        ? rowIdx === 0 && /\n/.test(aggZenginlestirme)
+        : mebDonemVertMerge
+          ? mebFirstDonem && /\n/.test(mebDonemZ[mebG - 1])
+          : /\n/.test(zPerRow);
+      const oListify = useMergedRightCols
+        ? rowIdx === 0 && /\n/.test(aggOkulTemelli)
+        : mebDonemVertMerge
+          ? mebFirstDonem && /\n/.test(mebDonemO[mebG - 1])
+          : /\n/.test(oPerRow);
+      const zAutoShrink = useMergedRightCols ? rowIdx === 0 : mebDonemVertMerge ? mebFirstDonem : true;
+      const oAutoShrink = zAutoShrink;
+
+      /** Bilsem: tatil/özel haftada orta blok tek hücrede; MEB her zaman 14 sütun (sarı yalnızca is_special satırında). */
+      if (isSpecial && isBilsemPlan) {
+        const specialText = Array.from(
+          new Set(
+            [
+              get('tatil_label'),
+              get('konu'),
+              get('belirli_gun_haftalar'),
+              get('sosyal_duygusal'),
+              get('ogrenme_ciktilari'),
+            ]
+              .map((x) => x.trim())
+              .filter(Boolean),
+          ),
+        ).join('\n');
+        const mergedSpecial = specialText || 'Tatil / Özel hafta';
+        const midWidth = colWidths.slice(5, 12).reduce((a, b) => a + b, 0);
+        return new TableRow({
+          cantSplit: true,
+          children: [
+            createCell(ay, { align: AlignmentType.CENTER, size: CELL_SIZE, shading: rowShade, bold: true, ...bodyCellOpts, colWidthTwips: colWidths[0], borders: { left: { style: BorderStyle.SINGLE, size: TABLE_STYLES.BORDER_SIZE, color: 'D97706' } } }),
+            createCell(get('hafta_label'), { align: AlignmentType.CENTER, size: CELL_SIZE, shading: rowShade, bold: true, ...bodyCellOpts, colWidthTwips: colWidths[1] }),
+            createCell(get('ders_saati'), { align: AlignmentType.CENTER, size: CELL_SIZE, shading: rowShade, ...bodyCellOpts, colWidthTwips: colWidths[2] }),
+            createCell(get('unite'), {
+              align: AlignmentType.CENTER,
+              vAlign: vCenter,
+              size: CELL_SIZE,
+              shading: rowShade,
+              colWidthTwips: colWidths[3],
+              autoShrink: true,
+            }),
+            createCell(get('konu') || get('tatil_label'), {
+              align: AlignmentType.CENTER,
+              vAlign: vCenter,
+              listify: false,
+              size: CELL_SIZE,
+              shading: rowShade,
+              bold: true,
+              colWidthTwips: colWidths[4],
+              autoShrink: true,
+            }),
+            createCell(mergedSpecial, {
+              columnSpan: 7,
+              align: AlignmentType.CENTER,
+              vAlign: vCenter,
+              listify: true,
+              bold: true,
+              size: CELL_SIZE_SMALL,
+              shading: rowShade,
+              colWidthTwips: midWidth,
+              autoShrink: true,
+            }),
+            createCell(zDisplay, {
+              verticalMerge: zVm,
+              align: AlignmentType.CENTER,
+              size: CELL_SIZE_SMALL,
+              shading: MERGED_FARK_OKUL_SHADE,
+              colWidthTwips: colWidths[12],
+              listify: zListify,
+              autoShrink: zAutoShrink,
+              ...bodyCellOpts,
+            }),
+            createCell(oDisplay, {
+              verticalMerge: oVm,
+              align: AlignmentType.CENTER,
+              size: CELL_SIZE_SMALL,
+              shading: MERGED_FARK_OKUL_SHADE,
+              colWidthTwips: colWidths[13],
+              listify: oListify,
+              autoShrink: oAutoShrink,
+              ...bodyCellOpts,
+            }),
+          ],
+          height: { value: Math.max(rowHeight, 520), rule: 'atLeast' as any },
+        });
+      }
+
       return new TableRow({
         cantSplit: true,
         children: [
-          createCell(ay, { align: AlignmentType.CENTER, size: CELL_SIZE, shading: rowShade, bold: true, ...vertOpts, colWidthTwips: colWidths[0], borders: isSpecial ? { left: { style: BorderStyle.SINGLE, size: 8, color: 'D97706' } } : undefined }),
-          createCell(get('hafta_label'), { align: AlignmentType.CENTER, size: CELL_SIZE, shading: rowShade, bold: true, ...vertOpts, colWidthTwips: colWidths[1] }),
-          createCell(get('unite'), { align: AlignmentType.CENTER, size: CELL_SIZE, shading: rowShade, ...vertOpts, colWidthTwips: colWidths[2] }),
-          createCell(get('ders_saati'), { align: AlignmentType.CENTER, size: CELL_SIZE, shading: rowShade, ...vertOpts, colWidthTwips: colWidths[3] }),
-          createCell(get('konu'), { align: AlignmentType.CENTER, listify: false, size: CELL_SIZE, shading: rowShade, ...vertOpts, colWidthTwips: colWidths[4] }),
-          createCell(get('ogrenme_ciktilari'), { vAlign: vCenter, listify: false, size: CELL_SIZE, shading: rowShade, colWidthTwips: colWidths[5], autoShrink: true }),
-          createCell(get('surec_bilesenleri'), { vAlign: vCenter, listify: false, size: CELL_SIZE, shading: rowShade, colWidthTwips: colWidths[6], autoShrink: true }),
-          createCell(get('olcme_degerlendirme'), { vAlign: vCenter, listify: false, size: CELL_SIZE, shading: rowShade, colWidthTwips: colWidths[7], autoShrink: true }),
-          createCell(get('sosyal_duygusal'), { align: AlignmentType.CENTER, size: CELL_SIZE_SMALL, shading: rowShade, ...vertOpts, colWidthTwips: colWidths[8] }),
-          createCell(get('degerler'), { align: AlignmentType.CENTER, size: CELL_SIZE_SMALL, shading: rowShade, ...vertOpts, colWidthTwips: colWidths[9] }),
-          createCell(get('okuryazarlik_becerileri'), { align: AlignmentType.CENTER, size: CELL_SIZE_SMALL, shading: rowShade, ...vertOpts, colWidthTwips: colWidths[10] }),
-          createCell(get('belirli_gun_haftalar'), { align: AlignmentType.CENTER, size: CELL_SIZE_SMALL, shading: rowShade, ...vertOpts, colWidthTwips: colWidths[11] }),
-          createCell(get('zenginlestirme'), { align: AlignmentType.CENTER, size: CELL_SIZE_SMALL, shading: rowShade, ...vertOpts, colWidthTwips: colWidths[12] }),
-          createCell(get('okul_temelli_planlama'), { align: AlignmentType.CENTER, size: CELL_SIZE_SMALL, shading: rowShade, ...vertOpts, colWidthTwips: colWidths[13] }),
+          createCell(ay, { align: AlignmentType.CENTER, size: CELL_SIZE, shading: rowShade, bold: true, ...bodyCellOpts, colWidthTwips: colWidths[0], borders: isSpecial ? { left: { style: BorderStyle.SINGLE, size: TABLE_STYLES.BORDER_SIZE, color: 'D97706' } } : undefined }),
+          createCell(get('hafta_label'), { align: AlignmentType.CENTER, size: CELL_SIZE, shading: rowShade, bold: true, ...bodyCellOpts, colWidthTwips: colWidths[1] }),
+          createCell(get('ders_saati'), { align: AlignmentType.CENTER, size: CELL_SIZE, shading: rowShade, ...bodyCellOpts, colWidthTwips: colWidths[2] }),
+          createCell(get('unite'), {
+            align: AlignmentType.CENTER,
+            vAlign: vCenter,
+            size: CELL_SIZE,
+            shading: rowShade,
+            colWidthTwips: colWidths[3],
+            autoShrink: true,
+          }),
+          createCell(get('konu'), {
+            align: AlignmentType.CENTER,
+            vAlign: vCenter,
+            listify: false,
+            size: CELL_SIZE,
+            shading: rowShade,
+            colWidthTwips: colWidths[4],
+            autoShrink: true,
+          }),
+          createCell(get('ogrenme_ciktilari'), { vAlign: vCenter, listify: false, size: CELL_SIZE_SMALL, shading: rowShade, colWidthTwips: colWidths[5], autoShrink: true }),
+          createCell(get('surec_bilesenleri'), {
+            align: AlignmentType.CENTER,
+            vAlign: vCenter,
+            listify: false,
+            size: CELL_SIZE_SMALL,
+            shading: rowShade,
+            colWidthTwips: colWidths[6],
+            autoShrink: true,
+          }),
+          createCell(get('olcme_degerlendirme'), { vAlign: vCenter, listify: false, size: 10, shading: rowShade, colWidthTwips: colWidths[7], autoShrink: true }),
+          createCell(wrapForVerticalBody(get('sosyal_duygusal'), colWidths[8]), {
+            align: AlignmentType.CENTER,
+            size: CELL_SIZE_SMALL,
+            shading: rowShade,
+            colWidthTwips: colWidths[8],
+            autoShrink: true,
+            textDirection: VERTICAL_TEXT,
+            listify: true,
+            ...bodyCellOpts,
+          }),
+          createCell(wrapForVerticalBody(get('degerler'), colWidths[9]), {
+            align: AlignmentType.CENTER,
+            size: CELL_SIZE_SMALL,
+            shading: rowShade,
+            colWidthTwips: colWidths[9],
+            autoShrink: true,
+            textDirection: VERTICAL_TEXT,
+            listify: true,
+            ...bodyCellOpts,
+          }),
+          createCell(wrapForVerticalBody(get('okuryazarlik_becerileri'), colWidths[10]), {
+            align: AlignmentType.CENTER,
+            size: CELL_SIZE_SMALL,
+            shading: rowShade,
+            colWidthTwips: colWidths[10],
+            autoShrink: true,
+            textDirection: VERTICAL_TEXT,
+            listify: true,
+            ...bodyCellOpts,
+          }),
+          createCell(get('belirli_gun_haftalar'), {
+            align: AlignmentType.CENTER,
+            size: CELL_SIZE_SMALL,
+            shading: rowShade,
+            colWidthTwips: colWidths[11],
+            autoShrink: true,
+            ...bodyCellOpts,
+          }),
+          createCell(zDisplay, {
+            verticalMerge: zVm,
+            align: AlignmentType.CENTER,
+            size: CELL_SIZE_SMALL,
+            shading: MERGED_FARK_OKUL_SHADE,
+            colWidthTwips: colWidths[12],
+            listify: zListify,
+            autoShrink: zAutoShrink,
+            ...bodyCellOpts,
+          }),
+          createCell(oDisplay, {
+            verticalMerge: oVm,
+            align: AlignmentType.CENTER,
+            size: CELL_SIZE_SMALL,
+            shading: MERGED_FARK_OKUL_SHADE,
+            colWidthTwips: colWidths[13],
+            listify: oListify,
+            autoShrink: oAutoShrink,
+            ...bodyCellOpts,
+          }),
         ],
         height: { value: rowHeight, rule: 'atLeast' as any },
       });
@@ -636,64 +958,31 @@ export class DocumentGenerateService {
       insideVertical: { style: BorderStyle.SINGLE, size: 6, color: '000000' as const },
     };
 
-    const ROWS_PER_PAGE = 15;  // son iyileştirme
-    const ROWS_LAST_PAGE = 11;
-    const MIN_ROWS = 4;
+    const planTable = new Table({
+      layout: TableLayoutType.FIXED,
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      columnWidths: colWidths,
+      rows: [...(dataRows.length ? [headerRow1, headerRow2, ...dataRows] : [headerRow1, headerRow2])],
+      borders: tableBorders,
+    });
 
-    const totalRows = dataRows.length;
-    let chunkedRows: TableRow[][];
-
-    if (totalRows <= ROWS_LAST_PAGE) {
-      chunkedRows = totalRows ? [dataRows] : [[]];
-    } else {
-      const numPages = 1 + Math.ceil((totalRows - ROWS_LAST_PAGE) / ROWS_PER_PAGE);
-      const rowsForLast = ROWS_LAST_PAGE;
-      const rowsForFirst = totalRows - rowsForLast;
-      const numFirstPages = numPages - 1;
-      const basePerPage = Math.floor(rowsForFirst / numFirstPages);
-      const extra = rowsForFirst % numFirstPages;
-
-      chunkedRows = [];
-      let idx = 0;
-      for (let p = 0; p < numFirstPages; p++) {
-        const take = basePerPage + (p < extra ? 1 : 0);
-        chunkedRows.push(dataRows.slice(idx, idx + take));
-        idx += take;
-      }
-      chunkedRows.push(dataRows.slice(idx, idx + rowsForLast));
-    }
-
-    // Son sayfada tek/az satır kalmasın: yeniden dağıt
-    while (chunkedRows.length >= 2 && chunkedRows[chunkedRows.length - 1].length < MIN_ROWS) {
-      const last = chunkedRows.pop()!;
-      const prev = chunkedRows[chunkedRows.length - 1];
-      const merged = [...prev, ...last];
-      const takeForLast = Math.min(
-        ROWS_LAST_PAGE,
-        Math.max(MIN_ROWS, Math.ceil(merged.length / 2)),
-      );
-      chunkedRows[chunkedRows.length - 1] = merged.slice(0, merged.length - takeForLast);
-      chunkedRows.push(merged.slice(merged.length - takeForLast));
-    }
-
-    const planTables = chunkedRows.map((rows, chunkIdx) =>
-      new Table({
-        layout: TableLayoutType.FIXED,
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        columnWidths: colWidths,
-        rows: chunkIdx === 0 ? [headerRow1, headerRow2, ...rows] : rows,
-        borders: tableBorders,
-      }),
-    );
-
-    const teacherItems = zumreList.length ? zumreList : [{ isim: '', unvan: undefined as string | undefined }];
-    const teacherCount = Math.max(teacherItems.length, 1);
+    const mudurNorm = String(mudurAdi ?? '').trim().toLocaleLowerCase('tr-TR');
+    const teacherItems = (zumreList ?? []).filter((z) => {
+      const isimNorm = String(z?.isim ?? '').trim().toLocaleLowerCase('tr-TR');
+      if (!isimNorm) return false;
+      if (mudurNorm && isimNorm === mudurNorm) return false;
+      return true;
+    });
+    const teacherItemsSafe = teacherItems.length
+      ? teacherItems
+      : [{ isim: '', unvan: undefined as string | undefined }];
+    const teacherCount = Math.max(teacherItemsSafe.length, 1);
     const principalColWidth = 3500;
     const totalWidth = 10000;
     const teacherColWidth = Math.max(1200, Math.floor((totalWidth - principalColWidth) / teacherCount));
     const approvalColWidths = [...Array(teacherCount).fill(teacherColWidth), principalColWidth];
 
-    const teacherCells = teacherItems.map((z) => {
+    const teacherCells = teacherItemsSafe.map((z) => {
       const unvanText = (z.unvan?.trim() || ogretmenUnvani) || 'Öğretmen';
       return new TableCell({
         children: [
@@ -806,7 +1095,12 @@ export class DocumentGenerateService {
       new Paragraph({
         children: [
           new TextRun({
-            text: `${dersAdi} DERSİ ÜNİTELENDİRİLMİŞ YILLIK DERS PLANI`,
+            text: (() => {
+              if (!isBilsemPlan) return `${dersAdi} DERSİ ÜNİTELENDİRİLMİŞ YILLIK DERS PLANI`;
+              if (bilsemPlanScopeForDoc === 'donem_1') return `${dersAdi} DERSİ 1. DÖNEM ÜNİTELENDİRİLMİŞ DERS PLANI`;
+              if (bilsemPlanScopeForDoc === 'donem_2') return `${dersAdi} DERSİ 2. DÖNEM ÜNİTELENDİRİLMİŞ DERS PLANI`;
+              return `${dersAdi} DERSİ ÜNİTELENDİRİLMİŞ YILLIK DERS PLANI`;
+            })(),
             bold: true,
             size: 20,
             font: 'Calibri',
@@ -817,12 +1111,7 @@ export class DocumentGenerateService {
       }),
     ];
 
-    planTables.forEach((tbl, idx) => {
-      if (idx > 0) {
-        sectionChildren.push(new Paragraph({ children: [new PageBreak()] }));
-      }
-      sectionChildren.push(tbl);
-    });
+    sectionChildren.push(planTable);
 
     sectionChildren.push(new Paragraph({ spacing: { after: 220 } }), approvalTable);
 
@@ -882,7 +1171,7 @@ export class DocumentGenerateService {
       ],
     });
 
-    return Packer.toBuffer(doc);
+    return Buffer.from(await Packer.toBuffer(doc));
   }
 
   /**
@@ -928,19 +1217,81 @@ export class DocumentGenerateService {
     // Yıllık plan DOCX: tüm plan tablosu + imza bloğu – küçük önizleme
     if (template.type === 'yillik_plan' && format === 'docx') {
       const base = this.buildMergeData(user, formData, template);
-      const haftalar = await this.fetchHaftalarForMerge(template, formData, base);
+      const haftalar = await this.fetchHaftalarForMerge(template, formData, base, user);
       const zumreList = this.parseZumreOgretmenleri(formData, user, template);
       const ogretmenUnvani = base.ders_adi_ogretmeni ?? 'Öğretmen';
       const okulAdi = base.okul_adi ?? '';
       const mudurAdi = base.mudur_adi ?? '';
       const onayTarihiAlt = base.onay_tarihi_alt ?? '';
+      const dersAdiPrev = (base.ders_adi ?? '').trim();
+      const isBilsemT =
+        template.curriculumModel?.trim() === 'bilsem' ||
+        (String((formData as Record<string, unknown>).ders_kodu ?? (formData as any).subject_code ?? '')
+          .toLowerCase()
+          .startsWith('bilsem_'));
+      const planTitleLine = isBilsemT
+        ? (formData as any).scope === 'donem_1'
+          ? '1. dönem plan önizlemesi'
+          : (formData as any).scope === 'donem_2'
+            ? '2. dönem plan önizlemesi'
+            : 'Yıllık plan önizlemesi'
+        : 'Plan önizlemesi';
 
-      const cols = ['ay', 'hafta_label', 'unite', 'ders_saati', 'konu', 'ogrenme_ciktilari'];
-      const colLabels = ['Ay', 'Hafta', 'Ünite/Tema', 'Saat', 'Konu', 'Öğrenme Çıktıları'];
-      const thStyle = 'border:1px solid #d1d5db;padding:2px 6px;background:#f3f4f6;text-align:left;font-size:10px;';
-      const tdStyle = 'border:1px solid #d1d5db;padding:1px 6px;vertical-align:top;font-size:10px;';
+      const strPv = (v: unknown) => (typeof v === 'string' ? v.trim() : '') || '';
+      if (isBilsemT) {
+        const dk =
+          strPv((formData as Record<string, unknown>).ders_kodu) ||
+          strPv((formData as Record<string, unknown>).dersKodu) ||
+          strPv((formData as Record<string, unknown>).subject_code) ||
+          '';
+        const ana = strPv((formData as Record<string, unknown>).ana_grup);
+        const yil = String(base.ogretim_yili ?? '').trim();
+        const altRaw = strPv((formData as Record<string, unknown>).alt_grup);
+        if (dk && ana && yil) {
+          // Attribution line removed
+        }
+      }
+
+      const cols = [
+        'ay',
+        'hafta_label',
+        'ders_saati',
+        'unite',
+        'konu',
+        'ogrenme_ciktilari',
+        'surec_bilesenleri',
+        'olcme_degerlendirme',
+        'sosyal_duygusal',
+        'degerler',
+        'okuryazarlik_becerileri',
+        'belirli_gun_haftalar',
+        'zenginlestirme',
+        'okul_temelli_planlama',
+      ];
+      const colLabels = [
+        'Ay',
+        'Hafta',
+        'Ders saati',
+        'Ünite / tema',
+        'Konu',
+        'Öğrenme çıktıları',
+        'Süreç',
+        'Ölçme / değ.',
+        'Sos.-duyg.',
+        'Değerler',
+        'Okuryaz.',
+        'Bel. gün/hafta',
+        'Farklıl.',
+        'Okul tem.',
+      ];
+      const thStyle = 'border:1px solid #d1d5db;padding:2px 4px;background:#e8ecf0;text-align:left;font-size:9px;white-space:nowrap;';
+      const tdStyle = 'border:1px solid #d1d5db;padding:1px 4px;vertical-align:top;font-size:9px;max-width:12rem;';
       let html = '<div style="font-size:10px;font-family:sans-serif;">';
-      html += '<table style="width:100%;border-collapse:collapse;"><thead><tr>';
+      if (dersAdiPrev || base.ogretim_yili) {
+        html += `<p style="margin:0 0 6px 0;font-weight:600;font-size:11px;">${escapeHtml(dersAdiPrev || 'Ders')}${base.ogretim_yili ? ` · ${escapeHtml(base.ogretim_yili)}` : ''}</p>`;
+      }
+      html += '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">';
+      html += '<table style="min-width:1100px;width:100%;border-collapse:collapse;"><thead><tr>';
       colLabels.forEach((l) => {
         html += `<th style="${thStyle}">${escapeHtml(l)}</th>`;
       });
@@ -948,12 +1299,16 @@ export class DocumentGenerateService {
       (haftalar ?? []).forEach((h) => {
         html += '<tr>';
         cols.forEach((c) => {
-          const v = String((h as any)?.[c] ?? '');
-          html += `<td style="${tdStyle}">${escapeHtml(v)}</td>`;
+          const v = String((h as Record<string, unknown>)?.[c] ?? '');
+          const tdBg =
+            (h as Record<string, unknown>).is_tatil || (h as Record<string, unknown>).is_special
+              ? `${tdStyle}background:#fef3c7;`
+              : tdStyle;
+          html += `<td style="${tdBg}">${escapeHtml(v)}</td>`;
         });
         html += '</tr>';
       });
-      html += '</tbody></table>';
+      html += '</tbody></table></div>';
       if ((haftalar ?? []).length === 0) {
         html += '<p style="padding:12px;color:#6b7280;font-size:11px;">Plan içeriği henüz yok.</p>';
       }
@@ -1271,7 +1626,7 @@ export class DocumentGenerateService {
     const zumreOgretmenleri = zumrelerRaw.trim();
 
     const okulAdi =
-      s(formData.okul_adi) ?? s(defaults.okul_adi) ?? school?.name ?? '';
+      s(formData.okul_adi) ?? s(defaults.okul_adi) ?? (school?.name && school.name !== 'Demo Okulu' ? school.name : '') ?? '';
     const mudurAdi =
       s(formData.mudur_adi) ?? s(defaults.mudur_adi) ?? school?.principalName ?? '';
 
@@ -1356,6 +1711,28 @@ export class DocumentGenerateService {
       });
   }
 
+  /** Bilsem: yıllık / 1. dönem / 2. dönem — form + taslak JSON. */
+  private readBilsemPlanScopeFromForm(
+    formData: Record<string, string | number>,
+  ): 'yillik' | 'donem_1' | 'donem_2' | null {
+    const s = (v: unknown) => (typeof v === 'string' ? v.trim() : '') || '';
+    const direct =
+      s((formData as Record<string, unknown>).bilsem_plan_scope) ||
+      s((formData as Record<string, unknown>).plan_scope);
+    if (direct === 'yillik' || direct === 'donem_1' || direct === 'donem_2') return direct;
+    const draft = s((formData as Record<string, unknown>).bilsem_yillik_draft_json);
+    if (draft) {
+      try {
+        const j = JSON.parse(draft) as { plan_scope?: string };
+        const p = s(j.plan_scope);
+        if (p === 'yillik' || p === 'donem_1' || p === 'donem_2') return p;
+      } catch {
+        /* ignore */
+      }
+    }
+    return null;
+  }
+
   /**
    * Seçilen kazanım/plan sırası: sort_order (yoksa week_order) ile sırala.
    * Aynı week_order için birden fazla satır varsa sıralamada önce gelen (düşük sort_order) ünite/konu kaynağı olur.
@@ -1379,17 +1756,39 @@ export class DocumentGenerateService {
     return m;
   }
 
+  /**
+   * MEB 37. hafta: `okul_temelli_planlama` boş, metin sadece ünitede kaldıysa Word’de “Okul temelli” sütununu doldur.
+   */
+  private mebOkulTemelliCellForMerge(
+    weekOrder: number,
+    isTatil: boolean,
+    isBilsem: boolean,
+    i: YillikPlanIcerik | undefined,
+  ): string {
+    if (isTatil) return '';
+    const d = String(i?.okulTemelliPlanlama ?? '').trim();
+    if (d) return d;
+    if (isBilsem || weekOrder !== 37) return '';
+    const u = String(i?.unite ?? '').trim();
+    if (u && /okul\s*temelli|okul\s*bazl[ıi]/i.test(u)) return u;
+    return '';
+  }
+
   /** Yıllık plan DOCX merge için haftalar dizisi (yillik_plan_icerik + work_calendar). */
   private async fetchHaftalarForMerge(
     template: DocumentTemplate,
     formData: Record<string, string | number>,
-    mergeBase?: Record<string, string>,
+    mergeBase: Record<string, string> | undefined,
+    user: User,
   ): Promise<Record<string, unknown>[]> {
     const s = (v: unknown) => (typeof v === 'string' ? v.trim() : '') || undefined;
     const draftRaw = s((formData as Record<string, unknown>).bilsem_yillik_draft_json);
     if (draftRaw) {
       const input = this.bilsemYillikPlanService.parseDraftJson(draftRaw);
-      return this.bilsemYillikPlanService.buildHaftalarFromDraft(input);
+      return this.bilsemYillikPlanService.buildHaftalarFromDraft(input, {
+        userId: user.id,
+        role: user.role as UserRole,
+      });
     }
     /** buildMergeData ile aynı yıl/sınıf (formda ogretim_yili yoksa evrak_defaults devreye girer; burada da kullanılmalı). */
     const ogretimYili =
@@ -1486,10 +1885,33 @@ export class DocumentGenerateService {
       }
     }
 
-    const itemsMax = sortedPlanItems.length > 0 ? Math.max(...sortedPlanItems.map((i) => i.weekOrder)) : 0;
+    const planMinWeek = sortedPlanItems.length > 0 ? Math.min(...sortedPlanItems.map((i) => i.weekOrder)) : 1;
+    const planMaxWeek = sortedPlanItems.length > 0 ? Math.max(...sortedPlanItems.map((i) => i.weekOrder)) : 0;
+    const calendarMaxWeek = planCalWeeks.length > 0 ? Math.max(...planCalWeeks.map((w) => w.weekOrder)) : 0;
+    /** Bilsem: 38. haftaya kadar tam tablo. MEB: yalnız plandaki hafta aralığı (boş kuyruk yok). */
+    const itemsMaxForMerge = isBilsemPlan
+      ? Math.max(planMaxWeek, calendarMaxWeek, 38)
+      : planMaxWeek > 0
+        ? planMaxWeek
+        : Math.max(calendarMaxWeek, 1);
+    const mebPlanWeekWindow =
+      !isBilsemPlan && sortedPlanItems.length > 0 && planMaxWeek >= 1
+        ? { min: Math.max(1, planMinWeek), max: Math.min(38, planMaxWeek) }
+        : undefined;
     let calendarWeeks: WorkCalendar[] = [];
     if (planCalWeeks.length > 0) {
-      calendarWeeks = this.workCalendarService.buildOrderedWeeksForPlanMerge(planCalWeeks, itemsMax).weeks;
+      calendarWeeks = this.workCalendarService.buildOrderedWeeksForPlanMerge(
+        planCalWeeks,
+        itemsMaxForMerge,
+        mebPlanWeekWindow,
+      ).weeks;
+    }
+
+    const bilsemScopeMerge = isBilsemPlan ? this.readBilsemPlanScopeFromForm(formData) : null;
+    if (bilsemScopeMerge === 'donem_1' && calendarWeeks.length) {
+      calendarWeeks = calendarWeeks.filter((w) => w.weekOrder >= 1 && w.weekOrder <= 18);
+    } else if (bilsemScopeMerge === 'donem_2' && calendarWeeks.length) {
+      calendarWeeks = calendarWeeks.filter((w) => w.weekOrder >= 19 && w.weekOrder <= 38);
     }
 
     /** Takvim haftası 1..N ile plandaki week_order farklı başlangıçta (ör. plan 5’ten) eşleşmez; kaydır. */
@@ -1507,9 +1929,45 @@ export class DocumentGenerateService {
     ) {
       weekShift = pMinWeek - cMinWeek;
     }
+    const allSorted = this.workCalendarService.sortWeeksLikeFindAll(calendarDb);
+    const holidaysToInsert: { afterWo: number; row: WorkCalendar }[] = [];
+    for (let i = 0; i < allSorted.length; i++) {
+      const c = allSorted[i];
+      if (c.weekOrder !== 0 || !c.isTatil) continue;
+      const seminerText = `${String(c.haftaLabel ?? '')} ${String(c.tatilLabel ?? '')}`.toLocaleLowerCase('tr-TR');
+      if (seminerText.includes('seminer')) continue;
+      let prevWo = 0;
+      for (let j = i - 1; j >= 0; j--) {
+        if (allSorted[j].weekOrder >= 1) {
+          prevWo = allSorted[j].weekOrder;
+          break;
+        }
+      }
+      if (prevWo < 1) continue;
+      const firstTeaching = calendarWeeks.find((w) => w.weekOrder >= 1)?.weekOrder ?? 0;
+      const lastTeaching = [...calendarWeeks].reverse().find((w) => w.weekOrder >= 1)?.weekOrder ?? 0;
+      if (firstTeaching < 1 || lastTeaching < 1) continue;
+      if (prevWo < firstTeaching || prevWo > lastTeaching) continue;
+      holidaysToInsert.push({ afterWo: prevWo, row: c });
+    }
+    for (let h = holidaysToInsert.length - 1; h >= 0; h--) {
+      const { afterWo, row } = holidaysToInsert[h];
+      let insertAt = -1;
+      for (let i = calendarWeeks.length - 1; i >= 0; i--) {
+        if (calendarWeeks[i].weekOrder === afterWo) {
+          insertAt = i + 1;
+          break;
+        }
+      }
+      if (insertAt >= 0) calendarWeeks.splice(insertAt, 0, row);
+    }
+
     const planWeekKeys = new Set(planByWeek.keys());
-    const anyOverlapCalendarWeek = calendarWeeks.some((w) => planWeekKeys.has(w.weekOrder));
-    const resolvePlanRow = (calendarWeekOrder: number, weekIndex: number): YillikPlanIcerik | undefined => {
+    const anyOverlapCalendarWeek = calendarWeeks.some((w) => w.weekOrder >= 1 && planWeekKeys.has(w.weekOrder));
+    const resolvePlanRow = (
+      calendarWeekOrder: number,
+      teachingIndex: number,
+    ): YillikPlanIcerik | undefined => {
       let row = planByWeek.get(calendarWeekOrder);
       if (row) return row;
       if (weekShift !== 0) {
@@ -1518,11 +1976,10 @@ export class DocumentGenerateService {
       }
       if (
         !anyOverlapCalendarWeek &&
-        sortedPlanItems.length === calendarWeeks.length &&
-        weekIndex >= 0 &&
-        weekIndex < sortedPlanItems.length
+        teachingIndex >= 0 &&
+        teachingIndex < sortedPlanItems.length
       ) {
-        return sortedPlanItems[weekIndex];
+        return sortedPlanItems[teachingIndex];
       }
       return undefined;
     };
@@ -1530,7 +1987,12 @@ export class DocumentGenerateService {
     const fillBilsemPuy = isBilsemPlan;
 
     if (calendarWeeks.length === 0) {
-      const byWeek = Array.from(planByWeek.values()).sort((a, b) => a.weekOrder - b.weekOrder);
+      let byWeek = Array.from(planByWeek.values()).sort((a, b) => a.weekOrder - b.weekOrder);
+      if (bilsemScopeMerge === 'donem_1') {
+        byWeek = byWeek.filter((i) => i.weekOrder >= 1 && i.weekOrder <= 18);
+      } else if (bilsemScopeMerge === 'donem_2') {
+        byWeek = byWeek.filter((i) => i.weekOrder >= 19 && i.weekOrder <= 38);
+      }
       return byWeek.map((i) => {
         const key = `${i.academicYear}:${i.weekOrder}`;
         const tatil = weekTatilMap.get(key);
@@ -1538,13 +2000,32 @@ export class DocumentGenerateService {
         const isTatil = tatil?.isTatil ?? false;
         const tatilLabel = tatil?.tatilLabel ?? '';
         const isSinav = /s[iı]nav/i.test(haftaLabel);
-        const isDiger = !isTatil && !String(i.unite ?? '').trim();
+        const okulTemelli = this.mebOkulTemelliCellForMerge(i.weekOrder, isTatil, isBilsemPlan, i);
+        const isSosyalEtkinlik = /sosyal\s*etkinlik/i.test(
+          `${haftaLabel} ${String(i.unite ?? '')} ${String(i.konu ?? '')}`,
+        );
+        const planOkulSosyalAsNormal = !isBilsemPlan && (i.weekOrder === 37 || i.weekOrder === 38);
+        /** MEB: tatil / tatil etiketi / sosyal etkinlik sarı; sınav sarı. Bilsem: geniş özel satır mantığı. */
+        const isSpecialRow =
+          isBilsemPlan &&
+          (isTatil ||
+            isSinav ||
+            !!tatilLabel ||
+            (!planOkulSosyalAsNormal && (isSosyalEtkinlik || !!okulTemelli)));
         const row: Record<string, unknown> = {
-          ay: weekAyMap.get(key) ?? '',
+          week_order: i.weekOrder,
+          ay: resolveAyForYillikPlanRow({
+            haftaLabel,
+            calendarAy: weekAyMap.get(key),
+            weekOrder: i.weekOrder,
+            academicYear: i.academicYear,
+          }),
           hafta_label: haftaLabel,
           is_tatil: isTatil,
           tatil_label: tatilLabel,
-          is_special: isTatil || isSinav || !!tatilLabel || isDiger,
+          is_special: !isBilsemPlan
+            ? isTatil || isSinav || !!tatilLabel || isSosyalEtkinlik
+            : isSpecialRow,
           ders_saati: isTatil ? '0' : String(i.dersSaati ?? 0),
           unite: isTatil ? '' : (i.unite ?? ''),
           konu: isTatil ? (tatilLabel || 'Tatil') : (i.konu ?? ''),
@@ -1556,9 +2037,9 @@ export class DocumentGenerateService {
           okuryazarlik_becerileri: isTatil ? '' : (i.okuryazarlikBecerileri ?? ''),
           belirli_gun_haftalar: isTatil ? '' : (i.belirliGunHaftalar ?? ''),
           zenginlestirme: isTatil ? '' : (i.zenginlestirme ?? ''),
-          okul_temelli_planlama: isTatil ? '' : (i.okulTemelliPlanlama ?? ''),
+          okul_temelli_planlama: okulTemelli,
         };
-        if (fillBilsemPuy) {
+        if (fillBilsemPuy && !isTatil) {
           applyBilsemPuyMergeRowDefaults(row, i.weekOrder, {
             unite: i.unite,
             konu: i.konu,
@@ -1569,21 +2050,42 @@ export class DocumentGenerateService {
       });
     }
 
-    return calendarWeeks.map((w, weekIndex) => {
+    let teachingIndex = 0;
+    return calendarWeeks.map((w) => {
+      const isHolidayRow = w.weekOrder === 0 && (w.isTatil ?? false);
       const key = `${ogretimYili}:${w.weekOrder}`;
-      const i = resolvePlanRow(w.weekOrder, weekIndex);
-      const tatil = weekTatilMap.get(key);
-      const haftaLabel = weekLabelMap.get(key) ?? `${w.weekOrder}. Hafta`;
-      const isTatil = (tatil?.isTatil ?? w.isTatil) ?? false;
-      const tatilLabel = (tatil?.tatilLabel ?? w.tatilLabel) ?? '';
+      const i = isHolidayRow ? undefined : resolvePlanRow(w.weekOrder, teachingIndex);
+      const tatil = isHolidayRow ? undefined : weekTatilMap.get(key);
+      const haftaLabel = w.haftaLabel || weekLabelMap.get(key) || (w.tatilLabel ?? `${w.weekOrder}. Hafta`);
+      const isTatil = isHolidayRow || (tatil?.isTatil ?? w.isTatil) || false;
+      const tatilLabel = w.tatilLabel || (tatil?.tatilLabel ?? '');
+      if (!isTatil) teachingIndex += 1;
       const isSinav = /s[iı]nav/i.test(haftaLabel);
-      const isDiger = !isTatil && !String(i?.unite ?? '').trim();
+      const okulTemelli = this.mebOkulTemelliCellForMerge(w.weekOrder, isTatil, isBilsemPlan, i);
+      const isSosyalEtkinlik = /sosyal\s*etkinlik/i.test(
+        `${haftaLabel} ${String(i?.unite ?? '')} ${String(i?.konu ?? '')}`,
+      );
+      const planOkulSosyalAsNormal = !isBilsemPlan && (w.weekOrder === 37 || w.weekOrder === 38);
+      const isSpecialRow =
+        isBilsemPlan &&
+        (isTatil ||
+          isSinav ||
+          !!tatilLabel ||
+          (!planOkulSosyalAsNormal && (isSosyalEtkinlik || !!okulTemelli)));
       const row: Record<string, unknown> = {
-        ay: weekAyMap.get(key) ?? '',
+        week_order: w.weekOrder,
+        ay: resolveAyForYillikPlanRow({
+          haftaLabel,
+          calendarAy: weekAyMap.get(key),
+          weekOrder: w.weekOrder,
+          academicYear: ogretimYili,
+        }),
         hafta_label: haftaLabel,
         is_tatil: isTatil,
         tatil_label: tatilLabel,
-        is_special: isTatil || isSinav || !!tatilLabel || isDiger,
+        is_special: !isBilsemPlan
+          ? isTatil || isSinav || !!tatilLabel || isSosyalEtkinlik
+          : isSpecialRow,
         ders_saati: isTatil ? '0' : String(i?.dersSaati ?? 0),
         unite: isTatil ? '' : (i?.unite ?? ''),
         konu: isTatil ? (tatilLabel || 'Tatil') : (i?.konu ?? ''),
@@ -1595,9 +2097,9 @@ export class DocumentGenerateService {
         okuryazarlik_becerileri: isTatil ? '' : (i?.okuryazarlikBecerileri ?? ''),
         belirli_gun_haftalar: isTatil ? '' : (i?.belirliGunHaftalar ?? ''),
         zenginlestirme: isTatil ? '' : (i?.zenginlestirme ?? ''),
-        okul_temelli_planlama: isTatil ? '' : (i?.okulTemelliPlanlama ?? ''),
+        okul_temelli_planlama: okulTemelli,
       };
-      if (fillBilsemPuy) {
+      if (fillBilsemPuy && !isTatil) {
         applyBilsemPuyMergeRowDefaults(row, w.weekOrder, {
           unite: i?.unite,
           konu: i?.konu,
@@ -1714,22 +2216,13 @@ export class DocumentGenerateService {
       });
     }
     try {
-      let out = Buffer.from(
+      return Buffer.from(
         doc.getZip().generate({
           type: 'nodebuffer',
           compression: 'DEFLATE',
           compressionOptions: { level: 1 },
         }),
       );
-      if (
-        template &&
-        template.type === 'yillik_plan' &&
-        (template.fileFormat || 'docx') === 'docx' &&
-        this.isBilsemPlanTemplate(template)
-      ) {
-        out = Buffer.from(this.fixBilsemYillikDocxUstBaslik(out));
-      }
-      return out;
     } catch {
       throw new BadRequestException({
         code: 'TEMPLATE_CORRUPT',
@@ -1737,31 +2230,7 @@ export class DocumentGenerateService {
       });
     }
   }
-
-  /**
-   * Eski şablonlarda `{sinif}. SINIF` sabit metni grup satırında “…Proje. SINIF” üretir.
-   * Sınıf numarasından sonra gelen `. SINIF` (örn. 9. SINIF) korunur; diğerleri ` GRUP` olur.
-   * Yalnızca word/document.xml içinde metin değiştirilir (zip bütünlüğü korunur).
-   */
-  private fixBilsemYillikDocxUstBaslik(buf: Buffer): Buffer {
-    try {
-      const zip = new PizZip(buf);
-      const entry = zip.files['word/document.xml'];
-      if (!entry || entry.dir) return buf;
-      const xml = entry.asText();
-      if (!xml.includes('. SINIF')) return buf;
-      const fixed = xml.replace(/(?<!\d)\. SINIF/g, ' GRUP');
-      if (fixed === xml) return buf;
-      zip.file('word/document.xml', fixed);
-      return Buffer.from(
-        zip.generate({
-          type: 'nodebuffer',
-          compression: 'DEFLATE',
-          compressionOptions: { level: 1 },
-        }) as Buffer,
-      );
-    } catch {
-      return buf;
-    }
-  }
 }
+
+
+

@@ -833,6 +833,7 @@ export function SuperadminDashboardShell({ me, displayName, stats, statsError, i
             { href: '/modules', label: 'Modüller', icon: Puzzle },
             { href: '/announcements', label: 'Duyurular', icon: Megaphone },
             { href: '/hesaplamalar', label: 'Hesaplamalar', icon: Calculator },
+            { href: '/document-templates?tab=plan-katki-moderasyon', label: 'Plan katkı moderasyonu', icon: ClipboardList },
             { href: '/bilsem-sablon', label: 'Bilsem', icon: FileText },
             { href: '/school-join-queue', label: 'Okul birleştirme', icon: Building2 },
             { href: '/contact-inbox', label: 'İletişim kutusu', icon: Inbox },

@@ -1,0 +1,44 @@
+# Template Fix Instructions
+
+## Problem
+The template `ornek-yillik-plan-modern.docx` has hardcoded text:
+"İçerik paylaşımı: Test Öğretmen (onaylı katkısı)"
+
+This text should NOT be in the template. It should only come from data when generating documents.
+
+## Solution
+
+1. **Open the template in Microsoft Word:**
+   - Navigate to `C:\UzaMobil\ogretmenpro\backend\templates\`
+   - Open `ornek-yillik-plan-modern.docx`
+
+2. **Remove the hardcoded text:**
+   - Search for "İçerik paylaşımı" in the document
+   - Delete that entire line/paragraph
+   - Make sure the document only has placeholders like `{okul_adi}`, `{ogretim_yili}`, etc.
+
+3. **Verify the approval section:**
+   - The approval table should have:
+     - Teacher name(s): `{ogretmen_adi}` 
+     - Teacher title: `{ogretmen_unvani}`
+     - Date: `{onay_tarihi_alt}`
+     - "UYGUNDUR" (bold text)
+     - Müdür name: `{mudur_adi}` (ONLY ONCE)
+     - "Okul Müdürü" (title)
+
+4. **Save the template:**
+   - Overwrite the existing `ornek-yillik-plan-modern.docx`
+   - Or save as new template and update the database
+
+## Alternative: Use Code to Fix
+
+Since the template is a .docx file (ZIP format), you can:
+1. Extract it: Rename to .zip, extract
+2. Edit `word/document.xml` - remove the hardcoded text
+3. Re-package as .docx
+
+## Verify Fix
+
+After fixing, generate a new document and check that:
+- "İçerik paylaşımı" text does NOT appear
+- Müdür name appears only ONCE

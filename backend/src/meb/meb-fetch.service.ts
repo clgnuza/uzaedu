@@ -101,6 +101,48 @@ const COL_ALIASES: Record<string, string[]> = {
 
 @Injectable()
 export class MebFetchService {
+  /**
+   * "10 - 14 Kasım", "16 - 20 Mart" ve "19 Ocak - 30 Ocak" gibi: ilk sayı gün/hafta no değil
+   * (BİLSEM şablonu ilk rakamı yanlışlıkla week_order alıyordu).
+   */
+  private cellLeadingNumberIsFakeWeek(s: string): boolean {
+    const t = s.replace(/\r\n/g, ' ').trim();
+    if (!t) return false;
+    if (/\d+\s*\.\s*Hafta/i.test(t)) return false;
+    if (/\bHafta\s*:/i.test(t)) return false;
+    if (/^\d{1,2}\s*[-–—]\s*\d{1,2}\s+/.test(t) && /(Kasım|Kasim|ocak|şubat|mart|nisan|Nisan|may|haz|temmuz|ağustos|eyl|ekim|aral|Mayıs|Haziran)/i.test(t)) {
+      return true;
+    }
+    if (
+      /^\d{1,2}\s+(Oca|Şub|Mar|Nis|May|Haz|Tem|Ağu|Eyl|Ekim|Kasım|Kasim|Aral|Ocak|Şubat|Nisan|Mart|Haziran|Temmuz|Ağustos|Eylül|Ekim|Kasım|Aralık)/i.test(
+        t,
+      )
+    ) {
+      if (/\bHafta\b/i.test(t)) return false;
+      return /[-–—]/.test(t);
+    }
+    return false;
+  }
+
+  /** Ara tatil / yarıyıl satırı (N. Hafta yok; sadece tarih aralığı + ay adı). */
+  private isBilsemTatilHaftaLine(haftaText: string): boolean {
+    const t = String(haftaText ?? '')
+      .replace(/\r\n/g, ' ')
+      .trim();
+    if (!t) return false;
+    if (/\b(tatil|yarıyıl|yariyil|dönem\s*ara|donem\s*ara|karne|bayram|resm[iî]\s*tatil)\b/i.test(t)) return true;
+    if (/\d+\s*\.\s*Hafta/i.test(t)) return false;
+    if (this.cellLeadingNumberIsFakeWeek(t)) return true;
+    if (
+      /^\d{1,2}\s*[-–—]\s*\d{1,2}\b/.test(t) &&
+      !/Hafta/i.test(t) &&
+      /(Kasım|Kasim|ocak|Ocak|Mart|Nisan|mart|Nisan|May|may)/i.test(t)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
   private extractInlineWeekOrder(text: string | number | null | undefined): number | null {
     const s = String(text ?? '').trim();
     if (!s) return null;
@@ -756,6 +798,19 @@ export class MebFetchService {
       let rawBelirliGun = this.getStr(row, colMap, 'belirli_gun_haftalar') || '';
       let rawZengin = this.getStr(row, colMap, 'zenginlestirme') || '';
       let rawOkulTemelli = this.getStr(row, colMap, 'okul_temelli_planlama') || '';
+      const haftaColIdx = colMap.week_order;
+      const haftaForTatilCheck =
+        haftaColIdx != null && haftaColIdx >= 0 ? String(row[haftaColIdx] ?? '').replace(/\r\n/g, ' ') : '';
+      if (
+        this.isBilsemTatilHaftaLine(haftaForTatilCheck) &&
+        !rawUnite.trim() &&
+        !rawKonu.trim() &&
+        !rawKazanim.trim() &&
+        !rawSurec.trim() &&
+        !rawOlcme.trim()
+      ) {
+        continue;
+      }
       // Hafta sütunu varken 1. hafta hücresi boş/birleşik olabiliyor; extract null kalınca sadece "hafta yok" dalı çalışmıyordu.
       if (weekOrder == null || weekOrder < 1 || weekOrder > 38) {
         const hasAnyRaw =
@@ -1240,7 +1295,7 @@ export class MebFetchService {
       if (cell == null || cell === '') return null;
       const s = String(cell).trim();
       const m = s.match(/^(\d+)/);
-      if (m) {
+      if (m && !this.cellLeadingNumberIsFakeWeek(s)) {
         const n = parseInt(m[1], 10);
         if (n >= 1 && n <= 38) return n;
       }
@@ -1263,7 +1318,7 @@ export class MebFetchService {
         if (cell != null) {
           const s = String(cell).trim();
           const m = s.match(/^(\d+)/);
-          if (m) {
+          if (m && !this.cellLeadingNumberIsFakeWeek(s)) {
             const n = parseInt(m[1], 10);
             if (n >= 1 && n <= 38) return n;
           }

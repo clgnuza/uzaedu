@@ -21,3 +21,10 @@ export class RejectBilsemPlanSubmissionDto {
   @MaxLength(2000)
   review_note?: string | null;
 }
+
+export class UnpublishBilsemPlanSubmissionDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  note?: string | null;
+}

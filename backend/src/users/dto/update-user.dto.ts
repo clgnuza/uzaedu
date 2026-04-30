@@ -16,6 +16,14 @@ export class UpdateUserDto {
   school_id?: string | null;
 
   @IsOptional()
+  @IsBoolean()
+  teacher_assignment_active?: boolean;
+
+  @IsOptional()
+  @IsUUID()
+  teacher_assignment_school_id?: string | null;
+
+  @IsOptional()
   @IsEnum(UserStatus)
   status?: UserStatus;
 

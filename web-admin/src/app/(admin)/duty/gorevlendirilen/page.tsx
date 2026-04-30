@@ -9,6 +9,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Button } from '@/components/ui/button';
 import { DutyPageHeader } from '@/components/duty/duty-page-header';
+import { ForbiddenView } from '@/components/errors/forbidden-view';
 
 type ReassignedSlot = {
   id: string;
@@ -131,11 +132,7 @@ export default function GorevlendirilenPage() {
   };
 
   if (!isAdmin) {
-    return (
-      <div className="space-y-6">
-        <p className="text-muted-foreground">Bu sayfaya erişim yetkiniz yok.</p>
-      </div>
-    );
+    return <ForbiddenView />;
   }
 
   const totalAssignments = slots.length + coverages.length;
