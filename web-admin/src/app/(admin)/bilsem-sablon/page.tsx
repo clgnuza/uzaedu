@@ -13,7 +13,7 @@ import { AyarlarTab } from '../document-templates/ayarlar-tab';
 const WorkCalendarEmbedded = dynamic(
   () =>
     import('../work-calendar/page').then((m) => {
-      const Page = m.default;
+      const Page = m.WorkCalendarPageView;
       return { default: function CalEmbed() { return <Page embedded />; } };
     }),
   { ssr: false },
@@ -22,7 +22,7 @@ const WorkCalendarEmbedded = dynamic(
 const BilsemTakvimEmbedded = dynamic(
   () =>
     import('./takvim/page').then((m) => {
-      const Page = m.default;
+      const Page = m.BilsemSablonTakvimPageView;
       return { default: function BilEmbed() { return <Page embedded />; } };
     }),
   { ssr: false },
@@ -31,7 +31,7 @@ const BilsemTakvimEmbedded = dynamic(
 const YillikPlanBilsemTab = dynamic(
   () =>
     import('../yillik-plan-icerik/page').then((m) => {
-      const Page = m.default;
+      const Page = m.YillikPlanIcerikPageView;
       return { default: function Ypb() { return <Page curriculumModel="bilsem" />; } };
     }),
   { ssr: false },
