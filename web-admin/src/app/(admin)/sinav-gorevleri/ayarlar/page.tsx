@@ -5,6 +5,12 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
+import {
+  fetchExamDutySyncHealth,
+  mapExamDutyHealthToSyncResultPayload,
+  waitForExamDutyInvocation,
+  type ExamDutySyncHealthPayload,
+} from '@/lib/exam-duty-sync-wait';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -142,21 +148,7 @@ function formatSyncScheduleSummary(times: string[] | undefined): string {
   return [...new Set(t)].sort().join(', ');
 }
 
-type SyncHealth = {
-  last_sync_at: string | null;
-  total_created_last_run: number;
-  total_restored_last_run: number;
-  total_gpt_errors_last_run: number;
-  sources: Array<{
-    key: string;
-    label: string;
-    last_synced_at: string | null;
-    last_result_created: number;
-    last_result_skipped: number;
-    last_result_error: string | null;
-    consecutive_error_count: number;
-  }>;
-};
+type SyncHealth = ExamDutySyncHealthPayload;
 
 function SyncHealthBlock({ token }: { token: string | null }) {
   const [health, setHealth] = useState<SyncHealth | null>(null);
@@ -165,7 +157,7 @@ function SyncHealthBlock({ token }: { token: string | null }) {
     if (!token) return;
     setLoading(true);
     try {
-      const data = await apiFetch<SyncHealth>('/admin/exam-duties/sync-health', { token });
+      const data = await fetchExamDutySyncHealth(token);
       setHealth(data ?? null);
     } catch {
       setHealth(null);
@@ -351,20 +343,43 @@ export default function SinavGoreviAyarlarPage() {
     setSyncing(true);
     setSyncResult(null);
     try {
-      const res = await apiFetch<SyncResult>('/admin/exam-duties/sync', {
+      if (dryRun) {
+        const res = await apiFetch<SyncResult>('/admin/exam-duties/sync', {
+          method: 'POST',
+          token,
+          body: JSON.stringify({ dry_run: true }),
+        });
+        setSyncResult(res);
+        toast[res.ok ? 'success' : 'warning'](res?.message ?? 'Test sync bitti.');
+        fetchSources();
+        return;
+      }
+      const start = await apiFetch<
+        SyncResult & { async?: boolean; invocation_id?: number }
+      >('/admin/exam-duties/sync', {
         method: 'POST',
         token,
-        body: JSON.stringify(dryRun ? { dry_run: true } : {}),
+        body: JSON.stringify({ async: true }),
       });
-      setSyncResult(res);
-      if (res.ok) {
-        toast.success(res?.message ?? 'Senkronizasyon tamamlandı.');
-      } else {
-        toast.warning(res?.message ?? 'Bazı kaynaklarda hata oluştu.');
+      if (start?.async === true && typeof start.invocation_id === 'number') {
+        toast.info(start.message ?? 'Senkronizasyon arka planda…');
+        const health = await waitForExamDutyInvocation(token, start.invocation_id);
+        const mapped = mapExamDutyHealthToSyncResultPayload(health);
+        if (mapped) setSyncResult(mapped as SyncResult);
+        if (mapped?.ok) toast.success(mapped.message);
+        else if (mapped) toast.warning(mapped.message);
+        fetchSources();
+        return;
       }
-      fetchSources();
+      if (typeof start?.total_created === 'number' && Array.isArray(start.results)) {
+        setSyncResult(start);
+        toast[start.ok ? 'success' : 'warning'](start?.message ?? 'Senkronizasyon bitti.');
+        fetchSources();
+        return;
+      }
+      throw new Error('Sunucu yanıtı tanınmadı (backend güncel mi?).');
     } catch (e) {
-      toast.error('Senkronizasyon hatası.');
+      toast.error(e instanceof Error ? e.message : 'Senkronizasyon hatası.');
     } finally {
       setSyncing(false);
     }

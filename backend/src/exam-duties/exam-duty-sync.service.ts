@@ -172,6 +172,9 @@ export class ExamDutySyncService {
   private lastSyncLog: { at: string; dry_run: boolean; message: string; results: SyncSourceResult[]; quota_skipped: number } | null = null;
   /** Aynı anda tek sync: önceki bitene kadar beklenir, ard arda çalışmaz */
   private syncPromise: Promise<RunSyncResult> | null = null;
+  /** Panel async sync tamamlandı göstergesi (HTTP zaman aşımı için poll) */
+  private syncInvocationSeq = 0;
+  private lastSyncInvocationFinished = 0;
 
   constructor(
     @InjectRepository(ExamDutySyncSource)
@@ -456,12 +459,31 @@ export class ExamDutySyncService {
   }
 
   /** Sync sağlık özeti – son sync zamanı, kaynak bazlı durum, toplam oluşturulan/geri yüklenen/GPT hata */
+  /**
+   * Panelden uzun süren HTTP isteğini kesmemek için: sync arka planda başlar, sonuç sync-health / sync-last-skipped ile okunur.
+   */
+  enqueueBackgroundSync(): { ok: true; async: true; message: string; invocation_id: number } {
+    const invocation_id = ++this.syncInvocationSeq;
+    void this.runSync({ dry_run: false }).finally(() => {
+      this.lastSyncInvocationFinished = invocation_id;
+    });
+    return {
+      ok: true,
+      async: true,
+      invocation_id,
+      message:
+        'Senkronizasyon arka planda başlatıldı. Sonuç birkaç dakika içinde Senkronizasyon özeti ve Kaynaklar satırlarında güncellenir.',
+    };
+  }
+
   async getSyncHealth(): Promise<{
     last_sync_at: string | null;
     total_created_last_run: number;
     total_restored_last_run: number;
     total_gpt_errors_last_run: number;
+    sync_invocation_finished: number;
     last_sync_log: { at: string; dry_run: boolean; message: string; results: SyncSourceResult[]; quota_skipped: number } | null;
+    skipped_items: ExamDutySkippedItem[];
     sources: Array<{
       key: string;
       label: string;
@@ -479,7 +501,9 @@ export class ExamDutySyncService {
       total_created_last_run: summary.total_created,
       total_restored_last_run: summary.total_restored,
       total_gpt_errors_last_run: summary.total_gpt_errors,
+      sync_invocation_finished: this.lastSyncInvocationFinished,
       last_sync_log: this.lastSyncLog,
+      skipped_items: [...this.lastSkippedItems],
       sources: sources.map((s) => ({
         key: s.key,
         label: s.label,

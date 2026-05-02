@@ -99,8 +99,12 @@ export class ExamDutiesAdminController {
   }
 
   @Post('sync')
-  async runSync(@Body() body?: { dry_run?: boolean }) {
-    return this.examDutySyncService.runSync({ dry_run: body?.dry_run });
+  async runSync(@Body() body?: { dry_run?: boolean; async?: boolean }) {
+    const dry = body?.dry_run === true;
+    if (body?.async === true && !dry) {
+      return this.examDutySyncService.enqueueBackgroundSync();
+    }
+    return this.examDutySyncService.runSync({ dry_run: dry });
   }
 
   @Post('clear-sync-data')

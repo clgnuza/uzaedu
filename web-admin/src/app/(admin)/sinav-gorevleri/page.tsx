@@ -23,6 +23,10 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
+import {
+  mapExamDutyHealthToSyncResultPayload,
+  waitForExamDutyInvocation,
+} from '@/lib/exam-duty-sync-wait';
 import { applyExamDutyWallClockInTurkey } from '@/lib/exam-duty-turkey-time';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -1351,20 +1355,39 @@ export default function SinavGorevleriPage() {
     if (!token) return;
     setSyncing(true);
     try {
-      const res = await apiFetch<{
-        ok: boolean;
-        message: string;
-        total_created: number;
-        total_restored?: number;
-        total_gpt_errors?: number;
-        quota_limit?: number;
-        quota_skipped?: number;
-        results?: { source_key: string; created: number; skipped: number; error?: string }[];
-        skipped_items?: SkippedItem[];
-      }>('/admin/exam-duties/sync', { method: 'POST', token });
-      toast.success(res.message);
-      if ((res.total_restored ?? 0) > 0) toast.info(`${res.total_restored} silinen duyuru geri yüklendi`);
-      setSkippedItems(Array.isArray(res.skipped_items) ? res.skipped_items : []);
+      const start = await apiFetch<
+        {
+          ok: boolean;
+          message: string;
+          total_created: number;
+          total_restored?: number;
+          total_gpt_errors?: number;
+          quota_limit?: number;
+          quota_skipped?: number;
+          results?: { source_key: string; created: number; skipped: number; error?: string }[];
+          skipped_items?: SkippedItem[];
+        } & { async?: boolean; invocation_id?: number }
+      >('/admin/exam-duties/sync', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ async: true }),
+      });
+      if (start?.async === true && typeof start.invocation_id === 'number') {
+        toast.info(start.message ?? 'Senkronizasyon arka planda…');
+        const health = await waitForExamDutyInvocation(token, start.invocation_id);
+        const mapped = mapExamDutyHealthToSyncResultPayload(health);
+        if (mapped) {
+          toast[mapped.ok ? 'success' : 'warning'](mapped.message);
+          if ((mapped.total_restored ?? 0) > 0) toast.info(`${mapped.total_restored} silinen duyuru geri yüklendi`);
+          setSkippedItems(Array.isArray(mapped.skipped_items) ? (mapped.skipped_items as SkippedItem[]) : []);
+        }
+      } else if (typeof start?.total_created === 'number' && Array.isArray(start.results)) {
+        toast[start.ok ? 'success' : 'warning'](start.message);
+        if ((start.total_restored ?? 0) > 0) toast.info(`${start.total_restored} silinen duyuru geri yüklendi`);
+        setSkippedItems(Array.isArray(start.skipped_items) ? start.skipped_items : []);
+      } else {
+        throw new Error('Sunucu yanıtı tanınmadı.');
+      }
       setSkippedSyncedAt(new Date().toISOString());
       fetchList();
       void fetchIssueDutyRows();
