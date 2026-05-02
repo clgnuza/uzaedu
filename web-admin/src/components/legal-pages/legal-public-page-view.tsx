@@ -22,10 +22,12 @@ export function LegalPageLoadError() {
         </div>
         <h2 className="mb-2 text-lg font-bold text-white">İçerik Yüklenemedi</h2>
         <p className="mb-6 text-sm text-white/55">Lütfen daha sonra tekrar deneyin.</p>
-        <Link href="/login"
-          className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-blue-500 px-5 text-sm font-semibold text-white transition hover:bg-blue-400">
+        <a
+          href="/login"
+          className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-blue-500 px-5 text-sm font-semibold text-white transition hover:bg-blue-400"
+        >
           Giriş Sayfasına Dön
-        </Link>
+        </a>
       </div>
     </div>
   );
@@ -106,13 +108,13 @@ export function LegalPublicPageView({
         <div className="relative mx-auto max-w-3xl px-4 sm:px-6">
           {/* Geri + logo */}
           <div className="mb-5 flex items-center justify-between sm:mb-8">
-            <Link
+            <a
               href="/login"
               className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/8 px-3 py-2 text-[12px] font-medium text-white/70 backdrop-blur-sm transition hover:bg-white/14 hover:text-white"
             >
               <ArrowLeft className="size-3.5" />
               Girişe Dön
-            </Link>
+            </a>
             <Link href="/" className="text-[11px] font-bold tracking-tight text-white/50 transition hover:text-white/80">
               Uzaedu<span className="text-blue-400"> Öğretmen</span>
             </Link>
