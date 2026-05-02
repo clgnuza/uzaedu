@@ -80,6 +80,10 @@ export class ExamDuty {
   @Column({ name: 'external_id', type: 'varchar', length: 256, nullable: true })
   externalId: string | null;
 
+  /** Sync: kaynak sitedeki ham başlık (çapraz kaynak mükerrer kontrolü) */
+  @Column({ name: 'source_list_headline', type: 'varchar', length: 512, nullable: true })
+  sourceListHeadline: string | null;
+
   @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt: Date | null;
 

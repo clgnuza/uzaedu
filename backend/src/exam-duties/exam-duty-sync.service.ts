@@ -3,7 +3,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { XMLParser } from 'fast-xml-parser';
 import * as cheerio from 'cheerio';
 import { ExamDutySyncSource } from './entities/exam-duty-sync-source.entity';
@@ -33,6 +33,12 @@ type ExamDutyScheduleSlice = {
   examDate: Date | null;
   examDateEnd: Date | null;
   applicationEnd: Date | null;
+};
+
+/** Çift duyuru: sınav aralığı ±gün / son başvuru ±gün (İstanbul takvim günü) */
+type ExamDutyDateDedupeOpts = {
+  appEndSlackDays?: number;
+  examRangePadDays?: number;
 };
 
 const FETCH_TIMEOUT_MS = 30000;
@@ -65,6 +71,17 @@ function normalizeExternalId(url: string): string {
     }
   }
   return u.replace(/\/+$/, '') || u;
+}
+
+function extractAbsoluteUrlsFromText(text: string): string[] {
+  const out: string[] = [];
+  const re = /https?:\/\/[^\s"'<>)\]}]+/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    let u = m[0].replace(/[.,;:!?)'"\]]+$/g, '');
+    if (u.length > 12) out.push(u);
+  }
+  return out;
 }
 
 function extractText(value: unknown): string {
@@ -982,6 +999,7 @@ export class ExamDutySyncService {
         applicationUrl,
         sourceKey: source.key,
         externalId,
+        sourceListHeadline: title.slice(0, 512),
         applicationStart: new Date(),
         applicationEnd: applyTime(parsed.application_end ?? null, 'application_end'),
         resultDate: rssResultDate,
@@ -1061,7 +1079,22 @@ export class ExamDutySyncService {
        * `skip_title_keywords: true` olsa bile başlık anahtarlarını uygula (Güncel Eğitim #headline’da SONDAKİKA gürültüsünü ele).
        */
       force_title_keyword_filter?: boolean;
+      /** Gövdedeki mutlak URL, başka bir duyurunun source_url’iyle eşleşiyorsa atla (ikincil kaynak + agregatör). */
+      dedupe_skip_if_body_links_match_existing_source_url?: boolean;
+      /** Bu kaynakta (örn. ikincil), şu source_key’lerdeki duyuruyla ham başlık / Güncel Eğitim slug örtüşüyorsa atla */
+      dedupe_match_primary_headlines_against_source_keys?: string[];
+      /** Son başvuru İstanbul günü ±N (kaynaklar arası küçük parse farkları) */
+      dedupe_application_end_slack_days?: number;
+      /** Sınav tarihi aralığına her iki uca ±N gün payı (örtüşme kontrolü) */
+      dedupe_exam_range_pad_days?: number;
     } | null;
+
+    const clampDedupeDay = (v: unknown) =>
+      Math.min(7, Math.max(0, Number.isFinite(Number(v)) ? Number(v) : 0));
+    const scheduleDateDedupeOpts: ExamDutyDateDedupeOpts = {
+      appEndSlackDays: clampDedupeDay(config?.dedupe_application_end_slack_days),
+      examRangePadDays: clampDedupeDay(config?.dedupe_exam_range_pad_days),
+    };
 
     const maxProcessPerSync = config?.max_process_per_sync ?? 0;
     const latestContentCheckLimit = Math.min(
@@ -1236,7 +1269,9 @@ export class ExamDutySyncService {
     }
 
     if (
-      (source.key === 'exam_duty_guncelegitim' || config?.force_title_keyword_filter === true) &&
+      (source.key === 'exam_duty_guncelegitim' ||
+        source.key === 'exam_duty_ogretmenx' ||
+        config?.force_title_keyword_filter === true) &&
       source.titleKeywords?.trim()
     ) {
       const beforeN = candidates.length;
@@ -1627,6 +1662,38 @@ export class ExamDutySyncService {
         applicationUrl ?? null,
       );
 
+      if (config?.dedupe_skip_if_body_links_match_existing_source_url === true && bodyText?.trim()) {
+        const bodyUrls = extractAbsoluteUrlsFromText(bodyText);
+        const matchedByBody = await this.findExistingDutyMatchingAnySourceUrl(bodyUrls);
+        if (matchedByBody) {
+          skipped++;
+          existingIds.delete(externalId);
+          addSkipped(
+            c.title,
+            c.href,
+            `Gövdedeki bağlantı zaten duyuruda (${matchedByBody.sourceKey ?? '—'}).`,
+            skipPlacement,
+          );
+          continue;
+        }
+      }
+
+      const dedupePrimaryKeys = config?.dedupe_match_primary_headlines_against_source_keys?.filter(Boolean) ?? [];
+      if (dedupePrimaryKeys.length > 0 && c.title?.trim()) {
+        const dupPrimary = await this.findDuplicateAmongPrimarySources(categorySlug, c.title, dedupePrimaryKeys);
+        if (dupPrimary) {
+          skipped++;
+          existingIds.delete(externalId);
+          addSkipped(
+            c.title,
+            c.href,
+            `Birincil kaynakta aynı duyuru var (${dupPrimary.sourceKey ?? '—'}).`,
+            skipPlacement,
+          );
+          continue;
+        }
+      }
+
       const existingDuty = await this.dutyRepo.findOne({
         where: { externalId, sourceKey: source.key },
       });
@@ -1658,6 +1725,7 @@ export class ExamDutySyncService {
           existingDuty.sourceListSection = sp.sourceListSection;
           existingDuty.sourceSectionOrder = sp.sourceSectionOrder;
           existingDuty.sourceSliderPoolSize = sp.sourceSliderPoolSize;
+          existingDuty.sourceListHeadline = c.title.slice(0, 512);
           if (!options.dryRun) await this.dutyRepo.save(existingDuty);
           restored++;
           existingIds.add(externalId);
@@ -1689,13 +1757,21 @@ export class ExamDutySyncService {
 
       const dedupeSched = examSyncOpts.dedupe_exam_schedule !== false;
       const scheduleDupScrape = dedupeSched
-        ? await this.findDuplicateDutyByExamSchedule(categorySlug, examDate, examDateEnd, applicationEnd, true)
+        ? await this.findDuplicateDutyByExamSchedule(
+            categorySlug,
+            examDate,
+            examDateEnd,
+            applicationEnd,
+            true,
+            scheduleDateDedupeOpts,
+          )
         : null;
       const sessionDupScrape =
         dedupeSched &&
         this.sessionScheduleCollidesWithSlices(
           { categorySlug, examDate, examDateEnd, applicationEnd },
           pendingScheduleSlices,
+          scheduleDateDedupeOpts,
         );
       if (scheduleDupScrape || sessionDupScrape) {
         skipped++;
@@ -1720,6 +1796,7 @@ export class ExamDutySyncService {
         applicationUrl,
         sourceKey: source.key,
         externalId,
+        sourceListHeadline: c.title.slice(0, 512),
         applicationStart,
         applicationEnd,
         applicationApprovalEnd,
@@ -1800,6 +1877,46 @@ export class ExamDutySyncService {
     return a.start <= b.end && b.start <= a.end;
   }
 
+  private ymdToUnixDay(ymd: string): number {
+    const [y, m, d] = ymd.split('-').map(Number);
+    if (!y || !m || !d) return NaN;
+    return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
+  }
+
+  private unixDayToYmd(ud: number): string {
+    const dt = new Date(ud * 86400000);
+    const y = dt.getUTCFullYear();
+    const mo = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const da = String(dt.getUTCDate()).padStart(2, '0');
+    return `${y}-${mo}-${da}`;
+  }
+
+  private expandExamRange(range: { start: string; end: string }, pad: number): { start: string; end: string } {
+    if (pad <= 0) return range;
+    const s = this.ymdToUnixDay(range.start);
+    const e = this.ymdToUnixDay(range.end);
+    if (Number.isNaN(s) || Number.isNaN(e)) return range;
+    return {
+      start: this.unixDayToYmd(s - pad),
+      end: this.unixDayToYmd(e + pad),
+    };
+  }
+
+  /** Bir kayıttaki son başvuru günü (İstanbul), diğer kaydın sınav aralığı ±pad içinde mi */
+  private applicationYmdInsideExpandedExamRange(
+    applicationEnd: Date | null,
+    examDate: Date | null,
+    examDateEnd: Date | null,
+    pad: number,
+  ): boolean {
+    if (pad <= 0) return false;
+    const appY = this.ymdIstanbul(applicationEnd);
+    const range = this.examRangeTurkey(examDate, examDateEnd);
+    if (!appY || !range) return false;
+    const exp = this.expandExamRange(range, pad);
+    return appY >= exp.start && appY <= exp.end;
+  }
+
   /**
    * Yeni haber farklı olsa da aynı sınav oturumları (İstanbul günü) zaten kayıtlıysa ikinci duyuru açılmasın.
    * Öncelik: sınav başı+sonu; sınav yoksa son başvuru günü.
@@ -1821,25 +1938,188 @@ export class ExamDutySyncService {
     return null;
   }
 
-  /** Aynı kategori + sınav aralığı / parmak izi / son başvuru günü (İstanbul) eşleşmesi */
-  private schedulesDateDuplicatePair(a: ExamDutyScheduleSlice, b: ExamDutyScheduleSlice): boolean {
+  /** Aynı kategori + sınav aralığı (±pay) / parmak izi / son başvuru günü (±slack, İstanbul) */
+  private schedulesDateDuplicatePair(
+    a: ExamDutyScheduleSlice,
+    b: ExamDutyScheduleSlice,
+    opts?: ExamDutyDateDedupeOpts,
+  ): boolean {
     if (a.categorySlug !== b.categorySlug) return false;
-    const newRange = this.examRangeTurkey(a.examDate, a.examDateEnd);
-    const rowRange = this.examRangeTurkey(b.examDate, b.examDateEnd);
-    if (newRange && rowRange && this.rangesYmdOverlap(newRange, rowRange)) return true;
+    const pad = opts?.examRangePadDays ?? 0;
+    let newRange = this.examRangeTurkey(a.examDate, a.examDateEnd);
+    let rowRange = this.examRangeTurkey(b.examDate, b.examDateEnd);
+    if (newRange && rowRange) {
+      if (pad > 0) {
+        newRange = this.expandExamRange(newRange, pad);
+        rowRange = this.expandExamRange(rowRange, pad);
+      }
+      if (this.rangesYmdOverlap(newRange, rowRange)) return true;
+    }
 
     const fp = this.examScheduleFingerprint(a.categorySlug, a.examDate, a.examDateEnd, a.applicationEnd);
     const rfp = this.examScheduleFingerprint(b.categorySlug, b.examDate, b.examDateEnd, b.applicationEnd);
     if (fp && rfp && fp === rfp) return true;
 
+    if (pad > 0) {
+      const bridge =
+        this.applicationYmdInsideExpandedExamRange(a.applicationEnd, b.examDate, b.examDateEnd, pad) ||
+        this.applicationYmdInsideExpandedExamRange(b.applicationEnd, a.examDate, a.examDateEnd, pad);
+      if (bridge) return true;
+    }
+
     const newAppYmd = this.ymdIstanbul(a.applicationEnd);
     const rowAppYmd = this.ymdIstanbul(b.applicationEnd);
-    if (newAppYmd && rowAppYmd && newAppYmd === rowAppYmd) return true;
+    if (newAppYmd && rowAppYmd) {
+      if (newAppYmd === rowAppYmd) return true;
+      const slack = opts?.appEndSlackDays ?? 0;
+      if (slack > 0) {
+        const d0 = this.ymdToUnixDay(newAppYmd);
+        const d1 = this.ymdToUnixDay(rowAppYmd);
+        if (!Number.isNaN(d0) && !Number.isNaN(d1) && Math.abs(d0 - d1) <= slack) return true;
+      }
+    }
     return false;
   }
 
-  private sessionScheduleCollidesWithSlices(needle: ExamDutyScheduleSlice, pending: ExamDutyScheduleSlice[]): boolean {
-    return pending.some((p) => this.schedulesDateDuplicatePair(needle, p));
+  private sessionScheduleCollidesWithSlices(
+    needle: ExamDutyScheduleSlice,
+    pending: ExamDutyScheduleSlice[],
+    opts?: ExamDutyDateDedupeOpts,
+  ): boolean {
+    return pending.some((p) => this.schedulesDateDuplicatePair(needle, p, opts));
+  }
+
+  /** Kaynak URL anahtarı (sorgu ve sondaki / yok sayılır) — gövde linki ile mevcut duyuru eşlemesi */
+  private sourceUrlDedupeKey(url: string): string {
+    const n = normalizeExternalId(url.trim());
+    if (!n.startsWith('http')) return '';
+    return n.split('?')[0].replace(/\/+$/, '').toLowerCase();
+  }
+
+  private async findExistingDutyMatchingAnySourceUrl(candidateUrls: string[]): Promise<ExamDuty | null> {
+    const keys = new Set<string>();
+    for (const raw of candidateUrls) {
+      const k = this.sourceUrlDedupeKey(raw);
+      if (k.length > 12) keys.add(k);
+    }
+    const list = [...keys].slice(0, 40);
+    if (list.length === 0) return null;
+    return this.dutyRepo
+      .createQueryBuilder('e')
+      .where('e.deleted_at IS NULL')
+      .andWhere(
+        `lower(regexp_replace(split_part(regexp_replace(e.source_url, '/+$', ''), '?', 1), '/+$', '')) IN (:...list)`,
+        { list },
+      )
+      .getOne();
+  }
+
+  private headlineDedupeKey(s: string): string {
+    return s
+      .toLocaleLowerCase('tr')
+      .replace(/['’`]/g, '')
+      .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private headlinesLikelySame(a: string, b: string): boolean {
+    const ka = this.headlineDedupeKey(a);
+    const kb = this.headlineDedupeKey(b);
+    if (ka.length < 14 || kb.length < 14) return false;
+    if (ka === kb) return true;
+    const short = ka.length <= kb.length ? ka : kb;
+    const long = ka.length > kb.length ? ka : kb;
+    if (short.length >= 24 && long.includes(short.slice(0, Math.min(52, short.length)))) return true;
+    const wa = new Set(short.split(' ').filter((w) => w.length > 2));
+    const wb = new Set(long.split(' ').filter((w) => w.length > 2));
+    if (wa.size === 0 || wb.size === 0) return false;
+    let inter = 0;
+    for (const w of wa) if (wb.has(w)) inter++;
+    return inter / Math.min(wa.size, wb.size) >= 0.58;
+  }
+
+  private foldTrAsciiComparable(s: string): string {
+    const lower = s.toLocaleLowerCase('tr');
+    return lower
+      .replace(/ğ/g, 'g')
+      .replace(/ü/g, 'u')
+      .replace(/ş/g, 's')
+      .replace(/ı/g, 'i')
+      .replace(/ö/g, 'o')
+      .replace(/ç/g, 'c')
+      .replace(/â/g, 'a')
+      .replace(/î/g, 'i')
+      .replace(/û/g, 'u')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private guncelegitimHaberSlugTokens(url: string): string[] {
+    try {
+      const u = new URL(url.trim());
+      const host = u.hostname.replace(/^www\./i, '').toLowerCase();
+      if (!host.endsWith('guncelegitim.com')) return [];
+      const m = u.pathname.match(/\/haber\/([^/?#]+)/i);
+      if (!m?.[1]) return [];
+      const slug = decodeURIComponent(m[1]).replace(/\.[a-z0-9]+$/i, '');
+      return slug
+        .split(/[\-/]+/)
+        .map((w) => this.foldTrAsciiComparable(w))
+        .filter((w) => w.length > 2 || /^\d+$/.test(w));
+    } catch {
+      return [];
+    }
+  }
+
+  private listTitleTokensForSlugOverlap(listTitle: string): Set<string> {
+    return new Set(
+      this.foldTrAsciiComparable(listTitle)
+        .split(/\s+/)
+        .filter((w) => w.length > 2 || /^\d+$/.test(w)),
+    );
+  }
+
+  /** Güncel Eğitim /haber/slug ile ikinci kaynak liste başlığı aynı haber mi (eski kayıtlarda headline yoksa) */
+  private titleOverlapsGuncelegitimSlug(listTitle: string, sourceUrl: string | null): boolean {
+    if (!sourceUrl?.trim()) return false;
+    const slugTok = this.guncelegitimHaberSlugTokens(sourceUrl);
+    if (slugTok.length < 3) return false;
+    const tw = this.listTitleTokensForSlugOverlap(listTitle);
+    if (tw.size < 3) return false;
+    let hit = 0;
+    for (const sw of slugTok) {
+      if (tw.has(sw)) hit++;
+      else {
+        for (const twWord of tw) {
+          if (twWord.includes(sw) || sw.includes(twWord)) {
+            hit++;
+            break;
+          }
+        }
+      }
+    }
+    return hit / slugTok.length >= 0.42;
+  }
+
+  private async findDuplicateAmongPrimarySources(
+    categorySlug: string,
+    listTitle: string,
+    againstSourceKeys: string[],
+  ): Promise<ExamDuty | null> {
+    const rows = await this.dutyRepo.find({
+      where: { categorySlug, deletedAt: IsNull(), sourceKey: In(againstSourceKeys) },
+      order: { createdAt: 'DESC' },
+      take: 800,
+    });
+    for (const row of rows) {
+      const stored = row.sourceListHeadline?.trim();
+      if (stored && this.headlinesLikelySame(stored, listTitle)) return row;
+      if (row.sourceKey === 'exam_duty_guncelegitim' && this.titleOverlapsGuncelegitimSlug(listTitle, row.sourceUrl))
+        return row;
+    }
+    return null;
   }
 
   private async findDuplicateDutyByExamSchedule(
@@ -1848,6 +2128,7 @@ export class ExamDutySyncService {
     examDateEnd: Date | null,
     applicationEnd: Date | null,
     dedupeExamSchedule: boolean,
+    opts?: ExamDutyDateDedupeOpts,
   ): Promise<ExamDuty | null> {
     if (!dedupeExamSchedule) return null;
 
@@ -1865,7 +2146,7 @@ export class ExamDutySyncService {
         examDateEnd: row.examDateEnd,
         applicationEnd: row.applicationEnd,
       };
-      if (this.schedulesDateDuplicatePair(needle, slice)) return row;
+      if (this.schedulesDateDuplicatePair(needle, slice, opts)) return row;
     }
     return null;
   }
