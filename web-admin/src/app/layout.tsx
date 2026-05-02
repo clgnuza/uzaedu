@@ -25,11 +25,17 @@ const inter = localFont({
     },
   ],
   display: 'swap',
+  preload: false,
   variable: '--font-inter',
   adjustFontFallback: 'Arial',
 });
 
 const SITE_URL = normalizePublicSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
+
+const CF_WEB_ANALYTICS_TOKEN = process.env.NEXT_PUBLIC_CF_WEB_ANALYTICS_TOKEN?.trim() || '';
+const CF_WEB_ANALYTICS_BEACON_URL =
+  process.env.NEXT_PUBLIC_CF_WEB_ANALYTICS_BEACON_URL?.trim() ||
+  'https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516';
 
 function safeGtmId(id: string): boolean {
   return /^GTM-[A-Z0-9]+$/.test(id.trim());
@@ -145,6 +151,14 @@ export default async function RootLayout({
             />
           </>
         )}
+        {CF_WEB_ANALYTICS_TOKEN ? (
+          <Script
+            id="cf-web-analytics"
+            strategy="lazyOnload"
+            src={CF_WEB_ANALYTICS_BEACON_URL}
+            data-cf-beacon={JSON.stringify({ token: CF_WEB_ANALYTICS_TOKEN })}
+          />
+        ) : null}
         <Script
           id="org-jsonld"
           type="application/ld+json"

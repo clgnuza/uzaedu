@@ -1,6 +1,13 @@
 Canlı (uzaedu) — yapılan notlar (2026-04)
 ========================================
 
+Cloudflare Web Analytics (2026-05)
+----------------------------------
+- CF Dashboard → Web Analytics / beacon: otomatik HTML enjeksiyonu KAPAT (SRI+CORS konsol gürültüsü ve çift script önlenir).
+- Sunucu: /opt/uzaedu/web-admin/.env.production içine NEXT_PUBLIC_CF_WEB_ANALYTICS_TOKEN=<CF snippet token>; gerekirse NEXT_PUBLIC_CF_WEB_ANALYTICS_BEACON_URL güncelle (repo: web-admin/.env.production.example).
+- cd web-admin && npm run build && pm2 restart uzaedu-web (veya panelden deploy).
+
+
 CORS / "Backend bağlantısı kurulamadı" (uzaedu.com)
 ---------------------------------------------------
 - Sorun: https://uzaedu.com üzerinden admin açılınca https://api.uzaedu.com istekleri tarayıcıda CORS ile bloklanıyordu; fetch hata verip api.ts bağlantı mesajını gösteriyordu.
