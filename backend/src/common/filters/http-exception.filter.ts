@@ -58,7 +58,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const body = exception.getResponse();
       if (typeof body === 'object' && body !== null && 'code' in body) {
         code = (body as { code?: string }).code || code;
-        message = CODE_MESSAGES[code] || (body as { message?: string }).message || message;
+        const rawMsg = (body as { message?: string | string[] }).message;
+        const flatMsg = Array.isArray(rawMsg) ? rawMsg.filter(Boolean).join(' · ') : rawMsg;
+        const explicit = typeof flatMsg === 'string' ? flatMsg.trim() : '';
+        message = explicit !== '' ? explicit : CODE_MESSAGES[code] || message;
         details = (body as { details?: Record<string, unknown> }).details;
       } else if (typeof body === 'object' && body !== null && 'message' in body) {
         const msg = (body as { message?: string | string[] }).message;

@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "npm rebuild better-sqlite3",
     "build": "nest build && copyfiles -f \"src/optik/fonts/*.ttf\" dist/optik/fonts",
     "start": "nest start",
     "start:dev": "nest start --watch",
+    "start:dev:sqlite": "cross-env APP_USE_SQLITE=true nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "migrate:yillik-plan": "node tools/run-yillik-plan-sql.js",
@@ -32,6 +34,8 @@
     "clear-placeholder-images": "ts-node -r tsconfig-paths/register scripts/clear-placeholder-images.ts",
     "set-user-password": "node tools/set-user-password.cjs",
     "ensure-demo-superadmin": "node tools/ensure-demo-superadmin.cjs",
+    "remove-demo-students": "node tools/remove-butterfly-demo-students.js",
+    "anonymize-butterfly-rules": "node tools/anonymize-butterfly-plan-rules.js",
     "peek-app-config": "node tools/peek-app-config.cjs",
     "export-app-config-sql": "node tools/export-app-config-sql.cjs",
     "export-extra-lesson-sql": "node tools/export-extra-lesson-sql.cjs",
@@ -97,6 +101,7 @@
     "@types/pg": "^8.20.0",
     "@types/uuid": "^9.0.7",
     "copyfiles": "^2.4.1",
+    "cross-env": "^7.0.3",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.3.3"

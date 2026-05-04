@@ -22,12 +22,18 @@ function defaultProdApiBaseForHost(hostname: string): string | null {
   return null;
 }
 
+/** next.config.ts `rewrites` ile aynı yol (yalnız next dev). */
+const DEV_BROWSER_API_PROXY_PREFIX = '/be-api';
+
 export function resolveDefaultApiBase(): string {
   const fromEnv = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
   if (fromEnv) return fromEnv;
   if (typeof window !== 'undefined') {
     const h = window.location.hostname;
     const p = process.env.NEXT_PUBLIC_API_PORT?.trim() || '4000';
+    if (isLikelyDevMachineHost(h) && process.env.NODE_ENV === 'development') {
+      return `${window.location.origin}${DEV_BROWSER_API_PROXY_PREFIX}`;
+    }
     if (isLikelyDevMachineHost(h)) {
       return `http://${devApiHost(h)}:${p}/api`;
     }

@@ -213,7 +213,7 @@ export default function BordroUploadFlow({ type, title, description, icon, priva
               <div className="grid gap-2 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-[10px] font-semibold text-muted-foreground">Okul Adı (mesajda görünür)</label>
-                  <Input placeholder="Erzurum Çok Programlı Anadolu Lisesi" value={okulAdi} onChange={(e) => setOkulAdi(e.target.value)} className="h-8 text-xs" />
+                  <Input placeholder="Örn. Ankara Çankaya Demo Lisesi" value={okulAdi} onChange={(e) => setOkulAdi(e.target.value)} className="h-8 text-xs" />
                 </div>
                 <div>
                   <label className="mb-1 block text-[10px] font-semibold text-muted-foreground">İletişim Notu (opsiyonel)</label>

@@ -3,6 +3,7 @@ export type LegalPageContent = {
   meta_description: string;
   body_html: string;
   updated_at: string | null;
+  defaults_generation?: number;
 };
 
 export type LegalPagesConfig = {

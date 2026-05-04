@@ -90,6 +90,13 @@ function formatRelativeDate(iso: string | null): string {
   return formatDate(iso);
 }
 
+function contentSummaryPlainText(raw: string | null | undefined): string {
+  if (!raw?.trim()) return '';
+  let s = String(raw).replace(/<[^>]*>/g, ' ');
+  s = s.replace(/\s+/g, ' ').trim();
+  return s;
+}
+
 /** Aynı haber farklı kaynaklardan veya tekrar sync ile çift satırda gelebilir; URL’ye göre ilk kaydı tut (API sırası: en güncel önce). */
 function dedupeContentItemsByUrl(items: ContentItem[]): ContentItem[] {
   const seen = new Set<string>();
@@ -233,6 +240,7 @@ function YayinBroadcastCard({ item, variant }: { item: ContentItem; variant: 'he
 
 /** İl duyuruları: yatay kart — görsel + metin, il rozeti. */
 function YayinIlProvinceNewsCard({ item, provinceLabel }: { item: ContentItem; provinceLabel: string }) {
+  const summaryPlain = contentSummaryPlainText(item.summary);
   const typeKey = (item.content_type || 'announcement').toLowerCase();
   const typeLabel = CONTENT_TYPE_LABELS[item.content_type] ?? item.content_type;
   const chip =
@@ -282,8 +290,8 @@ function YayinIlProvinceNewsCard({ item, provinceLabel }: { item: ContentItem; p
         <h3 className="line-clamp-2 text-[0.95rem] font-semibold leading-snug tracking-tight text-slate-900 transition-colors group-hover/il:text-teal-800 dark:text-slate-50 dark:group-hover/il:text-teal-200 sm:text-base">
           {item.title}
         </h3>
-        {item.summary ? (
-          <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground sm:text-[13px]">{item.summary}</p>
+        {summaryPlain ? (
+          <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground sm:text-[13px]">{summaryPlain}</p>
         ) : null}
         <div className="mt-auto flex flex-wrap items-end justify-between gap-2 border-t border-teal-200/35 pt-2 dark:border-teal-900/45">
           <span className="min-w-0 truncate text-xs font-medium text-slate-600 dark:text-slate-300">

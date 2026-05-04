@@ -86,6 +86,8 @@ type SyncResult = {
     title: string;
     url: string;
     reason: string;
+    duplicate_of_url?: string | null;
+    duplicate_of_source_key?: string | null;
     list_section?: 'slider' | 'list' | 'rss' | 'recheck';
     section_order?: number;
   }>;
@@ -225,7 +227,7 @@ export default function SinavGoreviAyarlarPage() {
     sync_options: {
       skip_past_exam_date: false,
       recheck_max_count: 1,
-      fetch_timeout_ms: 30000,
+      fetch_timeout_ms: 45000,
       log_gpt_usage: false,
       add_draft_without_dates: true,
       max_new_per_sync: 1,
@@ -308,7 +310,7 @@ export default function SinavGoreviAyarlarPage() {
         sync_options: {
           skip_past_exam_date: false,
           recheck_max_count: 1,
-          fetch_timeout_ms: 30000,
+          fetch_timeout_ms: 45000,
           log_gpt_usage: false,
           add_draft_without_dates: true,
           max_new_per_sync: 1,
@@ -1035,17 +1037,17 @@ export default function SinavGoreviAyarlarPage() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs text-muted-foreground">Fetch timeout (ms, 5000–60000)</label>
+                      <label className="text-xs text-muted-foreground">Fetch timeout (ms, 5000–120000)</label>
                       <Input
                         type="number"
                         min={5000}
-                        max={60000}
+                        max={120000}
                         step={1000}
-                        value={config.sync_options?.fetch_timeout_ms ?? 30000}
+                        value={config.sync_options?.fetch_timeout_ms ?? 45000}
                         onChange={(e) =>
                           setConfig((c) => ({
                             ...c,
-                            sync_options: { ...(c.sync_options ?? {}), fetch_timeout_ms: Math.max(5000, Math.min(60000, parseInt(e.target.value, 10) || 30000)) },
+                            sync_options: { ...(c.sync_options ?? {}), fetch_timeout_ms: Math.max(5000, Math.min(120000, parseInt(e.target.value, 10) || 45000)) },
                           }))
                         }
                         className="w-28"

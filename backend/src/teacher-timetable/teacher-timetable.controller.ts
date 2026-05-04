@@ -26,6 +26,15 @@ import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-us
 import { UserRole } from '../types/enums';
 import { TeacherTimetableService } from './teacher-timetable.service';
 
+function timetableUploadExt(file: Express.Multer.File): string {
+  const fromName = (path.extname(file.originalname ?? '') || '').toLowerCase();
+  if (['.xlsx', '.xls'].includes(fromName)) return fromName;
+  const mime = String(file.mimetype ?? '').toLowerCase();
+  if (mime.includes('openxmlformats-officedocument.spreadsheetml')) return '.xlsx';
+  if (mime === 'application/vnd.ms-excel') return '.xls';
+  return '.xlsx';
+}
+
 @Controller('teacher-timetable')
 @UseGuards(JwtAuthGuard)
 export class TeacherTimetableController {
@@ -287,10 +296,12 @@ export class TeacherTimetableController {
       limits: { fileSize: 5 * 1024 * 1024 },
       fileFilter: (_req, file, cb) => {
         const ext = (path.extname(file.originalname ?? '') || '').toLowerCase();
-        const ok = ext === '.xlsx' || ext === '.xls' || ext === '.pdf' ||
-          file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-          file.mimetype === 'application/vnd.ms-excel' ||
-          file.mimetype === 'application/pdf';
+        const mime = String(file.mimetype ?? '').toLowerCase();
+        const ok =
+          ext === '.xlsx' || ext === '.xls' ||
+          mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+          mime === 'application/vnd.ms-excel' ||
+          (mime === 'application/octet-stream' && (ext === '.xlsx' || ext === '.xls'));
         cb(null, !!ok);
       },
     }),
@@ -300,11 +311,14 @@ export class TeacherTimetableController {
     @CurrentUser() payload: CurrentUserPayload,
   ) {
     if (!file?.buffer) {
-      throw new BadRequestException({ code: 'FILE_REQUIRED', message: 'Excel (.xlsx/.xls) veya e-Okul PDF dosyası yükleyin.' });
+      throw new BadRequestException({
+        code: 'FILE_REQUIRED',
+        message: 'Excel (.xlsx/.xls) yükleyin.',
+      });
     }
     const schoolId = payload.schoolId ?? null;
     if (!schoolId) throw new BadRequestException({ code: 'FORBIDDEN', message: 'Okul bilgisi bulunamadı.' });
-    const ext = (path.extname(file.originalname ?? '') || '.xlsx').toLowerCase();
+    const ext = timetableUploadExt(file);
     const tempPath = path.join(os.tmpdir(), `tt-${Date.now()}${ext}`);
     try {
       fs.writeFileSync(tempPath, file.buffer);

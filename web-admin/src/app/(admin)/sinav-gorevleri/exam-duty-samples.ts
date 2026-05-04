@@ -80,7 +80,7 @@ Sınavlar ülke genelinde eş zamanlı yapılmaktadır. Başvuru yapan öğretme
     body: `Atatürk Üniversitesi Açıköğretim Fakültesi (ATA-AÖF) 2025-2026 eğitim öğretim yılı güz dönemi ara ve dönem sonu sınavlarında gözetmen olarak görev almak isteyen öğretmenlerin başvuruları alınmaktadır.
 
 Sınav merkezleri:
-• Erzurum ve diğer illerdeki sınav merkezleri
+• İl merkezleri ve belirlenen sınav binaları
 • Başvuru sırasında tercih edilen merkez dikkate alınacaktır
 
 Başvuru şartları ve takvim detayları için resmi duyuru sayfasını inceleyiniz.`,

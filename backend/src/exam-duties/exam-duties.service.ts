@@ -80,7 +80,12 @@ export class ExamDutiesService {
       qb.andWhere('e.exam_date_end IS NULL');
     }
 
-    if (isAdmin && dto.has_exam_date === true) {
+    const adminListDefaultExamOnly =
+      isAdmin &&
+      dto.missing_exam_date !== true &&
+      dto.missing_source_dates !== true &&
+      dto.has_exam_date !== false;
+    if (adminListDefaultExamOnly) {
       qb.andWhere('(e.exam_date IS NOT NULL OR e.exam_date_end IS NOT NULL)');
     }
 

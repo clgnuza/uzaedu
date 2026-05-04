@@ -30,9 +30,13 @@ export class ListExamDutiesDto extends PaginationDto {
   @IsBoolean()
   missing_exam_date?: boolean;
 
-  /** Yalnız admin: en az bir sınav tarihi alanı dolu (varsayılan liste; tarihsizleri hariç tut) */
+  /** Admin liste: missing_* yokken varsayılan sınav tarihi zorunlu; tüm kayıtlar için false veya 0 */
   @IsOptional()
-  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @Transform(({ value }) => {
+    if (value === false || value === 'false' || value === '0') return false;
+    if (value === true || value === 'true' || value === '1') return true;
+    return undefined;
+  })
   @IsBoolean()
   has_exam_date?: boolean;
 }

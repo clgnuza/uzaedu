@@ -5,8 +5,10 @@ import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { butterflyExamApiQuery } from '@/lib/butterfly-exam-school-q';
+import { classesSubjectsHref } from '@/lib/school-classes-subjects-href';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Alert } from '@/components/ui/alert';
 import type { LucideIcon } from 'lucide-react';
 import { BookOpen, Building2, Calendar, Sparkles, Users, LayoutList } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -28,7 +30,7 @@ type StepCard = {
 const STEPS: StepCard[] = [
   {
     title: 'Sınıf ve öğrenci',
-    desc: 'Şube ve öğrenci sayıları; E-Okul listesi önizlemesi için içe aktar sekmesi.',
+    desc: 'Okul sınıfları ve öğrenci listeleriyle senkron özet; eksiklerde Sınıflar ve Dersler’e yönlendirme.',
     icon: BookOpen,
     href: '/kelebek-sinav/sinif-ogrenci',
     cta: 'Özet ve bağlantılar',
@@ -92,6 +94,20 @@ export default function KelebekSinavOverviewPage() {
           </code>{' '}
           ekleyin veya okul detayından bu modülü açın.
         </div>
+      ) : null}
+
+      {!loading && stats && isSchoolAdmin && (stats.classCount === 0 || stats.studentCount === 0) ? (
+        <Alert variant="warning" className="rounded-2xl">
+          <p className="text-[13px]">
+            {stats.classCount === 0
+              ? 'Bu okulda henüz sınıf tanımı yok.'
+              : 'Öğrenci kaydı yok veya sınıflara atanmamış.'}{' '}
+            <Link href={classesSubjectsHref(stats.classCount === 0 ? 'classes' : 'studentLists')} className="font-semibold underline-offset-4 hover:underline">
+              Sınıflar ve Dersler
+            </Link>
+            ’de düzenleyin.
+          </p>
+        </Alert>
       ) : null}
 
       {loading ? (

@@ -1,10 +1,12 @@
 import { cn } from '@/lib/utils';
 
 export type BrandSealSize = 'sm' | 'md' | 'lg' | 'xl';
+export type BrandSealMarkVariant = 'default' | 'login';
 
-/** uZa — ortadaki Z çok renkli gradient */
-function UzaMark({ size = 'md' }: { size?: BrandSealSize }) {
+/** uZa — `default`: panel; `login`: beyaz u/a + dikey pembe Z (yalnız giriş kabuğu) */
+function UzaMark({ size = 'md', variant = 'default' }: { size?: BrandSealSize; variant?: BrandSealMarkVariant }) {
   const sm = size === 'sm';
+  const login = variant === 'login';
   return (
     <span
       className={cn(
@@ -15,7 +17,9 @@ function UzaMark({ size = 'md' }: { size?: BrandSealSize }) {
     >
       <span
         className={cn(
-          'bg-linear-to-b from-zinc-200 to-zinc-500 bg-clip-text font-semibold text-transparent',
+          login
+            ? 'font-semibold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]'
+            : 'bg-linear-to-b from-zinc-200 to-zinc-500 bg-clip-text font-semibold text-transparent',
           sm && 'translate-y-[0.5px] text-[8px]',
           size === 'md' && 'translate-y-px text-[9px]',
           size === 'lg' && 'translate-y-0.5 text-[11px]',
@@ -26,19 +30,28 @@ function UzaMark({ size = 'md' }: { size?: BrandSealSize }) {
       </span>
       <span
         className={cn(
-          'bg-linear-to-br from-amber-300 via-fuchsia-500 to-cyan-400 bg-clip-text font-black text-transparent',
-          'drop-shadow-[0_0_10px_rgba(217,70,239,0.55)]',
+          login
+            ? 'bg-linear-to-b from-fuchsia-400 via-purple-500 to-violet-700 bg-clip-text font-black text-transparent drop-shadow-[0_0_12px_rgba(192,38,211,0.65)]'
+            : 'bg-linear-to-br from-amber-300 via-fuchsia-500 to-cyan-400 bg-clip-text font-black text-transparent drop-shadow-[0_0_10px_rgba(217,70,239,0.55)]',
           sm && 'text-[12px]',
           size === 'md' && 'text-[14px]',
-          size === 'lg' && 'text-[20px] drop-shadow-[0_0_14px_rgba(217,70,239,0.65)]',
-          size === 'xl' && 'text-[28px] drop-shadow-[0_0_18px_rgba(217,70,239,0.7)]',
+          size === 'lg' &&
+            (login
+              ? 'text-[20px] drop-shadow-[0_0_16px_rgba(192,38,211,0.75)]'
+              : 'text-[20px] drop-shadow-[0_0_14px_rgba(217,70,239,0.65)]'),
+          size === 'xl' &&
+            (login
+              ? 'text-[28px] drop-shadow-[0_0_20px_rgba(192,38,211,0.8)]'
+              : 'text-[28px] drop-shadow-[0_0_18px_rgba(217,70,239,0.7)]'),
         )}
       >
         Z
       </span>
       <span
         className={cn(
-          'bg-linear-to-b from-zinc-200 to-zinc-500 bg-clip-text font-semibold text-transparent',
+          login
+            ? 'font-semibold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]'
+            : 'bg-linear-to-b from-zinc-200 to-zinc-500 bg-clip-text font-semibold text-transparent',
           sm && '-translate-y-[0.5px] text-[8px]',
           size === 'md' && '-translate-y-px text-[9px]',
           size === 'lg' && '-translate-y-0.5 text-[11px]',
@@ -52,7 +65,15 @@ function UzaMark({ size = 'md' }: { size?: BrandSealSize }) {
 }
 
 /** Gradient halka + koyu iç yüzey — üst bar / kenar çubuğu / landing / giriş */
-export function BrandSeal({ className, size = 'md' }: { className?: string; size?: BrandSealSize }) {
+export function BrandSeal({
+  className,
+  size = 'md',
+  markVariant = 'default',
+}: {
+  className?: string;
+  size?: BrandSealSize;
+  markVariant?: BrandSealMarkVariant;
+}) {
   const sm = size === 'sm';
   const box =
     size === 'sm'
@@ -103,7 +124,7 @@ export function BrandSeal({ className, size = 'md' }: { className?: string; size
             }}
             aria-hidden
           />
-          <UzaMark size={size} />
+          <UzaMark size={size} variant={markVariant} />
         </span>
       </span>
     </span>

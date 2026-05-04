@@ -5,8 +5,6 @@ import * as XLSX from 'xlsx';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
-import { PDFParse } from 'pdf-parse';
-import { extractEokulTeacherScheduleFromPdf } from './eokul-teacher-pdf-layout';
 import { TeacherTimetable } from './entities/teacher-timetable.entity';
 import { TeacherPersonalProgram } from './entities/teacher-personal-program.entity';
 import { TeacherPersonalProgramEntry } from './entities/teacher-personal-program-entry.entity';
@@ -95,16 +93,6 @@ export class TeacherTimetableService {
     private readonly schoolRepo: Repository<School>,
     private readonly notificationsService: NotificationsService,
   ) {}
-
-  private normalizeTeacherRawName(raw: string): string {
-    let s = String(raw ?? '').replace(/\s+/g, ' ').trim();
-    if (!s) return '';
-    s = s.replace(/\s+\d{4}-\d{4}.*$/i, '').trim();
-    s = s.replace(/\s+I{1,3}\.?\s*D[ÖO]NEM.*$/i, '').trim();
-    s = s.replace(/\s*Bran[şs]?[ıi]?\s*:.*$/i, '').trim();
-    s = s.replace(/\s*Bran[şs]?[ıi]?.*$/i, '').trim();
-    return s;
-  }
 
   private async resolvePendingTeacherAssignments(schoolId: string): Promise<number> {
     const pending = await this.planEntryRepo
@@ -755,490 +743,6 @@ export class TeacherTimetableService {
     return out;
   }
 
-  private parseEokulCellToClassSubjects(val: string): Array<{ class_section: string; subject: string }> {
-    const s = String(val ?? '').replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim();
-    if (!s) return [];
-
-    const out: Array<{ class_section: string; subject: string }> = [];
-    const seen = new Set<string>();
-
-    const classRe = /(\d{1,2})\.\s*S[ıi]n[ıi]f\s*\/\s*([A-ZÇĞİÖŞÜ0-9]{1,6})\s*(?:Şubesi|Subesi|Şube|Sube)/gi;
-    const matches = Array.from(s.matchAll(classRe));
-
-    for (let i = 0; i < matches.length; i++) {
-      const m = matches[i];
-      const grade = String(m[1] ?? '').trim();
-      const section = String(m[2] ?? '').toUpperCase().trim();
-      if (!grade || !section) continue;
-
-      const start = i === 0 ? 0 : (matches[i - 1].index ?? 0) + String(matches[i - 1][0] ?? '').length;
-      const end = m.index ?? 0;
-      let subject = s.slice(start, end)
-        .replace(/<->\s*.+$/g, '')
-        .replace(/[-–—]\s*$/g, '')
-        .replace(/^,\s*/, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (!subject && i === 0) {
-        subject = s
-          .replace(/<->\s*.+$/g, '')
-          .replace(/[-–—]\s*$/g, '')
-          .replace(/^,\s*/, '')
-          .trim();
-      }
-      if (!subject) continue;
-
-      const key = `${grade}${section}|${subject}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({ class_section: `${grade}${section}`, subject });
-    }
-
-    if (out.length > 0) return out;
-
-    const legacy = /(.+?)\s*<->\s*.+?-\s*(\d{1,2})\.\s*S[ıi]n[ıi]f\s*\/\s*([A-ZÇĞİÖŞÜ0-9]{1,6})\s*(?:Şubesi|Subesi|Şube|Sube)/gi;
-    let lm: RegExpExecArray | null = null;
-    while ((lm = legacy.exec(s)) !== null) {
-      const subject = String(lm[1] ?? '').replace(/\s+/g, ' ').trim();
-      const grade = String(lm[2] ?? '').trim();
-      const section = String(lm[3] ?? '').toUpperCase().trim();
-      if (!subject || !grade || !section) continue;
-      const key = `${grade}${section}|${subject}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({ class_section: `${grade}${section}`, subject });
-    }
-    if (out.length > 0) return out;
-
-    // Son şans: metindeki ilk "<->" öncesini ders adı kabul et; tüm sınıf eşleşmelerine uygula.
-    const firstArrow = s.indexOf('<->');
-    const fallbackSubject = (firstArrow >= 0 ? s.slice(0, firstArrow) : s)
-      .replace(/[-–—]\s*$/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (!fallbackSubject) return out;
-    for (const m of matches) {
-      const grade = String(m[1] ?? '').trim();
-      const section = String(m[2] ?? '').toUpperCase().trim();
-      if (!grade || !section) continue;
-      const key = `${grade}${section}|${fallbackSubject}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({ class_section: `${grade}${section}`, subject: fallbackSubject });
-    }
-    return out;
-  }
-
-  /** Hücre metni tamamlandı mı (Şubesi satır kırığı, çoklu ders, vb.) */
-  private eokulCellBufferIncompleteTail(buffer: string): boolean {
-    const t = buffer.trim();
-    if (!t) return true;
-    if (!t.includes('<->')) return true;
-    if (/\d{1,2}\.\s*S[ıi]n[ıi]f\s*\/\s*$/i.test(t)) return true;
-    if (/<->\s*AMP\s*-\s*\d{1,2}\.\s*S[ıi]n[ıi]f\s*\/\s*$/i.test(t)) return true;
-    const lastComma = t.lastIndexOf(',');
-    if (lastComma >= 0) {
-      const after = t.slice(lastComma + 1).trim();
-      if (after.includes('<->') && !/(?:Şubesi|Şube|Subesi)\b/i.test(after)) return true;
-    }
-    if (this.parseEokulCellToClassSubjects(t).length === 0) return true;
-    return false;
-  }
-
-  /**
-   * Bir ders satırındaki (Pzt–Cuma) ham satırlardan 5 hücre üretir.
-   * PDF satır kırıklarında <-> veya "12. Sınıf /" + "A Şubesi" ayrı satırlarda olabilir.
-   */
-  private extractEokulLessonRowCells(rawLines: string[]): string[] {
-    const lines = rawLines.map((x) => String(x ?? '').replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim());
-    const cells: string[] = [];
-    let buf = '';
-
-    for (const line of lines) {
-      if (!line) {
-        if (!buf.trim() && cells.length < 5) cells.push('');
-        continue;
-      }
-
-      if (!buf.trim()) {
-        buf = line;
-        if (!this.eokulCellBufferIncompleteTail(buf)) {
-          cells.push(buf.trim());
-          buf = '';
-        }
-        continue;
-      }
-
-      if (this.eokulCellBufferIncompleteTail(buf)) {
-        buf = `${buf} ${line}`.replace(/\s+/g, ' ').trim();
-        if (!this.eokulCellBufferIncompleteTail(buf)) {
-          cells.push(buf.trim());
-          buf = '';
-        }
-        continue;
-      }
-
-      const hasArrow = line.includes('<->');
-      if (hasArrow && /^\s*,\s*.+/.test(line)) {
-        buf = `${buf} ${line}`.replace(/\s+/g, ' ').trim();
-        if (!this.eokulCellBufferIncompleteTail(buf)) {
-          cells.push(buf.trim());
-          buf = '';
-        }
-        continue;
-      }
-
-      if (hasArrow) {
-        cells.push(buf.trim());
-        buf = line;
-        if (!this.eokulCellBufferIncompleteTail(buf)) {
-          cells.push(buf.trim());
-          buf = '';
-        }
-        continue;
-      }
-
-      cells.push(buf.trim());
-      buf = line;
-      if (!this.eokulCellBufferIncompleteTail(buf)) {
-        cells.push(buf.trim());
-        buf = '';
-      }
-    }
-
-    if (buf.trim()) {
-      cells.push(buf.trim());
-    }
-
-    while (cells.length < 5) cells.push('');
-    if (cells.length > 5) {
-      for (let i = 5; i < cells.length; i++) {
-        cells[4] = `${cells[4] ?? ''} ${cells[i] ?? ''}`.replace(/\s+/g, ' ').trim();
-      }
-    }
-    return cells.slice(0, 5);
-  }
-
-  /**
-   * PDF bazen boş sütun için hiç satır vermez → 4 satır kalır ve günler sola kayar (Salı → Pazartesi).
-   * Açık boş satır yoksa ve tam 4 satır varsa başa bir eksik Pzt sütunu eklenir (e-Okul tablosu Pzt–Cu).
-   */
-  private normalizeEokulLessonAccColumnPad(lessonAcc: string[]): string[] {
-    const acc = lessonAcc.slice();
-    const hasExplicitBlank = acc.some((l) => !String(l ?? '').trim());
-    if (hasExplicitBlank) return acc;
-    const nonempty = acc.filter((l) => String(l ?? '').trim());
-    if (nonempty.length === 4) acc.unshift('');
-    return acc;
-  }
-
-  /** Dikey birleşik hücre: sonraki ders saatinde boş görünen sütun bir önceki saatin devamı olabilir. */
-  private applyEokulMergedColumnCarry(prev: string[] | null, curr: string[]): string[] {
-    const out = curr.slice(0, 5);
-    while (out.length < 5) out.push('');
-    if (!prev || prev.length === 0) return out;
-    for (let i = 0; i < 5; i++) {
-      if ((out[i] ?? '').trim()) continue;
-      const p = (prev[i] ?? '').trim();
-      if (p) out[i] = prev[i] ?? '';
-    }
-    return out;
-  }
-
-  private async parseEokulPdfToEntries(schoolId: string, filePath: string): Promise<{ entries: TimetableEntry[]; errors: string[] }> {
-    const buf = fs.readFileSync(filePath);
-    const plain = await this.parseEokulPdfFromPlainTextBuffer(schoolId, buf);
-    if (plain.entries.length > 0) {
-      return plain;
-    }
-    try {
-      const layoutPages = await extractEokulTeacherScheduleFromPdf(buf);
-      if (layoutPages.length > 0 && layoutPages.some((p) => p.lessons.length > 0)) {
-        return await this.buildTimetableFromEokulLayout(schoolId, layoutPages);
-      }
-    } catch {
-      /* yok */
-    }
-    return plain;
-  }
-
-  private async buildTimetableFromEokulLayout(
-    schoolId: string,
-    pages: import('./eokul-teacher-pdf-layout').EokulLayoutTeacherPage[],
-  ): Promise<{ entries: TimetableEntry[]; errors: string[] }> {
-    const errors: string[] = [];
-    const toInsert: TimetableEntry[] = [];
-    const teacherCache = new Map<string, string | null>();
-    const dedupe = new Set<string>();
-
-    const seenTeachers = new Set<string>();
-    const matchedTeachers = new Set<string>();
-    let lessonBlocks = 0;
-    let lessonBlocksWithData = 0;
-    let unparsableCellCount = 0;
-    let prevLessonCellsRaw: string[] | null = null;
-    let lastEokulTeacherName: string | null = null;
-
-    for (const pg of pages) {
-      const rawName = this.normalizeTeacherRawName(pg.teacherNameRaw);
-      if (!rawName) continue;
-      if (rawName !== lastEokulTeacherName) {
-        prevLessonCellsRaw = null;
-      }
-      lastEokulTeacherName = rawName;
-      seenTeachers.add(rawName);
-
-      if (!teacherCache.has(rawName)) {
-        teacherCache.set(rawName, await this.matchTeacher(schoolId, rawName));
-      }
-      const currentTeacherId = teacherCache.get(rawName) ?? null;
-      if (!currentTeacherId) {
-        errors.push(`Öğretmen eşleşmedi (${rawName})`);
-      } else {
-        matchedTeachers.add(rawName);
-      }
-
-      for (const row of pg.lessons) {
-        lessonBlocks++;
-        let cells = this.applyEokulMergedColumnCarry(prevLessonCellsRaw, row.cells);
-        prevLessonCellsRaw = cells.slice();
-        let hasAnyParsed = false;
-        for (let i = 0; i < Math.min(cells.length, 5); i++) {
-          const day = i + 1;
-          const parsed = this.parseEokulCellToClassSubjects(cells[i] ?? '');
-          if ((cells[i] ?? '').includes('<->') && parsed.length === 0) {
-            unparsableCellCount++;
-          }
-          for (const p of parsed) {
-            const teacherKey = currentTeacherId ?? `raw:${rawName}`;
-            const key = `${teacherKey}|${day}|${row.lessonNum}|${p.class_section}|${p.subject}`;
-            if (dedupe.has(key)) continue;
-            dedupe.add(key);
-            hasAnyParsed = true;
-            toInsert.push({
-              day_of_week: day,
-              lesson_num: row.lessonNum,
-              user_id: currentTeacherId ?? null,
-              class_section: p.class_section,
-              subject: p.subject,
-              teacher_name_raw: currentTeacherId ? null : rawName,
-            });
-          }
-        }
-        if (hasAnyParsed) lessonBlocksWithData++;
-      }
-    }
-
-    if (seenTeachers.size === 0) {
-      errors.push('PDF içinde öğretmen blokları bulunamadı.');
-    } else {
-      errors.push(
-        `PDF (konum): ${seenTeachers.size} öğretmen, ${matchedTeachers.size} eşleşen öğretmen, ${lessonBlocks} ders satırı, ${lessonBlocksWithData} dolu satır.`,
-      );
-    }
-    if (unparsableCellCount > 0) {
-      errors.push(`Çözümlenemeyen ${unparsableCellCount} hücre bulundu (konum çıkarımı).`);
-    }
-    return { entries: toInsert, errors };
-  }
-
-  private async parseEokulPdfFromPlainTextBuffer(schoolId: string, buf: Buffer): Promise<{ entries: TimetableEntry[]; errors: string[] }> {
-    const parser = new PDFParse({ data: buf }) as unknown as {
-      getText?: () => Promise<{ text?: string } | string>;
-      parse?: () => Promise<{ text?: string } | string>;
-      destroy?: () => Promise<void> | void;
-    };
-    let text = '';
-    try {
-      if (typeof parser.getText === 'function') {
-        const parsed = await parser.getText();
-        text = typeof parsed === 'string' ? parsed : (parsed?.text ?? '');
-      } else if (typeof parser.parse === 'function') {
-        const parsed = await parser.parse();
-        text = typeof parsed === 'string' ? parsed : (parsed?.text ?? '');
-      } else {
-        throw new BadRequestException({
-          code: 'INVALID_FILE',
-          message: 'PDF dosyası okunamadı. Farklı bir e-Okul çıktısı deneyin.',
-        });
-      }
-    } catch (error) {
-      if (error instanceof BadRequestException) throw error;
-      throw new BadRequestException({
-        code: 'INVALID_FILE',
-        message: 'PDF dosyası çözümlenemedi. Dosya bozuk veya format desteklenmiyor olabilir.',
-      });
-    } finally {
-      if (typeof parser.destroy === 'function') {
-        await Promise.resolve(parser.destroy()).catch(() => undefined);
-      }
-    }
-
-    const errors: string[] = [];
-    const toInsert: TimetableEntry[] = [];
-    const teacherCache = new Map<string, string | null>();
-    const dedupe = new Set<string>();
-
-    const seenTeachers = new Set<string>();
-    const matchedTeachers = new Set<string>();
-    let lessonBlocks = 0;
-    let lessonBlocksWithData = 0;
-    let unparsableCellCount = 0;
-    const normalizedText = text
-      .replace(/\r\n/g, '\n')
-      .replace(/\n?\s*--\s*\d+\s+of\s+\d+\s*--\s*\n?/gi, '\f');
-    const pageBlocks = normalizedText
-      .split(/\f+|(?=\n\s*Öğretmen\s+Ad[ıi]\s+Soyad[ıi]\s*:)/i)
-      .map((p) => p.trim())
-      .filter(Boolean);
-
-    let prevLessonCellsRaw: string[] | null = null;
-    let lastEokulTeacherName: string | null = null;
-    let currentTeacherRaw: string | null = null;
-    let currentTeacherId: string | null = null;
-    let currentLesson: number | null = null;
-    let lessonAcc: string[] = [];
-
-    for (const page of pageBlocks) {
-      const lines = page.split(/\n/).map((x) => x.replace(/\s+/g, ' ').trim());
-
-      const flushLessonAccumulator = () => {
-        if (!currentTeacherRaw || currentLesson == null || lessonAcc.length === 0) {
-          lessonAcc = [];
-          return;
-        }
-        lessonBlocks++;
-        const padded = this.normalizeEokulLessonAccColumnPad(lessonAcc);
-        lessonAcc = [];
-        let cells: string[];
-        if (
-          padded.length === 5 &&
-          padded.every((l) => !String(l ?? '').trim() || String(l ?? '').includes('<->'))
-        ) {
-          cells = padded.map((l) => String(l ?? '').trim());
-        } else {
-          cells = this.extractEokulLessonRowCells(padded);
-        }
-        cells = this.applyEokulMergedColumnCarry(prevLessonCellsRaw, cells);
-        prevLessonCellsRaw = cells.slice();
-        let hasAnyParsed = false;
-        for (let i = 0; i < Math.min(cells.length, 5); i++) {
-          const day = i + 1;
-          const parsed = this.parseEokulCellToClassSubjects(cells[i] ?? '');
-          if ((cells[i] ?? '').includes('<->') && parsed.length === 0) {
-            unparsableCellCount++;
-          }
-          for (const p of parsed) {
-            const teacherKey = currentTeacherId ?? `raw:${currentTeacherRaw}`;
-            const key = `${teacherKey}|${day}|${currentLesson}|${p.class_section}|${p.subject}`;
-            if (dedupe.has(key)) continue;
-            dedupe.add(key);
-            hasAnyParsed = true;
-            toInsert.push({
-              day_of_week: day,
-              lesson_num: currentLesson,
-              user_id: currentTeacherId ?? null,
-              class_section: p.class_section,
-              subject: p.subject,
-              teacher_name_raw: currentTeacherId ? null : currentTeacherRaw,
-            });
-          }
-        }
-        if (hasAnyParsed) lessonBlocksWithData++;
-      };
-
-      const flushCurrentLesson = () => {
-        flushLessonAccumulator();
-        currentLesson = null;
-      };
-
-      for (const line of lines) {
-        if (!line) {
-          if (currentLesson != null) lessonAcc.push('');
-          continue;
-        }
-        if (/^Varsa Öğretmenin Seçmeli Dersleri:/i.test(line)) {
-          flushCurrentLesson();
-          prevLessonCellsRaw = null;
-          lastEokulTeacherName = null;
-          continue;
-        }
-        if (/\(\s*\d+\s*Saat\s*\)/i.test(line)) {
-          continue;
-        }
-        if (/^OKUL\s+MÜDÜRÜ/i.test(line) || /^MÜDÜR(\s+YARDIMCISI)?\s*$/i.test(line)) {
-          flushCurrentLesson();
-          prevLessonCellsRaw = null;
-          lastEokulTeacherName = null;
-          continue;
-        }
-        if (/^\d{1,2}:\d{1,2}:\d{1,2}$/.test(line) || /^(\d{1,2})\s*\/\s*(\d{1,2})\/(\d{4})$/.test(line)) {
-          continue;
-        }
-        const teacherMatch = line.match(/^Öğretmen\s+Ad[ıi]\s+Soyad[ıi]\s*:\s*(.+?)(?=\s+Bran[şs]?[ıi]?\s*:|\s+\d{4}-\d{4}|$)/i);
-        if (teacherMatch) {
-          flushCurrentLesson();
-          const nextTeacherName = this.normalizeTeacherRawName(String(teacherMatch[1] ?? '').trim());
-          if (nextTeacherName !== lastEokulTeacherName) {
-            prevLessonCellsRaw = null;
-          }
-          lastEokulTeacherName = nextTeacherName || null;
-          currentTeacherRaw = nextTeacherName;
-          if (currentTeacherRaw) seenTeachers.add(currentTeacherRaw);
-          if (!teacherCache.has(currentTeacherRaw)) {
-            teacherCache.set(currentTeacherRaw, await this.matchTeacher(schoolId, currentTeacherRaw));
-          }
-          currentTeacherId = teacherCache.get(currentTeacherRaw) ?? null;
-          if (!currentTeacherId) {
-            errors.push(`Öğretmen eşleşmedi (${currentTeacherRaw})`);
-          } else {
-            matchedTeachers.add(currentTeacherRaw);
-          }
-          continue;
-        }
-        if (!currentTeacherRaw) continue;
-        if (/^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$/.test(line)) continue;
-        const lessonMatch = line.match(/(?:^|\s)(\d{1,2})\.\s*DERS(?:\b|$)/i);
-        if (lessonMatch) {
-          flushLessonAccumulator();
-          const lessonNum = parseInt(lessonMatch[1] ?? '', 10);
-          currentLesson = Number.isFinite(lessonNum) && lessonNum >= 1 && lessonNum <= 12 ? lessonNum : null;
-          if (currentLesson == null) {
-            errors.push(`Öğretmen ${currentTeacherRaw ?? '-'}: geçersiz ders numarası (${lessonMatch[1]}).`);
-          }
-          const lessonToken = lessonMatch[0] ?? '';
-          const rest = line.replace(lessonToken, '').trim();
-          lessonAcc = [];
-          if (rest) lessonAcc.push(rest);
-          continue;
-        }
-        if (currentLesson == null) continue;
-        lessonAcc.push(line);
-      }
-      flushCurrentLesson();
-    }
-    if (seenTeachers.size === 0) {
-      errors.push('PDF içinde öğretmen blokları bulunamadı.');
-    } else {
-      errors.push(
-        `PDF analizi: ${seenTeachers.size} öğretmen, ${matchedTeachers.size} eşleşen öğretmen, ${lessonBlocks} ders bloğu, ${lessonBlocksWithData} ders bloğu aktarıldı.`,
-      );
-    }
-    if (unparsableCellCount > 0) {
-      errors.push(`Çözümlenemeyen ${unparsableCellCount} hücre bulundu. Satır düzenini kontrol edin.`);
-    }
-    return { entries: toInsert, errors };
-  }
-
-  /**
-   * Geniş format sütun adını parse et.
-   * Desteklenen formatlar:
-   *   Pazartesi_ders3  Pazartesi_3  Pzt-3  Pzt 3  Pazartesi 3
-   *   Sali_ders2  Sali_2  Sal-2  Sal 2  Salı_ders2
-   *   Carsamba_ders1  Çarşamba_ders1  Car-1
-   *   Persembe_ders4  Perşembe_ders4  Per-4
-   *   Cuma_ders5  Cum-5
-   */
   private parseWideColumnName(h: string): { day: number; lesson: number } | null {
     const norm = h.toLowerCase()
       .replace(/ı/g, 'i').replace(/ş/g, 's').replace(/ç/g, 'c')
@@ -1273,114 +777,90 @@ export class TeacherTimetableService {
     const errors: string[] = [];
     const toInsert: TimetableEntry[] = [];
 
-    if (ext === '.pdf') {
-      const parsed = await this.parseEokulPdfToEntries(schoolId, filePath);
-      toInsert.push(...parsed.entries);
-      errors.push(...parsed.errors);
-    } else {
-      const wb = XLSX.readFile(filePath, { cellDates: false });
-      const sheetName =
-        wb.SheetNames.find((s) => /ders.?program/i.test(s)) ??
-        wb.SheetNames.find((s) => !/k[iı]lavuz/i.test(s)) ??
-        wb.SheetNames[0];
-      const sheet = wb.Sheets[sheetName];
-      if (!sheet) throw new BadRequestException({ code: 'INVALID_FILE', message: 'Excel dosyası boş.' });
+    if (ext !== '.xlsx' && ext !== '.xls') {
+      throw new BadRequestException({
+        code: 'INVALID_FILE_TYPE',
+        message: 'Yalnızca Excel (.xlsx, .xls) yükleyin.',
+      });
+    }
 
-      const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as unknown[][];
-      if (json.length < 2) throw new BadRequestException({ code: 'INVALID_FILE', message: 'En az başlık ve bir veri satırı gerekli.' });
+    const wb = XLSX.readFile(filePath, { cellDates: false });
+    const sheetIdx = wb.SheetNames.findIndex((s) => String(s).trim().toLowerCase() === 'dersprogram');
+    if (sheetIdx < 0) {
+      throw new BadRequestException({
+        code: 'INVALID_SHEET',
+        message: 'Yalnızca şablondaki "DersProgram" sayfası kabul edilir. Örnek Excel indirip o sayfayı doldurun.',
+      });
+    }
+    const sheet = wb.Sheets[wb.SheetNames[sheetIdx]!];
+    if (!sheet) throw new BadRequestException({ code: 'INVALID_FILE', message: 'DersProgram sayfası boş.' });
 
-      let headerRowIdx = 0;
-      for (let i = 0; i < json.length; i++) {
-        const firstCell = String((json[i] as unknown[])[0] ?? '').trim();
-        if (!firstCell.startsWith('#') && firstCell !== '') {
-          headerRowIdx = i;
-          break;
-        }
+    const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as unknown[][];
+    if (json.length < 2) {
+      throw new BadRequestException({ code: 'INVALID_FILE', message: 'DersProgram sayfasında en az iki satır olmalı.' });
+    }
+
+    let headerRowIdx = -1;
+    let wideCols: { colIndex: number; day: number; lesson: number }[] = [];
+    let teacherCol = -1;
+
+    for (let i = 0; i < json.length; i++) {
+      const row = (json[i] as unknown[]).map((c) => String(c ?? '').trim());
+      const headerLower = row.map((c) => c.toLowerCase().replace(/\s+/g, ' '));
+      const wc: { colIndex: number; day: number; lesson: number }[] = [];
+      let tc = -1;
+      for (let j = 0; j < row.length; j++) {
+        const parsed = this.parseWideColumnName(row[j]);
+        if (parsed) wc.push({ colIndex: j, day: parsed.day, lesson: parsed.lesson });
+        if (/^ad_?soyad$|^ad soyad$|^öğretmen$|^ogretmen$|^teacher$|^isim$|^ad$/.test(headerLower[j] ?? '')) tc = j;
       }
-
-      const headerRow = (json[headerRowIdx] as unknown[]).map((c) => String(c ?? '').trim());
-      const headerLower = headerRow.map((c) => c.toLowerCase());
-
-      const wideCols: { colIndex: number; day: number; lesson: number }[] = [];
-      let teacherCol = -1;
-      for (let i = 0; i < headerRow.length; i++) {
-        const h = headerRow[i];
-        const parsed = this.parseWideColumnName(h);
-        if (parsed) wideCols.push({ colIndex: i, day: parsed.day, lesson: parsed.lesson });
-        if (/ad_soyad|ad soyad|adsoyad|öğretmen|ogretmen|teacher|isim|^ad$/.test(headerLower[i])) teacherCol = i;
+      const byDay = new Map<number, Set<number>>();
+      for (const w of wc) {
+        if (!byDay.has(w.day)) byDay.set(w.day, new Set());
+        byDay.get(w.day)!.add(w.lesson);
       }
+      if (tc < 0 || byDay.size < 5) continue;
+      const counts = [...byDay.values()].map((s) => s.size);
+      const maxL = Math.max(...counts);
+      const minL = Math.min(...counts);
+      if (maxL !== minL || maxL < 1) continue;
+      headerRowIdx = i;
+      wideCols = wc;
+      teacherCol = tc;
+      break;
+    }
 
-      if (wideCols.length > 0 && teacherCol >= 0) {
-        for (let rowIdx = headerRowIdx + 1; rowIdx < json.length; rowIdx++) {
-          const row = json[rowIdx] as unknown[];
-          const teacherRaw = row[teacherCol];
-          const teacherStr = String(teacherRaw ?? '').trim();
-          if (!teacherStr) continue;
+    if (headerRowIdx < 0 || teacherCol < 0 || wideCols.length === 0) {
+      throw new BadRequestException({
+        code: 'INVALID_FORMAT',
+        message:
+          'Şablon başlığı geçersiz. "DersProgram" sayfasında Ad_Soyad (veya Ad Soyad) ve her gün için aynı sayıda Pazartesi_ders1 … Cuma_dersN sütunları olmalı (örnek Excel ile aynı yapı).',
+      });
+    }
 
-          const userId = await this.matchTeacher(schoolId, teacherStr);
-          if (!userId) errors.push(`Satır ${rowIdx + 1}: Öğretmen eşleşmedi (${teacherStr}) - sonradan otomatik eşleşecek.`);
+    const dedupe = new Set<string>();
+    for (let rowIdx = headerRowIdx + 1; rowIdx < json.length; rowIdx++) {
+      const row = json[rowIdx] as unknown[];
+      const teacherStr = String(row[teacherCol] ?? '').trim();
+      if (!teacherStr) continue;
 
-          for (const { colIndex, day, lesson } of wideCols) {
-            const cellVal = row[colIndex];
-            const parsedList = this.parseCellToClassSubject(cellVal);
-            for (const parsed of parsedList) {
-              toInsert.push({
-                day_of_week: day,
-                lesson_num: lesson,
-                user_id: userId ?? null,
-                class_section: parsed.class_section,
-                subject: parsed.subject,
-                teacher_name_raw: userId ? null : teacherStr,
-              });
-            }
-          }
-        }
-      } else {
-        const colMap: Record<string, number> = {};
-        const aliases: [string[], string][] = [
-          [['gün', 'gun', 'day'], 'day'],
-          [['saat', 'ders', 'lesson', 'ders no', 'dersno'], 'lesson'],
-          [['öğretmen', 'ogretmen', 'teacher', 'email', 'ad', 'isim'], 'teacher'],
-          [['sınıf', 'sinif', 'class', 'sube'], 'class'],
-          [['ders adı', 'ders adi', 'dersadı', 'dersadi', 'subject', 'branş', 'brans'], 'subject'],
-        ];
-        for (let i = 0; i < headerLower.length; i++) {
-          const h = headerLower[i];
-          for (const [keys, field] of aliases) {
-            if (keys.some((k) => h.includes(k))) colMap[field] = i;
-          }
-        }
+      const userId = await this.matchTeacher(schoolId, teacherStr);
+      if (!userId) errors.push(`Satır ${rowIdx + 1}: Öğretmen eşleşmedi (${teacherStr})`);
 
-        if (!colMap.teacher || !colMap.class || !colMap.subject) {
-          throw new BadRequestException({
-            code: 'INVALID_FORMAT',
-            message: 'Excel\'de Öğretmen (veya Ad_Soyad), Sınıf ve Ders sütunları veya wide format (Pazartesi_ders1 vb.) bulunmalı.',
-          });
-        }
-
-        for (let rowIdx = headerRowIdx + 1; rowIdx < json.length; rowIdx++) {
-          const row = json[rowIdx] as unknown[];
-          const teacherRaw = row[colMap.teacher];
-          const classSection = String(row[colMap.class] ?? '').trim();
-          const subject = String(row[colMap.subject] ?? '').trim();
-          if (!classSection || !subject) continue;
-
-          const day = colMap.day != null ? this.parseDay(row[colMap.day]) : 1;
-          const lesson = colMap.lesson != null ? this.parseLessonNum(row[colMap.lesson]) : 1;
-          if (day == null || lesson == null) {
-            errors.push(`Satır ${rowIdx + 1}: Geçersiz gün/saat`);
-            continue;
-          }
-
-          const userId = await this.matchTeacher(schoolId, String(teacherRaw ?? ''));
-          if (!userId) errors.push(`Satır ${rowIdx + 1}: Öğretmen eşleşmedi (${teacherRaw}) - sonradan otomatik eşleşecek.`);
+      for (const { colIndex, day, lesson } of wideCols) {
+        const cellVal = row[colIndex];
+        const parsedList = this.parseCellToClassSubject(cellVal);
+        for (const parsed of parsedList) {
+          const key = `${userId ?? teacherStr}|${day}|${lesson}|${parsed.class_section}|${parsed.subject}`;
+          if (dedupe.has(key)) continue;
+          dedupe.add(key);
           toInsert.push({
             day_of_week: day,
             lesson_num: lesson,
             user_id: userId ?? null,
-            class_section: classSection,
-            subject,
-            teacher_name_raw: userId ? null : String(teacherRaw ?? '').trim() || null,
+            class_section: parsed.class_section,
+            subject: parsed.subject,
+            teacher_name_raw: userId ? null : teacherStr,
           });
         }
       }
@@ -1667,6 +1147,7 @@ export class TeacherTimetableService {
     return { success: true };
   }
 
+  /** Taslak planda aynı teacher_name_raw etiketli tüm girdilere öğretmen ata (e-Okul blokları). */
   /** Yayınlanmış planın geçerlilik tarihlerini günceller. valid_until null = açık uçlu. */
   async updatePlanDates(
     planId: string,

@@ -4,7 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3';
 import { AppConfig } from './entities/app-config.entity';
-import { DEFAULT_LEGAL_PAGES } from './legal-pages.defaults';
+import { DEFAULT_LEGAL_PAGES, LEGAL_PAGE_DEFAULTS_GENERATION } from './legal-pages.defaults';
 import { DEFAULT_WEB_EXTRAS } from './web-extras.defaults';
 import { DEFAULT_GDPR } from './gdpr.defaults';
 import { CAPTCHA_PROVIDERS, DEFAULT_CAPTCHA, type CaptchaProvider } from './captcha.defaults';
@@ -197,6 +197,8 @@ export type LegalPageContent = {
   meta_description: string;
   body_html: string;
   updated_at: string | null;
+  /** `LEGAL_PAGE_DEFAULTS_GENERATION` ile eşleşmezse kod varsayılanı kullanılır (yalnız ilgili anahtarlar). */
+  defaults_generation?: number;
 };
 
 export type LegalPagesConfig = {
@@ -691,14 +693,26 @@ function mergeLegalPagesFromStored(
   stored: Partial<Record<LegalPageKey, Partial<LegalPageContent>>> | null,
 ): LegalPagesConfig {
   const out = {} as LegalPagesConfig;
+  const rev = LEGAL_PAGE_DEFAULTS_GENERATION as Partial<Record<LegalPageKey, number>>;
   for (const k of LEGAL_PAGE_KEYS) {
     const d = DEFAULT_LEGAL_PAGES[k];
     const s = stored?.[k];
+    const requiredGen = rev[k];
+    if (requiredGen !== undefined && s?.defaults_generation !== requiredGen) {
+      out[k] = {
+        title: d.title,
+        meta_description: d.meta_description,
+        body_html: d.body_html,
+        updated_at: null,
+      };
+      continue;
+    }
     out[k] = {
       title: s?.title?.trim() || d.title,
       meta_description: s?.meta_description?.trim() || d.meta_description,
       body_html: s?.body_html?.trim() || d.body_html,
       updated_at: typeof s?.updated_at === 'string' ? s.updated_at : null,
+      ...(typeof s?.defaults_generation === 'number' ? { defaults_generation: s.defaults_generation } : {}),
     };
   }
   return out;
@@ -774,7 +788,7 @@ function normalizeExamDutySyncScheduleTimes(raw: unknown): string[] {
 const DEFAULT_EXAM_DUTY_SYNC_OPTIONS: ExamDutySyncOptions = {
   skip_past_exam_date: false,
   recheck_max_count: 1,
-  fetch_timeout_ms: 30000,
+  fetch_timeout_ms: 45000,
   log_gpt_usage: false,
   add_draft_without_dates: true,
   max_new_per_sync: 1,
@@ -1308,6 +1322,8 @@ export class AppConfigService {
       if (patch.meta_description !== undefined) merged[key].meta_description = patch.meta_description?.trim() ?? '';
       if (patch.body_html !== undefined) merged[key].body_html = sanitizeLegalHtml(patch.body_html ?? '');
       merged[key].updated_at = now;
+      const gen = (LEGAL_PAGE_DEFAULTS_GENERATION as Partial<Record<LegalPageKey, number>>)[key];
+      if (gen !== undefined) merged[key].defaults_generation = gen;
     }
     await this.setValue(this.legalPagesConfigKey, JSON.stringify(merged));
   }
@@ -1891,7 +1907,7 @@ export class AppConfigService {
       return {
         skip_past_exam_date: parsed.skip_past_exam_date === true,
         recheck_max_count: Math.max(1, Math.min(10, Number(parsed.recheck_max_count) || 1)),
-        fetch_timeout_ms: Math.max(5000, Math.min(60000, Number(parsed.fetch_timeout_ms) || 30000)),
+        fetch_timeout_ms: Math.max(5000, Math.min(120000, Number(parsed.fetch_timeout_ms) || 45000)),
         log_gpt_usage: parsed.log_gpt_usage === true,
         add_draft_without_dates: parsed.add_draft_without_dates === true,
         max_new_per_sync: maxNew < 0 ? 0 : Math.min(500, maxNew || 0),
@@ -1964,7 +1980,7 @@ export class AppConfigService {
       const next: ExamDutySyncOptions = {
         skip_past_exam_date: dto.sync_options.skip_past_exam_date ?? current.skip_past_exam_date,
         recheck_max_count: Math.max(1, Math.min(10, dto.sync_options.recheck_max_count ?? current.recheck_max_count)),
-        fetch_timeout_ms: Math.max(5000, Math.min(60000, dto.sync_options.fetch_timeout_ms ?? current.fetch_timeout_ms)),
+        fetch_timeout_ms: Math.max(5000, Math.min(120000, dto.sync_options.fetch_timeout_ms ?? current.fetch_timeout_ms)),
         log_gpt_usage: dto.sync_options.log_gpt_usage ?? current.log_gpt_usage,
         add_draft_without_dates: dto.sync_options.add_draft_without_dates ?? current.add_draft_without_dates,
         max_new_per_sync: maxNew < 0 ? 0 : Math.min(500, maxNew),

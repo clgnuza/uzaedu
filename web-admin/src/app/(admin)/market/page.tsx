@@ -3908,9 +3908,9 @@ export default function MarketPage() {
                 </div>
               ) : (
                 <ul className="grid gap-3 sm:grid-cols-2">
-                  {entitlements.map((e) => (
+                  {entitlements.map((e, idx) => (
                     <li
-                      key={e.entitlementType}
+                      key={idx}
                       className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card px-4 py-3"
                     >
                       <div className="flex min-w-0 items-center gap-3">

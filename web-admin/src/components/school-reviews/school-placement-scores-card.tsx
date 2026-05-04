@@ -419,17 +419,31 @@ function yerelScoresByYear(tr: ReviewPlacementTrackClient): Map<number, number> 
   return m;
 }
 
-/** `chart:` sentetik iz, aynı yerel puanlara sahip skor iziyle aynıysa tablodan atılır (sınavlı+sınavsız). */
+function merkeziScoresByYear(tr: ReviewPlacementTrackClient): Map<number, number> {
+  const m = new Map<number, number>();
+  for (const y of tr.years ?? []) {
+    if (y.with_exam != null && Number.isFinite(Number(y.with_exam))) m.set(y.year, Number(y.with_exam));
+  }
+  return m;
+}
+
+function tbsScoresByYear(tr: ReviewPlacementTrackClient): Map<number, number> {
+  const m = new Map<number, number>();
+  for (const y of tr.years ?? []) {
+    if (y.tbs != null && Number.isFinite(Number(y.tbs))) m.set(y.year, Number(y.tbs));
+  }
+  return m;
+}
+
+/** `chart:` sentetik iz, skor iziyle aynı yerel / merkezî (LGS) / TBS yıl puanlarına sahipse tablodan atılır. */
 function removeRedundantSyntheticYerelTracks(bundle: ReviewPlacementBundleV3 | null): ReviewPlacementBundleV3 | null {
   if (!bundle?.tracks?.length) return bundle;
   const remove = new Set<string>();
   const synthetics = bundle.tracks.filter((t) => String(t.id).startsWith('chart:'));
   const rows = bundle.tracks.filter((t) => !String(t.id).startsWith('chart:'));
-  for (const st of synthetics) {
-    const sig = yerelScoresByYear(st);
-    if (!sig.size) continue;
+  const tryRemoveBySig = (sig: Map<number, number>, getMap: (tr: ReviewPlacementTrackClient) => Map<number, number>) => {
     for (const rt of rows) {
-      const rmap = yerelScoresByYear(rt);
+      const rmap = getMap(rt);
       let ok = true;
       for (const [y, v] of sig) {
         if (rmap.get(y) !== v) {
@@ -437,11 +451,23 @@ function removeRedundantSyntheticYerelTracks(bundle: ReviewPlacementBundleV3 | n
           break;
         }
       }
-      if (ok) {
-        remove.add(st.id);
-        break;
-      }
+      if (ok) return true;
     }
+    return false;
+  };
+  for (const st of synthetics) {
+    const yerelSig = yerelScoresByYear(st);
+    if (yerelSig.size && tryRemoveBySig(yerelSig, yerelScoresByYear)) {
+      remove.add(st.id);
+      continue;
+    }
+    const merkeziSig = merkeziScoresByYear(st);
+    if (merkeziSig.size && tryRemoveBySig(merkeziSig, merkeziScoresByYear)) {
+      remove.add(st.id);
+      continue;
+    }
+    const tbsSig = tbsScoresByYear(st);
+    if (tbsSig.size && tryRemoveBySig(tbsSig, tbsScoresByYear)) remove.add(st.id);
   }
   if (!remove.size) return bundle;
   return { v: 3, tracks: bundle.tracks.filter((t) => !remove.has(t.id)) };

@@ -19,6 +19,7 @@ import { ACADEMIC_CALENDAR_TYPE_EXTRAS_2025_2026 } from '../academic-calendar/ac
 import { UserRole, UserStatus } from '../types/enums';
 import { SchoolStatus, SchoolType, SchoolSegment } from '../types/enums';
 import { DEMO_CREDENTIALS } from './demo-credentials';
+import { DEMO_SCHOOL_DISPLAY_NAME, DEMO_SCHOOL_NAMES_FOR_QUERY } from './demo-school.constants';
 
 /** Defterdoldur tarzı akademik takvim yapısı (site_map_item seed). */
 const AKADEMIK_TAKVIM_SEED: Array<{ title: string; path: string | null; description: string | null; sortOrder: number; children?: Array<{ title: string; path: string | null; description: string | null; sortOrder: number }> }> = [
@@ -159,7 +160,7 @@ export class SeedService {
     });
     if (byCode) return byCode;
     return this.schoolRepo.findOne({
-      where: { name: 'Demo Okulu' },
+      where: { name: In([...DEMO_SCHOOL_NAMES_FOR_QUERY]) },
       order: { created_at: 'ASC' },
     });
   }
@@ -167,7 +168,7 @@ export class SeedService {
   /** Aynı adda ikinci Demo okulu; kullanıcısı yoksa sil (FK engellerse atlanır). */
   private async removeEmptyDuplicateDemoSchools(canonicalId: string): Promise<void> {
     const rows = await this.schoolRepo.find({
-      where: { name: 'Demo Okulu' },
+      where: { name: In([...DEMO_SCHOOL_NAMES_FOR_QUERY]) },
       order: { created_at: 'ASC' },
     });
     for (const row of rows) {
@@ -176,9 +177,9 @@ export class SeedService {
       if (n > 0) continue;
       try {
         await this.schoolRepo.remove(row);
-        this.logger.log(`Yinelenen boş Demo okulu silindi: ${row.id}`);
+        this.logger.log(`Yinelenen boş demo okul silindi: ${row.id}`);
       } catch (e) {
-        this.logger.warn(`Boş Demo okulu silinemedi (${row.id}): ${e instanceof Error ? e.message : String(e)}`);
+        this.logger.warn(`Boş demo okul silinemedi (${row.id}): ${e instanceof Error ? e.message : String(e)}`);
       }
     }
   }
@@ -207,23 +208,23 @@ export class SeedService {
       }
       let school = await this.resolveCanonicalDemoSchool();
       const demoSchoolData = {
-        name: 'Demo Okulu',
+        name: DEMO_SCHOOL_DISPLAY_NAME,
         type: SchoolType.lise,
         segment: SchoolSegment.devlet,
         city: 'Ankara',
         district: 'Çankaya',
         status: SchoolStatus.aktif,
         teacher_limit: 100,
-        website_url: 'https://demookulu.meb.k12.tr',
+        website_url: 'https://demo.example.edu',
         phone: '0312 555 00 00',
         fax: '0312 555 11 22',
         institutionCode: '123456',
-        institutionalEmail: 'info@demookulu.meb.k12.tr',
-        address: 'Kızılay Mah. Atatürk Bulvarı No:1 Çankaya/ANKARA',
-        mapUrl: 'https://www.google.com/maps/place/Ankara',
+        institutionalEmail: 'bilgi@demo.example.edu',
+        address: 'Demo Mah. Örnek Cad. No:1 Çankaya / Ankara',
+        mapUrl: 'https://www.openstreetmap.org/',
         schoolImageUrl: 'https://picsum.photos/400/201',
         about_description:
-          'Demo Okulu test verileriyle doldurulmuştur. Atatürk ilke ve inkılâplarına bağlı, geleceğe yön veren örnek bir eğitim kurumudur.',
+          'Yerel geliştirme için örnek okul kaydıdır; gerçek kurum veya kişi adı içermez.',
         principalName: 'Demo Müdür',
         enabled_modules: ['butterfly_exam', 'sorumluluk_sinav', 'messaging', 'teacher_agenda', 'duty', 'bilsem', 'optical', 'smart_board', 'tv', 'school_reviews', 'document', 'outcome'],
       };
@@ -288,7 +289,7 @@ export class SeedService {
     }
 
     const school = this.schoolRepo.create({
-      name: 'Demo Okulu',
+      name: DEMO_SCHOOL_DISPLAY_NAME,
       type: SchoolType.lise,
       segment: SchoolSegment.devlet,
       city: 'Ankara',

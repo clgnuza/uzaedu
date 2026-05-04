@@ -1,21 +1,17 @@
-'use client';
-
-import { Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
 import { AuthPageShell } from '@/components/auth/auth-page-shell';
 import { AuthPortalHub } from '@/components/auth/auth-portal-hub';
+import { searchParamsRecordToQueryString } from '@/lib/search-params-to-query-string';
 
-function RegisterHubInner() {
-  const sp = useSearchParams();
-  return <AuthPortalHub flow="register" redirectQuery={sp?.toString() || undefined} />;
-}
+type PageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
 
-export default function RegisterHubPage() {
+export default async function RegisterHubPage({ searchParams }: PageProps) {
+  const sp = await searchParams;
+  const redirectQuery = searchParamsRecordToQueryString(sp);
   return (
     <AuthPageShell>
-      <Suspense fallback={<p className="text-center text-sm text-muted-foreground">Yükleniyor…</p>}>
-        <RegisterHubInner />
-      </Suspense>
+      <AuthPortalHub flow="register" redirectQuery={redirectQuery} />
     </AuthPageShell>
   );
 }

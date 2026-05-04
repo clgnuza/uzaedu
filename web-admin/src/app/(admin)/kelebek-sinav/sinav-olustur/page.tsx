@@ -781,7 +781,15 @@ export default function SinavOlusturPage() {
                           picked && 'bg-indigo-50/60 dark:bg-indigo-950/20')}
                         onClick={() => setRoomPick((m) => ({ ...m, [r.id]: !m[r.id] }))}>
                         <td className="px-4 py-2.5">
-                          <input type="checkbox" checked={picked} onChange={() => {}} onClick={(e) => e.stopPropagation()} />
+                          <input
+                            type="checkbox"
+                            checked={picked}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              setRoomPick((m) => ({ ...m, [r.id]: e.target.checked }));
+                            }}
+                          />
                         </td>
                         <td className="px-4 py-2.5 font-medium">{r.name}</td>
                         <td className="px-4 py-2.5">

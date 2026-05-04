@@ -125,7 +125,7 @@ export default function KelebekSinavLayout({ children }: { children: React.React
               Kertenkele Sınav Modülü
             </h1>
             <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground sm:text-sm">
-              Sınıf ve salon yönetimi; sınav oturumu, yerleştirme ve raporlar.
+              Sınıf/öğrenci ve dersler okul kaydı (Sınıflar ve Dersler) ile aynıdır; salon, oturum ve yerleştirme burada.
             </p>
           </div>
           <Link

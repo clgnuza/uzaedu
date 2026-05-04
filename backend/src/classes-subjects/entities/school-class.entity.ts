@@ -25,6 +25,10 @@ export class SchoolClass {
   @Column({ type: 'varchar', length: 16, nullable: true })
   section: string | null;
 
+  /** Kelebek sınav yerleşimi: sınıfın öncelikli binası (yoksa tüm binalar). */
+  @Column({ name: 'butterfly_default_building_id', type: 'uuid', nullable: true })
+  butterflyDefaultBuildingId: string | null;
+
   @CreateDateColumn()
   created_at: Date;
 

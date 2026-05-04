@@ -8,6 +8,17 @@ const extraDevOrigins =
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   compress: true,
+  /** next dev: tarayıcı doğrudan :4000’e gitmesin (net::ERR_CONNECTION_REFUSED gürültüsü azalır). */
+  async rewrites() {
+    if (process.env.NODE_ENV !== "development") return [];
+    const port = process.env.NEXT_PUBLIC_API_PORT?.trim() || "4000";
+    return [
+      {
+        source: "/be-api/:path*",
+        destination: `http://127.0.0.1:${port}/api/:path*`,
+      },
+    ];
+  },
   images: {
     formats: ["image/avif", "image/webp"],
     minimumCacheTTL: 60,

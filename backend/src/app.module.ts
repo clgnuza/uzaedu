@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { Module } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
@@ -57,7 +59,13 @@ function getTypeOrmConfig(): TypeOrmModuleOptions {
     logging: env.debug,
   };
   if (env.useSqlite) {
-    return { type: 'better-sqlite3', database: 'data/ogretmenpro.sqlite', ...common } as TypeOrmModuleOptions;
+    const dir = path.join(process.cwd(), 'data');
+    fs.mkdirSync(dir, { recursive: true });
+    return {
+      type: 'better-sqlite3',
+      database: path.join(dir, 'ogretmenpro.sqlite'),
+      ...common,
+    } as TypeOrmModuleOptions;
   }
   return {
     type: 'postgres',

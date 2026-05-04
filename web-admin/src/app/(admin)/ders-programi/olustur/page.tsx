@@ -6,7 +6,6 @@ import { useSearchParams } from 'next/navigation';
 import {
   Upload,
   FileSpreadsheet,
-  FileText,
   Trash2,
   Download,
   CheckCircle2,
@@ -67,7 +66,8 @@ export default function OlusturPage() {
   const [draftEntries, setDraftEntries] = useState<TimetableEntry[]>([]);
   const [teachers, setTeachers] = useState<TeacherInfo[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
-  const DAYS = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'] as const;
+  /** Okul / MEB Crystal yalnız Pzt–Cum; Cmt–Paz sütunu veri kaydırması yaratıyordu. */
+  const DAYS = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum'] as const;
 
   const isAdmin = me?.role === 'school_admin';
 
@@ -206,8 +206,8 @@ export default function OlusturPage() {
     if (!file || !token) return;
 
     const ext = file.name.toLowerCase().split('.').pop();
-    if (ext !== 'xlsx' && ext !== 'xls' && ext !== 'pdf') {
-      toast.error('Sadece Excel (.xlsx, .xls) veya e-Okul PDF yükleyin.');
+    if (ext !== 'xlsx' && ext !== 'xls') {
+      toast.error('Sadece Excel (.xlsx, .xls) yükleyin.');
       return;
     }
 
@@ -302,15 +302,20 @@ export default function OlusturPage() {
 
   const teacherMap = new Map(teachers.map((t) => [t.id, t]));
   const teacherNameFromKey = (teacherKey: string) => {
-    if (teacherKey.startsWith('raw:')) return decodeURIComponent(teacherKey.slice(4)) || 'Eşleşmeyen öğretmen';
+    if (teacherKey.startsWith('raw:')) {
+      try {
+        return decodeURIComponent(teacherKey.slice(4)).trim() || 'Eşleşmeyen (şablondaki adı kontrol edin)';
+      } catch {
+        return 'Eşleşmeyen';
+      }
+    }
     const t = teacherMap.get(teacherKey);
     return t?.display_name || t?.email || teacherKey;
   };
+
   const previewTeachers = [...new Set(draftEntries.map((e) => (e.user_id ? e.user_id : `raw:${encodeURIComponent((e.teacher_name_raw ?? '').trim())}`)))]
     .filter(Boolean)
     .sort((a, b) => teacherNameFromKey(a).localeCompare(teacherNameFromKey(b), 'tr'));
-  const previewMaxLesson = draftEntries.reduce((m, e) => Math.max(m, e.lesson_num || 0), 0);
-  const previewLessonNums = Array.from({ length: Math.max(previewMaxLesson, 1) }, (_, i) => i + 1);
   const previewCellMap = new Map<string, Array<{ class_section: string; subject: string }>>();
   for (const e of draftEntries) {
     const teacherKey = e.user_id ? e.user_id : `raw:${encodeURIComponent((e.teacher_name_raw ?? '').trim())}`;
@@ -321,7 +326,7 @@ export default function OlusturPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 sm:space-y-6">
-      <DersProgramiSubpageIntro title="Excel / e-Okul PDF ile yükle" subtitle="Yükle → Tarih ve yayın → Programlarım" accent="emerald" />
+      <DersProgramiSubpageIntro title="Excel ile yükle" subtitle="Yükle → Tarih ve yayın → Programlarım" accent="emerald" />
 
       {/* Admin stepper */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200/45 bg-emerald-500/5 px-3 py-2.5 text-xs dark:border-emerald-900/45 dark:bg-emerald-950/20 sm:gap-3 sm:px-4 sm:py-3 sm:text-sm">
@@ -358,47 +363,29 @@ export default function OlusturPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <FileSpreadsheet className="size-5" />
-            Excel / e-Okul PDF ile Yükle
+            Excel ile yükle
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="rounded-xl border border-emerald-200/70 bg-linear-to-br from-emerald-50 to-white p-4 shadow-sm dark:border-emerald-900/60 dark:from-emerald-950/30 dark:to-background">
-              <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-emerald-800 dark:text-emerald-200">
-                <FileSpreadsheet className="size-4 shrink-0" />
-                Excel ile Yükle
-              </p>
-              <ul className="ml-5 list-disc space-y-1 text-xs text-emerald-700 dark:text-emerald-300">
-                <li>
-                  <strong>Ad Soyad</strong> sütunu – sistemdeki tam ad veya e-posta
-                </li>
-                <li>
-                  Sütun formatı:{' '}
-                  <code className="rounded bg-emerald-100 px-1 text-[11px] dark:bg-emerald-900/40">Pazartesi_ders1</code>{' '}
-                  …{' '}
-                  <code className="rounded bg-emerald-100 px-1 text-[11px] dark:bg-emerald-900/40">Cuma_ders8</code>
-                </li>
-                <li>
-                  Hücre değeri:{' '}
-                  <code className="rounded bg-emerald-100 px-1 text-[11px] dark:bg-emerald-900/40">7A-MAT</code>
-                </li>
-                <li>Boş hücre = o saatte dersi yok</li>
-              </ul>
-            </div>
-            <div className="rounded-xl border border-sky-200/70 bg-linear-to-br from-sky-50 to-white p-4 shadow-sm dark:border-sky-900/60 dark:from-sky-950/30 dark:to-background">
-              <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-sky-800 dark:text-sky-200">
-                <FileText className="size-4 shrink-0" />
-                e-Okul PDF ile Yükle
-              </p>
-              <ul className="ml-5 list-disc space-y-1 text-xs text-sky-700 dark:text-sky-300">
-                <li>
-                  Rapor adı: <strong>OOK11003R010 Öğretmen Ders Programları</strong>
-                </li>
-                <li>Format: .pdf</li>
-                <li>Öğretmen adı sistemdeki kullanıcıyla eşleşmeli</li>
-                <li>Öğretmen programı ve dersler ayrı ayrı parse edilir</li>
-              </ul>
-            </div>
+          <div className="rounded-xl border border-primary/25 bg-linear-to-br from-primary/5 to-card p-4 shadow-sm">
+            <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
+              <FileSpreadsheet className="size-4 shrink-0 text-primary" />
+              Yalnızca indirilen şablon
+            </p>
+            <ul className="ml-5 list-disc space-y-1 text-xs text-muted-foreground">
+              <li>
+                Önce <strong>Örnek Excel İndir</strong>; yalnızca <code className="rounded bg-muted px-1 text-[11px]">DersProgram</code> sayfası işlenir (
+                <code className="rounded bg-muted px-1 text-[11px]">Kılavuz</code> sayfası yok sayılır).
+              </li>
+              <li>
+                Başlık satırında <strong>Ad_Soyad</strong> ve her gün için aynı sayıda{' '}
+                <code className="rounded bg-muted px-1 text-[11px]">Pazartesi_ders1</code> …{' '}
+                <code className="rounded bg-muted px-1 text-[11px]">Cuma_dersN</code> olmalı.
+              </li>
+              <li>
+                Ders hücresi: <code className="rounded bg-muted px-1 text-[11px]">7A-MAT</code> veya <code className="rounded bg-muted px-1 text-[11px]">7A - Matematik</code>
+              </li>
+            </ul>
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -409,7 +396,8 @@ export default function OlusturPage() {
             <input
               ref={inputRef}
               type="file"
-              accept=".xlsx,.xls,.pdf"
+              accept=".xlsx,.xls"
+              title="Örnek şablondan .xlsx veya .xls; DersProgram sayfası zorunlu"
               className="sr-only"
               onChange={handleFilePick}
               disabled={uploading}
@@ -549,7 +537,7 @@ export default function OlusturPage() {
       {lastResult?.plan_id && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Öğretmen Programları Önizleme</CardTitle>
+            <CardTitle className="text-base">Öğretmen programları önizleme</CardTitle>
           </CardHeader>
           <CardContent>
             {draftEntries.length === 0 ? (
@@ -567,8 +555,18 @@ export default function OlusturPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {previewTeachers.flatMap((teacherKey) =>
-                      previewLessonNums.map((lessonNum, idx) => (
+                    {previewTeachers.flatMap((teacherKey) => {
+                      const maxL = Math.max(
+                        1,
+                        draftEntries
+                          .filter(
+                            (e) =>
+                              (e.user_id ? e.user_id : `raw:${encodeURIComponent((e.teacher_name_raw ?? '').trim())}`) ===
+                              teacherKey,
+                          )
+                          .reduce((m, e) => Math.max(m, e.lesson_num || 0), 0),
+                      );
+                      return Array.from({ length: maxL }, (_, i) => i + 1).map((lessonNum, idx) => (
                         <tr
                           key={`${teacherKey}-${lessonNum}`}
                           className={cn(
@@ -578,7 +576,14 @@ export default function OlusturPage() {
                         >
                           <td className="py-1.5 pr-2 align-top">
                             {idx === 0 ? (
-                              <span className="inline-flex rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-semibold text-primary">
+                              <span
+                                className={cn(
+                                  'inline-flex max-w-[min(260px,80vw)] rounded px-1.5 py-0.5 text-[11px] font-semibold leading-snug',
+                                  teacherKey.startsWith('raw:')
+                                    ? 'border border-amber-500/40 bg-amber-500/10 text-amber-950 dark:border-amber-700/50 dark:bg-amber-950/35 dark:text-amber-50'
+                                    : 'bg-primary/10 text-primary',
+                                )}
+                              >
                                 {teacherNameFromKey(teacherKey)}
                               </span>
                             ) : (
@@ -586,8 +591,15 @@ export default function OlusturPage() {
                             )}
                           </td>
                           <td className="py-1.5 pr-2 tabular-nums text-[11px]">{lessonNum}</td>
-                          {[1, 2, 3, 4, 5, 6, 7].map((day) => {
-                            const items = previewCellMap.get(`${teacherKey}|${day}|${lessonNum}`) ?? [];
+                          {[1, 2, 3, 4, 5].map((day) => {
+                            const rawItems = previewCellMap.get(`${teacherKey}|${day}|${lessonNum}`) ?? [];
+                            const seen = new Set<string>();
+                            const items = rawItems.filter((x) => {
+                              const k = `${x.class_section}\t${x.subject}`;
+                              if (seen.has(k)) return false;
+                              seen.add(k);
+                              return true;
+                            });
                             return (
                               <td key={`${teacherKey}-${day}-${lessonNum}`} className="py-1.5 pr-2 align-top">
                                 {items.length === 0 ? (
@@ -605,8 +617,8 @@ export default function OlusturPage() {
                             );
                           })}
                         </tr>
-                      )),
-                    )}
+                      ));
+                    })}
                   </tbody>
                 </table>
               </div>

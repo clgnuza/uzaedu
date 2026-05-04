@@ -27,6 +27,8 @@ const bannerBodyProse = cn(
   '[&_strong]:font-medium [&_strong]:text-foreground/85',
 );
 
+let gdprInflight: Promise<GdprPublic> | null = null;
+
 const defaultCfg: GdprPublic = {
   cookie_banner_enabled: true,
   cookie_banner_title: null,
@@ -49,24 +51,29 @@ export function CookieBanner() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(getApiUrl('/content/gdpr'), {
-          cache: 'no-store',
-        });
-        if (!res.ok) throw new Error('gdpr');
-        const j = (await res.json()) as GdprPublic;
-        if (!cancelled) {
-          setCfg({
+    const p =
+      gdprInflight ??
+      (gdprInflight = (async (): Promise<GdprPublic> => {
+        try {
+          const res = await fetch(getApiUrl('/content/gdpr'), {
+            cache: 'no-store',
+          });
+          if (!res.ok) throw new Error('gdpr');
+          const j = (await res.json()) as GdprPublic;
+          return {
             ...defaultCfg,
             ...j,
             cookie_banner_visual: normalizeGdprBannerVisual(j.cookie_banner_visual),
-          });
+          };
+        } catch {
+          return defaultCfg;
         }
-      } catch {
-        if (!cancelled) setCfg(defaultCfg);
-      }
-    })();
+      })().finally(() => {
+        gdprInflight = null;
+      }));
+    void p.then((cfgNext) => {
+      if (!cancelled) setCfg(cfgNext);
+    });
     return () => {
       cancelled = true;
     };

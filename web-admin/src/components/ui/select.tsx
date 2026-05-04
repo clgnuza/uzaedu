@@ -31,7 +31,7 @@ function extractFromChildren(children: React.ReactNode): {
     React.Children.forEach(nodes, (node) => {
       if (React.isValidElement(node)) {
         const n = node as React.ReactElement<{ value?: string; placeholder?: string; className?: string; id?: string; children?: React.ReactNode }>;
-        if (n.props?.value !== undefined && typeof n.props.value === 'string') {
+        if (isSelectItemElement(n) && typeof n.props?.value === 'string') {
           items.push({
             value: n.props.value,
             label: typeof n.props.children === 'string' ? n.props.children : String(n.props.children ?? ''),
@@ -61,6 +61,10 @@ export function SelectTrigger({ className, id }: { className?: string; id?: stri
   return null;
 }
 
+function isSelectItemElement(node: React.ReactElement): node is React.ReactElement<{ value?: string; children?: React.ReactNode }> {
+  return node.type === SelectItem;
+}
+
 export function Select({ value = '', onValueChange, disabled, children }: SelectProps) {
   const { items, placeholder, triggerClassName, triggerId } = extractFromChildren(children);
 
@@ -86,8 +90,8 @@ export function Select({ value = '', onValueChange, disabled, children }: Select
         }}
       >
         {placeholder ? <option value="">{placeholder}</option> : null}
-        {items.map((item) => (
-          <option key={item.value} value={item.value}>
+        {items.map((item, optIdx) => (
+          <option key={`${optIdx}-${item.value}`} value={item.value}>
             {item.label}
           </option>
         ))}

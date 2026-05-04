@@ -139,6 +139,69 @@ export class ButterflyExamService {
     return this.roomRepo.save(r);
   }
 
+  /**
+   * Her okul şubesi için aynı adda sınav salonu yoksa oluşturur (Kertenkele yerleştirme ile eşleşir).
+   * Bina: "Sınav salonları" (yoksa eklenir). Kapasite = şube öğrenci sayısı; oturma grupları ikili+tek satırlarla tam eşler (0 öğrenci: 1 koltuk). Sonradan PATCH ile düzenlenebilir.
+   */
+  private layoutGroupsForSeatCount(n: number): { rowType: 'pair' | 'single'; rowCount: number }[] {
+    const cap = n < 1 ? 1 : n;
+    const pairRows = Math.floor(cap / 2);
+    const rem = cap % 2;
+    const groups: { rowType: 'pair' | 'single'; rowCount: number }[] = [];
+    if (pairRows > 0) groups.push({ rowType: 'pair', rowCount: pairRows });
+    if (rem > 0) groups.push({ rowType: 'single', rowCount: rem });
+    return groups;
+  }
+
+  async ensureClassExamRooms(schoolId: string): Promise<{ created: number; skipped: number; classCount: number }> {
+    const classes = await this.classRepo.find({
+      where: { schoolId },
+      order: { grade: 'ASC', section: 'ASC', name: 'ASC' },
+    });
+    if (!classes.length) return { created: 0, skipped: 0, classCount: 0 };
+
+    const buildings = await this.buildingRepo.find({ where: { schoolId }, order: { sortOrder: 'ASC', name: 'ASC' } });
+    let examBuilding = buildings.find((b) => b.name.trim().toLowerCase() === 'sınav salonları');
+    if (!examBuilding) {
+      const sortOrder = buildings.reduce((m, b) => Math.max(m, b.sortOrder ?? 0), -1) + 1;
+      examBuilding = await this.buildingRepo.save(
+        this.buildingRepo.create({ schoolId, name: 'Sınav salonları', sortOrder }),
+      );
+    }
+
+    const rooms = await this.roomRepo.find({ where: { schoolId } });
+    const taken = new Set(rooms.map((r) => r.name.trim().toLowerCase()));
+    let nextSort = rooms.reduce((m, r) => Math.max(m, r.sortOrder ?? 0), -1) + 1;
+    let created = 0;
+
+    for (const cls of classes) {
+      const nm = cls.name.trim();
+      const key = nm.toLowerCase();
+      if (!nm || taken.has(key)) continue;
+
+      const studentCount = await this.studentRepo.count({ where: { schoolId, classId: cls.id } });
+      const layoutGroups = this.layoutGroupsForSeatCount(studentCount);
+      const totalFromGroups = layoutGroups.reduce(
+        (s, g) => s + (g.rowType === 'pair' ? g.rowCount * 2 : g.rowCount),
+        0,
+      );
+
+      const r = this.roomRepo.create({
+        schoolId,
+        buildingId: examBuilding.id,
+        name: nm,
+        capacity: totalFromGroups,
+        seatLayout: JSON.stringify(layoutGroups),
+        sortOrder: nextSort++,
+      });
+      await this.roomRepo.save(r);
+      taken.add(key);
+      created++;
+    }
+
+    return { created, skipped: classes.length - created, classCount: classes.length };
+  }
+
   async updateRoom(
     schoolId: string,
     id: string,
@@ -869,6 +932,17 @@ export class ButterflyExamService {
       if (s.classId) countMap.set(s.classId, (countMap.get(s.classId) ?? 0) + 1);
     }
     return classes.map((c) => ({ ...c, studentCount: countMap.get(c.id) ?? 0 }));
+  }
+
+  async setClassDefaultButterflyBuilding(schoolId: string, classId: string, buildingId: string | null) {
+    const cls = await this.classRepo.findOne({ where: { id: classId, schoolId } });
+    if (!cls) throw new NotFoundException();
+    if (buildingId) {
+      const b = await this.buildingRepo.findOne({ where: { id: buildingId, schoolId } });
+      if (!b) throw new BadRequestException({ message: 'Bina bulunamadı veya bu okula ait değil.' });
+    }
+    await this.classRepo.update({ id: classId, schoolId }, { butterflyDefaultBuildingId: buildingId });
+    return { id: classId, butterflyDefaultBuildingId: buildingId };
   }
 
   async listAllStudents(schoolId: string) {

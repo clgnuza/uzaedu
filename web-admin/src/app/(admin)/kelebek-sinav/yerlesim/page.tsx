@@ -8,6 +8,7 @@ import { butterflyExamApiQuery } from '@/lib/butterfly-exam-school-q';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { Alert } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import { Building2, DoorOpen, Plus, Trash2, Users, Settings2, Edit2, LayoutGrid, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -93,7 +94,6 @@ function ClassLayoutModal({
       });
       toast.success('Düzen kaydedildi');
       onSaved();
-      onClose();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Kaydedilemedi');
     } finally {
@@ -117,9 +117,9 @@ function ClassLayoutModal({
           </button>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:min-h-0 lg:flex-row">
           {/* Left: Grup Ayarları */}
-          <div className="flex max-h-[42vh] w-full shrink-0 flex-col overflow-hidden border-b border-slate-200 dark:border-zinc-800 lg:max-h-none lg:w-64 lg:border-b-0 lg:border-r">
+          <div className="flex max-h-[38vh] w-full shrink-0 flex-col overflow-hidden border-b border-slate-200 dark:border-zinc-800 lg:max-h-none lg:min-h-0 lg:w-64 lg:border-b-0 lg:border-r">
             <div className="flex items-center justify-between px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Grup Ayarları
               <button type="button" onClick={addGroup}
@@ -158,7 +158,7 @@ function ClassLayoutModal({
                     <div className="flex items-center gap-2">
                       <div className="flex-1">
                         <label className="block text-[11px] text-muted-foreground">Adet</label>
-                        <Input type="number" min={1} max={30} value={g.rowCount}
+                        <Input type="number" min={1} max={80} value={g.rowCount}
                           onClick={(e) => e.stopPropagation()}
                           onChange={(e) => setGroups((gs) => gs.map((x) => x.id === g.id ? { ...x, rowCount: Math.max(1, parseInt(e.target.value) || 1) } : x))}
                           className="mt-0.5 h-7 text-xs" />
@@ -178,17 +178,18 @@ function ClassLayoutModal({
           </div>
 
           {/* Right: Visual Preview */}
-          <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {/* Smartboard header */}
-            <div className="flex items-center gap-2 bg-emerald-500 px-4 py-2 text-white">
+            <div className="flex shrink-0 items-center gap-2 bg-emerald-500 px-4 py-2 text-white">
               <LayoutGrid className="size-4" />
               <span className="text-sm font-semibold">
                 AKILLI TAHTA — {room.buildingName ? `${room.buildingName} · ` : ''}{room.name}
               </span>
             </div>
 
-            {/* Seat canvas */}
-            <div className="flex min-h-0 flex-1 gap-2 overflow-auto p-2 sm:p-4">
+            {/* Seat canvas — flex içinde yükseklik sınırı + dikey kaydırma (çok sıra taşmasın) */}
+            <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto overscroll-contain p-2 sm:p-4 [-webkit-overflow-scrolling:touch]">
+              <div className="flex flex-row flex-wrap content-start gap-3">
               {groups.map((g, gi) => {
                 const startNo = groupOffsets[gi];
                 const isPair = g.rowType === 'pair';
@@ -233,14 +234,15 @@ function ClassLayoutModal({
               })}
 
               {groups.length === 0 && (
-                <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                <div className="flex w-full flex-1 items-center justify-center py-12 text-sm text-muted-foreground">
                   Sol panelden grup ekleyin
                 </div>
               )}
+              </div>
             </div>
 
             {/* MASA label at bottom left */}
-            <div className="flex items-center justify-between border-t border-slate-200 px-4 py-2 dark:border-zinc-800">
+            <div className="flex shrink-0 items-center justify-between border-t border-slate-200 px-4 py-2 dark:border-zinc-800">
               <div className="flex items-center gap-2 rounded-lg bg-amber-100 px-3 py-1 text-xs font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
                 MASA
               </div>
@@ -250,7 +252,7 @@ function ClassLayoutModal({
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3 dark:border-zinc-800">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-slate-200 px-5 py-3 dark:border-zinc-800">
           <Button variant="outline" size="sm" onClick={onClose}>İptal</Button>
           <Button size="sm" disabled={saving} onClick={() => void save()} className="gap-1.5">
             {saving ? <LoadingSpinner /> : null}
@@ -275,7 +277,14 @@ function SeatBox({ no, active, wide }: { no: number; active: boolean; wide?: boo
     </div>
   );
 }
-type ClassRow = { id: string; name: string; grade: number | null; section: string | null; studentCount: number };
+type ClassRow = {
+  id: string;
+  name: string;
+  grade: number | null;
+  section: string | null;
+  studentCount: number;
+  butterflyDefaultBuildingId?: string | null;
+};
 
 const TABS = [
   { id: 'buildings', label: 'Binalar', icon: Building2 },
@@ -305,7 +314,7 @@ export default function KelebekYerlesimPage() {
   // Room form
   const [rForm, setRForm] = useState({ buildingId: '', name: '', capacity: '30', seat_layout: 'pair' as 'pair' | 'single', floor: '' });
 
-  // Class-building assignments (local state, stored in classBuilding map)
+  /** Sınıf → bina (sunucudan gelir; değişince PATCH) */
   const [classBuilding, setClassBuilding] = useState<Record<string, string>>({});
 
   // Strategy
@@ -324,18 +333,50 @@ export default function KelebekYerlesimPage() {
         apiFetch<Room[]>(`/butterfly-exam/rooms${schoolQ}`, { token }),
         apiFetch<ClassRow[]>(`/butterfly-exam/classes${schoolQ}`, { token }),
       ]);
-      setBuildings(b);
-      setRooms(r);
-      setClasses(c);
-      if (b.length && !rForm.buildingId) {
-        setRForm((f) => ({ ...f, buildingId: b[0].id }));
+      let buildingsNext = b;
+      let roomsNext = r;
+      if (
+        isAdmin &&
+        c.length > 0 &&
+        c.some((cls) => !r.some((room) => room.name.trim().toLowerCase() === cls.name.trim().toLowerCase()))
+      ) {
+        try {
+          const ensured = await apiFetch<{ created: number; classCount: number }>(
+            `/butterfly-exam/ensure-class-rooms${schoolQ}`,
+            { method: 'POST', token },
+          );
+          if (ensured.created > 0) {
+            toast.success(
+              `${ensured.classCount} sınıf için ${ensured.created} sınav salonu oluşturuldu (koltuk sayısı = şube mevcudu; Düzen ile değiştirilebilir).`,
+            );
+            const [b2, r2] = await Promise.all([
+              apiFetch<Building[]>(`/butterfly-exam/buildings${schoolQ}`, { token }),
+              apiFetch<Room[]>(`/butterfly-exam/rooms${schoolQ}`, { token }),
+            ]);
+            buildingsNext = b2;
+            roomsNext = r2;
+          }
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : 'Sınıf salonları oluşturulamadı');
+        }
       }
+      setBuildings(buildingsNext);
+      setRooms(roomsNext);
+      setClasses(c);
+      const cb: Record<string, string> = {};
+      for (const row of c) {
+        if (row.butterflyDefaultBuildingId) cb[row.id] = row.butterflyDefaultBuildingId;
+      }
+      setClassBuilding(cb);
+      setRForm((f) =>
+        buildingsNext.length && !f.buildingId ? { ...f, buildingId: buildingsNext[0].id } : f,
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Yüklenemedi');
     } finally {
       setLoading(false);
     }
-  }, [token, schoolQ]);
+  }, [token, schoolQ, isAdmin]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -444,6 +485,14 @@ export default function KelebekYerlesimPage() {
         })}
       </div>
 
+      {!loading && classes.length > 0 && isAdmin && (
+        <Alert variant="info" className="rounded-xl border-indigo-300/40 bg-gradient-to-r from-indigo-500/8 to-violet-500/8 text-[13px] leading-relaxed">
+          <strong className="text-foreground">{classes.length} sınıf</strong> için şube adıyla eşleşen sınav salonu yoksa otomatik oluşturulur
+          («Sınav salonları» binası; koltuk sayısı şube mevcudu ile aynı, <strong>Düzen</strong> ile değiştirilebilir).{' '}
+          <strong className="text-foreground">Salon Kaydet</strong> ile ders sınıflarından bağımsız ek salonlar ekleyebilirsiniz.
+        </Alert>
+      )}
+
       {/* Tab: Binalar */}
       {tab === 'buildings' && (
         <div className="space-y-4">
@@ -522,9 +571,10 @@ export default function KelebekYerlesimPage() {
         <div className="space-y-4">
           {/* Info */}
           {classes.length > 0 && (
-            <div className="rounded-xl border border-blue-200/60 bg-blue-50/80 px-4 py-3 text-xs text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-300">
-              {classes.length} sınıf otomatik sınav salonu olarak ayarlanmıştır. "Salon Ekle" ile ders sınıflarından bağımsız alanlar ekleyebilirsiniz.
-            </div>
+            <Alert variant="info" className="rounded-xl border-blue-300/40 bg-blue-500/6 text-[13px] leading-relaxed">
+              Şube ile <strong>aynı ad</strong> taşıyan sınav salonları yerleştirmede kullanılır; oturma düzeni ve kapasite satırdaki <strong>Düzen</strong> ile düzenlenir.
+              Ek fiziksel alanlar için aşağıdan <strong>Salon Kaydet</strong> (derslik listesinden bağımsız).
+            </Alert>
           )}
 
           {isAdmin && (
@@ -634,6 +684,9 @@ export default function KelebekYerlesimPage() {
       {/* Tab: Sınıf Atamaları */}
       {tab === 'classes' && (
         <div className="space-y-3">
+          <Alert variant="info" className="rounded-xl border-emerald-300/40 bg-emerald-500/8 text-[13px] leading-relaxed">
+            <strong>Bina seçimi</strong> yalnızca yerleştirme stratejisinde öncelik içindir. <strong>Oturma düzeni</strong> şube adıyla eşleşen sınav salonunun <strong>Düzen</strong> kaydındadır (sayfa yüklenirken eksik salonlar otomatik eklenir).
+          </Alert>
           <p className="text-xs text-muted-foreground">
             Her sınıfı bir binaya atayın. Atanmayan sınıflar &quot;tüm binalar&quot; ile çalışır.
           </p>
@@ -650,11 +703,15 @@ export default function KelebekYerlesimPage() {
                     <th className="px-4 py-2.5 text-left">Seviye</th>
                     <th className="px-4 py-2.5 text-left">Öğrenci Sayısı</th>
                     <th className="px-4 py-2.5 text-left">Atanmış Bina</th>
+                    <th className="px-4 py-2.5 text-left">Oturma düzeni</th>
                     {isAdmin && <th className="px-4 py-2.5" />}
                   </tr>
                 </thead>
                 <tbody>
-                  {classes.map((c) => (
+                  {classes.map((c) => {
+                    const cn = c.name.trim().toLowerCase();
+                    const matchRoom = rooms.find((r) => r.name.trim().toLowerCase() === cn);
+                    return (
                     <tr key={c.id} className="border-t border-slate-100 hover:bg-slate-50/60 dark:border-zinc-800 dark:hover:bg-zinc-800/30">
                       <td className="px-4 py-2.5 font-medium">{c.name}</td>
                       <td className="px-4 py-2.5 text-muted-foreground">{c.grade ?? '-'}</td>
@@ -668,19 +725,59 @@ export default function KelebekYerlesimPage() {
                           <span className="text-xs text-muted-foreground">Tüm Binalar</span>
                         )}
                       </td>
+                      <td className="px-4 py-2.5">
+                        {matchRoom ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setLayoutRoom({
+                                ...matchRoom,
+                                buildingName: buildings.find((b) => b.id === matchRoom.buildingId)?.name,
+                              })}
+                            className="inline-flex items-center gap-1 rounded-lg border border-indigo-300/60 bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-700/40 dark:bg-indigo-950/30 dark:text-indigo-300"
+                          >
+                            <LayoutGrid className="size-3" /> Düzen ({matchRoom.capacity} kişi)
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground">Salon yok · aynı ada salon ekleyin</span>
+                        )}
+                      </td>
                       {isAdmin && (
                         <td className="px-4 py-2.5">
                           <select
                             className="h-7 rounded-md border border-input bg-white/85 px-2 text-xs dark:bg-zinc-950/55"
                             value={classBuilding[c.id] ?? ''}
-                            onChange={(e) => setClassBuilding((m) => ({ ...m, [c.id]: e.target.value }))}>
+                            onChange={(e) => {
+                              if (!token) return;
+                              const v = e.target.value;
+                              const prev = classBuilding[c.id] ?? '';
+                              setClassBuilding((m) => ({ ...m, [c.id]: v }));
+                              void (async () => {
+                                try {
+                                  await apiFetch(`/butterfly-exam/classes/${c.id}/default-building${schoolQ}`, {
+                                    method: 'PATCH',
+                                    token,
+                                    body: JSON.stringify({ building_id: v || null }),
+                                  });
+                                  setClasses((list) =>
+                                    list.map((row) =>
+                                      row.id === c.id ? { ...row, butterflyDefaultBuildingId: v || null } : row,
+                                    ),
+                                  );
+                                } catch (err) {
+                                  setClassBuilding((m) => ({ ...m, [c.id]: prev }));
+                                  toast.error(err instanceof Error ? err.message : 'Kaydedilemedi');
+                                }
+                              })();
+                            }}>
                             <option value="">Tüm Binalar</option>
                             {buildings.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                           </select>
                         </td>
                       )}
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

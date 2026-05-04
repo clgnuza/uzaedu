@@ -9,8 +9,10 @@ import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { toast } from 'sonner';
 import Link from 'next/link';
-import { BookOpen, GraduationCap, Plus, X, Search, UserPlus, ChevronDown, ExternalLink } from 'lucide-react';
+import { BookOpen, GraduationCap, Plus, X, Search, UserPlus, ChevronDown, ExternalLink, ArrowUpRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Alert } from '@/components/ui/alert';
+import { classesSubjectsHref } from '@/lib/school-classes-subjects-href';
 
 type Subject = { id: string; name: string; code: string | null };
 type Teacher = { id: string; display_name: string | null; email: string };
@@ -141,6 +143,16 @@ export default function KelebekDersOgretmenPage() {
 
   return (
     <div className="min-w-0">
+      <Alert variant="info" className="mb-4 rounded-2xl border-violet-300/40 bg-gradient-to-r from-violet-500/8 to-fuchsia-500/8">
+        <p className="text-[13px] leading-relaxed">
+          <span className="font-semibold text-foreground">Ders tanımları</span> okul genelindeki ders listesiyle aynıdır. Ders eklemek veya kodlamak için{' '}
+          <Link href={classesSubjectsHref('subjects')} className="inline-flex items-center gap-0.5 font-semibold text-primary underline-offset-4 hover:underline">
+            Sınıflar ve Dersler → Dersler <ArrowUpRight className="size-3.5" aria-hidden />
+          </Link>
+          .
+        </p>
+      </Alert>
+
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-lg font-bold sm:text-xl">Ders - Öğretmen İşlemleri</h1>
@@ -200,9 +212,15 @@ export default function KelebekDersOgretmenPage() {
 
           <div className="flex-1 overflow-auto">
             {filteredSubjects.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+              <div className="flex flex-col items-center justify-center gap-3 px-4 py-12 text-center">
                 <BookOpen className="size-8 text-slate-200 dark:text-zinc-700" />
-                <p className="text-xs text-muted-foreground">Henüz ders eklenmemiş</p>
+                <p className="text-xs text-muted-foreground">Henüz ders yok</p>
+                <Link
+                  href={classesSubjectsHref('subjects')}
+                  className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10"
+                >
+                  Dersleri yönet <ArrowUpRight className="size-3.5" />
+                </Link>
               </div>
             ) : (
               <ul>

@@ -4,7 +4,7 @@ import { join } from 'path';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fontkitRaw = require('@pdf-lib/fontkit');
 const fontkit = fontkitRaw?.default ?? fontkitRaw;
-import { PDFDocument, rgb } from 'pdf-lib';
+import { PDFDocument, rgb, type PDFFont } from 'pdf-lib';
 import * as QRCode from 'qrcode';
 
 function getDejaVuFontPaths(): { sans: string; bold: string } {
@@ -76,7 +76,6 @@ export class ButterflyExamPdfService {
       y -= 14;
 
       // ── Bilgi kutuları (bina/salon | tarih | ders | saat) ───────────────
-      const boxH = 20;
       const cols = [
         { label: 'Salon',  value: `${opts.buildingName} / ${opts.roomName}`, x: margin,        w: 160 },
         { label: 'Tarih',  value: opts.examStartsAt.toLocaleDateString('tr-TR'), x: margin + 165, w: 100 },
@@ -95,12 +94,35 @@ export class ButterflyExamPdfService {
         lastCol.value += `  •  ${periodVal}`;
       }
 
-      for (const col of cols) {
-        page.drawRectangle({ x: col.x, y: y - boxH + 4, width: col.w - 4, height: boxH, color: rgb(0.96, 0.97, 1), borderColor: rgb(0.82, 0.85, 0.92), borderWidth: 0.5 });
-        page.drawText(col.label, { x: col.x + 4, y: y - 1, size: 6.5, font, color: rgb(0.45, 0.45, 0.55) });
-        page.drawText((col.value ?? '—').slice(0, 40), { x: col.x + 4, y: y - 11, size: 8, font: fontBold, color: rgb(0.1, 0.15, 0.4) });
+      const innerPad = 4;
+      const labelSize = 6.5;
+      const valueSize = 7.5;
+      const lineGap = 9;
+      const colLines = cols.map((col) =>
+        fitLines(String(col.value ?? '—'), fontBold, valueSize, Math.max(20, col.w - innerPad * 2), 3),
+      );
+      const maxLines = Math.max(1, ...colLines.map((l) => l.length));
+      const dynBoxH = 6 + labelSize + maxLines * lineGap;
+      for (let ci = 0; ci < cols.length; ci++) {
+        const col = cols[ci];
+        const lines = colLines[ci];
+        page.drawRectangle({
+          x: col.x,
+          y: y - dynBoxH + 4,
+          width: col.w - 4,
+          height: dynBoxH,
+          color: rgb(0.96, 0.97, 1),
+          borderColor: rgb(0.82, 0.85, 0.92),
+          borderWidth: 0.5,
+        });
+        page.drawText(col.label, { x: col.x + innerPad, y: y - 1, size: labelSize, font, color: rgb(0.45, 0.45, 0.55) });
+        let ly = y - 10;
+        for (const ln of lines) {
+          page.drawText(ln, { x: col.x + innerPad, y: ly, size: valueSize, font: fontBold, color: rgb(0.1, 0.15, 0.4) });
+          ly -= lineGap;
+        }
       }
-      y -= boxH + 10;
+      y -= dynBoxH + 10;
 
       // ── Tablo başlığı ───────────────────────────────────────────────────
       page.drawRectangle({
@@ -120,24 +142,57 @@ export class ButterflyExamPdfService {
 
     header();
 
+    const colNameX = margin + 22;
+    const colClassX = margin + 210;
+    const colNoX = margin + 300;
+    const colSeatX = margin + 370;
+    const nameMaxW = colClassX - colNameX - 4;
+    const classMaxW = colNoX - colClassX - 4;
+    const noMaxW = colSeatX - colNoX - 4;
+    const rowFontSize = 7.5;
+    const rowLineGap = 9;
+
     for (let ri = 0; ri < opts.rows.length; ri++) {
       const row = opts.rows[ri];
-      if (y < 72) {
+      const nameLines = fitLines(row.studentName, font, rowFontSize, nameMaxW, 3);
+      const classLines = fitLines(row.classLabel, font, rowFontSize, classMaxW, 2);
+      const noLines = fitLines(String(row.studentNumber ?? '—'), font, rowFontSize, noMaxW, 1);
+      const lineCount = Math.max(nameLines.length, classLines.length, noLines.length, 1);
+      const rowH = Math.max(13, 4 + lineCount * rowLineGap);
+
+      if (y < rowH + 56) {
         newPage();
         header();
       }
       const rowBg = ri % 2 === 1 ? rgb(0.97, 0.97, 1) : rgb(1, 1, 1);
-      page.drawRectangle({ x: margin, y: y - 3, width: pageW - margin * 2, height: 13, color: rowBg });
-      page.drawText(String(ri + 1), { x: margin + 4, y, size: 7.5, font, color: rgb(0.55, 0.55, 0.6) });
-      page.drawText(row.studentName.slice(0, 42), { x: margin + 22, y, size: 7.5, font });
-      page.drawText(row.classLabel.slice(0, 24), { x: margin + 210, y, size: 7.5, font });
-      page.drawText((row.studentNumber ?? '—').slice(0, 16), { x: margin + 300, y, size: 7.5, font });
-      page.drawText(row.seatLabel, { x: margin + 370, y, size: 7.5, font: fontBold, color: rgb(0.1, 0.15, 0.45) });
+      const rowTop = y + 3;
+      page.drawRectangle({ x: margin, y: rowTop - rowH, width: pageW - margin * 2, height: rowH, color: rowBg });
+      page.drawText(String(ri + 1), { x: margin + 4, y: rowTop - 10, size: rowFontSize, font, color: rgb(0.55, 0.55, 0.6) });
+      let ny = rowTop - 10;
+      for (const ln of nameLines) {
+        page.drawText(ln, { x: colNameX, y: ny, size: rowFontSize, font });
+        ny -= rowLineGap;
+      }
+      ny = rowTop - 10;
+      for (const ln of classLines) {
+        page.drawText(ln, { x: colClassX, y: ny, size: rowFontSize, font });
+        ny -= rowLineGap;
+      }
+      ny = rowTop - 10;
+      for (const ln of noLines) {
+        page.drawText(ln, { x: colNoX, y: ny, size: rowFontSize, font });
+        ny -= rowLineGap;
+      }
+      page.drawText(row.seatLabel, { x: colSeatX, y: rowTop - 10, size: rowFontSize, font: fontBold, color: rgb(0.1, 0.15, 0.45) });
       page.drawRectangle({
-        x: margin + 418, y: y - 3, width: pageW - margin * 2 - 378, height: 13,
-        borderColor: rgb(0.85, 0.87, 0.93), borderWidth: 0.4,
+        x: margin + 418,
+        y: rowTop - rowH,
+        width: pageW - margin * 2 - 378,
+        height: rowH,
+        borderColor: rgb(0.85, 0.87, 0.93),
+        borderWidth: 0.4,
       });
-      y -= 13;
+      y = rowTop - rowH - 2;
     }
 
     if (opts.footerLines?.length) {
@@ -236,24 +291,45 @@ export class ButterflyExamPdfService {
     page.drawLine({ start: { x: margin, y }, end: { x: pageW - margin, y }, thickness: 0.6, color: rgb(0.5, 0.5, 0.55) });
     y -= 12;
 
+    const rowSize = 8;
+    const rowGap = 10;
+    const dersMaxW = (hasSubeler ? cols.subeler : cols.aciklama) - cols.ders - 6;
+    const subeMaxW = hasSubeler ? cols.aciklama - cols.subeler - 6 : 0;
+    const acikMaxW = pageW - margin - cols.aciklama - 4;
+
     // Rows
     for (const row of opts.rows) {
-      if (y < 140) break;
-      const rowY = y;
-      page.drawText(String(row.sn), { x: cols.sn, y: rowY, size: 8, font });
-      page.drawText(row.gun, { x: cols.gun, y: rowY, size: 8, font });
-      page.drawText(row.tarih, { x: cols.tarih, y: rowY, size: 8, font });
-      page.drawText(row.saat, { x: cols.saat, y: rowY, size: 8, font });
-      page.drawText(row.sinavDersi.slice(0, 30), { x: cols.ders, y: rowY, size: 8, font: fontBold });
-      if (hasSubeler && row.subeler) {
-        page.drawText(row.subeler.slice(0, 24), { x: cols.subeler, y: rowY, size: 8, font });
+      const dersLines = fitLines(row.sinavDersi, fontBold, rowSize, Math.max(40, dersMaxW), 3);
+      const subeLines =
+        hasSubeler && row.subeler ? fitLines(row.subeler, font, rowSize, Math.max(36, subeMaxW), 2) : [];
+      const acikLines = row.aciklama ? fitLines(row.aciklama, font, rowSize, Math.max(36, acikMaxW), 2) : [];
+      const lineCount = Math.max(1, dersLines.length, subeLines.length, acikLines.length);
+      const rowBlockH = 4 + lineCount * rowGap;
+
+      if (y < rowBlockH + 120) break;
+      const rowTop = y;
+      page.drawText(String(row.sn), { x: cols.sn, y: rowTop, size: rowSize, font });
+      page.drawText(row.gun, { x: cols.gun, y: rowTop, size: rowSize, font });
+      page.drawText(row.tarih, { x: cols.tarih, y: rowTop, size: rowSize, font });
+      page.drawText(row.saat, { x: cols.saat, y: rowTop, size: rowSize, font });
+      let cy = rowTop;
+      for (const ln of dersLines) {
+        page.drawText(ln, { x: cols.ders, y: cy, size: rowSize, font: fontBold });
+        cy -= rowGap;
       }
-      if (row.aciklama) {
-        page.drawText(row.aciklama.slice(0, 20), { x: cols.aciklama, y: rowY, size: 8, font });
+      cy = rowTop;
+      for (const ln of subeLines) {
+        page.drawText(ln, { x: cols.subeler, y: cy, size: rowSize, font });
+        cy -= rowGap;
       }
-      y -= 4;
+      cy = rowTop;
+      for (const ln of acikLines) {
+        page.drawText(ln, { x: cols.aciklama, y: cy, size: rowSize, font });
+        cy -= rowGap;
+      }
+      y = rowTop - lineCount * rowGap - 2;
       page.drawLine({ start: { x: margin, y }, end: { x: pageW - margin, y }, thickness: 0.2, color: rgb(0.85, 0.85, 0.88) });
-      y -= 10;
+      y -= 8;
     }
 
     // Footer notes
@@ -349,58 +425,91 @@ export class ButterflyExamPdfService {
       } catch { return null; }
     };
 
-    // Kompakt header yüksekliği: 2 satır toplamda ~58pt
-    const HEADER_H = 58;
-
     /**
-     * drawHeader — sayfanın üstüne 58pt'lik kompakt öğrenci şeridi çizer.
-     * Dönen değer: header'ın alt kenarı (y koordinatı, pdf-lib mantığıyla pageH'ten aşağı iner)
+     * drawHeader — öğrenci şeridi; uzun ad/sınıf kutuya sığacak şekilde satır kırar.
+     * Dönüş: header alt çizgisi (y).
      */
     const drawHeader = async (page: ReturnType<typeof doc.addPage>, s: typeof allStudents[0]) => {
-      const top = pageH - m; // header üstü
-
-      // ── Satır 1: koyu şerit ──────────────────────────────────────────
+      const top = pageH - m;
       const row1H = 22;
       page.drawRectangle({ x: m, y: top - row1H, width: pageW - m * 2, height: row1H, color: rgb(0.12, 0.22, 0.48) });
 
-      const roomStr  = `${s.buildingName ? s.buildingName + ' / ' : ''}${s.roomName}`;
-      const seatStr  = `Sıra: ${s.seatLabel}`;
-      const seatW    = fontBold.widthOfTextAtSize(seatStr, 10);
+      const roomStr = `${s.buildingName ? s.buildingName + ' / ' : ''}${s.roomName}`;
+      const seatStr = `Sıra: ${s.seatLabel}`;
+      const seatW = fontBold.widthOfTextAtSize(seatStr, 10);
       const examInfo = `${opts.subjectLabel ?? opts.planTitle}  •  ${opts.examStartsAt.toLocaleDateString('tr-TR')} ${opts.examStartsAt.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`;
-
-      page.drawText(roomStr.slice(0, 40),  { x: m + 5, y: top - 15, size: 9, font: fontBold, color: rgb(1, 1, 1) });
-      page.drawText(examInfo.slice(0, 48), { x: m + 175, y: top - 15, size: 7.5, font, color: rgb(0.8, 0.85, 1) });
+      const roomMaxW = Math.max(40, m + 168 - (m + 5));
+      const examLeft = m + 172;
+      const examMaxW = Math.max(40, pageW - m - seatW - 8 - examLeft);
+      page.drawText(truncateToWidth(roomStr, fontBold, 9, roomMaxW), { x: m + 5, y: top - 15, size: 9, font: fontBold, color: rgb(1, 1, 1) });
+      page.drawText(truncateToWidth(examInfo, font, 7.5, examMaxW), { x: examLeft, y: top - 15, size: 7.5, font, color: rgb(0.8, 0.85, 1) });
       page.drawText(seatStr, { x: pageW - m - seatW - 5, y: top - 15, size: 10, font: fontBold, color: rgb(1, 1, 1) });
 
-      // ── Satır 2: öğrenci bilgileri + QR ─────────────────────────────
       const row2Y = top - row1H;
-      const row2H = HEADER_H - row1H;
-      page.drawRectangle({ x: m, y: row2Y - row2H, width: pageW - m * 2, height: row2H, color: rgb(0.95, 0.96, 1), borderColor: rgb(0.78, 0.82, 0.9), borderWidth: 0.4 });
+      const qrMax = 52;
+      const infoW0 = pageW - m * 2 - qrMax - 8;
+      const wName = Math.round(infoW0 * 0.52);
+      const wClass = Math.round(infoW0 * 0.18);
+      const wNum = infoW0 - wName - wClass;
+      const nameLines = fitLines(s.studentName, fontBold, 9, Math.max(24, wName - 6), 2);
+      const classLines = fitLines(s.classLabel || '—', fontBold, 9, Math.max(20, wClass - 6), 2);
+      const numLines = fitLines(String(s.studentNumber ?? '—'), fontBold, 9, Math.max(20, wNum - 6), 2);
+      const textLines = Math.max(nameLines.length, classLines.length, numLines.length, 1);
+      const row2H = Math.max(36, 10 + textLines * 11 + 6);
+      const qrSize = Math.min(qrMax, row2H - 4);
+      const infoW = pageW - m * 2 - qrSize - 8;
+      const boxes = [
+        { label: 'Adı Soyadı', lines: nameLines, w: Math.round(infoW * 0.52) },
+        { label: 'Sınıf', lines: classLines, w: Math.round(infoW * 0.18) },
+        { label: 'Öğrenci No', lines: numLines, w: Math.round(infoW * 0.28) },
+      ];
 
-      // QR
-      const qrSize = row2H - 4;
+      page.drawRectangle({
+        x: m,
+        y: row2Y - row2H,
+        width: pageW - m * 2,
+        height: row2H,
+        color: rgb(0.95, 0.96, 1),
+        borderColor: rgb(0.78, 0.82, 0.9),
+        borderWidth: 0.4,
+      });
+
       const qrData = [s.studentNumber, s.studentName, s.classLabel, s.seatLabel, s.roomName].filter(Boolean).join('|');
-      const qrBuf  = await getQr(qrData);
+      const qrBuf = await getQr(qrData);
       if (qrBuf) {
         const qrImg = await doc.embedPng(qrBuf);
         page.drawImage(qrImg, { x: pageW - m - qrSize - 2, y: row2Y - row2H + 2, width: qrSize, height: qrSize });
       }
 
-      // Bilgi kutuları (soldan sağa, QR'ın soluna kadar)
-      const infoW = pageW - m * 2 - qrSize - 8;
-      const boxes = [
-        { label: 'Adı Soyadı', value: s.studentName,         w: Math.round(infoW * 0.52) },
-        { label: 'Sınıf',      value: s.classLabel,           w: Math.round(infoW * 0.18) },
-        { label: 'Öğrenci No', value: s.studentNumber ?? '—', w: Math.round(infoW * 0.28) },
-      ];
       let bx = m + 3;
+      const valSize = 9;
+      const lineStep = 11;
       for (const b of boxes) {
         page.drawText(b.label, { x: bx, y: row2Y - 8, size: 6, font, color: rgb(0.45, 0.45, 0.55) });
-        page.drawText((b.value ?? '—').slice(0, 30), { x: bx, y: row2Y - 20, size: 9, font: fontBold, color: rgb(0.1, 0.15, 0.4) });
+        let ly = row2Y - 20;
+        for (const ln of b.lines) {
+          page.drawText(ln, { x: bx, y: ly, size: valSize, font: fontBold, color: rgb(0.1, 0.15, 0.4) });
+          ly -= lineStep;
+        }
         bx += b.w;
       }
 
-      return top - HEADER_H; // alt kenar y'si
+      return top - row1H - row2H;
+    };
+
+    const drawYaziliPlaceholder = (page: ReturnType<typeof doc.addPage>, headerBottom: number) => {
+      const bottom = m;
+      const topInner = headerBottom - 6;
+      const h = Math.max(80, topInner - bottom);
+      page.drawRectangle({
+        x: m + 1,
+        y: bottom,
+        width: pageW - (m + 1) * 2,
+        height: h,
+        color: rgb(1, 1, 1),
+        borderColor: rgb(0.82, 0.84, 0.9),
+        borderWidth: 0.75,
+      });
     };
 
     // ── Her öğrenci ───────────────────────────────────────────────────
@@ -431,9 +540,9 @@ export class ButterflyExamPdfService {
           for (const p of rest) doc.addPage(p);
         }
       } else {
-        // Sınav PDF yüklenmemişse sadece header sayfası
         const page1 = doc.addPage([pageW, pageH]);
-        await drawHeader(page1, s);
+        const headerBottom = await drawHeader(page1, s);
+        drawYaziliPlaceholder(page1, headerBottom);
       }
     }
 
@@ -442,17 +551,83 @@ export class ButterflyExamPdfService {
 
 }
 
-function wrapText(text: string, font: import('pdf-lib').PDFFont, size: number, maxW: number): string[] {
-  const words = text.split(' ');
+function breakWordByWidth(word: string, font: PDFFont, size: number, maxW: number): string[] {
+  if (!word) return [];
+  if (font.widthOfTextAtSize(word, size) <= maxW) return [word];
+  const out: string[] = [];
+  let rest = word;
+  while (rest.length) {
+    let lo = 1;
+    let hi = rest.length;
+    let best = 1;
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const slice = rest.slice(0, mid);
+      if (font.widthOfTextAtSize(slice, size) <= maxW) {
+        best = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    if (best < 1) best = 1;
+    out.push(rest.slice(0, best));
+    rest = rest.slice(best);
+  }
+  return out;
+}
+
+function wrapText(text: string, font: PDFFont, size: number, maxW: number): string[] {
+  const normalized = String(text ?? '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return [''];
+  const words = normalized.split(' ');
   const lines: string[] = [];
   let cur = '';
   for (const w of words) {
-    const test = cur ? cur + ' ' + w : w;
-    if (font.widthOfTextAtSize(test, size) <= maxW) { cur = test; }
-    else { if (cur) lines.push(cur); cur = w; }
+    const pieces = breakWordByWidth(w, font, size, maxW);
+    for (const piece of pieces) {
+      const test = cur ? `${cur} ${piece}` : piece;
+      if (font.widthOfTextAtSize(test, size) <= maxW) cur = test;
+      else {
+        if (cur) lines.push(cur);
+        cur = piece;
+      }
+    }
   }
   if (cur) lines.push(cur);
-  return lines.length ? lines : [text.slice(0, 30)];
+  return lines.length ? lines : [''];
+}
+
+function fitLines(text: string, font: PDFFont, size: number, maxW: number, maxLines: number): string[] {
+  const wrapped = wrapText(text, font, size, maxW);
+  if (maxLines < 1) return [];
+  if (wrapped.length <= maxLines) return wrapped;
+  const head = wrapped.slice(0, maxLines);
+  let last = head[maxLines - 1];
+  let withEll = `${last}…`;
+  while (withEll.length > 1 && font.widthOfTextAtSize(withEll, size) > maxW) {
+    last = last.slice(0, -1);
+    withEll = `${last}…`;
+  }
+  head[maxLines - 1] = withEll;
+  return head;
+}
+
+function truncateToWidth(text: string, font: PDFFont, size: number, maxW: number): string {
+  const t = String(text ?? '').trim();
+  if (!t) return '—';
+  if (font.widthOfTextAtSize(t, size) <= maxW) return t;
+  const ell = '…';
+  let lo = 0;
+  let hi = t.length;
+  let best = 0;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const cand = t.slice(0, mid) + ell;
+    if (font.widthOfTextAtSize(cand, size) <= maxW) {
+      best = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  return best <= 0 ? ell : t.slice(0, best) + ell;
 }
 
 function chunkText(s: string, max: number): string[] {

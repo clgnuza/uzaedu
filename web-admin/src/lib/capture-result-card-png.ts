@@ -89,9 +89,38 @@ export async function captureResultCardAsPng(
   async function afterLayout() {
     await new Promise<void>((resolve) => {
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => setTimeout(resolve, 48));
+        requestAnimationFrame(() => setTimeout(resolve, 80));
       });
     });
+  }
+
+  /** html2canvas bazen (özellikle ekran dışı klon) tüm beyaz raster döndürür; boyut yine de “normal” olabilir. */
+  async function blobLooksNearlyUniformWhite(blob: Blob): Promise<boolean> {
+    try {
+      const bmp = await createImageBitmap(blob);
+      const w = Math.min(48, bmp.width);
+      const h = Math.min(48, bmp.height);
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      if (!ctx) {
+        bmp.close();
+        return false;
+      }
+      ctx.drawImage(bmp, 0, 0, w, h);
+      bmp.close();
+      const d = ctx.getImageData(0, 0, w, h).data;
+      let sum = 0;
+      const n = (d.length / 4) | 0;
+      for (let i = 0; i < d.length; i += 4) {
+        sum += d[i]! + d[i + 1]! + d[i + 2]!;
+      }
+      const avg = n > 0 ? sum / (n * 3) : 0;
+      return avg >= 248;
+    } catch {
+      return false;
+    }
   }
 
   async function tryToPng(el: HTMLElement): Promise<Blob | null> {
@@ -181,12 +210,14 @@ export async function captureResultCardAsPng(
   const suspiciouslySmall = (b: Blob) => b.size < 1800;
 
   for (const el of candidates) {
-    const h2 = await tryHtml2Canvas(el);
-    if (h2 && !suspiciouslySmall(h2)) return h2;
     const png = await tryToPng(el);
-    if (png && !suspiciouslySmall(png)) return png;
-    if (h2) return h2;
+    if (png && !suspiciouslySmall(png) && !(await blobLooksNearlyUniformWhite(png))) return png;
+    const h2 = await tryHtml2Canvas(el);
+    if (h2 && !suspiciouslySmall(h2) && !(await blobLooksNearlyUniformWhite(h2))) return h2;
+    if (png && !(await blobLooksNearlyUniformWhite(png))) return png;
+    if (h2 && !(await blobLooksNearlyUniformWhite(h2))) return h2;
     if (png) return png;
+    if (h2) return h2;
   }
 
   return null;

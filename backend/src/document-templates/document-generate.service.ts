@@ -14,6 +14,7 @@ import * as XLSX from 'xlsx';
 import Docxtemplater from 'docxtemplater';
 import PizZip from 'pizzip';
 import { v4 as uuidv4 } from 'uuid';
+import { DEMO_SCHOOL_DISPLAY_NAME, LEGACY_DEMO_SCHOOL_NAME } from '../seed/demo-school.constants';
 import {
   AlignmentType,
   BorderStyle,
@@ -1626,7 +1627,14 @@ export class DocumentGenerateService {
     const zumreOgretmenleri = zumrelerRaw.trim();
 
     const okulAdi =
-      s(formData.okul_adi) ?? s(defaults.okul_adi) ?? (school?.name && school.name !== 'Demo Okulu' ? school.name : '') ?? '';
+      s(formData.okul_adi) ??
+      s(defaults.okul_adi) ??
+      (school?.name &&
+      school.name !== DEMO_SCHOOL_DISPLAY_NAME &&
+      school.name !== LEGACY_DEMO_SCHOOL_NAME
+        ? school.name
+        : '') ??
+      '';
     const mudurAdi =
       s(formData.mudur_adi) ?? s(defaults.mudur_adi) ?? school?.principalName ?? '';
 

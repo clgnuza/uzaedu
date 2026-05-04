@@ -120,6 +120,17 @@ export class ButterflyExamController {
     return this.service.createRoom(sid, dto);
   }
 
+  @Post('ensure-class-rooms')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  async ensureClassRooms(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Query('school_id') schoolId: string | undefined,
+  ) {
+    const sid = this.schoolId(payload, schoolId);
+    this.service.assertSchoolAccess(payload.role, payload.schoolId, sid);
+    return this.service.ensureClassExamRooms(sid);
+  }
+
   @Patch('rooms/:id')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   async updateRoom(
@@ -427,6 +438,20 @@ export class ButterflyExamController {
     const sid = this.schoolId(payload, schoolId);
     this.service.assertSchoolAccess(payload.role, payload.schoolId, sid);
     return this.service.listClassesWithStudentCounts(sid);
+  }
+
+  @Patch('classes/:classId/default-building')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  async setClassDefaultBuilding(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Query('school_id') schoolId: string | undefined,
+    @Param('classId') classId: string,
+    @Body() body: { building_id?: string | null },
+  ) {
+    const sid = this.schoolId(payload, schoolId);
+    this.service.assertSchoolAccess(payload.role, payload.schoolId, sid);
+    const bid = body?.building_id === undefined || body.building_id === '' ? null : body.building_id;
+    return this.service.setClassDefaultButterflyBuilding(sid, classId, bid);
   }
 
   @Get('students')

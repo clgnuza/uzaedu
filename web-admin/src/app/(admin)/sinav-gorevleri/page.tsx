@@ -201,6 +201,8 @@ type SkippedItem = {
   title: string;
   url: string;
   reason: string;
+  duplicate_of_url?: string | null;
+  duplicate_of_source_key?: string | null;
   list_section?: 'slider' | 'list' | 'rss' | 'recheck';
   section_order?: number;
   slider_pool_size?: number;
@@ -1441,7 +1443,7 @@ export default function SinavGorevleriPage() {
 
   const statsScopeLabel =
     mainView === 'list'
-      ? 'Sınav tarihi olan duyurular'
+      ? 'Sınav tarihi olan duyurular (liste)'
       : mainView === 'flow-calendar'
         ? 'Takvim (sınav tarihi olan)'
         : mainView === 'skipped'
@@ -1706,7 +1708,25 @@ export default function SinavGorevleriPage() {
                               '—'
                             )}
                           </td>
-                          <td className="px-4 py-2.5 text-muted-foreground text-xs leading-relaxed">{row.reason}</td>
+                          <td className="px-4 py-2.5 text-muted-foreground text-xs leading-relaxed">
+                            <span>{row.reason}</span>
+                            {row.duplicate_of_url ? (
+                              <>
+                                {' · '}
+                                <a
+                                  href={row.duplicate_of_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary underline font-medium"
+                                  title={row.duplicate_of_url}
+                                >
+                                  {row.duplicate_of_source_key === 'exam_duty_guncelegitim'
+                                    ? 'Güncel Eğitim (birincil)'
+                                    : 'Kayıtlı duyuru'}
+                                </a>
+                              </>
+                            ) : null}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1959,8 +1979,10 @@ export default function SinavGorevleriPage() {
                 <div>
                   <CardTitle className="text-base font-semibold">Liste</CardTitle>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Sınav tarihi olan duyurular. Tarih eksik taslak ve sync’te atlanan satırlar &quot;Atlananlar&quot; sekmesinde birleşir. Scrape kaynaklarda 1. slayt
-                    her sync’te kontrol edilir; kaynak yeri sütunu slayt/liste/RSS sırasını gösterir.
+                    Yalnız en az bir sınav tarihi alanı dolu kayıtlar. Sınav günü çıkmamış taslaklar bu listede değil; &quot;Atlananlar&quot;
+                    sekmesinin alt bölümünde (tarihsiz / sınav yok) listelenir. Sync’te atlanan satırlar da aynı sekmede. Takvim ayrıca
+                    sınav tarihi olanları kullanır. Scrape’de 1. slayt her sync’te kontrol edilir; kaynak yeri slayt/liste/RSS sırasını
+                    gösterir.
                   </p>
                 </div>
                 <Button

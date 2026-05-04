@@ -1,15 +1,28 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { butterflyExamApiQuery } from '@/lib/butterfly-exam-school-q';
+import { classesSubjectsHref } from '@/lib/school-classes-subjects-href';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { Alert } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { Plus, Users, X, Trash2, Upload, ClipboardPaste, Lock, UserPlus, UserMinus, ChevronRight } from 'lucide-react';
+import {
+  Plus,
+  Users,
+  X,
+  Trash2,
+  Lock,
+  UserPlus,
+  UserMinus,
+  ChevronRight,
+  ArrowUpRight,
+} from './kelebek-sinif-icons';
 import { cn } from '@/lib/utils';
 
 type ClassRow = { id: string; name: string; grade: number | null; section: string | null; studentCount: number };
@@ -47,12 +60,6 @@ export default function KelebekSinifOgrenciPage() {
   const [prioritizePinned, setPrioritizePinned] = useState(true);
   /** Yerleştirmeden sonra sabit öğrenci koltukları kilitlensin */
   const [lockPinnedAssignments, setLockPinnedAssignments] = useState(true);
-
-  // E-Okul paste modal
-  const [pasteModal, setPasteModal] = useState(false);
-  const [pasteText, setPasteText] = useState('');
-  const [pastePreview, setPastePreview] = useState<{ className: string; classId: string | null; count: number }[] | null>(null);
-  const [pasteLoading, setPasteLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -111,28 +118,6 @@ export default function KelebekSinifOgrenciPage() {
       toast.success('Silindi');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Silinemedi');
-    }
-  };
-
-  // E-Okul paste preview
-  const previewPaste = async () => {
-    if (!pasteText.trim() || !token) return;
-    setPasteLoading(true);
-    setPastePreview(null);
-    try {
-      const res = await apiFetch<{ created: number; skipped: number; classGroups: { className: string; classId: string | null; count: number }[] }>(
-        `/butterfly-exam/import/eokul-text${schoolQ}`,
-        { method: 'POST', token, body: JSON.stringify({ text: pasteText }) }
-      );
-      setPastePreview(res.classGroups);
-      toast.success(`Aktarıldı: ${res.created} öğrenci`, { description: `Atlandı: ${res.skipped}` });
-      setPasteModal(false);
-      setPasteText('');
-      void load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'İçe aktarım başarısız');
-    } finally {
-      setPasteLoading(false);
     }
   };
 
@@ -227,6 +212,7 @@ export default function KelebekSinifOgrenciPage() {
   }, {});
 
   const totalStudents = classes.reduce((s, c) => s + c.studentCount, 0);
+  const emptyClassCount = classes.filter((c) => c.studentCount === 0).length;
 
   const GRADE_COLORS: Record<number, { card: string; badge: string; dot: string; num: string; header: string }> = {
     9:  { card: 'border-sky-200/70 hover:border-sky-400/60 dark:border-sky-900/50',   badge: 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300',   dot: 'bg-sky-500',   num: 'text-sky-700 dark:text-sky-300',   header: 'from-sky-500 to-cyan-500' },
@@ -240,6 +226,32 @@ export default function KelebekSinifOgrenciPage() {
 
   return (
     <div className="min-w-0 space-y-4">
+      <Alert variant="info" className="rounded-2xl border-indigo-300/40 bg-gradient-to-r from-indigo-500/8 to-violet-500/8">
+        <p className="text-[13px] leading-relaxed">
+          <span className="font-semibold text-foreground">Kaynak:</span> Sınıf ve öğrenci listeleri okul kaydıyla aynıdır; tanım ve toplu liste için{' '}
+          <Link href={classesSubjectsHref('classes')} className="inline-flex items-center gap-0.5 font-semibold text-primary underline-offset-4 hover:underline">
+            Sınıflar ve Dersler <ArrowUpRight className="size-3.5" aria-hidden />
+          </Link>
+          {' '}(öğrenci atamaları:{' '}
+          <Link href={classesSubjectsHref('studentLists')} className="font-semibold text-primary underline-offset-4 hover:underline">
+            Öğrenci listeleri
+          </Link>
+          ) sekmesini kullanın.
+        </p>
+      </Alert>
+
+      {emptyClassCount > 0 && (
+        <Alert variant="warning" className="rounded-2xl">
+          <p className="text-[13px]">
+            <span className="font-semibold">{emptyClassCount}</span> şubede öğrenci yok. Yerleştirme öncesi listeleri tamamlayın:{' '}
+            <Link href={classesSubjectsHref('studentLists')} className="font-semibold underline-offset-4 hover:underline">
+              Öğrenci listeleri sekmesi
+            </Link>
+            .
+          </p>
+        </Alert>
+      )}
+
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div>
@@ -252,10 +264,6 @@ export default function KelebekSinifOgrenciPage() {
             <Button size="sm" variant="outline" className="w-full justify-center gap-1.5 border-rose-400/60 bg-rose-500/5 text-rose-700 sm:w-auto dark:text-rose-300"
               onClick={() => void openPinnedModal()}>
               <Lock className="size-4" /> Sabit Öğrenci
-            </Button>
-            <Button size="sm" variant="outline" className="w-full justify-center gap-1.5 border-emerald-400/60 bg-emerald-500/5 text-emerald-700 sm:w-auto dark:text-emerald-300"
-              onClick={() => setPasteModal(true)}>
-              <ClipboardPaste className="size-4" /> E-Okul Öğrenci Aktar
             </Button>
           </div>
         )}
@@ -273,10 +281,17 @@ export default function KelebekSinifOgrenciPage() {
 
       {/* Class Grid */}
       {classes.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 py-12 text-center dark:border-slate-700">
-          <Users className="mx-auto size-10 text-slate-400 mb-3" />
-          <p className="text-sm text-muted-foreground">Henüz sınıf eklenmemiş</p>
-          <p className="text-xs text-muted-foreground mt-1">Sınıf ve öğrenci verilerini <a href="/classes-subjects" className="text-primary underline">Sınıflar ve Dersler</a> sayfasından yönetin.</p>
+        <div className="rounded-2xl border border-dashed border-indigo-300/50 bg-gradient-to-b from-indigo-500/5 to-transparent px-6 py-14 text-center dark:border-indigo-800/50">
+          <Users className="mx-auto mb-4 size-12 text-indigo-400/80 dark:text-indigo-500/60" />
+          <p className="text-base font-semibold text-foreground">Sınıf tanımı yok</p>
+          <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+            Kertenkele bu okulun sınıflarını okul kaydından okur. Önce sınıf ve öğrenci listelerini oluşturun.
+          </p>
+          <Button asChild className="mt-6 gap-1.5 rounded-xl shadow-sm">
+            <Link href={classesSubjectsHref('classes')}>
+              Sınıflar ve Dersler <ArrowUpRight className="size-4" />
+            </Link>
+          </Button>
         </div>
       ) : (
         <div className="space-y-5">
@@ -410,8 +425,14 @@ export default function KelebekSinifOgrenciPage() {
                     ))}
                     {students.length === 0 && (
                       <tr>
-                        <td colSpan={isAdmin ? 3 : 2} className="py-8 text-center text-sm text-muted-foreground">
-                          Bu sınıfa henüz öğrenci eklenmemiş.
+                        <td colSpan={isAdmin ? 3 : 2} className="px-4 py-8">
+                          <p className="text-center text-sm text-muted-foreground">Bu şubede öğrenci yok.</p>
+                          <p className="mt-2 text-center text-xs">
+                            <Link href={classesSubjectsHref('studentLists')} className="font-medium text-primary underline-offset-4 hover:underline">
+                              Öğrenci listeleri
+                            </Link>
+                            {' '}sekmesinden atama yapın.
+                          </p>
                         </td>
                       </tr>
                     )}
@@ -614,61 +635,6 @@ export default function KelebekSinifOgrenciPage() {
         </div>
       )}
 
-      {/* E-Okul Paste Modal */}
-      {pasteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="flex h-[85vh] w-full max-w-2xl flex-col rounded-2xl border border-white/60 bg-white shadow-2xl dark:border-zinc-700/60 dark:bg-zinc-900">
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-zinc-800">
-              <div className="flex items-center gap-2">
-                <div className="rounded-lg bg-blue-100 p-2 dark:bg-blue-950/50">
-                  <Upload className="size-4 text-blue-600" />
-                </div>
-                <div>
-                  <p className="font-semibold text-sm">E-Okul Öğrenci Sınıf Aktarım</p>
-                  <p className="text-xs text-muted-foreground">E-Okuldan toplu öğrenci ve sınıf aktarımı</p>
-                </div>
-              </div>
-              <button onClick={() => setPasteModal(false)} className="rounded-full p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800">
-                <X className="size-4" />
-              </button>
-            </div>
-
-            <div className="flex flex-1 gap-4 overflow-hidden p-5">
-              <div className="flex flex-1 flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <ClipboardPaste className="size-4 text-blue-600" />
-                  <span className="text-sm font-medium">Yapıştırma Alanı (CTRL+V)</span>
-                  {pasteText && (
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      {pasteText.length} karakter · {pasteText.split('\n').filter(Boolean).length} satır
-                    </span>
-                  )}
-                </div>
-                <textarea
-                  className={cn(
-                    'flex-1 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs font-mono resize-none',
-                    'focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-zinc-700 dark:bg-zinc-800/60'
-                  )}
-                  placeholder="E-Okul'dan kopyaladığınız öğrenci listesini buraya yapıştırın..."
-                  value={pasteText}
-                  onChange={(e) => setPasteText(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between border-t border-slate-100 px-5 py-3 dark:border-zinc-800">
-              <Button variant="ghost" size="sm" onClick={() => setPasteModal(false)}>Geri</Button>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setPasteModal(false)}>İptal</Button>
-                <Button size="sm" disabled={!pasteText.trim() || pasteLoading}
-                  onClick={() => void previewPaste()} className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white">
-                  {pasteLoading ? <LoadingSpinner /> : <><Upload className="size-3.5" /> Aktar</>}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

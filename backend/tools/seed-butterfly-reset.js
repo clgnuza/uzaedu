@@ -155,11 +155,11 @@ async function run() {
   console.log('\n📋 Sınav planları oluşturuluyor...');
 
   const reportSettings = {
-    cityLine: 'Erzurum Valiliği\nErzurum Çok Programlı Anadolu Lisesi Müdürlüğü',
+    cityLine: 'Ankara Valiliği\nÇankaya Demo Lisesi Müdürlüğü',
     academicYear: '2025 - 2026 Eğitim - Öğretim Yılı',
-    duzenleyenName: 'Ali Bak',
+    duzenleyenName: 'Demo Düzenleyen',
     duzenleyenTitle: 'Müdür Yardımcısı',
-    onaylayanName: 'Ebubekir Coşkun',
+    onaylayanName: 'Demo Onaylayan',
     onaylayanTitle: 'Müdür',
   };
 

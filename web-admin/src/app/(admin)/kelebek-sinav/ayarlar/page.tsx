@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { toast } from 'sonner';
 import {
-  FileSpreadsheet, Settings2, Download, X, Plus, Trash2,
+  Settings2, Download, X, Plus, Trash2,
   GripHorizontal, Check, FileText, Upload, QrCode, FileUp,
   Printer, BookOpen, Users, LayoutList,
 } from 'lucide-react';
@@ -37,11 +37,6 @@ type Plan = {
 };
 
 type RoomRow = { id: string; name: string; buildingName?: string; capacity: number };
-
-type EokulPreview = {
-  headers: string[];
-  rows: Array<{ row: number; name: string; studentNumber: string | null; classRaw: string | null }>;
-};
 
 type FieldType = 'studentName' | 'studentNumber' | 'className' | 'attendance';
 type FieldItem = {
@@ -85,11 +80,6 @@ const TABS_DEF = [
     id: 'rules', label: 'Kural Ayarları', shortLabel: 'Kurallar', icon: Settings2,
     activeClass: 'from-rose-600 to-pink-600 shadow-rose-500/25 ring-rose-400/25',
     idleClass: 'text-rose-950/90 hover:bg-rose-500/10 dark:text-rose-100/90 dark:hover:bg-rose-950/40',
-  },
-  {
-    id: 'eokul', label: 'E-Okul Excel', shortLabel: 'E-Okul', icon: FileSpreadsheet,
-    activeClass: 'from-violet-600 to-fuchsia-600 shadow-violet-500/25 ring-violet-400/25',
-    idleClass: 'text-violet-950/90 hover:bg-violet-500/10 dark:text-violet-100/90 dark:hover:bg-violet-950/45',
   },
 ] as const;
 type TabId = typeof TABS_DEF[number]['id'];
@@ -144,10 +134,6 @@ export default function KelebekAyarlarPage() {
   const [fields, setFields] = useState<FieldItem[]>([]);
   const [dragging, setDragging] = useState<{ id: string; startX: number; startY: number; origXPct: number; origYPct: number } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
-
-  /* ─── E-Okul state ─── */
-  const [eokul, setEokul] = useState<EokulPreview | null>(null);
-  const [eokulLoading, setEokulLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -412,23 +398,6 @@ export default function KelebekAyarlarPage() {
       toast.error(e instanceof Error ? e.message : 'İndirilemedi');
     } finally {
       setPdfReport(false);
-    }
-  };
-
-  const onEokulFile = async (file: File | undefined) => {
-    if (!file || !token) return;
-    setEokulLoading(true); setEokul(null);
-    try {
-      const fd = new FormData(); fd.append('file', file);
-      const headers: Record<string, string> = {};
-      if (token !== COOKIE_SESSION_TOKEN) headers.Authorization = `Bearer ${token}`;
-      const res = await fetch(getApiUrl('/butterfly-exam/import/eokul-preview'), { method: 'POST', body: fd, credentials: 'include', headers });
-      if (!res.ok) { const j = await res.json().catch(() => ({})) as { message?: string }; throw new Error(j.message ?? 'Hata'); }
-      setEokul(await res.json() as EokulPreview);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Dosya okunamadı');
-    } finally {
-      setEokulLoading(false);
     }
   };
 
@@ -889,18 +858,18 @@ export default function KelebekAyarlarPage() {
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Başlık Bilgileri</p>
               <label className="block text-xs">
                 <span className="mb-1 block text-muted-foreground">Şehir / İl Satırı</span>
-                <Input value={cityLine} onChange={(e) => setCityLine(e.target.value)} placeholder="Erzurum Valiliği ..." className="h-8 text-xs" />
+                <Input value={cityLine} onChange={(e) => setCityLine(e.target.value)} placeholder="Ankara Valiliği (Enter) Çankaya Demo Lisesi Müdürlüğü" className="h-8 text-xs" />
               </label>
               <label className="block text-xs">
                 <span className="mb-1 block text-muted-foreground">Eğitim-Öğretim Yılı</span>
-                <Input value={academicYear} onChange={(e) => setAcademicYear(e.target.value)} placeholder="2025 - 2026 Eğitim - Öğretim Yılı" className="h-8 text-xs" />
+                <Input value={academicYear} onChange={(e) => setAcademicYear(e.target.value)} placeholder="Örn. 2025 - 2026 Eğitim - Öğretim Yılı" className="h-8 text-xs" />
               </label>
 
               <p className="pt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">İmza Bilgileri</p>
               <div className="grid grid-cols-2 gap-2">
                 <label className="block text-xs">
                   <span className="mb-1 block text-muted-foreground">Düzenleyen Adı</span>
-                  <Input value={duzenleyenName} onChange={(e) => setDuzenleyenName(e.target.value)} placeholder="Ad Soyad" className="h-8 text-xs" />
+                  <Input value={duzenleyenName} onChange={(e) => setDuzenleyenName(e.target.value)} placeholder="Örn. Demo Düzenleyen" className="h-8 text-xs" />
                 </label>
                 <label className="block text-xs">
                   <span className="mb-1 block text-muted-foreground">Ünvan</span>
@@ -908,7 +877,7 @@ export default function KelebekAyarlarPage() {
                 </label>
                 <label className="block text-xs">
                   <span className="mb-1 block text-muted-foreground">Onaylayan Adı</span>
-                  <Input value={onaylayanName} onChange={(e) => setOnaylayanName(e.target.value)} placeholder="Ad Soyad" className="h-8 text-xs" />
+                  <Input value={onaylayanName} onChange={(e) => setOnaylayanName(e.target.value)} placeholder="Örn. Demo Onaylayan" className="h-8 text-xs" />
                 </label>
                 <label className="block text-xs">
                   <span className="mb-1 block text-muted-foreground">Ünvan</span>
@@ -931,8 +900,8 @@ export default function KelebekAyarlarPage() {
               <div className="border-b border-slate-200 dark:border-zinc-700 px-4 py-3 text-center space-y-0.5">
                 <p className="text-[10px] text-slate-400">T.C.</p>
                 <p className="text-[10px] text-slate-500">{cityLine || 'İL / VALİLİK'}</p>
-                <p className="font-bold text-[11px]">{plans.find(p => p.id === planId)?.title?.split(' — ')[0] ?? 'Okul Adı'}</p>
-                <p className="text-[10px] text-slate-500">{academicYear || '2025 - 2026 Eğitim - Öğretim Yılı'}</p>
+                <p className="font-bold text-[11px]">{plans.find(p => p.id === planId)?.title?.split(' — ')[0] ?? 'Demo Lise'}</p>
+                <p className="text-[10px] text-slate-500">{academicYear || 'Örnek eğitim-öğretim yılı'}</p>
                 <p className="font-semibold text-[11px] text-indigo-700 dark:text-indigo-300">
                   {[...reportPlanIds][0] ? plans.find(p => p.id === [...reportPlanIds][0])?.title : 'Dönem Adı'}
                 </p>
@@ -1161,74 +1130,6 @@ export default function KelebekAyarlarPage() {
         </div>
       )}
 
-      {/* ═══ TAB: E-Okul Excel ═══ */}
-      {tab === 'eokul' && (
-        <div className="rounded-2xl border border-white/60 bg-white/80 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60">
-          <div className="border-b border-slate-100 px-5 py-4 dark:border-zinc-800">
-            <p className="font-semibold flex items-center gap-2">
-              <FileSpreadsheet className="size-4 text-emerald-600" /> E-Okul Excel Önizleme
-            </p>
-            <p className="text-xs text-muted-foreground">E-Okul'dan indirilen Excel dosyasını yükleyin</p>
-          </div>
-          <div className="p-5 space-y-4">
-            {!isAdmin ? (
-              <p className="text-sm text-muted-foreground">Bu işlem için yönetici yetkisi gerekli.</p>
-            ) : (
-              <>
-                <label className={cn(
-                  'flex cursor-pointer flex-col items-center gap-3 rounded-xl border-2 border-dashed p-8 transition',
-                  'border-emerald-300/60 bg-emerald-50/50 hover:bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20'
-                )}>
-                  <Upload className="size-8 text-emerald-500" />
-                  <div className="text-center">
-                    <p className="text-sm font-medium">Excel Dosyası Seç</p>
-                    <p className="text-xs text-muted-foreground">.xlsx veya .xls formatında E-Okul öğrenci listesi</p>
-                  </div>
-                  <input type="file" className="sr-only"
-                    accept=".xlsx,.xls,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    disabled={eokulLoading}
-                    onChange={(e) => void onEokulFile(e.target.files?.[0])} />
-                </label>
-
-                {eokulLoading && <div className="flex justify-center py-4"><LoadingSpinner /></div>}
-
-                {eokul && eokul.rows.length > 0 && (
-                  <div>
-                    <p className="mb-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                      ✅ {eokul.rows.length} satır bulundu
-                    </p>
-                    <div className="overflow-auto rounded-xl border border-slate-200 dark:border-zinc-700 max-h-72">
-                      <table className="w-full min-w-[400px] text-xs">
-                        <thead className="sticky top-0 bg-slate-50 dark:bg-zinc-800/80 text-[10px] uppercase tracking-wide text-muted-foreground">
-                          <tr>
-                            <th className="px-3 py-2.5 text-left">Satır</th>
-                            <th className="px-3 py-2.5 text-left">Ad Soyad</th>
-                            <th className="px-3 py-2.5 text-left">Öğrenci No</th>
-                            <th className="px-3 py-2.5 text-left">Sınıf</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {eokul.rows.slice(0, 100).map((row) => (
-                            <tr key={row.row} className="border-t border-slate-100 hover:bg-slate-50 dark:border-zinc-800 dark:hover:bg-zinc-800/30">
-                              <td className="px-3 py-1.5 text-muted-foreground tabular-nums">{row.row}</td>
-                              <td className="px-3 py-1.5 font-medium">{row.name}</td>
-                              <td className="px-3 py-1.5 tabular-nums">{row.studentNumber ?? '—'}</td>
-                              <td className="px-3 py-1.5">{row.classRaw ?? '—'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {eokul.rows.length > 100 && (
-                      <p className="mt-1 text-xs text-center text-muted-foreground">+ {eokul.rows.length - 100} daha...</p>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
