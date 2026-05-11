@@ -24,7 +24,6 @@ const ROUTE_PREFIX_TO_MARKET_MODULE: [string, SchoolModuleKey][] = [
   ['/extra-lesson-params', 'extra_lesson'],
   ['/ek-ders-hesaplama', 'extra_lesson'],
   ['/optik-okuma-ayarlar', 'optical'],
-  ['/classes-subjects', 'bilsem'],
   ['/duty', 'duty'],
   ['/tv', 'tv'],
   ['/akilli-tahta', 'smart_board'],

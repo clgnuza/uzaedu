@@ -36,6 +36,7 @@ export type PrintStudentNote = {
   description?: string | null;
 };
 export type PrintSubjectOption = { id: string; label: string };
+export type PrintClassOption = { id: string; label: string };
 
 function escapeHtml(s: string) {
   return String(s ?? '')
@@ -71,8 +72,10 @@ export function PrintReportModal({
   token,
   initialListId,
   initialSubjectFilterId,
+  initialClassFilterId,
   lists,
   subjects,
+  classes,
   allCriteria,
   me,
 }: {
@@ -81,13 +84,16 @@ export function PrintReportModal({
   token: string | null;
   initialListId: string | null;
   initialSubjectFilterId: string | null;
+  initialClassFilterId: string | null;
   lists: PrintStudentList[];
   subjects: PrintSubjectOption[];
+  classes: PrintClassOption[];
   allCriteria: PrintCriterion[];
   me: Me;
 }) {
   const [printListId, setPrintListId] = useState<string | null>(null);
   const [printSubjectId, setPrintSubjectId] = useState<string | null>(null);
+  const [printClassId, setPrintClassId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [students, setStudents] = useState<PrintStudent[]>([]);
   const [scores, setScores] = useState<PrintScore[]>([]);
@@ -98,18 +104,22 @@ export function PrintReportModal({
     if (!open) return;
     setPrintListId(initialListId);
     setPrintSubjectId(initialSubjectFilterId);
-  }, [open, initialListId, initialSubjectFilterId]);
+    setPrintClassId(initialClassFilterId);
+  }, [open, initialListId, initialSubjectFilterId, initialClassFilterId]);
 
   useEffect(() => {
     if (!open) return;
     if (!token) return;
-    const listId = printListId ?? undefined;
+    const params = new URLSearchParams();
+    if (printListId) params.set('listId', printListId);
+    if (printClassId) params.set('classId', printClassId);
+    const q = params.toString();
     setLoading(true);
     apiFetch<{
       students: PrintStudent[];
       scores: PrintScore[];
       studentNotes?: PrintStudentNote[];
-    }>(`/teacher-agenda/evaluation${listId ? `?listId=${encodeURIComponent(listId)}` : ''}`, { token })
+    }>(`/teacher-agenda/evaluation${q ? `?${q}` : ''}`, { token })
       .then((res) => {
         const st = res.students ?? [];
         setStudents(st);
@@ -124,7 +134,7 @@ export function PrintReportModal({
         setPickStudents(new Set());
       })
       .finally(() => setLoading(false));
-  }, [open, token, printListId]);
+  }, [open, token, printListId, printClassId]);
 
   const criteriaCols = useMemo(() => {
     if (printSubjectId === null) return allCriteria;
@@ -152,7 +162,9 @@ export function PrintReportModal({
     if (selectedStudents.length === 0 || criteriaCols.length === 0) return;
 
     const listLabel =
-      printListId === null ? 'Tüm öğrenciler (yüklenen liste)' : lists.find((l) => l.id === printListId)?.name ?? 'Liste';
+      printListId === null ? 'Tüm öğrenciler (Gruplar ve Dersler)' : lists.find((l) => l.id === printListId)?.name ?? 'Liste';
+    const classLabel =
+      printClassId === null ? 'Tüm sınıflar' : classes.find((c) => c.id === printClassId)?.label ?? printClassId;
     const subjectLabel =
       printSubjectId === null ? 'Tüm dersler' : subjects.find((s) => s.id === printSubjectId)?.label ?? printSubjectId;
 
@@ -257,7 +269,8 @@ export function PrintReportModal({
   <div class="meta">
     <div><b>Okul</b> ${school}</div>
     <div><b>Öğretmen</b> ${teacher}</div>
-    <div><b>Sınıf / liste</b> ${escapeHtml(listLabel)}</div>
+    <div><b>Liste</b> ${escapeHtml(listLabel)}</div>
+    <div><b>Şube / sınıf</b> ${escapeHtml(classLabel)}</div>
     <div><b>Ders filtresi</b> ${escapeHtml(subjectLabel)}</div>
     <div><b>Yazdırma</b> ${escapeHtml(printedAt)}</div>
     <div><b>Öğrenci</b> ${selectedStudents.length} kişi</div>
@@ -287,7 +300,7 @@ export function PrintReportModal({
     w.document.close();
     w.focus();
     w.print();
-  }, [selectedStudents, criteriaCols, scores, notes, me, printListId, lists, printSubjectId, subjects]);
+  }, [selectedStudents, criteriaCols, scores, notes, me, printListId, lists, printSubjectId, subjects, printClassId, classes]);
 
   if (!open) return null;
 
@@ -312,10 +325,25 @@ export function PrintReportModal({
               onChange={(e) => setPrintListId(e.target.value || null)}
               className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm"
             >
-              <option value="">Tüm öğrenciler (okul listesi, üst sınır)</option>
+              <option value="">Tüm öğrenciler (Gruplar ve Dersler)</option>
               {lists.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Şube / sınıf (öğrenci havuzu)</label>
+            <select
+              value={printClassId ?? ''}
+              onChange={(e) => setPrintClassId(e.target.value || null)}
+              className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm"
+            >
+              <option value="">Tüm sınıflar</option>
+              {classes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
                 </option>
               ))}
             </select>

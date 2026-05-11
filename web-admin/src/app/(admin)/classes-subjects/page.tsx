@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useSchoolClassesSubjects } from '@/hooks/use-school-classes-subjects';
@@ -9,10 +9,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Layers3, Library, Upload } from 'lucide-react';
+import { Plus, Pencil, Trash2, Layers3, Library, Upload, ChevronDown, ChevronRight } from 'lucide-react';
 import { ToolbarIconHints } from '@/components/layout/toolbar-icon-hints';
 import { cn } from '@/lib/utils';
 import type { SchoolClass, SchoolSubject } from '@/hooks/use-school-classes-subjects';
+import type { Me } from '@/hooks/use-auth';
 
 type TabId = 'classes' | 'subjects' | 'studentLists';
 type SchoolStudent = {
@@ -223,11 +224,15 @@ function EokulSubjectsXlsImportPanel({ token, onDone }: { token: string | null; 
 function ClassStudentsPanel({
   token,
   classes,
-  canManage,
+  manualEditable,
+  bulkImportEnabled,
+  me,
 }: {
   token: string | null;
   classes: SchoolClass[];
-  canManage: boolean;
+  manualEditable: boolean;
+  bulkImportEnabled: boolean;
+  me: Me | null;
 }) {
   const [selectedClassId, setSelectedClassId] = useState<string>('');
   const [students, setStudents] = useState<SchoolStudent[]>([]);
@@ -235,6 +240,50 @@ function ClassStudentsPanel({
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ firstName: '', lastName: '', studentNumber: '', gender: '', birthDate: '' });
   const [importing, setImporting] = useState(false);
+  const [overviewOpen, setOverviewOpen] = useState(false);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [overviewByClass, setOverviewByClass] = useState<Record<string, SchoolStudent[]> | null>(null);
+
+  const { schoolClasses, ownClasses } = useMemo(() => {
+    const uid = me?.id;
+    const schoolOwned: SchoolClass[] = [];
+    const teacherOwned: SchoolClass[] = [];
+    for (const c of classes) {
+      if (c.ownerUserId && uid && c.ownerUserId === uid) teacherOwned.push(c);
+      else schoolOwned.push(c);
+    }
+    return { schoolClasses: schoolOwned, ownClasses: teacherOwned };
+  }, [classes, me?.id]);
+
+  const classLabel = useCallback((c: SchoolClass) => {
+    const g = c.grade != null ? `${c.grade}` : '';
+    const sec = c.section?.trim();
+    const bits = [c.name, g && sec ? `${g}/${sec}` : g || sec].filter(Boolean);
+    return bits.join(' · ');
+  }, []);
+
+  useEffect(() => {
+    setOverviewByClass(null);
+  }, [classes]);
+
+  const loadOverview = useCallback(async () => {
+    if (!token || classes.length === 0) return;
+    setOverviewLoading(true);
+    try {
+      const pairs = await Promise.all(
+        classes.map(async (c) => {
+          const list = await apiFetch<SchoolStudent[]>(`/classes-subjects/classes/${c.id}/students`, { token }).catch(
+            () => [] as SchoolStudent[],
+          );
+          return [c.id, list] as const;
+        }),
+      );
+      setOverviewByClass(Object.fromEntries(pairs));
+    } finally {
+      setOverviewLoading(false);
+    }
+  }, [token, classes]);
+
 
   const loadStudents = useCallback(async () => {
     if (!token || !selectedClassId) {
@@ -261,7 +310,7 @@ function ClassStudentsPanel({
   }, [loadStudents]);
 
   const saveStudent = useCallback(async () => {
-    if (!token || !selectedClassId || !form.firstName.trim() || !form.lastName.trim()) return;
+    if (!manualEditable || !token || !selectedClassId || !form.firstName.trim() || !form.lastName.trim()) return;
     try {
         await apiFetch(`/classes-subjects/classes/${selectedClassId}/students`, {
         method: 'POST',
@@ -281,11 +330,11 @@ function ClassStudentsPanel({
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Eklenemedi');
     }
-  }, [token, selectedClassId, form, loadStudents]);
+  }, [manualEditable, token, selectedClassId, form, loadStudents]);
 
   const updateStudent = useCallback(
     async (id: string, patch: { name?: string; studentNumber?: string | null; firstName?: string; lastName?: string; gender?: string | null; birthDate?: string | null }) => {
-      if (!token) return;
+      if (!manualEditable || !token) return;
       try {
         await apiFetch(`/classes-subjects/students/${id}`, {
           method: 'PATCH',
@@ -297,12 +346,12 @@ function ClassStudentsPanel({
         toast.error(e instanceof Error ? e.message : 'Güncellenemedi');
       }
     },
-    [token, loadStudents],
+    [manualEditable, token, loadStudents],
   );
 
   const deleteStudent = useCallback(
     async (id: string) => {
-      if (!token) return;
+      if (!manualEditable || !token) return;
       if (!confirm('Öğrenci silinsin mi?')) return;
       try {
         await apiFetch(`/classes-subjects/students/${id}`, { method: 'DELETE', token });
@@ -311,11 +360,11 @@ function ClassStudentsPanel({
         toast.error(e instanceof Error ? e.message : 'Silinemedi');
       }
     },
-    [token, loadStudents],
+    [manualEditable, token, loadStudents],
   );
 
   const deleteAllStudents = useCallback(async () => {
-    if (!token || !selectedClassId) return;
+    if (!manualEditable || !token || !selectedClassId) return;
     if (!confirm('Bu sınıftaki tüm öğrenciler silinsin mi?')) return;
     try {
       await apiFetch(`/classes-subjects/classes/${selectedClassId}/students`, { method: 'DELETE', token });
@@ -324,11 +373,11 @@ function ClassStudentsPanel({
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Toplu silinemedi');
     }
-  }, [token, selectedClassId, loadStudents]);
+  }, [manualEditable, token, selectedClassId, loadStudents]);
 
   const importXls = useCallback(
     async (file: File | null) => {
-      if (!token || !file) return;
+      if (!bulkImportEnabled || !token || !file) return;
       const body = new FormData();
       body.append('file', file);
       setImporting(true);
@@ -349,7 +398,7 @@ function ClassStudentsPanel({
         setImporting(false);
       }
     },
-    [token, loadStudents],
+    [bulkImportEnabled, token, loadStudents],
   );
 
   return (
@@ -358,38 +407,121 @@ function ClassStudentsPanel({
         <CardTitle className="text-xs font-bold sm:text-base">Sınıf Listeleri</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2 p-2.5 sm:p-3">
-        <div className="rounded-xl border border-violet-500/25 bg-linear-to-br from-violet-500/12 via-fuchsia-500/8 to-sky-500/10 p-2 shadow-sm">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-900 dark:text-violet-200 sm:text-[11px]">
-            e-Okul Excel veri raporu ile tüm sınıflara toplu öğrenci yükleme (OOG01001R070)
+        {bulkImportEnabled && (
+          <div className="rounded-xl border border-violet-500/25 bg-linear-to-br from-violet-500/12 via-fuchsia-500/8 to-sky-500/10 p-2 shadow-sm">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-900 dark:text-violet-200 sm:text-[11px]">
+              e-Okul Excel veri raporu ile tüm sınıflara toplu öğrenci yükleme (OOG01001R070)
+            </div>
+            <div className="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-3">
+              <div className="rounded-lg border border-violet-400/30 bg-background/80 px-2 py-1">
+                <p className="text-[10px] font-semibold text-foreground">1) Excel seç</p>
+                <p className="text-[10px] text-muted-foreground">Zorunlu: e-Okul OOG01001R070 Şube Listesi (Doğum Tarihi Yaş)</p>
+              </div>
+              <div className="rounded-lg border border-fuchsia-400/30 bg-background/80 px-2 py-1">
+                <p className="text-[10px] font-semibold text-foreground">2) Tüm sınıfları eşleştir</p>
+                <p className="text-[10px] text-muted-foreground">Sınıf + şube ile tekilleştirme</p>
+              </div>
+              <div className="rounded-lg border border-sky-400/30 bg-background/80 px-2 py-1">
+                <p className="text-[10px] font-semibold text-foreground">3) Listeyi güncelle</p>
+                <p className="text-[10px] text-muted-foreground">No, adı, soyadı, cinsiyet, doğum</p>
+              </div>
+            </div>
           </div>
-          <div className="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-3">
-            <div className="rounded-lg border border-violet-400/30 bg-background/80 px-2 py-1">
-              <p className="text-[10px] font-semibold text-foreground">1) Excel seç</p>
-              <p className="text-[10px] text-muted-foreground">Zorunlu: e-Okul OOG01001R070 Şube Listesi (Doğum Tarihi Yaş)</p>
-            </div>
-            <div className="rounded-lg border border-fuchsia-400/30 bg-background/80 px-2 py-1">
-              <p className="text-[10px] font-semibold text-foreground">2) Tüm sınıfları eşleştir</p>
-              <p className="text-[10px] text-muted-foreground">Sınıf + şube ile tekilleştirme</p>
-            </div>
-            <div className="rounded-lg border border-sky-400/30 bg-background/80 px-2 py-1">
-              <p className="text-[10px] font-semibold text-foreground">3) Listeyi güncelle</p>
-              <p className="text-[10px] text-muted-foreground">No, adı, soyadı, cinsiyet, doğum</p>
-            </div>
+        )}
+        {manualEditable && !bulkImportEnabled && (
+          <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-2 py-1.5 text-[10px] text-sky-950 dark:bg-sky-950/30 dark:text-sky-100 sm:text-xs">
+            <span className="font-semibold">Manuel giriş:</span> Öğrenci ekleyip aşağıdaki tabloda düzenleyebilirsiniz. Toplu e‑Okul Excel içe aktarma yalnızca okul yöneticisi içindir.
           </div>
-        </div>
+        )}
+        {classes.length > 0 && (
+          <div className="rounded-lg border border-border/60 bg-muted/15">
+            <button
+              type="button"
+              onClick={() => {
+                setOverviewOpen((prev) => {
+                  const next = !prev;
+                  if (next) void loadOverview();
+                  return next;
+                });
+              }}
+              className="flex w-full items-center justify-between gap-2 px-2 py-2 text-left text-[11px] font-semibold text-foreground sm:text-xs"
+              aria-expanded={overviewOpen}
+            >
+              <span>Sınıflara göre öğrenci özeti</span>
+              {overviewOpen ? <ChevronDown className="size-4 shrink-0 opacity-70" /> : <ChevronRight className="size-4 shrink-0 opacity-70" />}
+            </button>
+            {overviewOpen && (
+              <div className="max-h-[min(60vh,28rem)] space-y-2 overflow-y-auto border-t border-border/60 p-2">
+                {overviewLoading ? (
+                  <p className="px-1 py-2 text-xs text-muted-foreground">Yükleniyor…</p>
+                ) : overviewByClass ? (
+                  classes.map((c) => {
+                    const list = overviewByClass[c.id] ?? [];
+                    return (
+                      <div key={c.id} className="rounded-md border border-border/50 bg-background/90 px-2 py-1.5">
+                        <div className="text-[11px] font-bold leading-tight">{classLabel(c)}</div>
+                        <div className="text-[10px] text-muted-foreground">{list.length} öğrenci</div>
+                        <ul className="mt-1 max-h-28 space-y-0.5 overflow-y-auto text-[11px]">
+                          {list.length === 0 ? (
+                            <li className="italic text-muted-foreground">Bu sınıfta kayıt yok</li>
+                          ) : (
+                            list.map((s) => (
+                              <li key={s.id} className="truncate">
+                                {s.name}
+                              </li>
+                            ))
+                          )}
+                        </ul>
+                      </div>
+                    );
+                  })
+                ) : null}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
           <select
             value={selectedClassId}
             onChange={(e) => setSelectedClassId(e.target.value)}
             className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-xs sm:text-sm"
+            aria-label="Öğrenci listesi için sınıf"
           >
-            {classes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
+            {classes.length === 0 ? (
+              <option value="" disabled>
+                Önce sınıf ekleyin
               </option>
-            ))}
+            ) : me?.role === 'teacher' ? (
+              <>
+                {schoolClasses.length > 0 && (
+                  <optgroup label={ownClasses.length > 0 ? 'Okul sınıfları' : 'Sınıflar'}>
+                    {schoolClasses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {classLabel(c)}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {ownClasses.length > 0 && (
+                  <optgroup label={schoolClasses.length > 0 ? 'Kendi eklediğim sınıflar' : 'Sınıflarım'}>
+                    {ownClasses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {classLabel(c)}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </>
+            ) : (
+              classes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {classLabel(c)}
+                </option>
+              ))
+            )}
           </select>
-          {canManage && (
+          {bulkImportEnabled && (
             <label className="inline-flex cursor-pointer items-center justify-center rounded-lg border border-input bg-background px-2 py-1.5 text-[10px] font-medium hover:bg-muted sm:text-xs">
               {importing ? 'Yükleniyor…' : 'Tüm Sınıflara Excel Yükle'}
               <input
@@ -401,11 +533,13 @@ function ClassStudentsPanel({
             </label>
           )}
         </div>
-        <p className="text-[10px] text-muted-foreground sm:text-xs">
-          Toplu yükleme için e-Okul Excel veri raporu zorunludur. Seçili sınıfa değil dosyadaki tüm sınıflara göre işler.
-        </p>
+        {bulkImportEnabled && (
+          <p className="text-[10px] text-muted-foreground sm:text-xs">
+            Toplu yükleme için e-Okul Excel veri raporu zorunludur. Seçili sınıfa değil dosyadaki tüm sınıflara göre işler.
+          </p>
+        )}
 
-        {canManage && (
+        {manualEditable && (
           <div className="flex gap-1">
             {!adding ? (
               <>
@@ -476,6 +610,7 @@ function ClassStudentsPanel({
             students.map((s) => (
               <li key={s.id} className="grid grid-cols-[72px_minmax(120px,1fr)_minmax(120px,1fr)_88px_120px_auto] items-center gap-2 px-2 py-1.5">
                 <input
+                  readOnly={!manualEditable}
                   defaultValue={s.studentNumber ?? ''}
                   onBlur={(e) => {
                     const v = e.target.value.trim();
@@ -484,6 +619,7 @@ function ClassStudentsPanel({
                   className="w-20 rounded border border-input bg-background px-1.5 py-1 text-[11px]"
                 />
                 <input
+                  readOnly={!manualEditable}
                   defaultValue={s.firstName ?? s.name.split(' ').slice(0, -1).join(' ')}
                   onBlur={(e) => {
                     const v = e.target.value.trim();
@@ -492,6 +628,7 @@ function ClassStudentsPanel({
                   className="min-w-0 flex-1 rounded border border-input bg-background px-1.5 py-1 text-[11px]"
                 />
                 <input
+                  readOnly={!manualEditable}
                   defaultValue={s.lastName ?? s.name.split(' ').slice(-1).join(' ')}
                   onBlur={(e) => {
                     const v = e.target.value.trim();
@@ -500,6 +637,7 @@ function ClassStudentsPanel({
                   className="min-w-0 flex-1 rounded border border-input bg-background px-1.5 py-1 text-[11px]"
                 />
                 <input
+                  readOnly={!manualEditable}
                   defaultValue={s.gender ?? ''}
                   onBlur={(e) => {
                     const v = e.target.value.trim();
@@ -508,6 +646,7 @@ function ClassStudentsPanel({
                   className="rounded border border-input bg-background px-1.5 py-1 text-[11px]"
                 />
                 <input
+                  readOnly={!manualEditable}
                   defaultValue={s.birthDate ?? ''}
                   onBlur={(e) => {
                     const v = e.target.value.trim();
@@ -515,7 +654,7 @@ function ClassStudentsPanel({
                   }}
                   className="rounded border border-input bg-background px-1.5 py-1 text-[11px]"
                 />
-                {canManage && (
+                {manualEditable && (
                   <button type="button" onClick={() => deleteStudent(s.id)} className="rounded border border-destructive/35 px-2 py-1 text-[10px] text-destructive">
                     Sil
                   </button>
@@ -529,13 +668,22 @@ function ClassStudentsPanel({
   );
 }
 
-export default function ClassesSubjectsPage() {
+function ClassesSubjectsView() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { token, me } = useAuth();
+  const { token, me, loading: authLoading } = useAuth();
   const isBilsem = me?.school?.enabled_modules?.includes('bilsem') ?? false;
-  const { classes, subjects, loading, error, refetch, canManage } = useSchoolClassesSubjects();
+  const { classes, subjects, loading, error, refetch, canManageSchool } = useSchoolClassesSubjects();
+  const canManageSchoolBool = !!canManageSchool;
+  const canEditStudentListsManually =
+    canManageSchoolBool || (me?.role === 'teacher' && !!me?.school_id);
+  const canAddClassOrSubject = me?.role === 'school_admin' || me?.role === 'teacher';
+  const canEditClassRow = (c: SchoolClass) =>
+    canManageSchoolBool || (me?.role === 'teacher' && !!me?.id && c.ownerUserId === me.id);
+  const canEditSubjectRow = (s: SchoolSubject) =>
+    canManageSchoolBool || (me?.role === 'teacher' && !!me?.id && s.ownerUserId === me.id);
+  const showStudentTab = !(me?.role === 'teacher' && !me?.school_id);
   const [classForm, setClassForm] = useState<{ name: string; grade: string; section: string } | null>(null);
   const [subjectForm, setSubjectForm] = useState<{ name: string; code: string } | null>(null);
   const [editingClass, setEditingClass] = useState<SchoolClass | null>(null);
@@ -561,6 +709,14 @@ export default function ClassesSubjectsPage() {
       router.replace(`${pathname}?${p.toString()}`, { scroll: false });
     }
   }, [tabParam, pathname, router, searchParams]);
+
+  useEffect(() => {
+    if (!showStudentTab && tabParam === 'studentLists') {
+      const p = new URLSearchParams(searchParams.toString());
+      p.set('tab', 'classes');
+      router.replace(`${pathname}?${p.toString()}`, { scroll: false });
+    }
+  }, [showStudentTab, tabParam, pathname, router, searchParams]);
 
   const handleSaveClass = useCallback(async () => {
     if (!token || !classForm) return;
@@ -668,8 +824,22 @@ export default function ClassesSubjectsPage() {
     [token, refetch],
   );
 
+  const tabAll: { id: TabId; label: string; short: string; count: number; Icon: typeof Layers3 }[] = [
+    { id: 'classes', label: 'Sınıflar/Gruplar', short: 'Sınıf/Grup', count: classes.length, Icon: Layers3 },
+    { id: 'subjects', label: isBilsem ? 'Alan / dersler' : 'Dersler', short: 'Ders', count: subjects.length, Icon: Library },
+    { id: 'studentLists', label: 'Sınıf Listeleri', short: 'Öğrenci', count: classes.length, Icon: Layers3 },
+  ];
+  const tabDefs = showStudentTab ? tabAll : tabAll.filter((t) => t.id !== 'studentLists');
 
-  if (me?.role !== 'school_admin') {
+  if (authLoading) {
+    return (
+      <div className="flex min-h-[200px] items-center justify-center">
+        <LoadingSpinner className="size-8" />
+      </div>
+    );
+  }
+
+  if (me?.role !== 'school_admin' && me?.role !== 'teacher') {
     router.replace('/403');
     return null;
   }
@@ -681,12 +851,6 @@ export default function ClassesSubjectsPage() {
       </div>
     );
   }
-
-  const tabDefs: { id: TabId; label: string; short: string; count: number; Icon: typeof Layers3 }[] = [
-    { id: 'classes', label: 'Sınıflar/Gruplar', short: 'Sınıf/Grup', count: classes.length, Icon: Layers3 },
-    { id: 'subjects', label: isBilsem ? 'Alan / dersler' : 'Dersler', short: 'Ders', count: subjects.length, Icon: Library },
-    { id: 'studentLists', label: 'Sınıf Listeleri', short: 'Öğrenci', count: classes.length, Icon: Layers3 },
-  ];
 
   const inp = 'w-full rounded-lg border border-input bg-background px-2 py-1.5 text-xs sm:px-2.5 sm:py-2 sm:text-sm';
 
@@ -707,6 +871,11 @@ export default function ClassesSubjectsPage() {
                 {isBilsem
                   ? 'Bilsem öbekleri ve alan/ders listesi; tek kaynak.'
                   : 'Sınıf ve ders listesi ders programı ile diğer modüllerde ortak kullanılır.'}
+                {me?.role === 'teacher' && (
+                  <span className="mt-1 block text-sky-800/90 dark:text-sky-200/90">
+                    Okulun resmi sınıf/ders satırları salt okunur; kendi gruplarınızı ve derslerinizi ekleyip yönetebilirsiniz. Okula bağlıysanız «Sınıf listeleri»nde manuel öğrenci ekleyebilirsiniz; toplu e‑Okul Excel yalnızca yöneticidedir.
+                  </span>
+                )}
               </p>
               <ToolbarIconHints
                 compact
@@ -741,7 +910,10 @@ export default function ClassesSubjectsPage() {
       <div
         role="tablist"
         aria-label="Liste sekmeleri"
-        className="grid grid-cols-3 gap-1 rounded-xl border border-border/70 bg-linear-to-r from-emerald-500/10 via-sky-500/10 to-violet-500/10 p-1 shadow-sm ring-1 ring-black/[0.03] dark:ring-white/[0.06] sm:max-w-xl"
+        className={cn(
+          'grid gap-1 rounded-xl border border-border/70 bg-linear-to-r from-emerald-500/10 via-sky-500/10 to-violet-500/10 p-1 shadow-sm ring-1 ring-black/[0.03] dark:ring-white/[0.06] sm:max-w-xl',
+          tabDefs.length >= 3 ? 'grid-cols-3' : 'grid-cols-2',
+        )}
       >
         {tabDefs.map(({ id, label, short, count, Icon }) => {
           const active = tab === id;
@@ -803,7 +975,7 @@ export default function ClassesSubjectsPage() {
                 </span>
                 <span className="truncate">{isBilsem ? 'Gruplar' : 'Sınıflar'}</span>
               </CardTitle>
-              {canManage && !classForm && (
+              {canAddClassOrSubject && !classForm && (
                 <button
                   type="button"
                   onClick={() => {
@@ -886,7 +1058,7 @@ export default function ClassesSubjectsPage() {
                         </span>
                       )}
                     </div>
-                    {canManage && (
+                    {canEditClassRow(c) && (
                       <div className="flex shrink-0 gap-0.5">
                         <button
                           type="button"
@@ -917,7 +1089,7 @@ export default function ClassesSubjectsPage() {
                 ))
               )}
             </ul>
-            {canManage ? <EokulPdfImportPanel token={token} onDone={refetch} /> : <BulkImportSettingsPanel variant="classes" isBilsem={isBilsem} />}
+            {canManageSchoolBool ? <EokulPdfImportPanel token={token} onDone={refetch} /> : <BulkImportSettingsPanel variant="classes" isBilsem={isBilsem} />}
           </CardContent>
         </Card>
       )}
@@ -932,7 +1104,7 @@ export default function ClassesSubjectsPage() {
                 </span>
                 <span className="truncate">{isBilsem ? 'Alan / dersler' : 'Dersler'}</span>
               </CardTitle>
-              {canManage && !subjectForm && (
+              {canAddClassOrSubject && !subjectForm && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1002,7 +1174,7 @@ export default function ClassesSubjectsPage() {
                           {s.code}
                         </span>
                       )}
-                      {canManage && (
+                      {canEditSubjectRow(s) && (
                         <div className="flex gap-0.5">
                           <button
                             type="button"
@@ -1030,12 +1202,34 @@ export default function ClassesSubjectsPage() {
                 ))
               )}
             </ul>
-            {canManage ? <EokulSubjectsXlsImportPanel token={token} onDone={refetch} /> : <BulkImportSettingsPanel variant="subjects" isBilsem={isBilsem} />}
+            {canManageSchoolBool ? <EokulSubjectsXlsImportPanel token={token} onDone={refetch} /> : <BulkImportSettingsPanel variant="subjects" isBilsem={isBilsem} />}
           </CardContent>
         </Card>
       )}
 
-      {tab === 'studentLists' && <ClassStudentsPanel token={token} classes={classes} canManage={canManage} />}
+      {tab === 'studentLists' && (
+        <ClassStudentsPanel
+          token={token}
+          classes={classes}
+          manualEditable={canEditStudentListsManually}
+          bulkImportEnabled={canManageSchoolBool}
+          me={me ?? null}
+        />
+      )}
     </div>
+  );
+}
+
+export default function ClassesSubjectsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[200px] items-center justify-center">
+          <LoadingSpinner className="size-8" />
+        </div>
+      }
+    >
+      <ClassesSubjectsView />
+    </Suspense>
   );
 }

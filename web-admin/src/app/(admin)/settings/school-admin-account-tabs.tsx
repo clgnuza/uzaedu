@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Shield,
   FileDown,
+  FileText,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,10 +23,11 @@ import { EditProfileForm, ChangePasswordForm } from '@/components/account/profil
 import { LoginOtpPreference } from '@/components/account/login-otp-preference';
 import { DeleteAccountButton } from '@/components/account/data-privacy-actions';
 import { BackupExportPanel } from '@/components/account/backup-export-panel';
+import { SchoolAdminBelgeForm } from '@/components/account/school-admin-belge-form';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
-type TabId = 'hesap' | 'okul' | 'yedek';
+type TabId = 'hesap' | 'okul' | 'belge' | 'yedek';
 
 const TAB_STYLE: Record<
   TabId,
@@ -46,6 +48,14 @@ const TAB_STYLE: Record<
       'border border-emerald-200/80 bg-emerald-500/12 text-emerald-950 hover:bg-emerald-500/22 dark:border-emerald-800/60 dark:bg-emerald-950/45 dark:text-emerald-100 dark:hover:bg-emerald-900/55',
     iconActive: 'text-white',
     iconIdle: 'text-emerald-600 dark:text-emerald-400',
+  },
+  belge: {
+    active:
+      'bg-violet-600 text-white shadow-md ring-2 ring-violet-400/45 dark:bg-violet-600 dark:ring-violet-300/35',
+    idle:
+      'border border-violet-200/80 bg-violet-500/12 text-violet-950 hover:bg-violet-500/22 dark:border-violet-800/60 dark:bg-violet-950/45 dark:text-violet-100 dark:hover:bg-violet-900/55',
+    iconActive: 'text-white',
+    iconIdle: 'text-violet-600 dark:text-violet-400',
   },
   yedek: {
     active:
@@ -74,6 +84,12 @@ const TABS: {
     label: 'Okul',
     hint: 'Okul sayfaları',
     icon: School,
+  },
+  {
+    id: 'belge',
+    label: 'Belge / Rapor',
+    hint: 'İmza, ünvan, öğretim yılı',
+    icon: FileText,
   },
   {
     id: 'yedek',
@@ -120,7 +136,7 @@ export function SchoolAdminAccountTabs() {
 
   useEffect(() => {
     const q = searchParams.get('tab');
-    if (q === 'hesap' || q === 'okul' || q === 'yedek') setTab(q);
+    if (q === 'hesap' || q === 'okul' || q === 'belge' || q === 'yedek') setTab(q);
   }, [searchParams]);
 
   const goTab = (id: TabId) => {
@@ -146,7 +162,7 @@ export function SchoolAdminAccountTabs() {
         role="tablist"
         aria-label="Okul yöneticisi profil bölümleri"
       >
-        <div className="grid grid-cols-3 gap-0 max-sm:gap-px sm:gap-1.5">
+        <div className="grid grid-cols-4 gap-0 max-sm:gap-px sm:gap-1.5">
           {TABS.map((t) => {
             const Icon = t.icon;
             const isActive = tab === t.id;
@@ -258,6 +274,35 @@ export function SchoolAdminAccountTabs() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {tab === 'belge' && (
+        <Card className="overflow-hidden rounded-md border border-violet-500/25 bg-linear-to-br from-card via-card to-violet-500/5 shadow-sm ring-1 ring-violet-500/10 backdrop-blur-sm dark:border-violet-500/20 dark:to-violet-950/20 sm:rounded-xl sm:border-2 sm:shadow-md">
+          <CardHeader className="border-b border-violet-200/35 bg-linear-to-r from-violet-500/12 via-violet-500/5 to-transparent px-2 py-1.5 dark:border-violet-900/40 dark:from-violet-950/45 dark:via-violet-950/20 sm:px-5 sm:py-3 md:px-6 md:py-4">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-violet-500/20 text-[9px] font-bold text-violet-800 dark:text-violet-300 sm:size-8 sm:rounded-lg sm:text-xs">
+                <FileText className="size-3 sm:size-4" />
+              </span>
+              <div className="min-w-0">
+                <CardTitle className="text-xs sm:text-lg">Belge / Rapor varsayılanları</CardTitle>
+                <CardDescription className="text-[9px] leading-snug sm:text-sm">
+                  Kertenkele Sınav, Nöbet ve evrak raporlarının başlığında otomatik kullanılır. Öğretim yılı, imza unvanı ve okul müdürü adı buradan alınır.
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-2 sm:p-5 md:p-6">
+            <SchoolAdminBelgeForm
+              token={token}
+              evrakDefaults={me?.evrak_defaults ?? null}
+              schoolName={me?.school?.name}
+              schoolDistrict={me?.school?.district ?? null}
+              schoolCity={me?.school?.city ?? null}
+              schoolPrincipalName={me?.school?.principalName ?? null}
+              onSuccess={refetchMe}
+            />
+          </CardContent>
+        </Card>
       )}
 
       {tab === 'yedek' && (

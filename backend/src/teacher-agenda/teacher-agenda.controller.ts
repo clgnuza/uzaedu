@@ -322,8 +322,7 @@ export class TeacherAgendaController {
   @Get('students')
   @Roles(UserRole.teacher, UserRole.school_admin)
   listStudents(@CurrentUser() p: CurrentUserPayload) {
-    if (!p.schoolId) return [];
-    return this.service.listStudents(p.schoolId);
+    return this.service.listStudents({ userId: p.userId, role: p.role as UserRole, schoolId: p.schoolId ?? null });
   }
 
   @Get('student-notes/:id')
@@ -416,12 +415,15 @@ export class TeacherAgendaController {
     @CurrentUser() p: CurrentUserPayload,
     @Query('listId') listId?: string,
     @Query('studentIds') studentIds?: string,
+    @Query('classId') classId?: string,
   ) {
     return this.service.getEvaluationData(
       p.userId,
       p.schoolId ?? null,
+      p.role as UserRole,
       listId,
       studentIds ? studentIds.split(',') : undefined,
+      classId ?? undefined,
     );
   }
 
@@ -477,7 +479,7 @@ export class TeacherAgendaController {
   @Post('evaluation/lists')
   @Roles(UserRole.teacher, UserRole.school_admin)
   createStudentList(@CurrentUser() p: CurrentUserPayload, @Body() dto: CreateStudentListDto) {
-    return this.service.createStudentList(p.userId, p.schoolId ?? null, dto);
+    return this.service.createStudentList(p.userId, p.schoolId ?? null, p.role as UserRole, dto);
   }
 
   @Patch('evaluation/lists/:id')
@@ -487,7 +489,7 @@ export class TeacherAgendaController {
     @CurrentUser() p: CurrentUserPayload,
     @Body() dto: Partial<CreateStudentListDto>,
   ) {
-    return this.service.updateStudentList(id, p.userId, dto);
+    return this.service.updateStudentList(id, p.userId, p.role as UserRole, dto);
   }
 
   @Delete('evaluation/lists/:id')
@@ -499,7 +501,7 @@ export class TeacherAgendaController {
   @Post('evaluation/scores')
   @Roles(UserRole.teacher, UserRole.school_admin)
   addEvaluationScore(@CurrentUser() p: CurrentUserPayload, @Body() dto: CreateEvaluationScoreDto) {
-    return this.service.addEvaluationScore(p.userId, p.schoolId ?? null, {
+    return this.service.addEvaluationScore(p.userId, p.schoolId ?? null, p.role as UserRole, {
       ...dto,
       note: dto.note ?? undefined,
     });

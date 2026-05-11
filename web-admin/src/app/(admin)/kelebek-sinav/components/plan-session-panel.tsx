@@ -14,13 +14,17 @@ import {
   CalendarDays, ClipboardList, Printer, UserCheck, Search,
   CheckCircle2, XCircle, Wand2, RefreshCw, X, Settings2,
   LayoutGrid, ShieldCheck, Shuffle, ArrowLeftRight, SortAsc,
-  Lock, UserCog, Upload, FileUp, EyeOff,
+  Lock, UserCog, Upload, FileUp, EyeOff, ArrowRight, CalendarRange,
+  Layers,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { butterflyViolationSummary, butterflyViolationTotal, type ButterflyViolations } from '@/lib/butterfly-violations';
 
 type PlanRules = {
   subjectLabel?: string;
   lessonPeriodLabel?: string;
+  parentPlanId?: string;
+  planType?: string;
   participantClassIds?: string[];
   classSubjectAssignments?: Array<{ classId: string; subjectName: string }>;
   fillMode?: 'balanced' | 'sequential';
@@ -35,12 +39,14 @@ type PlanRules = {
   prioritizePinned?: boolean;
   lockPinnedAssignments?: boolean;
   specialNeedsInFront?: boolean;
+  specialNeedsStudentIds?: string[];
   proctorMode?: 'auto' | 'manual';
   proctorsPerRoom?: number;
   fixedClassIds?: string[];
   pinnedStudentIds?: string[];
   reportFooterLines?: string[];
   roomIds?: string[];
+  participantMode?: 'classes' | 'all' | string;
 };
 
 type Plan = {
@@ -69,6 +75,7 @@ export function PlanSessionPanel() {
   const isAdmin = me?.role === 'school_admin' || me?.role === 'superadmin' || me?.role === 'moderator';
   const [loading, setLoading] = useState(true);
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [periodTitleById, setPeriodTitleById] = useState<Record<string, string>>({});
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [detailPlan, setDetailPlan] = useState<PlanDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -76,7 +83,7 @@ export function PlanSessionPanel() {
   const [generateResult, setGenerateResult] = useState<{
     planId: string; planTitle: string;
     placed: number; unplaced: number; rooms: number;
-    violations: { adjacent: number; skipOne: number };
+    violations: ButterflyViolations;
   } | null>(null);
   const [generating, setGenerating] = useState<string | null>(null);
   const [uploadPlan, setUploadPlan] = useState<Plan | null>(null);
@@ -90,7 +97,19 @@ export function PlanSessionPanel() {
     setLoading(true);
     try {
       const list = await apiFetch<Plan[]>(`/butterfly-exam/plans${schoolQ}`, { token });
-      setPlans(list);
+      const titleMap: Record<string, string> = {};
+      for (const p of list) {
+        if ((p.rules as Record<string, unknown> | undefined)?.planType === 'period') {
+          titleMap[p.id] = p.title;
+        }
+      }
+      setPeriodTitleById(titleMap);
+      setPlans(
+        list.filter((p) => {
+          const t = (p.rules as Record<string, unknown> | undefined)?.planType;
+          return t !== 'period';
+        }),
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Yüklenemedi');
     } finally {
@@ -117,7 +136,7 @@ export function PlanSessionPanel() {
       const data = await apiFetch<{
         assignments: Array<{ studentId: string; roomId: string }>;
         unplaced?: Array<unknown>;
-        violations: { adjacent: number; skipOne: number };
+        violations: ButterflyViolations;
         roomCount?: number;
       }>(`/butterfly-exam/plans/${id}/generate-seats${schoolQ}`, { method: 'POST', token });
       await load();
@@ -128,7 +147,16 @@ export function PlanSessionPanel() {
         placed: data.assignments?.length ?? 0,
         unplaced: data.unplaced?.length ?? 0,
         rooms: data.roomCount ?? 0,
-        violations: data.violations ?? { adjacent: 0, skipOne: 0 },
+        violations: {
+          adjacent: data.violations?.adjacent ?? 0,
+          skipOne: data.violations?.skipOne ?? 0,
+          gender: data.violations?.gender ?? 0,
+          classMix: data.violations?.classMix ?? 0,
+          backToBack: data.violations?.backToBack ?? 0,
+          cross: data.violations?.cross ?? 0,
+          pairRow: data.violations?.pairRow ?? 0,
+          fixedRoom: data.violations?.fixedRoom ?? 0,
+        },
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Dağıtım başarısız');
@@ -185,12 +213,56 @@ export function PlanSessionPanel() {
 
   return (
     <div className="min-w-0 space-y-4">
+      <div className="rounded-2xl border border-fuchsia-200/50 bg-gradient-to-br from-fuchsia-500/[0.08] via-white/80 to-violet-500/[0.06] p-3 shadow-sm dark:border-fuchsia-900/35 dark:from-fuchsia-950/30 dark:via-zinc-900/50 dark:to-violet-950/20 sm:p-4">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-fuchsia-800/90 dark:text-fuchsia-200/90">
+          Önerilen akış
+        </p>
+        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm">
+            <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 font-medium text-fuchsia-950 shadow-sm ring-1 ring-fuchsia-500/15 dark:bg-zinc-900/80 dark:text-fuchsia-100 dark:ring-fuchsia-400/20">
+              <CalendarDays className="size-3.5 shrink-0" />
+              1. Dönem takvimi
+            </span>
+            <ArrowRight className="size-3.5 shrink-0 text-muted-foreground max-sm:hidden" />
+            <span className="inline-flex items-center gap-1 rounded-full bg-fuchsia-600 px-2.5 py-1 font-semibold text-white shadow-md shadow-fuchsia-500/25">
+              <CalendarRange className="size-3.5 shrink-0" />
+              2. Oturumlar (buradasınız)
+            </span>
+            <ArrowRight className="size-3.5 shrink-0 text-muted-foreground max-sm:hidden" />
+            <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 font-medium text-fuchsia-950 shadow-sm ring-1 ring-fuchsia-500/15 dark:bg-zinc-900/80 dark:text-fuchsia-100 dark:ring-fuchsia-400/20">
+              <Wand2 className="size-3.5 shrink-0" />
+              3. Yerleştir ve yayınla
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2 sm:ml-auto">
+            <Button asChild size="sm" variant="outline" className="h-8 gap-1 text-xs sm:text-sm">
+              <Link href={`/kelebek-sinav/sinav-planlama${schoolQ}`}>
+                Takvime git
+              </Link>
+            </Button>
+            {isAdmin ? (
+              <Button asChild size="sm" className="h-8 gap-1 text-xs sm:text-sm">
+                <Link href={`/kelebek-sinav/sinav-olustur${schoolQ}`}>
+                  <Plus className="size-3.5" /> Yeni oturum
+                </Link>
+              </Button>
+            ) : null}
+          </div>
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
+          Önce <strong className="text-foreground">Sınav Takvimi</strong>nde dönem cetvelini oluşturun; ardından her sınav günü için burada oturum açıp yerleştirin.
+        </p>
+      </div>
+
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-sm font-semibold sm:text-base">Sınav İşlemleri</h2>
+        <div>
+          <h2 className="text-sm font-semibold sm:text-base">Sınav oturumları</h2>
+          <p className="text-[11px] text-muted-foreground sm:text-xs">Ders, salon ve koltuk dağıtımı bu listedeki oturumlara göre yapılır.</p>
+        </div>
         {isAdmin && (
           <Button asChild size="sm" className="w-full gap-1.5 sm:w-auto">
             <Link href={`/kelebek-sinav/sinav-olustur${schoolQ}`}>
-              <Plus className="size-4" /> Yeni Sınav
+              <Plus className="size-4" /> Yeni sınav sihirbazı
             </Link>
           </Button>
         )}
@@ -199,13 +271,21 @@ export function PlanSessionPanel() {
       {plans.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 py-12 text-center">
           <ClipboardList className="mx-auto size-10 text-slate-400 mb-3" />
-          <p className="text-sm text-muted-foreground">Henüz sınav bulunamadı.</p>
+          <p className="text-sm font-medium text-foreground">Henüz sınav oturumu yok.</p>
+          <p className="mx-auto mt-1 max-w-sm px-2 text-xs text-muted-foreground">
+            İsterseniz önce <Link className="font-semibold text-primary underline-offset-4 hover:underline" href={`/kelebek-sinav/sinav-planlama${schoolQ}`}>Sınav Takvimi</Link>nde dönem cetvelini oluşturun; ardından burada oturum açın.
+          </p>
           {isAdmin && (
-            <Button asChild size="sm" variant="outline" className="mt-4 gap-1.5">
-              <Link href={`/kelebek-sinav/sinav-olustur${schoolQ}`}>
-                <Plus className="size-4" /> Yeni Sınav Oluştur
-              </Link>
-            </Button>
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <Button asChild size="sm" variant="outline" className="gap-1.5">
+                <Link href={`/kelebek-sinav/sinav-planlama${schoolQ}`}>Takvime git</Link>
+              </Button>
+              <Button asChild size="sm" className="gap-1.5">
+                <Link href={`/kelebek-sinav/sinav-olustur${schoolQ}`}>
+                  <Plus className="size-4" /> Yeni oturum
+                </Link>
+              </Button>
+            </div>
           )}
         </div>
       ) : (
@@ -223,6 +303,17 @@ export function PlanSessionPanel() {
                       <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-medium', statusColor(p.status))}>
                         {statusLabel(p.status)}
                       </span>
+                      {p.rules?.parentPlanId && periodTitleById[p.rules.parentPlanId] && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2 py-0.5 text-[10px] font-medium text-fuchsia-700 dark:border-fuchsia-800/50 dark:bg-fuchsia-950/30 dark:text-fuchsia-300">
+                          <CalendarDays className="size-2.5" />
+                          {periodTitleById[p.rules.parentPlanId]}
+                        </span>
+                      )}
+                      {!p.rules?.parentPlanId && (
+                        <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-300">
+                          Bağımsız
+                        </span>
+                      )}
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
@@ -317,7 +408,7 @@ export function PlanSessionPanel() {
                           <>
                             <MenuBtn icon={<Wand2 className="size-3.5" />} label="Sınavı Düzenle"
                               onClick={() => { setMenuOpenId(null); }}
-                              href={`/kelebek-sinav/sinav-olustur${schoolQ ? schoolQ + '&plan_id=' + p.id : '?plan_id=' + p.id}`} />
+                              href={`/kelebek-sinav/sinav-olustur${schoolQ ? `${schoolQ}&` : '?'}plan_id=${encodeURIComponent(p.id)}`} />
                             <MenuBtn icon={<BookOpen className="size-3.5" />} label="Raporlar"
                               onClick={() => { setMenuOpenId(null); }}
                               href={`/kelebek-sinav/ayarlar${schoolQ}`} />
@@ -366,7 +457,7 @@ export function PlanSessionPanel() {
             {/* Header */}
             <div className={cn(
               'flex items-center gap-3 rounded-t-2xl px-5 py-4',
-              generateResult.unplaced === 0 && generateResult.violations.adjacent === 0 && generateResult.violations.skipOne === 0
+              generateResult.unplaced === 0 && butterflyViolationTotal(generateResult.violations) === 0
                 ? 'bg-emerald-500'
                 : generateResult.unplaced === 0
                 ? 'bg-amber-500'
@@ -408,27 +499,12 @@ export function PlanSessionPanel() {
               </div>
 
               {/* Violations */}
-              {(generateResult.violations.adjacent > 0 || generateResult.violations.skipOne > 0) ? (
+              {butterflyViolationTotal(generateResult.violations) > 0 ? (
                 <div className="rounded-xl border border-amber-200/60 bg-amber-50/60 p-3 dark:border-amber-800/40 dark:bg-amber-950/20">
                   <p className="mb-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300">Kural İhlalleri</p>
-                  <div className="space-y-1">
-                    {generateResult.violations.adjacent > 0 && (
-                      <div className="flex items-center justify-between text-xs text-amber-700 dark:text-amber-400">
-                        <span>Yan yana aynı sınıf</span>
-                        <span className="rounded-full bg-amber-200 px-2 py-0.5 font-bold tabular-nums dark:bg-amber-800/60">
-                          {generateResult.violations.adjacent}
-                        </span>
-                      </div>
-                    )}
-                    {generateResult.violations.skipOne > 0 && (
-                      <div className="flex items-center justify-between text-xs text-amber-700 dark:text-amber-400">
-                        <span>Arada bir aynı sınıf</span>
-                        <span className="rounded-full bg-amber-200 px-2 py-0.5 font-bold tabular-nums dark:bg-amber-800/60">
-                          {generateResult.violations.skipOne}
-                        </span>
-                      </div>
-                    )}
-                  </div>
+                  <p className="text-[11px] leading-relaxed text-amber-800 dark:text-amber-200 wrap-anywhere">
+                    {butterflyViolationSummary(generateResult.violations)}
+                  </p>
                 </div>
               ) : (
                 <div className="rounded-xl border border-emerald-200/60 bg-emerald-50/60 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-800/40 dark:bg-emerald-950/20 dark:text-emerald-300">
@@ -585,81 +661,165 @@ export function PlanSessionPanel() {
       )}
 
       {/* Rules Modal */}
-      {rulesPlan && (
+      {rulesPlan && (() => {
+        const rr = rulesPlan.rules ?? {};
+        const pid = rr.parentPlanId;
+        const periodName = typeof pid === 'string' && periodTitleById[pid] ? periodTitleById[pid] : null;
+        const pm = rr.participantMode;
+        const pCount = rr.participantClassIds?.length ?? 0;
+        const katilim =
+          pm === 'all' || (pm !== 'classes' && pCount === 0)
+            ? 'Tüm sınıflar (sınıf seçimi yok)'
+            : `Seçili ${pCount} sınıf`;
+        const csa = rr.classSubjectAssignments ?? [];
+        const dersOzeti = csa.length > 0
+          ? `${csa.length} sınıf–ders · ${[...new Set(csa.map((a) => a.subjectName))].join(', ')}`
+          : rr.subjectLabel
+            ? String(rr.subjectLabel)
+            : 'Tek ders etiketi yok';
+        const rids = rr.roomIds;
+        const salonOzeti = Array.isArray(rids) && rids.length > 0
+          ? `Seçili ${rids.length} salon (yerleştirme yalnızca bunlarda)`
+          : 'Tüm uygun salonlar kullanılabilir';
+        const dist = rr.distributionMode === 'constraint_greedy'
+          ? 'Kısıt açgözlü (constraint greedy) — kurallara uygun ilk uygun koltuk'
+          : rr.distributionMode
+            ? String(rr.distributionMode)
+            : 'Varsayılan';
+        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-white/60 bg-white shadow-2xl dark:border-zinc-700/60 dark:bg-zinc-900 max-h-[80vh] flex flex-col">
+          <div className="w-full max-w-xl rounded-2xl border border-white/60 bg-white shadow-2xl dark:border-zinc-700/60 dark:bg-zinc-900 max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-zinc-800">
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 <div className="rounded-lg bg-violet-100 p-2 dark:bg-violet-950/50">
                   <Settings2 className="size-4 text-violet-600" />
                 </div>
-                <div>
-                  <p className="font-semibold text-sm">{rulesPlan.title}</p>
-                  <p className="text-xs text-muted-foreground">Dağıtım Kuralları</p>
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-sm">{rulesPlan.title}</p>
+                  <p className="text-xs text-muted-foreground">Dağıtım kuralları özeti</p>
+                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                    {new Date(rulesPlan.examStartsAt).toLocaleString('tr-TR', {
+                      day: '2-digit', month: 'short', year: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit',
+                    })}
+                    {rr.lessonPeriodLabel ? ` · ${rr.lessonPeriodLabel}` : ''}
+                  </p>
                 </div>
               </div>
-              <button onClick={() => setRulesPlan(null)} className="rounded-full p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800">
+              <button type="button" onClick={() => setRulesPlan(null)} className="shrink-0 rounded-full p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800">
                 <X className="size-4" />
               </button>
             </div>
             <div className="overflow-y-auto p-5 space-y-4">
-              <RuleSection icon={<LayoutGrid className="size-3.5" />} title="Dolum Modu">
-                {rulesPlan.rules?.fillMode === 'balanced' ? 'Dengeli Dağıtım' : rulesPlan.rules?.fillMode === 'sequential' ? 'Dolduran Dağıtım' : '—'}
+              <div className="rounded-xl border border-violet-200/70 bg-gradient-to-br from-violet-50/90 to-white p-4 dark:border-violet-900/40 dark:from-violet-950/25 dark:to-zinc-900/80">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">Oturum özeti</p>
+                <dl className="mt-2 space-y-2 text-xs">
+                  <div className="flex gap-2">
+                    <dt className="w-28 shrink-0 text-muted-foreground">Dönem planı</dt>
+                    <dd className="min-w-0 font-medium text-foreground">
+                      {periodName ?? <span className="text-amber-700 dark:text-amber-300">Bağımsız (takvim raporuna bağlı değil)</span>}
+                    </dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt className="w-28 shrink-0 text-muted-foreground">Katılım</dt>
+                    <dd className="min-w-0 font-medium">{katilim}</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt className="w-28 shrink-0 text-muted-foreground">Ders / sınıf</dt>
+                    <dd className="min-w-0 break-words font-medium">{dersOzeti}</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt className="w-28 shrink-0 text-muted-foreground">Salon kapsamı</dt>
+                    <dd className="min-w-0 font-medium">{salonOzeti}</dd>
+                  </div>
+                </dl>
+              </div>
+
+              <RuleSection icon={<Layers className="size-3.5" />} title="Dağıtım algoritması">
+                {dist}
               </RuleSection>
-              <RuleSection icon={<ArrowLeftRight className="size-3.5" />} title="Salon Dolum Yönü">
-                {rulesPlan.rules?.fillDirection === 'ltr' ? 'Soldan sağa' : rulesPlan.rules?.fillDirection === 'rtl' ? 'Sağdan sola' : rulesPlan.rules?.fillDirection === 'alternating' ? 'Alternatif' : '—'}
+              <RuleSection icon={<LayoutGrid className="size-3.5" />} title="Dolum modu">
+                {rr.fillMode === 'balanced' ? 'Dengeli — sınıflar salonlara mümkün olduğunca eşit yayılır'
+                  : rr.fillMode === 'sequential' ? 'Dolduran — sırayla doldurulur, boşluk bırakılmaz'
+                  : '—'}
               </RuleSection>
-              <RuleSection icon={<ShieldCheck className="size-3.5" />} title="Cinsiyet Kuralı">
-                {rulesPlan.rules?.genderRule === 'cannot_sit_adjacent' ? 'Farklı cinsiyetler yan yana oturamaz'
-                  : rulesPlan.rules?.genderRule === 'can_sit_adjacent' ? 'Farklı cinsiyetler yan yana oturabilir' : '—'}
+              <RuleSection icon={<ArrowLeftRight className="size-3.5" />} title="Salon dolum yönü">
+                {rr.fillDirection === 'ltr' ? 'Soldan sağa'
+                  : rr.fillDirection === 'rtl' ? 'Sağdan sola'
+                  : rr.fillDirection === 'alternating' ? 'Alternatif (sıra sıra ters yön)'
+                  : '—'}
               </RuleSection>
-              <RuleSection icon={<Users className="size-3.5" />} title="Sınıf Karışma Kuralı">
-                {rulesPlan.rules?.classMix === 'cannot_mix' ? 'Aynı sınıf öğrencileri karışamaz'
-                  : rulesPlan.rules?.classMix === 'can_mix' ? 'Sınıflar karışabilir' : '—'}
-                {rulesPlan.rules?.sameClassAdjacent === 'forbid' && ' · Aynı sınıf yan yana yasak'}
-                {rulesPlan.rules?.sameClassSkipOne === 'forbid' && ' · Arada bir boşluk zorunlu'}
+              <RuleSection icon={<ShieldCheck className="size-3.5" />} title="Cinsiyet">
+                {rr.genderRule === 'cannot_sit_adjacent' ? 'Farklı cinsiyet yan yana olamaz'
+                  : rr.genderRule === 'can_sit_adjacent' ? 'Farklı cinsiyet yan yana olabilir'
+                  : '—'}
               </RuleSection>
-              <RuleSection icon={<SortAsc className="size-3.5" />} title="Öğrenci Sıralama">
-                {rulesPlan.rules?.studentSortOrder === 'student_number' ? 'Öğrenci numarasına göre'
-                  : rulesPlan.rules?.studentSortOrder === 'alphabetical' ? 'Alfabetik'
-                  : rulesPlan.rules?.studentSortOrder === 'random' ? 'Rastgele' : '—'}
+              <RuleSection icon={<Users className="size-3.5" />} title="Sınıf yerleşimi">
+                {rr.classMix === 'cannot_mix' ? 'Aynı şube öğrencileri ayrık tutulur (karışmaz)'
+                  : rr.classMix === 'can_mix' ? 'Şubeler aynı salonda karışabilir'
+                  : '—'}
+                {rr.sameClassAdjacent === 'forbid' && ' · Aynı şube yan yana yasak'}
+                {rr.sameClassAdjacent === 'allow' && ' · Aynı şube yan yana serbest'}
+                {rr.sameClassSkipOne === 'forbid' && ' · Aynı şube arada bir koltuk boşluğu zorunlu'}
+                {rr.sameClassSkipOne === 'allow' && ' · Arada bir koltuk kuralı yok'}
               </RuleSection>
-              <RuleSection icon={<Shuffle className="size-3.5" />} title="Kısıtlar">
-                {(rulesPlan.rules?.constraints?.length ?? 0) > 0
-                  ? rulesPlan.rules.constraints!.join(', ')
-                  : 'Kısıt yok'}
+              <RuleSection icon={<SortAsc className="size-3.5" />} title="Öğrenci sırası">
+                {rr.studentSortOrder === 'student_number' ? 'Okul numarası'
+                  : rr.studentSortOrder === 'alphabetical' ? 'Ad soyad (A→Z)'
+                  : rr.studentSortOrder === 'random' ? 'Rastgele'
+                  : '—'}
               </RuleSection>
-              <RuleSection icon={<Lock className="size-3.5" />} title="Sabit Sınıflar / Öğrenciler">
-                {(rulesPlan.rules?.fixedClassIds?.length ?? 0) > 0 && `${rulesPlan.rules.fixedClassIds!.length} sabit sınıf`}
-                {(rulesPlan.rules?.pinnedStudentIds?.length ?? 0) > 0 && ` · ${rulesPlan.rules.pinnedStudentIds!.length} sabit öğrenci`}
-                {!(rulesPlan.rules?.fixedClassIds?.length) && !(rulesPlan.rules?.pinnedStudentIds?.length) && '—'}
-                {(rulesPlan.rules?.pinnedStudentIds?.length ?? 0) > 0 && (
-                  <>
-                    {rulesPlan.rules?.prioritizePinned !== false && ' · Önce yerleştir (sabitler öncelikli)'}
-                    {rulesPlan.rules?.lockPinnedAssignments !== false
-                      ? ' · Yerleştirmeden sonra kilitle açık'
-                      : ' · Kilitle kapalı'}
-                  </>
-                )}
-                {rulesPlan.rules?.specialNeedsInFront && ' · Özel ihtiyaçlı öğrenciler ön sıraya'}
+              <RuleSection icon={<Shuffle className="size-3.5" />} title="Ek kısıtlar">
+                {(rr.constraints?.length ?? 0) > 0 ? rr.constraints!.join(', ') : 'Tanımlı ek kısıt yok'}
               </RuleSection>
-              <RuleSection icon={<UserCog className="size-3.5" />} title="Gözetmen Ayarları">
-                {rulesPlan.rules?.proctorMode === 'auto'
-                  ? `Otomatik atama — salon başına ${rulesPlan.rules.proctorsPerRoom ?? 2} gözetmen`
-                  : rulesPlan.rules?.proctorMode === 'manual' ? 'Manuel atama' : '—'}
+              <RuleSection icon={<Lock className="size-3.5" />} title="Sabit sınıf / öğrenci">
+                {(rr.fixedClassIds?.length ?? 0) === 0 && (rr.pinnedStudentIds?.length ?? 0) === 0
+                  ? 'Sabit sınıf veya öğrenci yok'
+                  : (
+                    <>
+                      {(rr.fixedClassIds?.length ?? 0) > 0 ? `${rr.fixedClassIds!.length} sabit sınıf` : 'Sabit sınıf yok'}
+                      {(rr.pinnedStudentIds?.length ?? 0) > 0
+                        ? ` · ${rr.pinnedStudentIds!.length} sabit öğrenci koltuğu`
+                        : ''}
+                      {(rr.pinnedStudentIds?.length ?? 0) > 0 && (
+                        <>
+                          {rr.prioritizePinned !== false && ' · Sabitler önce yerleştirilir'}
+                          {rr.lockPinnedAssignments !== false
+                            ? ' · Yeniden dağıtımda sabit koltuklar korunur'
+                            : ' · Yeniden dağıtımda sabitler de yeniden hesaplanabilir'}
+                        </>
+                      )}
+                    </>
+                  )}
+                {rr.specialNeedsInFront && ' · Özel gereksinimli öğrenciler ön sıralara öncelikli'}
               </RuleSection>
-              {(rulesPlan.rules?.reportFooterLines?.length ?? 0) > 0 && (
-                <RuleSection icon={<ClipboardList className="size-3.5" />} title="Rapor Alt Yazısı">
-                  {rulesPlan.rules.reportFooterLines!.join(' / ')}
+              <RuleSection icon={<UserCog className="size-3.5" />} title="Gözetmen">
+                {rr.proctorMode === 'auto'
+                  ? `Otomatik — salon başına ${rr.proctorsPerRoom ?? 2} gözetmen. Çakışan saatte başka sınavda görevli öğretmenler mümkünse atlanır.`
+                  : rr.proctorMode === 'manual' ? 'Manuel — gözetmenler Yerleşim ekranından atanır'
+                  : '—'}
+              </RuleSection>
+              {(rr.reportFooterLines?.length ?? 0) > 0 && (
+                <RuleSection icon={<ClipboardList className="size-3.5" />} title="Plan açıklaması (rapor)">
+                  <ul className="list-inside list-decimal space-y-1">
+                    {rr.reportFooterLines!.filter(Boolean).map((line, i) => (
+                      <li key={i} className="text-sm">{line}</li>
+                    ))}
+                  </ul>
                 </RuleSection>
               )}
             </div>
-            <div className="flex justify-end border-t border-slate-100 px-5 py-3 dark:border-zinc-800">
-              <Button variant="outline" size="sm" onClick={() => setRulesPlan(null)}>Kapat</Button>
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 px-5 py-3 dark:border-zinc-800">
+              <Button variant="outline" size="sm" asChild className="gap-1">
+                <Link href={`/kelebek-sinav/sinav-olustur${schoolQ ? `${schoolQ}&` : '?'}plan_id=${encodeURIComponent(rulesPlan.id)}`} onClick={() => setRulesPlan(null)}>
+                  Kuralları düzenle
+                </Link>
+              </Button>
+              <Button variant="default" size="sm" onClick={() => setRulesPlan(null)}>Kapat</Button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Detail Modal */}
       {(detailPlan || detailLoading) && (
@@ -764,7 +924,7 @@ function RuleSection({ icon, title, children }: { icon: React.ReactNode; title: 
       <div className="mt-0.5 shrink-0 text-slate-400 dark:text-zinc-500">{icon}</div>
       <div className="flex-1 min-w-0">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">{title}</p>
-        <p className="text-sm text-foreground">{children}</p>
+        <div className="text-sm text-foreground">{children}</div>
       </div>
     </div>
   );

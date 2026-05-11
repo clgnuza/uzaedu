@@ -31,17 +31,20 @@ function sessionCookieOpts(): {
   return d ? { ...base, domain: d } : base;
 }
 
-/** Tarayıcı kapalıyken bile uzun oturum (Beni hatırla). */
+/** Beni hatırla: tarayıcı kapansa bile sınırlı süre (maxAge). */
 export const SESSION_COOKIE_MAX_AGE_LONG_MS = 7 * 24 * 60 * 60 * 1000;
-/** Kısa oturum — paylaşımlı cihaz / sunucu yükü için varsayılan. */
-export const SESSION_COOKIE_MAX_AGE_SHORT_MS = 12 * 60 * 60 * 1000;
 
+/**
+ * remember=false: maxAge yok → oturum çerezi (tarayıcı oturumu bitince silinir; paylaşımlı PC için).
+ * remember=true: 7 gün.
+ */
 export function setSessionCookie(res: Response, token: string, opts?: { remember?: boolean }): void {
-  const maxAge = opts?.remember ? SESSION_COOKIE_MAX_AGE_LONG_MS : SESSION_COOKIE_MAX_AGE_SHORT_MS;
-  res.cookie(AUTH_COOKIE_NAME, token, {
-    ...sessionCookieOpts(),
-    maxAge,
-  });
+  const base = sessionCookieOpts();
+  if (opts?.remember === true) {
+    res.cookie(AUTH_COOKIE_NAME, token, { ...base, maxAge: SESSION_COOKIE_MAX_AGE_LONG_MS });
+  } else {
+    res.cookie(AUTH_COOKIE_NAME, token, base);
+  }
 }
 
 export function clearSessionCookie(res: Response): void {

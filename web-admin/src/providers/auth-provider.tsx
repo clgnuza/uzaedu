@@ -13,7 +13,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { apiFetch, type ApiError } from '@/lib/api';
 import { COOKIE_SESSION_TOKEN } from '@/lib/auth-session';
 import { rememberReturnPath } from '@/lib/post-login-redirect';
-import { safeStorageGetItem, safeStorageRemoveItem, safeStorageSetItem } from '@/lib/safe-storage';
+import { safeStorageRemoveItem } from '@/lib/safe-storage';
 import type { WebAdminRole } from '@/config/types';
 
 /** Etkileşim yoksa oturumu kapatır; arka planda /me isteği birikmez. */
@@ -106,10 +106,6 @@ export type Me = {
   updated_at?: string;
 };
 
-function getStoredToken(): string | null {
-  return safeStorageGetItem(TOKEN_KEY);
-}
-
 type AuthContextValue = {
   token: string | null;
   me: Me | null;
@@ -192,24 +188,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       prevPathnameRef.current !== undefined && PUBLIC_AUTH_PATHS.has(prevPathnameRef.current);
     prevPathnameRef.current = pathname ?? undefined;
     if (fromPublicAuth || isPublicAuth) setLoading(true);
-    const t = getStoredToken();
-    setTokenState(t);
+    /** Eski sürüm localStorage Bearer süresiz oturum açıyordu; tek kaynak httpOnly çerez. */
+    safeStorageRemoveItem(TOKEN_KEY);
+    setTokenState(null);
     const finish = () => setLoading(false);
-    if (t) {
-      void fetchMe(t)
-        .then((data) => {
-          if (data === null) {
-            setMe(null);
-            setTokenState(null);
-          }
-        })
-        .catch((err) => {
-          setError(err instanceof Error ? err.message : 'Hata');
-          setMe(null);
-        })
-        .finally(finish);
-      return;
-    }
     void fetchMe(null)
       .then((data) => {
         if (data) setTokenState(COOKIE_SESSION_TOKEN);
@@ -231,11 +213,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         void apiFetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
         return;
       }
-      safeStorageSetItem(TOKEN_KEY, value);
-      setTokenState(value);
+      safeStorageRemoveItem(TOKEN_KEY);
+      setTokenState(COOKIE_SESSION_TOKEN);
       setLoading(true);
       try {
-        const data = await fetchMe(value);
+        const data = await fetchMe(null);
         if (!data) {
           setError('Oturum doğrulanamadı.');
           setMe(null);
@@ -295,20 +277,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [me, setToken, router]);
 
   const refetchMe = useCallback(async (): Promise<Me | null> => {
-    const t = getStoredToken();
-    if (t) {
-      setTokenState(t);
-      try {
-        return await fetchMe(t, true);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Hata');
-        setMe(null);
-        return null;
-      }
-    }
     try {
       const data = await fetchMe(null, true);
-      setTokenState(COOKIE_SESSION_TOKEN);
+      if (data) setTokenState(COOKIE_SESSION_TOKEN);
+      else setTokenState(null);
       return data;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Hata');

@@ -11,6 +11,7 @@ export function ReminderFormSection({
   disabled,
   onEnabledChange,
   enabled: controlledEnabled,
+  showLeadingBell = true,
 }: {
   remindAt?: string;
   onChange: (value: string | undefined) => void;
@@ -18,6 +19,7 @@ export function ReminderFormSection({
   onEnabledChange?: (enabled: boolean) => void;
   /** Verilirse tam kontrollü (görev formu); verilmezse not formu gibi iç durum */
   enabled?: boolean;
+  showLeadingBell?: boolean;
 }) {
   const [uncontrolledEnabled, setUncontrolledEnabled] = useState(!!remindAt);
   const controlled = controlledEnabled !== undefined;
@@ -39,7 +41,9 @@ export function ReminderFormSection({
           disabled={disabled}
           className="rounded"
         />
-        <Bell className="size-3.5 shrink-0 text-muted-foreground sm:size-4" />
+        {showLeadingBell ? (
+          <Bell className="size-3.5 shrink-0 text-muted-foreground sm:size-4" />
+        ) : null}
         <span className="text-xs font-medium sm:text-sm">Hatırlatıcı ekle</span>
       </label>
       {enabled && (

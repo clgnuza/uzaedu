@@ -14,10 +14,20 @@ import {
   CheckCircle2, BookOpen, Settings2, Building2, Wand2, Eye,
   ChevronLeft, ChevronRight, LogOut, Info, X, Lock,
   LayoutGrid, Users, AlertTriangle, Shuffle, Check, GraduationCap,
+  CalendarDays,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { butterflyViolationSummary, butterflyViolationTotal, type ButterflyViolations } from '@/lib/butterfly-violations';
 
 const LESSON_PERIODS = ['1. Ders', '2. Ders', '3. Ders', '4. Ders', '5. Ders', '6. Ders', '7. Ders', '8. Ders', 'Normal Saat'];
+
+/** Yeni sınav açılırken Sınav Bilgileri → Plan Açıklaması alanına gelen varsayılan maddeler (düzenlenebilir). */
+const DEFAULT_EXAM_PLAN_FOOTER_LINES = [
+  'Öğrenciler sınav saatinden en az 15 dakika önce sınav salonunda hazır bulunacaktır.',
+  'Sınava yalnızca kurşun kalem, silgi ve müfredatta izin verilen araç-gereçler getirilebilir.',
+  'Cep telefonu, akıllı saat ve kablosuz iletişim cihazları sınav süresince bulundurulamaz.',
+  'Öğrenci kimlik kartı (yoksa fotoğraflı resmi belge) ve numarası gözetmen tarafından kontrol edilir.',
+] as const;
 const STEPS = [
   { label: 'Sınav Bilgileri', shortLabel: 'Bilgiler', icon: BookOpen },
   { label: 'Ders Seçimi', shortLabel: 'Dersler', icon: BookOpen },
@@ -30,8 +40,10 @@ const STEPS = [
 type RoomRow = { id: string; name: string; buildingName?: string; capacity: number; seatLayout?: string };
 type ClassRow = { id: string; name: string; grade: number | null; section: string | null; studentCount?: number };
 type Subject = { id: string; name: string };
+type PeriodPlan = { id: string; title: string };
 type AssignmentRow = { studentName: string; classLabel: string; roomName: string; buildingName: string; seatLabel: string };
-type GenRes = { assignments: AssignmentRow[]; violations: { adjacent: number; skipOne: number } };
+type GenRes = { assignments: AssignmentRow[]; violations: ButterflyViolations };
+type SnStudent = { id: string; name: string; classId: string };
 
 export default function SinavOlusturPage() {
   const router = useRouter();
@@ -51,7 +63,9 @@ export default function SinavOlusturPage() {
   const [examDate, setExamDate] = useState('');
   const [lessonPeriod, setLessonPeriod] = useState('5. Ders');
   const [normalTime, setNormalTime] = useState('');
-  const [footerLines, setFooterLines] = useState<string[]>([]);
+  const [footerLines, setFooterLines] = useState<string[]>(() => [...DEFAULT_EXAM_PLAN_FOOTER_LINES]);
+  const [parentPlanId, setParentPlanId] = useState<string>('');
+  const [periodPlans, setPeriodPlans] = useState<PeriodPlan[]>([]);
 
   // Step 2: Ders Seçimi
   const [classSubjectMap, setClassSubjectMap] = useState<Record<string, string>>({});
@@ -70,6 +84,8 @@ export default function SinavOlusturPage() {
   const [fillDirection, setFillDirection] = useState<'ltr' | 'rtl' | 'alternating'>('ltr');
   const [prioritizePinned, setPrioritizePinned] = useState(true);
   const [specialNeedsInFront, setSpecialNeedsInFront] = useState(false);
+  const [specialNeedsStudentIds, setSpecialNeedsStudentIds] = useState<string[]>([]);
+  const [specialNeedsPickList, setSpecialNeedsPickList] = useState<SnStudent[]>([]);
   const [proctorMode, setProctorMode] = useState<'auto' | 'manual'>('auto');
   const [proctorsPerRoom, setProctorsPerRoom] = useState(2);
 
@@ -80,14 +96,29 @@ export default function SinavOlusturPage() {
   // Step 5 / 6
   const [preview, setPreview] = useState<GenRes | null>(null);
 
+  const participatingClassIds = useMemo(() => {
+    const known = new Set(classes.map((c) => c.id));
+    return Object.entries(classSubjectMap)
+      .filter(([k, v]) => v !== '' && known.has(k))
+      .map(([k]) => k);
+  }, [classSubjectMap, classes]);
+  const participatingStudentCount = useMemo(
+    () => classes.filter((c) => participatingClassIds.includes(c.id)).reduce((s, c) => s + (c.studentCount ?? 0), 0),
+    [classes, participatingClassIds],
+  );
+
   const load = useCallback(async () => {
     if (!token) return;
     setLoading(true);
     try {
-      const [r, c, s] = await Promise.all([
+      const [r, c, s, allPlans] = await Promise.all([
         apiFetch<RoomRow[]>(`/butterfly-exam/rooms${schoolQ}`, { token }),
         apiFetch<ClassRow[]>(`/butterfly-exam/classes${schoolQ}`, { token }).catch(() => [] as ClassRow[]),
         apiFetch<Subject[]>('/classes-subjects/subjects', { token }).catch(() => [] as Subject[]),
+        apiFetch<Array<{ id: string; title: string; rules: Record<string, unknown> | null }>>(
+          `/butterfly-exam/plans${schoolQ}`,
+          { token },
+        ).catch(() => []),
       ]);
       setRooms(r);
       setRoomPick(Object.fromEntries(r.map((x) => [x.id, true])));
@@ -96,6 +127,11 @@ export default function SinavOlusturPage() {
       const m: Record<string, string> = {};
       for (const cl of c) m[cl.id] = '';
       setClassSubjectMap(m);
+      setPeriodPlans(
+        allPlans
+          .filter((p) => (p.rules as Record<string, unknown> | null)?.planType === 'period')
+          .map((p) => ({ id: p.id, title: p.title })),
+      );
     } catch {
       toast.error('Veriler yüklenemedi');
     } finally {
@@ -121,6 +157,7 @@ export default function SinavOlusturPage() {
         const r = p.rules ?? {};
         if (typeof r.lessonPeriodLabel === 'string') setLessonPeriod(r.lessonPeriodLabel);
         if (Array.isArray(r.reportFooterLines)) setFooterLines(r.reportFooterLines as string[]);
+        if (typeof r.parentPlanId === 'string') setParentPlanId(r.parentPlanId);
         if (r.fillMode === 'balanced' || r.fillMode === 'sequential') setFillMode(r.fillMode);
         if (r.genderRule === 'can_sit_adjacent' || r.genderRule === 'cannot_sit_adjacent') setGenderRule(r.genderRule);
         if (r.sameClassAdjacent === 'allow' || r.sameClassAdjacent === 'forbid') setSameClassAdj(r.sameClassAdjacent);
@@ -131,14 +168,19 @@ export default function SinavOlusturPage() {
         if (r.fillDirection === 'ltr' || r.fillDirection === 'rtl' || r.fillDirection === 'alternating') setFillDirection(r.fillDirection);
         if (r.prioritizePinned === true || r.prioritizePinned === false) setPrioritizePinned(r.prioritizePinned as boolean);
         if (r.specialNeedsInFront === true || r.specialNeedsInFront === false) setSpecialNeedsInFront(r.specialNeedsInFront as boolean);
+        if (Array.isArray(r.specialNeedsStudentIds)) setSpecialNeedsStudentIds(r.specialNeedsStudentIds as string[]);
         if (r.proctorMode === 'auto' || r.proctorMode === 'manual') setProctorMode(r.proctorMode);
         if (typeof r.proctorsPerRoom === 'number') setProctorsPerRoom(r.proctorsPerRoom);
         if (Array.isArray(r.classSubjectAssignments)) {
-          const map: Record<string, string> = {};
-          for (const a of r.classSubjectAssignments as Array<{ classId: string; subjectName: string }>) {
-            map[a.classId] = a.subjectName;
-          }
-          setClassSubjectMap((prev) => ({ ...prev, ...map }));
+          setClassSubjectMap((prev) => {
+            const next = { ...prev };
+            for (const a of r.classSubjectAssignments as Array<{ classId: string; subjectName: string }>) {
+              if (a.classId != null && Object.prototype.hasOwnProperty.call(prev, a.classId)) {
+                next[a.classId] = a.subjectName;
+              }
+            }
+            return next;
+          });
         }
         if (Array.isArray(r.fixedClassIds)) setSabitSinifIds(new Set(r.fixedClassIds as string[]));
         setStep(2);
@@ -155,25 +197,49 @@ export default function SinavOlusturPage() {
     setExamDate(new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10));
   }, [editPlanId]);
 
-  const participatingClassIds = useMemo(
-    () => Object.entries(classSubjectMap).filter(([, v]) => v !== '').map(([k]) => k),
-    [classSubjectMap],
-  );
-  const participatingStudentCount = useMemo(
-    () => classes.filter((c) => participatingClassIds.includes(c.id)).reduce((s, c) => s + (c.studentCount ?? 0), 0),
-    [classes, participatingClassIds],
-  );
+  useEffect(() => {
+    if (step !== 3 || !token || participatingClassIds.length === 0) {
+      setSpecialNeedsPickList([]);
+      return;
+    }
+    void (async () => {
+      try {
+        const lists = await Promise.all(
+          participatingClassIds.map((cid) =>
+            apiFetch<Array<{ id: string; name: string; classId?: string | null }>>(
+              `/butterfly-exam/classes/${cid}/students${schoolQ}`,
+              { token },
+            ).catch(() => []),
+          ),
+        );
+        const byId = new Map<string, SnStudent>();
+        for (let i = 0; i < participatingClassIds.length; i++) {
+          const cid = participatingClassIds[i]!;
+          for (const s of lists[i] ?? []) {
+            byId.set(s.id, { id: s.id, name: s.name, classId: s.classId ?? cid });
+          }
+        }
+        setSpecialNeedsPickList([...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'tr')));
+      } catch {
+        setSpecialNeedsPickList([]);
+      }
+    })();
+  }, [step, token, schoolQ, participatingClassIds]);
+
   const selectedRooms = rooms.filter((r) => roomPick[r.id]);
   const totalCapacity = selectedRooms.reduce((s, r) => s + r.capacity, 0);
 
   const buildRules = () => {
     const lessonLabel = lessonPeriod === 'Normal Saat' ? normalTime || 'Normal Saat' : lessonPeriod;
+    const known = new Set(classes.map((c) => c.id));
     const csa = Object.entries(classSubjectMap)
-      .filter(([, v]) => v !== '')
+      .filter(([classId, v]) => v !== '' && known.has(classId))
       .map(([classId, subjectName]) => ({ classId, subjectName }));
     const selectedRoomIds = rooms.filter((r) => roomPick[r.id]).map((r) => r.id);
     const isAllRooms = selectedRoomIds.length === rooms.length;
     return {
+      planType: 'exam' as const,
+      ...(parentPlanId ? { parentPlanId } : {}),
       participantMode: participatingClassIds.length > 0 ? 'classes' : 'all',
       participantClassIds: participatingClassIds.length > 0 ? participatingClassIds : undefined,
       lessonPeriodLabel: lessonLabel,
@@ -192,6 +258,9 @@ export default function SinavOlusturPage() {
       sameClassSkipOne,
       prioritizePinned,
       specialNeedsInFront,
+      ...(specialNeedsInFront && specialNeedsStudentIds.length > 0
+        ? { specialNeedsStudentIds: [...specialNeedsStudentIds] }
+        : {}),
       proctorMode,
       proctorsPerRoom: proctorMode === 'auto' ? proctorsPerRoom : undefined,
     };
@@ -210,7 +279,12 @@ export default function SinavOlusturPage() {
         body: JSON.stringify({
           title: examName.trim(),
           exam_starts_at: new Date(dateTime).toISOString(),
-          rules: { lessonPeriodLabel: lessonPeriod, reportFooterLines: footerLines.filter(Boolean) },
+          rules: {
+            planType: 'exam',
+            lessonPeriodLabel: lessonPeriod,
+            reportFooterLines: footerLines.filter(Boolean),
+            ...(parentPlanId ? { parentPlanId } : {}),
+          },
         }),
       });
       setPlanId(created.id);
@@ -251,8 +325,9 @@ export default function SinavOlusturPage() {
       setPreview(data);
       setStep(6);
       const v = data.violations;
-      if (v.adjacent > 0 || v.skipOne > 0) {
-        toast.success('Yerleştirme tamamlandı', { description: `Kural ihlali: yan yana ${v.adjacent}, arada bir ${v.skipOne}` });
+      const tot = butterflyViolationTotal(v);
+      if (tot > 0) {
+        toast.success('Yerleştirme tamamlandı', { description: butterflyViolationSummary(v) || `${tot} ihlal` });
       } else {
         toast.success('Yerleştirme başarıyla tamamlandı');
       }
@@ -308,7 +383,7 @@ export default function SinavOlusturPage() {
   if (loading) return <div className="flex justify-center py-16"><LoadingSpinner /></div>;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className={cn('mx-auto w-full min-w-0 space-y-6', step === 3 ? 'max-w-5xl' : 'max-w-3xl')}>
       {/* Header */}
       <div className="text-center">
         <h1 className="text-xl font-bold">{step < 6 ? 'Yeni Sınav Oluştur' : `Sınav Düzenle: ${examDate} / ${examName}`}</h1>
@@ -352,7 +427,7 @@ export default function SinavOlusturPage() {
       </div>
 
       {/* Step Content */}
-      <div className="rounded-2xl border border-white/60 bg-white/80 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60">
+      <div className="min-w-0 overflow-x-clip rounded-2xl border border-white/60 bg-white/80 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60">
         {/* Step 1 */}
         {step === 1 && (
           <div className="p-6 space-y-6">
@@ -376,6 +451,29 @@ export default function SinavOlusturPage() {
                 />
                 {examDate && examName && (
                   <p className="mt-1 text-[11px] text-muted-foreground">{examDate} / {examName}</p>
+                )}
+              </div>
+
+              <div>
+                <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold">
+                  <CalendarDays className="size-3.5 text-fuchsia-600" /> Dönem Planı (Sınav Takvimi)
+                </p>
+                <p className="mb-1 text-[11px] text-muted-foreground">
+                  Bu oturum, seçtiğiniz dönem planına bağlanır; <strong>Sınav Takvimi</strong> raporları bu bağ üzerinden derlenir. Bağımsız bir sınav için boş bırakın.
+                </p>
+                <select
+                  className="h-10 w-full rounded-lg border border-input bg-white px-3 text-sm dark:bg-zinc-900"
+                  value={parentPlanId}
+                  onChange={(e) => setParentPlanId(e.target.value)}>
+                  <option value="">Bağımsız sınav (dönem planına bağlama)</option>
+                  {periodPlans.map((p) => (
+                    <option key={p.id} value={p.id}>{p.title}</option>
+                  ))}
+                </select>
+                {periodPlans.length === 0 && (
+                  <p className="mt-1 text-[11px] text-amber-600">
+                    Henüz bir dönem planı yok. İsterseniz önce <strong>Sınav Takvimi</strong>nde dönem cetvelini oluşturabilirsiniz.
+                  </p>
                 )}
               </div>
 
@@ -585,17 +683,20 @@ export default function SinavOlusturPage() {
 
         {/* Step 3: Dağıtım Kriterleri */}
         {step === 3 && (
-          <div className="p-6 space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold">Dağıtım Kriterleri</h2>
-              <p className="text-sm text-muted-foreground">Öğrenci yerleştirme kurallarını belirleyin</p>
-            </div>
+          <div className="min-w-0 space-y-6 p-4 sm:p-6">
+            <header className="rounded-2xl border border-border/80 bg-muted/30 px-4 py-4 sm:px-5 sm:py-5">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Adım 3</p>
+              <h2 className="mt-1 text-xl font-semibold tracking-tight text-foreground">Dağıtım Kriterleri</h2>
+              <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted-foreground wrap-anywhere">
+                Öğrenci yerleştirme kurallarını aşağıdaki bölümlerde seçin; her kutu tek bir konuyu kapsar.
+              </p>
+            </header>
 
-            <div className="grid gap-3 lg:grid-cols-2">
+            <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-2">
               {/* 1 — Salon Dağıtım Stratejisi */}
               <CriteriaCard title="Salon Dağıtım Stratejisi" subtitle="Öğrencileri salonlara dağıtım yöntemi"
                 icon={<LayoutGrid className="size-4 text-blue-600" />} iconBg="bg-blue-100 dark:bg-blue-950/40">
-                <div className="flex gap-2">
+                <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
                   <BigRadio checked={fillMode === 'balanced'} onClick={() => setFillMode('balanced')}
                     label="Dengeli Dağıtım" desc="Salonlara eşit dağıtılır" color="blue" />
                   <BigRadio checked={fillMode === 'sequential'} onClick={() => setFillMode('sequential')}
@@ -606,7 +707,7 @@ export default function SinavOlusturPage() {
               {/* 2 — Cinsiyet Kuralları */}
               <CriteriaCard title="Cinsiyet Kuralları" subtitle="Kız/erkek yan yana oturma"
                 icon={<Users className="size-4 text-pink-600" />} iconBg="bg-pink-100 dark:bg-pink-950/40">
-                <div className="flex gap-2">
+                <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
                   <BigRadio checked={genderRule === 'can_sit_adjacent'} onClick={() => setGenderRule('can_sit_adjacent')}
                     label="Yan Yana Oturabilir" desc="Kız-erkek yan yana olabilir" color="emerald" />
                   <BigRadio checked={genderRule === 'cannot_sit_adjacent'} onClick={() => setGenderRule('cannot_sit_adjacent')}
@@ -617,7 +718,7 @@ export default function SinavOlusturPage() {
               {/* 3 — Kısıt Seviyeleri */}
               <CriteriaCard title="Kısıt Seviyeleri" subtitle="Aynı sınıf seviyesi oturma kuralları"
                 icon={<AlertTriangle className="size-4 text-amber-600" />} iconBg="bg-amber-100 dark:bg-amber-950/40">
-                <div className="space-y-2">
+                <div className="flex min-w-0 flex-col gap-3">
                   <BigCheckbox checked={constraints.has('no_back_to_back')}
                     onClick={() => setConstraints((s) => { const n = new Set(s); n.has('no_back_to_back') ? n.delete('no_back_to_back') : n.add('no_back_to_back'); return n; })}
                     label="Arka Arkaya Oturamaz" desc="Aynı sınıf arka arkaya sıra alamaz" />
@@ -633,7 +734,7 @@ export default function SinavOlusturPage() {
               {/* 4 — Sınıf Karışımı */}
               <CriteriaCard title="Sınıf Karışımı" subtitle="Farklı sınıfları aynı salona alma"
                 icon={<Shuffle className="size-4 text-emerald-600" />} iconBg="bg-emerald-100 dark:bg-emerald-950/40">
-                <div className="flex gap-2">
+                <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
                   <BigRadio checked={classMix === 'can_mix'} onClick={() => { setClassMix('can_mix'); setSameClassAdj('allow'); }}
                     label="Karışabilir" desc="Farklı sınıflar aynı salonda olabilir" color="emerald" />
                   <BigRadio checked={classMix === 'cannot_mix'} onClick={() => { setClassMix('cannot_mix'); setSameClassAdj('forbid'); }}
@@ -644,7 +745,7 @@ export default function SinavOlusturPage() {
               {/* 5 — Aynı Sınıf Mesafe Kuralı */}
               <CriteriaCard title="Aynı Sınıf Mesafe Kuralı" subtitle="Aynı sınıftan öğrenciler arası boşluk"
                 icon={<Settings2 className="size-4 text-violet-600" />} iconBg="bg-violet-100 dark:bg-violet-950/40">
-                <div className="space-y-2">
+                <div className="flex min-w-0 flex-col gap-3">
                   <BigCheckbox checked={sameClassAdj === 'forbid'}
                     onClick={() => setSameClassAdj(sameClassAdj === 'forbid' ? 'allow' : 'forbid')}
                     label="Yan Yana Oturamaz" desc="Aynı sınıftan öğrenciler bitişik olamaz" />
@@ -657,7 +758,7 @@ export default function SinavOlusturPage() {
               {/* 6 — Öğrenci Sıralama */}
               <CriteriaCard title="Öğrenci Sıralama Kriteri" subtitle="Yerleştirme öncesi öğrenci sıralaması"
                 icon={<BookOpen className="size-4 text-indigo-600" />} iconBg="bg-indigo-100 dark:bg-indigo-950/40">
-                <div className="space-y-2">
+                <div className="flex min-w-0 flex-col gap-3">
                   {([
                     ['student_number', 'Öğrenci Numarasına Göre', 'Küçükten büyüğe numara sırasıyla'],
                     ['alphabetical', 'Alfabetik Sıralama', 'Ad soyada göre A→Z sıralama'],
@@ -673,7 +774,7 @@ export default function SinavOlusturPage() {
               {/* 7 — Salon Dolum Yönü */}
               <CriteriaCard title="Salon Dolum Yönü" subtitle="Koltukların hangi yönden doldurulacağı"
                 icon={<LayoutGrid className="size-4 text-cyan-600" />} iconBg="bg-cyan-100 dark:bg-cyan-950/40">
-                <div className="flex gap-2">
+                <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-3">
                   <BigRadio checked={fillDirection === 'ltr'} onClick={() => setFillDirection('ltr')}
                     label="Soldan Sağa" desc="Sıralar soldan sağa doldurulur" color="blue" />
                   <BigRadio checked={fillDirection === 'rtl'} onClick={() => setFillDirection('rtl')}
@@ -686,45 +787,77 @@ export default function SinavOlusturPage() {
               {/* 8 — Özel Yerleştirme */}
               <CriteriaCard title="Özel Yerleştirme Kuralları" subtitle="Öncelikli öğrenci işlemleri"
                 icon={<Lock className="size-4 text-rose-600" />} iconBg="bg-rose-100 dark:bg-rose-950/40">
-                <div className="space-y-2">
+                <div className="flex min-w-0 flex-col gap-3">
                   <BigCheckbox checked={prioritizePinned}
                     onClick={() => setPrioritizePinned((v) => !v)}
                     label="Sabit Öğrenciler Önce" desc="Sabit olarak işaretlenen öğrenciler öncelikli yerleştirilir" />
                   <BigCheckbox checked={specialNeedsInFront}
-                    onClick={() => setSpecialNeedsInFront((v) => !v)}
-                    label="Özel İhtiyaç Öğrencisi Ön Sıra" desc="İşaretlenmiş öğrenciler birinci sıraya alınır" />
+                    onClick={() => {
+                      setSpecialNeedsInFront((was) => {
+                        if (was) setSpecialNeedsStudentIds([]);
+                        return !was;
+                      });
+                    }}
+                    label="Özel İhtiyaç Öğrencisi Ön Sıra" desc="Aşağıda seçilen öğrenciler ön sıra (düşük sıra no) önceliği alır" />
+                  {specialNeedsInFront && specialNeedsPickList.length > 0 && (
+                    <div className="mt-2 max-h-36 min-w-0 space-y-1 overflow-y-auto rounded-lg border border-border/80 bg-muted/20 p-2">
+                      {specialNeedsPickList.map((s) => {
+                        const on = specialNeedsStudentIds.includes(s.id);
+                        return (
+                          <label key={s.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-xs hover:bg-muted/50">
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              onChange={() => setSpecialNeedsStudentIds((prev) => {
+                                const n = [...prev];
+                                const i = n.indexOf(s.id);
+                                if (i >= 0) n.splice(i, 1);
+                                else n.push(s.id);
+                                return n;
+                              })}
+                              className="rounded border-muted-foreground/40"
+                            />
+                            <span className="wrap-anywhere leading-snug">{s.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </CriteriaCard>
 
               {/* 9 — Gözetmen Ayarları */}
               <CriteriaCard title="Gözetmen Ayarları" subtitle="Sınav gözetmenlerinin atanma şekli"
                 icon={<GraduationCap className="size-4 text-teal-600" />} iconBg="bg-teal-100 dark:bg-teal-950/40">
-                <div className="flex gap-2 mb-2">
+                <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
                   <BigRadio checked={proctorMode === 'auto'} onClick={() => setProctorMode('auto')}
                     label="Otomatik Atama" desc="Sistem gözetmenleri otomatik atar" color="blue" />
                   <BigRadio checked={proctorMode === 'manual'} onClick={() => setProctorMode('manual')}
                     label="Manuel Atama" desc="Gözetmenler elle belirtilir" color="blue" />
                 </div>
                 {proctorMode === 'auto' && (
-                  <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800/40">
-                    <span className="text-xs text-muted-foreground">Salon başına gözetmen:</span>
-                    <div className="flex items-center gap-2">
+                  <div className="mt-4 flex min-w-0 flex-wrap items-center gap-3 rounded-xl border border-border/80 bg-muted/40 px-4 py-3">
+                    <span className="min-w-0 flex-1 text-xs font-medium leading-snug text-muted-foreground wrap-anywhere sm:flex-none">
+                      Salon başına gözetmen
+                    </span>
+                    <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-1 py-0.5">
                       <button type="button" onClick={() => setProctorsPerRoom((v) => Math.max(1, v - 1))}
-                        className="flex size-6 items-center justify-center rounded-full border bg-white text-sm font-bold hover:bg-slate-100 dark:bg-zinc-800">−</button>
-                      <span className="w-6 text-center text-sm font-bold tabular-nums">{proctorsPerRoom}</span>
+                        className="flex size-8 items-center justify-center rounded-md text-sm font-semibold text-foreground hover:bg-muted">−</button>
+                      <span className="min-w-[2ch] text-center text-sm font-bold tabular-nums">{proctorsPerRoom}</span>
                       <button type="button" onClick={() => setProctorsPerRoom((v) => Math.min(10, v + 1))}
-                        className="flex size-6 items-center justify-center rounded-full border bg-white text-sm font-bold hover:bg-slate-100 dark:bg-zinc-800">+</button>
+                        className="flex size-8 items-center justify-center rounded-md text-sm font-semibold text-foreground hover:bg-muted">+</button>
                     </div>
-                    <span className="text-xs text-muted-foreground">gözetmen</span>
                   </div>
                 )}
               </CriteriaCard>
             </div>
 
-            {/* İpucu */}
-            <div className="flex items-center gap-2.5 rounded-xl border border-amber-200/60 bg-amber-50/80 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/25 dark:text-amber-200">
-              <Info className="size-4 shrink-0 text-amber-500" />
-              <span><strong>İpucu:</strong> Kısıt seviyeleri dağıtım olmazsa otomatik olarak esnetilir. Sabit öğrenciler her zaman kendi sıra tercihine göre yerleştirilir.</span>
+            <div className="flex min-w-0 gap-3 rounded-2xl border border-amber-200/70 bg-amber-50/90 px-4 py-3.5 text-sm leading-relaxed text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
+              <Info className="size-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+              <p className="min-w-0 wrap-anywhere">
+                <span className="font-semibold text-amber-900 dark:text-amber-50">İpucu: </span>
+                Kısıt seviyeleri dağıtım olmazsa otomatik olarak esnetilir. Sabit öğrenciler her zaman kendi sıra tercihine göre yerleştirilir.
+              </p>
             </div>
           </div>
         )}
@@ -864,8 +997,10 @@ export default function SinavOlusturPage() {
               <h2 className="text-lg font-semibold">Yerleştirme Önizleme</h2>
               <p className="text-sm text-muted-foreground">
                 {preview.assignments.length} öğrenci yerleştirildi.
-                {preview.violations.adjacent + preview.violations.skipOne > 0 && (
-                  <span className="text-amber-600 ml-1">Kural ihlali: yan yana {preview.violations.adjacent}, arada bir {preview.violations.skipOne}</span>
+                {butterflyViolationTotal(preview.violations) > 0 && (
+                  <span className="text-amber-600 ml-1">
+                    Kural ihlali: {butterflyViolationSummary(preview.violations) || `${butterflyViolationTotal(preview.violations)} adet`}
+                  </span>
                 )}
               </p>
             </div>
@@ -929,41 +1064,59 @@ function CriteriaCard({
   title: string; subtitle: string; icon: React.ReactNode; iconBg: string; children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 space-y-3">
-      <div className="flex items-center gap-2.5">
-        <div className={cn('rounded-lg p-2', iconBg)}>{icon}</div>
-        <div>
-          <p className="text-sm font-bold">{title}</p>
-          <p className="text-xs text-muted-foreground">{subtitle}</p>
+    <section className="flex min-h-0 min-w-0 w-full flex-col rounded-2xl border border-border/90 bg-card p-4 shadow-sm ring-1 ring-black/3 dark:ring-white/6 sm:p-5">
+      <div className="flex min-w-0 gap-3 border-b border-border/70 pb-4">
+        <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-xl', iconBg)}>{icon}</div>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[15px] font-semibold leading-snug tracking-tight text-foreground wrap-anywhere">{title}</h3>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground wrap-anywhere">{subtitle}</p>
         </div>
       </div>
-      {children}
-    </div>
+      <div className="min-w-0 pt-4">{children}</div>
+    </section>
   );
 }
 
 function BigRadio({ checked, onClick, label, desc, color }: {
   checked: boolean; onClick: () => void; label: string; desc: string; color: 'blue' | 'emerald' | 'rose';
 }) {
-  const active: Record<string, string> = {
-    blue: 'border-blue-400 bg-blue-50 dark:border-blue-600 dark:bg-blue-950/30',
-    emerald: 'border-emerald-400 bg-emerald-50 dark:border-emerald-600 dark:bg-emerald-950/30',
-    rose: 'border-rose-400 bg-rose-50 dark:border-rose-600 dark:bg-rose-950/30',
+  const active: Record<typeof color, string> = {
+    blue: 'border-blue-500/80 bg-blue-50/90 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.6)] dark:border-blue-500/50 dark:bg-blue-950/35',
+    emerald: 'border-emerald-500/80 bg-emerald-50/90 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.6)] dark:border-emerald-500/50 dark:bg-emerald-950/35',
+    rose: 'border-rose-500/80 bg-rose-50/90 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.6)] dark:border-rose-500/50 dark:bg-rose-950/35',
   };
-  const dot: Record<string, string> = {
-    blue: 'bg-blue-600', emerald: 'bg-emerald-600', rose: 'bg-rose-600',
+  const ringBorder: Record<typeof color, string> = {
+    blue: 'border-blue-500',
+    emerald: 'border-emerald-500',
+    rose: 'border-rose-500',
+  };
+  const dot: Record<typeof color, string> = {
+    blue: 'bg-blue-600 dark:bg-blue-400',
+    emerald: 'bg-emerald-600 dark:bg-emerald-400',
+    rose: 'bg-rose-600 dark:bg-rose-400',
+  };
+  const labelCls: Record<typeof color, string> = {
+    blue: 'text-blue-900 dark:text-blue-100',
+    emerald: 'text-emerald-900 dark:text-emerald-100',
+    rose: 'text-rose-900 dark:text-rose-100',
   };
   return (
     <button type="button" onClick={onClick}
-      className={cn('flex flex-1 cursor-pointer items-start gap-2.5 rounded-xl border-2 p-3 text-left transition',
-        checked ? active[color] : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-800/30')}>
-      <div className={cn('mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border-2 transition',
-        checked ? `border-${color}-500 bg-white` : 'border-slate-300 bg-white dark:border-zinc-600')}>
+      className={cn(
+        'box-border flex w-full min-w-0 max-w-full cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 text-left transition-colors sm:px-3.5 sm:py-3.5',
+        checked
+          ? active[color]
+          : 'border-border bg-muted/25 hover:border-muted-foreground/25 hover:bg-muted/40 dark:bg-muted/10',
+      )}>
+      <div className={cn(
+        'mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-full border-2 bg-background transition-colors',
+        checked ? ringBorder[color] : 'border-muted-foreground/30',
+      )}>
         {checked && <div className={cn('size-2 rounded-full', dot[color])} />}
       </div>
-      <div>
-        <p className={cn('text-sm font-semibold', checked ? `text-${color}-800 dark:text-${color}-200` : '')}>{label}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>
+      <div className="min-w-0 flex-1 space-y-1">
+        <p className={cn('text-sm font-semibold leading-snug wrap-anywhere', checked ? labelCls[color] : 'text-foreground')}>{label}</p>
+        <p className="text-xs leading-relaxed text-muted-foreground wrap-anywhere">{desc}</p>
       </div>
     </button>
   );
@@ -974,17 +1127,21 @@ function BigCheckbox({ checked, onClick, label, desc }: {
 }) {
   return (
     <button type="button" onClick={onClick}
-      className={cn('flex w-full cursor-pointer items-start gap-2.5 rounded-xl border-2 p-3 text-left transition',
+      className={cn(
+        'box-border flex w-full min-w-0 max-w-full cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 text-left transition-colors sm:px-3.5 sm:py-3.5',
         checked
-          ? 'border-blue-400 bg-blue-50 dark:border-blue-600 dark:bg-blue-950/30'
-          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-800/30')}>
-      <div className={cn('mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border-2 transition',
-        checked ? 'border-blue-500 bg-blue-600' : 'border-slate-300 bg-white dark:border-zinc-600')}>
-        {checked && <Check className="size-2.5 text-white" />}
+          ? 'border-blue-500/80 bg-blue-50/90 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.6)] dark:border-blue-500/50 dark:bg-blue-950/35'
+          : 'border-border bg-muted/25 hover:border-muted-foreground/25 hover:bg-muted/40 dark:bg-muted/10',
+      )}>
+      <div className={cn(
+        'mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-md border-2 transition-colors',
+        checked ? 'border-blue-600 bg-blue-600 dark:border-blue-500 dark:bg-blue-500' : 'border-muted-foreground/30 bg-background',
+      )}>
+        {checked && <Check className="size-3 text-white" strokeWidth={2.5} />}
       </div>
-      <div>
-        <p className={cn('text-sm font-semibold', checked ? 'text-blue-800 dark:text-blue-200' : '')}>{label}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>
+      <div className="min-w-0 flex-1 space-y-1">
+        <p className={cn('text-sm font-semibold leading-snug wrap-anywhere', checked ? 'text-blue-950 dark:text-blue-50' : 'text-foreground')}>{label}</p>
+        <p className="text-xs leading-relaxed text-muted-foreground wrap-anywhere">{desc}</p>
       </div>
     </button>
   );

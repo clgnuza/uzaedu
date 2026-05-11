@@ -188,7 +188,6 @@ export default function DutyPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [latestPlan, setLatestPlan] = useState<ActivePlan | null>(null);
-  const [autoNavigated, setAutoNavigated] = useState(false);
   const [panelTeacherId, setPanelTeacherId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [teachers, setTeachers] = useState<UserItem[]>([]);
@@ -272,18 +271,6 @@ export default function DutyPage() {
   }, [token]);
 
   useEffect(() => { fetchLatestPlan(); }, [fetchLatestPlan]);
-
-  // Mevcut ayda veri yoksa en son plana otomatik git (ilk yüklemede bir kez)
-  useEffect(() => {
-    if (!autoNavigated && !loading && rangeSlots.length === 0 && latestPlan?.period_start) {
-      const planYMD = latestPlan.period_start.slice(0, 10);
-      const currentBounds = viewMode === 'month' ? getMonthBounds(focusDate) : getWeekBounds(focusDate);
-      if (planYMD < currentBounds.from || planYMD > currentBounds.to) {
-        setFocusDate(planYMD);
-        setAutoNavigated(true);
-      }
-    }
-  }, [loading, rangeSlots.length, latestPlan, autoNavigated, focusDate, viewMode]);
 
   useEffect(() => {
     if (viewMode === 'day') {
@@ -731,7 +718,16 @@ export default function DutyPage() {
                     type="button"
                     role="tab"
                     aria-selected={isActive}
-                    onClick={() => setViewMode(id)}
+                    onClick={() => {
+                      if ((id === 'month' || id === 'week') && viewMode !== id) {
+                        const y = toYMD(new Date());
+                        setFocusDate(y);
+                        setSelectedDate(y);
+                      } else if (id === 'day' && viewMode !== 'day') {
+                        setSelectedDate(focusDate);
+                      }
+                      setViewMode(id);
+                    }}
                     className={cn(
                       'flex min-h-10 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] font-semibold transition-all sm:min-h-9 sm:flex-row sm:gap-1.5 sm:rounded-xl sm:px-3 sm:py-2 sm:text-xs',
                       isActive ? active : idle,

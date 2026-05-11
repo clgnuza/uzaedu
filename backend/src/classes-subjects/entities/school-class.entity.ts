@@ -13,8 +13,12 @@ export class SchoolClass {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'school_id', type: 'uuid' })
-  schoolId: string;
+  @Column({ name: 'school_id', type: 'uuid', nullable: true })
+  schoolId: string | null;
+
+  /** Öğretmenin okula bağlı olmadan veya okul listesine ek olarak oluşturduğu kayıt. */
+  @Column({ name: 'owner_user_id', type: 'uuid', nullable: true })
+  ownerUserId: string | null;
 
   @Column({ type: 'varchar', length: 128 })
   name: string;
@@ -32,7 +36,7 @@ export class SchoolClass {
   @CreateDateColumn()
   created_at: Date;
 
-  @ManyToOne(() => School, { onDelete: 'CASCADE' })
+  @ManyToOne(() => School, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'school_id' })
-  school: School;
+  school: School | null;
 }

@@ -29,6 +29,7 @@ import { SchoolsModule } from '../schools/schools.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
 import { MarketModule } from '../market/market.module';
+import { ClassesSubjectsModule } from '../classes-subjects/classes-subjects.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { MarketModule } from '../market/market.module';
     SchoolsModule,
     NotificationsModule,
     MarketModule,
+    ClassesSubjectsModule,
   ],
   controllers: [TeacherAgendaController],
   providers: [

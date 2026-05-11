@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ReminderFormSection } from './reminder-form-section';
+import { Repeat, BellRing } from 'lucide-react';
 
 function localTodayYMD(): string {
   const d = new Date();
@@ -88,6 +89,7 @@ export function TaskFormModal({
       setRemindAt(undefined);
       setReminderWanted(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `initial` alanları ayrı; tüm nesne üstten her render’da yenilenir
   }, [
     open,
     editTaskId,
@@ -149,7 +151,7 @@ export function TaskFormModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent title={editTaskId ? 'Görevi Düzenle' : 'Yeni Görev'}>
-        <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-2 sm:space-y-4">
           <div>
             <Label htmlFor="task-title" className="text-xs sm:text-sm">
               Başlık
@@ -205,35 +207,50 @@ export function TaskFormModal({
               />
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
-            <div>
-              <Label className="text-xs sm:text-sm">Öncelik</Label>
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as TaskFormData['priority'])}
-                className="mt-1 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-11"
-              >
-                <option value="low">Düşük</option>
-                <option value="medium">Orta</option>
-                <option value="high">Yüksek</option>
-              </select>
+          <div>
+            <Label className="text-xs sm:text-sm">Öncelik</Label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as TaskFormData['priority'])}
+              className="mt-1 min-h-9 w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm sm:min-h-11 sm:px-3 sm:py-2"
+            >
+              <option value="low">Düşük</option>
+              <option value="medium">Orta</option>
+              <option value="high">Yüksek</option>
+            </select>
+          </div>
+          <div className="rounded-lg border border-border/70 bg-muted/20 p-2.5 sm:p-3">
+            <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground sm:text-xs">
+              <Repeat className="size-3.5 text-violet-500 sm:size-4" aria-hidden />
+              Tekrar ve sonlandırma
             </div>
             <div>
               <Label className="text-xs sm:text-sm">Tekrar</Label>
               <select
                 value={repeat}
                 onChange={(e) => setRepeat(e.target.value as TaskFormData['repeat'])}
-                className="mt-1 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-11"
+                className="mt-1 min-h-9 w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm sm:min-h-11 sm:px-3 sm:py-2"
               >
                 <option value="none">Yok</option>
                 <option value="daily">Günlük</option>
                 <option value="weekly">Haftalık</option>
                 <option value="monthly">Aylık</option>
               </select>
-              <p className="mt-1 text-[10px] leading-snug text-muted-foreground sm:text-xs">
-                Tamamlayınca bir sonraki vade için yeni görev oluşur (vade tarihi gerekli).
-              </p>
             </div>
+            <p className="mt-2 text-[10px] leading-snug text-muted-foreground sm:text-xs">
+              Tamamlayınca yeni görev açılır; yeni görevde hatırlatıcı yoktur. Seriyi durdurmak için Tekrar → Yok ve Kaydet.
+            </p>
+            {editTaskId && repeat !== 'none' && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2 h-8 w-full rounded-lg text-[11px] sm:h-9 sm:text-xs"
+                onClick={() => setRepeat('none')}
+              >
+                Tekrarı şimdi durdur (Yok)
+              </Button>
+            )}
           </div>
           {students.length > 0 && (
             <div>
@@ -252,13 +269,25 @@ export function TaskFormModal({
               </select>
             </div>
           )}
-          <ReminderFormSection
-            enabled={reminderWanted}
-            remindAt={remindAt}
-            onChange={setRemindAt}
-            disabled={loading}
-            onEnabledChange={setReminderWanted}
-          />
+          <div className="rounded-lg border border-border/70 bg-muted/20 p-2.5 sm:p-3">
+            <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground sm:text-xs">
+              <BellRing className="size-3.5 text-teal-500 sm:size-4" aria-hidden />
+              Hatırlatıcı
+            </div>
+            <ReminderFormSection
+              enabled={reminderWanted}
+              remindAt={remindAt}
+              onChange={setRemindAt}
+              disabled={loading}
+              onEnabledChange={setReminderWanted}
+              showLeadingBell={false}
+            />
+            {editTaskId ? (
+              <p className="mt-2 text-[10px] leading-snug text-muted-foreground sm:text-xs">
+                Hatırlatıcıyı kapatırsanız gönderilmemiş bildirim silinir; kaydetmeyi unutmayın.
+              </p>
+            ) : null}
+          </div>
           <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end sm:pt-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
               İptal

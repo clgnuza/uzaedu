@@ -63,6 +63,10 @@ const STAR_R  = 39.4;
 const NODE_R  = 37.0;
 const INNER_R = 20.8;
 
+/** Sabit id — landing’de tek SealHub; useId + Turbopack/SSR gradient id uyuşmazlığı olmasın */
+const SEAL_HUB_ROPE_GRAD_ID = 'seal-hub-rope-grad';
+const SEAL_HUB_C_BLOOM_ID = 'seal-hub-c-bloom';
+
 /** Sabit yüzdeler — SSR / istemci kayan nokta farkı hidrasyon hatası vermesin */
 const NODE_POSITIONS: { left: string; top: string }[] = (() => {
   const n = ITEMS.length;
@@ -441,9 +445,6 @@ function RopeRing({
 
 export function SealHub() {
   const router = useRouter();
-  const ringSvgUid = useId().replace(/:/g, '');
-  const ropeGradId = `${ringSvgUid}-rope-grad`;
-  const cBloomId = `${ringSvgUid}-c-bloom`;
   const hubRef = useRef<HTMLDivElement>(null);
   const [activeItem, setActiveItem] = useState<HubItem | null>(null);
   const [hubRect, setHubRect] = useState<DOMRect | null>(null);
@@ -480,29 +481,24 @@ export function SealHub() {
         />
 
         {/* SVG rings */}
-        <svg
-          className="absolute inset-0 size-full"
-          viewBox="0 0 100 100"
-          xmlns="http://www.w3.org/2000/svg"
-          aria-hidden
-        >
+        <svg className="absolute inset-0 size-full" viewBox="0 0 100 100" aria-hidden>
           <defs>
-            <linearGradient id={ropeGradId} x1="0" y1="0" x2="1" y2="1">
+            <linearGradient id={SEAL_HUB_ROPE_GRAD_ID} x1="0" y1="0" x2="1" y2="1">
               <stop offset="0%"   stopColor="#f87171" stopOpacity="0.95" />
               <stop offset="30%"  stopColor="#dc2626" />
               <stop offset="65%"  stopColor="#991b1b" />
               <stop offset="100%" stopColor="#f87171" stopOpacity="0.9" />
             </linearGradient>
-            <radialGradient id={cBloomId} cx="50%" cy="50%">
+            <radialGradient id={SEAL_HUB_C_BLOOM_ID} cx="50%" cy="50%">
               <stop offset="0%"   stopColor="rgba(185,28,28,0.22)" />
-              <stop offset="100%" stopColor="transparent" />
+              <stop offset="100%" stopColor="rgba(0,0,0,0)" />
             </radialGradient>
           </defs>
 
-          <circle cx="50" cy="50" r="45" fill={`url(#${cBloomId})`} />
+          <circle cx="50" cy="50" r="45" fill={`url(#${SEAL_HUB_C_BLOOM_ID})`} />
 
           <g>
-            <RopeRing r={OUTER_R} sw={3.3} dash={3.1} gap={1.8} speed={52} dir="cw" ropeGradId={ropeGradId} />
+            <RopeRing r={OUTER_R} sw={3.3} dash={3.1} gap={1.8} speed={52} dir="cw" ropeGradId={SEAL_HUB_ROPE_GRAD_ID} />
           </g>
           <circle cx="50" cy="50" r={OUTER_R - 5.8} fill="none" stroke="rgba(220,38,38,0.18)" strokeWidth="0.14" />
 
@@ -519,7 +515,7 @@ export function SealHub() {
 
           <circle cx="50" cy="50" r={INNER_R + 4.1} fill="none" stroke="rgba(220,38,38,0.14)" strokeWidth="0.11" />
           <g>
-            <RopeRing r={INNER_R} sw={2.2} dash={2.4} gap={1.4} speed={38} dir="ccw" ropeGradId={ropeGradId} />
+            <RopeRing r={INNER_R} sw={2.2} dash={2.4} gap={1.4} speed={38} dir="ccw" ropeGradId={SEAL_HUB_ROPE_GRAD_ID} />
           </g>
         </svg>
 
@@ -544,10 +540,7 @@ export function SealHub() {
 
         {/* Orta logo */}
         <div className="pointer-events-none absolute inset-[30%] flex items-center justify-center">
-          <div
-            className="relative flex h-[84%] w-[84%] items-center justify-center overflow-hidden rounded-full"
-            style={{ animation: 'logo-breathe 3.5s ease-in-out infinite', willChange: 'transform' }}
-          >
+          <div className="seal-hub-logo-breathe relative flex h-[84%] w-[84%] items-center justify-center overflow-hidden rounded-full">
             <div className="absolute inset-[8%] rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.98)_0%,rgba(255,255,255,0.78)_30%,rgba(255,255,255,0.24)_52%,rgba(255,255,255,0)_72%)] blur-md" />
             <Image
               src="/landing/uza-logo.png"

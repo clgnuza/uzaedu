@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
@@ -33,6 +32,7 @@ import { EventDetailModal } from './components/event-detail-modal';
 import { NoteFormModal } from './components/note-form-modal';
 import { NoteDetailModal } from './components/note-detail-modal';
 import { TaskFormModal } from './components/task-form-modal';
+import { AgendaTaskRow } from './components/agenda-task-row';
 import { StudentNoteFormModal } from './components/student-note-form-modal';
 import { ParentMeetingFormModal } from './components/parent-meeting-form-modal';
 import { SchoolEventFormModal } from './components/school-event-form-modal';
@@ -331,28 +331,36 @@ function OgretmenAjandasiPageContent() {
     }
   }, [token]);
 
-  const fetchStudents = useCallback(async () => {
-    if (!token) return;
-    try {
-      const res = await apiFetch<Student[]>('/teacher-agenda/students', { token });
-      setStudents(Array.isArray(res) ? res : []);
-    } catch {
-      setStudents([]);
-    }
-  }, [token]);
-
-  const fetchSubjectsClasses = useCallback(async () => {
+  const fetchSubjectsClassesStudents = useCallback(async () => {
     if (!token) return;
     try {
       const [subjRes, classRes] = await Promise.all([
         apiFetch<{ id: string; label?: string; name?: string }[]>('/classes-subjects/subjects', { token }),
         apiFetch<{ id: string; label?: string; name?: string }[]>('/classes-subjects/classes', { token }),
       ]);
+      const classesArr = (Array.isArray(classRes) ? classRes : []).map((c) => ({ id: c.id, label: c.label ?? c.name ?? c.id }));
       setSubjects((Array.isArray(subjRes) ? subjRes : []).map((s) => ({ id: s.id, label: s.label ?? s.name ?? s.id })));
-      setClasses((Array.isArray(classRes) ? classRes : []).map((c) => ({ id: c.id, label: c.label ?? c.name ?? c.id })));
+      setClasses(classesArr);
+      if (classesArr.length === 0) {
+        setStudents([]);
+        return;
+      }
+      const perClass = await Promise.all(
+        classesArr.map((c) =>
+          apiFetch<{ id: string; name: string }[]>(`/classes-subjects/classes/${c.id}/students`, { token }).catch(() => [] as { id: string; name: string }[]),
+        ),
+      );
+      const byId = new Map<string, Student>();
+      for (const list of perClass) {
+        for (const s of list) {
+          if (s?.id && s?.name) byId.set(s.id, { id: s.id, name: s.name });
+        }
+      }
+      setStudents([...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'tr')));
     } catch {
       setSubjects([]);
       setClasses([]);
+      setStudents([]);
     }
   }, [token]);
 
@@ -486,8 +494,7 @@ function OgretmenAjandasiPageContent() {
       fetchCalendar(),
       fetchNotes(),
       fetchTasks(),
-      fetchStudents(),
-      fetchSubjectsClasses(),
+      fetchSubjectsClassesStudents(),
       fetchSummary(),
       ...(me?.role === 'school_admin' ? [] : [fetchTemplates()]),
       fetchWeeklyStats(),
@@ -497,7 +504,7 @@ function OgretmenAjandasiPageContent() {
         setError(e instanceof Error ? e.message : 'Yüklenemedi');
         setLoading(false);
       });
-  }, [token, me?.role, fetchCalendar, fetchNotes, fetchTasks, fetchStudents, fetchSubjectsClasses, fetchSummary, fetchTemplates, fetchWeeklyStats]);
+  }, [token, me?.role, fetchCalendar, fetchNotes, fetchTasks, fetchSubjectsClassesStudents, fetchSummary, fetchTemplates, fetchWeeklyStats]);
 
   useEffect(() => {
     if (token && (mobileTab === 'student_notes' || mobileTab === 'parent_meetings')) {
@@ -789,6 +796,21 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
     }
   };
 
+  const handleEndTaskRepeatFromCalendar = async (taskId: string, occurrenceYmd: string) => {
+    if (!token) return;
+    try {
+      await apiFetch(`/teacher-agenda/tasks/${taskId}`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ repeatEndOccurrenceDate: occurrenceYmd }),
+      });
+      toast.success('Bu günden sonra tekrar yok; son tarih güncellendi.');
+      refresh();
+    } catch {
+      toast.error('Güncellenemedi');
+    }
+  };
+
   const handleCreateStudentNote = async (data: {
     studentId: string;
     noteType: string;
@@ -1025,8 +1047,8 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
       ? displayEvents.filter((e: CalendarEvent) => e.source === filterSource)
       : displayEvents;
 
-  const isOverdue = (t: AgendaTask) =>
-    t.status === 'pending' && t.dueDate && t.dueDate < toYMD(new Date());
+  const isOverdue = (t: AgendaTask): boolean =>
+    t.status === 'pending' && !!t.dueDate && t.dueDate < toYMD(new Date());
 
   const openAddMenu = () => {
     if (mobileTab === 'notes') setNoteModalOpen(true);
@@ -1530,11 +1552,11 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
 
             {mobileTab === 'tasks' && (
               <Card className={cn('overflow-hidden rounded-2xl border bg-card', AGENDA_PANEL.tasks.card)}>
-                <CardHeader className={cn('flex flex-col gap-3', AGENDA_PANEL.tasks.head)}>
-                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <CardTitle className="flex min-w-0 items-center gap-2 text-base font-semibold sm:text-lg">
-                      <span className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg', AGENDA_PANEL.tasks.iconWrap)}>
-                        <ListTodo className={cn('size-4 shrink-0', AGENDA_PANEL.tasks.iconClass)} />
+                <CardHeader className={cn('flex flex-col gap-2 max-sm:gap-2 max-sm:py-2.5', AGENDA_PANEL.tasks.head)}>
+                  <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                    <CardTitle className="flex min-w-0 items-center gap-2 text-[15px] font-semibold sm:text-lg">
+                      <span className={cn('flex size-7 shrink-0 items-center justify-center rounded-lg sm:size-8', AGENDA_PANEL.tasks.iconWrap)}>
+                        <ListTodo className={cn('size-3.5 shrink-0 sm:size-4', AGENDA_PANEL.tasks.iconClass)} />
                       </span>
                       Görevler
                     </CardTitle>
@@ -1605,7 +1627,7 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent className="px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
+                <CardContent className="max-sm:px-2.5 max-sm:pb-2.5 px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
                   {displayTasks.length === 0 ? (
                     <div className="rounded-2xl border border-dashed border-border bg-linear-to-b from-emerald-500/5 to-transparent py-12 text-center sm:py-16">
                       <div className="mb-4 inline-flex size-14 items-center justify-center rounded-2xl bg-emerald-500/15 sm:size-16">
@@ -1619,72 +1641,30 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
                       </Button>
                     </div>
                   ) : (
-                    <ul className="space-y-2.5">
+                    <ul className="space-y-1.5 sm:space-y-2.5">
                       {displayTasks.map((t) => (
-                        <li
+                        <AgendaTaskRow
                           key={t.id}
-                          className={cn(
-                            'group flex min-h-[56px] touch-manipulation items-center gap-3 rounded-xl border border-border/80 bg-card px-3 py-3 text-sm shadow-sm transition-all sm:px-4 sm:py-3.5',
-                            AGENDA_PANEL.tasks.rowHover,
-                            isOverdue(t) && 'border-destructive/45 bg-destructive/5 ring-1 ring-destructive/15',
-                          )}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedTaskIds.has(t.id)}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              setSelectedTaskIds((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(t.id)) next.delete(t.id);
-                                else next.add(t.id);
-                                return next;
-                              });
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="rounded shrink-0"
-                          />
-                          <input
-                            type="checkbox"
-                            checked={t.status === 'completed'}
-                            disabled={togglingTaskId === t.id}
-                            onChange={() =>
-                              handleTaskStatus(t.id, t.status === 'completed' ? 'pending' : 'completed')
-                            }
-                            className="rounded border-input size-5 shrink-0 cursor-pointer"
-                          />
-                          <span
-                            className={cn(
-                              'min-w-0 flex-1 cursor-pointer truncate font-semibold leading-snug',
-                              t.status === 'completed' && 'text-muted-foreground line-through',
-                            )}
-                            onClick={() => void openTaskEdit(t)}
-                          >
-                            {t.title}
-                          </span>
-                          {t.dueDate && (
-                            <span
-                              className={cn(
-                                'text-xs shrink-0 tabular-nums',
-                                isOverdue(t) ? 'text-destructive font-semibold' : 'text-muted-foreground',
-                              )}
-                            >
-                              <span className="sm:hidden">{formatYmdSlash(t.dueDate)}</span>
-                              <span className="hidden sm:inline">{format(new Date(`${t.dueDate}T12:00:00`), 'd MMM', { locale: tr })}</span>
-                            </span>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="opacity-0 group-hover:opacity-100 shrink-0 h-8 w-8 p-0"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteTask(t.id);
-                            }}
-                          >
-                            ×
-                          </Button>
-                        </li>
+                          task={t}
+                          selected={selectedTaskIds.has(t.id)}
+                          onSelectChange={(checked) => {
+                            setSelectedTaskIds((prev) => {
+                              const next = new Set(prev);
+                              if (checked) next.add(t.id);
+                              else next.delete(t.id);
+                              return next;
+                            });
+                          }}
+                          completeChecked={t.status === 'completed'}
+                          completeDisabled={togglingTaskId === t.id}
+                          onCompleteChange={() =>
+                            void handleTaskStatus(t.id, t.status === 'completed' ? 'pending' : 'completed')
+                          }
+                          onEdit={() => void openTaskEdit(t)}
+                          onDelete={() => void handleDeleteTask(t.id)}
+                          overdue={isOverdue(t)}
+                          formatYmdSlash={formatYmdSlash}
+                        />
                       ))}
                     </ul>
                   )}
@@ -1846,6 +1826,7 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
         open={eventModalOpen}
         onOpenChange={setEventModalOpen}
         onTaskStatusChange={handleTaskStatus}
+        onEndTaskRepeat={isTeacher ? handleEndTaskRepeatFromCalendar : undefined}
         isSchoolAdmin={isSchoolAdmin}
         onEditSchoolEvent={handleEditSchoolEvent}
         onDeleteSchoolEvent={handleDeleteSchoolEvent}

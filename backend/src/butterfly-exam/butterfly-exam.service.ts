@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, EntityManager, Not, IsNull } from 'typeorm';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { School } from '../schools/entities/school.entity';
@@ -24,7 +24,7 @@ import { CreateButterflyRoomDto } from './dto/create-room.dto';
 import { CreateButterflyExamPlanDto } from './dto/create-plan.dto';
 import { UpdateButterflyExamPlanDto } from './dto/update-plan.dto';
 import { mergeButterflyRules, type ButterflyExamRules } from './butterfly-exam-rules.types';
-import { computeSeating, butterflySlotKey } from './butterfly-seating.engine';
+import { computeSeating, butterflySlotKey, type RoomSpec } from './butterfly-seating.engine';
 import { ButterflyExamPdfService } from './butterfly-exam-pdf.service';
 import { previewEokulStyleSheet } from './butterfly-eokul-xlsx.util';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -306,8 +306,13 @@ export class ButterflyExamService {
       return a.name.localeCompare(b.name, 'tr');
     });
 
-    const roomCaps = rooms.map((r) => ({ id: r.id, capacity: r.capacity }));
-    const totalCap = roomCaps.reduce((s, r) => s + r.capacity, 0);
+    const roomSpecs: RoomSpec[] = rooms.map((r) => ({
+      id: r.id,
+      capacity: r.capacity,
+      seatLayout: r.seatLayout,
+      name: r.name,
+    }));
+    const totalCap = roomSpecs.reduce((s, r) => s + r.capacity, 0);
     const students = await this.getParticipantStudents(schoolId, rules);
     if (students.length > totalCap) {
       throw new BadRequestException({
@@ -325,13 +330,26 @@ export class ButterflyExamService {
       preset.set(butterflySlotKey(pin.roomId, pin.seatIndex), pin.studentId);
     }
 
+    const fixedClassRoomIds = new Map<string, Set<string>>();
+    if (rules.fixedClassIds?.length) {
+      const fixedClasses = await this.classRepo.find({
+        where: { schoolId, id: In(rules.fixedClassIds) },
+      });
+      for (const c of fixedClasses) {
+        const key = c.name.trim().toLowerCase();
+        const ids = rooms.filter((rr) => rr.name.trim().toLowerCase() === key).map((rr) => rr.id);
+        if (ids.length) fixedClassRoomIds.set(c.id, new Set(ids));
+      }
+    }
+
     const seatingStudents = students.map((s) => ({
       id: s.id,
       classId: s.classId ?? null,
       name: s.name,
       studentNumber: s.studentNumber,
+      gender: s.gender,
     }));
-    const result = computeSeating(roomCaps, seatingStudents, rules, new Map(), preset);
+    const result = computeSeating(roomSpecs, seatingStudents, rules, new Map(), preset, { fixedClassRoomIds });
 
     const pinLockSet = new Set(rules.pinnedStudentIds ?? []);
     const lockPinned = rules.lockPinnedAssignments === true;
@@ -354,12 +372,102 @@ export class ButterflyExamService {
         });
         await em.save(ButterflySeatAssignment, row);
       }
+      await this.replaceAutoProctorsInTx(em, schoolId, plan.id, roomSpecs, result.assignment, rules);
     });
 
     return {
       assignments: await this.listAssignments(schoolId, planId),
       violations: result.violations,
     };
+  }
+
+  /**
+   * Otomatik gözetmen: `proctorMode === 'auto'` iken mevcut gözetmen kayıtlarını silip
+   * modül öğretmenleri (yoksa okul öğretmenleri) üzerinden salon başına atama yapar.
+   */
+  private async replaceAutoProctorsInTx(
+    em: EntityManager,
+    schoolId: string,
+    planId: string,
+    roomSpecs: RoomSpec[],
+    assignment: Map<string, string>,
+    rules: ButterflyExamRules,
+  ): Promise<void> {
+    if (rules.proctorMode !== 'auto') return;
+
+    const usedRoomIds = new Set<string>();
+    for (const k of assignment.keys()) {
+      const colon = k.lastIndexOf(':');
+      usedRoomIds.add(k.slice(0, colon));
+    }
+    if (!usedRoomIds.size) return;
+
+    const perRoom = Math.max(1, Math.min(10, rules.proctorsPerRoom ?? 2));
+    const modTeachers = await em.find(ButterflyModuleTeacher, { where: { schoolId } });
+    let pool = modTeachers.map((m) => m.userId);
+    if (!pool.length) {
+      // Tüm öğretmenleri kullan (sınırı kaldırdık)
+      const teachers = await em.find(User, {
+        where: { school_id: schoolId, role: UserRole.teacher },
+      });
+      pool = teachers.map((u) => u.id);
+    }
+    if (!pool.length) return;
+
+    // Çakışan oturumlarda bu plan ile aynı zaman aralığını paylaşan başka planların
+    // gözetmenlerini tespit edip havuzdan dışla. (overlap: startA < endB && startB < endA)
+    const currentPlan = await em.findOne(ButterflyExamPlan, { where: { id: planId, schoolId } });
+    const busyIds = new Set<string>();
+    if (currentPlan) {
+      const start = currentPlan.examStartsAt;
+      // Bitiş yoksa varsayılan 2 saatlik blok say
+      const end = currentPlan.examEndsAt ?? new Date(start.getTime() + 2 * 60 * 60 * 1000);
+      const otherPlans = await em
+        .createQueryBuilder(ButterflyExamPlan, 'p')
+        .where('p.school_id = :sid', { sid: schoolId })
+        .andWhere('p.id <> :pid', { pid: planId })
+        .andWhere('p.exam_starts_at < :end', { end })
+        .andWhere('COALESCE(p.exam_ends_at, p.exam_starts_at + interval \'2 hours\') > :start', { start })
+        .select(['p.id'])
+        .getMany();
+      const otherIds = otherPlans.map((p) => p.id);
+      if (otherIds.length) {
+        const busyProctors = await em.find(ButterflyExamProctor, { where: { planId: In(otherIds) } });
+        for (const bp of busyProctors) busyIds.add(bp.userId);
+      }
+    }
+
+    // Çakışmayan havuzu önce kullan; yetmezse çakışanlardan tamamla.
+    const freePool = pool.filter((id) => !busyIds.has(id));
+    const fallbackPool = pool.filter((id) => busyIds.has(id));
+    const orderedPool = freePool.length ? [...freePool, ...fallbackPool] : pool;
+    if (!orderedPool.length) return;
+
+    await em.delete(ButterflyExamProctor, { planId });
+    const roomOrder = [...roomSpecs.map((r) => r.id)].filter((id) => usedRoomIds.has(id));
+    let uidx = 0;
+    let sortOrder = 0;
+    for (const roomId of roomOrder) {
+      const used = new Set<string>();
+      for (let k = 0; k < perRoom; k++) {
+        let userId = orderedPool[uidx % orderedPool.length]!;
+        let guard = 0;
+        while (used.has(userId) && guard++ < orderedPool.length * 2) {
+          uidx++;
+          userId = orderedPool[uidx % orderedPool.length]!;
+        }
+        used.add(userId);
+        uidx++;
+        const row = em.create(ButterflyExamProctor, {
+          planId,
+          roomId,
+          userId,
+          label: null,
+          sortOrder: sortOrder++,
+        });
+        await em.save(ButterflyExamProctor, row);
+      }
+    }
   }
 
   async listAssignments(schoolId: string, planId: string, opts?: { forTeacher?: boolean }) {
@@ -576,12 +684,16 @@ export class ButterflyExamService {
     const examPaperConfig = ((plan.rules as Record<string, unknown>)?.examPaperConfig as Record<string, unknown> | undefined);
     const uploadedPapers = ((plan.rules as Record<string, unknown>)?.uploadedPapers as Array<Record<string, unknown>>) ?? [];
 
-    // load uploaded exam PDF buffer if any
-    let examPdfBuffer: Buffer | undefined;
-    if (uploadedPapers.length) {
-      const paper = uploadedPapers[0]; // use first (or subject-matched) paper
+    // Ders bazlı PDF tampon haritası — her öğrenci kendi dersinin kağıdını alsın
+    const examPdfBySubject: Record<string, Buffer> = {};
+    let fallbackPdfBuffer: Buffer | undefined;
+    for (const paper of uploadedPapers) {
       const fp = paper.filePath as string | undefined;
-      if (fp && existsSync(fp)) examPdfBuffer = readFileSync(fp);
+      const subj = ((paper.subjectName as string | undefined) ?? '').trim();
+      if (!fp || !existsSync(fp)) continue;
+      const buf = readFileSync(fp);
+      if (subj) examPdfBySubject[subj] = buf;
+      if (!fallbackPdfBuffer) fallbackPdfBuffer = buf;
     }
 
     return this.pdf.buildExamPaperLabelsPdf({
@@ -590,7 +702,8 @@ export class ButterflyExamService {
       examStartsAt: plan.examStartsAt,
       subjectLabel: merged.subjectLabel,
       qrCorner: examPaperConfig?.qrCorner as 'tl' | 'tr' | 'bl' | 'br' | undefined,
-      examPdfBuffer,
+      examPdfBuffer: fallbackPdfBuffer,
+      examPdfBySubject,
       rooms: [...roomMap.values()].map((r) => ({
         roomName: r.roomName,
         buildingName: r.buildingName,
@@ -831,43 +944,73 @@ export class ButterflyExamService {
     },
   ) {
     const school = await this.schoolRepo.findOne({ where: { id: schoolId } });
-    const plans = await this.planRepo.find({ where: planIds.map((id) => ({ id, schoolId })) });
-    if (!plans.length) throw new NotFoundException();
+    const plansRaw = await this.planRepo.find({ where: planIds.map((id) => ({ id, schoolId })) });
+    if (!plansRaw.length) throw new NotFoundException();
+
+    const plans = plansRaw.filter(
+      (p) => mergeButterflyRules(p.rules as Record<string, unknown>).planType !== 'period',
+    );
+    if (!plans.length) {
+      throw new BadRequestException({
+        message:
+          'Sınav takvimi cetveli yalnızca sınav oturumlarından oluşur. Dönem planı (takvim kabı) satır olarak eklenmez; yalnızca oturumları seçin veya önce oturum oluşturun.',
+      });
+    }
+
+    // Tek seferde sınıf havuzunu çek (her satır için tekrar sorgu atmıyoruz)
+    const allClasses = await this.classRepo.find({ where: { schoolId } });
+    const classById = new Map(allClasses.map((c) => [c.id, c]));
+    const gradeClassIdSet =
+      opts.type === 'sinif' && opts.grade
+        ? new Set(allClasses.filter((c) => c.grade === opts.grade).map((c) => c.id))
+        : null;
+    const subeClass = opts.type === 'sube' && opts.classId ? classById.get(opts.classId) ?? null : null;
 
     const DAYS = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
     const rows: Array<{ sn: number; gun: string; tarih: string; saat: string; sinavDersi: string; aciklama?: string; subeler?: string }> = [];
 
-    // Sort plans by date
     const sorted = [...plans].sort((a, b) => a.examStartsAt.getTime() - b.examStartsAt.getTime());
 
     for (const p of sorted) {
       const rules = mergeButterflyRules(p.rules as Record<string, unknown>);
 
-      // For sinif/sube type, filter by grade or class
-      if (opts.type === 'sinif' && opts.grade) {
-        const classes = await this.classRepo.find({ where: { schoolId } });
-        const gradeClasses = classes.filter((c) => c.grade === opts.grade);
-        const participates = rules.participantClassIds?.some((id) => gradeClasses.find((c) => c.id === id)) ?? true;
-        if (!participates) continue;
-      }
-      if (opts.type === 'sube' && opts.classId) {
-        const participates = rules.participantClassIds?.includes(opts.classId) ?? true;
-        if (!participates) continue;
+      // Sınıf/şube filtresine göre bu plan rapora dahil mi?
+      let scopedClassIds: string[] | undefined;
+      if (opts.type === 'sinif' && gradeClassIdSet) {
+        const participantIds = rules.participantClassIds ?? [...gradeClassIdSet];
+        scopedClassIds = participantIds.filter((id) => gradeClassIdSet.has(id));
+        if (scopedClassIds.length === 0) continue;
+      } else if (opts.type === 'sube' && subeClass) {
+        const inPlan = rules.participantClassIds?.includes(subeClass.id) ?? true;
+        if (!inPlan) continue;
+        scopedClassIds = [subeClass.id];
       }
 
-      // Subject label
-      const subjects = rules.classSubjectAssignments?.length
-        ? [...new Set(rules.classSubjectAssignments.map((a) => a.subjectName))].join(', ')
-        : (rules.subjectLabel ?? p.title);
+      // "Sınav Dersi": sinif/sube modunda yalnızca filtrelenen sınıfların derslerini birleştir.
+      const csa = rules.classSubjectAssignments;
+      let subjects: string;
+      if (csa?.length) {
+        const filtered = scopedClassIds
+          ? csa.filter((a) => scopedClassIds!.includes(a.classId))
+          : csa;
+        const subjectNames = [...new Set(filtered.map((a) => a.subjectName))].filter(Boolean);
+        subjects = subjectNames.length ? subjectNames.join(', ') : rules.subjectLabel ?? p.title;
+      } else {
+        subjects = rules.subjectLabel ?? p.title;
+      }
 
-      // Şubeler for genel
+      // "Şubeler": sinif/sube modu için yalnızca filtrelenen sınıf adları
       let subeler: string | undefined;
       if (opts.type !== 'genel') {
-        const classes = await this.classRepo.find({ where: { schoolId } });
-        const ids = rules.participantClassIds ?? [];
-        const names = ids.map((id) => classes.find((c) => c.id === id)?.name ?? '').filter(Boolean);
-        subeler = names.length ? (names.length > 5 ? `${names[0]} +${names.length - 1}` : names.join(', ')) : undefined;
+        const ids = scopedClassIds ?? rules.participantClassIds ?? [];
+        const names = ids
+          .map((id) => classById.get(id)?.name?.trim())
+          .filter((s): s is string => Boolean(s))
+          .sort((a, b) => a.localeCompare(b, 'tr'));
+        subeler = names.length ? names.join(', ') : undefined;
       }
+
+      const note = typeof p.description === 'string' ? p.description.split('\n')[0]?.trim() : '';
 
       const d = p.examStartsAt;
       rows.push({
@@ -876,27 +1019,40 @@ export class ButterflyExamService {
         tarih: d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' }),
         saat: rules.lessonPeriodLabel ?? '',
         sinavDersi: subjects,
-        aciklama: rules.distributionMode ? undefined : undefined,
+        aciklama: note || undefined,
         subeler,
       });
     }
 
-    // Subtitle
-    const firstPlan = sorted[0];
-    const rules0 = mergeButterflyRules(firstPlan.rules as Record<string, unknown>);
     let subtitle = '';
     if (opts.type === 'sinif' && opts.grade) {
       subtitle = `${opts.grade}. Sınıflar Sınav Takvimi`;
-    } else if (opts.type === 'sube' && opts.classId) {
-      const cls = await this.classRepo.findOne({ where: { id: opts.classId, schoolId } });
-      subtitle = `${cls?.name ?? opts.classId} Şube Sınav Takvimi`;
+    } else if (opts.type === 'sube' && subeClass) {
+      subtitle = `${subeClass.name} Şube Sınav Takvimi`;
     } else {
       subtitle = 'Genel Sınav Takvimi';
     }
 
+    // Period title: tüm seçili sınavlar tek bir dönem planına (parentPlanId) bağlıysa onun adını kullan;
+    // değilse rapor başlığını planlardan değil alt başlıktan üret.
+    const firstPlan = sorted[0];
+    const rules0 = mergeButterflyRules(firstPlan.rules as Record<string, unknown>);
+    const parentIds = new Set(
+      sorted
+        .map((p) => mergeButterflyRules(p.rules as Record<string, unknown>).parentPlanId)
+        .filter((x): x is string => Boolean(x)),
+    );
+    let periodTitle = firstPlan.title;
+    if (parentIds.size === 1) {
+      const parentId = [...parentIds][0]!;
+      const parent = await this.planRepo.findOne({ where: { id: parentId, schoolId } });
+      if (parent?.title) periodTitle = parent.title;
+    } else if (sorted.length > 1 && parentIds.size === 0) {
+      periodTitle = 'Sınav Takvimi';
+    }
+
     const footerLines = rules0.reportFooterLines?.length ? rules0.reportFooterLines : undefined;
 
-    // Fall back to settings stored in plan rules
     const raw0 = firstPlan.rules as Record<string, unknown>;
     const cityLine = opts.cityLine || (typeof raw0.cityLine === 'string' ? raw0.cityLine : undefined);
     const academicYear = opts.academicYear || (typeof raw0.academicYear === 'string' ? raw0.academicYear : undefined);
@@ -906,7 +1062,7 @@ export class ButterflyExamService {
       ?? (raw0.onaylayanName ? { name: raw0.onaylayanName as string, title: (raw0.onaylayanTitle as string) ?? '' } : undefined);
 
     return this.pdf.buildExamSchedulePdf({
-      periodTitle: firstPlan.title,
+      periodTitle,
       subtitle,
       schoolName: school?.name ?? '',
       cityLine,
@@ -1050,17 +1206,28 @@ export class ButterflyExamService {
   }
 
   async getSchoolOverviewStats(schoolId: string) {
+    // «Sınav salonları» sanal binası, her şube için otomatik oluşan koltuk havuzudur.
+    // Anasayfa kartlarında fiziksel salon ve koltuk sayısını yansıtmak için bu binadaki
+    // salonları hariç tutuyoruz.
+    const virtualBuildings = await this.buildingRepo.find({ where: { schoolId }, select: ['id', 'name'] });
+    const virtualBuildingIds = new Set(
+      virtualBuildings
+        .filter((b) => (b.name ?? '').trim().toLocaleLowerCase('tr-TR') === 'sınav salonları')
+        .map((b) => b.id),
+    );
+
     const [classCount, studentCount, roomRows, planCount] = await Promise.all([
       this.classRepo.count({ where: { schoolId } }),
-      this.studentRepo.count({ where: { schoolId } }),
-      this.roomRepo.find({ where: { schoolId }, select: ['id', 'capacity'] }),
+      this.studentRepo.count({ where: { schoolId, classId: Not(IsNull()) } }),
+      this.roomRepo.find({ where: { schoolId }, select: ['id', 'capacity', 'buildingId'] }),
       this.planRepo.count({ where: { schoolId } }),
     ]);
-    const totalCapacity = roomRows.reduce((s, r) => s + r.capacity, 0);
+    const physicalRooms = roomRows.filter((r) => !virtualBuildingIds.has(r.buildingId));
+    const totalCapacity = physicalRooms.reduce((s, r) => s + r.capacity, 0);
     return {
       classCount,
       studentCount,
-      roomCount: roomRows.length,
+      roomCount: physicalRooms.length,
       totalCapacity,
       planCount,
     };

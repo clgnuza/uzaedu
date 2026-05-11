@@ -33,6 +33,8 @@ export interface ButterflyExamRules {
   lockPinnedAssignments?: boolean;
   /** İhtiyaç sahibi öğrenciler ön sıraya */
   specialNeedsInFront?: boolean;
+  /** `specialNeedsInFront` açıkken ön sıraya alınacak öğrenci kimlikleri */
+  specialNeedsStudentIds?: string[];
   /** Gözetmen modu */
   proctorMode?: 'auto' | 'manual';
   /** Salon başına gözetmen sayısı (auto modda) */
@@ -143,6 +145,9 @@ export function mergeButterflyRules(raw: Record<string, unknown> | null | undefi
     prioritizePinned: r.prioritizePinned === true,
     lockPinnedAssignments: r.lockPinnedAssignments === true,
     specialNeedsInFront: r.specialNeedsInFront === true,
+    specialNeedsStudentIds: Array.isArray(r.specialNeedsStudentIds)
+      ? (r.specialNeedsStudentIds as unknown[]).map((x) => String(x)).filter(Boolean)
+      : undefined,
     proctorMode: r.proctorMode === 'manual' ? 'manual' : 'auto',
     proctorsPerRoom: typeof r.proctorsPerRoom === 'number' ? r.proctorsPerRoom : 2,
     fixedClassIds: Array.isArray(r.fixedClassIds)

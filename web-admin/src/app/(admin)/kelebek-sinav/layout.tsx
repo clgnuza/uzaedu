@@ -110,7 +110,11 @@ export default function KelebekSinavLayout({ children }: { children: React.React
     me?.role === 'school_admin' || me?.role === 'superadmin' || me?.role === 'moderator';
   const schoolQ = butterflyExamApiQuery(me?.role, searchParams.get('school_id'));
   const baseTabs = TABS.filter((t) => !t.adminOnly || canSalon);
-  const teacherTabPaths = ['/kelebek-sinav/ogrenci-sorgu', '/kelebek-sinav/sinav-islemleri'] as const;
+  const teacherTabPaths = [
+  '/kelebek-sinav/ogrenci-sorgu',
+  '/kelebek-sinav/sinav-planlama',
+  '/kelebek-sinav/sinav-islemleri',
+] as const;
   const visibleTabs =
     me?.role === 'teacher'
       ? baseTabs.filter((t) => teacherTabPaths.includes(t.path as (typeof teacherTabPaths)[number]))
@@ -125,7 +129,7 @@ export default function KelebekSinavLayout({ children }: { children: React.React
               Kertenkele Sınav Modülü
             </h1>
             <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground sm:text-sm">
-              Sınıf/öğrenci ve dersler okul kaydı (Sınıflar ve Dersler) ile aynıdır; salon, oturum ve yerleştirme burada.
+              Akış: sınav takvimi (dönem) → sınav işlemleri (oturum) → yerleştirme. Sınıf ve dersler okul kaydıyla aynıdır.
             </p>
           </div>
           <Link

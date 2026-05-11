@@ -1,12 +1,15 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Equal, In, IsNull, Repository } from 'typeorm';
 import { SchoolClass } from './entities/school-class.entity';
 import { SchoolSubject } from './entities/school-subject.entity';
 import { Student } from '../students/entities/student.entity';
 import { DEFAULT_CLASSES, DEFAULT_SUBJECTS } from '../config/default-classes-subjects';
+import { UserRole } from '../types/enums';
 import { PDFParse } from 'pdf-parse';
 import * as XLSX from 'xlsx';
+
+export type ClassesSubjectsViewer = { userId: string; role: UserRole; schoolId: string | null };
 
 @Injectable()
 export class ClassesSubjectsService {
@@ -19,25 +22,110 @@ export class ClassesSubjectsService {
     private readonly studentRepo: Repository<Student>,
   ) {}
 
-  private async ensureSchoolScope(schoolId: string | null, targetSchoolId: string) {
+  private async ensureSchoolScope(schoolId: string | null, targetSchoolId: string | null) {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
-    if (schoolId !== targetSchoolId) {
+    if (!targetSchoolId || schoolId !== targetSchoolId) {
       throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu veriye erişim yetkiniz yok.' });
     }
   }
 
-  async listClasses(schoolId: string | null) {
-    await this.ensureSchoolScope(schoolId!, schoolId!);
+  private assertSchoolAdmin(viewer: ClassesSubjectsViewer) {
+    if (viewer.role !== UserRole.school_admin) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
+    if (!viewer.schoolId) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
+  }
+
+  private assertCanMutateClass(viewer: ClassesSubjectsViewer, c: SchoolClass) {
+    if (viewer.role === UserRole.school_admin) {
+      if (!viewer.schoolId || c.schoolId !== viewer.schoolId) {
+        throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu veriye erişim yetkiniz yok.' });
+      }
+      return;
+    }
+    if (viewer.role === UserRole.teacher) {
+      if (c.ownerUserId === viewer.userId) return;
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Okul kaydı — yalnızca görüntüleme.' });
+    }
+    throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+  }
+
+  private assertCanMutateSubject(viewer: ClassesSubjectsViewer, s: SchoolSubject) {
+    if (viewer.role === UserRole.school_admin) {
+      if (!viewer.schoolId || s.schoolId !== viewer.schoolId) {
+        throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu veriye erişim yetkiniz yok.' });
+      }
+      return;
+    }
+    if (viewer.role === UserRole.teacher) {
+      if (s.ownerUserId === viewer.userId) return;
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Okul kaydı — yalnızca görüntüleme.' });
+    }
+    throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+  }
+
+  /** Sınıf öğrenci listesi veya seçim için okuma. */
+  assertCanReadClass(viewer: ClassesSubjectsViewer, cls: SchoolClass) {
+    if (viewer.role === UserRole.school_admin) {
+      if (!viewer.schoolId || cls.schoolId !== viewer.schoolId) {
+        throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu veriye erişim yetkiniz yok.' });
+      }
+      return;
+    }
+    if (viewer.role === UserRole.teacher) {
+      if (cls.ownerUserId === viewer.userId) return;
+      if (viewer.schoolId && cls.schoolId === viewer.schoolId && cls.ownerUserId == null) return;
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu veriye erişim yetkiniz yok.' });
+    }
+    throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+  }
+
+  async listClasses(viewer: ClassesSubjectsViewer) {
+    if (viewer.role === UserRole.school_admin) {
+      this.assertSchoolAdmin(viewer);
+      return this.classRepo.find({
+        where: { schoolId: viewer.schoolId! },
+        order: { grade: 'ASC', section: 'ASC', name: 'ASC' },
+      });
+    }
+    if (viewer.role !== UserRole.teacher) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
+    if (viewer.schoolId) {
+      return this.classRepo.find({
+        where: [
+          { schoolId: viewer.schoolId, ownerUserId: IsNull() },
+          { schoolId: viewer.schoolId, ownerUserId: Equal(viewer.userId) },
+        ],
+        order: { grade: 'ASC', section: 'ASC', name: 'ASC' },
+      });
+    }
     return this.classRepo.find({
-      where: { schoolId: schoolId! },
+      where: { schoolId: IsNull(), ownerUserId: Equal(viewer.userId) },
       order: { grade: 'ASC', section: 'ASC', name: 'ASC' },
     });
   }
 
-  async createClass(schoolId: string | null, dto: { name: string; grade?: number; section?: string }) {
-    await this.ensureSchoolScope(schoolId!, schoolId!);
+  async createClass(viewer: ClassesSubjectsViewer, dto: { name: string; grade?: number; section?: string }) {
+    if (viewer.role === UserRole.school_admin) {
+      this.assertSchoolAdmin(viewer);
+      const c = this.classRepo.create({
+        schoolId: viewer.schoolId!,
+        ownerUserId: null,
+        name: dto.name.trim(),
+        grade: dto.grade ?? null,
+        section: dto.section?.trim() || null,
+      });
+      return this.classRepo.save(c);
+    }
+    if (viewer.role !== UserRole.teacher) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
     const c = this.classRepo.create({
-      schoolId: schoolId!,
+      schoolId: viewer.schoolId ?? null,
+      ownerUserId: viewer.userId,
       name: dto.name.trim(),
       grade: dto.grade ?? null,
       section: dto.section?.trim() || null,
@@ -45,55 +133,86 @@ export class ClassesSubjectsService {
     return this.classRepo.save(c);
   }
 
-  async updateClass(schoolId: string | null, id: string, dto: { name?: string; grade?: number; section?: string }) {
+  async updateClass(viewer: ClassesSubjectsViewer, id: string, dto: { name?: string; grade?: number; section?: string }) {
     const c = await this.classRepo.findOne({ where: { id } });
     if (!c) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Sınıf bulunamadı.' });
-    await this.ensureSchoolScope(schoolId!, c.schoolId);
+    this.assertCanMutateClass(viewer, c);
     if (dto.name != null) c.name = dto.name.trim();
     if (dto.grade !== undefined) c.grade = dto.grade ?? null;
     if (dto.section !== undefined) c.section = dto.section?.trim() || null;
     return this.classRepo.save(c);
   }
 
-  async deleteClass(schoolId: string | null, id: string) {
+  async deleteClass(viewer: ClassesSubjectsViewer, id: string) {
     const c = await this.classRepo.findOne({ where: { id } });
     if (!c) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Sınıf bulunamadı.' });
-    await this.ensureSchoolScope(schoolId!, c.schoolId);
+    this.assertCanMutateClass(viewer, c);
     await this.classRepo.remove(c);
     return { ok: true };
   }
 
-  async listSubjects(schoolId: string | null) {
-    await this.ensureSchoolScope(schoolId!, schoolId!);
+  async listSubjects(viewer: ClassesSubjectsViewer) {
+    if (viewer.role === UserRole.school_admin) {
+      this.assertSchoolAdmin(viewer);
+      return this.subjectRepo.find({
+        where: { schoolId: viewer.schoolId! },
+        order: { name: 'ASC' },
+      });
+    }
+    if (viewer.role !== UserRole.teacher) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
+    if (viewer.schoolId) {
+      return this.subjectRepo.find({
+        where: [
+          { schoolId: viewer.schoolId, ownerUserId: IsNull() },
+          { schoolId: viewer.schoolId, ownerUserId: Equal(viewer.userId) },
+        ],
+        order: { name: 'ASC' },
+      });
+    }
     return this.subjectRepo.find({
-      where: { schoolId: schoolId! },
+      where: { schoolId: IsNull(), ownerUserId: Equal(viewer.userId) },
       order: { name: 'ASC' },
     });
   }
 
-  async createSubject(schoolId: string | null, dto: { name: string; code?: string }) {
-    await this.ensureSchoolScope(schoolId!, schoolId!);
+  async createSubject(viewer: ClassesSubjectsViewer, dto: { name: string; code?: string }) {
+    if (viewer.role === UserRole.school_admin) {
+      this.assertSchoolAdmin(viewer);
+      const s = this.subjectRepo.create({
+        schoolId: viewer.schoolId!,
+        ownerUserId: null,
+        name: dto.name.trim(),
+        code: dto.code?.trim() || null,
+      });
+      return this.subjectRepo.save(s);
+    }
+    if (viewer.role !== UserRole.teacher) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
     const s = this.subjectRepo.create({
-      schoolId: schoolId!,
+      schoolId: viewer.schoolId ?? null,
+      ownerUserId: viewer.userId,
       name: dto.name.trim(),
       code: dto.code?.trim() || null,
     });
     return this.subjectRepo.save(s);
   }
 
-  async updateSubject(schoolId: string | null, id: string, dto: { name?: string; code?: string }) {
+  async updateSubject(viewer: ClassesSubjectsViewer, id: string, dto: { name?: string; code?: string }) {
     const s = await this.subjectRepo.findOne({ where: { id } });
     if (!s) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Ders bulunamadı.' });
-    await this.ensureSchoolScope(schoolId!, s.schoolId);
+    this.assertCanMutateSubject(viewer, s);
     if (dto.name != null) s.name = dto.name.trim();
     if (dto.code !== undefined) s.code = dto.code?.trim() || null;
     return this.subjectRepo.save(s);
   }
 
-  async deleteSubject(schoolId: string | null, id: string) {
+  async deleteSubject(viewer: ClassesSubjectsViewer, id: string) {
     const s = await this.subjectRepo.findOne({ where: { id } });
     if (!s) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Ders bulunamadı.' });
-    await this.ensureSchoolScope(schoolId!, s.schoolId);
+    this.assertCanMutateSubject(viewer, s);
     await this.subjectRepo.remove(s);
     return { ok: true };
   }
@@ -114,6 +233,7 @@ export class ClassesSubjectsService {
       if (existingClassNames.has(d.name)) continue;
       const c = this.classRepo.create({
         schoolId: schoolId!,
+        ownerUserId: null,
         name: d.name,
         grade: d.grade,
         section: d.section,
@@ -129,6 +249,7 @@ export class ClassesSubjectsService {
       if (byCode || byName) continue;
       const s = this.subjectRepo.create({
         schoolId: schoolId!,
+        ownerUserId: null,
         name: d.name,
         code: d.code,
       });
@@ -192,6 +313,7 @@ export class ClassesSubjectsService {
       if (!existingClass) {
         const created = this.classRepo.create({
           schoolId: schoolId!,
+          ownerUserId: null,
           name: row.name,
           grade: row.grade,
           section: row.section,
@@ -244,7 +366,7 @@ export class ClassesSubjectsService {
         subjectsSkipped++;
         continue;
       }
-      const created = this.subjectRepo.create({ schoolId: schoolId!, name, code: null });
+      const created = this.subjectRepo.create({ schoolId: schoolId!, ownerUserId: null, name, code: null });
       await this.subjectRepo.save(created);
       existingNames.add(key);
       subjectsAdded++;
@@ -253,31 +375,66 @@ export class ClassesSubjectsService {
     return { ok: true, parsed_rows: names.length, subjects_added: subjectsAdded, subjects_skipped: subjectsSkipped };
   }
 
-  async listStudentsByClass(schoolId: string | null, classId: string) {
-    await this.ensureSchoolScope(schoolId!, schoolId!);
-    const cls = await this.classRepo.findOne({ where: { id: classId, schoolId: schoolId! } });
+  async listStudentsByClass(viewer: ClassesSubjectsViewer, classId: string) {
+    const cls = await this.classRepo.findOne({ where: { id: classId } });
     if (!cls) throw new NotFoundException({ code: 'CLASS_NOT_FOUND', message: 'Sınıf bulunamadı.' });
+    this.assertCanReadClass(viewer, cls);
+    if (!cls.schoolId) return [];
     return this.studentRepo.find({
-      where: { schoolId: schoolId!, classId },
+      where: { schoolId: cls.schoolId, classId },
       order: { name: 'ASC' },
     });
   }
 
+  /** Görünür sınıflardaki öğrenciler (class_id üzerinden); ajanda vb. tek kaynak. */
+  async listRosterStudentsForViewer(viewer: ClassesSubjectsViewer): Promise<Student[]> {
+    const classes = await this.listClasses(viewer);
+    const classIds = classes.map((c) => c.id);
+    if (classIds.length === 0) return [];
+    return this.studentRepo.find({
+      where: { classId: In(classIds) },
+      order: { name: 'ASC' },
+      select: ['id', 'name', 'studentNumber', 'classId'],
+    });
+  }
+
+  /** Okul kayıtlı sınıfta manuel öğrenci; öğretmen yalnızca kendi okulundaki sınıflarda. */
+  private assertCanMutateStudentsInClass(viewer: ClassesSubjectsViewer, cls: SchoolClass) {
+    this.assertCanReadClass(viewer, cls);
+    if (!cls.schoolId) {
+      throw new BadRequestException({ code: 'NO_STUDENTS_SCOPE', message: 'Bu kayıt için öğrenci eklenemez.' });
+    }
+    if (viewer.role === UserRole.teacher) {
+      if (!viewer.schoolId || cls.schoolId !== viewer.schoolId) {
+        throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu veriye erişim yetkiniz yok.' });
+      }
+    }
+  }
+
   async createStudentForClass(
-    schoolId: string | null,
+    viewer: ClassesSubjectsViewer,
     classId: string,
     body: { name?: string; studentNumber?: string; firstName?: string; lastName?: string; gender?: string; birthDate?: string | null },
   ) {
-    await this.ensureSchoolScope(schoolId!, schoolId!);
-    const cls = await this.classRepo.findOne({ where: { id: classId, schoolId: schoolId! } });
+    const cls = await this.classRepo.findOne({ where: { id: classId } });
     if (!cls) throw new NotFoundException({ code: 'CLASS_NOT_FOUND', message: 'Sınıf bulunamadı.' });
+    if (viewer.role === UserRole.school_admin) {
+      if (!viewer.schoolId || cls.schoolId !== viewer.schoolId) {
+        throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu veriye erişim yetkiniz yok.' });
+      }
+    } else if (viewer.role === UserRole.teacher) {
+      this.assertCanMutateStudentsInClass(viewer, cls);
+    } else {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
+    const schoolId = cls.schoolId!;
     const firstName = body.firstName?.trim() || '';
     const lastName = body.lastName?.trim() || '';
     const composed = `${firstName} ${lastName}`.replace(/\s+/g, ' ').trim();
     const name = (body.name?.trim() || composed).trim();
     if (!name) throw new BadRequestException({ code: 'NAME_REQUIRED', message: 'Öğrenci adı gerekli.' });
     const student = this.studentRepo.create({
-      schoolId: schoolId!,
+      schoolId,
       classId,
       name,
       studentNumber: body.studentNumber?.trim() || null,
@@ -290,19 +447,30 @@ export class ClassesSubjectsService {
   }
 
   async updateStudentForClass(
-    schoolId: string | null,
+    viewer: ClassesSubjectsViewer,
     studentId: string,
     body: { name?: string; studentNumber?: string | null; classId?: string | null; firstName?: string; lastName?: string; gender?: string | null; birthDate?: string | null },
   ) {
-    await this.ensureSchoolScope(schoolId!, schoolId!);
-    const student = await this.studentRepo.findOne({ where: { id: studentId, schoolId: schoolId! } });
+    if (viewer.role !== UserRole.school_admin && viewer.role !== UserRole.teacher) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
+    if (viewer.role === UserRole.teacher && !viewer.schoolId) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için okul bağlantısı gerekir.' });
+    }
+    const schoolId = viewer.schoolId!;
+    const student = await this.studentRepo.findOne({ where: { id: studentId, schoolId } });
     if (!student) throw new NotFoundException({ code: 'STUDENT_NOT_FOUND', message: 'Öğrenci bulunamadı.' });
+    if (student.classId) {
+      const curCls = await this.classRepo.findOne({ where: { id: student.classId } });
+      if (curCls) this.assertCanMutateStudentsInClass(viewer, curCls);
+    }
     if (body.classId !== undefined) {
       if (body.classId === null) {
         student.classId = null;
       } else {
-        const cls = await this.classRepo.findOne({ where: { id: body.classId, schoolId: schoolId! } });
+        const cls = await this.classRepo.findOne({ where: { id: body.classId } });
         if (!cls) throw new NotFoundException({ code: 'CLASS_NOT_FOUND', message: 'Sınıf bulunamadı.' });
+        this.assertCanMutateStudentsInClass(viewer, cls);
         student.classId = body.classId;
       }
     }
@@ -325,19 +493,37 @@ export class ClassesSubjectsService {
     return this.studentRepo.save(student);
   }
 
-  async deleteStudentForClass(schoolId: string | null, studentId: string) {
-    await this.ensureSchoolScope(schoolId!, schoolId!);
-    const student = await this.studentRepo.findOne({ where: { id: studentId, schoolId: schoolId! } });
+  async deleteStudentForClass(viewer: ClassesSubjectsViewer, studentId: string) {
+    if (viewer.role !== UserRole.school_admin && viewer.role !== UserRole.teacher) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
+    if (viewer.role === UserRole.teacher && !viewer.schoolId) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için okul bağlantısı gerekir.' });
+    }
+    const schoolId = viewer.schoolId!;
+    const student = await this.studentRepo.findOne({ where: { id: studentId, schoolId } });
     if (!student) throw new NotFoundException({ code: 'STUDENT_NOT_FOUND', message: 'Öğrenci bulunamadı.' });
+    if (student.classId) {
+      const cls = await this.classRepo.findOne({ where: { id: student.classId } });
+      if (cls) this.assertCanMutateStudentsInClass(viewer, cls);
+    }
     await this.studentRepo.remove(student);
     return { ok: true };
   }
 
-  async deleteAllStudentsForClass(schoolId: string | null, classId: string) {
-    await this.ensureSchoolScope(schoolId!, schoolId!);
-    const cls = await this.classRepo.findOne({ where: { id: classId, schoolId: schoolId! } });
+  async deleteAllStudentsForClass(viewer: ClassesSubjectsViewer, classId: string) {
+    const cls = await this.classRepo.findOne({ where: { id: classId } });
     if (!cls) throw new NotFoundException({ code: 'CLASS_NOT_FOUND', message: 'Sınıf bulunamadı.' });
-    await this.studentRepo.delete({ schoolId: schoolId!, classId });
+    if (viewer.role === UserRole.school_admin) {
+      if (!viewer.schoolId || cls.schoolId !== viewer.schoolId) {
+        throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu veriye erişim yetkiniz yok.' });
+      }
+    } else if (viewer.role === UserRole.teacher) {
+      this.assertCanMutateStudentsInClass(viewer, cls);
+    } else {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
+    await this.studentRepo.delete({ schoolId: cls.schoolId!, classId });
     return { ok: true };
   }
 
@@ -373,6 +559,7 @@ export class ClassesSubjectsService {
         cls = await this.classRepo.save(
           this.classRepo.create({
             schoolId: schoolId!,
+            ownerUserId: null,
             name: row.className,
             grade: row.grade,
             section: row.section,

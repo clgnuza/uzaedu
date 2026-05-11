@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
@@ -62,8 +63,9 @@ type Criterion = {
   criterionCategory?: 'lesson' | 'behavior';
 };
 type SubjectOption = { id: string; label: string };
+type ClassOption = { id: string; label: string };
 type StudentList = { id: string; name: string; studentIds: string[] };
-type Student = { id: string; name: string };
+type Student = { id: string; name: string; classId?: string | null };
 type Score = {
   id: string;
   criterionId: string;
@@ -158,6 +160,9 @@ export default function DegerlendirmePage() {
   const [subjects, setSubjects] = useState<SubjectOption[]>([]);
   /** Tablo sütunları: null = tüm kriterler; uuid = genel + o derse özel */
   const [tableSubjectFilterId, setTableSubjectFilterId] = useState<string | null>(null);
+  /** Gruplar ve Dersler sınıfı — API classId; null = tüm görünür sınıfların birleşik listesi */
+  const [selectedClassFilterId, setSelectedClassFilterId] = useState<string | null>(null);
+  const [classes, setClasses] = useState<ClassOption[]>([]);
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [tableViewMode, setTableViewMode] = useState<TableViewMode>('grid');
   const [scoreSavingKeys, setScoreSavingKeys] = useState<Record<string, boolean>>({});
@@ -170,9 +175,13 @@ export default function DegerlendirmePage() {
     if (!token) return;
     setLoading(true);
     const listId = selectedListId ?? undefined;
+    const params = new URLSearchParams();
+    if (listId) params.set('listId', listId);
+    if (selectedClassFilterId) params.set('classId', selectedClassFilterId);
+    const q = params.toString();
     try {
       const res = await apiFetch<{ criteria: Criterion[]; lists: StudentList[]; students: Student[]; scores: Score[]; studentNotes?: StudentNote[] }>(
-        `/teacher-agenda/evaluation${listId ? `?listId=${listId}` : ''}`,
+        `/teacher-agenda/evaluation${q ? `?${q}` : ''}`,
         { token },
       );
       setCriteria(res.criteria ?? []);
@@ -185,21 +194,46 @@ export default function DegerlendirmePage() {
     } finally {
       setLoading(false);
     }
-  }, [token, selectedListId]);
+  }, [token, selectedListId, selectedClassFilterId]);
 
   useEffect(() => {
     if (!token) return;
-    apiFetch<Array<{ id: string; label?: string; name?: string }>>('/classes-subjects/subjects', { token })
-      .then((rows) =>
+    Promise.all([
+      apiFetch<Array<{ id: string; label?: string; name?: string }>>('/classes-subjects/subjects', { token }),
+      apiFetch<Array<{ id: string; label?: string; name?: string }>>('/classes-subjects/classes', { token }),
+    ])
+      .then(([subRows, classRows]) => {
         setSubjects(
-          (rows ?? []).map((s) => ({
+          (subRows ?? []).map((s) => ({
             id: s.id,
             label: String(s.name ?? s.label ?? s.id).trim() || s.id,
           })),
-        ),
-      )
-      .catch(() => setSubjects([]));
+        );
+        setClasses(
+          (classRows ?? []).map((c) => ({
+            id: c.id,
+            label: String(c.name ?? c.label ?? c.id).trim() || c.id,
+          })),
+        );
+      })
+      .catch(() => {
+        setSubjects([]);
+        setClasses([]);
+      });
   }, [token]);
+
+  useEffect(() => {
+    if (!selectedClassFilterId) return;
+    if (classes.length === 0) return;
+    if (!classes.some((c) => c.id === selectedClassFilterId)) setSelectedClassFilterId(null);
+  }, [classes, selectedClassFilterId]);
+
+  const prevEvalTabRef = useRef<EvalTab>(evalTab);
+  useEffect(() => {
+    const enteredListeler = evalTab === 'listeler' && prevEvalTabRef.current !== 'listeler';
+    prevEvalTabRef.current = evalTab;
+    if (enteredListeler && token) void fetchData();
+  }, [evalTab, token, fetchData]);
 
   const displayCriteria = criteria;
 
@@ -280,8 +314,15 @@ export default function DegerlendirmePage() {
     ? displayStudentsResolved.filter((s) => s.name.toLowerCase().includes(studentSearch.toLowerCase()))
     : displayStudentsResolved;
 
-  const listLabelShort =
-    selectedListId === null ? 'Tüm öğrenciler' : displayLists.find((l) => l.id === selectedListId)?.name ?? 'Liste';
+  const listLabelShort = useMemo(() => {
+    const listPart =
+      selectedListId === null ? 'Tüm öğrenciler' : displayLists.find((l) => l.id === selectedListId)?.name ?? 'Liste';
+    if (selectedClassFilterId) {
+      const cn = classes.find((c) => c.id === selectedClassFilterId)?.label ?? 'Sınıf';
+      return `${listPart} · ${cn}`;
+    }
+    return listPart;
+  }, [selectedListId, selectedClassFilterId, displayLists, classes]);
 
   const weekBounds = useMemo(() => getWeekBounds(weekOffset), [weekOffset]);
   const weekRows = useMemo(
@@ -496,6 +537,16 @@ export default function DegerlendirmePage() {
         activeTab={evalTab}
         onSelectTab={setEvalTab}
       />
+
+      {!loading && displayStudentsResolved.length === 0 && (
+        <div className="rounded-2xl border border-amber-200/60 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:border-amber-800/50 dark:bg-amber-950/25 dark:text-amber-100">
+          Görünür sınıflarda kayıtlı öğrenci yok. Öğrencileri{' '}
+          <Link href="/classes-subjects" className="font-semibold underline underline-offset-2">
+            Gruplar ve Dersler
+          </Link>{' '}
+          üzerinden sınıflara ekleyin; kayıtlı öğrenciler burada listelenir.
+        </div>
+      )}
 
       <div className="mobile-tab-scroll akilli-tahta-tabnav -mx-1 hidden snap-x snap-mandatory px-1 pb-0.5 sm:mx-0 sm:block sm:px-0">
         <div
@@ -823,7 +874,9 @@ export default function DegerlendirmePage() {
               </span>
               <div>
                 <CardTitle className="text-base font-semibold">Hangi öğrenciler?</CardTitle>
-                <p className="text-xs text-muted-foreground">Liste seçimi tabloyu ve veri yüklemesini günceller.</p>
+                <p className="text-xs text-muted-foreground">
+                  Öğrenci havuzu <span className="font-medium text-foreground">Gruplar ve Dersler</span> sınıf listelerinden gelir. Liste veya şube seçimi tabloyu günceller.
+                </p>
               </div>
             </div>
             <Button variant="outline" size="sm" className="shrink-0 rounded-xl" onClick={() => setListModalOpen(true)}>
@@ -856,6 +909,47 @@ export default function DegerlendirmePage() {
                   {l.name}
                 </button>
               ))}
+            </div>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+              <label className="text-xs font-medium text-muted-foreground sm:shrink-0">Şube / sınıf</label>
+              <select
+                value={selectedClassFilterId ?? ''}
+                onChange={(e) => setSelectedClassFilterId(e.target.value || null)}
+                className="h-10 w-full max-w-md rounded-xl border border-input bg-background px-3 text-sm sm:w-auto"
+                aria-label="Değerlendirme için sınıf filtresi"
+              >
+                <option value="">Tüm sınıflar (birleşik liste)</option>
+                {classes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="mt-4 rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5">
+              {loading ? (
+                <p className="text-xs text-muted-foreground">Öğrenci listesi yükleniyor…</p>
+              ) : (
+                <>
+                  <p className="text-xs font-medium text-foreground">
+                    Seçime göre öğrenci:{' '}
+                    <span className="tabular-nums text-muted-foreground">{displayStudentsResolved.length}</span>
+                  </p>
+                  {displayStudentsResolved.length > 0 ? (
+                    <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs">
+                      {displayStudentsResolved.map((s) => (
+                        <li key={s.id} className="truncate rounded-md bg-background/80 px-2 py-0.5">
+                          {s.name}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Bu seçimde öğrenci yok. Gruplar ve Dersler bölümünde sınıfa öğrenci ekleyin veya «Tüm sınıflar» deneyin.
+                    </p>
+                  )}
+                </>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -915,6 +1009,22 @@ export default function DegerlendirmePage() {
                   {subjects.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.label} — genel + bu ders
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+                <Users className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <select
+                  value={selectedClassFilterId ?? ''}
+                  onChange={(e) => setSelectedClassFilterId(e.target.value || null)}
+                  className="h-11 min-w-0 flex-1 rounded-xl border border-input bg-background px-3 text-sm sm:h-auto sm:max-w-56 sm:flex-none sm:py-2"
+                  aria-label="Tabloda öğrenci havuzu — sınıf"
+                >
+                  <option value="">Tüm sınıflar</option>
+                  {classes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label}
                     </option>
                   ))}
                 </select>
@@ -1431,8 +1541,10 @@ export default function DegerlendirmePage() {
           token={token}
           initialListId={selectedListId}
           initialSubjectFilterId={tableSubjectFilterId}
+          initialClassFilterId={selectedClassFilterId}
           lists={displayLists}
           subjects={subjects}
+          classes={classes}
           allCriteria={displayCriteria}
           me={me}
         />
@@ -2267,7 +2379,15 @@ function ListModal({ token, onClose, onSuccess }: { token: string | null; onClos
                   <span className="text-sm">{s.name}</span>
                 </label>
               ))}
-              {students.length === 0 && <p className="text-sm text-muted-foreground px-3 py-4">Okulda öğrenci kaydı yok. Önce öğrenci ekleyin.</p>}
+              {students.length === 0 && (
+                <p className="text-sm text-muted-foreground px-3 py-4">
+                  Görünür sınıflarda öğrenci yok.{' '}
+                  <Link href="/classes-subjects" className="font-medium text-primary underline underline-offset-2">
+                    Gruplar ve Dersler
+                  </Link>{' '}
+                  bölümünden ekleyin.
+                </p>
+              )}
             </div>
           </div>
           <div className="flex justify-end gap-2 pt-2">

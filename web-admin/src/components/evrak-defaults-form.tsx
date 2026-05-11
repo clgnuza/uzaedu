@@ -110,6 +110,8 @@ export type EvrakDefaults = {
   onay_tarihi?: string;
   /** İmza alanında öğretmen ismi altında görünecek unvan (örn. Coğrafya Öğretmeni) */
   ogretmen_unvani?: string;
+  /** Raporlarda «Düzenleyen» olarak görünecek ad-soyad (boşsa display_name kullanılır) */
+  duzenleyen_adi?: string;
 } | null;
 
 const fieldIn = cn(

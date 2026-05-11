@@ -39,6 +39,7 @@ import { AcademicCalendarService } from '../academic-calendar/academic-calendar.
 import { BilsemService } from '../bilsem/bilsem.service';
 import { TeacherTimetableService } from '../teacher-timetable/teacher-timetable.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ClassesSubjectsService } from '../classes-subjects/classes-subjects.service';
 
 @Injectable()
 export class TeacherAgendaService {
@@ -77,7 +78,15 @@ export class TeacherAgendaService {
     private readonly bilsemService: BilsemService,
     private readonly timetableService: TeacherTimetableService,
     private readonly notificationsService: NotificationsService,
+    private readonly classesSubjectsService: ClassesSubjectsService,
   ) {}
+
+  /** Nest @Query sayıları string gelir; take/skip için sayı gerekir (aksi halde PG 500). */
+  private agendaPagination(page?: unknown, limit?: unknown, maxLimit = 100) {
+    const p = Math.max(1, parseInt(String(page ?? 1), 10) || 1);
+    const l = Math.min(maxLimit, Math.max(1, parseInt(String(limit ?? 20), 10) || 20));
+    return { page: p, limit: l };
+  }
 
   private ensureSchool(userId: string, schoolId: string | null, role: UserRole) {
     if (role !== UserRole.superadmin && role !== UserRole.moderator && !schoolId)
@@ -138,6 +147,24 @@ export class TeacherAgendaService {
         message: 'Günlük / haftalık / aylık tekrar için geçerli son tarih (yyyy-aa-gg) zorunludur.',
       });
     }
+  }
+
+  /** anchor + repeat ızgarasında ymd var mı (takvimde tıklanan gün doğrulaması) */
+  private isYmdOnRepeatOccurrenceGrid(
+    anchorYmd: string,
+    repeat: AgendaTask['repeat'],
+    ymd: string,
+  ): boolean {
+    if (repeat === 'none') return anchorYmd === ymd;
+    let cur = anchorYmd;
+    for (let g = 0; g < 2500; g++) {
+      if (cur === ymd) return true;
+      if (cur > ymd) return false;
+      const next = this.nextDueDateAfter(cur, repeat);
+      if (next <= cur) break;
+      cur = next;
+    }
+    return false;
   }
 
   private async spawnNextRecurringIfNeeded(task: AgendaTask): Promise<void> {
@@ -207,8 +234,7 @@ export class TeacherAgendaService {
         { announcementTag },
       );
     }
-    const page = dto.page ?? 1;
-    const limit = dto.limit ?? 20;
+    const { page, limit } = this.agendaPagination(dto.page, dto.limit);
     qb.orderBy('n.pinned', 'DESC').addOrderBy('n.updated_at', 'DESC');
     const [items, total] = await qb.skip((page - 1) * limit).take(limit).getManyAndCount();
     return { items, total, page, limit };
@@ -278,10 +304,29 @@ export class TeacherAgendaService {
   }
 
   async updateTask(id: string, userId: string, dto: UpdateAgendaTaskDto) {
-    const raw = dto as UpdateAgendaTaskDto & { remindAt?: string | null };
-    const { remindAt, ...patch } = raw;
+    const raw = dto as UpdateAgendaTaskDto & { remindAt?: string | null; repeatEndOccurrenceDate?: string };
+    const { remindAt, repeatEndOccurrenceDate, ...patch } = raw;
     const task = await this.taskRepo.findOne({ where: { id, userId } });
     if (!task) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Görev bulunamadı.' });
+    const re = repeatEndOccurrenceDate?.trim();
+    if (re) {
+      if (task.repeat === 'none' || !task.dueDate) {
+        throw new BadRequestException({
+          code: 'BAD_REQUEST',
+          message: 'Bu görev tekrarlamıyor; son tekrar günü kapatılamaz.',
+        });
+      }
+      if (!this.isYmdOnRepeatOccurrenceGrid(task.dueDate, task.repeat, re)) {
+        throw new BadRequestException({
+          code: 'BAD_REQUEST',
+          message: 'Seçilen tarih bu görevin tekrar takviminde yer almıyor.',
+        });
+      }
+      task.repeat = 'none';
+      task.dueDate = re;
+      delete (patch as { repeat?: unknown }).repeat;
+      delete (patch as { dueDate?: unknown }).dueDate;
+    }
     const nextRepeat = patch.repeat !== undefined ? patch.repeat : task.repeat;
     const nextDue = patch.dueDate !== undefined ? patch.dueDate : task.dueDate;
     this.assertRepeatRequiresDueDate(nextRepeat, nextDue);
@@ -330,8 +375,7 @@ export class TeacherAgendaService {
         search: `%${dto.search}%`,
       });
     }
-    const page = dto.page ?? 1;
-    const limit = dto.limit ?? 20;
+    const { page, limit } = this.agendaPagination(dto.page, dto.limit);
     qb.orderBy('t.due_date', 'ASC').addOrderBy('t.due_time', 'ASC');
     const [items, total] = await qb.skip((page - 1) * limit).take(limit).getManyAndCount();
     return { items, total, page, limit };
@@ -901,8 +945,7 @@ export class TeacherAgendaService {
       .andWhere('s.school_id = :schoolId', { schoolId });
     if (dto.studentId) qb.andWhere('sn.student_id = :studentId', { studentId: dto.studentId });
     if (dto.noteType) qb.andWhere('sn.note_type = :noteType', { noteType: dto.noteType });
-    const page = dto.page ?? 1;
-    const limit = dto.limit ?? 20;
+    const { page, limit } = this.agendaPagination(dto.page, dto.limit);
     qb.orderBy('sn.note_date', 'DESC').addOrderBy('sn.created_at', 'DESC');
     const [items, total] = await qb.skip((page - 1) * limit).take(limit).getManyAndCount();
     return { items, total, page, limit };
@@ -918,19 +961,18 @@ export class TeacherAgendaService {
     if (dto.studentId) qb.andWhere('pm.student_id = :studentId', { studentId: dto.studentId });
     if (dto.start) qb.andWhere('pm.meeting_date >= :start', { start: dto.start });
     if (dto.end) qb.andWhere('pm.meeting_date <= :end', { end: dto.end });
-    const page = dto.page ?? 1;
-    const limit = dto.limit ?? 20;
+    const { page, limit } = this.agendaPagination(dto.page, dto.limit);
     qb.orderBy('pm.meeting_date', 'DESC').addOrderBy('pm.created_at', 'DESC');
     const [items, total] = await qb.skip((page - 1) * limit).take(limit).getManyAndCount();
     return { items, total, page, limit };
   }
 
-  async listStudents(schoolId: string | null) {
-    if (!schoolId) return [];
-    return this.studentRepo.find({
-      where: { schoolId },
-      order: { name: 'ASC' },
-      select: ['id', 'name', 'studentNumber', 'classId'],
+  async listStudents(viewer: { userId: string; role: UserRole; schoolId: string | null }) {
+    if (viewer.role !== UserRole.teacher && viewer.role !== UserRole.school_admin) return [];
+    return this.classesSubjectsService.listRosterStudentsForViewer({
+      userId: viewer.userId,
+      role: viewer.role,
+      schoolId: viewer.schoolId,
     });
   }
 
@@ -1236,16 +1278,28 @@ export class TeacherAgendaService {
     });
   }
 
-  async createStudentList(teacherId: string, schoolId: string | null, dto: { name: string; studentIds: string[] }) {
+  async createStudentList(teacherId: string, schoolId: string | null, role: UserRole, dto: { name: string; studentIds: string[] }) {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Okul gerekli.' });
-    const list = this.studentListRepo.create({ teacherId, schoolId, name: dto.name, studentIds: dto.studentIds ?? [] });
+    const viewer = { userId: teacherId, role, schoolId };
+    const rosterIds = new Set(
+      (await this.classesSubjectsService.listRosterStudentsForViewer(viewer)).map((s) => s.id),
+    );
+    const ids = (dto.studentIds ?? []).filter((id) => rosterIds.has(id));
+    const list = this.studentListRepo.create({ teacherId, schoolId, name: dto.name, studentIds: ids });
     return this.studentListRepo.save(list);
   }
 
-  async updateStudentList(id: string, teacherId: string, dto: { name?: string; studentIds?: string[] }) {
+  async updateStudentList(id: string, teacherId: string, role: UserRole, dto: { name?: string; studentIds?: string[] }) {
     const list = await this.studentListRepo.findOne({ where: { id, teacherId } });
     if (!list) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Liste bulunamadı.' });
-    Object.assign(list, dto);
+    if (dto.studentIds !== undefined) {
+      const viewer = { userId: teacherId, role, schoolId: list.schoolId };
+      const rosterIds = new Set(
+        (await this.classesSubjectsService.listRosterStudentsForViewer(viewer)).map((s) => s.id),
+      );
+      list.studentIds = dto.studentIds.filter((sid) => rosterIds.has(sid));
+    }
+    if (dto.name !== undefined) list.name = dto.name;
     return this.studentListRepo.save(list);
   }
 
@@ -1255,8 +1309,20 @@ export class TeacherAgendaService {
     return { ok: true };
   }
 
-  async addEvaluationScore(teacherId: string, schoolId: string | null, dto: { criterionId: string; studentId: string; score: number; noteDate: string; note?: string }) {
+  async addEvaluationScore(
+    teacherId: string,
+    schoolId: string | null,
+    role: UserRole,
+    dto: { criterionId: string; studentId: string; score: number; noteDate: string; note?: string },
+  ) {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Okul gerekli.' });
+    const roster = await this.classesSubjectsService.listRosterStudentsForViewer({ userId: teacherId, role, schoolId });
+    if (!roster.some((s) => s.id === dto.studentId)) {
+      throw new BadRequestException({
+        code: 'STUDENT_NOT_IN_ROSTER',
+        message: 'Bu öğrenci görünür sınıf listelerinizde yok. Gruplar ve Dersler üzerinden ekleyin.',
+      });
+    }
     const criterion = await this.criterionRepo.findOne({ where: { id: dto.criterionId, teacherId } });
     if (!criterion) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Kriter bulunamadı.' });
     const scoreType = criterion.scoreType ?? 'numeric';
@@ -1280,17 +1346,39 @@ export class TeacherAgendaService {
     return this.evaluationScoreRepo.save(score);
   }
 
-  async getEvaluationData(teacherId: string, schoolId: string | null, listId?: string, studentIds?: string[]) {
+  async getEvaluationData(
+    teacherId: string,
+    schoolId: string | null,
+    role: UserRole,
+    listId?: string,
+    studentIds?: string[],
+    classId?: string,
+  ) {
     if (!schoolId) return { criteria: [], lists: [], students: [], scores: [], studentNotes: [] };
+    const viewer = { userId: teacherId, role, schoolId };
     const [criteria, lists, list] = await Promise.all([
       this.listCriteria(teacherId, schoolId),
       this.listStudentLists(teacherId, schoolId),
       listId ? this.studentListRepo.findOne({ where: { id: listId, teacherId } }) : null,
     ]);
     const listStudentIds = list?.studentIds ?? studentIds;
-    const students = listStudentIds?.length
-      ? await this.studentRepo.find({ where: { id: In(listStudentIds), schoolId }, order: { name: 'ASC' } })
-      : await this.studentRepo.find({ where: { schoolId }, order: { name: 'ASC' }, take: 100 });
+    const fullRoster = await this.classesSubjectsService.listRosterStudentsForViewer(viewer);
+    const rosterIds = new Set(fullRoster.map((s) => s.id));
+    let students: Student[];
+    if (listStudentIds?.length) {
+      const rows = await this.studentRepo.find({
+        where: { id: In(listStudentIds), schoolId },
+        order: { name: 'ASC' },
+      });
+      students = rows.filter((s) => rosterIds.has(s.id));
+    } else {
+      students = fullRoster;
+    }
+    if (classId) {
+      const inClass = await this.classesSubjectsService.listStudentsByClass(viewer, classId);
+      const allowed = new Set(inClass.map((s) => s.id));
+      students = students.filter((s) => allowed.has(s.id));
+    }
     const studentIdsForScores = students.map((s) => s.id);
     const [scores, studentNotes] = await Promise.all([
       studentIdsForScores.length > 0

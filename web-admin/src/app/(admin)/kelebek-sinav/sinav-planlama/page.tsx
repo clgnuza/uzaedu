@@ -8,14 +8,40 @@ import { COOKIE_SESSION_TOKEN } from '@/lib/auth-session';
 import { butterflyExamApiQuery } from '@/lib/butterfly-exam-school-q';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Alert } from '@/components/ui/alert';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { toast } from 'sonner';
 import {
   Plus, MoreVertical, Trash2, Eye, Edit2, X, ClipboardList,
-  BookOpen, CalendarDays, BarChart2,
+  BookOpen, CalendarDays, BarChart2, ArrowRight, CalendarRange,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
+
+function toDateInputValue(iso: string) {
+  const d = new Date(iso);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function toTimeInputValue(iso: string) {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function todayDateInput() {
+  return toDateInputValue(new Date().toISOString());
+}
+
+/** Yeni dönem planı açılırken Plan Açıklaması alanına gelen varsayılan maddeler (düzenlenebilir). */
+const DEFAULT_PERIOD_PLAN_DESCRIPTION_BULLETS = [
+  'Öğrenciler sınav saatinden en az 15 dakika önce sınav salonunda hazır bulunmalıdır.',
+  'Sınava yalnızca kurşun kalem, silgi ve müfredatta izin verilen araç-gereçler getirilebilir.',
+  'Sınav süresince cep telefonu, akıllı saat ve kablosuz iletişim cihazı bulundurulamaz.',
+  'Sınav programı ve olası değişiklikler okul idaresi tarafından duyurulur; veliler bilgilendirilir.',
+] as const;
 
 type Plan = {
   id: string;
@@ -35,6 +61,8 @@ export default function SinavTakvimPage() {
 
   const [loading, setLoading] = useState(true);
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [sessionCountByParent, setSessionCountByParent] = useState<Record<string, number>>({});
+  const [orphanSessionCount, setOrphanSessionCount] = useState(0);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -52,6 +80,9 @@ export default function SinavTakvimPage() {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [editName, setEditName] = useState('');
   const [editBullets, setEditBullets] = useState<string[]>([]);
+  const [editStartDate, setEditStartDate] = useState('');
+  const [editStartTime, setEditStartTime] = useState('09:00');
+  const [editEndDate, setEditEndDate] = useState('');
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -59,12 +90,21 @@ export default function SinavTakvimPage() {
     setLoading(true);
     try {
       const all = await apiFetch<Plan[]>(`/butterfly-exam/plans${schoolQ}`, { token });
-      // Show only period plans (planType === 'period') or all when no planType set yet
-      const periods = all.filter((p) => {
-        const r = p.rules as Record<string, unknown>;
-        return r?.planType === 'period' || !r?.planType;
-      });
+      const periods = all
+        .filter((p) => (p.rules as Record<string, unknown>)?.planType === 'period')
+        .sort((a, b) => new Date(a.examStartsAt).getTime() - new Date(b.examStartsAt).getTime());
       setPlans(periods);
+      const countMap: Record<string, number> = {};
+      let orphans = 0;
+      for (const p of all) {
+        const r = (p.rules ?? {}) as Record<string, unknown>;
+        if (r.planType === 'period') continue;
+        const parent = typeof r.parentPlanId === 'string' ? r.parentPlanId : null;
+        if (parent) countMap[parent] = (countMap[parent] ?? 0) + 1;
+        else orphans += 1;
+      }
+      setSessionCountByParent(countMap);
+      setOrphanSessionCount(orphans);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Yüklenemedi');
     } finally {
@@ -87,11 +127,12 @@ export default function SinavTakvimPage() {
     setCreating(true);
     try {
       const bullets = planBullets.filter(Boolean);
+      const startIso = new Date(`${todayDateInput()}T09:00:00`).toISOString();
       await apiFetch(`/butterfly-exam/plans${schoolQ}`, {
         method: 'POST', token,
         body: JSON.stringify({
           title: planName.trim(),
-          exam_starts_at: new Date().toISOString(),
+          exam_starts_at: startIso,
           description: bullets.join('\n'),
           rules: {
             planType: 'period',
@@ -112,15 +153,22 @@ export default function SinavTakvimPage() {
   };
 
   const savePlan = async () => {
-    if (!token || !editPlan || !editName.trim()) return;
+    if (!token || !editPlan || !editName.trim() || !editStartDate) return;
     setSaving(true);
     try {
       const bullets = editBullets.filter(Boolean);
+      const startIso = new Date(`${editStartDate}T${editStartTime || '09:00'}:00`).toISOString();
+      const endIso =
+        editEndDate.trim() !== ''
+          ? new Date(`${editEndDate.trim()}T23:59:59`).toISOString()
+          : null;
       await apiFetch(`/butterfly-exam/plans/${editPlan.id}${schoolQ}`, {
         method: 'PATCH', token,
         body: JSON.stringify({
           title: editName.trim(),
           description: bullets.join('\n'),
+          exam_starts_at: startIso,
+          exam_ends_at: endIso,
           rules: { reportFooterLines: bullets },
         }),
       });
@@ -141,7 +189,11 @@ export default function SinavTakvimPage() {
       // Get child exam plans for this period
       const all = await apiFetch<Plan[]>(`/butterfly-exam/plans${schoolQ}`, { token });
       const children = all.filter((p) => (p.rules as Record<string, unknown>)?.parentPlanId === periodPlan.id);
-      const planIds = children.length > 0 ? children.map((p) => p.id) : [periodPlan.id];
+      if (children.length === 0) {
+        toast.error('Bu dönem planına bağlı sınav oturumu yok. Önce Sınav İşlemleri’nden oturum oluşturup bu plana bağlayın.');
+        return;
+      }
+      const planIds = children.map((p) => p.id);
 
       const raw = periodPlan.rules as Record<string, string>;
       const qs = new URLSearchParams();
@@ -190,6 +242,9 @@ export default function SinavTakvimPage() {
     setMenuOpenId(null);
     setEditPlan(p);
     setEditName(p.title);
+    setEditStartDate(toDateInputValue(p.examStartsAt));
+    setEditStartTime(toTimeInputValue(p.examStartsAt));
+    setEditEndDate(p.examEndsAt ? toDateInputValue(p.examEndsAt) : '');
     const r = p.rules as Record<string, unknown>;
     const lines = Array.isArray(r?.reportFooterLines)
       ? (r.reportFooterLines as string[]).filter(Boolean)
@@ -199,16 +254,64 @@ export default function SinavTakvimPage() {
 
   if (loading) return <div className="flex justify-center py-16"><LoadingSpinner /></div>;
 
+  const openCreateDialog = () => {
+    setPlanName('');
+    setPlanBullets([...DEFAULT_PERIOD_PLAN_DESCRIPTION_BULLETS]);
+    setShowCreate(true);
+  };
+
   return (
     <div className="min-w-0 space-y-4">
+      <div className="rounded-2xl border border-teal-200/50 bg-gradient-to-br from-teal-500/[0.08] via-white/80 to-emerald-500/[0.06] p-3 shadow-sm dark:border-teal-900/35 dark:from-teal-950/30 dark:via-zinc-900/50 dark:to-emerald-950/20 sm:p-4">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-teal-800/90 dark:text-teal-200/90">
+          Önerilen akış
+        </p>
+        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm">
+            <span className="inline-flex items-center gap-1 rounded-full bg-teal-600 px-2.5 py-1 font-semibold text-white shadow-md shadow-teal-500/25">
+              <CalendarDays className="size-3.5 shrink-0" />
+              1. Dönem takvimi (buradasınız)
+            </span>
+            <ArrowRight className="size-3.5 shrink-0 text-muted-foreground max-sm:hidden" />
+            <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 font-medium text-teal-950 shadow-sm ring-1 ring-teal-500/15 dark:bg-zinc-900/80 dark:text-teal-100 dark:ring-teal-400/20">
+              <CalendarRange className="size-3.5 shrink-0" />
+              2. Sınav oturumları
+            </span>
+            <ArrowRight className="size-3.5 shrink-0 text-muted-foreground max-sm:hidden" />
+            <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 font-medium text-teal-950 shadow-sm ring-1 ring-teal-500/15 dark:bg-zinc-900/80 dark:text-teal-100 dark:ring-teal-400/20">
+              <BookOpen className="size-3.5 shrink-0" />
+              3. Yerleştirme ve PDF
+            </span>
+          </div>
+          <Button asChild size="sm" variant="outline" className="h-8 w-full gap-1 text-xs sm:ml-auto sm:w-auto sm:text-sm">
+            <Link href={`/kelebek-sinav/sinav-islemleri${schoolQ}`}>Oturumlara geç</Link>
+          </Button>
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
+          Bu sayfada dönem planı <strong className="text-foreground">adı</strong> ve raporlarda kullanılacak <strong className="text-foreground">açıklama maddeleri</strong> tutulur.
+          Kesin sınav gün ve saatleri <strong className="text-foreground">Sınav İşlemleri</strong> oturumlarıyla belirlenir.
+        </p>
+      </div>
+
+      {orphanSessionCount > 0 && (
+        <Alert variant="warning" className="rounded-xl text-[13px] leading-relaxed">
+          <strong className="text-foreground">{orphanSessionCount} bağımsız sınav oturumu</strong> bulundu; hiçbir dönem planına bağlı değil.
+          Bu oturumlar bu sayfadaki dönem planı raporlarına dahil edilmez.{' '}
+          <Link href={`/kelebek-sinav/sinav-islemleri${schoolQ}`} className="font-semibold text-amber-700 underline-offset-2 hover:underline dark:text-amber-300">
+            Sınav İşlemleri
+          </Link>
+          {' '}üzerinden ilgili oturumları açıp <em>Sınavı Düzenle</em> ile bir dönem planına bağlayabilirsiniz.
+        </Alert>
+      )}
+
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold sm:text-base">Sınav Takvimi</h2>
-          <p className="text-xs text-muted-foreground">Sınav takviminizi oluşturun, yönetin ve gerçek sınavlara dönüştürün.</p>
+          <h2 className="text-sm font-semibold sm:text-base">Sınav takvimi</h2>
+          <p className="text-xs text-muted-foreground">Dönem planı adı ve rapor/duyuru maddeleri; oturum tarihleri Sınav İşlemleri’nde.</p>
         </div>
         {isAdmin && (
-          <Button size="sm" className="w-full gap-1.5 sm:w-auto" onClick={() => setShowCreate(true)}>
-            <Plus className="size-4" /> Yeni Plan
+          <Button size="sm" className="w-full gap-1.5 sm:w-auto" onClick={openCreateDialog}>
+            <Plus className="size-4" /> Yeni dönem planı
           </Button>
         )}
       </div>
@@ -216,13 +319,21 @@ export default function SinavTakvimPage() {
       {plans.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 py-14 text-center dark:border-slate-700">
           <ClipboardList className="mx-auto size-12 text-slate-400 mb-3" />
-          <p className="text-sm font-medium">Henüz plan bulunmamaktadır.</p>
-          <p className="text-xs text-muted-foreground mt-1">Yeni plan oluşturmak için yukarıdaki butonu kullanın.</p>
+          <p className="text-sm font-medium">Henüz dönem planı yok.</p>
+          <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto px-2">
+            Önce burada dönem planını oluşturun; ardından Sınav İşlemleri üzerinden her gün için oturum ekleyin.
+            Eski kayıtlar yalnızca oturum listesinde görünüyorsa burada yeni bir dönem planı tanımlayın.
+          </p>
           {isAdmin && (
-            <Button size="sm" className="mt-4" onClick={() => setShowCreate(true)}>
-              <Plus className="size-4 mr-1.5" /> Yeni Plan Oluştur
+            <Button size="sm" className="mt-4" onClick={openCreateDialog}>
+              <Plus className="size-4 mr-1.5" /> Dönem planı oluştur
             </Button>
           )}
+          <div className="mt-4">
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/kelebek-sinav/sinav-islemleri${schoolQ}`}>Doğrudan oturum listesine git</Link>
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="space-y-3" ref={menuRef}>
@@ -252,11 +363,27 @@ export default function SinavTakvimPage() {
                       </ul>
                     )}
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1"><CalendarDays className="size-3" />{new Date(p.examStartsAt).toLocaleDateString('tr-TR')}</span>
+                      <span className="flex items-center gap-1">
+                        <CalendarDays className="size-3" />
+                        {new Date(p.examStartsAt).toLocaleString('tr-TR', {
+                          day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+                        })}
+                      </span>
+                      {p.examEndsAt && (
+                        <span className="text-muted-foreground/80">
+                          → {new Date(p.examEndsAt).toLocaleDateString('tr-TR')} bitiş
+                        </span>
+                      )}
                       <span className={cn('rounded-full px-2 py-0.5 font-medium',
                         p.status === 'published' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300')}>
                         {p.status === 'published' ? 'Aktif' : 'Taslak'}
                       </span>
+                      <Link
+                        href={`/kelebek-sinav/sinav-islemleri${schoolQ}`}
+                        className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800/50 dark:bg-indigo-950/30 dark:text-indigo-300">
+                        <CalendarRange className="size-3" />
+                        {sessionCountByParent[p.id] ?? 0} oturum
+                      </Link>
                     </div>
                   </div>
                   </div>
@@ -271,9 +398,9 @@ export default function SinavTakvimPage() {
                       {menuOpenId === p.id && (
                         <div className="absolute left-0 right-0 top-9 z-50 min-w-0 rounded-xl border border-white/60 bg-white/95 py-1 shadow-lg dark:border-zinc-700/60 dark:bg-zinc-900/95 sm:left-auto sm:right-0 sm:min-w-[200px]">
                           <MenuBtn icon={<Edit2 className="size-3.5" />} label="Plan Düzenle" onClick={() => openEdit(p)} />
-                          <MenuBtn icon={<BookOpen className="size-3.5" />} label="Sınav Takvimini Görüntüle"
+                          <MenuBtn icon={<CalendarRange className="size-3.5" />} label="Oturum listesi"
                             href={`/kelebek-sinav/sinav-islemleri${schoolQ}`} onClick={() => setMenuOpenId(null)} />
-                          <MenuBtn icon={<Plus className="size-3.5" />} label="Sınav Ekle"
+                          <MenuBtn icon={<Plus className="size-3.5" />} label="Yeni sınav oturumu"
                             href={`/kelebek-sinav/sinav-olustur${schoolQ}`} onClick={() => setMenuOpenId(null)} />
                           <div className="my-1 border-t border-slate-200 dark:border-zinc-700" />
                           <MenuBtn icon={<BarChart2 className="size-3.5" />} label="Okul Bazlı Rapor"
@@ -298,6 +425,18 @@ export default function SinavTakvimPage() {
                     </div>
                   )}
                 </div>
+                <div className="flex flex-wrap gap-2 border-t border-slate-200/70 px-3 pb-3 pt-2.5 dark:border-zinc-800/70 sm:px-4">
+                  <Button asChild variant="secondary" size="sm" className="h-8 gap-1 text-xs">
+                    <Link href={`/kelebek-sinav/sinav-islemleri${schoolQ}`}>Oturum listesine geç</Link>
+                  </Button>
+                  {isAdmin ? (
+                    <Button asChild variant="outline" size="sm" className="h-8 gap-1 text-xs">
+                      <Link href={`/kelebek-sinav/sinav-olustur${schoolQ}`}>
+                        <Plus className="size-3.5" /> Yeni oturum
+                      </Link>
+                    </Button>
+                  ) : null}
+                </div>
               </div>
             );
           })}
@@ -307,7 +446,7 @@ export default function SinavTakvimPage() {
       {/* Create Dialog */}
       {showCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-white/60 bg-white shadow-2xl dark:border-zinc-700/60 dark:bg-zinc-900">
+          <div className="w-full max-w-lg rounded-2xl border border-white/60 bg-white shadow-2xl dark:border-zinc-700/60 dark:bg-zinc-900">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-zinc-800">
               <div className="flex items-center gap-2">
                 <div className="rounded-lg bg-indigo-100 p-2 dark:bg-indigo-950/50">
@@ -315,7 +454,7 @@ export default function SinavTakvimPage() {
                 </div>
                 <div>
                   <p className="font-semibold text-sm">Yeni Plan Oluştur</p>
-                  <p className="text-xs text-muted-foreground">Sınav planınız için bir ad ve açıklama girin</p>
+                  <p className="text-xs text-muted-foreground">Plan adı ve açıklama maddeleri (rapor / duyuru)</p>
                 </div>
               </div>
               <button onClick={() => setShowCreate(false)} className="rounded-full p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800">
@@ -334,6 +473,11 @@ export default function SinavTakvimPage() {
                 />
                 <p className="mt-1 text-[11px] text-muted-foreground">Plan adını girdikten sonra devam ekleyebilirsiniz</p>
               </div>
+              <Alert variant="info" className="rounded-xl text-[13px] leading-relaxed">
+                <strong className="text-foreground">Cetvel tarihi burada seçilmez.</strong>{' '}
+                Gerçek sınav gün ve saatleri <strong className="text-foreground">Sınav İşlemleri</strong> üzerinden oturum ekleyerek oluşturulur.
+                Aşağıdaki maddeler PDF ve duyuru metinlerinde alt bilgi olarak kullanılır; istediğiniz gibi düzenleyebilirsiniz.
+              </Alert>
               <div>
                 <div className="mb-1.5 flex items-center justify-between">
                   <p className="text-xs font-semibold">Plan Açıklaması</p>
@@ -395,6 +539,24 @@ export default function SinavTakvimPage() {
                 <p className="mb-1.5 text-xs font-semibold">Plan Adı</p>
                 <Input value={editName} onChange={(e) => setEditName(e.target.value)} className="bg-white dark:bg-zinc-900" />
               </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <p className="mb-1.5 text-xs font-semibold">Başlangıç tarihi</p>
+                  <Input type="date" value={editStartDate} onChange={(e) => setEditStartDate(e.target.value)}
+                    className="bg-white dark:bg-zinc-900" />
+                </div>
+                <div>
+                  <p className="mb-1.5 text-xs font-semibold">Başlangıç saati</p>
+                  <Input type="time" value={editStartTime} onChange={(e) => setEditStartTime(e.target.value)}
+                    className="bg-white dark:bg-zinc-900" />
+                </div>
+              </div>
+              <div>
+                <p className="mb-1.5 text-xs font-semibold">Bitiş tarihi (isteğe bağlı)</p>
+                <Input type="date" value={editEndDate} onChange={(e) => setEditEndDate(e.target.value)}
+                  className="bg-white dark:bg-zinc-900" />
+                <p className="mt-1 text-[11px] text-muted-foreground">Boş bırakılırsa bitiş kaydı silinir.</p>
+              </div>
               <div>
                 <div className="mb-1.5 flex items-center justify-between">
                   <p className="text-xs font-semibold">Plan Açıklaması</p>
@@ -423,7 +585,7 @@ export default function SinavTakvimPage() {
             </div>
             <div className="flex items-center justify-between border-t border-slate-100 px-5 py-3 dark:border-zinc-800">
               <Button variant="ghost" size="sm" onClick={() => setEditPlan(null)}>İptal</Button>
-              <Button size="sm" disabled={!editName.trim() || saving}
+              <Button size="sm" disabled={!editName.trim() || !editStartDate || saving}
                 onClick={() => void savePlan()} className="gap-1.5">
                 {saving ? <LoadingSpinner /> : '💾 Güncelle'}
               </Button>

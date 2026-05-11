@@ -286,6 +286,11 @@ type ClassRow = {
   butterflyDefaultBuildingId?: string | null;
 };
 
+/** Backend `ensure-class-rooms` ile oluşan sanal bina; salonlar «Salon Atamaları» sekmesinde. */
+function isVirtualExamSalonsBuilding(name: string) {
+  return name.trim().toLowerCase() === 'sınav salonları';
+}
+
 const TABS = [
   { id: 'buildings', label: 'Binalar', icon: Building2 },
   { id: 'rooms', label: 'Salon Atamaları', icon: DoorOpen },
@@ -452,12 +457,14 @@ export default function KelebekYerlesimPage() {
 
   if (loading) return <div className="flex justify-center py-16"><LoadingSpinner /></div>;
 
+  const layoutBuildings = buildings.filter((b) => !isVirtualExamSalonsBuilding(b.name));
+
   return (
     <div className="min-w-0 space-y-4">
       {/* Stats row */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[
-          { label: 'Binalar', value: buildings.length, icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-950/40' },
+          { label: 'Binalar', value: layoutBuildings.length, icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-950/40' },
           { label: 'Sınıf Atamaları', value: `${Object.keys(classBuilding).length}/${classes.length}`, icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-950/40' },
           { label: 'Salon Atamaları', value: rooms.length, icon: DoorOpen, color: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-950/40' },
           { label: 'Yerleştirme Ayarları', value: strategy === 'inter_building' ? 'Binalar Arası' : 'Bina İçi', icon: Settings2, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-950/40' },
@@ -514,13 +521,13 @@ export default function KelebekYerlesimPage() {
             </div>
           )}
 
-          {buildings.length === 0 ? (
+          {layoutBuildings.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-300 py-12 text-center text-sm text-muted-foreground dark:border-slate-700">
               Henüz bina yok. Tek binası olan okullar için bina eklemenize gerek yoktur.
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {buildings.map((b) => {
+              {layoutBuildings.map((b) => {
                 const bRooms = rooms.filter((r) => r.buildingId === b.id);
                 const bClasses = classes.filter((c) => classBuilding[c.id] === b.id);
                 return (

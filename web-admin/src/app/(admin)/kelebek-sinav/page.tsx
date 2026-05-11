@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
 import type { LucideIcon } from 'lucide-react';
-import { BookOpen, Building2, Calendar, Sparkles, Users, LayoutList } from 'lucide-react';
+import { BookOpen, Building2, Calendar, CalendarDays, Sparkles, Users, LayoutList } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCallback, useEffect, useState } from 'react';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -46,11 +46,19 @@ const STEPS: StepCard[] = [
     adminOnly: true,
   },
   {
+    title: 'Sınav takvimi',
+    desc: 'Dönem cetveli: başlangıç tarihi ve rapor maddeleri; ardından oturum planlaması.',
+    icon: CalendarDays,
+    href: '/kelebek-sinav/sinav-planlama',
+    cta: 'Takvimi aç',
+    tone: 'from-teal-500/20 to-emerald-500/10 border-teal-400/35',
+  },
+  {
     title: 'Sınav işlemleri',
-    desc: 'Oturum listesi ve adım adım sınav oluşturma sihirbazı.',
+    desc: 'Oturum listesi, sihirbaz ve yerleştirme — takvimden sonra bu adım.',
     icon: Calendar,
     href: '/kelebek-sinav/sinav-islemleri',
-    cta: 'Sınav oturumları',
+    cta: 'Oturumlar',
     tone: 'from-fuchsia-500/20 to-pink-500/10 border-fuchsia-400/35',
   },
 ];
@@ -123,7 +131,10 @@ export default function KelebekSinavOverviewPage() {
                 Öğrenci
               </CardTitle>
             </CardHeader>
-            <CardContent className="text-2xl font-bold tabular-nums">{stats.studentCount}</CardContent>
+            <CardContent className="pb-3">
+              <p className="text-2xl font-bold tabular-nums leading-none">{stats.studentCount}</p>
+              <p className="mt-1 text-[10px] text-muted-foreground">Sınıfa atanmış aktif öğrenciler</p>
+            </CardContent>
           </Card>
           <Card className="border-indigo-200/40 bg-white/80 dark:bg-zinc-900/50">
             <CardHeader className="pb-1">
@@ -132,7 +143,10 @@ export default function KelebekSinavOverviewPage() {
                 Sınıf
               </CardTitle>
             </CardHeader>
-            <CardContent className="text-2xl font-bold tabular-nums">{stats.classCount}</CardContent>
+            <CardContent className="pb-3">
+              <p className="text-2xl font-bold tabular-nums leading-none">{stats.classCount}</p>
+              <p className="mt-1 text-[10px] text-muted-foreground">Okul şubeleri</p>
+            </CardContent>
           </Card>
           <Card className="border-indigo-200/40 bg-white/80 dark:bg-zinc-900/50">
             <CardHeader className="pb-1">
@@ -141,7 +155,10 @@ export default function KelebekSinavOverviewPage() {
                 Salon
               </CardTitle>
             </CardHeader>
-            <CardContent className="text-2xl font-bold tabular-nums">{stats.roomCount}</CardContent>
+            <CardContent className="pb-3">
+              <p className="text-2xl font-bold tabular-nums leading-none">{stats.roomCount}</p>
+              <p className="mt-1 text-[10px] text-muted-foreground">Fiziksel salonlar</p>
+            </CardContent>
           </Card>
           <Card className="border-indigo-200/40 bg-white/80 dark:bg-zinc-900/50">
             <CardHeader className="pb-1">
@@ -150,7 +167,10 @@ export default function KelebekSinavOverviewPage() {
                 Toplam koltuk
               </CardTitle>
             </CardHeader>
-            <CardContent className="text-2xl font-bold tabular-nums">{stats.totalCapacity}</CardContent>
+            <CardContent className="pb-3">
+              <p className="text-2xl font-bold tabular-nums leading-none">{stats.totalCapacity}</p>
+              <p className="mt-1 text-[10px] text-muted-foreground">Fiziksel salon kapasitesi</p>
+            </CardContent>
           </Card>
         </div>
       ) : null}
@@ -163,6 +183,9 @@ export default function KelebekSinavOverviewPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:flex-wrap">
+          <Button asChild size="sm" variant="outline" className="w-full sm:w-auto">
+            <Link href={`/kelebek-sinav/sinav-planlama${schoolQ}`}>Sınav takvimi</Link>
+          </Button>
           <Button asChild size="sm" variant="secondary" className="w-full sm:w-auto">
             <Link href={`/kelebek-sinav/sinav-olustur${schoolQ}`}>Yeni sınav sihirbazı</Link>
           </Button>

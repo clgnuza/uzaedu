@@ -26,7 +26,7 @@ export class EvrakDefaultsDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(32)
+  @MaxLength(64)
   ogretim_yili?: string;
 
   @IsOptional()
@@ -54,6 +54,12 @@ export class EvrakDefaultsDto {
   @IsString()
   @MaxLength(100)
   ogretmen_unvani?: string;
+
+  /** Raporlarda «Düzenleyen» için imza adı (örn. Müdür Yardımcısının adı). Boşsa display_name kullanılır. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  duzenleyen_adi?: string;
 }
 
 export class UpdateMeDto {

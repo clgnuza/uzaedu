@@ -16,7 +16,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { SkipThrottle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
-import { ClassesSubjectsService } from './classes-subjects.service';
+import { ClassesSubjectsService, type ClassesSubjectsViewer } from './classes-subjects.service';
 import { CreateClassDto } from './dto/create-class.dto';
 import { UpdateClassDto } from './dto/update-class.dto';
 import { CreateSubjectDto } from './dto/create-subject.dto';
@@ -29,20 +29,30 @@ import { UserRole } from '../types/enums';
 export class ClassesSubjectsController {
   constructor(private readonly service: ClassesSubjectsService) {}
 
+  private csViewer(payload: CurrentUserPayload): ClassesSubjectsViewer {
+    return { userId: payload.userId, role: payload.role as UserRole, schoolId: payload.schoolId };
+  }
+
   @Get('classes')
   async listClasses(@CurrentUser() payload: CurrentUserPayload) {
-    if ((payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher) || !payload.schoolId) {
+    if (payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
-    return this.service.listClasses(payload.schoolId);
+    if (payload.role === UserRole.school_admin && !payload.schoolId) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
+    return this.service.listClasses(this.csViewer(payload));
   }
 
   @Post('classes')
   async createClass(@CurrentUser() payload: CurrentUserPayload, @Body() dto: CreateClassDto) {
-    if (payload.role !== UserRole.school_admin || !payload.schoolId) {
+    if (payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
-    return this.service.createClass(payload.schoolId, dto);
+    if (payload.role === UserRole.school_admin && !payload.schoolId) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
+    return this.service.createClass(this.csViewer(payload), dto);
   }
 
   @Patch('classes/:id')
@@ -51,34 +61,40 @@ export class ClassesSubjectsController {
     @Param('id') id: string,
     @Body() dto: UpdateClassDto,
   ) {
-    if (payload.role !== UserRole.school_admin || !payload.schoolId) {
+    if (payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
-    return this.service.updateClass(payload.schoolId, id, dto);
+    return this.service.updateClass(this.csViewer(payload), id, dto);
   }
 
   @Delete('classes/:id')
   async deleteClass(@CurrentUser() payload: CurrentUserPayload, @Param('id') id: string) {
-    if (payload.role !== UserRole.school_admin || !payload.schoolId) {
+    if (payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
-    return this.service.deleteClass(payload.schoolId, id);
+    return this.service.deleteClass(this.csViewer(payload), id);
   }
 
   @Get('subjects')
   async listSubjects(@CurrentUser() payload: CurrentUserPayload) {
-    if ((payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher) || !payload.schoolId) {
+    if (payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
-    return this.service.listSubjects(payload.schoolId);
+    if (payload.role === UserRole.school_admin && !payload.schoolId) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
+    return this.service.listSubjects(this.csViewer(payload));
   }
 
   @Post('subjects')
   async createSubject(@CurrentUser() payload: CurrentUserPayload, @Body() dto: CreateSubjectDto) {
-    if (payload.role !== UserRole.school_admin || !payload.schoolId) {
+    if (payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
-    return this.service.createSubject(payload.schoolId, dto);
+    if (payload.role === UserRole.school_admin && !payload.schoolId) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
+    return this.service.createSubject(this.csViewer(payload), dto);
   }
 
   @Patch('subjects/:id')
@@ -87,18 +103,18 @@ export class ClassesSubjectsController {
     @Param('id') id: string,
     @Body() dto: UpdateSubjectDto,
   ) {
-    if (payload.role !== UserRole.school_admin || !payload.schoolId) {
+    if (payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
-    return this.service.updateSubject(payload.schoolId, id, dto);
+    return this.service.updateSubject(this.csViewer(payload), id, dto);
   }
 
   @Delete('subjects/:id')
   async deleteSubject(@CurrentUser() payload: CurrentUserPayload, @Param('id') id: string) {
-    if (payload.role !== UserRole.school_admin || !payload.schoolId) {
+    if (payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
-    return this.service.deleteSubject(payload.schoolId, id);
+    return this.service.deleteSubject(this.csViewer(payload), id);
   }
 
   @Post('seed-defaults')
@@ -164,10 +180,10 @@ export class ClassesSubjectsController {
 
   @Get('classes/:classId/students')
   async listStudentsByClass(@CurrentUser() payload: CurrentUserPayload, @Param('classId') classId: string) {
-    if ((payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher) || !payload.schoolId) {
+    if (payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
-    return this.service.listStudentsByClass(payload.schoolId, classId);
+    return this.service.listStudentsByClass(this.csViewer(payload), classId);
   }
 
   @Post('classes/:classId/students')
@@ -176,10 +192,13 @@ export class ClassesSubjectsController {
     @Param('classId') classId: string,
     @Body() body: { name?: string; studentNumber?: string; firstName?: string; lastName?: string; gender?: string; birthDate?: string | null },
   ) {
-    if (payload.role !== UserRole.school_admin || !payload.schoolId) {
+    if (payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
-    return this.service.createStudentForClass(payload.schoolId, classId, body);
+    if (payload.role === UserRole.teacher && !payload.schoolId) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için okul bağlantısı gerekir.' });
+    }
+    return this.service.createStudentForClass(this.csViewer(payload), classId, body);
   }
 
   @Patch('students/:studentId')
@@ -188,26 +207,35 @@ export class ClassesSubjectsController {
     @Param('studentId') studentId: string,
     @Body() body: { name?: string; studentNumber?: string | null; classId?: string | null; firstName?: string; lastName?: string; gender?: string | null; birthDate?: string | null },
   ) {
-    if (payload.role !== UserRole.school_admin || !payload.schoolId) {
+    if (payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
-    return this.service.updateStudentForClass(payload.schoolId, studentId, body);
+    if (payload.role === UserRole.teacher && !payload.schoolId) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için okul bağlantısı gerekir.' });
+    }
+    return this.service.updateStudentForClass(this.csViewer(payload), studentId, body);
   }
 
   @Delete('students/:studentId')
   async deleteStudentForClass(@CurrentUser() payload: CurrentUserPayload, @Param('studentId') studentId: string) {
-    if (payload.role !== UserRole.school_admin || !payload.schoolId) {
+    if (payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
-    return this.service.deleteStudentForClass(payload.schoolId, studentId);
+    if (payload.role === UserRole.teacher && !payload.schoolId) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için okul bağlantısı gerekir.' });
+    }
+    return this.service.deleteStudentForClass(this.csViewer(payload), studentId);
   }
 
   @Delete('classes/:classId/students')
   async deleteAllStudentsForClass(@CurrentUser() payload: CurrentUserPayload, @Param('classId') classId: string) {
-    if (payload.role !== UserRole.school_admin || !payload.schoolId) {
+    if (payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
-    return this.service.deleteAllStudentsForClass(payload.schoolId, classId);
+    if (payload.role === UserRole.teacher && !payload.schoolId) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için okul bağlantısı gerekir.' });
+    }
+    return this.service.deleteAllStudentsForClass(this.csViewer(payload), classId);
   }
 
   @Post('students/import/eokul-class-list-xls')

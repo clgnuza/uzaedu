@@ -18,7 +18,7 @@ import Link from 'next/link';
 import { UserPlus } from 'lucide-react';
 import { AuthTransitionLink } from '@/components/landing/auth-transition-link';
 import { LandingLoginLink } from '@/components/landing/landing-login-link';
-import { SealHub } from '@/components/landing/seal-hub';
+import { SealHubClient } from '@/components/landing/seal-hub-client';
 import { CookiePreferencesLink } from '@/components/cookie-preferences-link';
 
 const LEGAL = [
@@ -85,7 +85,7 @@ export default function HomePage() {
         style={{ animation: 'landing-fadein 0.7s ease 0.1s both' }}
       >
         <div className="flex w-full min-w-0 flex-col items-center justify-center gap-0">
-          <SealHub />
+          <SealHubClient />
         </div>
 
         {/* ── Bottom CTA strip ── */}

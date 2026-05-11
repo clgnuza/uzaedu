@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch, getApiUrl } from '@/lib/api';
 import { COOKIE_SESSION_TOKEN } from '@/lib/auth-session';
@@ -21,6 +22,7 @@ import { cn } from '@/lib/utils';
 type Plan = {
   id: string;
   title: string;
+  description?: string | null;
   examStartsAt?: string;
   rules?: Record<string, unknown> & {
     classSubjectAssignments?: Array<{ classId: string; subjectName: string; className?: string }>;
@@ -144,7 +146,10 @@ export default function KelebekAyarlarPage() {
         apiFetch<RoomRow[]>(`/butterfly-exam/rooms${schoolQ}`, { token }),
         apiFetch<Array<{ id: string; name: string; grade?: number }>>(`/butterfly-exam/classes${schoolQ}`, { token }).catch(() => []),
       ]);
-      setPlans(p);
+      const examOnly = p.filter(
+        (x) => (x.rules as Record<string, unknown> | undefined)?.planType !== 'period',
+      );
+      setPlans(examOnly);
       setRooms(r);
       setClasses(cl);
     } catch (e) {
@@ -160,19 +165,28 @@ export default function KelebekAyarlarPage() {
     if (!plans.length) { setPlanId(''); return; }
     if (!planId || !plans.some((x) => x.id === planId)) setPlanId(plans[0].id);
     setReportPlanIds(new Set(plans.map((p) => p.id)));
-
-    // Pre-fill report settings from any plan that has them
-    const src = plans.find((p) => p.rules?.cityLine || p.rules?.duzenleyenName);
-    if (src?.rules) {
-      const r = src.rules as Record<string, string>;
-      if (r.cityLine) setCityLine(r.cityLine);
-      if (r.academicYear) setAcademicYear(r.academicYear);
-      if (r.duzenleyenName) setDuzenleyenName(r.duzenleyenName);
-      if (r.duzenleyenTitle) setDuzenleyenTitle(r.duzenleyenTitle);
-      if (r.onaylayanName) setOnaylayanName(r.onaylayanName);
-      if (r.onaylayanTitle) setOnaylayanTitle(r.onaylayanTitle);
-    }
   }, [plans, planId]);
+
+  // Okul / profil bilgilerinden otomatik doldur. Başlık Bilgileri salt okunur;
+  // değerler tek kaynak olarak profilden gelir (her me değişikliğinde senkronize edilir).
+  useEffect(() => {
+    if (!me) return;
+    const sch = me.school;
+    const ev = me.evrak_defaults ?? {};
+    const district = sch?.district?.trim() ?? '';
+    const city = sch?.city?.trim() ?? '';
+    setCityLine([district, city].filter(Boolean).join(' / '));
+    const now = new Date();
+    const startYear = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+    setAcademicYear((ev.ogretim_yili ?? '').trim() || `${startYear} - ${startYear + 1}`);
+    setOnaylayanName((ev.mudur_adi ?? '').trim() || (sch?.principalName ?? '').trim());
+    setOnaylayanTitle('Müdür');
+    setDuzenleyenName(
+      ((ev as { duzenleyen_adi?: string }).duzenleyen_adi ?? '').trim() ||
+      (me.display_name ?? '').trim(),
+    );
+    setDuzenleyenTitle((ev.ogretmen_unvani ?? '').trim() || 'Müdür Yardımcısı');
+  }, [me]);
 
   const selected = plans.find((x) => x.id === planId);
 
@@ -749,20 +763,28 @@ export default function KelebekAyarlarPage() {
                   onClick={async () => {
                     if (!token) return;
                     setUploading(true);
+                    const entries = Object.entries(uploadFiles);
+                    let ok = 0;
+                    let fail = 0;
                     try {
-                      for (const [key, file] of Object.entries(uploadFiles)) {
+                      for (const [key, file] of entries) {
                         const subjectName = key.replace(`${planId}-`, '');
                         const fd = new FormData();
                         fd.append('file', file);
                         fd.append('subjectName', subjectName);
-                        await apiFetch(`/butterfly-exam/plans/${planId}/upload-paper${schoolQ}`, {
-                          method: 'POST', token, body: fd,
-                        }).catch(() => null);
+                        try {
+                          await apiFetch(`/butterfly-exam/plans/${planId}/upload-paper${schoolQ}`, {
+                            method: 'POST', token, body: fd,
+                          });
+                          ok += 1;
+                        } catch {
+                          fail += 1;
+                        }
                       }
-                      toast.success(`${Object.keys(uploadFiles).length} kağıt yüklendi`);
+                      if (ok > 0) toast.success(`${ok} kağıt yüklendi`);
+                      if (fail > 0) toast.error(`${fail} kağıt yüklenemedi`);
                       setUploadFiles({});
-                    } catch {
-                      toast.error('Yükleme başarısız');
+                      await load();
                     } finally {
                       setUploading(false);
                     }
@@ -834,6 +856,7 @@ export default function KelebekAyarlarPage() {
 
               <div>
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sınavlar</p>
+                <p className="mb-2 text-[11px] text-muted-foreground">Yalnızca sınav oturumları listelenir; dönem planı takvim satırı olarak eklenmez.</p>
                 <div className="max-h-40 space-y-1 overflow-auto rounded-xl border border-slate-200 bg-slate-50/50 p-2 dark:border-zinc-700 dark:bg-zinc-800/30">
                   {plans.map((p) => (
                     <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-slate-100 dark:hover:bg-zinc-800">
@@ -853,37 +876,28 @@ export default function KelebekAyarlarPage() {
               </div>
             </div>
 
-            {/* Right: Signature & header settings */}
+            {/* Right: Signature & header settings (read-only, from profile) */}
             <div className="rounded-2xl border border-white/60 bg-white/80 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 p-5 space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Başlık Bilgileri</p>
-              <label className="block text-xs">
-                <span className="mb-1 block text-muted-foreground">Şehir / İl Satırı</span>
-                <Input value={cityLine} onChange={(e) => setCityLine(e.target.value)} placeholder="Ankara Valiliği (Enter) Çankaya Demo Lisesi Müdürlüğü" className="h-8 text-xs" />
-              </label>
-              <label className="block text-xs">
-                <span className="mb-1 block text-muted-foreground">Eğitim-Öğretim Yılı</span>
-                <Input value={academicYear} onChange={(e) => setAcademicYear(e.target.value)} placeholder="Örn. 2025 - 2026 Eğitim - Öğretim Yılı" className="h-8 text-xs" />
-              </label>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Başlık Bilgileri</p>
+                <Link href="/profile?tab=belge" className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800/50 dark:bg-indigo-950/30 dark:text-indigo-300">
+                  Profilden düzenle
+                </Link>
+              </div>
+              <p className="rounded-md border border-emerald-200/60 bg-emerald-50/60 px-2 py-1.5 text-[11px] leading-relaxed text-emerald-800 dark:border-emerald-800/40 dark:bg-emerald-950/20 dark:text-emerald-300">
+                Aşağıdaki bilgiler okul kaydı ve <strong>Profil → Belge / Rapor</strong> sekmesinden otomatik gelir. Buradan değiştirmek için profil sayfasını kullanın.
+              </p>
+
+              <dl className="space-y-2 text-xs">
+                <ReadOnlyRow label="Şehir / İl satırı" value={cityLine} />
+                <ReadOnlyRow label="Eğitim-Öğretim Yılı" value={academicYear} />
+              </dl>
 
               <p className="pt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">İmza Bilgileri</p>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="block text-xs">
-                  <span className="mb-1 block text-muted-foreground">Düzenleyen Adı</span>
-                  <Input value={duzenleyenName} onChange={(e) => setDuzenleyenName(e.target.value)} placeholder="Örn. Demo Düzenleyen" className="h-8 text-xs" />
-                </label>
-                <label className="block text-xs">
-                  <span className="mb-1 block text-muted-foreground">Ünvan</span>
-                  <Input value={duzenleyenTitle} onChange={(e) => setDuzenleyenTitle(e.target.value)} placeholder="Müdür Yardımcısı" className="h-8 text-xs" />
-                </label>
-                <label className="block text-xs">
-                  <span className="mb-1 block text-muted-foreground">Onaylayan Adı</span>
-                  <Input value={onaylayanName} onChange={(e) => setOnaylayanName(e.target.value)} placeholder="Örn. Demo Onaylayan" className="h-8 text-xs" />
-                </label>
-                <label className="block text-xs">
-                  <span className="mb-1 block text-muted-foreground">Ünvan</span>
-                  <Input value={onaylayanTitle} onChange={(e) => setOnaylayanTitle(e.target.value)} placeholder="Müdür" className="h-8 text-xs" />
-                </label>
-              </div>
+              <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                <ReadOnlyRow label="Düzenleyen" value={duzenleyenName} subValue={duzenleyenTitle} />
+                <ReadOnlyRow label="Onaylayan" value={onaylayanName} subValue={onaylayanTitle} />
+              </dl>
 
               <Button className="w-full mt-2 gap-1.5" disabled={pdfReport || reportPlanIds.size === 0}
                 onClick={() => void downloadTakvimPdf()}>
@@ -894,65 +908,169 @@ export default function KelebekAyarlarPage() {
 
           {/* Preview mock */}
           <div className="rounded-2xl border border-slate-200/60 bg-slate-50/60 dark:border-zinc-800/40 dark:bg-zinc-900/40 p-5">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Şablon Önizleme</p>
-            <div className="mx-auto max-w-lg rounded-xl border border-slate-300/60 bg-white shadow-sm dark:border-zinc-700/60 dark:bg-zinc-800/80 overflow-hidden text-xs">
-              {/* Header mock */}
-              <div className="border-b border-slate-200 dark:border-zinc-700 px-4 py-3 text-center space-y-0.5">
-                <p className="text-[10px] text-slate-400">T.C.</p>
-                <p className="text-[10px] text-slate-500">{cityLine || 'İL / VALİLİK'}</p>
-                <p className="font-bold text-[11px]">{plans.find(p => p.id === planId)?.title?.split(' — ')[0] ?? 'Demo Lise'}</p>
-                <p className="text-[10px] text-slate-500">{academicYear || 'Örnek eğitim-öğretim yılı'}</p>
-                <p className="font-semibold text-[11px] text-indigo-700 dark:text-indigo-300">
-                  {[...reportPlanIds][0] ? plans.find(p => p.id === [...reportPlanIds][0])?.title : 'Dönem Adı'}
-                </p>
-                <p className="text-[10px] text-slate-500">
-                  {reportType === 'sinif' ? `${reportGrade}. Sınıflar Sınav Takvimi`
-                    : reportType === 'sube' ? `${classes.find(c => c.id === reportClassId)?.name ?? 'Şube'} Sınav Takvimi`
-                    : 'Genel Sınav Takvimi'}
-                </p>
-              </div>
-              {/* Table mock */}
-              <table className="w-full text-[10px]">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-zinc-800/60 border-b border-slate-200 dark:border-zinc-700">
-                    <th className="px-2 py-1.5 text-left font-semibold">S.N</th>
-                    <th className="px-2 py-1.5 text-left font-semibold">Gün</th>
-                    <th className="px-2 py-1.5 text-left font-semibold">Tarih</th>
-                    <th className="px-2 py-1.5 text-left font-semibold">Saat</th>
-                    <th className="px-2 py-1.5 text-left font-semibold">Sınav Dersi</th>
-                    <th className="px-2 py-1.5 text-left font-semibold">Açıklama</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {plans.filter(p => reportPlanIds.has(p.id)).slice(0, 5).map((p, i) => {
-                    const d = p.examStartsAt ? new Date(p.examStartsAt) : null;
-                    const DAYS = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
-                    const subject = (p.rules?.classSubjectAssignments as Array<{subjectName:string}>|undefined)?.[0]?.subjectName
-                      ?? p.title;
-                    return (
-                      <tr key={p.id} className="border-b border-slate-100 dark:border-zinc-800">
-                        <td className="px-2 py-1">{i + 1}</td>
-                        <td className="px-2 py-1">{d ? DAYS[d.getDay()] : ''}</td>
-                        <td className="px-2 py-1">{d ? d.toLocaleDateString('tr-TR') : ''}</td>
-                        <td className="px-2 py-1 text-slate-500">{p.rules?.lessonPeriodLabel ?? '—'}</td>
-                        <td className="px-2 py-1 font-medium truncate max-w-[90px]">{subject}</td>
-                        <td className="px-2 py-1 text-slate-400 text-[9px]">{(p.rules as Record<string,unknown>)?.examNote as string ?? '—'}</td>
-                      </tr>
-                    );
-                  })}
-                  {reportPlanIds.size === 0 && (
-                    <tr><td colSpan={6} className="px-2 py-4 text-center text-slate-400">Sınav seçin</td></tr>
-                  )}
-                </tbody>
-              </table>
-              {/* Signature mock */}
-              {(duzenleyenName || onaylayanName) && (
-                <div className="flex justify-between px-6 py-3 text-[10px] border-t border-slate-200 dark:border-zinc-700">
-                  {duzenleyenName && <div className="text-center"><p className="text-slate-400">Düzenleyen</p><p className="font-bold">{duzenleyenName.toUpperCase()}</p><p>{duzenleyenTitle}</p></div>}
-                  {onaylayanName && <div className="text-center"><p className="text-slate-400">Onaylayan</p><p className="font-bold">{onaylayanName.toUpperCase()}</p><p>{onaylayanTitle}</p></div>}
-                </div>
-              )}
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Şablon Önizleme</p>
+              <span className="text-[10px] text-muted-foreground">PDF çıktısının yaklaşık görünümü</span>
             </div>
+            {(() => {
+              const schoolName = (me?.school?.name ?? '').trim();
+              const showSubeler = reportType !== 'genel';
+              const colCount = showSubeler ? 7 : 6;
+              const gradeClassIds = reportType === 'sinif'
+                ? new Set(classes.filter((c) => c.grade === reportGrade).map((c) => c.id))
+                : null;
+              const subeClassId = reportType === 'sube' ? reportClassId : null;
+              const DAYS = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
+              const selectedPlans = plans.filter((p) => reportPlanIds.has(p.id))
+                .slice()
+                .sort((a, b) => new Date(a.examStartsAt ?? 0).getTime() - new Date(b.examStartsAt ?? 0).getTime());
+              const visibleRows = selectedPlans.flatMap((p) => {
+                const csa = p.rules?.classSubjectAssignments ?? [];
+                const participantIds = p.rules?.participantClassIds;
+                let scoped: string[] | null = null;
+                if (gradeClassIds) {
+                  scoped = (participantIds ?? [...gradeClassIds]).filter((id) => gradeClassIds.has(id));
+                  if (scoped.length === 0) return [];
+                } else if (subeClassId) {
+                  const inPlan = participantIds?.includes(subeClassId) ?? true;
+                  if (!inPlan) return [];
+                  scoped = [subeClassId];
+                }
+                const filteredCsa = scoped ? csa.filter((a) => scoped!.includes(a.classId)) : csa;
+                const subject = filteredCsa.length
+                  ? [...new Set(filteredCsa.map((a) => a.subjectName))].filter(Boolean).join(', ')
+                  : p.title;
+                const ids = scoped ?? participantIds ?? [];
+                const subeler = showSubeler
+                  ? ids
+                      .map((id) => classes.find((c) => c.id === id)?.name?.trim())
+                      .filter((s): s is string => Boolean(s))
+                      .sort((a, b) => a.localeCompare(b, 'tr'))
+                      .join(', ')
+                  : '';
+                return [{ p, subject, subeler }];
+              });
+              // Backend ile aynı dönem başlığı mantığı
+              const parentIds = new Set(
+                selectedPlans
+                  .map((p) => (p.rules as Record<string, unknown> | undefined)?.parentPlanId)
+                  .filter((x): x is string => typeof x === 'string'),
+              );
+              let periodTitle = selectedPlans[0]?.title ?? '—';
+              if (parentIds.size === 1) {
+                const parentId = [...parentIds][0]!;
+                const parent = plans.find((x) => x.id === parentId);
+                if (parent?.title) periodTitle = parent.title;
+              } else if (selectedPlans.length > 1 && parentIds.size === 0) {
+                periodTitle = 'Sınav Takvimi';
+              }
+              const subtitle = reportType === 'sinif'
+                ? `${reportGrade}. Sınıflar Sınav Takvimi`
+                : reportType === 'sube'
+                  ? `${classes.find((c) => c.id === reportClassId)?.name ?? 'Şube'} Sınav Takvimi`
+                  : 'Genel Sınav Takvimi';
+              const titleLine = `${periodTitle} — ${subtitle}`.toUpperCase();
+              const footerLinesPreview = footerLines.filter(Boolean);
+              const fmt = (d: Date | null) =>
+                d ? d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
+              return (
+                <div className="mx-auto max-w-2xl rounded-xl border border-slate-300/60 bg-white px-6 py-5 shadow-sm dark:border-zinc-700/60 dark:bg-zinc-800/80 text-[11px] text-slate-900 dark:text-slate-100">
+                  {/* Header */}
+                  <div className="text-center space-y-0.5 pb-2">
+                    <p className="font-bold">T.C.</p>
+                    <p className="font-bold uppercase">{cityLine || <span className="text-slate-400">İL / VALİLİK SATIRI YOK</span>}</p>
+                    <p className="font-bold uppercase">{schoolName || <span className="text-slate-400">OKUL ADI YOK</span>}</p>
+                    <p className="text-muted-foreground">{academicYear || <span className="text-slate-400">Eğitim-öğretim yılı yok</span>}</p>
+                  </div>
+                  <div className="mb-2 mt-1 border-t-2 border-slate-700/80 pt-2 text-center font-bold uppercase dark:border-slate-300/60">
+                    {titleLine}
+                  </div>
+
+                  {/* Table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-[10px]">
+                      <thead>
+                        <tr className="bg-slate-100 dark:bg-zinc-700/60">
+                          <th className="border border-slate-300 px-2 py-1 text-center font-semibold dark:border-zinc-600">S.No</th>
+                          <th className="border border-slate-300 px-2 py-1 text-left font-semibold dark:border-zinc-600">Gün</th>
+                          <th className="border border-slate-300 px-2 py-1 text-left font-semibold dark:border-zinc-600">Tarih</th>
+                          <th className="border border-slate-300 px-2 py-1 text-left font-semibold dark:border-zinc-600">Saat</th>
+                          <th className="border border-slate-300 px-2 py-1 text-left font-semibold dark:border-zinc-600">Sınav Dersi</th>
+                          {showSubeler && <th className="border border-slate-300 px-2 py-1 text-left font-semibold dark:border-zinc-600">Şubeler</th>}
+                          <th className="border border-slate-300 px-2 py-1 text-left font-semibold dark:border-zinc-600">Açıklama</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleRows.slice(0, 8).map(({ p, subject, subeler }, i) => {
+                          const d = p.examStartsAt ? new Date(p.examStartsAt) : null;
+                          const note = (p.description ?? '').split('\n')[0]?.trim() ?? '';
+                          return (
+                            <tr key={p.id}>
+                              <td className="border border-slate-300 px-2 py-1 text-center dark:border-zinc-600">{i + 1}</td>
+                              <td className="border border-slate-300 px-2 py-1 dark:border-zinc-600">{d ? DAYS[d.getDay()] : ''}</td>
+                              <td className="border border-slate-300 px-2 py-1 dark:border-zinc-600">{fmt(d)}</td>
+                              <td className="border border-slate-300 px-2 py-1 dark:border-zinc-600">{p.rules?.lessonPeriodLabel ?? ''}</td>
+                              <td className="border border-slate-300 px-2 py-1 font-semibold dark:border-zinc-600">{subject}</td>
+                              {showSubeler && <td className="border border-slate-300 px-2 py-1 text-slate-600 dark:border-zinc-600 dark:text-slate-300">{subeler || ''}</td>}
+                              <td className="border border-slate-300 px-2 py-1 text-slate-600 dark:border-zinc-600 dark:text-slate-300">{note}</td>
+                            </tr>
+                          );
+                        })}
+                        {visibleRows.length > 8 && (
+                          <tr>
+                            <td colSpan={colCount} className="border border-slate-300 px-2 py-1 text-center text-[10px] italic text-muted-foreground dark:border-zinc-600">
+                              + {visibleRows.length - 8} satır daha (PDF’de tamamı görünür)
+                            </td>
+                          </tr>
+                        )}
+                        {reportPlanIds.size === 0 && (
+                          <tr><td colSpan={colCount} className="border border-slate-300 px-2 py-4 text-center text-slate-400 dark:border-zinc-600">Sınav seçin</td></tr>
+                        )}
+                        {reportPlanIds.size > 0 && visibleRows.length === 0 && (
+                          <tr><td colSpan={colCount} className="border border-slate-300 px-2 py-4 text-center text-slate-400 dark:border-zinc-600">
+                            {reportType === 'sinif'
+                              ? `${reportGrade}. sınıfa ait sınav bulunamadı`
+                              : reportType === 'sube'
+                                ? 'Seçilen şube için sınav bulunamadı'
+                                : 'Seçili sınav yok'}
+                          </td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* AÇIKLAMALAR */}
+                  {footerLinesPreview.length > 0 && (
+                    <div className="mt-3 space-y-0.5 text-[10px]">
+                      <p className="font-bold uppercase">AÇIKLAMALAR</p>
+                      <ol className="list-inside list-decimal space-y-0.5 text-slate-600 dark:text-slate-300">
+                        {footerLinesPreview.map((line, i) => (
+                          <li key={i}>{line}</li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+
+                  {/* Signatures */}
+                  {(duzenleyenName || onaylayanName) && (
+                    <div className="mt-6 grid grid-cols-2 gap-6 text-center text-[10px]">
+                      {[
+                        { role: 'Düzenleyen', name: duzenleyenName, title: duzenleyenTitle },
+                        { role: 'Onaylayan', name: onaylayanName, title: onaylayanTitle },
+                      ].map((sig) => (
+                        <div key={sig.role} className="space-y-1">
+                          <p className="font-semibold">{sig.role}</p>
+                          <p className="pt-3 italic text-slate-400">İmza</p>
+                          <div className="mx-auto h-px w-4/5 bg-slate-400/60" />
+                          <p className="pt-0.5 font-bold uppercase">{sig.name || '—'}</p>
+                          <p className="text-slate-500 dark:text-slate-400">{sig.title || ''}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -1130,6 +1248,20 @@ export default function KelebekAyarlarPage() {
         </div>
       )}
 
+    </div>
+  );
+}
+
+function ReadOnlyRow({ label, value, subValue }: { label: string; value: string; subValue?: string }) {
+  const v = (value ?? '').trim();
+  const sv = (subValue ?? '').trim();
+  return (
+    <div className="rounded-md border border-slate-200/70 bg-slate-50/50 px-2.5 py-1.5 dark:border-zinc-700/60 dark:bg-zinc-800/30">
+      <dt className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 break-words text-xs font-semibold text-foreground">
+        {v || <span className="font-normal text-amber-600 dark:text-amber-400">— profilde tanımsız —</span>}
+      </dd>
+      {sv && <dd className="text-[11px] text-muted-foreground">{sv}</dd>}
     </div>
   );
 }
