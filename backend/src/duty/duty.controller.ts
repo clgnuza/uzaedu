@@ -473,16 +473,23 @@ export class DutyController {
    */
   @Get('teachers')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.school_admin, UserRole.teacher)
+  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin)
   async listSchoolTeachers(
     @Query('includeExempt') includeExempt: string,
+    @Query('teacher_only') teacherOnly: string,
+    @Query('school_id') schoolIdParam: string | undefined,
     @CurrentUser() payload: CurrentUserPayload,
   ) {
     const excludeExempt = includeExempt !== 'true';
-    return this.service.listSchoolTeachers(payload.schoolId ?? null, excludeExempt, {
+    if (payload.role === UserRole.superadmin && !schoolIdParam?.trim()) {
+      throw new BadRequestException({ code: 'SCHOOL_ID_REQUIRED', message: 'Süper yönetici için school_id sorgu parametresi gerekli.' });
+    }
+    const effectiveSchoolId =
+      payload.role === UserRole.superadmin ? schoolIdParam!.trim() : payload.schoolId ?? null;
+    return this.service.listSchoolTeachers(effectiveSchoolId, excludeExempt, {
       id: payload.userId,
       role: payload.role as UserRole,
-    });
+    }, { teacherRoleOnly: teacherOnly === 'true' });
   }
 
   /** Belirli tarihte nöbetçi arkadaşlar – teacher + admin erişebilir */

@@ -5,10 +5,17 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ChevronRight, ClipboardList, Settings } from 'lucide-react';
+import { ChevronRight, ClipboardList, Settings, Banknote } from 'lucide-react';
 
 /** Yeni hesaplama ayarları eklemek için bu diziyi genişletin. */
 const CALC_CARDS: { id: string; title: string; description: string; href: string; icon?: React.ReactNode }[] = [
+  {
+    id: 'yolluk-params',
+    title: 'Yolluk parametreleri',
+    description: 'Mali yıl gündeliği ve 6245 özet çarpanları (süper yönetici).',
+    href: '/yolluk-hesaplama/ayarlar',
+    icon: <Banknote className="size-6 text-primary" />,
+  },
   {
     id: 'ek-ders-params',
     title: 'Ek Ders Parametreleri',

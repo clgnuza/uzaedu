@@ -46,6 +46,18 @@ const BASE_TILES: HubTile[] = [
       'bg-linear-to-br from-white/95 via-violet-50/85 to-fuchsia-50/75 dark:from-zinc-900/95 dark:via-violet-950/45 dark:to-zinc-950/90',
     bar: 'from-violet-500 via-fuchsia-500 to-amber-400',
   },
+  {
+    href: '/yolluk-hesaplama/benim',
+    title: 'Yolluk hesaplarım',
+    description: 'Okul tarafından kesinleştirilen yurt içi yolluk özetleri.',
+    icon: Calculator,
+    ring: 'shadow-[0_0_0_1px_rgba(52,211,153,0.28)] hover:shadow-[0_20px_50px_-12px_rgba(16,185,129,0.35)]',
+    iconShell:
+      'bg-linear-to-br from-emerald-400 to-teal-600 text-white shadow-lg shadow-emerald-500/30 dark:from-emerald-500 dark:to-teal-700',
+    cardBg:
+      'bg-linear-to-br from-white/95 via-emerald-50/85 to-teal-50/75 dark:from-zinc-900/95 dark:via-emerald-950/40 dark:to-zinc-950/90',
+    bar: 'from-emerald-400 via-teal-400 to-cyan-500',
+  },
 ];
 
 const ADMIN_TILES: HubTile[] = [
@@ -102,9 +114,13 @@ export default function HesaplamalarHubPage() {
   );
 
   const tiles = useMemo(() => {
-    if (!canAdminParams) return BASE_TILES;
-    return [...BASE_TILES, ...ADMIN_TILES];
-  }, [canAdminParams]);
+    let base = BASE_TILES;
+    if (me?.role !== 'teacher') {
+      base = base.filter((t) => t.href !== '/yolluk-hesaplama/benim');
+    }
+    if (!canAdminParams) return base;
+    return [...base, ...ADMIN_TILES];
+  }, [canAdminParams, me?.role]);
 
   return (
     <div className="relative -mx-4 -mt-2 min-h-0 overflow-hidden rounded-none border-x-0 border-t-0 border-b border-border/40 bg-linear-to-b from-slate-50/90 via-white to-violet-50/30 px-3 pb-6 pt-0 sm:-mx-6 sm:pb-10 sm:pt-0 lg:mx-0 lg:max-w-none lg:rounded-2xl lg:border lg:border-border/30 lg:bg-linear-to-br lg:from-slate-50/80 lg:via-white lg:to-cyan-50/20 dark:from-zinc-950 dark:via-zinc-950 dark:to-violet-950/30 lg:dark:from-zinc-950 lg:dark:via-zinc-950 lg:dark:to-violet-950/40">

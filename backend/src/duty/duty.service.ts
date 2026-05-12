@@ -720,6 +720,7 @@ export class DutyService {
     schoolId: string | null,
     excludeExempt = true,
     viewer?: { id: string; role: UserRole } | null,
+    options?: { teacherRoleOnly?: boolean },
   ) {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     const qb = this.userRepo
@@ -738,6 +739,9 @@ export class DutyService {
       .andWhere('u.status = :status', { status: 'active' })
       .andWhere('u.role IN (:...roles)', { roles: ['teacher', 'school_admin'] })
       .orderBy('u.display_name', 'ASC');
+    if (options?.teacherRoleOnly) {
+      qb.andWhere('u.role = :teacherRole', { teacherRole: UserRole.teacher });
+    }
     if (excludeExempt) {
       qb.andWhere('(u.dutyExempt IS NULL OR u.dutyExempt = false)');
     }

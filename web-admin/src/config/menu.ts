@@ -84,7 +84,12 @@ export const MENU_SIDEBAR: MenuConfig = [
     menuGroup: 'violet',
     sidebarHubOnlyRoles: ['teacher'],
     sidebarHubPath: '/hesaplamalar',
-    sidebarHubActivePrefixes: ['/hesaplamalar', '/ek-ders-hesaplama', '/sinav-gorev-ucretleri'],
+    sidebarHubActivePrefixes: [
+      '/hesaplamalar',
+      '/ek-ders-hesaplama',
+      '/sinav-gorev-ucretleri',
+      '/yolluk-hesaplama',
+    ],
     children: [
       {
         title: 'Özet',
@@ -103,6 +108,30 @@ export const MENU_SIDEBAR: MenuConfig = [
         path: '/sinav-gorev-ucretleri',
         icon: ClipboardList,
         allowedRoles: ['school_admin', 'superadmin', 'teacher', 'moderator'],
+      },
+      {
+        title: 'Yolluk hesaplarım',
+        path: '/yolluk-hesaplama/benim',
+        icon: Banknote,
+        allowedRoles: ['teacher'],
+      },
+      {
+        title: 'Yolluk hesaplama (okul)',
+        path: '/yolluk-hesaplama/okul',
+        icon: Banknote,
+        allowedRoles: ['school_admin', 'superadmin'],
+      },
+      {
+        title: 'Yolluk resmi rapor (PDF)',
+        path: '/yolluk-hesaplama/rapor',
+        icon: Banknote,
+        allowedRoles: ['school_admin', 'superadmin'],
+      },
+      {
+        title: 'Yolluk parametreleri',
+        path: '/yolluk-hesaplama/ayarlar',
+        icon: Settings,
+        allowedRoles: ['superadmin'],
       },
       {
         title: 'Hesaplama türleri',
@@ -798,6 +827,10 @@ export const ROUTE_ROLES: Record<string, ('school_admin' | 'superadmin' | 'teach
   '/ek-ders-hesaplama': ['school_admin', 'superadmin', 'teacher', 'moderator'],
   '/hesaplamalar': ['school_admin', 'superadmin', 'teacher', 'moderator'],
   '/sinav-gorev-ucretleri': ['school_admin', 'superadmin', 'teacher', 'moderator'],
+  '/yolluk-hesaplama/ayarlar': ['superadmin'],
+  '/yolluk-hesaplama/okul': ['school_admin', 'superadmin'],
+  '/yolluk-hesaplama/rapor': ['school_admin', 'superadmin'],
+  '/yolluk-hesaplama/benim': ['teacher'],
   '/favoriler': ['teacher', 'moderator'],
   '/evrak': ['teacher', 'superadmin', 'moderator'],
   '/evrak/plan-katki': ['teacher', 'school_admin'],
