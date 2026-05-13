@@ -13,6 +13,15 @@ CREATE TABLE IF NOT EXISTS teacher_timetable (
 
 CREATE INDEX IF NOT EXISTS idx_teacher_timetable_school ON teacher_timetable(school_id);
 CREATE INDEX IF NOT EXISTS idx_teacher_timetable_user ON teacher_timetable(user_id);
+
+DELETE FROM teacher_timetable a
+USING teacher_timetable b
+WHERE a.id > b.id
+  AND a.school_id = b.school_id
+  AND a.user_id = b.user_id
+  AND a.day_of_week = b.day_of_week
+  AND a.lesson_num = b.lesson_num;
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_teacher_timetable_unique
   ON teacher_timetable(school_id, user_id, day_of_week, lesson_num);
 
