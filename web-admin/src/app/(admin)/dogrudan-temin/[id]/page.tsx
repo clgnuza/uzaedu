@@ -1,0 +1,1397 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { useAuth } from '@/hooks/use-auth';
+import { apiFetch } from '@/lib/api';
+import { dtUrl } from '@/lib/dt-url';
+import { Toolbar, ToolbarActions, ToolbarHeading, ToolbarPageTitle } from '@/components/layout/toolbar';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { Alert } from '@/components/ui/alert';
+import { ForbiddenView } from '@/components/errors/forbidden-view';
+import { ClipboardList, ChevronLeft, Copy, FileDown, Sparkles, Archive, ArchiveRestore, Banknote, FileText, Wallet, Users, Files } from 'lucide-react';
+import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { SchoolSelectWithFilter } from '@/components/school-select-with-filter';
+
+type DtFileItem = {
+  id: string;
+  year: number;
+  fileNo: string;
+  subject: string;
+  teminType: string;
+  status: string;
+  budgetAccountId: string | null;
+  approxTotal: string | null;
+  decisionTotal: string | null;
+  paymentTotal: string | null;
+};
+
+type DtItem = {
+  id: string;
+  name: string;
+  spec: string | null;
+  qty: string;
+  unit: string | null;
+  vatRate: number;
+  estimatedUnitPrice: string | null;
+};
+
+type VendorItem = { id: string; title: string };
+type Quote = { id: string; vendorId: string; status: string };
+type QuoteItem = { id: string; quoteId: string; dtItemId: string; unitPrice: string };
+type DocItem = { id: string; docType: string; fileFormat: string; filename: string; createdAt: string };
+type BudgetAccount = {
+  id: string;
+  year: number;
+  parentId: string | null;
+  code: string | null;
+  label: string;
+  allocated: string;
+  blocked: string;
+  spent: string;
+};
+type BudgetBlock = {
+  id: string;
+  budgetAccountId: string;
+  amount: string;
+  status: string;
+  blockedAt: string;
+  releasedAt: string | null;
+};
+
+type DtRules = {
+  require_award_before_payment: boolean;
+  require_budget_account_on_file: boolean;
+  require_quote_on_payment: boolean;
+  payment_note_min_length: number;
+  platform_notice_tr: string;
+};
+
+type DtPaymentRow = {
+  id: string;
+  amount: string;
+  quoteId: string | null;
+  paidAt: string;
+  note: string | null;
+  referenceNo: string | null;
+};
+
+type DtAcceptanceCommission = {
+  id: string;
+  chairmanUserId: string | null;
+};
+
+type DtAcceptanceCommissionMember = {
+  id: string;
+  userId: string;
+  title: string | null;
+};
+
+export default function DtFileDetailPage() {
+  const { token, me } = useAuth();
+  const params = useParams<{ id: string }>();
+  const id = String(params?.id ?? '').trim();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const isSuperadmin = me?.role === 'superadmin' || me?.role === 'moderator';
+  const [selectedSchoolId, setSelectedSchoolId] = useState<string>(() => searchParams.get('school_id') ?? '');
+  const schoolId = isSuperadmin ? selectedSchoolId : ((me as { school_id?: string })?.school_id ?? me?.school?.id ?? '');
+  const enabled = me?.school?.enabled_modules ?? null;
+  const ok = isSuperadmin || enabled === null || enabled.length === 0 || enabled.includes('dogrudan_temin');
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [file, setFile] = useState<DtFileItem | null>(null);
+  const [items, setItems] = useState<DtItem[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [copyForm, setCopyForm] = useState({ target_year: '', file_no: '' });
+  const [vendors, setVendors] = useState<VendorItem[]>([]);
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [quoteOpen, setQuoteOpen] = useState(false);
+  const [quoteVendorId, setQuoteVendorId] = useState('');
+  const [activeQuoteId, setActiveQuoteId] = useState<string>('');
+  const [quoteItems, setQuoteItems] = useState<Record<string, QuoteItem[]>>({});
+  const [priceDraft, setPriceDraft] = useState<Record<string, Record<string, string>>>({});
+  const [docs, setDocs] = useState<DocItem[]>([]);
+  const [docVendorId, setDocVendorId] = useState('');
+  const [budgetAccounts, setBudgetAccounts] = useState<BudgetAccount[]>([]);
+  const [budgetBlocks, setBudgetBlocks] = useState<BudgetBlock[]>([]);
+  const [budgetForm, setBudgetForm] = useState({ budget_account_id: '', amount: '' });
+  const [dtRules, setDtRules] = useState<DtRules | null>(null);
+  const [payments, setPayments] = useState<DtPaymentRow[]>([]);
+  const [paymentForm, setPaymentForm] = useState({
+    amount: '',
+    quote_id: '',
+    note: '',
+    reference_no: '',
+    paid_at: '',
+  });
+  const [itemForm, setItemForm] = useState({
+    name: '',
+    spec: '',
+    qty: '1',
+    unit: '',
+    vat_rate: '20',
+    estimated_unit_price: '',
+  });
+  const [commission, setCommission] = useState<DtAcceptanceCommission | null>(null);
+  const [commissionMembers, setCommissionMembers] = useState<DtAcceptanceCommissionMember[]>([]);
+  const [activeTab, setActiveTab] = useState<'items' | 'quotes' | 'budget' | 'payments' | 'commission' | 'docs'>('items');
+  const [commissionForm, setCommissionForm] = useState({ chairman_user_id: '', member_title: '' });
+  const [commissionDialogOpen, setCommissionDialogOpen] = useState(false);
+
+  const canFetch = useMemo(() => !!token && !!id && ok && (!isSuperadmin || !!schoolId), [token, id, ok, isSuperadmin, schoolId]);
+
+  const setSchool = useCallback(
+    (sid: string) => {
+      setSelectedSchoolId(sid);
+      const u = new URLSearchParams(searchParams.toString());
+      if (sid) u.set('school_id', sid);
+      else u.delete('school_id');
+      router.replace(`/dogrudan-temin/${encodeURIComponent(id)}?${u.toString()}`);
+    },
+    [id, router, searchParams],
+  );
+
+  const fetchAll = useCallback(async () => {
+    if (!canFetch) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [f, it, v, q, d, rulesRes, payRes, commRes] = await Promise.all([
+        apiFetch<DtFileItem>(dtUrl(`/dogrudan-temin/files/${id}`, me?.role, schoolId), { token: token! }),
+        apiFetch<{ items: DtItem[] }>(dtUrl(`/dogrudan-temin/files/${id}/items`, me?.role, schoolId), { token: token! }),
+        apiFetch<{ items: VendorItem[] }>(dtUrl(`/dogrudan-temin/vendors`, me?.role, schoolId), { token: token! }),
+        apiFetch<{ items: Quote[] }>(dtUrl(`/dogrudan-temin/files/${id}/quotes`, me?.role, schoolId), { token: token! }),
+        apiFetch<{ items: DocItem[] }>(dtUrl(`/dogrudan-temin/files/${id}/docs`, me?.role, schoolId), { token: token! }),
+        apiFetch<DtRules>(dtUrl('/dogrudan-temin/rules', me?.role, schoolId), { token: token! }),
+        apiFetch<{ items: DtPaymentRow[] }>(dtUrl(`/dogrudan-temin/files/${id}/payments`, me?.role, schoolId), { token: token! }),
+        apiFetch<{ commission: DtAcceptanceCommission | null; members: DtAcceptanceCommissionMember[] }>(dtUrl(`/dogrudan-temin/files/${id}/commission`, me?.role, schoolId), { token: token! }).catch(() => ({ commission: null, members: [] })),
+      ]);
+      setFile(f);
+      setItems(it.items ?? []);
+      setVendors(v.items ?? []);
+      setQuotes(q.items ?? []);
+      setDocs(d.items ?? []);
+      setDtRules(rulesRes);
+      setPayments(payRes.items ?? []);
+      setCommission(commRes?.commission ?? null);
+      setCommissionMembers(commRes?.members ?? []);
+      const firstQuote = (q.items ?? [])[0]?.id ?? '';
+      setActiveQuoteId((cur) => cur || firstQuote);
+
+      const [bud, bl] = await Promise.all([
+        apiFetch<{ items: BudgetAccount[] }>(
+          dtUrl(`/dogrudan-temin/budgets?year=${encodeURIComponent(String(f.year))}`, me?.role, schoolId),
+          { token: token! },
+        ),
+        apiFetch<{ items: BudgetBlock[] }>(dtUrl(`/dogrudan-temin/files/${id}/budget/blocks`, me?.role, schoolId), { token: token! }),
+      ]);
+      setBudgetAccounts(bud.items ?? []);
+      setBudgetBlocks(bl.items ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Yüklenemedi');
+    } finally {
+      setLoading(false);
+    }
+  }, [canFetch, id, me?.role, schoolId, token]);
+
+  const blockBudget = useCallback(async () => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/budget/block`, me?.role, schoolId), {
+        token,
+        method: 'POST',
+        body: JSON.stringify({ budget_account_id: budgetForm.budget_account_id, amount: budgetForm.amount }),
+      });
+      setBudgetForm({ budget_account_id: budgetForm.budget_account_id, amount: '' });
+      await fetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [budgetForm.amount, budgetForm.budget_account_id, fetchAll, id, token]);
+
+  const releaseBudget = useCallback(
+    async (block_id?: string) => {
+      if (!token) return;
+      if (isSuperadmin && !schoolId) return;
+      setBusy(true);
+      setError(null);
+      try {
+        await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/budget/release`, me?.role, schoolId), {
+          token,
+          method: 'POST',
+          body: JSON.stringify(block_id ? { block_id } : {}),
+        });
+        await fetchAll();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Hata');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [fetchAll, id, isSuperadmin, me?.role, schoolId, token],
+  );
+
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
+
+  useEffect(() => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) {
+      setLoading(false);
+      setFile(null);
+      setItems([]);
+      setVendors([]);
+      setQuotes([]);
+      setDocs([]);
+      setBudgetAccounts([]);
+      setBudgetBlocks([]);
+      setDtRules(null);
+      setPayments([]);
+      setCommission(null);
+      setCommissionMembers([]);
+    }
+  }, [isSuperadmin, schoolId, token]);
+
+  const autoAward = useCallback(async () => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/awards/auto`, me?.role, schoolId), {
+        token,
+        method: 'POST',
+        body: JSON.stringify({ mode: 'per_item_lowest' }),
+      });
+      await fetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [fetchAll, id, isSuperadmin, me?.role, schoolId, token]);
+
+  const generateDoc = useCallback(
+    async (doc_type: 'ihtiyac_listesi' | 'teklif_isteme' | 'karar' | 'sozlesme', vendor_id?: string) => {
+      if (!token) return;
+      if (isSuperadmin && !schoolId) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await apiFetch<{ download_url: string }>(dtUrl(`/dogrudan-temin/files/${id}/docs/generate`, me?.role, schoolId), {
+          token,
+          method: 'POST',
+          body: JSON.stringify({ doc_type, ...(vendor_id ? { vendor_id } : {}) }),
+        });
+        if (res?.download_url) window.open(res.download_url, '_blank', 'noopener,noreferrer');
+        await fetchAll();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Hata');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [fetchAll, id, isSuperadmin, me?.role, schoolId, token],
+  );
+
+  const downloadDoc = useCallback(
+    async (docId: string) => {
+      if (!token) return;
+      if (isSuperadmin && !schoolId) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await apiFetch<{ download_url: string }>(dtUrl(`/dogrudan-temin/docs/${docId}/download`, me?.role, schoolId), { token });
+        if (res?.download_url) window.open(res.download_url, '_blank', 'noopener,noreferrer');
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Hata');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [isSuperadmin, me?.role, schoolId, token],
+  );
+
+  const addItem = useCallback(async () => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/items`, me?.role, schoolId), {
+        token,
+        method: 'POST',
+        body: JSON.stringify({
+          name: itemForm.name,
+          spec: itemForm.spec || null,
+          qty: itemForm.qty,
+          unit: itemForm.unit || null,
+          vat_rate: Number(itemForm.vat_rate || 20),
+          estimated_unit_price: itemForm.estimated_unit_price || null,
+        }),
+      });
+      setAddOpen(false);
+      setItemForm({ name: '', spec: '', qty: '1', unit: '', vat_rate: '20', estimated_unit_price: '' });
+      await fetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [fetchAll, id, isSuperadmin, itemForm.estimated_unit_price, itemForm.name, itemForm.qty, itemForm.spec, itemForm.unit, itemForm.vat_rate, me?.role, schoolId, token]);
+
+  const archive = useCallback(async () => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/archive`, me?.role, schoolId), { token, method: 'POST' });
+      await fetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [fetchAll, id, isSuperadmin, me?.role, schoolId, token]);
+
+  const unarchive = useCallback(async () => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/unarchive`, me?.role, schoolId), { token, method: 'POST' });
+      await fetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [fetchAll, id, isSuperadmin, me?.role, schoolId, token]);
+
+  const copyFile = useCallback(async () => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiFetch<{ id: string }>(dtUrl(`/dogrudan-temin/files/${id}/copy`, me?.role, schoolId), {
+        token,
+        method: 'POST',
+        body: JSON.stringify({
+          target_year: copyForm.target_year ? Number(copyForm.target_year) : undefined,
+          file_no: copyForm.file_no || undefined,
+        }),
+      });
+      setCopyOpen(false);
+      setCopyForm({ target_year: '', file_no: '' });
+      if (res?.id) {
+        router.push(
+          isSuperadmin && schoolId
+            ? `/dogrudan-temin/${res.id}?school_id=${encodeURIComponent(schoolId)}`
+            : `/dogrudan-temin/${res.id}`,
+        );
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [copyForm.file_no, copyForm.target_year, id, isSuperadmin, me?.role, router, schoolId, token]);
+
+  const createQuote = useCallback(async () => {
+    if (!token || !quoteVendorId) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/quotes`, me?.role, schoolId), {
+        token,
+        method: 'POST',
+        body: JSON.stringify({ vendor_id: quoteVendorId }),
+      });
+      setQuoteOpen(false);
+      setQuoteVendorId('');
+      await fetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [fetchAll, id, isSuperadmin, me?.role, quoteVendorId, schoolId, token]);
+
+  const fetchQuoteItems = useCallback(
+    async (qid: string) => {
+      if (!token || !qid) return;
+      if (isSuperadmin && !schoolId) return;
+      if (quoteItems[qid]) return;
+      const res = await apiFetch<{ items: QuoteItem[] }>(dtUrl(`/dogrudan-temin/quotes/${qid}/items`, me?.role, schoolId), { token });
+      setQuoteItems((s) => ({ ...s, [qid]: res.items ?? [] }));
+      const map: Record<string, string> = {};
+      (res.items ?? []).forEach((x) => {
+        map[x.dtItemId] = x.unitPrice;
+      });
+      setPriceDraft((s) => ({ ...s, [qid]: { ...(s[qid] ?? {}), ...map } }));
+    },
+    [isSuperadmin, me?.role, quoteItems, schoolId, token],
+  );
+
+  useEffect(() => {
+    if (activeQuoteId) void fetchQuoteItems(activeQuoteId);
+  }, [activeQuoteId, fetchQuoteItems]);
+
+  const saveQuotePrice = useCallback(
+    async (qid: string, dtItemId: string) => {
+      if (!token) return;
+      if (isSuperadmin && !schoolId) return;
+      const unit_price = priceDraft[qid]?.[dtItemId];
+      if (!unit_price || !unit_price.trim()) return;
+      setBusy(true);
+      setError(null);
+      try {
+        await apiFetch(dtUrl(`/dogrudan-temin/quotes/${qid}/items`, me?.role, schoolId), {
+          token,
+          method: 'POST',
+          body: JSON.stringify({ dt_item_id: dtItemId, unit_price }),
+        });
+        setQuoteItems((s) => ({ ...s, [qid]: undefined as any }));
+        await fetchQuoteItems(qid);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Hata');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [fetchQuoteItems, isSuperadmin, me?.role, priceDraft, schoolId, token],
+  );
+
+  const recordPayment = useCallback(async () => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    if (!paymentForm.amount.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/payments`, me?.role, schoolId), {
+        token,
+        method: 'POST',
+        body: JSON.stringify({
+          amount: paymentForm.amount.trim(),
+          quote_id: paymentForm.quote_id.trim() || null,
+          note: paymentForm.note.trim() || null,
+          reference_no: paymentForm.reference_no.trim() || null,
+          paid_at: paymentForm.paid_at.trim() ? `${paymentForm.paid_at.trim()}T00:00:00Z` : null,
+        }),
+      });
+      setPaymentForm({ amount: '', quote_id: '', note: '', reference_no: '', paid_at: '' });
+      await fetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [
+    fetchAll,
+    id,
+    isSuperadmin,
+    me?.role,
+    paymentForm.amount,
+    paymentForm.note,
+    paymentForm.paid_at,
+    paymentForm.quote_id,
+    paymentForm.reference_no,
+    schoolId,
+    token,
+  ]);
+
+  const createCommission = useCallback(async () => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/commission`, me?.role, schoolId), {
+        token,
+        method: 'POST',
+        body: JSON.stringify({
+          chairman_user_id: commissionForm.chairman_user_id.trim() || null,
+          dt_file_id: id,
+        }),
+      });
+      setCommissionForm({ chairman_user_id: '', member_title: '' });
+      setCommissionDialogOpen(false);
+      await fetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [fetchAll, id, isSuperadmin, me?.role, schoolId, token, commissionForm.chairman_user_id]);
+
+  const addCommissionMember = useCallback(async () => {
+    if (!token || !commission) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/commission/${commission.id}/members`, me?.role, schoolId), {
+        token,
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: commissionForm.chairman_user_id.trim(),
+          title: commissionForm.member_title.trim() || null,
+        }),
+      });
+      setCommissionForm({ chairman_user_id: '', member_title: '' });
+      await fetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [commission, fetchAll, isSuperadmin, me?.role, schoolId, token, commissionForm.chairman_user_id, commissionForm.member_title]);
+
+  const downloadPaymentOrderPdf = useCallback(async (paymentId: string) => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    try {
+      const res = await apiFetch<{ buffer: string; filename: string }>(
+        dtUrl(`/dogrudan-temin/files/${id}/payments/${paymentId}/order-pdf`, me?.role, schoolId),
+        {
+          token,
+          method: 'POST',
+          body: JSON.stringify({}),
+        }
+      );
+      if (res?.buffer && res?.filename) {
+        const link = document.createElement('a');
+        link.href = `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${res.buffer}`;
+        link.download = res.filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [id, isSuperadmin, me?.role, schoolId, token]);
+
+  if (!ok) return <ForbiddenView description="Bu okulda Doğrudan Temin modülü kapalı." />;
+
+  return (
+    <div className="space-y-3 text-xs">
+      <Toolbar>
+        <ToolbarHeading>
+          <ToolbarPageTitle className="text-base">DT Dosya</ToolbarPageTitle>
+        </ToolbarHeading>
+        {isSuperadmin ? (
+          <ToolbarActions>
+            <div className="w-[320px] max-w-[60vw]">
+              <SchoolSelectWithFilter value={schoolId} onChange={setSchool} token={token} />
+            </div>
+          </ToolbarActions>
+        ) : null}
+      </Toolbar>
+
+      <div className="flex items-center gap-2 text-[11px]">
+        <Link
+          href={isSuperadmin && schoolId ? `/dogrudan-temin?school_id=${encodeURIComponent(schoolId)}` : '/dogrudan-temin'}
+          className="inline-flex items-center gap-1 text-primary hover:underline"
+        >
+          <ChevronLeft className="size-3.5" /> Dosyalar
+        </Link>
+      </div>
+
+      {error && <Alert message={error} />}
+      {loading ? (
+        <LoadingSpinner label="Yükleniyor…" className="py-10 text-xs" />
+      ) : file ? (
+        <>
+          <Card className="border-primary/15 bg-gradient-to-br from-background to-muted/20">
+            <CardHeader className="pb-3">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <CardTitle className="flex items-center gap-2 text-base mb-2">
+                    <ClipboardList className="size-5 text-primary" />
+                    {file.subject}
+                  </CardTitle>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`px-2 py-1 rounded text-[10px] font-semibold ${
+                      file.status === 'draft' ? 'bg-slate-100 text-slate-800' :
+                      file.status === 'decision' ? 'bg-blue-100 text-blue-800' :
+                      file.status === 'awarded' ? 'bg-green-100 text-green-800' :
+                      'bg-purple-100 text-purple-800'
+                    }`}>
+                      {file.status.toUpperCase()}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">{file.year}</span>
+                    <span className="text-[11px] text-muted-foreground">#{file.fileNo}</span>
+                    <span className="text-[11px] text-muted-foreground">{file.teminType}</span>
+                  </div>
+                </div>
+                <div className="flex gap-1">
+                  <Button variant="outline" size="sm" title="Arşivle" disabled={busy} onClick={archive}>
+                    <Archive className="size-4" />
+                  </Button>
+                  <Button variant="outline" size="sm" title="Kopyala" disabled={busy}>
+                    <Copy className="size-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t">
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase font-semibold text-muted-foreground">Yaklaşık</div>
+                  <div className="text-lg font-semibold">{file.approxTotal ?? '—'}</div>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase font-semibold text-muted-foreground">Karar</div>
+                  <div className="text-lg font-semibold">{file.decisionTotal ?? '—'}</div>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase font-semibold text-muted-foreground">Ödenen</div>
+                  <div className="text-lg font-semibold text-green-600">{file.paymentTotal ?? '—'}</div>
+                </div>
+              </div>
+            </CardHeader>
+          </Card>
+
+          <div className="flex gap-1 border-b overflow-x-auto">
+            {[
+              { id: 'items', label: 'Kalemler', icon: ClipboardList },
+              { id: 'quotes', label: 'Teklifler', icon: FileText },
+              { id: 'budget', label: 'Bütçe', icon: Wallet },
+              { id: 'payments', label: 'Ödemeler', icon: Banknote },
+              { id: 'commission', label: 'Komisyon', icon: Users },
+              { id: 'docs', label: 'Belgeler', icon: Files },
+            ].map((tab: any) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <tab.icon className="size-4" />
+                {tab.label}
+              </button>
+            ))}
+            <div className="ml-auto flex items-center gap-1 pr-2">
+              <Dialog open={copyOpen} onOpenChange={setCopyOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="ghost" size="sm" disabled={busy}>
+                    <Copy className="size-4" />
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-lg">
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <div className="text-[11px] text-muted-foreground">Hedef yıl (opsiyonel)</div>
+                          <Input value={copyForm.target_year} onChange={(e) => setCopyForm((s) => ({ ...s, target_year: e.target.value }))} />
+                        </div>
+                        <div className="space-y-1">
+                          <div className="text-[11px] text-muted-foreground">Yeni dosya no (opsiyonel)</div>
+                          <Input value={copyForm.file_no} onChange={(e) => setCopyForm((s) => ({ ...s, file_no: e.target.value }))} />
+                        </div>
+                      </div>
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" onClick={() => setCopyOpen(false)} disabled={busy}>
+                          Vazgeç
+                        </Button>
+                        <Button onClick={copyFile} disabled={busy}>
+                          Kopyala
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+            </div>
+          </div>
+
+          <Card>
+            <CardHeader className="py-3">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-sm">Teklifler</CardTitle>
+                <Dialog open={quoteOpen} onOpenChange={setQuoteOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" size="sm" disabled={busy}>
+                      Teklif ekle
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-lg">
+                    <div className="space-y-3">
+                      <div className="space-y-1">
+                        <div className="text-[11px] text-muted-foreground">Firma</div>
+                        <select
+                          value={quoteVendorId}
+                          onChange={(e) => setQuoteVendorId(e.target.value)}
+                          className="mt-0.5 w-full rounded border border-input bg-background px-2 py-1 text-xs"
+                        >
+                          <option value="">Seçin</option>
+                          {vendors.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.title}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" onClick={() => setQuoteOpen(false)} disabled={busy}>
+                          Vazgeç
+                        </Button>
+                        <Button onClick={createQuote} disabled={busy || !quoteVendorId}>
+                          Kaydet
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0 space-y-2">
+              {quotes.length ? (
+                <>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {quotes.map((q) => {
+                      const v = vendors.find((x) => x.id === q.vendorId);
+                      const active = q.id === activeQuoteId;
+                      return (
+                        <button
+                          key={q.id}
+                          type="button"
+                          onClick={() => setActiveQuoteId(q.id)}
+                          className={`rounded-md border px-2 py-1 text-[11px] font-medium ${
+                            active
+                              ? 'border-primary/40 bg-primary/5 text-primary'
+                              : 'border-border bg-background hover:bg-muted/40'
+                          }`}
+                        >
+                          {v?.title ?? q.vendorId.slice(0, 8)}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {activeQuoteId ? (
+                    <div className="table-x-scroll rounded-md border border-border text-xs">
+                      <table className="w-full min-w-[720px] text-left">
+                        <thead>
+                          <tr className="border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            <th className="px-2 py-1.5">Kalem</th>
+                            <th className="px-2 py-1.5">Miktar</th>
+                            <th className="px-2 py-1.5">Birim fiyat</th>
+                            <th className="px-2 py-1.5 w-[1%]"> </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {items.map((it) => (
+                            <tr key={it.id} className="hover:bg-muted/30">
+                              <td className="px-2 py-1">
+                                <div className="font-medium">{it.name}</div>
+                                {it.spec ? <div className="text-[11px] text-muted-foreground">{it.spec}</div> : null}
+                              </td>
+                              <td className="px-2 py-1">{it.qty}</td>
+                              <td className="px-2 py-1">
+                                <Input
+                                  value={priceDraft[activeQuoteId]?.[it.id] ?? ''}
+                                  onChange={(e) =>
+                                    setPriceDraft((s) => ({
+                                      ...s,
+                                      [activeQuoteId]: { ...(s[activeQuoteId] ?? {}), [it.id]: e.target.value },
+                                    }))
+                                  }
+                                  className="h-8 w-[140px] px-2 py-1 text-xs"
+                                  placeholder="0.00"
+                                />
+                              </td>
+                              <td className="px-2 py-1 text-right">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={busy || !(priceDraft[activeQuoteId]?.[it.id] ?? '').trim()}
+                                  onClick={() => void saveQuotePrice(activeQuoteId, it.id)}
+                                >
+                                  Kaydet
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <p className="py-4 text-center text-[11px] text-muted-foreground">Teklif yok.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="py-3">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-sm">Bütçe</CardTitle>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={budgetForm.budget_account_id}
+                    onChange={(e) => setBudgetForm((s) => ({ ...s, budget_account_id: e.target.value }))}
+                    className="h-8 rounded border border-input bg-background px-2 py-1 text-xs"
+                  >
+                    <option value="">Hesap seçin</option>
+                    {budgetAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {(a.code ? `${a.code} · ` : '') + a.label}
+                      </option>
+                    ))}
+                  </select>
+                  <Input
+                    value={budgetForm.amount}
+                    onChange={(e) => setBudgetForm((s) => ({ ...s, amount: e.target.value }))}
+                    className="h-8 w-[140px] px-2 py-1 text-xs"
+                    placeholder="Bloke tutar"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || !budgetForm.budget_account_id || !budgetForm.amount.trim()}
+                    onClick={() => void blockBudget()}
+                  >
+                    Bloke et
+                  </Button>
+                  <Button variant="outline" size="sm" disabled={busy || budgetBlocks.length === 0} onClick={() => void releaseBudget()}>
+                    Blokeleri kaldır
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {budgetBlocks.length ? (
+                <div className="table-x-scroll rounded-md border border-border text-xs">
+                  <table className="w-full min-w-[720px] text-left">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <th className="px-2 py-1.5">Hesap</th>
+                        <th className="px-2 py-1.5">Tutar</th>
+                        <th className="px-2 py-1.5">Durum</th>
+                        <th className="px-2 py-1.5 w-[1%]"> </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {budgetBlocks.map((b) => {
+                        const acc = budgetAccounts.find((x) => x.id === b.budgetAccountId);
+                        return (
+                          <tr key={b.id} className="hover:bg-muted/30">
+                            <td className="px-2 py-1">{acc ? (acc.code ? `${acc.code} · ` : '') + acc.label : b.budgetAccountId.slice(0, 8)}</td>
+                            <td className="px-2 py-1">{b.amount}</td>
+                            <td className="px-2 py-1">{b.status}</td>
+                            <td className="px-2 py-1 text-right">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={busy || b.status !== 'blocked'}
+                                onClick={() => void releaseBudget(b.id)}
+                              >
+                                Kaldır
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="py-4 text-center text-[11px] text-muted-foreground">Bloke yok.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {dtRules?.platform_notice_tr?.trim() ? (
+            <Alert message={dtRules.platform_notice_tr.trim()} />
+          ) : null}
+
+          <Card>
+            <CardHeader className="py-3">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <Banknote className="size-4 text-primary" />
+                  Ödemeler
+                </CardTitle>
+                {dtRules ? (
+                  <p className="text-[10px] text-muted-foreground">
+                    {dtRules.require_quote_on_payment ? 'Teklif zorunlu. ' : ''}
+                    {dtRules.require_award_before_payment ? 'Karar zorunlu. ' : ''}
+                    {dtRules.require_budget_account_on_file ? 'Bütçe hesabı zorunlu. ' : ''}
+                    {dtRules.payment_note_min_length > 0 ? `Not min. ${dtRules.payment_note_min_length} karakter. ` : ''}
+                  </p>
+                ) : null}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-0">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t pt-3">
+                <div className="space-y-2">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-muted-foreground uppercase">Tutar *</label>
+                    <Input
+                      value={paymentForm.amount}
+                      onChange={(e) => setPaymentForm((s) => ({ ...s, amount: e.target.value }))}
+                      className="text-xs"
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-muted-foreground uppercase">Teklif (Firma)</label>
+                    <select
+                      value={paymentForm.quote_id}
+                      onChange={(e) => setPaymentForm((s) => ({ ...s, quote_id: e.target.value }))}
+                      className="w-full h-9 rounded border border-input bg-background px-2 text-xs"
+                    >
+                      <option value="">—</option>
+                      {quotes.map((q) => {
+                        const v = vendors.find((vendor) => vendor.id === q.vendorId);
+                        const vn = v?.title ?? q.vendorId.slice(0, 8);
+                        return (
+                          <option key={q.id} value={q.id}>
+                            {vn}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-muted-foreground uppercase">Ref No</label>
+                    <Input
+                      value={paymentForm.reference_no}
+                      onChange={(e) => setPaymentForm((s) => ({ ...s, reference_no: e.target.value }))}
+                      className="text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-muted-foreground uppercase">Ödeme Tarihi</label>
+                    <Input
+                      type="date"
+                      value={paymentForm.paid_at}
+                      onChange={(e) => setPaymentForm((s) => ({ ...s, paid_at: e.target.value }))}
+                      className="text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-1 border-t pt-3">
+                <label className="text-[11px] font-medium text-muted-foreground uppercase">Not</label>
+                <Input
+                  value={paymentForm.note}
+                  onChange={(e) => setPaymentForm((s) => ({ ...s, note: e.target.value }))}
+                  className="text-xs"
+                  placeholder="Ödeme hakkında notlar..."
+                />
+              </div>
+              <Button
+                className="w-full mt-3"
+                disabled={
+                  busy ||
+                  !paymentForm.amount.trim() ||
+                  (dtRules?.require_quote_on_payment && !paymentForm.quote_id.trim())
+                }
+                onClick={() => void recordPayment()}
+              >
+                Ödeme Kaydı Ekle
+              </Button>
+              {payments.length ? (
+                <div className="table-x-scroll rounded-lg border border-border text-xs overflow-hidden">
+                  <table className="w-full min-w-[640px] text-left">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/60 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <th className="px-3 py-2.5">Tarih</th>
+                        <th className="px-3 py-2.5 text-right">Tutar</th>
+                        <th className="px-3 py-2.5">Teklif</th>
+                        <th className="px-3 py-2.5">Ref No</th>
+                        <th className="px-3 py-2.5">Not</th>
+                        <th className="px-3 py-2.5 w-[1%]"> </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {payments.map((p) => {
+                        const q = p.quoteId ? quotes.find((x) => x.id === p.quoteId) : null;
+                        const vn = q ? vendors.find((v) => v.id === q.vendorId)?.title : null;
+                        return (
+                          <tr key={p.id} className="hover:bg-primary/5 transition-colors">
+                            <td className="px-3 py-2 whitespace-nowrap font-medium">
+                              {p.paidAt ? new Date(p.paidAt).toLocaleDateString('tr-TR') : '—'}
+                            </td>
+                            <td className="px-3 py-2 text-right font-semibold text-green-600">{p.amount}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{vn ?? (p.quoteId ? p.quoteId.slice(0, 8) : '—')}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{p.referenceNo ?? '—'}</td>
+                            <td className="px-3 py-2 text-muted-foreground truncate" title={p.note ?? ''}>{p.note ?? '—'}</td>
+                            <td className="px-3 py-2 text-right">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={busy}
+                                onClick={() => void downloadPaymentOrderPdf(p.id)}
+                                title="Ödeme Emri PDF"
+                              >
+                                <FileDown className="size-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-center text-[11px] text-muted-foreground py-4">Henüz ödeme kaydı yok.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="py-3">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-sm">Kabul Komisyonu</CardTitle>
+                {commission ? (
+                  <Dialog open={commissionDialogOpen} onOpenChange={setCommissionDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm" disabled={busy}>
+                        Üye Ekle
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-lg">
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-medium text-muted-foreground uppercase">Kullanıcı ID</label>
+                          <Input
+                            value={commissionForm.chairman_user_id}
+                            onChange={(e) => setCommissionForm((s) => ({ ...s, chairman_user_id: e.target.value }))}
+                            placeholder="Üye UUID"
+                            className="text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-medium text-muted-foreground uppercase">Ünvan (Opsiyonel)</label>
+                          <Input
+                            value={commissionForm.member_title}
+                            onChange={(e) => setCommissionForm((s) => ({ ...s, member_title: e.target.value }))}
+                            placeholder="Üye Ünvanı"
+                            className="text-xs"
+                          />
+                        </div>
+                        <div className="flex justify-end gap-2 pt-2">
+                          <Button variant="outline" onClick={() => setCommissionDialogOpen(false)} disabled={busy}>
+                            Vazgeç
+                          </Button>
+                          <Button onClick={addCommissionMember} disabled={busy || !commissionForm.chairman_user_id.trim()}>
+                            Üye Ekle
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                ) : (
+                  <Dialog open={commissionDialogOpen} onOpenChange={setCommissionDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button size="sm" disabled={busy}>
+                        Komisyon Oluştur
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-lg">
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-medium text-muted-foreground uppercase">Başkan Kullanıcı ID (Opsiyonel)</label>
+                          <Input
+                            value={commissionForm.chairman_user_id}
+                            onChange={(e) => setCommissionForm((s) => ({ ...s, chairman_user_id: e.target.value }))}
+                            placeholder="Başkan UUID"
+                            className="text-xs"
+                          />
+                        </div>
+                        <div className="flex justify-end gap-2 pt-2">
+                          <Button variant="outline" onClick={() => setCommissionDialogOpen(false)} disabled={busy}>
+                            Vazgeç
+                          </Button>
+                          <Button onClick={createCommission} disabled={busy}>
+                            Oluştur
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0 space-y-2">
+              {commission ? (
+                <div className="text-[11px] space-y-2">
+                  <div className="rounded border border-border bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800 p-2">
+                    <div className="font-medium text-[11px] mb-1">Durumu</div>
+                    <p className="text-sm">Komisyon ID: <code className="bg-muted px-1 py-0.5 rounded">{commission.id.slice(0, 12)}...</code></p>
+                    {commission.chairmanUserId ? (
+                      <p className="mt-1">Başkan: <code className="bg-muted px-1 py-0.5 rounded">{commission.chairmanUserId.slice(0, 12)}...</code></p>
+                    ) : (
+                      <p className="mt-1 text-muted-foreground">Başkan atanmadı</p>
+                    )}
+                  </div>
+                  {commissionMembers.length > 0 && (
+                    <div className="rounded-md border border-border text-xs overflow-hidden">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-border bg-muted/60">
+                            <th className="px-2 py-1.5 text-left text-[10px] font-semibold">Kullanıcı</th>
+                            <th className="px-2 py-1.5 text-left text-[10px] font-semibold">Ünvan</th>
+                            <th className="px-2 py-1.5 w-[1%]"> </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {commissionMembers.map((m) => (
+                            <tr key={m.id} className="hover:bg-muted/30">
+                              <td className="px-2 py-1.5"><code className="bg-muted px-1 py-0.5 rounded text-[10px]">{m.userId.slice(0, 12)}...</code></td>
+                              <td className="px-2 py-1.5 text-muted-foreground">{m.title || '—'}</td>
+                              <td className="px-2 py-1.5 text-right">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    // TODO: Remove member
+                                  }}
+                                >
+                                  ✕
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-center text-[11px] text-muted-foreground py-4">Komisyon oluşturulmadı. Oluşturmak için düğmeyi kullanın.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="py-3">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-sm">Belgeler</CardTitle>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={docVendorId}
+                    onChange={(e) => setDocVendorId(e.target.value)}
+                    className="h-8 rounded border border-input bg-background px-2 py-1 text-xs"
+                  >
+                    <option value="">Firma (ops.)</option>
+                    {vendors.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.title}
+                      </option>
+                    ))}
+                  </select>
+                  <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('ihtiyac_listesi')}>
+                    İhtiyaç listesi
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || !docVendorId}
+                    onClick={() => void generateDoc('teklif_isteme', docVendorId)}
+                  >
+                    Teklif isteme
+                  </Button>
+                  <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('karar')}>
+                    Karar
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || !docVendorId}
+                    onClick={() => void generateDoc('sozlesme', docVendorId)}
+                  >
+                    Sözleşme
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {docs.length ? (
+                <div className="table-x-scroll rounded-md border border-border text-xs">
+                  <table className="w-full min-w-[720px] text-left">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <th className="px-2 py-1.5">Tür</th>
+                        <th className="px-2 py-1.5">Dosya</th>
+                        <th className="px-2 py-1.5 w-[1%]"> </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {docs.map((d) => (
+                        <tr key={d.id} className="hover:bg-muted/30">
+                          <td className="px-2 py-1">{d.docType}</td>
+                          <td className="px-2 py-1">{d.filename}</td>
+                          <td className="px-2 py-1 text-right">
+                            <Button variant="outline" size="sm" disabled={busy} onClick={() => void downloadDoc(d.id)}>
+                              İndir
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="py-4 text-center text-[11px] text-muted-foreground">Belge yok.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="py-3">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-sm">İhtiyaç listesi</CardTitle>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Dialog open={addOpen} onOpenChange={setAddOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm" disabled={busy}>
+                        Kalem ekle
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-lg">
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <div className="text-[11px] text-muted-foreground">Kalem</div>
+                          <Input value={itemForm.name} onChange={(e) => setItemForm((s) => ({ ...s, name: e.target.value }))} />
+                        </div>
+                        <div className="space-y-1">
+                          <div className="text-[11px] text-muted-foreground">Açıklama</div>
+                          <textarea
+                            value={itemForm.spec}
+                            onChange={(e) => setItemForm((s) => ({ ...s, spec: e.target.value }))}
+                            className="min-h-[90px] w-full rounded-lg border border-input bg-background px-4 py-2 text-foreground transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:border-primary/30"
+                          />
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="space-y-1">
+                            <div className="text-[11px] text-muted-foreground">Miktar</div>
+                            <Input value={itemForm.qty} onChange={(e) => setItemForm((s) => ({ ...s, qty: e.target.value }))} />
+                          </div>
+                          <div className="space-y-1">
+                            <div className="text-[11px] text-muted-foreground">Birim</div>
+                            <Input value={itemForm.unit} onChange={(e) => setItemForm((s) => ({ ...s, unit: e.target.value }))} />
+                          </div>
+                          <div className="space-y-1">
+                            <div className="text-[11px] text-muted-foreground">KDV</div>
+                            <Input value={itemForm.vat_rate} onChange={(e) => setItemForm((s) => ({ ...s, vat_rate: e.target.value }))} />
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="text-[11px] text-muted-foreground">Tahmini birim fiyat</div>
+                          <Input value={itemForm.estimated_unit_price} onChange={(e) => setItemForm((s) => ({ ...s, estimated_unit_price: e.target.value }))} />
+                        </div>
+                        <div className="flex justify-end gap-2 pt-2">
+                          <Button variant="outline" onClick={() => setAddOpen(false)} disabled={busy}>
+                            Vazgeç
+                          </Button>
+                          <Button onClick={addItem} disabled={busy || !itemForm.name.trim()}>
+                            Kaydet
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={autoAward}
+                    className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium hover:bg-muted/40 disabled:opacity-60"
+                  >
+                    <Sparkles className="size-3.5" />
+                    Karar otomatik
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => generateDoc('ihtiyac_listesi')}
+                    className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium hover:bg-muted/40 disabled:opacity-60"
+                  >
+                    <FileDown className="size-3.5" />
+                    İhtiyaç listesi (DOCX)
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => generateDoc('karar')}
+                    className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium hover:bg-muted/40 disabled:opacity-60"
+                  >
+                    <FileDown className="size-3.5" />
+                    Karar (DOCX)
+                  </button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {items.length ? (
+                <div className="table-x-scroll rounded-md border border-border text-xs">
+                  <table className="w-full min-w-[820px] text-left">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <th className="px-2 py-1.5">Kalem</th>
+                        <th className="px-2 py-1.5">Miktar</th>
+                        <th className="px-2 py-1.5">Birim</th>
+                        <th className="px-2 py-1.5">KDV</th>
+                        <th className="px-2 py-1.5">Tahmini BF</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {items.map((x) => (
+                        <tr key={x.id} className="hover:bg-muted/30">
+                          <td className="px-2 py-1">
+                            <div className="font-medium">{x.name}</div>
+                            {x.spec ? <div className="text-[11px] text-muted-foreground">{x.spec}</div> : null}
+                          </td>
+                          <td className="px-2 py-1">{x.qty}</td>
+                          <td className="px-2 py-1">{x.unit ?? '—'}</td>
+                          <td className="px-2 py-1">%{x.vatRate}</td>
+                          <td className="px-2 py-1">{x.estimatedUnitPrice ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="py-6 text-center text-[11px] text-muted-foreground">Kalem yok.</p>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      ) : (
+        <p className="py-10 text-center text-[11px] text-muted-foreground">Dosya bulunamadı.</p>
+      )}
+    </div>
+  );
+}
+

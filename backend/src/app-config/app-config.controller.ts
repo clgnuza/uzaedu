@@ -21,6 +21,7 @@ import { RequireModule } from '../common/decorators/require-module.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
 import { UserRole } from '../types/enums';
+import type { DtRulesConfig } from './dt-rules.defaults';
 import {
   AppConfigService,
   R2ConfigForAdmin,
@@ -138,6 +139,31 @@ class UpdateYayinSeoDto {
   @IsOptional()
   @IsString()
   site_name?: string | null;
+}
+
+class UpdateDtRulesDto {
+  @IsOptional()
+  @IsBoolean()
+  require_award_before_payment?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  require_budget_account_on_file?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  require_quote_on_payment?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(2000)
+  payment_note_min_length?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20000)
+  platform_notice_tr?: string;
 }
 
 class UpdateOptikDto {
@@ -901,6 +927,20 @@ export class AppConfigController {
   async updateYayinSeoConfig(@Body() dto: UpdateYayinSeoDto): Promise<{ success: boolean }> {
     await this.service.updateYayinSeoConfig(dto);
     return { success: true };
+  }
+
+  @Get('dogrudan-temin-rules')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.superadmin)
+  async getDtRules(): Promise<DtRulesConfig> {
+    return this.service.getDtRulesConfig();
+  }
+
+  @Patch('dogrudan-temin-rules')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.superadmin)
+  async updateDtRules(@Body() dto: UpdateDtRulesDto): Promise<DtRulesConfig> {
+    return this.service.updateDtRulesConfig(dto);
   }
 
   @Get('web-public')

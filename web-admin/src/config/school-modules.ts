@@ -16,6 +16,7 @@ export const SCHOOL_MODULE_KEYS = [
   'butterfly_exam',
   'sorumluluk_sinav',
   'messaging',
+  'dogrudan_temin',
 ] as const;
 
 export type SchoolModuleKey = (typeof SCHOOL_MODULE_KEYS)[number];
@@ -35,6 +36,7 @@ export const SCHOOL_MODULE_LABELS: Record<SchoolModuleKey, string> = {
   butterfly_exam: 'Kertenkele Sınav',
   sorumluluk_sinav: 'Sorumluluk / Beceri Sınavı',
   messaging: 'Mesaj Gönderme Merkezi',
+  dogrudan_temin: 'Doğrudan Temin',
 };
 
 /** Market sayfası: modül hücresi için kısa bağlam (hover) */
@@ -52,6 +54,7 @@ export const SCHOOL_MODULE_MARKET_HINTS: Record<SchoolModuleKey, string> = {
   butterfly_exam: 'Ortak sınavlarda kelebek yerleştirme, salon ve koltuk planı.',
   sorumluluk_sinav: 'Sorumluluk ve beceri sınavları programlama, görevlendirme ve raporlar.',
   messaging: 'WhatsApp mesaj gönderme: veli, öğretmen, ek ders, maaş, devamsızlık, karne dağıtımı.',
+  dogrudan_temin: 'Okul satın alma: doğrudan temin dosyaları, teklif/karar ve rapor/çıktılar.',
 };
 
 export const SCHOOL_MODULE_OPTIONS = SCHOOL_MODULE_KEYS.map((key) => ({

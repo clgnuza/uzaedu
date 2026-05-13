@@ -44,6 +44,9 @@ import {
   UserCheck,
   MessageSquare,
   Banknote,
+  Shield,
+  Database,
+  Wallet,
 } from 'lucide-react';
 import { isPublicAdminPath } from '@/lib/public-admin-paths';
 
@@ -567,6 +570,63 @@ export const MENU_SIDEBAR: MenuConfig = [
     ],
   },
   {
+    title: 'Doğrudan Temin',
+    icon: ClipboardList,
+    allowedRoles: ['school_admin', 'superadmin', 'moderator'],
+    requiredSchoolModule: 'dogrudan_temin',
+    menuGroup: 'teal',
+    children: [
+      {
+        title: 'Dosyalar',
+        path: '/dogrudan-temin',
+        icon: ClipboardList,
+        allowedRoles: ['school_admin', 'superadmin', 'moderator'],
+        requiredSchoolModule: 'dogrudan_temin',
+      },
+      {
+        title: 'Firmalar',
+        path: '/dogrudan-temin/firmalar',
+        icon: Building2,
+        allowedRoles: ['school_admin', 'superadmin', 'moderator'],
+        requiredSchoolModule: 'dogrudan_temin',
+      },
+      {
+        title: 'Raporlar',
+        path: '/dogrudan-temin/raporlar',
+        icon: FileText,
+        allowedRoles: ['school_admin', 'superadmin', 'moderator'],
+        requiredSchoolModule: 'dogrudan_temin',
+      },
+      {
+        title: 'Platform kuralları',
+        path: '/dogrudan-temin/kurallar',
+        icon: Shield,
+        allowedRoles: ['superadmin'],
+      },
+      {
+        title: 'Malzeme Kütüphanesi',
+        path: '/dogrudan-temin/malzeme-kutuphanesi',
+        icon: Database,
+        allowedRoles: ['school_admin', 'superadmin', 'moderator'],
+        requiredSchoolModule: 'dogrudan_temin',
+      },
+      {
+        title: 'Dashboard',
+        path: '/dogrudan-temin/dashboard',
+        icon: BarChart3,
+        allowedRoles: ['school_admin', 'superadmin', 'moderator'],
+        requiredSchoolModule: 'dogrudan_temin',
+      },
+      {
+        title: 'Bütçe Hiyerarşisi',
+        path: '/dogrudan-temin/butce-hierarsisi',
+        icon: Wallet,
+        allowedRoles: ['school_admin', 'superadmin', 'moderator'],
+        requiredSchoolModule: 'dogrudan_temin',
+      },
+    ],
+  },
+  {
     title: 'Sorumluluk / Beceri Sınavı',
     titleByRole: { teacher: 'Sorumluluk Sınavı' },
     icon: GraduationCap,
@@ -823,6 +883,13 @@ export const ROUTE_ROLES: Record<string, ('school_admin' | 'superadmin' | 'teach
   '/dashboard': ['school_admin', 'superadmin', 'teacher', 'moderator'],
   '/profile': ['school_admin', 'superadmin', 'teacher', 'moderator'],
   '/bildirimler': ['teacher', 'school_admin', 'superadmin', 'moderator'],
+  '/dogrudan-temin': ['school_admin', 'superadmin', 'moderator'],
+  '/dogrudan-temin/firmalar': ['school_admin', 'superadmin', 'moderator'],
+  '/dogrudan-temin/raporlar': ['school_admin', 'superadmin', 'moderator'],
+  '/dogrudan-temin/kurallar': ['superadmin'],
+  '/dogrudan-temin/malzeme-kutuphanesi': ['school_admin', 'superadmin', 'moderator'],
+  '/dogrudan-temin/dashboard': ['school_admin', 'superadmin', 'moderator'],
+  '/dogrudan-temin/butce-hierarsisi': ['school_admin', 'superadmin', 'moderator'],
   '/sinav-gorevlerim': ['teacher'],
   '/ek-ders-hesaplama': ['school_admin', 'superadmin', 'teacher', 'moderator'],
   '/hesaplamalar': ['school_admin', 'superadmin', 'teacher', 'moderator'],
@@ -947,6 +1014,12 @@ export const ROUTE_SCHOOL_MODULES: Record<string, string | undefined> = {
   '/favoriler': 'school_reviews',
   '/evrak': 'document',
   '/evrak/plan-katki': 'document',
+  '/dogrudan-temin': 'dogrudan_temin',
+  '/dogrudan-temin/firmalar': 'dogrudan_temin',
+  '/dogrudan-temin/raporlar': 'dogrudan_temin',
+  '/dogrudan-temin/malzeme-kutuphanesi': 'dogrudan_temin',
+  '/dogrudan-temin/dashboard': 'dogrudan_temin',
+  '/dogrudan-temin/butce-hierarsisi': 'dogrudan_temin',
   '/kazanim-takip': 'outcome',
   '/duty': 'duty',
   '/tv': 'tv',
@@ -1045,12 +1118,13 @@ export function canAccessRoute(
   role: 'school_admin' | 'superadmin' | 'teacher' | 'moderator',
   moderatorModules?: string[] | null,
   schoolEnabledModules?: string[] | null,
-  supportEnabled = true,
+  _supportEnabled = true,
 ): boolean {
   const route = getMatchedRoute(pathname);
   if (!route) return false;
   if (route === '/403') return true;
   if (!ROUTE_ROLES[route].includes(role)) return false;
+  if (!_supportEnabled && (route === '/support' || route.startsWith('/support/'))) return false;
   /** Misafir kabukta açılan sayfalar: girişli kullanıcıda moderator_modules / okul modülü ile kapatma */
   if (isPublicAdminPath(pathname)) return true;
   if (role === 'moderator') {

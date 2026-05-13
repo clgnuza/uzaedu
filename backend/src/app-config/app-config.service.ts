@@ -19,6 +19,7 @@ import { getWelcomeZodiacKey, type WelcomeZodiacKey } from './welcome-zodiac.uti
 import { type MarketPolicyConfig, mergeMarketPolicyFromStored } from './market-policy.defaults';
 import { sanitizeLegalHtml } from './legal-pages.sanitize';
 import { mergeDevOpsFromStored, type DevOpsConfig } from './devops.defaults';
+import { DEFAULT_DT_RULES, mergeDtRulesFromStored, type DtRulesConfig } from './dt-rules.defaults';
 import { DEFAULT_SCHOOL_REVIEWS_BLOCKED_TERMS } from './school-reviews-blocked-terms.defaults';
 import { DEFAULT_MAIL_TEMPLATES, MAIL_TEMPLATE_IDS } from '../mail/mail-templates.defaults';
 import { createNodemailerTransporter } from '../mail/nodemailer-transport';
@@ -27,6 +28,7 @@ import type { MailTemplateBlock, MailTemplateId, MailTemplatesStored } from '../
 export type { MobileAppConfig } from './mobile.defaults';
 export type { MailTemplateBlock, MailTemplateId, MailTemplatesStored } from '../mail/mail-templates.types';
 export type { DevOpsConfig } from './devops.defaults';
+export type { DtRulesConfig } from './dt-rules.defaults';
 export type { WelcomeModuleConfig } from './welcome-module.defaults';
 export type {
   MarketPolicyConfig,
@@ -1219,6 +1221,32 @@ export class AppConfigService {
     if (dto.keywords !== undefined) await this.setValue('yayin_seo_keywords', dto.keywords?.trim() || null);
     if (dto.site_url !== undefined) await this.setValue('yayin_seo_site_url', dto.site_url?.trim() || null);
     if (dto.site_name !== undefined) await this.setValue('yayin_seo_site_name', dto.site_name?.trim() || null);
+  }
+
+  private readonly dtRulesConfigKey = 'dt_rules_config';
+
+  async getDtRulesConfig(): Promise<DtRulesConfig> {
+    const raw = await this.getValue(this.dtRulesConfigKey);
+    if (!raw?.trim()) return { ...DEFAULT_DT_RULES };
+    try {
+      const parsed = JSON.parse(raw) as Partial<DtRulesConfig>;
+      return mergeDtRulesFromStored(parsed);
+    } catch {
+      return { ...DEFAULT_DT_RULES };
+    }
+  }
+
+  async updateDtRulesConfig(dto: Partial<DtRulesConfig>): Promise<DtRulesConfig> {
+    const current = await this.getDtRulesConfig();
+    const next = mergeDtRulesFromStored({ ...current, ...dto });
+    if (next.platform_notice_tr.length > 20000) {
+      throw new BadRequestException({ code: 'DT_RULES_NOTICE_TOO_LONG' });
+    }
+    if (next.payment_note_min_length < 0 || next.payment_note_min_length > 2000) {
+      throw new BadRequestException({ code: 'DT_RULES_INVALID_NOTE_LEN' });
+    }
+    await this.setValue(this.dtRulesConfigKey, JSON.stringify(next));
+    return next;
   }
 
   private readonly webPublicConfigKey = 'web_public_config';

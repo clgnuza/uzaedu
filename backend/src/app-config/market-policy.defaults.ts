@@ -15,6 +15,7 @@ export const MARKET_MODULE_KEYS = [
   'butterfly_exam',
   'sorumluluk_sinav',
   'messaging',
+  'dogrudan_temin',
 ] as const;
 
 export type MarketModuleKey = (typeof MARKET_MODULE_KEYS)[number];
@@ -218,6 +219,10 @@ const MODULE_ENTRY_NOTICES: Record<MarketModuleKey, { tr: string; en: string }> 
   messaging: {
     tr: 'WhatsApp Mesaj Gönderme Modülü: veli/öğretmen bilgilendirme, ek ders, maaş, devamsızlık ve karne dağıtımı.',
     en: 'WhatsApp messaging module for parent/teacher notifications, payslips, attendance and report cards.',
+  },
+  dogrudan_temin: {
+    tr: 'Doğrudan Temin: okul satın alma dosyaları, yaklaşık maliyet, teklif/karar ve çıktı belgeleri.',
+    en: 'Direct procurement: school purchasing files, estimated cost, quotes/decision and document outputs.',
   },
 };
 

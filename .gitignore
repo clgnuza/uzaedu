@@ -40,10 +40,17 @@ backend/node_modules/
 backend/dist/
 backend/build/
 backend/data/
+backend/uploads/
 
 # Web Admin (Next.js)
 web-admin/.next/
 web-admin/out/
+
+# Local artifacts
+trust_debug.txt
+yolluk2026.xls
+backend/test.txt
+backend/_*.html
 
 # Flutter (proje eklendiğinde kullan)
 # .dart_tool/

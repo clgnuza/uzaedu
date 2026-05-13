@@ -51,6 +51,7 @@ import { MarketModule } from './market/market.module';
 import { AdsModule } from './ads/ads.module';
 import { TeacherInviteModule } from './teacher-invite/teacher-invite.module';
 import { YollukModule } from './yolluk/yolluk.module';
+import { DogrudanTeminModule } from './dogrudan-temin/dogrudan-temin.module';
 import { Utf8JsonCharsetInterceptor } from './common/interceptors/utf8-json-charset.interceptor';
 
 function getTypeOrmConfig(): TypeOrmModuleOptions {
@@ -138,6 +139,7 @@ function getTypeOrmConfig(): TypeOrmModuleOptions {
     AdsModule,
     TeacherInviteModule,
     YollukModule,
+    DogrudanTeminModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

@@ -76,6 +76,7 @@ export class RequireSchoolModuleGuard implements CanActivate {
       bilsem: 'Bu okulda Bilsem modülü kapalı.',
       extra_lesson: 'Bu okulda Ek Ders modülü kapalı.',
       butterfly_exam: 'Bu okulda Kertenkele Sınav modülü kapalı.',
+      dogrudan_temin: 'Bu okulda Doğrudan Temin modülü kapalı.',
     };
     const message = messages[moduleKey] ?? 'Bu okulda bu modül kapalı.';
     throw new ForbiddenException({ code: 'MODULE_DISABLED', message });
