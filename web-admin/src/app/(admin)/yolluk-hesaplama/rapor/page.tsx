@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { downloadYollukPdf } from '@/lib/yolluk-pdf-download';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -29,12 +30,13 @@ export default function YollukRaporPage() {
   const [err, setErr] = useState<string | null>(null);
   const [pdfBusy, setPdfBusy] = useState<string | null>(null);
 
-  const q = me?.role === 'superadmin' && schoolIdSa.trim() ? `?school_id=${encodeURIComponent(schoolIdSa.trim())}` : '';
-
   const load = useCallback(async () => {
-    const rows = await apiFetch<Calc[]>(`/yolluk/calculations${q}`);
+    const qs = new URLSearchParams();
+    if (me?.role === 'superadmin' && schoolIdSa.trim()) qs.set('school_id', schoolIdSa.trim());
+    qs.set('archived', 'active');
+    const rows = await apiFetch<Calc[]>(`/yolluk/calculations?${qs.toString()}`);
     setList(rows);
-  }, [q]);
+  }, [me?.role, schoolIdSa]);
 
   useEffect(() => {
     if (!can) {
@@ -47,7 +49,9 @@ export default function YollukRaporPage() {
         setErr(null);
         await load();
       } catch (e) {
-        setErr(e instanceof Error ? e.message : String(e));
+        const msg = e instanceof Error ? e.message : String(e);
+        setErr(msg);
+        toast.error('Liste yüklenemedi', { description: msg });
       }
     })();
   }, [can, me?.role, router, load, schoolIdSa]);
@@ -59,7 +63,8 @@ export default function YollukRaporPage() {
       <div>
         <h1 className="text-xl font-semibold">Yolluk resmi rapor (PDF)</h1>
         <p className="text-sm text-muted-foreground">
-          Kurum içi özet PDF; ödeme ve kesin haklar için mali işler birimi ve mevzuat esas alınır.
+          Kurum içi özet PDF; ödeme ve kesin haklar için mali işler birimi ve mevzuat esas alınır. Geçici görev kayıtlarında bildirim tablosu
+          doldurulmuşsa PDF ikinci bölümde tablo olarak yer alır.
         </p>
       </div>
       {err && <p className="text-sm text-destructive">{err}</p>}
@@ -74,7 +79,19 @@ export default function YollukRaporPage() {
               <Label>Okul UUID</Label>
               <Input value={schoolIdSa} onChange={(e) => setSchoolIdSa(e.target.value)} placeholder="schools.id" />
             </div>
-            <Button type="button" variant="secondary" onClick={() => void load().catch(() => {})}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() =>
+                void load()
+                  .then(() => toast.success('Liste yenilendi'))
+                  .catch((e) => {
+                    const msg = e instanceof Error ? e.message : String(e);
+                    setErr(msg);
+                    toast.error('Yenileme başarısız', { description: msg });
+                  })
+              }
+            >
               Listeyi yenile
             </Button>
           </CardContent>
@@ -119,7 +136,12 @@ export default function YollukRaporPage() {
                         setPdfBusy(c.id);
                         setErr(null);
                         downloadYollukPdf(c.id)
-                          .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+                          .then(() => toast.success('PDF indirildi'))
+                          .catch((e) => {
+                            const msg = e instanceof Error ? e.message : String(e);
+                            setErr(msg);
+                            toast.error('PDF indirilemedi', { description: msg });
+                          })
                           .finally(() => setPdfBusy(null));
                       }}
                     >

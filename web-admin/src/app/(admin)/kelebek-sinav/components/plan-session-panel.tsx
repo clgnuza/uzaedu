@@ -687,73 +687,82 @@ export function PlanSessionPanel() {
             ? String(rr.distributionMode)
             : 'Varsayılan';
         return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xl rounded-2xl border border-white/60 bg-white shadow-2xl dark:border-zinc-700/60 dark:bg-zinc-900 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-zinc-800">
-              <div className="flex min-w-0 items-center gap-2">
-                <div className="rounded-lg bg-violet-100 p-2 dark:bg-violet-950/50">
-                  <Settings2 className="size-4 text-violet-600" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[2px]">
+          <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/30 bg-white shadow-2xl ring-1 ring-black/5 dark:border-zinc-700/80 dark:bg-zinc-900 dark:ring-white/5">
+            <div className="relative bg-gradient-to-br from-violet-600 via-violet-500 to-indigo-600 px-5 py-5 text-white">
+              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(255,255,255,0.22),transparent_55%)]" />
+              <div className="relative flex items-start justify-between gap-3">
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                  <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/25 backdrop-blur">
+                    <Settings2 className="size-5 text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-white/75">Dağıtım kuralları özeti</p>
+                    <h3 className="mt-1 truncate text-lg font-bold leading-tight tracking-tight">{rulesPlan.title}</h3>
+                    <div className="mt-2.5 flex flex-wrap gap-2">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-black/20 px-3 py-1 text-xs font-semibold ring-1 ring-white/20 backdrop-blur-sm">
+                        <CalendarDays className="size-3.5 shrink-0 opacity-90" />
+                        {new Date(rulesPlan.examStartsAt).toLocaleString('tr-TR', {
+                          day: '2-digit', month: 'short', year: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit',
+                        })}
+                      </span>
+                      {rr.lessonPeriodLabel ? (
+                        <span className="inline-flex items-center rounded-full bg-fuchsia-500/25 px-3 py-1 text-xs font-semibold ring-1 ring-fuchsia-300/40">
+                          {String(rr.lessonPeriodLabel)}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="truncate font-semibold text-sm">{rulesPlan.title}</p>
-                  <p className="text-xs text-muted-foreground">Dağıtım kuralları özeti</p>
-                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                    {new Date(rulesPlan.examStartsAt).toLocaleString('tr-TR', {
-                      day: '2-digit', month: 'short', year: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit',
-                    })}
-                    {rr.lessonPeriodLabel ? ` · ${rr.lessonPeriodLabel}` : ''}
-                  </p>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setRulesPlan(null)}
+                  className="shrink-0 rounded-xl bg-white/10 p-2 ring-1 ring-white/20 transition hover:bg-white/20"
+                  aria-label="Kapat"
+                >
+                  <X className="size-4 text-white" />
+                </button>
               </div>
-              <button type="button" onClick={() => setRulesPlan(null)} className="shrink-0 rounded-full p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800">
-                <X className="size-4" />
-              </button>
             </div>
-            <div className="overflow-y-auto p-5 space-y-4">
-              <div className="rounded-xl border border-violet-200/70 bg-gradient-to-br from-violet-50/90 to-white p-4 dark:border-violet-900/40 dark:from-violet-950/25 dark:to-zinc-900/80">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">Oturum özeti</p>
-                <dl className="mt-2 space-y-2 text-xs">
-                  <div className="flex gap-2">
-                    <dt className="w-28 shrink-0 text-muted-foreground">Dönem planı</dt>
-                    <dd className="min-w-0 font-medium text-foreground">
-                      {periodName ?? <span className="text-amber-700 dark:text-amber-300">Bağımsız (takvim raporuna bağlı değil)</span>}
-                    </dd>
-                  </div>
-                  <div className="flex gap-2">
-                    <dt className="w-28 shrink-0 text-muted-foreground">Katılım</dt>
-                    <dd className="min-w-0 font-medium">{katilim}</dd>
-                  </div>
-                  <div className="flex gap-2">
-                    <dt className="w-28 shrink-0 text-muted-foreground">Ders / sınıf</dt>
-                    <dd className="min-w-0 break-words font-medium">{dersOzeti}</dd>
-                  </div>
-                  <div className="flex gap-2">
-                    <dt className="w-28 shrink-0 text-muted-foreground">Salon kapsamı</dt>
-                    <dd className="min-w-0 font-medium">{salonOzeti}</dd>
-                  </div>
-                </dl>
+
+            <div className="overflow-y-auto bg-gradient-to-b from-slate-50/95 to-white p-5 dark:from-zinc-950 dark:to-zinc-900">
+              <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">Oturum özeti</p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <SummaryTile
+                  tone="amber"
+                  icon={<CalendarRange className="size-4" />}
+                  label="Dönem planı"
+                  value={periodName ?? <span className="text-amber-800 dark:text-amber-200">Bağımsız (takvim raporuna bağlı değil)</span>}
+                />
+                <SummaryTile tone="sky" icon={<Users className="size-4" />} label="Katılım" value={katilim} />
+                <SummaryTile tone="violet" icon={<BookOpen className="size-4" />} label="Ders / sınıf" value={dersOzeti} />
+                <SummaryTile tone="emerald" icon={<Building2 className="size-4" />} label="Salon kapsamı" value={salonOzeti} />
               </div>
 
-              <RuleSection icon={<Layers className="size-3.5" />} title="Dağıtım algoritması">
+              <p className="mb-3 mt-6 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                Yerleştirme ve dağıtım
+              </p>
+              <div className="grid grid-cols-1 gap-2.5">
+              <RuleSection tone="violet" icon={<Layers className="size-3.5" />} title="Dağıtım algoritması">
                 {dist}
               </RuleSection>
-              <RuleSection icon={<LayoutGrid className="size-3.5" />} title="Dolum modu">
+              <RuleSection tone="sky" icon={<LayoutGrid className="size-3.5" />} title="Dolum modu">
                 {rr.fillMode === 'balanced' ? 'Dengeli — sınıflar salonlara mümkün olduğunca eşit yayılır'
                   : rr.fillMode === 'sequential' ? 'Dolduran — sırayla doldurulur, boşluk bırakılmaz'
                   : '—'}
               </RuleSection>
-              <RuleSection icon={<ArrowLeftRight className="size-3.5" />} title="Salon dolum yönü">
+              <RuleSection tone="cyan" icon={<ArrowLeftRight className="size-3.5" />} title="Salon dolum yönü">
                 {rr.fillDirection === 'ltr' ? 'Soldan sağa'
                   : rr.fillDirection === 'rtl' ? 'Sağdan sola'
                   : rr.fillDirection === 'alternating' ? 'Alternatif (sıra sıra ters yön)'
                   : '—'}
               </RuleSection>
-              <RuleSection icon={<ShieldCheck className="size-3.5" />} title="Cinsiyet">
+              <RuleSection tone="rose" icon={<ShieldCheck className="size-3.5" />} title="Cinsiyet">
                 {rr.genderRule === 'cannot_sit_adjacent' ? 'Farklı cinsiyet yan yana olamaz'
                   : rr.genderRule === 'can_sit_adjacent' ? 'Farklı cinsiyet yan yana olabilir'
                   : '—'}
               </RuleSection>
-              <RuleSection icon={<Users className="size-3.5" />} title="Sınıf yerleşimi">
+              <RuleSection tone="indigo" icon={<Users className="size-3.5" />} title="Sınıf yerleşimi">
                 {rr.classMix === 'cannot_mix' ? 'Aynı şube öğrencileri ayrık tutulur (karışmaz)'
                   : rr.classMix === 'can_mix' ? 'Şubeler aynı salonda karışabilir'
                   : '—'}
@@ -762,16 +771,16 @@ export function PlanSessionPanel() {
                 {rr.sameClassSkipOne === 'forbid' && ' · Aynı şube arada bir koltuk boşluğu zorunlu'}
                 {rr.sameClassSkipOne === 'allow' && ' · Arada bir koltuk kuralı yok'}
               </RuleSection>
-              <RuleSection icon={<SortAsc className="size-3.5" />} title="Öğrenci sırası">
+              <RuleSection tone="orange" icon={<SortAsc className="size-3.5" />} title="Öğrenci sırası">
                 {rr.studentSortOrder === 'student_number' ? 'Okul numarası'
                   : rr.studentSortOrder === 'alphabetical' ? 'Ad soyad (A→Z)'
                   : rr.studentSortOrder === 'random' ? 'Rastgele'
                   : '—'}
               </RuleSection>
-              <RuleSection icon={<Shuffle className="size-3.5" />} title="Ek kısıtlar">
+              <RuleSection tone="fuchsia" icon={<Shuffle className="size-3.5" />} title="Ek kısıtlar">
                 {(rr.constraints?.length ?? 0) > 0 ? rr.constraints!.join(', ') : 'Tanımlı ek kısıt yok'}
               </RuleSection>
-              <RuleSection icon={<Lock className="size-3.5" />} title="Sabit sınıf / öğrenci">
+              <RuleSection tone="amber" icon={<Lock className="size-3.5" />} title="Sabit sınıf / öğrenci">
                 {(rr.fixedClassIds?.length ?? 0) === 0 && (rr.pinnedStudentIds?.length ?? 0) === 0
                   ? 'Sabit sınıf veya öğrenci yok'
                   : (
@@ -792,29 +801,30 @@ export function PlanSessionPanel() {
                   )}
                 {rr.specialNeedsInFront && ' · Özel gereksinimli öğrenciler ön sıralara öncelikli'}
               </RuleSection>
-              <RuleSection icon={<UserCog className="size-3.5" />} title="Gözetmen">
+              <RuleSection tone="emerald" icon={<UserCog className="size-3.5" />} title="Gözetmen">
                 {rr.proctorMode === 'auto'
                   ? `Otomatik — salon başına ${rr.proctorsPerRoom ?? 2} gözetmen. Çakışan saatte başka sınavda görevli öğretmenler mümkünse atlanır.`
                   : rr.proctorMode === 'manual' ? 'Manuel — gözetmenler Yerleşim ekranından atanır'
                   : '—'}
               </RuleSection>
               {(rr.reportFooterLines?.length ?? 0) > 0 && (
-                <RuleSection icon={<ClipboardList className="size-3.5" />} title="Plan açıklaması (rapor)">
-                  <ul className="list-inside list-decimal space-y-1">
+                <RuleSection tone="slate" icon={<ClipboardList className="size-3.5" />} title="Plan açıklaması (rapor)">
+                  <ul className="mt-1 space-y-1.5 border-l-2 border-slate-300/80 pl-3 dark:border-zinc-600">
                     {rr.reportFooterLines!.filter(Boolean).map((line, i) => (
-                      <li key={i} className="text-sm">{line}</li>
+                      <li key={i} className="text-sm leading-relaxed text-slate-800 dark:text-zinc-200">{line}</li>
                     ))}
                   </ul>
                 </RuleSection>
               )}
+              </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 px-5 py-3 dark:border-zinc-800">
-              <Button variant="outline" size="sm" asChild className="gap-1">
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200/80 bg-white/90 px-5 py-3 dark:border-zinc-800 dark:bg-zinc-900/95">
+              <Button variant="outline" size="sm" asChild className="gap-1 border-violet-200 bg-violet-50/50 text-violet-800 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-200">
                 <Link href={`/kelebek-sinav/sinav-olustur${schoolQ ? `${schoolQ}&` : '?'}plan_id=${encodeURIComponent(rulesPlan.id)}`} onClick={() => setRulesPlan(null)}>
                   Kuralları düzenle
                 </Link>
               </Button>
-              <Button variant="default" size="sm" onClick={() => setRulesPlan(null)}>Kapat</Button>
+              <Button variant="default" size="sm" className="bg-gradient-to-r from-violet-600 to-indigo-600 shadow-md hover:from-violet-500 hover:to-indigo-500" onClick={() => setRulesPlan(null)}>Kapat</Button>
             </div>
           </div>
         </div>
@@ -918,13 +928,90 @@ function RuleBadge({ children, color }: { children: React.ReactNode; color: stri
   );
 }
 
-function RuleSection({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+function SummaryTile({
+  icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: React.ReactNode;
+  tone: 'amber' | 'sky' | 'violet' | 'emerald';
+}) {
+  const skin: Record<typeof tone, string> = {
+    amber: 'border-amber-200/80 bg-gradient-to-br from-amber-50 to-orange-50/80 text-amber-950 shadow-amber-100/50 dark:border-amber-800/40 dark:from-amber-950/35 dark:to-orange-950/20 dark:text-amber-100 dark:shadow-none',
+    sky: 'border-sky-200/80 bg-gradient-to-br from-sky-50 to-cyan-50/80 text-sky-950 shadow-sky-100/50 dark:border-sky-800/40 dark:from-sky-950/35 dark:to-cyan-950/20 dark:text-sky-100 dark:shadow-none',
+    violet: 'border-violet-200/80 bg-gradient-to-br from-violet-50 to-fuchsia-50/70 text-violet-950 shadow-violet-100/50 dark:border-violet-800/40 dark:from-violet-950/35 dark:to-fuchsia-950/20 dark:text-violet-100 dark:shadow-none',
+    emerald: 'border-emerald-200/80 bg-gradient-to-br from-emerald-50 to-teal-50/80 text-emerald-950 shadow-emerald-100/50 dark:border-emerald-800/40 dark:from-emerald-950/35 dark:to-teal-950/20 dark:text-emerald-100 dark:shadow-none',
+  };
+  const iconRing: Record<typeof tone, string> = {
+    amber: 'bg-amber-500/15 text-amber-700 ring-1 ring-amber-500/25 dark:text-amber-200',
+    sky: 'bg-sky-500/15 text-sky-700 ring-1 ring-sky-500/25 dark:text-sky-200',
+    violet: 'bg-violet-500/15 text-violet-700 ring-1 ring-violet-500/25 dark:text-violet-200',
+    emerald: 'bg-emerald-500/15 text-emerald-700 ring-1 ring-emerald-500/25 dark:text-emerald-200',
+  };
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5 dark:border-zinc-800/60 dark:bg-zinc-800/30">
-      <div className="mt-0.5 shrink-0 text-slate-400 dark:text-zinc-500">{icon}</div>
-      <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">{title}</p>
-        <div className="text-sm text-foreground">{children}</div>
+    <div className={cn('rounded-2xl border p-3.5 shadow-sm', skin[tone])}>
+      <div className="flex items-start gap-3">
+        <div className={cn('flex size-9 shrink-0 items-center justify-center rounded-xl', iconRing[tone])}>
+          {icon}
+        </div>
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="text-[10px] font-bold uppercase tracking-wider opacity-70">{label}</p>
+          <div className="text-sm font-semibold leading-snug wrap-break-word">{value}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RuleSection({
+  icon,
+  title,
+  children,
+  tone = 'slate',
+}: {
+  icon: React.ReactNode;
+  title: string;
+  children: React.ReactNode;
+  tone?: 'violet' | 'sky' | 'amber' | 'emerald' | 'rose' | 'cyan' | 'orange' | 'indigo' | 'fuchsia' | 'slate';
+}) {
+  const bar: Record<NonNullable<typeof tone>, string> = {
+    violet: 'border-l-violet-500 bg-violet-50/40 dark:border-l-violet-400 dark:bg-violet-950/25',
+    sky: 'border-l-sky-500 bg-sky-50/40 dark:border-l-sky-400 dark:bg-sky-950/25',
+    amber: 'border-l-amber-500 bg-amber-50/40 dark:border-l-amber-400 dark:bg-amber-950/25',
+    emerald: 'border-l-emerald-500 bg-emerald-50/35 dark:border-l-emerald-400 dark:bg-emerald-950/25',
+    rose: 'border-l-rose-500 bg-rose-50/40 dark:border-l-rose-400 dark:bg-rose-950/25',
+    cyan: 'border-l-cyan-500 bg-cyan-50/40 dark:border-l-cyan-400 dark:bg-cyan-950/25',
+    orange: 'border-l-orange-500 bg-orange-50/40 dark:border-l-orange-400 dark:bg-orange-950/25',
+    indigo: 'border-l-indigo-500 bg-indigo-50/40 dark:border-l-indigo-400 dark:bg-indigo-950/25',
+    fuchsia: 'border-l-fuchsia-500 bg-fuchsia-50/35 dark:border-l-fuchsia-400 dark:bg-fuchsia-950/25',
+    slate: 'border-l-slate-400 bg-slate-50/70 dark:border-l-zinc-500 dark:bg-zinc-800/40',
+  };
+  const iconWrap: Record<NonNullable<typeof tone>, string> = {
+    violet: 'bg-violet-100 text-violet-700 dark:bg-violet-900/60 dark:text-violet-200',
+    sky: 'bg-sky-100 text-sky-700 dark:bg-sky-900/60 dark:text-sky-200',
+    amber: 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200',
+    emerald: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-200',
+    rose: 'bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-200',
+    cyan: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/60 dark:text-cyan-200',
+    orange: 'bg-orange-100 text-orange-700 dark:bg-orange-900/60 dark:text-orange-200',
+    indigo: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-200',
+    fuchsia: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/60 dark:text-fuchsia-200',
+    slate: 'bg-slate-200 text-slate-600 dark:bg-zinc-700 dark:text-zinc-300',
+  };
+  return (
+    <div
+      className={cn(
+        'flex items-start gap-3 rounded-2xl border border-white/60 py-3 pl-1 pr-3 shadow-sm backdrop-blur-sm dark:border-zinc-700/50',
+        bar[tone],
+      )}
+    >
+      <div className={cn('ml-2 flex size-9 shrink-0 items-center justify-center rounded-xl', iconWrap[tone])}>{icon}</div>
+      <div className="min-w-0 flex-1 pt-0.5">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400">{title}</p>
+        <div className="mt-1 text-sm font-medium leading-relaxed text-slate-900 dark:text-zinc-100">{children}</div>
       </div>
     </div>
   );

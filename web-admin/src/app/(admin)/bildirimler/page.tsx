@@ -19,6 +19,7 @@ import {
   ClipboardList,
   CalendarDays,
   Wallet,
+  Banknote,
   Headphones,
   Newspaper,
   LayoutGrid,
@@ -40,6 +41,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { YollukFinalizedNotificationBody } from '@/components/notifications/yolluk-finalized-notification-body';
 
 type NotificationItem = {
   id: string;
@@ -102,6 +104,7 @@ const EVENT_LABELS: Record<string, string> = {
   'messaging.campaign_completed': 'Mesaj merkezi',
   'school_reviews.penalty.strike': 'Okul değerlendirme — ceza',
   'school_reviews.penalty.site_ban': 'Okul değerlendirme — erişim kısıtı',
+  'yolluk.calculation_finalized': 'Yolluk kesinleşti',
 };
 
 const SWAP_EVENT_TYPES = ['duty.swap_requested', 'duty.swap_approved', 'duty.swap_rejected', 'duty.swap_teacher2_approved'];
@@ -120,6 +123,7 @@ const BILSEM_CALENDAR_EVENT_TYPES = ['bilsem_calendar.assigned', 'bilsem_calenda
 const AGENDA_EVENT_TYPES = ['agenda.school_event_added', 'agenda.reminder'];
 const SMART_BOARD_EVENT_TYPES = ['smart_board.disconnected_by_admin', 'smart_board.session_ended_by_admin'];
 const MARKET_EVENT_TYPES = ['market.school_credit_added', 'market.user_credit_added'];
+const YOLLUK_EVENT_TYPES = ['yolluk.calculation_finalized'];
 
 const BILDIRIM_KAYNAK_ICONS: ToolbarHintItem[] = [
   { label: 'Nöbet', icon: CalendarClock },
@@ -249,6 +253,10 @@ function getNotificationLink(item: NotificationItem): string {
     const q = schoolId ? `?school_id=${schoolId}` : '';
     return `/kelebek-sinav/sinav-islemleri${q}`;
   }
+  if (item.event_type?.startsWith('yolluk.')) {
+    if (item.entity_id) return `/yolluk-hesaplama/benim/${item.entity_id}`;
+    return '/yolluk-hesaplama/benim';
+  }
   return '/dashboard';
 }
 
@@ -286,6 +294,10 @@ function isAgendaNotification(eventType: string): boolean {
 
 function isMarketNotification(eventType: string): boolean {
   return eventType?.startsWith('market.');
+}
+
+function isYollukNotification(eventType: string): boolean {
+  return eventType?.startsWith('yolluk.');
 }
 
 function isExamSchoolModuleNotification(eventType: string): boolean {
@@ -356,6 +368,9 @@ function getNotificationRowAccentClass(item: NotificationItem): string | null {
   }
   if (isSchoolReviewsPenaltyNotification(item.event_type)) {
     return 'border-l-[3px] border-l-rose-600 bg-rose-50/50 dark:border-l-rose-500 dark:bg-rose-950/30';
+  }
+  if (isYollukNotification(item.event_type)) {
+    return 'border-l-[3px] border-l-teal-500 bg-teal-50/45 dark:border-l-teal-400 dark:bg-teal-950/25';
   }
   return null;
 }
@@ -467,6 +482,13 @@ function getNotificationIcon(item: NotificationItem): { icon: React.ReactNode; b
         'bg-linear-to-br from-rose-500/50 to-red-700/40 text-white ring-2 ring-rose-400/55 shadow-sm dark:from-rose-700/55 dark:to-red-900/45 dark:ring-rose-400/45',
     };
   }
+  if (isYollukNotification(item.event_type)) {
+    return {
+      icon: <Banknote className={iconSm} strokeWidth={2} />,
+      bgClass:
+        'bg-linear-to-br from-teal-400/45 to-emerald-600/40 text-teal-950 ring-2 ring-teal-400/50 shadow-sm dark:from-teal-600/50 dark:to-emerald-800/45 dark:text-teal-50 dark:ring-teal-400/40',
+    };
+  }
   return {
     icon: <Megaphone className={iconSm} strokeWidth={2} />,
     bgClass:
@@ -523,6 +545,9 @@ function getChipClass(item: NotificationItem): string {
   if (isSchoolReviewsPenaltyNotification(item.event_type)) {
     return 'border border-rose-400/55 bg-rose-200/90 font-semibold text-rose-950 dark:border-rose-500/40 dark:bg-rose-950/55 dark:text-rose-50';
   }
+  if (isYollukNotification(item.event_type)) {
+    return 'border border-teal-300/55 bg-teal-200/90 font-semibold text-teal-950 dark:border-teal-500/40 dark:bg-teal-950/55 dark:text-teal-50';
+  }
   return 'border border-slate-300/50 bg-slate-200/80 font-medium text-slate-800 dark:border-slate-500/35 dark:bg-slate-800/60 dark:text-slate-200';
 }
 
@@ -551,6 +576,7 @@ type FilterTab =
   | 'exam_duty'
   | 'exam_school'
   | 'messaging'
+  | 'yolluk'
   | 'penalty'
   | 'market';
 
@@ -567,6 +593,7 @@ const FILTER_TABS = [
   'exam_duty',
   'exam_school',
   'messaging',
+  'yolluk',
   'penalty',
   'market',
 ] as const;
@@ -647,6 +674,12 @@ const TAB_PASTEL: Record<
     idle:
       'bg-emerald-100/95 text-emerald-950 ring-1 ring-emerald-300/70 hover:bg-emerald-200/90 dark:bg-emerald-950/55 dark:text-emerald-100 dark:ring-emerald-500/35 dark:hover:bg-emerald-900/75',
   },
+  yolluk: {
+    active:
+      'bg-linear-to-br from-teal-500 to-emerald-700 text-white shadow-md ring-2 ring-teal-400/50 dark:ring-teal-400/40',
+    idle:
+      'bg-teal-100/95 text-teal-950 ring-1 ring-teal-300/70 hover:bg-teal-200/90 dark:bg-teal-950/55 dark:text-teal-100 dark:ring-teal-500/35 dark:hover:bg-teal-900/75',
+  },
   penalty: {
     active:
       'bg-linear-to-br from-rose-600 to-red-800 text-white shadow-md ring-2 ring-rose-400/50 dark:ring-rose-400/40',
@@ -664,7 +697,7 @@ const TAB_PASTEL: Record<
 function getEmptyStateDescription(filter: FilterTab): string {
   switch (filter) {
     case 'all':
-      return 'Nöbet, Belirli Gün, ajanda, ders programı, Akıllı Tahta, okul değerlendirme cezaları, market cüzdanı veya duyuru geldiğinde burada göreceksiniz.';
+      return 'Nöbet, yolluk, Belirli Gün, ajanda, ders programı, Akıllı Tahta, okul değerlendirme cezaları, market cüzdanı veya duyuru geldiğinde burada göreceksiniz.';
     case 'duty':
       return 'Henüz nöbet bildiriminiz yok.';
     case 'belirli':
@@ -687,6 +720,8 @@ function getEmptyStateDescription(filter: FilterTab): string {
       return 'Henüz Kertenkele sınavı veya sorumluluk sınavı bildiriminiz yok.';
     case 'messaging':
       return 'Henüz Mesaj merkezi bildiriminiz yok (WhatsApp kampanyası tamamlanınca veya merkez sistem mesajı gelince burada görünür).';
+    case 'yolluk':
+      return 'Henüz yolluk kesinleştirme bildiriminiz yok. Okul yönetimi hesabınızı kesinleştirdiğinde özet tablo burada görünür.';
     case 'penalty':
       return 'Henüz okul değerlendirme cezası veya erişim kısıtı bildiriminiz yok.';
     case 'market':
@@ -723,6 +758,7 @@ export default function BildirimlerPage() {
     urlFilter === 'exam_duty' ||
     urlFilter === 'exam_school' ||
     urlFilter === 'messaging' ||
+    urlFilter === 'yolluk' ||
     urlFilter === 'penalty' ||
     urlFilter === 'market'
       ? urlFilter
@@ -759,9 +795,11 @@ export default function BildirimlerPage() {
                   ? 'support'
                   : filter === 'exam_duty'
                     ? 'exam_duty'
-                    : filter === 'market'
-                      ? 'market'
-                      : undefined;
+                    : filter === 'yolluk'
+                      ? 'yolluk'
+                      : filter === 'market'
+                        ? 'market'
+                        : undefined;
 
   const setFilterAndUpdateUrl = (tab: FilterTab) => {
     setFilter(tab);
@@ -1069,6 +1107,12 @@ export default function BildirimlerPage() {
                 Mesaj merkezi
               </>
             )}
+            {tab === 'yolluk' && (
+              <>
+                <Banknote className="size-3.5 shrink-0" />
+                Yolluk
+              </>
+            )}
             {tab === 'penalty' && (
               <>
                 <Gavel className="size-3.5 shrink-0" />
@@ -1233,6 +1277,7 @@ export default function BildirimlerPage() {
                 const { icon, bgClass } = getNotificationIcon(item);
                 const rowAccent = getNotificationRowAccentClass(item);
                 const isExamDutySync = EXAM_DUTY_SYNC_EVENT_TYPES.includes(item.event_type);
+                const isYolluk = isYollukNotification(item.event_type);
                 return (
                   <li
                     key={item.id}
@@ -1320,12 +1365,15 @@ export default function BildirimlerPage() {
                                 'mt-0.5 text-[11px] leading-snug sm:mt-0.5 sm:text-xs',
                                 isExamDutySync
                                   ? 'max-h-18 overflow-y-auto whitespace-pre-wrap break-words text-muted-foreground/95 [scrollbar-width:thin] sm:max-w-xl'
-                                  : 'line-clamp-2 text-muted-foreground',
+                                  : isYolluk
+                                    ? 'whitespace-pre-wrap break-words text-muted-foreground/95'
+                                    : 'line-clamp-2 text-muted-foreground',
                               )}
                             >
                               {item.body}
                             </p>
                           )}
+                          {isYolluk && <YollukFinalizedNotificationBody metadata={item.metadata} />}
                           <p className="mt-0.5 text-[10px] text-muted-foreground tabular-nums sm:text-[11px]">
                             {formatDate(item.created_at)}
                           </p>
@@ -1485,6 +1533,20 @@ export default function BildirimlerPage() {
                         >
                           <MessageSquare className="size-3.5" />
                           Sayfaya git
+                        </Button>
+                      )}
+                      {YOLLUK_EVENT_TYPES.includes(item.event_type) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleLinkClick(e, item);
+                          }}
+                        >
+                          <Banknote className="size-3.5" />
+                          Yolluk detayı
                         </Button>
                       )}
                       {MARKET_EVENT_TYPES.includes(item.event_type) && (

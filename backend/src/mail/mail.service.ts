@@ -46,6 +46,10 @@ export class MailService {
     const base = baseUrl.replace(/\/$/, '');
     if (targetScreen?.trim()) {
       const path = targetScreen.startsWith('/') ? targetScreen.slice(1) : targetScreen;
+      const id = entityId?.trim();
+      if (id && path === 'yolluk-hesaplama/benim') {
+        return `${base}/${path}/${id}`;
+      }
       return `${base}/${path}`;
     }
     return base;
@@ -80,6 +84,7 @@ export class MailService {
       badge_color: '#9a3412',
       badge_label: 'İncelemede',
     });
+    if (!rendered) return false;
     return this.sendMailWithConfig(config, toEmail.trim(), rendered.subject, rendered.html, rendered.text);
   }
 
@@ -112,6 +117,7 @@ export class MailService {
       badge_color: '#065f46',
       badge_label: 'Onaylandı',
     });
+    if (!rendered) return false;
     return this.sendMailWithConfig(config, toEmail.trim(), rendered.subject, rendered.html, rendered.text);
   }
 
@@ -144,6 +150,7 @@ export class MailService {
       badge_color: '#991b1b',
       badge_label: 'Sonuçlandı',
     });
+    if (!rendered) return false;
     return this.sendMailWithConfig(config, toEmail.trim(), rendered.subject, rendered.html, rendered.text);
   }
 
@@ -170,6 +177,7 @@ export class MailService {
       badge_color: '#1d4ed8',
       badge_label: 'Adres doğrulama',
     });
+    if (!rendered) return false;
     return this.sendMailWithConfig(config, toEmail.trim(), rendered.subject, rendered.html, rendered.text);
   }
 
@@ -191,6 +199,7 @@ export class MailService {
       preheader: 'Şifre sıfırlama bağlantısı',
       reset_url: resetUrl,
     });
+    if (!rendered) return false;
     return this.sendMailWithConfig(config, toEmail.trim(), rendered.subject, rendered.html, rendered.text);
   }
 
@@ -213,23 +222,31 @@ export class MailService {
       code: escapeMailText(params.code),
       ttl_minutes: String(params.ttlMinutes),
     });
+    if (!rendered) return false;
     return this.sendMailWithConfig(config, toEmail.trim(), rendered.subject, rendered.html, rendered.text);
   }
 
   private async renderMailTemplate(
     id: MailTemplateId,
     vars: Record<string, string>,
-  ): Promise<{ subject: string; html: string; text: string }> {
-    const merged = await this.appConfig.getMailTemplatesMerged();
-    const t = merged[id];
-    if (!t) {
-      throw new Error(`mail template missing: ${id}`);
+  ): Promise<{ subject: string; html: string; text: string } | null> {
+    try {
+      const merged = await this.appConfig.getMailTemplatesMerged();
+      const t = merged[id];
+      if (!t?.subject?.trim() || !t.html?.trim() || !t.text?.trim()) {
+        this.logger.error(`mail template eksik veya boş: ${id}`);
+        return null;
+      }
+      return {
+        subject: interpolateMailTemplate(t.subject, vars),
+        html: interpolateMailTemplate(t.html, vars),
+        text: interpolateMailTemplate(t.text, vars),
+      };
+    } catch (e) {
+      const hint = e instanceof Error ? e.message : String(e);
+      this.logger.error(`mail template okunamadı (${id}): ${hint}`);
+      return null;
     }
-    return {
-      subject: interpolateMailTemplate(t.subject, vars),
-      html: interpolateMailTemplate(t.html, vars),
-      text: interpolateMailTemplate(t.text, vars),
-    };
   }
 
   /** Web ve e-posta linkleri için kök URL (panel ayarı veya FRONTEND_URL). */

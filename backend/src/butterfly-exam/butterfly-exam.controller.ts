@@ -300,6 +300,22 @@ export class ButterflyExamController {
     res.send(Buffer.from(pdf));
   }
 
+  @Get('plans/:id/pdf/gozetmenler')
+  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  async proctorsListPdf(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Query('school_id') schoolId: string | undefined,
+    @Param('id') id: string,
+    @Res({ passthrough: false }) res: Response,
+  ) {
+    const sid = this.schoolId(payload, schoolId);
+    this.service.assertSchoolAccess(payload.role, payload.schoolId, sid);
+    const pdf = await this.service.buildProctorsPlanPdf(sid, id.trim());
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="gozetmen-listesi.pdf"');
+    res.send(Buffer.from(pdf));
+  }
+
   @Get('pdf/takvim')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   async takvimPdf(

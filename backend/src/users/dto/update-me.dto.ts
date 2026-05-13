@@ -8,9 +8,54 @@ import {
   IsBoolean,
   IsIn,
   ValidateIf,
+  IsInt,
+  Min,
+  Max,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { AVATAR_KEYS } from '../avatar-keys';
+
+/** Yolluk ekranı / resmî formlar için öğretmen kimlik ve kadro bilgisi */
+export class YollukTeacherDefaultsDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(11)
+  @Matches(/^[0-9]{0,11}$/, { message: 'T.C. kimlik yalnızca rakam (en fazla 11).' })
+  tc_kimlik?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === '' || value === null || value === undefined) return undefined;
+    const s = String(value).replace(/\s/g, '').toUpperCase().slice(0, 34);
+    return s === '' ? undefined : s;
+  })
+  @IsString()
+  @MaxLength(34)
+  @Matches(/^[A-Z0-9]+$/, { message: 'IBAN yalnızca harf ve rakam (boşluksuz, en fazla 34).' })
+  iban?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === '' || value === null || value === undefined) return undefined;
+    const n = typeof value === 'number' ? value : parseInt(String(value).trim(), 10);
+    if (!Number.isFinite(n) || n < 1 || n > 15) return undefined;
+    return Math.floor(n);
+  })
+  @IsInt()
+  @Min(1)
+  @Max(15)
+  kadro_derecesi?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(16)
+  kadro_kademesi?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  pdf_unvan?: string;
+}
 
 /** Evrak formunda varsayılan değerler */
 export class EvrakDefaultsDto {
@@ -60,6 +105,11 @@ export class EvrakDefaultsDto {
   @IsString()
   @MaxLength(128)
   duzenleyen_adi?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => YollukTeacherDefaultsDto)
+  yolluk_teacher?: YollukTeacherDefaultsDto;
 }
 
 export class UpdateMeDto {

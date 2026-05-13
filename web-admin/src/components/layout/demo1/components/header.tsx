@@ -3,7 +3,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import {
   Menu,
@@ -103,7 +103,6 @@ export function Header({
     maxHeight: number;
   } | null>(null);
   const pathname = usePathname();
-  const router = useRouter();
   const isMobile = useIsMobile();
   const { me, logout } = useAuth();
   const { theme, setTheme } = useTheme();
@@ -650,9 +649,8 @@ export function Header({
                         role="menuitem"
                         className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-semibold text-red-600 transition-colors hover:bg-red-500/10 active:scale-[0.99] dark:text-red-400 sm:min-h-11 sm:text-sm"
                         onClick={() => {
-                          logout();
                           setUserMenuOpen(false);
-                          router.refresh();
+                          logout();
                         }}
                       >
                         <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-red-500/15 text-red-600 dark:bg-red-500/25 dark:text-red-300">

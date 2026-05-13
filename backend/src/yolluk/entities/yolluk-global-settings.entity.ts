@@ -33,6 +33,14 @@ export class YollukGlobalSettings {
   @Column({ name: 'derece_rates_json', type: 'jsonb', nullable: true })
   derece_rates_json: Record<string, number> | null;
 
+  /** Ek gösterge bantları → TL (keys: g8000_ust, g6400_8000, g3600_6400, alt3600) */
+  @Column({ name: 'ek_gosterge_rates_json', type: 'jsonb', nullable: true })
+  ek_gosterge_rates_json: Record<string, number> | null;
+
+  /** Denetim yolluğunda gündelik kalemlerine esas gün üst sınırı (özet, varsayılan 30) */
+  @Column({ name: 'denetim_mission_day_cap', type: 'int', default: 30 })
+  denetim_mission_day_cap: number;
+
   @CreateDateColumn({ name: 'created_at' })
   created_at: Date;
 

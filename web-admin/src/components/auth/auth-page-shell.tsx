@@ -1,5 +1,6 @@
+'use client';
+
 import Link from 'next/link';
-import { BrandSeal } from '@/components/brand/admin-shell-logo';
 import { AuthLegalFooter } from '@/components/auth/auth-legal-footer';
 import { cn } from '@/lib/utils';
 
@@ -41,28 +42,17 @@ export function AuthPageShell({ children, eyebrow = 'WEB ADMİN', compact = fals
           <Link
             href="/"
             className={cn(
-              'group relative z-10 flex w-full max-w-[min(100%,22rem)] flex-col items-center rounded-[2.5rem] border border-white/55 outline-none sm:max-w-[24rem]',
+              'group relative z-10 flex w-full max-w-[min(100%,22rem)] flex-col items-center rounded-2xl border border-white/55 outline-none sm:max-w-[24rem]',
               'bg-linear-to-r from-sky-200/35 via-fuchsia-100/25 to-rose-200/35 shadow-[0_28px_64px_-28px_rgba(100,70,160,0.35)] backdrop-blur-xl',
               'transition-transform duration-300 hover:scale-[1.01] active:scale-[0.995]',
               'focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
               'dark:border-white/10 dark:from-sky-950/35 dark:via-fuchsia-950/20 dark:to-violet-950/35 dark:shadow-[0_28px_64px_-24px_rgba(0,0,0,0.5)]',
-              compact ? 'px-4 pb-4 pt-10 sm:px-5 sm:pb-5 sm:pt-11' : 'px-5 pb-5 pt-11 sm:px-6 sm:pb-6 sm:pt-12',
+              compact ? 'px-4 py-3 sm:px-5 sm:py-4' : 'px-5 py-4 sm:px-6 sm:py-5',
             )}
           >
-            <div
-              className={cn(
-                'absolute left-1/2 z-20 flex -translate-x-1/2 items-center justify-center rounded-2xl border border-white/60 bg-white/35 shadow-lg backdrop-blur-md',
-                'dark:border-white/15 dark:bg-zinc-900/50',
-                compact ? '-top-7 p-1.5 sm:-top-8 sm:p-2' : '-top-8 p-2 sm:-top-9 sm:p-2.5',
-              )}
-            >
-              <BrandSeal size={compact ? 'md' : 'lg'} markVariant="login" />
-            </div>
-
             <h1
               className={cn(
-                'relative z-10 mt-1 flex max-w-full flex-wrap items-baseline justify-center gap-x-0.5 px-1 leading-none tracking-tight',
-                compact ? 'mt-0' : '',
+                'relative z-10 flex max-w-full flex-wrap items-baseline justify-center gap-x-0.5 px-1 leading-none tracking-tight',
               )}
             >
               <span
@@ -85,11 +75,11 @@ export function AuthPageShell({ children, eyebrow = 'WEB ADMİN', compact = fals
 
             <span
               className={cn(
-                'relative z-10 mt-3 inline-flex items-center rounded-full border border-white/50 bg-white/45 font-semibold uppercase tracking-[0.18em] text-zinc-600 backdrop-blur-md',
+                'relative z-10 mt-2 inline-flex items-center rounded-full border border-white/50 bg-white/45 font-semibold uppercase tracking-[0.18em] text-zinc-600 backdrop-blur-md',
                 'dark:border-white/10 dark:bg-zinc-900/55 dark:text-zinc-300',
                 compact
-                  ? 'mt-2 px-2.5 py-0.5 text-[8px] sm:px-3 sm:text-[9px]'
-                  : 'mt-3 px-3 py-1 text-[9px] sm:px-3.5 sm:text-[10px]',
+                  ? 'px-2 py-0.5 text-[8px] sm:px-2.5 sm:text-[9px]'
+                  : 'px-2.5 py-0.5 text-[8px] sm:px-3 sm:text-[9px]',
               )}
             >
               {eyebrow}

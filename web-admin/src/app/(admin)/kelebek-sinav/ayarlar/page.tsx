@@ -100,6 +100,7 @@ export default function KelebekAyarlarPage() {
   const [planId, setPlanId] = useState('');
   const [saving, setSaving] = useState(false);
   const [pdfRoom, setPdfRoom] = useState<string | null>(null);
+  const [pdfGozetmen, setPdfGozetmen] = useState(false);
 
   /* ─── Rules state ─── */
   const [sameAdj, setSameAdj] = useState<'forbid' | 'allow'>('forbid');
@@ -220,6 +221,7 @@ export default function KelebekAyarlarPage() {
       setPageCount(typeof cfg.pageCount === 'number' ? cfg.pageCount : 1);
       setUsedPageCount(typeof cfg.usedPageCount === 'number' ? cfg.usedPageCount : 1);
       setShowQrCode(cfg.showQrCode !== false);
+      if (cfg.paperMode === 'template' || cfg.paperMode === 'custom') setPaperMode(cfg.paperMode);
       if (cfg.qrCorner === 'tl' || cfg.qrCorner === 'tr' || cfg.qrCorner === 'bl' || cfg.qrCorner === 'br') setQrCorner(cfg.qrCorner as 'tl' | 'tr' | 'bl' | 'br');
       if (Array.isArray(cfg.fields)) {
         const loadedFields = (cfg.fields as Array<Record<string, unknown>>).map((f, i) => ({
@@ -297,7 +299,7 @@ export default function KelebekAyarlarPage() {
         method: 'PATCH', token,
         body: JSON.stringify({
           rules: {
-            examPaperConfig: { pageCount, usedPageCount, fields, showQrCode, qrCorner },
+            examPaperConfig: { pageCount, usedPageCount, paperMode, fields, showQrCode, qrCorner },
           },
         }),
       });
@@ -358,6 +360,30 @@ export default function KelebekAyarlarPage() {
       toast.error(e instanceof Error ? e.message : 'İndirilemedi');
     } finally {
       setPdfRoom(null);
+    }
+  };
+
+  const downloadGozetmenListPdf = async () => {
+    if (!token || !planId) return;
+    const qs = new URLSearchParams();
+    const sid = searchParams.get('school_id');
+    if ((me?.role === 'superadmin' || me?.role === 'moderator') && sid) qs.set('school_id', sid);
+    setPdfGozetmen(true);
+    try {
+      const headers: Record<string, string> = {};
+      if (token !== COOKIE_SESSION_TOKEN) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(getApiUrl(`/butterfly-exam/plans/${planId}/pdf/gozetmenler?${qs}`), { credentials: 'include', headers });
+      if (!res.ok) throw new Error('PDF alınamadı');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = Object.assign(document.createElement('a'), { href: url, download: 'gozetmen-listesi.pdf' });
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('Gözetmen listesi indirildi');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'İndirilemedi');
+    } finally {
+      setPdfGozetmen(false);
     }
   };
 
@@ -1080,7 +1106,7 @@ export default function KelebekAyarlarPage() {
         <div className="rounded-2xl border border-white/60 bg-white/80 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60">
           <div className="border-b border-slate-100 px-5 py-4 dark:border-zinc-800">
             <p className="font-semibold">Salon Yoklama PDF</p>
-            <p className="text-xs text-muted-foreground">Her salon için öğrenci yoklama listesi PDF indir</p>
+            <p className="text-xs text-muted-foreground">Yoklama PDF&apos;lerinde salon gözetmenleri listelenir. Tüm salonlar için gözetmen özeti ayrı PDF.</p>
           </div>
           <div className="p-5">
             {!planId ? (
@@ -1095,6 +1121,11 @@ export default function KelebekAyarlarPage() {
                     <Button size="sm" variant="outline" className="gap-1.5 border-violet-300 text-violet-700 hover:bg-violet-50 dark:border-violet-700 dark:text-violet-300"
                       onClick={() => void downloadExamPaperLabels()}>
                       <Printer className="size-3.5" /> Sınav Kağıtlarını Yazdır
+                    </Button>
+                    <Button size="sm" variant="outline" className="gap-1.5 border-teal-300 text-teal-800 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-300"
+                      disabled={pdfGozetmen}
+                      onClick={() => void downloadGozetmenListPdf()}>
+                      {pdfGozetmen ? <LoadingSpinner /> : <><Download className="size-3.5" /> Gözetmen listesi</>}
                     </Button>
                     <Button size="sm" variant="outline" className="gap-1.5"
                       onClick={() => { for (const r of rooms) void downloadSalonPdf(r.id); }}>

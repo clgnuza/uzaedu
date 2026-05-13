@@ -11,7 +11,7 @@ import {
 import { School } from '../../schools/entities/school.entity';
 import { User } from '../../users/entities/user.entity';
 
-export type YollukCalculationKind = 'gecici' | 'surekli';
+export type YollukCalculationKind = 'gecici' | 'surekli' | 'denetim';
 export type YollukCalculationStatus = 'draft' | 'final';
 
 @Entity('yolluk_calculation')
@@ -50,6 +50,9 @@ export class YollukCalculation {
 
   @Column({ name: 'finalized_at', type: 'timestamptz', nullable: true })
   finalized_at: Date | null;
+
+  @Column({ name: 'archived_at', type: 'timestamptz', nullable: true })
+  archived_at: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })
   created_at: Date;

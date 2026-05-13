@@ -8,6 +8,8 @@ export type ButterflyViolations = {
   cross?: number;
   pairRow?: number;
   fixedRoom?: number;
+  /** Bina içi: sınıf varsayılan binası dışı salon */
+  intraBuilding?: number;
 };
 
 export function butterflyViolationTotal(v: ButterflyViolations): number {
@@ -19,7 +21,8 @@ export function butterflyViolationTotal(v: ButterflyViolations): number {
     (v.backToBack ?? 0) +
     (v.cross ?? 0) +
     (v.pairRow ?? 0) +
-    (v.fixedRoom ?? 0)
+    (v.fixedRoom ?? 0) +
+    (v.intraBuilding ?? 0)
   );
 }
 
@@ -33,5 +36,6 @@ export function butterflyViolationSummary(v: ButterflyViolations): string {
   if (v.cross) parts.push(`çapraz ${v.cross}`);
   if (v.pairRow) parts.push(`ikili sıra ${v.pairRow}`);
   if (v.fixedRoom) parts.push(`sabit salon ${v.fixedRoom}`);
+  if (v.intraBuilding) parts.push(`bina uyumsuzluğu ${v.intraBuilding}`);
   return parts.length ? parts.join(' · ') : '';
 }

@@ -1,6 +1,55 @@
 import type { ButterflyExamRules } from './butterfly-exam-rules.types';
 
+/** Greedy / swap: kısıt ihlallerine göre göreli ağırlıklar (yüksek = önce düzelt) */
+const PEN_W = {
+  sameAdjacent: 5,
+  sameSkipOne: 5,
+  gender: 6,
+  classMix: 8,
+  noBackToBack: 3,
+  noCross: 3,
+  singleInPair: 3,
+  fixedRoom: 14,
+  /** Bina içi: sınıfın varsayılan binası dışında salon */
+  intraBuilding: 12,
+} as const;
+
 export type Slot = { roomId: string; seatIndex: number };
+
+/** Salon sırası: bina içi = bina blokları; binalar arası = binaların salonları iç içe (dengeli yayılım). */
+export function applyBuildingPlacementStrategy<R extends { buildingId: string; sortOrder: number; name: string }>(
+  rooms: R[],
+  strategy: 'inter_building' | 'intra_building',
+  buildingOrder: Map<string, number>,
+): R[] {
+  const sorted = [...rooms].sort((a, b) => {
+    const ba = buildingOrder.get(a.buildingId) ?? 0;
+    const bb = buildingOrder.get(b.buildingId) ?? 0;
+    if (ba !== bb) return ba - bb;
+    if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+    return a.name.localeCompare(b.name, 'tr');
+  });
+  if (strategy === 'intra_building') return sorted;
+
+  const byB = new Map<string, R[]>();
+  const bKeys: string[] = [];
+  for (const r of sorted) {
+    if (!byB.has(r.buildingId)) {
+      byB.set(r.buildingId, []);
+      bKeys.push(r.buildingId);
+    }
+    byB.get(r.buildingId)!.push(r);
+  }
+  const lists = bKeys.map((k) => byB.get(k)!);
+  const maxLen = lists.reduce((m, l) => Math.max(m, l.length), 0);
+  const out: R[] = [];
+  for (let k = 0; k < maxLen; k++) {
+    for (const list of lists) {
+      if (k < list.length) out.push(list[k]!);
+    }
+  }
+  return out;
+}
 
 export type RoomSpec = {
   id: string;
@@ -8,6 +57,8 @@ export type RoomSpec = {
   /** `'single' | 'pair'` veya JSON dizi string */
   seatLayout?: string | null;
   name?: string;
+  /** Salonun binası (`bina içi` + sınıf varsayılan binası eşlemesi için) */
+  buildingId?: string | null;
 };
 
 export type SeatingStudent = {
@@ -16,6 +67,8 @@ export type SeatingStudent = {
   name?: string | null;
   studentNumber?: string | null;
   gender?: string | null;
+  /** `school_classes.butterfly_default_building_id` — yalnızca bina içi stratejide kısıt */
+  classDefaultBuildingId?: string | null;
 };
 
 export type ViolationCounts = {
@@ -27,6 +80,8 @@ export type ViolationCounts = {
   cross: number;
   pairRow: number;
   fixedRoom: number;
+  /** Bina içi stratejide, sınıf varsayılan binası dışı salon */
+  intraBuilding: number;
 };
 
 export function butterflySlotKey(roomId: string, seatIndex: number): string {
@@ -241,6 +296,8 @@ type Ctx = {
   roomCapacity: Map<string, number>;
   fixedClassRoomIds: Map<string, Set<string>>;
   constraints: Set<string>;
+  roomToBuilding: Map<string, string>;
+  intraBuildingRespect: boolean;
 };
 
 function occupant(assignment: Map<string, string>, roomId: string, seatIndex: number): string | undefined {
@@ -263,11 +320,11 @@ function placementPenalty(
 
   if (rules.sameClassAdjacent === 'forbid' && seatIndex > 0) {
     const prevId = occupant(assignment, roomId, seatIndex - 1);
-    if (prevId && classKey(studentsById.get(prevId)?.classId) === ck && ck !== '__none__') p += 1;
+    if (prevId && classKey(studentsById.get(prevId)?.classId) === ck && ck !== '__none__') p += PEN_W.sameAdjacent;
   }
   if (rules.sameClassSkipOne === 'forbid' && seatIndex > 1) {
     const prev2 = occupant(assignment, roomId, seatIndex - 2);
-    if (prev2 && classKey(studentsById.get(prev2)?.classId) === ck && ck !== '__none__') p += 1;
+    if (prev2 && classKey(studentsById.get(prev2)?.classId) === ck && ck !== '__none__') p += PEN_W.sameSkipOne;
   }
 
   if (rules.genderRule === 'cannot_sit_adjacent') {
@@ -281,7 +338,7 @@ function placementPenalty(
         break;
       }
     }
-    if (gHit) p += 1;
+    if (gHit) p += PEN_W.gender;
   }
 
   if (rules.classMix === 'cannot_mix') {
@@ -291,7 +348,7 @@ function placementPenalty(
       if (!oid) continue;
       const ock = classKey(studentsById.get(oid)?.classId);
       if (ock !== '__none__' && ck !== '__none__' && ock !== ck) {
-        p += 1;
+        p += PEN_W.classMix;
         break;
       }
     }
@@ -301,7 +358,7 @@ function placementPenalty(
     const j = seatIndex + 2;
     if (j < cap && seatIndex % 2 === j % 2) {
       const oid = occupant(assignment, roomId, j);
-      if (oid && classKey(studentsById.get(oid)?.classId) === ck && ck !== '__none__') p += 1;
+      if (oid && classKey(studentsById.get(oid)?.classId) === ck && ck !== '__none__') p += PEN_W.noBackToBack;
     }
   }
 
@@ -309,7 +366,7 @@ function placementPenalty(
     const ci = crossSeatIndex(seatIndex, cap, layout);
     if (ci != null) {
       const oid = occupant(assignment, roomId, ci);
-      if (oid && classKey(studentsById.get(oid)?.classId) === ck && ck !== '__none__') p += 1;
+      if (oid && classKey(studentsById.get(oid)?.classId) === ck && ck !== '__none__') p += PEN_W.noCross;
     }
   }
 
@@ -317,14 +374,22 @@ function placementPenalty(
     const partner = pairPartner(seatIndex, cap);
     if (partner != null) {
       const oid = occupant(assignment, roomId, partner);
-      if (oid && classKey(studentsById.get(oid)?.classId) === ck && ck !== '__none__') p += 1;
+      if (oid && classKey(studentsById.get(oid)?.classId) === ck && ck !== '__none__') p += PEN_W.singleInPair;
     }
   }
 
   const cid = studentsById.get(studentId)?.classId;
   if (cid && ctx.fixedClassRoomIds.has(cid)) {
     const allowed = ctx.fixedClassRoomIds.get(cid)!;
-    if (!allowed.has(roomId)) p += 1;
+    if (!allowed.has(roomId)) p += PEN_W.fixedRoom;
+  }
+
+  if (ctx.intraBuildingRespect) {
+    const db = studentsById.get(studentId)?.classDefaultBuildingId;
+    if (db) {
+      const rb = ctx.roomToBuilding.get(roomId);
+      if (rb && rb !== db) p += PEN_W.intraBuilding;
+    }
   }
 
   return p;
@@ -340,6 +405,7 @@ function countAllViolations(assignment: Map<string, string>, ctx: Ctx): Violatio
     cross: 0,
     pairRow: 0,
     fixedRoom: 0,
+    intraBuilding: 0,
   };
   const { rules, studentsById, roomLayout, roomCapacity, fixedClassRoomIds, constraints } = ctx;
 
@@ -403,6 +469,14 @@ function countAllViolations(assignment: Map<string, string>, ctx: Ctx): Violatio
       const allowed = fixedClassRoomIds.get(cid)!;
       if (!allowed.has(roomId)) v.fixedRoom += 1;
     }
+
+    if (ctx.intraBuildingRespect) {
+      const db = st?.classDefaultBuildingId;
+      if (db) {
+        const rb = ctx.roomToBuilding.get(roomId);
+        if (rb && rb !== db) v.intraBuilding += 1;
+      }
+    }
   }
 
   if (rules.classMix === 'cannot_mix') {
@@ -427,14 +501,15 @@ function countAllViolations(assignment: Map<string, string>, ctx: Ctx): Violatio
 
 function violationScore(v: ViolationCounts): number {
   return (
-    v.adjacent +
-    v.skipOne +
-    v.gender +
-    v.classMix +
-    v.backToBack +
-    v.cross +
-    v.pairRow +
-    v.fixedRoom
+    v.adjacent * PEN_W.sameAdjacent +
+    v.skipOne * PEN_W.sameSkipOne +
+    v.gender * PEN_W.gender +
+    v.classMix * PEN_W.classMix +
+    v.backToBack * PEN_W.noBackToBack +
+    v.cross * PEN_W.noCross +
+    v.pairRow * PEN_W.singleInPair +
+    v.fixedRoom * PEN_W.fixedRoom +
+    v.intraBuilding * PEN_W.intraBuilding
   );
 }
 
@@ -450,10 +525,25 @@ export function computeSeating(
   const studentsById = new Map(students.map((s) => [s.id, s]));
   const roomLayout = new Map(rooms.map((r) => [r.id, parseRoomLayout(r.seatLayout ?? undefined)]));
   const roomCapacity = new Map(rooms.map((r) => [r.id, r.capacity]));
+  const roomToBuilding = new Map<string, string>(
+    rooms
+      .map((r) => [r.id, (r.buildingId ?? '').trim()] as [string, string])
+      .filter(([, bid]) => Boolean(bid)),
+  );
   const fixedClassRoomIds = opts?.fixedClassRoomIds ?? new Map<string, Set<string>>();
   const constraints = constraintSet(rules);
+  const intraBuildingRespect = (rules.buildingPlacementStrategy ?? 'inter_building') === 'intra_building';
 
-  const ctx: Ctx = { rules, studentsById, roomLayout, roomCapacity, fixedClassRoomIds, constraints };
+  const ctx: Ctx = {
+    rules,
+    studentsById,
+    roomLayout,
+    roomCapacity,
+    fixedClassRoomIds,
+    constraints,
+    roomToBuilding,
+    intraBuildingRespect,
+  };
 
   const assignment = new Map<string, string>();
   for (const [k, v] of preset) assignment.set(k, v);
@@ -483,21 +573,20 @@ export function computeSeating(
     let poolList = prepareGreedyPoolList(placementPool, rules);
     for (const slot of useSlots) {
       if (poolList.length === 0) break;
-      let chosen = -1;
+      const candidates: number[] = [];
       let bestP = Infinity;
       for (let i = 0; i < poolList.length; i++) {
         const sid = poolList[i]!.id;
         const pen = placementPenalty(assignment, slot.roomId, slot.seatIndex, sid, ctx);
-        if (pen === 0) {
-          chosen = i;
-          break;
-        }
         if (pen < bestP) {
           bestP = pen;
-          chosen = i;
+          candidates.length = 0;
+          candidates.push(i);
+        } else if (pen === bestP) {
+          candidates.push(i);
         }
       }
-      if (chosen === -1) chosen = 0;
+      const chosen = candidates[Math.floor(Math.random() * Math.max(1, candidates.length))] ?? 0;
       const st = poolList.splice(chosen, 1)[0]!;
       tryPlace(slot, st.id);
     }
@@ -505,10 +594,12 @@ export function computeSeating(
 
   const pinSwapBlock = new Set(rules.pinnedStudentIds ?? []);
 
-  if (mode === 'swap_optimize' || mode === 'constraint_greedy') {
+  /* Tüm dağıtım modlarında ihlali azaltmak için rastgele swap (round_robin dahil) */
+  {
     const keys = [...assignment.keys()];
     let best = violationScore(countAllViolations(assignment, ctx));
-    for (let iter = 0; iter < 8000; iter++) {
+    const maxIter = best > 0 ? 52_000 : 8_000;
+    for (let iter = 0; iter < maxIter; iter++) {
       if (best === 0) break;
       if (keys.length < 2) break;
       const i = Math.floor(Math.random() * keys.length);

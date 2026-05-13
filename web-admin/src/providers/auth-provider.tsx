@@ -47,6 +47,13 @@ export type EvrakDefaults = {
   zumre_ogretmenleri?: string;
   onay_tarihi?: string;
   ogretmen_unvani?: string;
+  yolluk_teacher?: {
+    tc_kimlik?: string;
+    iban?: string;
+    kadro_derecesi?: number;
+    kadro_kademesi?: string;
+    pdf_unvan?: string;
+  };
 } | null;
 
 export type Me = {
@@ -236,7 +243,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback((opts?: { redirectTo?: string }) => {
     void setToken(null);
-    router.replace(opts?.redirectTo ?? '/');
+    const to = opts?.redirectTo ?? '/';
+    /** Tam sayfa geçiş: RouteGuard admin path'te `!role` iken `/login`'e atıp `replace('/')` ile yarışmasın. */
+    if (typeof window !== 'undefined') window.location.assign(to);
+    else router.replace(to);
   }, [setToken, router]);
 
   useEffect(() => {

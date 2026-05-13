@@ -1,4 +1,4 @@
-import { Allow, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { Allow, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUUID, Max, Min, ValidateIf } from 'class-validator';
 
 /** ValidationPipe + forbidNonWhitelisted; `input` parseCalcInput ile doğrulanır */
 export class PreviewYollukBodyDto {
@@ -81,8 +81,21 @@ export class UpsertYollukSettingsDto {
   @IsString()
   rules_version?: string;
 
-  /** Kadro 1–15 → TL (JSON: { "1": 71, "5": 62, ... }) */
+  /** Kadro 1–15 → TL (JSON: { "1": 860, "5": 850, ... }); null = kod + yedek gündelik */
   @IsOptional()
+  @ValidateIf((_, v) => v != null)
   @IsObject()
   derece_rates_json?: Record<string, number> | null;
+
+  /** Ek gösterge bantları → TL: g8000_ust, g6400_8000, g3600_6400, alt3600 */
+  @IsOptional()
+  @ValidateIf((_, v) => v != null)
+  @IsObject()
+  ek_gosterge_rates_json?: Record<string, number> | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(366)
+  denetim_mission_day_cap?: number;
 }

@@ -64,11 +64,17 @@ export class AuthService {
   }
 
   private async sendOtpMail(to: string, purpose: AuthOtpPurpose, code: string): Promise<boolean> {
-    return this.mailService.sendVerificationCodeEmail(to, {
-      code,
-      purposeLine: this.purposeLine(purpose),
-      ttlMinutes: OTP_TTL_MIN,
-    });
+    try {
+      return await this.mailService.sendVerificationCodeEmail(to, {
+        code,
+        purposeLine: this.purposeLine(purpose),
+        ttlMinutes: OTP_TTL_MIN,
+      });
+    } catch (e) {
+      const hint = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`OTP e-postası gönderilemedi (${purpose} → ${to}): ${hint}`);
+      return false;
+    }
   }
 
   private matchesDemoCredential(email: string, password: string): boolean {
@@ -96,7 +102,12 @@ export class AuthService {
       await this.userRepo.save(user);
       return;
     }
-    const bcryptOk = await bcrypt.compare(password, user.passwordHash);
+    let bcryptOk = false;
+    try {
+      bcryptOk = await bcrypt.compare(password, user.passwordHash);
+    } catch {
+      bcryptOk = false;
+    }
     const localDemoOk = !bcryptOk && demoMatch;
     if (!bcryptOk && !localDemoOk) {
       throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'E-posta veya şifre hatalı.' });

@@ -15,6 +15,9 @@ type Settings = {
   default_daily_tl: string;
   derece_rates_json: Record<string, number> | null;
   derece_daily_tl: Record<string, string>;
+  ek_gosterge_rates_json?: Record<string, number> | null;
+  ek_gosterge_daily_tl?: Record<string, string>;
+  denetim_mission_day_cap?: number;
   km_daily_fraction: string;
   memur_fixed_multiplier: number;
   aile_per_multiplier: number;
@@ -22,15 +25,20 @@ type Settings = {
   rules_version: string;
 };
 
+const EK_JSON_HINT = `H cetveli (örnek 2026):\n{\n  "g8000_ust": 890,\n  "g6400_8000": 880,\n  "g3600_6400": 870,\n  "alt3600": 850\n}`;
+
 export default function YollukAyarlarPage() {
   const router = useRouter();
   const { me } = useAuth();
   const [row, setRow] = useState<Settings | null>(null);
   const [dereceJson, setDereceJson] = useState('{}');
+  const [ekJson, setEkJson] = useState('{}');
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const can = me?.role === 'superadmin';
+
+  const [ok, setOk] = useState(false);
 
   useEffect(() => {
     if (!can) {
@@ -42,6 +50,7 @@ export default function YollukAyarlarPage() {
         const s = await apiFetch<Settings>('/yolluk/settings/active');
         setRow(s);
         setDereceJson(JSON.stringify(s.derece_rates_json ?? {}, null, 2));
+        setEkJson(JSON.stringify(s.ek_gosterge_rates_json ?? {}, null, 2));
       } catch (e) {
         setErr(e instanceof Error ? e.message : String(e));
       }
@@ -54,37 +63,63 @@ export default function YollukAyarlarPage() {
     if (!row) return;
     setSaving(true);
     setErr(null);
-    let parsed: Record<string, number> | null = null;
+    setOk(false);
+    const dd = parseFloat(String(row.default_daily_tl).replace(',', '.'));
+    const kf = parseFloat(String(row.km_daily_fraction).replace(',', '.'));
+    if (!Number.isFinite(dd) || dd < 0 || !Number.isFinite(kf) || kf < 0 || kf > 1) {
+      setErr('Yedek gündelik veya km oranı geçersiz (km 0–1 arası).');
+      setSaving(false);
+      return;
+    }
+    let parsedD: Record<string, number> | null = null;
+    let parsedEk: Record<string, number> | null = null;
     try {
       const o = JSON.parse(dereceJson.trim() || '{}') as unknown;
       if (o && typeof o === 'object' && !Array.isArray(o)) {
-        parsed = {};
+        parsedD = {};
         for (const [k, v] of Object.entries(o as Record<string, unknown>)) {
           const n = typeof v === 'number' ? v : parseFloat(String(v));
-          if (Number.isFinite(n)) parsed[k] = n;
+          if (Number.isFinite(n)) parsedD[k] = n;
         }
-      } else {
-        throw new Error('Nesne bekleniyor');
-      }
+      } else throw new Error('Nesne bekleniyor');
     } catch {
       setErr('Derece JSON geçersiz.');
       setSaving(false);
       return;
     }
     try {
+      const o = JSON.parse(ekJson.trim() || '{}') as unknown;
+      if (o && typeof o === 'object' && !Array.isArray(o)) {
+        parsedEk = {};
+        for (const [k, v] of Object.entries(o as Record<string, unknown>)) {
+          const n = typeof v === 'number' ? v : parseFloat(String(v));
+          if (Number.isFinite(n)) parsedEk[k] = n;
+        }
+      } else throw new Error('Nesne bekleniyor');
+    } catch {
+      setErr('Ek gösterge JSON geçersiz.');
+      setSaving(false);
+      return;
+    }
+    try {
       const body = {
         fiscal_year: row.fiscal_year,
-        default_daily_tl: parseFloat(row.default_daily_tl),
-        km_daily_fraction: parseFloat(row.km_daily_fraction),
+        default_daily_tl: dd,
+        km_daily_fraction: kf,
         memur_fixed_multiplier: row.memur_fixed_multiplier,
         aile_per_multiplier: row.aile_per_multiplier,
         aile_fixed_cap_multiplier: row.aile_fixed_cap_multiplier,
         rules_version: row.rules_version,
-        derece_rates_json: Object.keys(parsed).length ? parsed : null,
+        derece_rates_json: parsedD && Object.keys(parsedD).length ? parsedD : null,
+        ek_gosterge_rates_json: parsedEk && Object.keys(parsedEk).length ? parsedEk : null,
+        denetim_mission_day_cap: row.denetim_mission_day_cap ?? 30,
       };
       const out = await apiFetch<Settings>('/yolluk/settings', { method: 'PUT', body: JSON.stringify(body) });
       setRow(out);
       setDereceJson(JSON.stringify(out.derece_rates_json ?? {}, null, 2));
+      setEkJson(JSON.stringify(out.ek_gosterge_rates_json ?? {}, null, 2));
+      setOk(true);
+      window.setTimeout(() => setOk(false), 5000);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -95,9 +130,13 @@ export default function YollukAyarlarPage() {
   return (
     <div className="mx-auto max-w-lg space-y-4">
       <h1 className="text-xl font-semibold">Yolluk parametreleri</h1>
-      <p className="text-sm text-muted-foreground">6245 özet (H cetveli gündeliği ve çarpanlar). Okul hesapları bu değerleri kullanır.</p>
-      {err && <p className="text-sm text-destructive">{err}</p>}
-      {!row && !err && <p className="text-sm text-muted-foreground">Yükleniyor…</p>}
+      <p className="text-muted-foreground text-sm">
+        6245 özeti — kadro derecesi, ek gösterge bantları ve yer değiştirme çarpanları. Geçici görev / bildirim PDF’lerindeki «iç gündelik» (H
+        cetveli) bu derece ve ek gösterge tutarlarından türetilir; mali yıl bazlıdır.
+      </p>
+      {err && <p className="text-destructive text-sm">{err}</p>}
+      {ok && <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">Kayıt sunucuya yazıldı.</p>}
+      {!row && !err && <p className="text-muted-foreground text-sm">Yükleniyor…</p>}
       {row && (
         <Card>
           <CardHeader>
@@ -113,19 +152,35 @@ export default function YollukAyarlarPage() {
               />
             </div>
             <div>
-              <Label>Yedek gündelik — derece yoksa (TL)</Label>
+              <Label>Yedek gündelik — derece / ek gösterge yoksa (TL)</Label>
               <Input value={row.default_daily_tl} onChange={(e) => setRow({ ...row, default_daily_tl: e.target.value })} />
             </div>
             <div>
-              <Label>Kadro 1–15 gündelik override (JSON, boş {} = kod varsayılanı)</Label>
+              <Label>Ek gösterge bantları (JSON)</Label>
+              <p className="text-muted-foreground mb-1 text-xs">Anahtarlar: g8000_ust, g6400_8000, g3600_6400, alt3600</p>
+              <textarea
+                className="border-input bg-background min-h-[120px] w-full rounded-md border p-2 font-mono text-xs"
+                placeholder={EK_JSON_HINT}
+                value={ekJson}
+                onChange={(e) => setEkJson(e.target.value)}
+              />
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Birleşik ek gösterge (önizleme):{' '}
+              {Object.entries(row.ek_gosterge_daily_tl || {})
+                .map(([k, v]) => `${k}:${v}`)
+                .join(' · ') || '—'}
+            </div>
+            <div>
+              <Label>Kadro 1–15 gündelik override (JSON, boş {'{}'} = kod varsayılanı)</Label>
               <textarea
                 className="border-input bg-background min-h-[140px] w-full rounded-md border p-2 font-mono text-xs"
                 value={dereceJson}
                 onChange={(e) => setDereceJson(e.target.value)}
               />
             </div>
-            <div className="text-xs text-muted-foreground">
-              Birleşik tablo (önizleme):{' '}
+            <div className="text-muted-foreground text-xs">
+              Birleşik derece (önizleme):{' '}
               {Object.entries(row.derece_daily_tl || {})
                 .slice(0, 15)
                 .map(([k, v]) => `${k}:${v}`)

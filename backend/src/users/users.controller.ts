@@ -159,6 +159,7 @@ export class UsersController {
     }
     return {
       ...toUserResponse(user),
+      evrak_defaults: user.evrakDefaults ?? null,
       ...(role === UserRole.superadmin
         ? {
             market_jeton_balance: user.marketJetonBalance,

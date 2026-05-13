@@ -120,7 +120,7 @@ export class NotificationsService {
     return saved;
   }
 
-  /** support.* eventleri için e-posta gönderir (fire-and-forget) */
+  /** support.* ve yolluk kesinleştirme için e-posta gönderir (fire-and-forget) */
   private async sendNotificationEmailAsync(params: {
     user_id: string;
     event_type: string;
@@ -130,7 +130,8 @@ export class NotificationsService {
     body?: string | null;
     metadata?: Record<string, unknown> | null;
   }): Promise<void> {
-    if (!params.event_type.startsWith('support.')) return;
+    const et = params.event_type;
+    if (!et.startsWith('support.') && et !== 'yolluk.calculation_finalized') return;
     try {
       const user = await this.userRepo.findOne({ where: { id: params.user_id }, select: ['email'] });
       if (!user?.email?.trim()) return;

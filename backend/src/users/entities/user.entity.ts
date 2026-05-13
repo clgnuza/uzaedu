@@ -10,6 +10,17 @@ import {
 import { UserRole, UserStatus, TeacherSchoolMembershipStatus } from '../../types/enums';
 import { School } from '../../schools/entities/school.entity';
 
+/** Yolluk / resmî formlar için öğretmen profili (okul yöneticisi veya öğretmen güncelleyebilir) */
+export interface YollukTeacherProfile {
+  tc_kimlik?: string;
+  iban?: string;
+  /** Kadro derecesi 1–15 (H cetveli) */
+  kadro_derecesi?: number;
+  kadro_kademesi?: string;
+  /** Bildirim / PDF «ünvan» metni (profilde saklanır) */
+  pdf_unvan?: string;
+}
+
 /** Evrak formunda varsayılan değerler (profil ayarlarından) */
 export interface EvrakDefaults {
   okul_adi?: string;
@@ -22,6 +33,7 @@ export interface EvrakDefaults {
   onay_tarihi?: string;
   /** Öğretmen unvanı / branş – imza alanında isim altında (örn. "Coğrafya Öğretmeni"); boşsa ders adı veya user.teacherBranch kullanılır */
   ogretmen_unvani?: string;
+  yolluk_teacher?: YollukTeacherProfile;
 }
 
 @Entity('users')

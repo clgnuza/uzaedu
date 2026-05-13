@@ -146,6 +146,10 @@ export const TURKEY_DISTRICTS: Record<string, string[]> = {
     'Akkışla', 'Bünyan', 'Develi', 'Felahiye', 'Hacılar', 'İncesu', 'Kocasinan', 'Melikgazi',
     'Özvatan', 'Pınarbaşı', 'Sarıoğlan', 'Sarız', 'Talas', 'Tomarza', 'Yahyalı', 'Yeşilhisar',
   ],
+  Diyarbakır: [
+    'Bağlar', 'Bismil', 'Çermik', 'Çınar', 'Çüngüş', 'Dicle', 'Eğil', 'Ergani', 'Hani',
+    'Hazro', 'Kayapınar', 'Kocaköy', 'Kulp', 'Lice', 'Silvan', 'Sur', 'Yenişehir',
+  ],
 };
 
 /** Verilen il için ilçe listesini döndürür. Önce API sonucu, yoksa sabit liste kullanılır. */
@@ -156,4 +160,22 @@ export function getDistrictsForCity(city: string, apiDistricts: string[]): strin
   const fromStatic = TURKEY_DISTRICTS[normalized];
   if (fromStatic) return fromStatic;
   return [];
+}
+
+/** Kayıtlı mahal metnini (ör. «İl, ilçe» veya yalnız ilçe adı) il/ilçe seçicilerine ayırır */
+export function parseMahalToIlIlce(mahal: string): { il: string; ilce: string } {
+  const t = mahal.trim();
+  if (!t) return { il: '', ilce: '' };
+  const comma = t.indexOf(',');
+  if (comma >= 0) {
+    const il = t.slice(0, comma).trim();
+    const ilce = t.slice(comma + 1).trim();
+    if (TURKEY_CITIES.includes(il)) return { il, ilce };
+  }
+  if (TURKEY_CITIES.includes(t)) return { il: t, ilce: '' };
+  for (const city of TURKEY_CITIES) {
+    const ds = getDistrictsForCity(city, []);
+    if (ds.includes(t)) return { il: city, ilce: t };
+  }
+  return { il: '', ilce: '' };
 }

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { Menu, LogOut, User } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -20,7 +20,6 @@ export function Header({ role, moderatorModules, onOpenSidebar }: HeaderProps) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
-  const router = useRouter();
   const isMobile = useIsMobile();
   const { me, logout } = useAuth();
 
@@ -103,9 +102,8 @@ export function Header({ role, moderatorModules, onOpenSidebar }: HeaderProps) {
                     type="button"
                     className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-destructive hover:bg-muted"
                     onClick={() => {
-                      logout();
                       setUserMenuOpen(false);
-                      router.refresh();
+                      logout();
                     }}
                   >
                     <LogOut className="size-4" />

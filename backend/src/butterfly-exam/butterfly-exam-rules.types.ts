@@ -61,18 +61,24 @@ export interface ButterflyExamRules {
   parentPlanId?: string;
   /** Sınav kağıdı yapılandırması */
   examPaperConfig?: {
-    /** Kağıt başına toplam sayfa sayısı */
+    /** Kağıt başına toplam sayfa sayısı (önizleme / üst sınır) */
     pageCount: number;
-    /** Kullanılacak (basılacak) sayfa sayısı */
+    /** Yazdırılacak şablon sayfa sayısı */
     usedPageCount: number;
-    /** Sürüklenerek yerleştirilen alanlar */
+    /** Hazır şablon vs alan yerleştirme (kalıcılık; PDF alan varsa özel düzen) */
+    paperMode?: 'custom' | 'template';
+    /** QR basılsın mı (varsayılan: evet) */
+    showQrCode?: boolean;
+    /** QR köşesi */
+    qrCorner?: 'tl' | 'tr' | 'bl' | 'br';
+    /** Sürüklenerek yerleştirilen alanlar (boşsa klasik üst şerit düzeni) */
     fields: Array<{
       fieldType: 'studentName' | 'studentNumber' | 'className' | 'attendance';
       label: string;
       pageIndex: number;
       /** 0-100 yüzde konum (A4'te sol kenardan) */
       xPct: number;
-      /** 0-100 yüzde konum (A4'te üstten) */
+      /** 0-100 yüzde konum (A4'te üstten; öğe dikey merkezi) */
       yPct: number;
     }>;
   };
@@ -170,16 +176,41 @@ export function mergeButterflyRules(raw: Record<string, unknown> | null | undefi
       const cfg = r.examPaperConfig as Record<string, unknown> | undefined;
       if (!cfg || typeof cfg !== 'object') return undefined;
       const fields = Array.isArray(cfg.fields)
-        ? (cfg.fields as Array<Record<string, unknown>>).filter(
-            (f) =>
-              ['studentName', 'studentNumber', 'className', 'attendance'].includes(f.fieldType as string) &&
-              typeof f.xPct === 'number' &&
-              typeof f.yPct === 'number',
-          )
+        ? (cfg.fields as Array<Record<string, unknown>>)
+            .filter(
+              (f) =>
+                ['studentName', 'studentNumber', 'className', 'attendance'].includes(f.fieldType as string) &&
+                typeof f.xPct === 'number' &&
+                typeof f.yPct === 'number',
+            )
+            .map((f) => {
+              const pi = f.pageIndex;
+              const pageIndex =
+                typeof pi === 'number' && Number.isFinite(pi)
+                  ? Math.max(0, Math.floor(pi))
+                  : typeof pi === 'string' && /^\d+$/.test(String(pi).trim())
+                    ? Math.max(0, parseInt(String(pi).trim(), 10))
+                    : 0;
+              return {
+                fieldType: f.fieldType as 'studentName' | 'studentNumber' | 'className' | 'attendance',
+                label: typeof f.label === 'string' ? f.label : String(f.label ?? ''),
+                pageIndex,
+                xPct: f.xPct as number,
+                yPct: f.yPct as number,
+              };
+            })
         : [];
+      const qc = cfg.qrCorner;
+      const qrCorner =
+        qc === 'tl' || qc === 'tr' || qc === 'bl' || qc === 'br' ? (qc as 'tl' | 'tr' | 'bl' | 'br') : 'tr';
+      const pm = cfg.paperMode;
+      const paperMode = pm === 'template' ? ('template' as const) : ('custom' as const);
       return {
         pageCount: typeof cfg.pageCount === 'number' ? cfg.pageCount : 1,
         usedPageCount: typeof cfg.usedPageCount === 'number' ? cfg.usedPageCount : 1,
+        paperMode,
+        showQrCode: cfg.showQrCode !== false,
+        qrCorner,
         fields: fields as NonNullable<ButterflyExamRules['examPaperConfig']>['fields'],
       };
     })(),
