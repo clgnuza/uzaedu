@@ -159,10 +159,10 @@ export default function ModulesPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <Toolbar>
+    <div className="space-y-3 text-xs">
+      <Toolbar className="pb-2 sm:pb-3">
         <ToolbarHeading>
-          <ToolbarPageTitle>Modüller</ToolbarPageTitle>
+          <ToolbarPageTitle className="text-base sm:text-lg">Modüller</ToolbarPageTitle>
           <ToolbarIconHints
             items={[
               { label: 'Modül anahtarları', icon: Puzzle },
@@ -174,23 +174,23 @@ export default function ModulesPage() {
       </Toolbar>
 
       <Card className="border-primary/15">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Layers className="size-5 text-primary" />
+        <CardHeader className="space-y-1 py-3">
+          <CardTitle className="flex items-center gap-1.5 text-sm font-semibold">
+            <Layers className="size-4 text-primary" />
             Tüm okullarda modül
           </CardTitle>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-[11px] leading-snug text-muted-foreground">
             Bir modül seçip tüm okullara toplu ekleyin veya tüm okullardan kaldırın. Tek tek tablo ile aynı kurallar
             geçerlidir (açık liste / kapalı beyaz liste).
           </p>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
-          <div className="min-w-[220px] flex-1">
-            <label className="block text-xs font-medium text-muted-foreground">Modül</label>
+        <CardContent className="flex flex-col gap-2 py-3 sm:flex-row sm:flex-wrap sm:items-end">
+          <div className="min-w-[180px] flex-1">
+            <label className="block text-[10px] font-medium text-muted-foreground">Modül</label>
             <select
               value={bulkModule}
               onChange={(e) => setBulkModule((e.target.value || '') as SchoolModuleKey | '')}
-              className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+              className="mt-0.5 w-full rounded border border-input bg-background px-2 py-1 text-xs"
             >
               <option value="">Seçin…</option>
               {MODULE_KEYS.map((key) => (
@@ -200,12 +200,12 @@ export default function ModulesPage() {
               ))}
             </select>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5">
             <button
               type="button"
               disabled={bulkBusy || !bulkModule}
               onClick={() => void runBulkModule(true)}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {bulkBusy ? 'İşleniyor…' : 'Tüm okullara ekle'}
             </button>
@@ -213,7 +213,7 @@ export default function ModulesPage() {
               type="button"
               disabled={bulkBusy || !bulkModule}
               onClick={() => void runBulkModule(false)}
-              className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {bulkBusy ? 'İşleniyor…' : 'Tüm okullardan kaldır'}
             </button>
@@ -222,34 +222,34 @@ export default function ModulesPage() {
       </Card>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Puzzle className="size-5" />
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 py-3">
+          <CardTitle className="flex items-center gap-1.5 text-sm font-semibold">
+            <Puzzle className="size-4" />
             Okul bazlı modüller
           </CardTitle>
           <Link
             href="/schools"
-            className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+            className="inline-flex items-center gap-0.5 text-xs font-medium text-primary hover:underline"
           >
             Okul detayında düzenle
-            <ChevronRight className="size-4" />
+            <ChevronRight className="size-3.5" />
           </Link>
         </CardHeader>
-        <CardContent>
-          <p className="mb-4 text-sm text-muted-foreground">
+        <CardContent className="pt-0">
+          <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
             Her okul için modülleri açıp kapatabilirsiniz. Kapalı modüllerde ilgili menü ve özellikler
             görünmez.
           </p>
           <form
             onSubmit={(e) => { e.preventDefault(); fetchSchools(); }}
-            className="mb-4 flex flex-wrap items-end gap-3"
+            className="mb-2 flex flex-wrap items-end gap-2"
           >
             <div>
               <label className="block text-xs font-medium text-muted-foreground">İl</label>
               <select
                 value={filters.city}
                 onChange={(e) => setFilters((f) => ({ ...f, city: e.target.value, district: '' }))}
-                className="mt-0.5 w-32 rounded border border-input bg-background px-2.5 py-1.5 text-sm"
+                className="mt-0.5 w-28 rounded border border-input bg-background px-1.5 py-1 text-xs"
               >
                 <option value="">Tümü</option>
                 {TURKEY_CITIES.map((c) => (
@@ -262,7 +262,7 @@ export default function ModulesPage() {
               <select
                 value={filters.district}
                 onChange={(e) => setFilters((f) => ({ ...f, district: e.target.value }))}
-                className="mt-0.5 w-32 rounded border border-input bg-background px-2.5 py-1.5 text-sm"
+                className="mt-0.5 w-28 rounded border border-input bg-background px-1.5 py-1 text-xs"
               >
                 <option value="">Tümü</option>
                 {getDistrictsForCity(filters.city, []).map((d) => (
@@ -273,44 +273,46 @@ export default function ModulesPage() {
             <div>
               <label className="block text-xs font-medium text-muted-foreground">Arama</label>
               <div className="mt-0.5 flex rounded border border-input bg-background">
-                <Search className="size-4 self-center ml-2 text-muted-foreground shrink-0" />
+                <Search className="size-3.5 self-center ml-1.5 text-muted-foreground shrink-0" />
                 <input
                   type="text"
                   value={filters.search}
                   onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
                   placeholder="Okul adı"
-                  className="w-36 border-0 bg-transparent px-2 py-1.5 text-sm focus:outline-none focus:ring-0"
+                  className="w-32 border-0 bg-transparent px-1.5 py-1 text-xs focus:outline-none focus:ring-0"
                 />
               </div>
             </div>
             <button
               type="submit"
-              className="rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-sm font-medium hover:bg-muted"
+              className="rounded-md border border-border bg-muted/50 px-2 py-1 text-xs font-medium hover:bg-muted"
             >
               Filtrele
             </button>
           </form>
-          {error && <Alert message={error} className="mb-4" />}
+          {error && <Alert message={error} className="mb-2" />}
           {loading ? (
-            <LoadingSpinner label="Okullar yükleniyor…" className="py-8" />
+            <LoadingSpinner label="Okullar yükleniyor…" className="py-6 text-xs" />
           ) : data && data.items.length > 0 ? (
-            <div className="table-x-scroll rounded-lg border border-border">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/40">
-                    <th className="sticky left-0 z-10 min-w-[180px] bg-muted/40 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
+            <div className="table-x-scroll max-h-[min(70vh,calc(100dvh-14rem))] overflow-auto rounded-md border border-border text-xs">
+              <table className="w-full min-w-max border-collapse text-left">
+                <thead className="sticky top-0 z-20">
+                  <tr className="border-b border-border bg-muted/95 backdrop-blur-sm">
+                    <th className="sticky left-0 z-30 min-w-[9rem] max-w-[min(14rem,28vw)] bg-muted/95 px-2 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur-sm">
                       Okul adı
                     </th>
-                    <th className="hidden min-w-[120px] px-4 py-3 text-xs font-semibold uppercase text-muted-foreground md:table-cell">
+                    <th className="hidden min-w-[5.5rem] max-w-[6.5rem] bg-muted/95 px-1.5 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur-sm md:table-cell">
                       İl / İlçe
                     </th>
                     {MODULE_KEYS.map((key) => (
                       <th
                         key={key}
-                        className="min-w-[72px] px-2 py-3 text-center text-xs font-semibold uppercase text-muted-foreground"
+                        className="w-[2.65rem] min-w-[2.65rem] max-w-[2.65rem] bg-muted/95 px-0.5 py-1 text-center align-bottom text-[10px] font-semibold leading-[1.15] text-muted-foreground backdrop-blur-sm"
                         title={MODULE_LABELS[key]}
                       >
-                        {MODULE_LABELS[key]}
+                        <span className="inline-block max-w-[2.55rem] hyphens-auto wrap-anywhere">
+                          {MODULE_LABELS[key]}
+                        </span>
                       </th>
                     ))}
                   </tr>
@@ -318,22 +320,22 @@ export default function ModulesPage() {
                 <tbody className="divide-y divide-border">
                   {data.items.map((s) => (
                     <tr key={s.id} className="group hover:bg-muted/30">
-                      <td className="sticky left-0 z-10 bg-background px-4 py-3 group-hover:bg-muted/30">
+                      <td className="sticky left-0 z-10 min-w-[9rem] max-w-[min(14rem,28vw)] bg-background px-2 py-1 group-hover:bg-muted/30">
                         <Link
                           href={`/schools/${s.id}`}
-                          className="font-medium text-foreground hover:underline"
+                          className="line-clamp-2 font-medium leading-snug text-foreground hover:underline"
                         >
                           {s.name}
                         </Link>
                       </td>
-                      <td className="hidden px-4 py-3 text-muted-foreground md:table-cell">
-                        {[s.city, s.district].filter(Boolean).join(' / ') || '—'}
+                      <td className="hidden max-w-[6.5rem] px-1.5 py-1 text-[11px] leading-snug text-muted-foreground md:table-cell">
+                        <span className="line-clamp-3">{[s.city, s.district].filter(Boolean).join(' / ') || '—'}</span>
                       </td>
                       {MODULE_KEYS.map((moduleKey) => {
                         const enabled = isModuleEnabled(s, moduleKey);
                         const busy = toggling[`${s.id}_${moduleKey}`];
                         return (
-                          <td key={moduleKey} className="px-2 py-3 text-center">
+                          <td key={moduleKey} className="w-[2.65rem] px-0.5 py-1 text-center">
                             <label
                               className="inline-flex cursor-pointer items-center justify-center"
                               title={`${MODULE_LABELS[moduleKey]}: ${enabled ? 'Açık' : 'Kapalı'}`}
@@ -343,10 +345,10 @@ export default function ModulesPage() {
                                 checked={enabled}
                                 disabled={busy}
                                 onChange={() => handleToggleModule(s, moduleKey)}
-                                className="rounded border-input"
+                                className="size-3.5 rounded border-input"
                               />
                               {busy && (
-                                <span className="ms-1 text-muted-foreground text-xs">…</span>
+                                <span className="ms-0.5 text-[10px] text-muted-foreground">…</span>
                               )}
                             </label>
                           </td>
