@@ -9,6 +9,19 @@ import { AcademicCalendarItem } from '../academic-calendar/entities/academic-cal
 import { WorkCalendarService } from '../work-calendar/work-calendar.service';
 import { BilsemService } from '../bilsem/bilsem.service';
 import { generateMebWorkCalendar } from '../config/meb-calendar';
+import { DtSchoolProcurementSettings } from '../dogrudan-temin/entities/dt-school-procurement-settings.entity';
+import { DtVendor } from '../dogrudan-temin/entities/dt-vendor.entity';
+import { DtFile } from '../dogrudan-temin/entities/dt-file.entity';
+import { DtItem } from '../dogrudan-temin/entities/dt-item.entity';
+import { DtFileDocumentRegistry } from '../dogrudan-temin/entities/dt-file-document-registry.entity';
+import { DtAcceptanceCommission } from '../dogrudan-temin/entities/dt-acceptance-commission.entity';
+import { DtAcceptanceCommissionMember } from '../dogrudan-temin/entities/dt-acceptance-commission-member.entity';
+import { DtQuote } from '../dogrudan-temin/entities/dt-quote.entity';
+import { DtQuoteItem } from '../dogrudan-temin/entities/dt-quote-item.entity';
+import { DtAward } from '../dogrudan-temin/entities/dt-award.entity';
+import { DtBudgetAccount } from '../dogrudan-temin/entities/dt-budget-account.entity';
+import { DtBudgetBlock } from '../dogrudan-temin/entities/dt-budget-block.entity';
+import { DtPayment } from '../dogrudan-temin/entities/dt-payment.entity';
 import {
   ACADEMIC_CALENDAR_2025_2026,
   BELIRLI_ALLOWED,
@@ -138,6 +151,32 @@ export class SeedService {
     private readonly siteMapRepo: Repository<SiteMapItem>,
     @InjectRepository(AcademicCalendarItem)
     private readonly acItemRepo: Repository<AcademicCalendarItem>,
+    @InjectRepository(DtSchoolProcurementSettings)
+    private readonly dtSettingsRepo: Repository<DtSchoolProcurementSettings>,
+    @InjectRepository(DtVendor)
+    private readonly dtVendorRepo: Repository<DtVendor>,
+    @InjectRepository(DtFile)
+    private readonly dtFileRepo: Repository<DtFile>,
+    @InjectRepository(DtItem)
+    private readonly dtItemRepo: Repository<DtItem>,
+    @InjectRepository(DtFileDocumentRegistry)
+    private readonly dtRegistryRepo: Repository<DtFileDocumentRegistry>,
+    @InjectRepository(DtAcceptanceCommission)
+    private readonly dtCommissionRepo: Repository<DtAcceptanceCommission>,
+    @InjectRepository(DtAcceptanceCommissionMember)
+    private readonly dtCommissionMemberRepo: Repository<DtAcceptanceCommissionMember>,
+    @InjectRepository(DtQuote)
+    private readonly dtQuoteRepo: Repository<DtQuote>,
+    @InjectRepository(DtQuoteItem)
+    private readonly dtQuoteItemRepo: Repository<DtQuoteItem>,
+    @InjectRepository(DtAward)
+    private readonly dtAwardRepo: Repository<DtAward>,
+    @InjectRepository(DtBudgetAccount)
+    private readonly dtBudgetAccountRepo: Repository<DtBudgetAccount>,
+    @InjectRepository(DtBudgetBlock)
+    private readonly dtBudgetBlockRepo: Repository<DtBudgetBlock>,
+    @InjectRepository(DtPayment)
+    private readonly dtPaymentRepo: Repository<DtPayment>,
     private readonly workCalendarService: WorkCalendarService,
     private readonly bilsemService: BilsemService,
   ) {}
@@ -581,5 +620,324 @@ export class SeedService {
 
   async seedBilsemCalendar(academicYear: string): Promise<{ seeded: number }> {
     return this.bilsemService.seedBilsemCalendar(academicYear);
+  }
+
+  async seedDt22d(input?: {
+    school_id?: string;
+    year?: number;
+    file_no?: string;
+    subject?: string;
+  }): Promise<{
+    schoolId: string;
+    userId: string;
+    dtFileId: string;
+    vendorIds: string[];
+    quoteIds: { research: string[]; bid: string | null };
+    message: string;
+  }> {
+    const year = input?.year ?? new Date().getFullYear();
+
+    const school =
+      (input?.school_id ? await this.schoolRepo.findOne({ where: { id: input.school_id } }) : null) ??
+      (await this.resolveCanonicalDemoSchool()) ??
+      (await this.schoolRepo.findOne({ order: { id: 'ASC' as any } }));
+    if (!school) throw new Error('No school found');
+
+    const users = await this.userRepo.find({ where: { school_id: school.id }, order: { id: 'ASC' as any }, take: 8 });
+    const fallbackUsers = users.length ? users : await this.userRepo.find({ order: { id: 'ASC' as any }, take: 8 });
+    if (!fallbackUsers.length) throw new Error('No users found');
+    const user = fallbackUsers.find((u) => u.role === UserRole.school_admin) ?? fallbackUsers[0]!;
+
+    const subject = input?.subject ?? '22/d Örnek Alım (Temizlik Malzemesi)';
+    const fileNo = input?.file_no ?? `DT-22D-${String(year).slice(-2)}-${String(Date.now()).slice(-4)}`;
+    const procurementRef = `dt-${Math.random().toString(16).slice(2, 8)}`;
+
+    await this.dtSettingsRepo.save(
+      this.dtSettingsRepo.create({
+        schoolId: school.id,
+        headerLine2: 'KAYMAKAMLIĞI',
+        headerLine3: 'İlçe Milli Eğitim Müdürlüğü',
+        headerLine4: (school.name ?? '').trim() || 'Okul',
+        officialCorrespondenceCode: '123456789',
+        realizationAuthorityName: user.display_name ?? 'Müdür Yardımcısı',
+        realizationAuthorityTitle: 'Müdür Yardımcısı',
+        spendingAuthorityName: school.principalName ?? 'Müdür',
+        spendingAuthorityTitle: 'Müdür',
+      }),
+    );
+
+    const vendors = await Promise.all(
+      [
+        { title: 'A. FİRMASI', taxNo: '1234567891', address: 'Örnek Mah. 1. Cad. No:1', phone: '0500 000 00 01', email: 'a@firma.local' },
+        { title: 'B. FİRMASI', taxNo: '1234567892', address: 'Örnek Mah. 2. Cad. No:2', phone: '0500 000 00 02', email: 'b@firma.local' },
+        { title: 'C. FİRMASI', taxNo: '1234567893', address: 'Örnek Mah. 3. Cad. No:3', phone: '0500 000 00 03', email: 'c@firma.local' },
+      ].map(async (v) => {
+        const existing = await this.dtVendorRepo.findOne({ where: { schoolId: school.id, title: v.title } });
+        if (existing) return existing;
+        return this.dtVendorRepo.save(
+          this.dtVendorRepo.create({
+            schoolId: school.id,
+            title: v.title,
+            taxNo: v.taxNo,
+            address: v.address,
+            phone: v.phone,
+            email: v.email,
+            contactName: v.title,
+            createdByUserId: user.id,
+            updatedByUserId: user.id,
+          }),
+        );
+      }),
+    );
+
+    const dtFile = await this.dtFileRepo.save(
+      this.dtFileRepo.create({
+        schoolId: school.id,
+        year,
+        fileNo,
+        subject,
+        teminType: '22d_dig_isler',
+        status: 'draft',
+        awardMode: 'manual',
+        budgetAccountId: null,
+        approxTotal: null,
+        decisionTotal: null,
+        paymentTotal: null,
+        procurementRef,
+        createdByUserId: user.id,
+        updatedByUserId: user.id,
+        archivedAt: null,
+      }),
+    );
+
+    const items = await this.dtItemRepo.save(
+      [
+        { name: 'Sıvı El Sabunu', spec: 'Parfüm içermeyecek, kolay durulanabilir', qty: '10', unit: 'Adet' },
+        { name: 'Yüzey Temizleyici', spec: 'pH 7.0 ±0.5, 5L bidon', qty: '6', unit: 'Bidon' },
+        { name: 'Çamaşır Suyu', spec: '%5 sodyum hipoklorit', qty: '8', unit: 'Bidon' },
+      ].map((x) =>
+        this.dtItemRepo.create({
+          schoolId: school.id,
+          dtFileId: dtFile.id,
+          name: x.name,
+          spec: x.spec,
+          qty: x.qty,
+          unit: x.unit,
+          vatRate: 20,
+          estimatedUnitPrice: null,
+          estimatedTotal: null,
+        }),
+      ),
+    );
+
+    const d0 = new Date();
+    const dStr = (d: Date) => d.toISOString().slice(0, 10);
+    const stages: Array<{ stage: string; ref: string; seq: string; meta?: Record<string, unknown> }> = [
+      { stage: 'ihtiyac_listesi', ref: '934.01.01', seq: '1' },
+      { stage: 'komisyon_onay', ref: '934.01.99', seq: '2' },
+      { stage: 'fiyat_arastirma', ref: '934.02.03', seq: '3' },
+      { stage: 'yaklasik_maliyet', ref: '934.02.04', seq: '4' },
+      { stage: 'ihale_onay', ref: '934.01.02', seq: '5' },
+      { stage: 'teklif_mektubu', ref: '934.02.05', seq: '6' },
+      { stage: 'piyasa_arastirma', ref: '934.02.06', seq: '7' },
+      { stage: 'muayene_kabul', ref: '934.02.07', seq: '8', meta: { karar_no: `${year}/1` } },
+    ];
+
+    await this.dtRegistryRepo.save(
+      stages.map((s) =>
+        this.dtRegistryRepo.create({
+          schoolId: school.id,
+          dtFileId: dtFile.id,
+          stage: s.stage,
+          docDate: dStr(d0),
+          numberPrefix: `123456789-${s.ref}`,
+          numberSuffix: s.seq,
+          meta: s.meta ?? {},
+        }),
+      ),
+    );
+
+    const memberPool = (users.length ? users : fallbackUsers).slice(0, 3);
+    const m1 = memberPool[0] ?? user;
+    const m2 = memberPool[1] ?? user;
+    const m3 = memberPool[2] ?? user;
+
+    const commKinds: Array<{ kind: string; members: Array<{ u: User; duty: string; title: string }> }> = [
+      { kind: 'yaklasik_maliyet', members: [{ u: m1, duty: 'Komisyon Üyesi', title: 'Müdür Yardımcısı' }, { u: m2, duty: 'Komisyon Üyesi', title: 'Öğretmen' }, { u: m3, duty: 'Komisyon Üyesi', title: 'Öğretmen' }] },
+      { kind: 'piyasa_satinalma', members: [{ u: m1, duty: 'Komisyon Üyesi', title: 'Müdür Yardımcısı' }, { u: m2, duty: 'Komisyon Üyesi', title: 'Öğretmen' }, { u: m3, duty: 'Komisyon Üyesi', title: 'Öğretmen' }] },
+      { kind: 'muayene_kabul', members: [{ u: m1, duty: 'Komisyon Üyesi', title: 'Öğretmen' }, { u: m2, duty: 'Komisyon Üyesi', title: 'Öğretmen' }, { u: m3, duty: 'Komisyon Üyesi', title: 'Öğretmen' }] },
+    ];
+
+    for (const ck of commKinds) {
+      const c = await this.dtCommissionRepo.save(
+        this.dtCommissionRepo.create({
+          schoolId: school.id,
+          dtFileId: dtFile.id,
+          kind: ck.kind,
+          chairmanUserId: ck.members[0]?.u.id ?? null,
+          createdByUserId: user.id,
+        }),
+      );
+      await this.dtCommissionMemberRepo.save(
+        ck.members.map((m) =>
+          this.dtCommissionMemberRepo.create({
+            commissionId: c.id,
+            userId: m.u.id,
+            title: m.title,
+            dutyLabel: m.duty,
+          }),
+        ),
+      );
+    }
+
+    const researchQuotes = await Promise.all(
+      vendors.map((v) =>
+        this.dtQuoteRepo.save(
+          this.dtQuoteRepo.create({
+            schoolId: school.id,
+            dtFileId: dtFile.id,
+            vendorId: v.id,
+            purpose: 'market_research',
+            status: 'received',
+            requestedAt: d0,
+            receivedAt: d0,
+            note: null,
+            createdByUserId: user.id,
+            updatedByUserId: user.id,
+          }),
+        ),
+      ),
+    );
+
+    const basePrices = [12.0, 8.0, 10.0]; // A,B,C multiplier base
+    for (let qi = 0; qi < researchQuotes.length; qi += 1) {
+      const q = researchQuotes[qi]!;
+      const mul = basePrices[qi] ?? 10.0;
+      await this.dtQuoteItemRepo.save(
+        items.map((it, idx) => {
+          const unit = (idx + 1) * (mul / 10);
+          const total = unit * Number(it.qty);
+          return this.dtQuoteItemRepo.create({
+            schoolId: school.id,
+            quoteId: q.id,
+            dtItemId: it.id,
+            unitPrice: unit.toFixed(2),
+            total: total.toFixed(2),
+          });
+        }),
+      );
+    }
+
+    const bidVendor = vendors[0]!;
+    const bidQuote = await this.dtQuoteRepo.save(
+      this.dtQuoteRepo.create({
+        schoolId: school.id,
+        dtFileId: dtFile.id,
+        vendorId: bidVendor.id,
+        purpose: 'bid',
+        status: 'accepted',
+        requestedAt: d0,
+        receivedAt: d0,
+        note: 'Örnek kabul edilen teklif',
+        createdByUserId: user.id,
+        updatedByUserId: user.id,
+      }),
+    );
+
+    await this.dtQuoteItemRepo.save(
+      items.map((it, idx) => {
+        const unit = (idx + 1) * 1.0;
+        const total = unit * Number(it.qty);
+        return this.dtQuoteItemRepo.create({
+          schoolId: school.id,
+          quoteId: bidQuote.id,
+          dtItemId: it.id,
+          unitPrice: unit.toFixed(2),
+          total: total.toFixed(2),
+        });
+      }),
+    );
+
+    const awards = await this.dtAwardRepo.save(
+      items.map((it, idx) => {
+        const unit = (idx + 1) * 1.0;
+        const total = unit * Number(it.qty);
+        return this.dtAwardRepo.create({
+          schoolId: school.id,
+          dtFileId: dtFile.id,
+          dtItemId: it.id,
+          vendorId: bidVendor.id,
+          unitPrice: unit.toFixed(2),
+          total: total.toFixed(2),
+          createdByUserId: user.id,
+          updatedByUserId: user.id,
+        });
+      }),
+    );
+
+    const decisionTotal = awards.reduce((acc, a) => acc + Number(a.total ?? 0), 0);
+    const approxTotal = decisionTotal; // demo
+
+    const budgetAccount = await this.dtBudgetAccountRepo.save(
+      this.dtBudgetAccountRepo.create({
+        schoolId: school.id,
+        year,
+        parentId: null,
+        code: '255.255.192.168',
+        label: 'Örnek bütçe tertibi',
+        allocated: '110000.00',
+        blocked: String(decisionTotal.toFixed(2)),
+        spent: String(decisionTotal.toFixed(2)),
+        createdByUserId: user.id,
+        updatedByUserId: user.id,
+      }),
+    );
+
+    await this.dtBudgetBlockRepo.save(
+      this.dtBudgetBlockRepo.create({
+        schoolId: school.id,
+        dtFileId: dtFile.id,
+        budgetAccountId: budgetAccount.id,
+        amount: String(decisionTotal.toFixed(2)),
+        status: 'blocked',
+        blockedAt: d0,
+        releasedAt: null,
+        createdByUserId: user.id,
+        updatedByUserId: user.id,
+      }),
+    );
+
+    await this.dtPaymentRepo.save(
+      this.dtPaymentRepo.create({
+        schoolId: school.id,
+        dtFileId: dtFile.id,
+        quoteId: bidQuote.id,
+        amount: String(decisionTotal.toFixed(2)),
+        paidAt: d0,
+        note: 'Örnek 22/d ödeme (test)',
+        referenceNo: `HYS-${year}-0001`,
+        createdByUserId: user.id,
+      }),
+    );
+
+    await this.dtFileRepo.update(
+      { id: dtFile.id, schoolId: school.id },
+      {
+        approxTotal: String(approxTotal.toFixed(2)),
+        decisionTotal: String(decisionTotal.toFixed(2)),
+        paymentTotal: String(decisionTotal.toFixed(2)),
+        budgetAccountId: budgetAccount.id,
+        updatedByUserId: user.id,
+      } as any,
+    );
+
+    return {
+      schoolId: school.id,
+      userId: user.id,
+      dtFileId: dtFile.id,
+      vendorIds: vendors.map((v) => v.id),
+      quoteIds: { research: researchQuotes.map((q) => q.id), bid: bidQuote.id },
+      message: `Seed OK: /dogrudan-temin/${dtFile.id}`,
+    };
   }
 }

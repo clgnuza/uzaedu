@@ -37,4 +37,27 @@ export class SeedController {
     }
     return this.seedService.seedBilsemCalendar(body.academic_year?.trim() ?? '2025-2026');
   }
+
+  @Post('dt-22d')
+  @HttpCode(HttpStatus.OK)
+  async seedDt22d(
+    @Body()
+    body: {
+      school_id?: string;
+      year?: number;
+      file_no?: string;
+      subject?: string;
+    },
+  ) {
+    if (env.nodeEnv !== 'local') {
+      const { ForbiddenException } = await import('@nestjs/common');
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
+    return this.seedService.seedDt22d({
+      school_id: body?.school_id?.trim() || undefined,
+      year: typeof body?.year === 'number' ? body.year : undefined,
+      file_no: body?.file_no?.trim() || undefined,
+      subject: body?.subject?.trim() || undefined,
+    });
+  }
 }
