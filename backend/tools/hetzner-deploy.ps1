@@ -9,6 +9,9 @@
   Kullanım:
     cd backend
     .\tools\hetzner-deploy.ps1
+
+  Python (Linux/macOS/Git Bash):
+    python tools/hetzner_ssh_deploy.py
 #>
 $ErrorActionPreference = "Stop"
 
