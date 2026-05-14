@@ -16,6 +16,10 @@ export class DtQuote {
   @Column({ name: 'vendor_id', type: 'uuid' })
   vendorId: string;
 
+  /** bid: teklif / ihale; market_research: fiyat araştırması */
+  @Column({ type: 'varchar', length: 24, default: 'bid' })
+  purpose: string;
+
   @Column({ type: 'varchar', length: 16, default: 'requested' })
   status: DtQuoteStatus;
 

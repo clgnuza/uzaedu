@@ -38,6 +38,9 @@ export class DtFile {
   @Column({ name: 'payment_total', type: 'numeric', precision: 14, scale: 6, nullable: true })
   paymentTotal: string | null;
 
+  @Column({ name: 'procurement_ref', type: 'varchar', length: 64, nullable: true })
+  procurementRef: string | null;
+
   @Column({ name: 'created_by_user_id', type: 'uuid', nullable: true })
   createdByUserId: string | null;
 

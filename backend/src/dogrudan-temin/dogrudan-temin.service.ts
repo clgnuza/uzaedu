@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, Repository } from 'typeorm';
+import { ILike, In, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import * as XLSX from 'xlsx';
 import {
@@ -51,6 +51,9 @@ import {
   ListDtMaterialLibraryDto,
   CreateDtAcceptanceCommissionDto,
   AddDtCommissionMemberDto,
+  PatchDtSchoolProcurementSettingsDto,
+  PutDtDocumentRegistryDto,
+  SyncDtCommissionDto,
 } from './dto/dt.dto';
 import { AppConfigService } from '../app-config/app-config.service';
 import { dtFileStatusTr, dtTeminTypeTr } from './dt-temin-labels';
@@ -59,6 +62,10 @@ import { DtMaterialLibrary } from './entities/dt-material-library.entity';
 import { DtMaterialCategory } from './entities/dt-material-category.entity';
 import { DtAcceptanceCommission } from './entities/dt-acceptance-commission.entity';
 import { DtAcceptanceCommissionMember } from './entities/dt-acceptance-commission-member.entity';
+import { DtSchoolProcurementSettings } from './entities/dt-school-procurement-settings.entity';
+import { DtFileDocumentRegistry } from './entities/dt-file-document-registry.entity';
+import { User } from '../users/entities/user.entity';
+import { DT_COMMISSION_KINDS, DT_REGISTRY_STAGES } from './dt-workflow.constants';
 
 @Injectable()
 export class DogrudanTeminService {
@@ -77,6 +84,9 @@ export class DogrudanTeminService {
     @InjectRepository(DtMaterialCategory) private readonly matCatRepo: Repository<DtMaterialCategory>,
     @InjectRepository(DtAcceptanceCommission) private readonly commissionRepo: Repository<DtAcceptanceCommission>,
     @InjectRepository(DtAcceptanceCommissionMember) private readonly commMemberRepo: Repository<DtAcceptanceCommissionMember>,
+    @InjectRepository(DtSchoolProcurementSettings) private readonly procurementSettingsRepo: Repository<DtSchoolProcurementSettings>,
+    @InjectRepository(DtFileDocumentRegistry) private readonly registryRepo: Repository<DtFileDocumentRegistry>,
+    @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(School) private readonly schoolRepo: Repository<School>,
     private readonly uploadService: UploadService,
     private readonly appConfig: AppConfigService,
@@ -114,6 +124,7 @@ export class DogrudanTeminService {
       teminType: dto.temin_type,
       status: 'draft',
       budgetAccountId: dto.budget_account_id?.trim() || null,
+      procurementRef: dto.procurement_ref?.trim() || null,
       createdByUserId: userId,
       updatedByUserId: userId,
     });
@@ -170,6 +181,7 @@ export class DogrudanTeminService {
       approxTotal: null,
       decisionTotal: null,
       paymentTotal: null,
+      procurementRef: src.procurementRef?.trim() || null,
       createdByUserId: userId,
       updatedByUserId: userId,
       archivedAt: null,
@@ -230,6 +242,7 @@ export class DogrudanTeminService {
     if (dto.temin_type !== undefined) row.teminType = dto.temin_type;
     if (dto.status !== undefined) row.status = dto.status.trim();
     if (dto.budget_account_id !== undefined) row.budgetAccountId = dto.budget_account_id?.trim() || null;
+    if (dto.procurement_ref !== undefined) row.procurementRef = dto.procurement_ref?.trim() || null;
     row.updatedByUserId = userId;
     return this.fileRepo.save(row);
   }
@@ -281,10 +294,12 @@ export class DogrudanTeminService {
     if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
     const vendor = await this.vendorRepo.findOne({ where: { id: dto.vendor_id, schoolId }, select: ['id'] });
     if (!vendor) throw new NotFoundException({ code: 'DT_VENDOR_NOT_FOUND' });
+    const purpose = dto.purpose === 'market_research' ? 'market_research' : 'bid';
     const row = this.quoteRepo.create({
       schoolId,
       dtFileId,
       vendorId: vendor.id,
+      purpose,
       status: 'requested',
       requestedAt: new Date(),
       receivedAt: null,
@@ -295,8 +310,10 @@ export class DogrudanTeminService {
     return this.quoteRepo.save(row);
   }
 
-  async listQuotes(schoolId: string, dtFileId: string) {
-    const items = await this.quoteRepo.find({ where: { schoolId, dtFileId }, order: { createdAt: 'ASC' } });
+  async listQuotes(schoolId: string, dtFileId: string, purpose?: string) {
+    const where: { schoolId: string; dtFileId: string; purpose?: string } = { schoolId, dtFileId };
+    if (purpose === 'bid' || purpose === 'market_research') where.purpose = purpose;
+    const items = await this.quoteRepo.find({ where, order: { createdAt: 'ASC' } });
     return { items };
   }
 
@@ -746,10 +763,111 @@ export class DogrudanTeminService {
     return { download_url: downloadUrl, filename: row.filename };
   }
 
+  private async persistDtGeneratedDocx(input: {
+    schoolId: string;
+    userId: string;
+    dtFileId: string;
+    docType: string;
+    buffer: Buffer;
+    filenameBase: string;
+    filenameExtra?: string;
+  }): Promise<{ download_url: string; filename: string }> {
+    const { schoolId, userId, dtFileId, docType, buffer, filenameBase, filenameExtra } = input;
+    const key = `dogrudan_temin/generated/${uuidv4()}-${docType}.docx`;
+    await this.uploadService.uploadBuffer(
+      key,
+      buffer,
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    );
+    const suffix = filenameExtra ? `-${filenameExtra}` : '';
+    const filename =
+      `${filenameBase}${suffix}`.replace(/[^\w\u00C0-\u024F\s.-]/gi, '').replace(/\s+/g, '-').slice(0, 180) + '.docx';
+    await this.docRepo.save(
+      this.docRepo.create({
+        schoolId,
+        dtFileId,
+        docType,
+        fileFormat: 'docx',
+        storageKey: key,
+        filename,
+        createdByUserId: userId,
+      }),
+    );
+    const downloadUrl = await this.uploadService.getSignedDownloadUrl(key, 3600, filename);
+    return { download_url: downloadUrl, filename };
+  }
+
+  private async buildDtLetterheadParagraphs(
+    schoolId: string,
+    school: Pick<School, 'name' | 'principalName'> | null,
+    file: DtFile,
+  ): Promise<Paragraph[]> {
+    const settings = await this.procurementSettingsRepo.findOne({ where: { schoolId } });
+    const registryRows = await this.registryRepo.find({ where: { schoolId, dtFileId: file.id } });
+    const byStage = new Map(registryRows.map((r) => [r.stage, r]));
+    const pushC = (text: string, bold = false, size = 20) =>
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [new TextRun({ text, bold, size })],
+      });
+    const out: Paragraph[] = [];
+    out.push(pushC((school?.name ?? 'Kurum').trim(), true, 24));
+    if (settings?.headerLine2?.trim()) out.push(pushC(settings.headerLine2.trim(), false, 18));
+    if (settings?.headerLine3?.trim()) out.push(pushC(settings.headerLine3.trim(), false, 18));
+    if (settings?.headerLine4?.trim()) out.push(pushC(settings.headerLine4.trim(), false, 18));
+    if (settings?.officialCorrespondenceCode?.trim()) {
+      out.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [new TextRun({ text: `Yazı / muhatap kodu: ${settings.officialCorrespondenceCode.trim()}`, size: 18 })],
+        }),
+      );
+    }
+    if (file.procurementRef?.trim()) {
+      out.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [new TextRun({ text: `İhale kayıt no: ${file.procurementRef.trim()}`, size: 18 })],
+        }),
+      );
+    }
+    const regLines: string[] = [];
+    for (const stage of DT_REGISTRY_STAGES) {
+      const r = byStage.get(stage);
+      if (!r) continue;
+      if (!r.docDate && !(r.numberPrefix ?? '').trim() && !(r.numberSuffix ?? '').trim()) continue;
+      const num = [r.numberPrefix?.trim(), r.numberSuffix?.trim()].filter(Boolean).join(' ') || '—';
+      regLines.push(`${stage}: ${r.docDate ?? '—'} / ${num}`);
+    }
+    if (regLines.length) {
+      out.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [new TextRun({ text: 'Evrak defteri (girişler):', bold: true, size: 18 })],
+        }),
+      );
+      for (const ln of regLines) out.push(pushC(ln, false, 16));
+    }
+    return out;
+  }
+
+  private async loadUserDisplayNames(ids: string[]): Promise<Map<string, string>> {
+    const uniq = [...new Set(ids.filter(Boolean))];
+    if (!uniq.length) return new Map();
+    const users = await this.userRepo.find({
+      where: { id: In(uniq) },
+      select: ['id', 'display_name', 'email'] as any,
+    });
+    return new Map(
+      users.map((u) => [u.id, ((u as any).display_name as string | null)?.trim() || (u as any).email || u.id]),
+    );
+  }
+
   async generateDocForFile(schoolId: string, userId: string, dtFileId: string, dto: GenerateDtDocDto) {
     const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId } });
     if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
     const school = await this.schoolRepo.findOne({ where: { id: schoolId }, select: ['id', 'name', 'principalName'] });
+    const letterhead = await this.buildDtLetterheadParagraphs(schoolId, school, file);
     const items = await this.itemRepo.find({ where: { schoolId, dtFileId }, order: { createdAt: 'ASC' } });
     const awards = await this.awardRepo.find({ where: { schoolId, dtFileId } });
     const vendors = await this.vendorRepo.find({ where: { schoolId } });
@@ -757,28 +875,10 @@ export class DogrudanTeminService {
     const awardByItemId = new Map(awards.map((a) => [a.dtItemId, a]));
 
     const filenameBase = `DT-${file.year}-${file.fileNo}-${dto.doc_type}`.replace(/[^\w\u00C0-\u024F\s.-]/gi, '').replace(/\s+/g, '-');
+
     if (dto.doc_type === 'ihtiyac_listesi') {
-      const buffer = await this.buildIhtiyacListesiDocx({ school, file, items });
-      const key = `dogrudan_temin/generated/${uuidv4()}-ihtiyac-listesi.docx`;
-      await this.uploadService.uploadBuffer(
-        key,
-        buffer,
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      );
-      const filename = `${filenameBase}.docx`;
-      await this.docRepo.save(
-        this.docRepo.create({
-          schoolId,
-          dtFileId,
-          docType: 'ihtiyac_listesi',
-          fileFormat: 'docx',
-          storageKey: key,
-          filename,
-          createdByUserId: userId,
-        }),
-      );
-      const downloadUrl = await this.uploadService.getSignedDownloadUrl(key, 3600, filename);
-      return { download_url: downloadUrl, filename };
+      const buffer = await this.buildIhtiyacListesiDocx({ school, file, items, letterhead });
+      return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'ihtiyac_listesi', buffer, filenameBase });
     }
 
     if (dto.doc_type === 'teklif_isteme') {
@@ -786,27 +886,16 @@ export class DogrudanTeminService {
       if (!vendorId) throw new BadRequestException({ code: 'DT_VENDOR_ID_REQUIRED' });
       const vendor = vendorById.get(vendorId);
       if (!vendor) throw new NotFoundException({ code: 'DT_VENDOR_NOT_FOUND' });
-      const buffer = await this.buildTeklifIstemeDocx({ school, file, items, vendor });
-      const key = `dogrudan_temin/generated/${uuidv4()}-teklif-isteme.docx`;
-      await this.uploadService.uploadBuffer(
-        key,
+      const buffer = await this.buildTeklifIstemeDocx({ school, file, items, vendor, letterhead });
+      return this.persistDtGeneratedDocx({
+        schoolId,
+        userId,
+        dtFileId,
+        docType: 'teklif_isteme',
         buffer,
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      );
-      const filename = `${filenameBase}-${vendor.title}`.replace(/[^\w\u00C0-\u024F\s.-]/gi, '').replace(/\s+/g, '-').slice(0, 120) + '.docx';
-      await this.docRepo.save(
-        this.docRepo.create({
-          schoolId,
-          dtFileId,
-          docType: 'teklif_isteme',
-          fileFormat: 'docx',
-          storageKey: key,
-          filename,
-          createdByUserId: userId,
-        }),
-      );
-      const downloadUrl = await this.uploadService.getSignedDownloadUrl(key, 3600, filename);
-      return { download_url: downloadUrl, filename };
+        filenameBase,
+        filenameExtra: vendor.title,
+      });
     }
 
     if (dto.doc_type === 'sozlesme') {
@@ -818,37 +907,110 @@ export class DogrudanTeminService {
         .map((it) => ({ it, a: awardByItemId.get(it.id) ?? null }))
         .filter((x) => x.a && x.a.vendorId === vendorId) as Array<{ it: DtItem; a: DtAward }>;
       if (awarded.length === 0) throw new BadRequestException({ code: 'DT_NO_AWARDS_FOR_VENDOR' });
-      const buffer = await this.buildSozlesmeDocx({ school, file, vendor, awarded });
-      const key = `dogrudan_temin/generated/${uuidv4()}-sozlesme.docx`;
-      await this.uploadService.uploadBuffer(
-        key,
+      const buffer = await this.buildSozlesmeDocx({ school, file, vendor, awarded, letterhead });
+      return this.persistDtGeneratedDocx({
+        schoolId,
+        userId,
+        dtFileId,
+        docType: 'sozlesme',
         buffer,
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      );
-      const filename = `${filenameBase}-${vendor.title}`.replace(/[^\w\u00C0-\u024F\s.-]/gi, '').replace(/\s+/g, '-').slice(0, 120) + '.docx';
-      await this.docRepo.save(
-        this.docRepo.create({
-          schoolId,
-          dtFileId,
-          docType: 'sozlesme',
-          fileFormat: 'docx',
-          storageKey: key,
-          filename,
-          createdByUserId: userId,
-        }),
-      );
-      const downloadUrl = await this.uploadService.getSignedDownloadUrl(key, 3600, filename);
-      return { download_url: downloadUrl, filename };
+        filenameBase,
+        filenameExtra: vendor.title,
+      });
     }
 
-    // karar
-    const buffer = await this.buildKararDocx({ school, file, items, awardByItemId, vendorById });
-    const key = `dogrudan_temin/generated/${uuidv4()}-karar.docx`;
-    await this.uploadService.uploadBuffer(key, buffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    const filename = `${filenameBase}.docx`;
-    await this.docRepo.save(this.docRepo.create({ schoolId, dtFileId, docType: 'karar', fileFormat: 'docx', storageKey: key, filename, createdByUserId: userId }));
-    const downloadUrl = await this.uploadService.getSignedDownloadUrl(key, 3600, filename);
-    return { download_url: downloadUrl, filename };
+    if (dto.doc_type === 'komisyon_onay') {
+      const buffer = await this.buildKomisyonOnayDocx(schoolId, school, file, letterhead);
+      return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'komisyon_onay', buffer, filenameBase });
+    }
+
+    if (dto.doc_type === 'onay_belgesi') {
+      const buffer = await this.buildOnayBelgesiDocx(schoolId, school, file, letterhead);
+      return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'onay_belgesi', buffer, filenameBase });
+    }
+
+    if (dto.doc_type === 'piyasa_arastirma_tutanagi') {
+      const research = await this.quoteRepo.find({
+        where: { schoolId, dtFileId, purpose: 'market_research' },
+        order: { createdAt: 'ASC' },
+        take: 5,
+      });
+      const buffer = await this.buildQuoteFirmMatrixDocx({
+        letterhead,
+        file,
+        items,
+        vendorById,
+        quotes: research,
+        docTitle: 'Piyasa araştırma tutanağı',
+      });
+      return this.persistDtGeneratedDocx({
+        schoolId,
+        userId,
+        dtFileId,
+        docType: 'piyasa_arastirma_tutanagi',
+        buffer,
+        filenameBase,
+      });
+    }
+
+    if (dto.doc_type === 'yaklasik_maliyet_cetveli') {
+      const research = await this.quoteRepo.find({
+        where: { schoolId, dtFileId, purpose: 'market_research' },
+        order: { createdAt: 'ASC' },
+        take: 5,
+      });
+      const buffer = await this.buildQuoteFirmMatrixDocx({
+        letterhead,
+        file,
+        items,
+        vendorById,
+        quotes: research,
+        docTitle: 'Yaklaşık maliyet cetveli',
+      });
+      return this.persistDtGeneratedDocx({
+        schoolId,
+        userId,
+        dtFileId,
+        docType: 'yaklasik_maliyet_cetveli',
+        buffer,
+        filenameBase,
+      });
+    }
+
+    if (dto.doc_type === 'muayene_kabul_tutanagi') {
+      const buffer = await this.buildKararDocx({
+        school,
+        file,
+        items,
+        awardByItemId,
+        vendorById,
+        letterhead,
+        docTitle: 'Muayene ve kabul tutanağı',
+      });
+      return this.persistDtGeneratedDocx({
+        schoolId,
+        userId,
+        dtFileId,
+        docType: 'muayene_kabul_tutanagi',
+        buffer,
+        filenameBase,
+      });
+    }
+
+    if (dto.doc_type === 'karar') {
+      const buffer = await this.buildKararDocx({
+        school,
+        file,
+        items,
+        awardByItemId,
+        vendorById,
+        letterhead,
+        docTitle: 'Doğrudan temin kararı',
+      });
+      return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'karar', buffer, filenameBase });
+    }
+
+    throw new BadRequestException({ code: 'DT_INVALID_DOC_TYPE' });
   }
 
   private registryIncludeArchived(q: DtRegistryReportDto): boolean {
@@ -1107,11 +1269,181 @@ export class DogrudanTeminService {
     }
   }
 
-  private async buildIhtiyacListesiDocx(input: { school: Pick<School, 'name' | 'principalName'> | null; file: DtFile; items: DtItem[] }): Promise<Buffer> {
-    const { school, file, items } = input;
-    const title = `${school?.name ?? ''}`.trim();
+  private async buildKomisyonOnayDocx(
+    schoolId: string,
+    school: Pick<School, 'name' | 'principalName'> | null,
+    file: DtFile,
+    letterhead: Paragraph[],
+  ): Promise<Buffer> {
+    const kindLabel: Record<string, string> = {
+      yaklasik_maliyet: 'Yaklaşık maliyet komisyonu',
+      piyasa_satinalma: 'Piyasa araştırma / satın alma komisyonu',
+      muayene_kabul: 'Muayene ve kabul komisyonu',
+    };
+    const sections: Paragraph[] = [
+      new Paragraph({ children: [new TextRun({ text: 'Komisyon üye listesi / onay', bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
+      new Paragraph({ children: [new TextRun({ text: `${file.year} / ${file.fileNo} · ${file.subject}`, size: 20 })], alignment: AlignmentType.CENTER }),
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+    ];
+    for (const kind of DT_COMMISSION_KINDS) {
+      sections.push(
+        new Paragraph({
+          children: [new TextRun({ text: kindLabel[kind] ?? kind, bold: true, size: 20 })],
+        }),
+      );
+      const comm = await this.commissionRepo.findOne({ where: { schoolId, dtFileId: file.id, kind } });
+      if (!comm) {
+        sections.push(new Paragraph({ children: [new TextRun({ text: '(Henüz oluşturulmadı)', italics: true, size: 18 })] }));
+        sections.push(new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }));
+        continue;
+      }
+      const members = await this.commMemberRepo.find({ where: { commissionId: comm.id }, order: { createdAt: 'ASC' } });
+      const ids = [...members.map((m) => m.userId), ...(comm.chairmanUserId ? [comm.chairmanUserId] : [])];
+      const names = await this.loadUserDisplayNames(ids);
+      if (comm.chairmanUserId) {
+        sections.push(
+          new Paragraph({
+            children: [
+              new TextRun({ text: 'Başkan: ', bold: true, size: 18 }),
+              new TextRun({ text: names.get(comm.chairmanUserId) ?? comm.chairmanUserId, size: 18 }),
+            ],
+          }),
+        );
+      }
+      members.forEach((m, i) => {
+        const line = `${i + 1}. ${names.get(m.userId) ?? m.userId} — ${m.dutyLabel ?? m.title ?? 'Üye'}`;
+        sections.push(new Paragraph({ children: [new TextRun({ text: line, size: 18 })] }));
+      });
+      sections.push(new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }));
+    }
+    const doc = new DocxDocument({ sections: [{ properties: {}, children: [...letterhead, ...sections] }] });
+    return Buffer.from(await Packer.toBuffer(doc));
+  }
+
+  private async buildOnayBelgesiDocx(
+    schoolId: string,
+    school: Pick<School, 'name' | 'principalName'> | null,
+    file: DtFile,
+    letterhead: Paragraph[],
+  ): Promise<Buffer> {
+    const settings = await this.procurementSettingsRepo.findOne({ where: { schoolId } });
+    const lines: Paragraph[] = [
+      new Paragraph({ children: [new TextRun({ text: 'Onay belgesi (taslak)', bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
+      new Paragraph({ children: [new TextRun({ text: `${file.year} / ${file.fileNo} · ${file.subject}`, size: 20 })], alignment: AlignmentType.CENTER }),
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: `Yaklaşık maliyet toplamı: ${file.approxTotal ?? '—'}   Karar toplamı: ${file.decisionTotal ?? '—'}`,
+            size: 18,
+          }),
+        ],
+      }),
+    ];
+    if (settings?.spendingAuthorityName?.trim()) {
+      lines.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: `Harcama yetkilisi: ${settings.spendingAuthorityName.trim()}${settings.spendingAuthorityTitle ? ` (${settings.spendingAuthorityTitle})` : ''}`,
+              size: 18,
+            }),
+          ],
+        }),
+      );
+    }
+    if (settings?.realizationAuthorityName?.trim()) {
+      lines.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: `Gerçekleştirme görevlisi: ${settings.realizationAuthorityName.trim()}${settings.realizationAuthorityTitle ? ` (${settings.realizationAuthorityTitle})` : ''}`,
+              size: 18,
+            }),
+          ],
+        }),
+      );
+    }
+    lines.push(
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+      new Paragraph({
+        children: [new TextRun({ text: `Müdür / yetkili: ${school?.principalName ?? '…………………'}`, size: 18 })],
+      }),
+    );
+    const doc = new DocxDocument({ sections: [{ properties: {}, children: [...letterhead, ...lines] }] });
+    return Buffer.from(await Packer.toBuffer(doc));
+  }
+
+  private async buildQuoteFirmMatrixDocx(input: {
+    letterhead: Paragraph[];
+    file: DtFile;
+    items: DtItem[];
+    vendorById: Map<string, DtVendor>;
+    quotes: DtQuote[];
+    docTitle: string;
+  }): Promise<Buffer> {
+    const { letterhead, file, items, vendorById, quotes, docTitle } = input;
+    const firmQuotes = quotes.slice(0, 3);
+    const colData = await Promise.all(
+      firmQuotes.map(async (q) => {
+        const qis = await this.quoteItemRepo.find({ where: { quoteId: q.id }, order: { createdAt: 'ASC' } });
+        const byItem = new Map(qis.map((x) => [x.dtItemId, x.unitPrice]));
+        const title = vendorById.get(q.vendorId)?.title ?? q.vendorId;
+        return { title, byItem };
+      }),
+    );
+    const th = (t: string) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t, bold: true, size: 16 })] })], shading: { fill: 'E8ECF0' } as any });
+    const td = (t: string) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t, size: 16 })] })] });
+    const headerRow = new TableRow({
+      children: [
+        th('No'),
+        th('Kalem'),
+        th('Miktar'),
+        ...colData.map((c) => th(c.title.slice(0, 40))),
+      ],
+    });
+    const dataRows = items.map((it, idx) => {
+      const cells = [
+        td(String(idx + 1)),
+        td(`${it.name}${it.spec ? `\n${it.spec}` : ''}`),
+        td(`${it.qty ?? ''} ${it.unit ?? ''}`.trim()),
+        ...colData.map((c) => td(String(c.byItem.get(it.id) ?? ''))),
+      ];
+      return new TableRow({ children: cells });
+    });
+    const table = new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [headerRow, ...dataRows],
+      borders: {
+        top: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+        bottom: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+        left: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+        right: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+        insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: '000000' },
+        insideVertical: { style: BorderStyle.SINGLE, size: 2, color: '000000' },
+      },
+    });
+    const sub: Paragraph[] = [
+      new Paragraph({ children: [new TextRun({ text: docTitle, bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
+      new Paragraph({ children: [new TextRun({ text: `${file.year} / ${file.fileNo} · ${file.subject}`, size: 20 })], alignment: AlignmentType.CENTER }),
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+    ];
+    if (!firmQuotes.length) {
+      sub.push(new Paragraph({ children: [new TextRun({ text: 'Fiyat araştırması teklifi yok; önce «Araştırma» amaçlı teklif ekleyin.', italics: true, size: 18 })] }));
+    }
+    const doc = new DocxDocument({ sections: [{ properties: {}, children: [...letterhead, ...sub, table] }] });
+    return Buffer.from(await Packer.toBuffer(doc));
+  }
+
+  private async buildIhtiyacListesiDocx(input: {
+    school: Pick<School, 'name' | 'principalName'> | null;
+    file: DtFile;
+    items: DtItem[];
+    letterhead: Paragraph[];
+  }): Promise<Buffer> {
+    const { file, items, letterhead } = input;
     const header = [
-      new Paragraph({ children: [new TextRun({ text: title || 'Kurum', bold: true, size: 24 })], alignment: AlignmentType.CENTER }),
+      ...letterhead,
       new Paragraph({ children: [new TextRun({ text: `Doğrudan Temin İhtiyaç Listesi`, bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: `${file.year} / ${file.fileNo} · ${file.subject}`, size: 20 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
@@ -1157,12 +1489,13 @@ export class DogrudanTeminService {
     items: DtItem[];
     awardByItemId: Map<string, DtAward>;
     vendorById: Map<string, DtVendor>;
+    letterhead: Paragraph[];
+    docTitle: string;
   }): Promise<Buffer> {
-    const { school, file, items, awardByItemId, vendorById } = input;
-    const title = `${school?.name ?? ''}`.trim();
+    const { school, file, items, awardByItemId, vendorById, letterhead, docTitle } = input;
     const header = [
-      new Paragraph({ children: [new TextRun({ text: title || 'Kurum', bold: true, size: 24 })], alignment: AlignmentType.CENTER }),
-      new Paragraph({ children: [new TextRun({ text: `Doğrudan Temin Karar`, bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
+      ...letterhead,
+      new Paragraph({ children: [new TextRun({ text: docTitle, bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: `${file.year} / ${file.fileNo} · ${file.subject}`, size: 20 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
     ];
@@ -1214,10 +1547,11 @@ export class DogrudanTeminService {
     file: DtFile;
     items: DtItem[];
     vendor: DtVendor;
+    letterhead: Paragraph[];
   }): Promise<Buffer> {
-    const { school, file, items, vendor } = input;
+    const { file, items, vendor, letterhead } = input;
     const header = [
-      new Paragraph({ children: [new TextRun({ text: (school?.name ?? 'Kurum').trim(), bold: true, size: 24 })], alignment: AlignmentType.CENTER }),
+      ...letterhead,
       new Paragraph({ children: [new TextRun({ text: 'Teklif İsteme Yazısı', bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: `${file.year} / ${file.fileNo} · ${file.subject}`, size: 20 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: `Firma: ${vendor.title}`, size: 20 })] }),
@@ -1260,11 +1594,12 @@ export class DogrudanTeminService {
     file: DtFile;
     vendor: DtVendor;
     awarded: Array<{ it: DtItem; a: DtAward }>;
+    letterhead: Paragraph[];
   }): Promise<Buffer> {
-    const { school, file, vendor, awarded } = input;
+    const { school, file, vendor, awarded, letterhead } = input;
     const total = awarded.reduce((sum, x) => sum + (Number(x.a.total) || 0), 0);
     const header = [
-      new Paragraph({ children: [new TextRun({ text: (school?.name ?? 'Kurum').trim(), bold: true, size: 24 })], alignment: AlignmentType.CENTER }),
+      ...letterhead,
       new Paragraph({ children: [new TextRun({ text: 'Sözleşme', bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: `${file.year} / ${file.fileNo} · ${file.subject}`, size: 20 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: `Yüklenici: ${vendor.title}`, size: 20 })] }),
@@ -1307,8 +1642,170 @@ export class DogrudanTeminService {
     return Buffer.from(await Packer.toBuffer(doc));
   }
 
-  async getAcceptanceCommission(schoolId: string, dtFileId: string) {
-    const comm = await this.commissionRepo.findOne({ where: { schoolId, dtFileId } });
+  async getSchoolProcurementSettings(schoolId: string) {
+    let row = await this.procurementSettingsRepo.findOne({ where: { schoolId } });
+    if (!row) {
+      row = this.procurementSettingsRepo.create({ schoolId });
+      await this.procurementSettingsRepo.save(row);
+    }
+    return row;
+  }
+
+  async patchSchoolProcurementSettings(schoolId: string, dto: PatchDtSchoolProcurementSettingsDto) {
+    let row = await this.procurementSettingsRepo.findOne({ where: { schoolId } });
+    if (!row) row = this.procurementSettingsRepo.create({ schoolId });
+    if (dto.header_line2 !== undefined) row.headerLine2 = dto.header_line2?.trim() || null;
+    if (dto.header_line3 !== undefined) row.headerLine3 = dto.header_line3?.trim() || null;
+    if (dto.header_line4 !== undefined) row.headerLine4 = dto.header_line4?.trim() || null;
+    if (dto.spending_authority_name !== undefined) row.spendingAuthorityName = dto.spending_authority_name?.trim() || null;
+    if (dto.spending_authority_title !== undefined) row.spendingAuthorityTitle = dto.spending_authority_title?.trim() || null;
+    if (dto.realization_authority_name !== undefined) row.realizationAuthorityName = dto.realization_authority_name?.trim() || null;
+    if (dto.realization_authority_title !== undefined) row.realizationAuthorityTitle = dto.realization_authority_title?.trim() || null;
+    if (dto.official_correspondence_code !== undefined) row.officialCorrespondenceCode = dto.official_correspondence_code?.trim() || null;
+    return this.procurementSettingsRepo.save(row);
+  }
+
+  async listDocumentRegistry(schoolId: string, dtFileId: string) {
+    const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId }, select: ['id'] });
+    if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
+    const saved = await this.registryRepo.find({ where: { schoolId, dtFileId } });
+    const byStage = new Map(saved.map((r) => [r.stage, r]));
+    const entries = DT_REGISTRY_STAGES.map((stage) => {
+      const r = byStage.get(stage);
+      return (
+        r ?? {
+          stage,
+          docDate: null,
+          numberPrefix: null,
+          numberSuffix: null,
+          meta: {},
+        }
+      );
+    });
+    return { entries };
+  }
+
+  async putDocumentRegistry(schoolId: string, userId: string, dtFileId: string, dto: PutDtDocumentRegistryDto) {
+    const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId }, select: ['id'] });
+    if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
+    void userId;
+    for (const e of dto.entries) {
+      const existing = await this.registryRepo.findOne({ where: { schoolId, dtFileId, stage: e.stage } });
+      const row = this.registryRepo.create({
+        ...(existing ? { id: existing.id } : {}),
+        schoolId,
+        dtFileId,
+        stage: e.stage,
+        docDate: e.doc_date?.trim() ? e.doc_date.trim().slice(0, 10) : null,
+        numberPrefix: e.number_prefix?.trim() || null,
+        numberSuffix: e.number_suffix?.trim() || null,
+        meta: e.meta && typeof e.meta === 'object' ? e.meta : {},
+      });
+      await this.registryRepo.save(row);
+    }
+    return this.listDocumentRegistry(schoolId, dtFileId);
+  }
+
+  async listCommissionsByFile(schoolId: string, dtFileId: string) {
+    const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId }, select: ['id'] });
+    if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
+    const commissions = await this.commissionRepo.find({ where: { schoolId, dtFileId }, order: { kind: 'ASC' } });
+    const out: Array<{ commission: DtAcceptanceCommission; members: DtAcceptanceCommissionMember[] }> = [];
+    for (const c of commissions) {
+      const members = await this.commMemberRepo.find({ where: { commissionId: c.id }, order: { createdAt: 'ASC' } });
+      out.push({ commission: c, members });
+    }
+    return { commissions: out };
+  }
+
+  async copyResearchQuotesToBid(schoolId: string, userId: string, dtFileId: string) {
+    const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId }, select: ['id'] });
+    if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
+    const research = await this.quoteRepo.find({ where: { schoolId, dtFileId, purpose: 'market_research' } });
+    let created = 0;
+    for (const rq of research) {
+      const existsBid = await this.quoteRepo.findOne({
+        where: { schoolId, dtFileId, vendorId: rq.vendorId, purpose: 'bid' },
+        select: ['id'],
+      });
+      if (existsBid) continue;
+      const nq = await this.quoteRepo.save(
+        this.quoteRepo.create({
+          schoolId,
+          dtFileId,
+          vendorId: rq.vendorId,
+          purpose: 'bid',
+          status: 'requested',
+          requestedAt: new Date(),
+          receivedAt: null,
+          note: null,
+          createdByUserId: userId,
+          updatedByUserId: userId,
+        }),
+      );
+      const qis = await this.quoteItemRepo.find({ where: { quoteId: rq.id } });
+      if (qis.length) {
+        await this.quoteItemRepo.save(
+          qis.map((qi) =>
+            this.quoteItemRepo.create({
+              schoolId,
+              quoteId: nq.id,
+              dtItemId: qi.dtItemId,
+              unitPrice: qi.unitPrice,
+              total: qi.total,
+            }),
+          ),
+        );
+      }
+      created += 1;
+    }
+    if (created) await this.recalcFileTotalsBestEffort(schoolId, dtFileId);
+    return { created, total_research: research.length };
+  }
+
+  async syncCommissionMembers(schoolId: string, userId: string, dtFileId: string, dto: SyncDtCommissionDto) {
+    const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId }, select: ['id'] });
+    if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
+    const from = await this.commissionRepo.findOne({ where: { schoolId, dtFileId, kind: dto.from_kind } });
+    if (!from) throw new NotFoundException({ code: 'DT_COMMISSION_NOT_FOUND' });
+    const srcMembers = await this.commMemberRepo.find({ where: { commissionId: from.id } });
+    for (const toKind of dto.to_kinds) {
+      if (toKind === dto.from_kind) continue;
+      let to = await this.commissionRepo.findOne({ where: { schoolId, dtFileId, kind: toKind } });
+      if (!to) {
+        to = await this.commissionRepo.save(
+          this.commissionRepo.create({
+            schoolId,
+            dtFileId,
+            kind: toKind,
+            chairmanUserId: from.chairmanUserId,
+            createdByUserId: userId,
+          }),
+        );
+      } else {
+        to.chairmanUserId = from.chairmanUserId;
+        await this.commissionRepo.save(to);
+      }
+      await this.commMemberRepo.delete({ commissionId: to.id });
+      if (srcMembers.length) {
+        await this.commMemberRepo.save(
+          srcMembers.map((m) =>
+            this.commMemberRepo.create({
+              commissionId: to.id,
+              userId: m.userId,
+              title: m.title,
+              dutyLabel: m.dutyLabel,
+            }),
+          ),
+        );
+      }
+    }
+    return { ok: true };
+  }
+
+  async getAcceptanceCommission(schoolId: string, dtFileId: string, kind?: string) {
+    const k = kind?.trim() || 'muayene_kabul';
+    const comm = await this.commissionRepo.findOne({ where: { schoolId, dtFileId, kind: k } });
     if (!comm) return { commission: null, members: [] };
     const members = await this.commMemberRepo.find({ where: { commissionId: comm.id } });
     return { commission: comm, members };
@@ -1317,8 +1814,10 @@ export class DogrudanTeminService {
   async createAcceptanceCommission(schoolId: string, userId: string, dto: CreateDtAcceptanceCommissionDto) {
     const file = await this.fileRepo.findOne({ where: { id: dto.dt_file_id, schoolId }, select: ['id'] });
     if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
+    const kind =
+      dto.kind && (DT_COMMISSION_KINDS as readonly string[]).includes(dto.kind) ? dto.kind : 'muayene_kabul';
 
-    const existing = await this.commissionRepo.findOne({ where: { schoolId, dtFileId: dto.dt_file_id } });
+    const existing = await this.commissionRepo.findOne({ where: { schoolId, dtFileId: dto.dt_file_id, kind } });
     if (existing) {
       if (dto.chairman_user_id !== undefined) existing.chairmanUserId = dto.chairman_user_id || null;
       await this.commissionRepo.save(existing);
@@ -1328,6 +1827,7 @@ export class DogrudanTeminService {
     const comm = this.commissionRepo.create({
       schoolId,
       dtFileId: dto.dt_file_id,
+      kind,
       chairmanUserId: dto.chairman_user_id || null,
       createdByUserId: userId,
     });
@@ -1339,6 +1839,7 @@ export class DogrudanTeminService {
           commissionId: saved.id,
           userId: m.user_id,
           title: m.title || null,
+          dutyLabel: m.duty_label?.trim() || null,
         }),
       );
       await this.commMemberRepo.save(members);
@@ -1363,6 +1864,7 @@ export class DogrudanTeminService {
       commissionId,
       userId: dto.user_id,
       title: dto.title || null,
+      dutyLabel: dto.duty_label?.trim() || null,
     });
     return this.commMemberRepo.save(member);
   }

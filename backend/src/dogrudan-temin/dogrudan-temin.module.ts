@@ -19,6 +19,9 @@ import { DtMaterialLibrary } from './entities/dt-material-library.entity';
 import { DtMaterialCategory } from './entities/dt-material-category.entity';
 import { DtAcceptanceCommission } from './entities/dt-acceptance-commission.entity';
 import { DtAcceptanceCommissionMember } from './entities/dt-acceptance-commission-member.entity';
+import { DtSchoolProcurementSettings } from './entities/dt-school-procurement-settings.entity';
+import { DtFileDocumentRegistry } from './entities/dt-file-document-registry.entity';
+import { User } from '../users/entities/user.entity';
 import { DogrudanTeminService } from './dogrudan-temin.service';
 import { DogrudanTeminController } from './dogrudan-temin.controller';
 
@@ -39,6 +42,9 @@ import { DogrudanTeminController } from './dogrudan-temin.controller';
       DtMaterialCategory,
       DtAcceptanceCommission,
       DtAcceptanceCommissionMember,
+      DtSchoolProcurementSettings,
+      DtFileDocumentRegistry,
+      User,
       School,
     ]),
     MarketModule,

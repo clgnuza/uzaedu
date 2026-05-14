@@ -1,5 +1,7 @@
-import { IsEmail, IsIn, IsInt, IsOptional, IsString, IsArray, ValidateNested, Matches, Max, MaxLength, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsEmail, IsIn, IsInt, IsOptional, IsString, IsArray, ValidateNested, Matches, Max, MaxLength, Min, IsObject } from 'class-validator';
 import { DtTeminType } from '../enums/dt-temin-type.enum';
+import { DT_COMMISSION_KINDS, DT_QUOTE_PURPOSES, DT_REGISTRY_STAGES } from '../dt-workflow.constants';
 
 export class CreateDtFileDto {
   @IsInt()
@@ -22,6 +24,11 @@ export class CreateDtFileDto {
   @IsOptional()
   @IsString()
   budget_account_id?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  procurement_ref?: string | null;
 }
 
 export class ListDtFilesDto {
@@ -109,6 +116,11 @@ export class PatchDtFileDto {
   @IsOptional()
   @IsString()
   budget_account_id?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  procurement_ref?: string | null;
 }
 
 export class PatchDtItemDto {
@@ -182,6 +194,18 @@ export class ListDtVendorsDto {
 export class CreateDtQuoteDto {
   @IsString()
   vendor_id: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn([...DT_QUOTE_PURPOSES])
+  purpose?: (typeof DT_QUOTE_PURPOSES)[number];
+}
+
+export class ListDtQuotesQueryDto {
+  @IsOptional()
+  @IsString()
+  @IsIn([...DT_QUOTE_PURPOSES])
+  purpose?: (typeof DT_QUOTE_PURPOSES)[number];
 }
 
 export class UpsertDtQuoteItemDto {
@@ -209,10 +233,22 @@ export class UpsertDtAwardItemDto {
   unit_price: string;
 }
 
+const DT_GENERATE_DOC_TYPES = [
+  'ihtiyac_listesi',
+  'teklif_isteme',
+  'karar',
+  'sozlesme',
+  'komisyon_onay',
+  'onay_belgesi',
+  'piyasa_arastirma_tutanagi',
+  'yaklasik_maliyet_cetveli',
+  'muayene_kabul_tutanagi',
+] as const;
+
 export class GenerateDtDocDto {
   @IsString()
-  @IsIn(['ihtiyac_listesi', 'teklif_isteme', 'karar', 'sozlesme'])
-  doc_type: 'ihtiyac_listesi' | 'teklif_isteme' | 'karar' | 'sozlesme';
+  @IsIn([...DT_GENERATE_DOC_TYPES])
+  doc_type: (typeof DT_GENERATE_DOC_TYPES)[number];
 
   @IsOptional()
   @IsString()
@@ -385,12 +421,33 @@ export class CreateDtAcceptanceCommissionDto {
 
   @IsOptional()
   @IsString()
+  @IsIn([...DT_COMMISSION_KINDS])
+  kind?: (typeof DT_COMMISSION_KINDS)[number];
+
+  @IsOptional()
+  @IsString()
   chairman_user_id?: string | null;
 
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
-  members?: Array<{ user_id: string; title?: string | null }>;
+  @Type(() => CommissionMemberInputDto)
+  members?: CommissionMemberInputDto[];
+}
+
+export class CommissionMemberInputDto {
+  @IsString()
+  user_id: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  title?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  duty_label?: string | null;
 }
 
 export class AddDtCommissionMemberDto {
@@ -401,6 +458,95 @@ export class AddDtCommissionMemberDto {
   @IsString()
   @MaxLength(128)
   title?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  duty_label?: string | null;
+}
+
+export class SyncDtCommissionDto {
+  @IsString()
+  @IsIn([...DT_COMMISSION_KINDS])
+  from_kind: (typeof DT_COMMISSION_KINDS)[number];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsIn([...DT_COMMISSION_KINDS], { each: true })
+  to_kinds: (typeof DT_COMMISSION_KINDS)[number][];
+}
+
+export class PatchDtSchoolProcurementSettingsDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  header_line2?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  header_line3?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  header_line4?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  spending_authority_name?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  spending_authority_title?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  realization_authority_name?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  realization_authority_title?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  official_correspondence_code?: string | null;
+}
+
+export class DtDocumentRegistryEntryDto {
+  @IsString()
+  @IsIn([...DT_REGISTRY_STAGES])
+  stage: (typeof DT_REGISTRY_STAGES)[number];
+
+  @IsOptional()
+  @IsString()
+  doc_date?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  number_prefix?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  number_suffix?: string | null;
+
+  @IsOptional()
+  @IsObject()
+  meta?: Record<string, unknown>;
+}
+
+export class PutDtDocumentRegistryDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DtDocumentRegistryEntryDto)
+  entries: DtDocumentRegistryEntryDto[];
 }
 
 export class GenerateDtPaymentOrderDto {

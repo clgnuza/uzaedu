@@ -58,6 +58,7 @@ type DtFileItem = {
   approxTotal: string | null;
   decisionTotal: string | null;
   paymentTotal: string | null;
+  procurementRef?: string | null;
 };
 
 type DtItem = {
@@ -71,7 +72,7 @@ type DtItem = {
 };
 
 type VendorItem = { id: string; title: string };
-type Quote = { id: string; vendorId: string; status: string };
+type Quote = { id: string; vendorId: string; status: string; purpose?: string };
 type QuoteItem = { id: string; quoteId: string; dtItemId: string; unitPrice: string };
 type DocItem = { id: string; docType: string; fileFormat: string; filename: string; createdAt: string };
 type BudgetAccount = {
@@ -113,6 +114,7 @@ type DtPaymentRow = {
 type DtAcceptanceCommission = {
   id: string;
   chairmanUserId: string | null;
+  kind?: string;
 };
 
 type DtAcceptanceCommissionMember = {
@@ -176,6 +178,9 @@ export default function DtFileDetailPage() {
   const [activeTab, setActiveTab] = useState<DtDetailTabId>('items');
   const [commissionForm, setCommissionForm] = useState({ chairman_user_id: '', member_title: '' });
   const [commissionDialogOpen, setCommissionDialogOpen] = useState(false);
+  const [commissionKind, setCommissionKind] = useState<'muayene_kabul' | 'yaklasik_maliyet' | 'piyasa_satinalma'>('muayene_kabul');
+  const [procurementRefDraft, setProcurementRefDraft] = useState('');
+  const [quotePurpose, setQuotePurpose] = useState<'bid' | 'market_research'>('bid');
   const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(false);
   const [confirmReleaseAllOpen, setConfirmReleaseAllOpen] = useState(false);
   const [confirmAutoAwardOpen, setConfirmAutoAwardOpen] = useState(false);
@@ -215,7 +220,14 @@ export default function DtFileDetailPage() {
         apiFetch<{ items: DocItem[] }>(dtUrl(`/dogrudan-temin/files/${id}/docs`, me?.role, schoolId), { token: token! }),
         apiFetch<DtRules>(dtUrl('/dogrudan-temin/rules', me?.role, schoolId), { token: token! }),
         apiFetch<{ items: DtPaymentRow[] }>(dtUrl(`/dogrudan-temin/files/${id}/payments`, me?.role, schoolId), { token: token! }),
-        apiFetch<{ commission: DtAcceptanceCommission | null; members: DtAcceptanceCommissionMember[] }>(dtUrl(`/dogrudan-temin/files/${id}/commission`, me?.role, schoolId), { token: token! }).catch(() => ({ commission: null, members: [] })),
+        apiFetch<{ commission: DtAcceptanceCommission | null; members: DtAcceptanceCommissionMember[] }>(
+          dtUrl(
+            `/dogrudan-temin/files/${id}/commission?kind=${encodeURIComponent(commissionKind)}`,
+            me?.role,
+            schoolId,
+          ),
+          { token: token! },
+        ).catch(() => ({ commission: null, members: [] })),
       ]);
       setFile(f);
       setItems(it.items ?? []);
@@ -243,7 +255,7 @@ export default function DtFileDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [canFetch, id, me?.role, schoolId, token]);
+  }, [canFetch, commissionKind, id, me?.role, schoolId, token]);
 
   const blockBudget = useCallback(async () => {
     if (!token) return;
@@ -304,6 +316,10 @@ export default function DtFileDetailPage() {
   }, [fetchAll]);
 
   useEffect(() => {
+    if (file?.id) setProcurementRefDraft(String(file.procurementRef ?? '').trim());
+  }, [file?.id, file?.procurementRef]);
+
+  useEffect(() => {
     if (!token) return;
     if (isSuperadmin && !schoolId) {
       setLoading(false);
@@ -342,7 +358,7 @@ export default function DtFileDetailPage() {
   }, [fetchAll, id, isSuperadmin, me?.role, schoolId, token]);
 
   const generateDoc = useCallback(
-    async (doc_type: 'ihtiyac_listesi' | 'teklif_isteme' | 'karar' | 'sozlesme', vendor_id?: string) => {
+    async (doc_type: string, vendor_id?: string) => {
       if (!token) return;
       if (isSuperadmin && !schoolId) return;
       setBusy(true);
@@ -469,10 +485,11 @@ export default function DtFileDetailPage() {
       await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/quotes`, me?.role, schoolId), {
         token,
         method: 'POST',
-        body: JSON.stringify({ vendor_id: quoteVendorId }),
+        body: JSON.stringify({ vendor_id: quoteVendorId, purpose: quotePurpose }),
       });
       setQuoteOpen(false);
       setQuoteVendorId('');
+      setQuotePurpose('bid');
       await fetchAll();
       toast.success('Teklif kaydı oluşturuldu.');
     } catch (e) {
@@ -480,7 +497,66 @@ export default function DtFileDetailPage() {
     } finally {
       setBusy(false);
     }
-  }, [fetchAll, id, isSuperadmin, me?.role, quoteVendorId, schoolId, token, vendors.length]);
+  }, [fetchAll, id, isSuperadmin, me?.role, quotePurpose, quoteVendorId, schoolId, token, vendors.length]);
+
+  const copyResearchQuotesToBid = useCallback(async () => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiFetch<{ created: number }>(
+        dtUrl(`/dogrudan-temin/files/${id}/quotes/copy-research-to-bid`, me?.role, schoolId),
+        { token, method: 'POST', body: '{}' },
+      );
+      toast.success(`Kopyalandı: ${res.created ?? 0} teklif`);
+      await fetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [fetchAll, id, isSuperadmin, me?.role, schoolId, token]);
+
+  const syncCommissionFromApprox = useCallback(async () => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/commissions/sync`, me?.role, schoolId), {
+        token,
+        method: 'POST',
+        body: JSON.stringify({ from_kind: 'yaklasik_maliyet', to_kinds: ['piyasa_satinalma', 'muayene_kabul'] }),
+      });
+      toast.success('Komisyon üyeleri kopyalandı.');
+      await fetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [fetchAll, id, isSuperadmin, me?.role, schoolId, token]);
+
+  const saveProcurementRef = useCallback(async () => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}`, me?.role, schoolId), {
+        token,
+        method: 'PATCH',
+        body: JSON.stringify({ procurement_ref: procurementRefDraft.trim() || null }),
+      });
+      toast.success('İhale kayıt no güncellendi.');
+      await fetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [fetchAll, id, isSuperadmin, me?.role, procurementRefDraft, schoolId, token]);
 
   const fetchQuoteItems = useCallback(
     async (qid: string) => {
@@ -609,6 +685,7 @@ export default function DtFileDetailPage() {
         body: JSON.stringify({
           chairman_user_id: commissionForm.chairman_user_id.trim() || null,
           dt_file_id: id,
+          kind: commissionKind,
         }),
       });
       setCommissionForm({ chairman_user_id: '', member_title: '' });
@@ -619,7 +696,7 @@ export default function DtFileDetailPage() {
     } finally {
       setBusy(false);
     }
-  }, [fetchAll, id, isSuperadmin, me?.role, schoolId, token, commissionForm.chairman_user_id]);
+  }, [commissionForm.chairman_user_id, commissionKind, fetchAll, id, isSuperadmin, me?.role, schoolId, token]);
 
   const addCommissionMember = useCallback(async () => {
     if (!token || !commission) return;
@@ -784,6 +861,18 @@ export default function DtFileDetailPage() {
                   <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">{file.paymentTotal ?? '—'}</div>
                 </div>
               </div>
+              <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t">
+                <span className="text-[11px] text-muted-foreground">İhale kayıt no</span>
+                <Input
+                  value={procurementRefDraft}
+                  onChange={(e) => setProcurementRefDraft(e.target.value)}
+                  className="h-8 max-w-[220px] text-xs"
+                  placeholder="örn. 2025/12"
+                />
+                <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void saveProcurementRef()}>
+                  Kaydet
+                </Button>
+              </div>
             </CardHeader>
           </Card>
 
@@ -944,13 +1033,17 @@ export default function DtFileDetailPage() {
           {activeTab === 'quotes' && (
           <Card>
             <CardHeader className="py-3">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
                 <CardTitle className="flex items-center gap-2 text-sm">
                   <Handshake className="size-4 text-sky-600" />
                   Teklifler
                   <DtInfoHint title={DT_SECTION_HINTS.quotes} />
                 </CardTitle>
-                <Dialog open={quoteOpen} onOpenChange={setQuoteOpen}>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void copyResearchQuotesToBid()}>
+                    Araştırmayı teklife aktar
+                  </Button>
+                  <Dialog open={quoteOpen} onOpenChange={setQuoteOpen}>
                   <DialogTrigger asChild>
                     <Button variant="outline" size="sm" disabled={busy}>
                       Teklif ekle
@@ -958,6 +1051,17 @@ export default function DtFileDetailPage() {
                   </DialogTrigger>
                   <DialogContent className="max-w-lg" title="Yeni teklif kaydı">
                     <div className="space-y-3">
+                      <div className="space-y-1">
+                        <div className="text-[11px] text-muted-foreground">Amaç</div>
+                        <select
+                          value={quotePurpose}
+                          onChange={(e) => setQuotePurpose(e.target.value as 'bid' | 'market_research')}
+                          className="mt-0.5 w-full rounded border border-input bg-background px-2 py-1 text-xs"
+                        >
+                          <option value="bid">Teklif / ihale</option>
+                          <option value="market_research">Fiyat araştırması</option>
+                        </select>
+                      </div>
                       <div className="space-y-1">
                         <div className="text-[11px] text-muted-foreground">Firma</div>
                         <select
@@ -984,6 +1088,7 @@ export default function DtFileDetailPage() {
                     </div>
                   </DialogContent>
                 </Dialog>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="pt-0 space-y-2">
@@ -1005,6 +1110,11 @@ export default function DtFileDetailPage() {
                           }`}
                         >
                           <span>{v?.title ?? q.vendorId.slice(0, 8)}</span>
+                          {q.purpose === 'market_research' ? (
+                            <span className="rounded px-1 py-0.5 text-[9px] font-semibold border border-slate-300 bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                              Araştırma
+                            </span>
+                          ) : null}
                           <span
                             className={`rounded px-1 py-0.5 text-[9px] font-semibold border ${dtQuoteStatusChipClass(q.status)}`}
                             title={dtQuoteStatusHint(q.status)}
@@ -1305,13 +1415,26 @@ export default function DtFileDetailPage() {
 
           {activeTab === 'commission' && (
           <Card>
-            <CardHeader className="py-3">
-              <div className="flex items-center justify-between gap-2">
+            <CardHeader className="py-3 space-y-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <CardTitle className="flex items-center gap-2 text-sm">
                   <Users className="size-4 text-violet-600" />
-                  Kabul komisyonu
+                  Komisyonlar
                   <DtInfoHint title={DT_SECTION_HINTS.commission} />
                 </CardTitle>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={commissionKind}
+                    onChange={(e) => setCommissionKind(e.target.value as typeof commissionKind)}
+                    className="h-8 rounded border border-input bg-background px-2 text-xs"
+                  >
+                    <option value="yaklasik_maliyet">Yaklaşık maliyet</option>
+                    <option value="piyasa_satinalma">Piyasa / satın alma</option>
+                    <option value="muayene_kabul">Muayene / kabul</option>
+                  </select>
+                  <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void syncCommissionFromApprox()}>
+                    Yaklaşıktan kopyala
+                  </Button>
                 {commission ? (
                   <Dialog open={commissionDialogOpen} onOpenChange={setCommissionDialogOpen}>
                     <DialogTrigger asChild>
@@ -1380,6 +1503,7 @@ export default function DtFileDetailPage() {
                     </DialogContent>
                   </Dialog>
                 )}
+                </div>
               </div>
             </CardHeader>
             <CardContent className="pt-0 space-y-2">
@@ -1437,8 +1561,8 @@ export default function DtFileDetailPage() {
 
           {activeTab === 'docs' && (
           <Card>
-            <CardHeader className="py-3">
-              <div className="flex items-center justify-between gap-2">
+            <CardHeader className="py-3 space-y-2">
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                 <CardTitle className="flex items-center gap-2 text-sm">
                   <FileStack className="size-4 text-slate-600" />
                   Belgeler
@@ -1480,6 +1604,23 @@ export default function DtFileDetailPage() {
                     Sözleşme
                   </Button>
                 </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('komisyon_onay')}>
+                  Komisyon onay
+                </Button>
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('onay_belgesi')}>
+                  Onay belgesi
+                </Button>
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('piyasa_arastirma_tutanagi')}>
+                  Piyasa tutanağı
+                </Button>
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('yaklasik_maliyet_cetveli')}>
+                  Yaklaşık maliyet cetveli
+                </Button>
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('muayene_kabul_tutanagi')}>
+                  Muayene kabul
+                </Button>
               </div>
             </CardHeader>
             <CardContent className="pt-0">

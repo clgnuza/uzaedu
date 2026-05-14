@@ -102,6 +102,11 @@ const DOC_TYPES: Record<string, string> = {
   teklif_isteme: 'Teklif isteme yazısı',
   karar: 'Doğrudan temin kararı',
   sozlesme: 'Sözleşme taslağı',
+  komisyon_onay: 'Komisyon onay listesi',
+  onay_belgesi: 'Onay belgesi',
+  piyasa_arastirma_tutanagi: 'Piyasa araştırma tutanağı',
+  yaklasik_maliyet_cetveli: 'Yaklaşık maliyet cetveli',
+  muayene_kabul_tutanagi: 'Muayene ve kabul tutanağı',
 };
 
 export function dtDocTypeLabel(docType: string | null | undefined): string {

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
@@ -36,6 +36,10 @@ import {
   GenerateDtPaymentOrderDto,
   DtDashboardQueryDto,
   GetDtBudgetHierarchyDto,
+  ListDtQuotesQueryDto,
+  PatchDtSchoolProcurementSettingsDto,
+  PutDtDocumentRegistryDto,
+  SyncDtCommissionDto,
 } from './dto/dt.dto';
 
 @Controller('dogrudan-temin')
@@ -51,6 +55,22 @@ export class DogrudanTeminController {
     }
     if (!p.schoolId) throw new BadRequestException({ code: 'NO_SCHOOL' });
     return p.schoolId;
+  }
+
+  @Get('school-settings')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  getSchoolProcurementSettings(@CurrentUser() p: CurrentUserPayload, @Query('school_id') sid?: string) {
+    return this.svc.getSchoolProcurementSettings(this.sid(p, sid));
+  }
+
+  @Patch('school-settings')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  patchSchoolProcurementSettings(
+    @CurrentUser() p: CurrentUserPayload,
+    @Body() dto: PatchDtSchoolProcurementSettingsDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.patchSchoolProcurementSettings(this.sid(p, sid), dto);
   }
 
   @Get('rules')
@@ -174,8 +194,19 @@ export class DogrudanTeminController {
 
   @Get('files/:id/quotes')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
-  listQuotes(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
-    return this.svc.listQuotes(this.sid(p, sid), id);
+  listQuotes(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Query() q: ListDtQuotesQueryDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.listQuotes(this.sid(p, sid), id, q.purpose);
+  }
+
+  @Post('files/:id/quotes/copy-research-to-bid')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  copyResearchQuotesToBid(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.copyResearchQuotesToBid(this.sid(p, sid), p.userId, id);
   }
 
   @Post('files/:id/quotes')
@@ -321,6 +352,23 @@ export class DogrudanTeminController {
     return this.svc.generateDocForFile(this.sid(p, sid), p.userId, id, dto);
   }
 
+  @Get('files/:id/document-registry')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  listDocumentRegistry(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.listDocumentRegistry(this.sid(p, sid), id);
+  }
+
+  @Put('files/:id/document-registry')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  putDocumentRegistry(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: PutDtDocumentRegistryDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.putDocumentRegistry(this.sid(p, sid), p.userId, id, dto);
+  }
+
   @Get('materials/categories')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   listMaterialCategories(@CurrentUser() p: CurrentUserPayload, @Query('school_id') sid?: string) {
@@ -359,8 +407,19 @@ export class DogrudanTeminController {
 
   @Get('files/:id/commission')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
-  getAcceptanceCommission(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
-    return this.svc.getAcceptanceCommission(this.sid(p, sid), id);
+  getAcceptanceCommission(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Query('kind') kind?: string,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.getAcceptanceCommission(this.sid(p, sid), id, kind);
+  }
+
+  @Get('files/:id/commissions')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  listCommissionsByFile(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.listCommissionsByFile(this.sid(p, sid), id);
   }
 
   @Post('files/:id/commission')
@@ -372,6 +431,17 @@ export class DogrudanTeminController {
     @Query('school_id') sid?: string,
   ) {
     return this.svc.createAcceptanceCommission(this.sid(p, sid), p.userId, { ...dto, dt_file_id: id });
+  }
+
+  @Post('files/:id/commissions/sync')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  syncCommissionMembers(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: SyncDtCommissionDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.syncCommissionMembers(this.sid(p, sid), p.userId, id, dto);
   }
 
   @Post('commission/:commissionId/members')

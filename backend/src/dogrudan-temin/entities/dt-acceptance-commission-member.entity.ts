@@ -14,6 +14,9 @@ export class DtAcceptanceCommissionMember {
   @Column({ type: 'varchar', length: 128, nullable: true })
   title: string | null;
 
+  @Column({ name: 'duty_label', type: 'varchar', length: 128, nullable: true })
+  dutyLabel: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

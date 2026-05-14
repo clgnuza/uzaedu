@@ -11,6 +11,9 @@ export class DtAcceptanceCommission {
   @Column({ name: 'dt_file_id', type: 'uuid' })
   dtFileId: string;
 
+  @Column({ type: 'varchar', length: 32, default: 'muayene_kabul' })
+  kind: string;
+
   @Column({ name: 'chairman_user_id', type: 'uuid', nullable: true })
   chairmanUserId: string | null;
 
