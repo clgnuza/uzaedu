@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import {
+  Archive,
   ArrowLeft,
   Briefcase,
   CalendarDays,
@@ -37,6 +38,7 @@ type Calc = {
   };
   rules_snapshot: Record<string, unknown>;
   finalized_at: string | null;
+  archived_at?: string | null;
 };
 
 function kindLabelTr(k: string): string {
@@ -146,21 +148,29 @@ export default function YollukBenimDetayPage() {
               </div>
             </div>
             {c && (
-              <span
-                className={cn(
-                  'inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold sm:text-xs',
-                  c.status === 'final'
-                    ? 'bg-emerald-500/15 text-emerald-800 ring-1 ring-emerald-500/25 dark:text-emerald-200'
-                    : 'bg-amber-500/12 text-amber-900 ring-1 ring-amber-500/20 dark:text-amber-100',
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                <span
+                  className={cn(
+                    'inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold sm:text-xs',
+                    c.status === 'final'
+                      ? 'bg-emerald-500/15 text-emerald-800 ring-1 ring-emerald-500/25 dark:text-emerald-200'
+                      : 'bg-amber-500/12 text-amber-900 ring-1 ring-amber-500/20 dark:text-amber-100',
+                  )}
+                >
+                  {c.status === 'final' ? (
+                    <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden />
+                  ) : (
+                    <ClipboardList className="size-3.5 text-amber-600 dark:text-amber-400" aria-hidden />
+                  )}
+                  {c.status === 'final' ? 'Kesinleşti' : 'Taslak'}
+                </span>
+                {c.archived_at && c.status === 'final' && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-500/15 px-2.5 py-1 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-500/25 dark:text-slate-200 sm:text-xs">
+                    <Archive className="size-3.5 text-slate-600 dark:text-slate-400" aria-hidden />
+                    Arşiv
+                  </span>
                 )}
-              >
-                {c.status === 'final' ? (
-                  <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden />
-                ) : (
-                  <ClipboardList className="size-3.5 text-amber-600 dark:text-amber-400" aria-hidden />
-                )}
-                {c.status === 'final' ? 'Kesinleşti' : 'Taslak'}
-              </span>
+              </div>
             )}
           </div>
           <div className="flex flex-wrap gap-1.5 text-[11px] text-muted-foreground sm:text-xs">

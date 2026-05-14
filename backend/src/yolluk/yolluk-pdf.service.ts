@@ -749,32 +749,32 @@ export class YollukPdfService {
       yl(42.12),
       yl(113.78),
       xMid2 - xMid1,
-      10,
+      11.5,
       fontBold,
       ink,
     );
 
     /* sol üst alan metinleri */
-    drawTxt('Adı - Soyadı', x0 + 0.5, 45.8, 7.5, fontBold, muted);
-    drawTxt((data.teacherName || '—').slice(0, 48), 225, 45.8, 8, font);
-    drawTxt('Ünvanı', x0 + 0.5, 64.7, 7.5, fontBold, muted);
+    drawTxt('Adı - Soyadı', x0 + 0.5, 45.8, 8.25, fontBold, muted);
+    drawTxt((data.teacherName || '—').slice(0, 48), 225, 45.8, 9, font);
+    drawTxt('Ünvanı', x0 + 0.5, 64.7, 8.25, fontBold, muted);
     const unvanPdf = str(inp.unvan) || 'Öğretmen';
-    drawTxt(unvanPdf.slice(0, 40), 225, 64.4, 8, font);
-    drawTxt('Aylık Kadro Derecesi ve Ek Göstergesi', x0 + 0.5, 83.5, 7, fontBold, muted);
-    drawTxt(kadroHucresi.slice(0, 56), 225, 83.5, 7.5, font);
-    drawTxt('Gündeliği', x0 + 0.5, 102.6, 7.5, fontBold, muted);
-    drawTxt(fmtTrTl(eff), 225, 102.6, 8, fontBold, ink, leftBoxR - 2 - 225);
+    drawTxt(unvanPdf.slice(0, 40), 225, 64.4, 9, font);
+    drawTxt('Aylık Kadro Derecesi ve Ek Göstergesi', x0 + 0.5, 83.5, 7.75, fontBold, muted);
+    drawTxt(kadroHucresi.slice(0, 56), 225, 83.5, 8.25, font);
+    drawTxt('Gündeliği', x0 + 0.5, 102.6, 8.25, fontBold, muted);
+    drawTxt(fmtTrTl(eff), 225, 102.6, 9, fontBold, ink, leftBoxR - 2 - 225);
 
     /* sağ üst */
-    drawTxt('Dairesi', 551.3, 46.1, 7, fontBold, muted);
-    drawTxtR(truncateTextToWidth(font, (data.schoolName || '—').slice(0, 40), 8, 260), 552, xR - 6, 46.1, 8, font);
-    drawTxt('Bütçe Yılı', 551.3, 65, 7, fontBold, muted);
-    drawTxt(fiscalStr, 766.4, 65, 8, font);
-    drawTxt('Önceden Avans almışsa Aldığı', 551.3, 81.1, 6.5, fontBold, muted);
-    drawTxt('Saymanlık ve Tarihi', 551.3, 90.1, 6.5, fontBold, muted);
-    drawTxt(metaScalar(meta.avans_durumu) || metaScalar(meta['avansDurumu']) || '—', 735, 85.3, 7.5, font);
-    drawTxt('Atama Tarihi', 551.3, 103.3, 7, fontBold, muted);
-    drawTxt(metaScalar(meta.atama_tarihi) || metaScalar(meta['atamaTarihi']) || '—', 742.2, 103.3, 7.5, font);
+    drawTxt('Dairesi', 551.3, 46.1, 7.75, fontBold, muted);
+    drawTxtR(truncateTextToWidth(font, (data.schoolName || '—').slice(0, 40), 8.75, 260), 552, xR - 6, 46.1, 8.75, font);
+    drawTxt('Bütçe Yılı', 551.3, 65, 7.75, fontBold, muted);
+    drawTxt(fiscalStr, 766.4, 65, 9, font);
+    drawTxt('Önceden Avans almışsa Aldığı', 551.3, 81.1, 7, fontBold, muted);
+    drawTxt('Saymanlık ve Tarihi', 551.3, 90.1, 7, fontBold, muted);
+    drawTxt(metaScalar(meta.avans_durumu) || metaScalar(meta['avansDurumu']) || '—', 735, 85.3, 8.25, font);
+    drawTxt('Atama Tarihi', 551.3, 103.3, 7.75, fontBold, muted);
+    drawTxt(metaScalar(meta.atama_tarihi) || metaScalar(meta['atamaTarihi']) || '—', 742.2, 103.3, 8.25, font);
 
     /* tablo başlıkları — birleşik üst satır + alt başlıklar (orta hizalı) */
     drawLinesCenteredInBand(page, ['Nereden      /       Nereye', 'Gidildiği'], x0, yl(115.1), yl(yBodyTopF), xN - x0, 5.2, fontBold, ink);
@@ -912,7 +912,7 @@ export class YollukPdfService {
     const ibanNorm = ibanRaw.replace(/\s/g, '').toUpperCase();
     const sn = (data.schoolName || '').trim();
     const daire = (
-      sn ? `${sn} Okul Müdürlüğü` : strInp(gb.dairesi) || strInp(rawBild?.dairesi) || '—'
+      sn ? `${sn} Müdürlüğü` : strInp(gb.dairesi) || strInp(rawBild?.dairesi) || '—'
     ).slice(0, 100);
     const birimRaw = strInp(gb.birim_yetkilisi_unvan) || strInp(rawBild?.birim_yetkilisi_unvan);
     const parsedYet = parseBirimYetkilisi(birimRaw);
@@ -974,8 +974,8 @@ export class YollukPdfService {
 
       drawRect(page, xL, yTop, wL, bandH, stroke);
       for (let k = 1; k < 4; k++) drawHLine(page, xL, xL + wL, yTop - k * row4, stroke);
-      const labSize = 6.5;
-      const valSize = 8;
+      const labSize = 7.25;
+      const valSize = 9;
       const labPad = 3;
       const labGap = 5;
       const labelRows: [string, string][] = [
@@ -1008,17 +1008,23 @@ export class YollukPdfService {
         yTop,
         yTop - bandH,
         wC,
-        10,
+        11.5,
         fontBold,
         ink,
       );
 
       drawRect(page, xR, yTop, wR, bandH, stroke);
       drawHLine(page, xR, xR + wR, yTop - bandH / 2, stroke);
-      page.drawText('Dairesi:', { x: xR + 3, y: yTop - 10, size: 6.5, font: fontBold, color: muted });
-      page.drawText(daire.slice(0, 46), { x: xR + 46, y: yTop - 10, size: 7.5, font, color: ink });
-      page.drawText('Bütçe Yılı:', { x: xR + 3, y: yTop - 10 - bandH / 2, size: 6.5, font: fontBold, color: muted });
-      page.drawText(fiscalStr, { x: xR + 58, y: yTop - 10 - bandH / 2, size: 8, font, color: ink });
+      const lblRSz = 7.25;
+      const daireLbl = 'Dairesi:';
+      const wDaireLbl = fontBold.widthOfTextAtSize(daireLbl, lblRSz);
+      page.drawText(daireLbl, { x: xR + 3, y: yTop - 10, size: lblRSz, font: fontBold, color: muted });
+      page.drawText(daire.slice(0, 48), { x: xR + 3 + wDaireLbl + 3, y: yTop - 10, size: 8.75, font, color: ink });
+      const yRBy = yTop - 10 - bandH / 2;
+      const byLbl = 'Bütçe Yılı:';
+      const wByLbl = fontBold.widthOfTextAtSize(byLbl, lblRSz);
+      page.drawText(byLbl, { x: xR + 3, y: yRBy, size: lblRSz, font: fontBold, color: muted });
+      page.drawText(fiscalStr, { x: xR + 3 + wByLbl + 3, y: yRBy, size: 9.25, font, color: ink });
 
       return yTop - bandH - 10;
     };
@@ -1225,19 +1231,30 @@ export class YollukPdfService {
           if (v > 1e-9) yRow = drawOzetMasrafTableRow(page, yRow, rhOzet, lab, v);
         }
         yRow = drawGrandTotalRow(page, yRow, rowH + 2);
-        let yf = yRow - 10;
+        const gapAfterTable = 18;
+        let yf = yRow - gapAfterTable;
         if (ibanNorm.length >= 10) {
-          const ibSize = 6.8;
+          const ibSize = 7;
           const ibW = Math.max(100, tableRight - m - 8);
           const ibSpaced = ibanNorm.replace(/(.{4})/g, '$1 ').trim();
-          const ibLines = wrapWords(`İBAN: ${ibSpaced}`, ibSize, ibW);
-          const ibLh = ibSize + 2;
-          let yI = yRow - 6;
-          for (const ln of ibLines) {
-            page.drawText(ln, { x: m + 2, y: yI, size: ibSize, font, color: muted });
+          const who =
+            ad && ad !== '—' && String(ad).trim()
+              ? `${String(ad).trim()} adlı personelin`
+              : 'ilgili personelin';
+          const payNote = `Ödeme: Yukarıda genel toplamı gösterilen geçici görev yolluk bedeli; ${who} aşağıda Uluslararası Banka Hesap Numarası (IBAN) ile belirtilen hesabına ödenmesi talep olunur.`;
+          const payLines = wrapWords(payNote, ibSize, ibW);
+          const ibanLines = wrapWords(`IBAN: ${ibSpaced}`, ibSize, ibW);
+          const ibLh = ibSize + 2.5;
+          let yI = yRow - gapAfterTable;
+          for (const ln of payLines) {
+            page.drawText(ln, { x: m + 2, y: yI, size: ibSize, font, color: ink });
             yI -= ibLh;
           }
-          yf = yI - 6;
+          for (const ln of ibanLines) {
+            page.drawText(ln, { x: m + 2, y: yI, size: ibSize, font: fontBold, color: ink });
+            yI -= ibLh;
+          }
+          yf = yI - 10;
         }
         const s8 = 8;
         const beyanPad = 4;

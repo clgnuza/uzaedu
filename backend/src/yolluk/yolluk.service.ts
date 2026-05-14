@@ -437,7 +437,7 @@ export class YollukService {
   private assertCanRead(actor: User, c: YollukCalculation) {
     if (actor.role === UserRole.superadmin) return;
     if (actor.role === UserRole.school_admin && actor.school_id === c.school_id) return;
-    if (actor.role === UserRole.teacher && actor.id === c.teacher_user_id && c.status === 'final' && !c.archived_at) {
+    if (actor.role === UserRole.teacher && actor.id === c.teacher_user_id && c.status === 'final') {
       return;
     }
     throw new ForbiddenException();
@@ -481,7 +481,6 @@ export class YollukService {
       where: {
         teacher_user_id: actor.id,
         status: 'final' as YollukCalculationStatus,
-        archived_at: IsNull(),
       },
       order: { finalized_at: 'DESC', created_at: 'DESC' },
       take: 100,
@@ -491,12 +490,7 @@ export class YollukService {
   private assertCanPdf(actor: User, c: YollukCalculation) {
     if (actor.role === UserRole.superadmin) return;
     if (actor.role === UserRole.school_admin && actor.school_id === c.school_id) return;
-    if (
-      actor.role === UserRole.teacher &&
-      actor.id === c.teacher_user_id &&
-      c.status === 'final' &&
-      !c.archived_at
-    ) {
+    if (actor.role === UserRole.teacher && actor.id === c.teacher_user_id && c.status === 'final') {
       return;
     }
     throw new ForbiddenException();
@@ -644,15 +638,15 @@ export class YollukService {
     const principal = (belgeMudurAdi.trim() || (school.principalName ?? '').trim());
     let dairesi = '';
     if (name) {
-      dairesi = `${name} Okul Müdürlüğü`;
+      dairesi = `${name} Müdürlüğü`;
     } else if (district && city) {
-      dairesi = `${district} / ${city} Okul Müdürlüğü`;
+      dairesi = `${district} / ${city} Müdürlüğü`;
     } else if (district) {
-      dairesi = `${district} Okul Müdürlüğü`;
+      dairesi = `${district} Müdürlüğü`;
     } else if (city) {
-      dairesi = `${city} Okul Müdürlüğü`;
+      dairesi = `${city} Müdürlüğü`;
     } else {
-      dairesi = 'Okul Müdürlüğü';
+      dairesi = 'Müdürlüğü';
     }
     const birim_yetkilisi_unvan = principal ? `Okul müdürü (${principal})` : 'Okul müdürü';
     let gorev_yeri = '';

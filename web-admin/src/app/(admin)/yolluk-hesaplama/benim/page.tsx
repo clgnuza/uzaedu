@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
+  Archive,
   Briefcase,
   CalendarDays,
   CheckCircle2,
@@ -33,6 +34,7 @@ type Calc = {
   title: string | null;
   result: { total_tl?: number; lines?: { key: string; label: string; amount_tl: number }[] };
   finalized_at: string | null;
+  archived_at?: string | null;
 };
 
 function kindLabelTr(k: string): string {
@@ -231,6 +233,7 @@ export default function YollukBenimPage() {
                         <p className="text-sm font-semibold leading-snug text-foreground sm:text-[15px]">
                           {c.title?.trim() || kindLabelTr(c.kind)}
                         </p>
+                      <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
                         <span
                           className={cn(
                             'inline-flex shrink-0 items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold sm:text-[11px]',
@@ -246,6 +249,13 @@ export default function YollukBenimPage() {
                           )}
                           {c.status === 'final' ? 'Kesin' : 'Taslak'}
                         </span>
+                        {c.archived_at && c.status === 'final' && (
+                          <span className="inline-flex items-center gap-0.5 rounded-full bg-slate-500/15 px-2 py-0.5 text-[10px] font-semibold text-slate-800 ring-1 ring-slate-500/25 dark:text-slate-200 sm:text-[11px]">
+                            <Archive className="size-3 text-slate-600 dark:text-slate-400" aria-hidden />
+                            Arşiv
+                          </span>
+                        )}
+                      </div>
                       </div>
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
                         <span
