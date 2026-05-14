@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -29,6 +29,9 @@ import {
   Landmark,
   FileStack,
   FileText,
+  Library,
+  Pencil,
+  Trash2,
   type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -39,9 +42,11 @@ import { SchoolSelectWithFilter } from '@/components/school-select-with-filter';
 import {
   DT_DETAIL_TABS,
   DT_INPUT_SM,
+  DT_ITEM_UNIT_PRESETS,
   DT_LEGAL_NOTICE,
   DT_SECTION_HINTS,
   DT_TEXTAREA_SM,
+  DT_UNIT_SELECT_CUSTOM,
   type DtDetailTabId,
   dtBudgetBlockStatusLabel,
   dtDocTypeLabel,
@@ -52,6 +57,7 @@ import {
   dtQuoteStatusChipClass,
   dtQuoteStatusHint,
   dtQuoteStatusLabel,
+  dtStripNumericTrailingZeros,
   dtTeminTypeLabel,
 } from '@/lib/dt-ui';
 import { DtInfoHint } from '@/components/dogrudan-temin/dt-info-hint';
@@ -82,9 +88,83 @@ type DtItem = {
   estimatedUnitPrice: string | null;
 };
 
+type MatLibRow = {
+  id: string;
+  code: string;
+  name: string;
+  unit: string | null;
+  vatRate: number;
+  description?: string | null;
+};
+
 type VendorItem = { id: string; title: string };
 type Quote = { id: string; vendorId: string; status: string; purpose?: string };
 type QuoteItem = { id: string; quoteId: string; dtItemId: string; unitPrice: string };
+
+function normalizeQuotePurpose(p: string | null | undefined): 'bid' | 'market_research' {
+  return p === 'market_research' ? 'market_research' : 'bid';
+}
+
+/** Firma bazlı sabit pastel kart (aynı vendorId her zaman aynı ton). */
+function vendorQuoteCardShell(vendorId: string): string {
+  const shells = [
+    'rounded-lg border shadow-sm border-violet-200/90 bg-violet-50/95 dark:border-violet-800/55 dark:bg-violet-950/45',
+    'rounded-lg border shadow-sm border-teal-200/90 bg-teal-50/95 dark:border-teal-800/55 dark:bg-teal-950/45',
+    'rounded-lg border shadow-sm border-rose-200/90 bg-rose-50/95 dark:border-rose-800/55 dark:bg-rose-950/45',
+    'rounded-lg border shadow-sm border-cyan-200/90 bg-cyan-50/95 dark:border-cyan-800/55 dark:bg-cyan-950/45',
+    'rounded-lg border shadow-sm border-fuchsia-200/90 bg-fuchsia-50/90 dark:border-fuchsia-800/55 dark:bg-fuchsia-950/40',
+    'rounded-lg border shadow-sm border-lime-200/90 bg-lime-50/88 dark:border-lime-800/55 dark:bg-lime-950/38',
+  ];
+  let h = 0;
+  for (let i = 0; i < vendorId.length; i++) h = (h * 31 + vendorId.charCodeAt(i)) >>> 0;
+  return `${shells[h % shells.length]} space-y-2 p-3`;
+}
+
+function DtItemUnitSelect({ value, onChange }: { value: string; onChange: (u: string) => void }) {
+  const [otherOpen, setOtherOpen] = useState(false);
+  const presets = DT_ITEM_UNIT_PRESETS as readonly string[];
+  const trimmed = value.trim();
+  const inList = (presets as readonly string[]).includes(trimmed);
+  const selectValue = inList ? trimmed : !trimmed && !otherOpen ? '' : DT_UNIT_SELECT_CUSTOM;
+
+  return (
+    <div className="space-y-1.5">
+      <select
+        className={cn('h-9 w-full rounded border border-input bg-background px-2 text-xs')}
+        value={selectValue}
+        onChange={(e) => {
+          const nv = e.target.value;
+          if (nv === '') {
+            onChange('');
+            setOtherOpen(false);
+          } else if (nv === DT_UNIT_SELECT_CUSTOM) {
+            onChange('');
+            setOtherOpen(true);
+          } else {
+            onChange(nv);
+            setOtherOpen(false);
+          }
+        }}
+      >
+        <option value="">— Birim —</option>
+        {presets.map((u) => (
+          <option key={u} value={u}>
+            {u}
+          </option>
+        ))}
+        <option value={DT_UNIT_SELECT_CUSTOM}>Diğer…</option>
+      </select>
+      {!inList && !!(trimmed || otherOpen) && (
+        <Input
+          className={DT_INPUT_SM}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Birim yazın"
+        />
+      )}
+    </div>
+  );
+}
 type DocItem = { id: string; docType: string; fileFormat: string; filename: string; createdAt: string };
 type BudgetAccount = {
   id: string;
@@ -134,6 +214,8 @@ type DtAcceptanceCommissionMember = {
   title: string | null;
 };
 
+type CommissionTeacherOption = { id: string; display_name?: string | null; email?: string | null };
+
 type RegistryEntry = {
   stage: string;
   docDate: string | null;
@@ -172,7 +254,14 @@ export default function DtFileDetailPage() {
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [quoteVendorId, setQuoteVendorId] = useState('');
   const [quoteItems, setQuoteItems] = useState<Record<string, QuoteItem[]>>({});
+  const quoteItemsLoadedRef = useRef<Set<string>>(new Set());
   const [priceDraft, setPriceDraft] = useState<Record<string, Record<string, string>>>({});
+
+  useEffect(() => {
+    quoteItemsLoadedRef.current = new Set();
+    setQuoteItems({});
+    setPriceDraft({});
+  }, [id]);
   const [docs, setDocs] = useState<DocItem[]>([]);
   const [docVendorId, setDocVendorId] = useState('');
   const [docFormat, setDocFormat] = useState<'docx' | 'pdf'>('docx');
@@ -201,12 +290,33 @@ export default function DtFileDetailPage() {
     vat_rate: '20',
     estimated_unit_price: '',
   });
+  const [libSearch, setLibSearch] = useState('');
+  const [libRows, setLibRows] = useState<MatLibRow[]>([]);
+  const [libLoading, setLibLoading] = useState(false);
+  const [libStaged, setLibStaged] = useState<Array<{ row: MatLibRow; qty: string }>>([]);
+  const [editItemId, setEditItemId] = useState<string | null>(null);
+  const [editItemForm, setEditItemForm] = useState({
+    name: '',
+    spec: '',
+    qty: '1',
+    unit: '',
+    vat_rate: '20',
+    estimated_unit_price: '',
+  });
   const [commission, setCommission] = useState<DtAcceptanceCommission | null>(null);
   const [commissionMembers, setCommissionMembers] = useState<DtAcceptanceCommissionMember[]>([]);
   const [commissionsAll, setCommissionsAll] = useState<Array<{ kind: string }>>([]);
   const [activeTab, setActiveTab] = useState<DtDetailTabId>('items');
   const [wizardOpen, setWizardOpen] = useState(false);
-  const [commissionForm, setCommissionForm] = useState({ chairman_user_id: '', member_title: '' });
+  const [commissionTeachers, setCommissionTeachers] = useState<CommissionTeacherOption[]>([]);
+  const [commissionForm, setCommissionForm] = useState({
+    chairman_pick: '',
+    chairman_manual: '',
+    member_pick: '',
+    member_manual: '',
+    member_title: '',
+    apply_all_kinds: true,
+  });
   const [commissionDialogOpen, setCommissionDialogOpen] = useState(false);
   const [commissionKind, setCommissionKind] = useState<'muayene_kabul' | 'yaklasik_maliyet' | 'piyasa_satinalma'>('muayene_kabul');
   const [procurementRefDraft, setProcurementRefDraft] = useState('');
@@ -322,6 +432,27 @@ export default function DtFileDetailPage() {
       setLoading(false);
     }
   }, [canFetch, commissionKind, id, me?.role, schoolId, token]);
+
+  useEffect(() => {
+    if (!canFetch || activeTab !== 'commission') return;
+    if (isSuperadmin && !schoolId) return;
+    if (!token) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await apiFetch<{ items?: CommissionTeacherOption[] }>(
+          dtUrl('/dogrudan-temin/commission-teacher-options', me?.role, schoolId),
+          { token },
+        );
+        if (!cancelled) setCommissionTeachers(Array.isArray(res.items) ? res.items : []);
+      } catch {
+        if (!cancelled) setCommissionTeachers([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, canFetch, isSuperadmin, me?.role, schoolId, token]);
 
   const blockBudget = useCallback(async () => {
     if (!token) return;
@@ -481,10 +612,12 @@ export default function DtFileDetailPage() {
         body: JSON.stringify({
           name: itemForm.name,
           spec: itemForm.spec || null,
-          qty: itemForm.qty,
+          qty: dtStripNumericTrailingZeros(itemForm.qty.trim()) || itemForm.qty.trim(),
           unit: itemForm.unit || null,
           vat_rate: Number(itemForm.vat_rate || 20),
-          estimated_unit_price: itemForm.estimated_unit_price || null,
+          estimated_unit_price: itemForm.estimated_unit_price.trim()
+            ? dtStripNumericTrailingZeros(itemForm.estimated_unit_price.trim())
+            : null,
         }),
       });
       setAddOpen(false);
@@ -496,6 +629,142 @@ export default function DtFileDetailPage() {
       setBusy(false);
     }
   }, [fetchAll, id, isSuperadmin, itemForm.estimated_unit_price, itemForm.name, itemForm.qty, itemForm.spec, itemForm.unit, itemForm.vat_rate, me?.role, schoolId, token]);
+
+  useEffect(() => {
+    if (!addOpen || !token) return;
+    if (isSuperadmin && !schoolId) return;
+    const h = setTimeout(() => {
+      void (async () => {
+        setLibLoading(true);
+        try {
+          const qs = new URLSearchParams();
+          qs.set('limit', '120');
+          qs.set('skip', '0');
+          if (libSearch.trim()) qs.set('search', libSearch.trim());
+          const res = await apiFetch<{ items: MatLibRow[] }>(
+            dtUrl(`/dogrudan-temin/materials/library?${qs.toString()}`, me?.role, schoolId),
+            { token },
+          );
+          setLibRows(res.items ?? []);
+        } catch {
+          setLibRows([]);
+        } finally {
+          setLibLoading(false);
+        }
+      })();
+    }, 320);
+    return () => clearTimeout(h);
+  }, [addOpen, isSuperadmin, libSearch, me?.role, schoolId, token]);
+
+  const addLibToStaged = useCallback((row: MatLibRow) => {
+    setLibStaged((prev) => {
+      if (prev.some((p) => p.row.id === row.id)) {
+        toast('Bu kalem zaten sepette.');
+        return prev;
+      }
+      return [...prev, { row, qty: '1' }];
+    });
+  }, []);
+
+  const removeLibStaged = useCallback((libId: string) => {
+    setLibStaged((prev) => prev.filter((p) => p.row.id !== libId));
+  }, []);
+
+  const addLibraryBatch = useCallback(async () => {
+    if (!token || libStaged.length === 0) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setError(null);
+    const batch = [...libStaged];
+    try {
+      for (const { row, qty } of batch) {
+        const specParts = [row.description?.trim(), row.code ? `Kütüphane kodu: ${row.code}` : ''].filter(Boolean);
+        await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/items`, me?.role, schoolId), {
+          token,
+          method: 'POST',
+          body: JSON.stringify({
+            name: row.name.trim(),
+            spec: specParts.length ? specParts.join('\n') : null,
+            qty: qty.trim() || '1',
+            unit: row.unit?.trim() || null,
+            vat_rate: Number(row.vatRate ?? 20) || 20,
+            estimated_unit_price: null,
+          }),
+        });
+      }
+      setLibStaged([]);
+      toast.success(`${batch.length} kalem eklendi.`);
+      await fetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [fetchAll, id, isSuperadmin, libStaged, me?.role, schoolId, token]);
+
+  const deleteItemRow = useCallback(
+    async (itemId: string) => {
+      if (!window.confirm('Bu kalemi dosyadan silmek istediğinize emin misiniz?')) return;
+      if (!token || (isSuperadmin && !schoolId)) return;
+      setBusy(true);
+      setError(null);
+      try {
+        await apiFetch(dtUrl(`/dogrudan-temin/items/${itemId}`, me?.role, schoolId), { token, method: 'DELETE' });
+        toast.success('Kalem silindi.');
+        await fetchAll();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Hata');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [fetchAll, isSuperadmin, me?.role, schoolId, token],
+  );
+
+  const openItemEdit = useCallback((x: DtItem) => {
+    setEditItemId(x.id);
+    setEditItemForm({
+      name: x.name,
+      spec: x.spec ?? '',
+      qty: dtStripNumericTrailingZeros(String(x.qty ?? '1')),
+      unit: x.unit ?? '',
+      vat_rate: String(x.vatRate ?? 20),
+      estimated_unit_price:
+        x.estimatedUnitPrice != null && String(x.estimatedUnitPrice).trim() !== ''
+          ? dtStripNumericTrailingZeros(String(x.estimatedUnitPrice))
+          : '',
+    });
+  }, []);
+
+  const saveItemEdit = useCallback(async () => {
+    if (!token || !editItemId || !editItemForm.name.trim()) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/items/${editItemId}`, me?.role, schoolId), {
+        token,
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: editItemForm.name.trim(),
+          spec: editItemForm.spec.trim() || null,
+          qty: dtStripNumericTrailingZeros(editItemForm.qty.trim()) || editItemForm.qty.trim(),
+          unit: editItemForm.unit.trim() || null,
+          vat_rate: Number(editItemForm.vat_rate) || 20,
+          estimated_unit_price: editItemForm.estimated_unit_price.trim()
+            ? dtStripNumericTrailingZeros(editItemForm.estimated_unit_price.trim())
+            : null,
+        }),
+      });
+      setEditItemId(null);
+      toast.success('Kalem güncellendi.');
+      await fetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [editItemForm, editItemId, fetchAll, isSuperadmin, me?.role, schoolId, token]);
 
   const archive = useCallback(async () => {
     if (!token) return;
@@ -612,6 +881,7 @@ export default function DtFileDetailPage() {
       toast.error('Önce en az bir firma kaydı oluşturun (Firmalar menüsü).');
       return;
     }
+    const createdPurpose = quotePurpose;
     setBusy(true);
     setError(null);
     try {
@@ -624,7 +894,9 @@ export default function DtFileDetailPage() {
       setQuoteVendorId('');
       setQuotePurpose('bid');
       await fetchAll();
-      toast.success('Teklif kaydı oluşturuldu.');
+      toast.success(
+        createdPurpose === 'market_research' ? 'Fiyat araştırması kaydı oluşturuldu.' : 'Teklif kaydı oluşturuldu.',
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Hata');
     } finally {
@@ -650,6 +922,58 @@ export default function DtFileDetailPage() {
       setBusy(false);
     }
   }, [fetchAll, id, isSuperadmin, me?.role, schoolId, token]);
+
+  const researchQuotes = useMemo(
+    () => quotes.filter((q) => normalizeQuotePurpose(q.purpose) === 'market_research'),
+    [quotes],
+  );
+  const bidQuotes = useMemo(
+    () => quotes.filter((q) => normalizeQuotePurpose(q.purpose) !== 'market_research'),
+    [quotes],
+  );
+
+  const quoteResearchByVendor = useMemo(() => {
+    const m = new Map<string, Quote>();
+    for (const q of researchQuotes) {
+      if (!m.has(q.vendorId)) m.set(q.vendorId, q);
+    }
+    return m;
+  }, [researchQuotes]);
+
+  const quoteBidByVendor = useMemo(() => {
+    const m = new Map<string, Quote>();
+    for (const q of bidQuotes) {
+      if (!m.has(q.vendorId)) m.set(q.vendorId, q);
+    }
+    return m;
+  }, [bidQuotes]);
+
+  /** Sol–sağ aynı satırda aynı firma (ada göre TR sıra). */
+  const quoteVendorsOrdered = useMemo(() => {
+    const ids = new Set<string>();
+    researchQuotes.forEach((q) => ids.add(q.vendorId));
+    bidQuotes.forEach((q) => ids.add(q.vendorId));
+    return Array.from(ids).sort((a, b) => {
+      const ta = vendors.find((v) => v.id === a)?.title ?? a;
+      const tb = vendors.find((v) => v.id === b)?.title ?? b;
+      return ta.localeCompare(tb, 'tr', { sensitivity: 'base' });
+    });
+  }, [bidQuotes, researchQuotes, vendors]);
+
+  const quotesOverviewSorted = useMemo(
+    () =>
+      [...quotes].sort((a, b) => {
+        const ta = vendors.find((v) => v.id === a.vendorId)?.title ?? a.vendorId;
+        const tb = vendors.find((v) => v.id === b.vendorId)?.title ?? b.vendorId;
+        const c = ta.localeCompare(tb, 'tr', { sensitivity: 'base' });
+        if (c !== 0) return c;
+        const pa = normalizeQuotePurpose(a.purpose);
+        const pb = normalizeQuotePurpose(b.purpose);
+        if (pa === pb) return 0;
+        return pa === 'market_research' ? -1 : 1;
+      }),
+    [quotes, vendors],
+  );
 
   const syncCommissionFromApprox = useCallback(async () => {
     if (!token) return;
@@ -722,41 +1046,88 @@ export default function DtFileDetailPage() {
     async (qid: string) => {
       if (!token || !qid) return;
       if (isSuperadmin && !schoolId) return;
-      if (quoteItems[qid]) return;
-      const res = await apiFetch<{ items: QuoteItem[] }>(dtUrl(`/dogrudan-temin/quotes/${qid}/items`, me?.role, schoolId), { token });
-      setQuoteItems((s) => ({ ...s, [qid]: res.items ?? [] }));
-      const map: Record<string, string> = {};
-      (res.items ?? []).forEach((x) => {
-        map[x.dtItemId] = x.unitPrice;
-      });
-      setPriceDraft((s) => ({ ...s, [qid]: { ...(s[qid] ?? {}), ...map } }));
+      if (quoteItemsLoadedRef.current.has(qid)) return;
+      quoteItemsLoadedRef.current.add(qid);
+      try {
+        const res = await apiFetch<{ items: QuoteItem[] }>(dtUrl(`/dogrudan-temin/quotes/${qid}/items`, me?.role, schoolId), { token });
+        setQuoteItems((s) => ({ ...s, [qid]: res.items ?? [] }));
+        const map: Record<string, string> = {};
+        (res.items ?? []).forEach((x) => {
+          map[x.dtItemId] = dtStripNumericTrailingZeros(String(x.unitPrice ?? ''));
+        });
+        setPriceDraft((s) => ({ ...s, [qid]: { ...map, ...(s[qid] ?? {}) } }));
+      } catch (e) {
+        quoteItemsLoadedRef.current.delete(qid);
+        throw e;
+      }
     },
-    [isSuperadmin, me?.role, quoteItems, schoolId, token],
+    [isSuperadmin, me?.role, schoolId, token],
   );
 
   useEffect(() => {
-    for (const q of quotes) void fetchQuoteItems(q.id);
-  }, [quotes, fetchQuoteItems]);
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    let cancelled = false;
+    void (async () => {
+      for (const q of quotes) {
+        if (cancelled) return;
+        try {
+          await fetchQuoteItems(q.id);
+        } catch {
+          await new Promise((r) => setTimeout(r, 500));
+          if (cancelled) return;
+          try {
+            await fetchQuoteItems(q.id);
+          } catch {
+            /* throttle / ağ */
+          }
+        }
+        await new Promise((r) => setTimeout(r, 40));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [quotes, fetchQuoteItems, isSuperadmin, schoolId, token]);
+
+  const postQuoteItemUnitPrice = useCallback(
+    async (qid: string, dtItemId: string, unit_price: string) => {
+      if (!token) return;
+      if (isSuperadmin && !schoolId) return;
+      await apiFetch(dtUrl(`/dogrudan-temin/quotes/${qid}/items`, me?.role, schoolId), {
+        token,
+        method: 'POST',
+        body: JSON.stringify({ dt_item_id: dtItemId, unit_price }),
+      });
+    },
+    [isSuperadmin, me?.role, schoolId, token],
+  );
 
   const saveQuotePrice = useCallback(
     async (qid: string, dtItemId: string) => {
       if (!token) return;
       if (isSuperadmin && !schoolId) return;
-      const unit_price = priceDraft[qid]?.[dtItemId];
-      if (!unit_price || !unit_price.trim()) return;
+      const raw = priceDraft[qid]?.[dtItemId];
+      if (!raw || !raw.trim()) {
+        toast.error('Birim fiyat girin.');
+        return;
+      }
+      const t = raw.trim();
+      if (dtParseAmount(t) == null) {
+        toast.error('Geçersiz birim fiyatı.');
+        return;
+      }
+      const unit_price = dtStripNumericTrailingZeros(t) || t;
       setBusy(true);
       setError(null);
       try {
-        await apiFetch(dtUrl(`/dogrudan-temin/quotes/${qid}/items`, me?.role, schoolId), {
-          token,
-          method: 'POST',
-          body: JSON.stringify({ dt_item_id: dtItemId, unit_price }),
-        });
+        await postQuoteItemUnitPrice(qid, dtItemId, unit_price);
         setQuoteItems((s) => {
           const next = { ...s };
           delete next[qid];
           return next;
         });
+        quoteItemsLoadedRef.current.delete(qid);
         await fetchQuoteItems(qid);
         toast.success('Birim fiyat kaydedildi.');
       } catch (e) {
@@ -765,7 +1136,160 @@ export default function DtFileDetailPage() {
         setBusy(false);
       }
     },
-    [fetchQuoteItems, isSuperadmin, me?.role, priceDraft, schoolId, token],
+    [fetchQuoteItems, isSuperadmin, me?.role, postQuoteItemUnitPrice, priceDraft, schoolId, token],
+  );
+
+  const saveAllQuotePricesForQuote = useCallback(
+    async (qid: string) => {
+      if (!token) return;
+      if (isSuperadmin && !schoolId) return;
+      const targets = items.filter((it) => (priceDraft[qid]?.[it.id] ?? '').trim());
+      if (!targets.length) {
+        toast.message('Kaydedilecek birim fiyatı yok.');
+        return;
+      }
+      for (const it of targets) {
+        const t = (priceDraft[qid]?.[it.id] ?? '').trim();
+        if (dtParseAmount(t) == null) {
+          toast.error(`Geçersiz birim fiyatı: ${it.name}`);
+          return;
+        }
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        for (const it of targets) {
+          const t = (priceDraft[qid]?.[it.id] ?? '').trim();
+          const unit_price = dtStripNumericTrailingZeros(t) || t;
+          await postQuoteItemUnitPrice(qid, it.id, unit_price);
+        }
+        setQuoteItems((s) => {
+          const next = { ...s };
+          delete next[qid];
+          return next;
+        });
+        quoteItemsLoadedRef.current.delete(qid);
+        await fetchQuoteItems(qid);
+        toast.success(`${targets.length} kalem kaydedildi.`);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Hata');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [fetchQuoteItems, isSuperadmin, items, me?.role, postQuoteItemUnitPrice, priceDraft, schoolId, token],
+  );
+
+  const stripPriceDraftCell = useCallback((qid: string, dtItemId: string) => {
+    const cur = priceDraft[qid]?.[dtItemId];
+    if (cur == null || !String(cur).trim()) return;
+    const t = dtStripNumericTrailingZeros(cur);
+    if (t !== cur) setPriceDraft((s) => ({ ...s, [qid]: { ...(s[qid] ?? {}), [dtItemId]: t } }));
+  }, [priceDraft]);
+
+  const vendorQuotePanel = useCallback(
+    (q: Quote | null, emptyLabel: string) => {
+      if (!q) {
+        return (
+          <div className="flex min-h-[140px] items-center justify-center rounded-lg border border-dashed border-muted-foreground/35 bg-muted/10 p-4 text-center text-[11px] text-muted-foreground">
+            {emptyLabel}
+          </div>
+        );
+      }
+      const pur = normalizeQuotePurpose(q.purpose);
+      return (
+        <div className={cn(vendorQuoteCardShell(q.vendorId))}>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black/5 pb-2 dark:border-white/10">
+            <div className="flex flex-wrap items-center gap-2">
+            {pur === 'market_research' ? (
+              <span className="rounded-md border border-amber-400/50 bg-amber-100/80 px-1.5 py-0.5 text-[9px] font-semibold text-amber-950 dark:bg-amber-950/50 dark:text-amber-50">
+                Araştırma
+              </span>
+            ) : (
+              <span className="rounded-md border border-sky-400/50 bg-sky-100/80 px-1.5 py-0.5 text-[9px] font-semibold text-sky-950 dark:bg-sky-950/50 dark:text-sky-50">
+                Teklif
+              </span>
+            )}
+            <span
+              className={cn(
+                'rounded-md border px-1.5 py-0.5 text-[9px] font-semibold',
+                dtQuoteStatusChipClass(q.status),
+              )}
+              title={dtQuoteStatusHint(q.status)}
+            >
+              {dtQuoteStatusLabel(q.status)}
+            </span>
+            </div>
+            {items.length > 0 ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-7 text-[10px]"
+                disabled={
+                  busy ||
+                  !items.some((it) => (priceDraft[q.id]?.[it.id] ?? '').trim())
+                }
+                onClick={() => void saveAllQuotePricesForQuote(q.id)}
+              >
+                Tümünü kaydet
+              </Button>
+            ) : null}
+          </div>
+          <div className="table-x-scroll rounded-md border border-black/10 bg-background/50 text-xs dark:border-white/10">
+            <table className="w-full min-w-[800px] text-left">
+              <thead>
+                <tr className="border-b border-border bg-muted/35 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <th className="px-2 py-1.5">Kalem</th>
+                  <th className="px-2 py-1.5 w-[100px]">Miktar</th>
+                  <th className="px-2 py-1.5 w-[72px]">Birim</th>
+                  <th className="px-2 py-1.5">Birim fiyat (TL)</th>
+                  <th className="px-2 py-1.5 w-[1%]"> </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {items.map((it) => (
+                  <tr key={`${q.id}-${it.id}`} className="hover:bg-muted/25">
+                    <td className="px-2 py-1">
+                      <div className="font-medium">{it.name}</div>
+                      {it.spec ? <div className="text-[11px] text-muted-foreground">{it.spec}</div> : null}
+                    </td>
+                    <td className="px-2 py-1 tabular-nums">{it.qty}</td>
+                    <td className="px-2 py-1 text-muted-foreground">{it.unit?.trim() || '—'}</td>
+                    <td className="px-2 py-1">
+                      <Input
+                        value={priceDraft[q.id]?.[it.id] ?? ''}
+                        onChange={(e) =>
+                          setPriceDraft((s) => ({
+                            ...s,
+                            [q.id]: { ...(s[q.id] ?? {}), [it.id]: e.target.value },
+                          }))
+                        }
+                        className="h-8 w-[140px] px-2 py-1 text-xs"
+                        placeholder="0,00"
+                        inputMode="decimal"
+                        onBlur={() => stripPriceDraftCell(q.id, it.id)}
+                      />
+                    </td>
+                    <td className="px-2 py-1 text-right">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy || !(priceDraft[q.id]?.[it.id] ?? '').trim()}
+                        onClick={() => void saveQuotePrice(q.id, it.id)}
+                      >
+                        Kaydet
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    },
+    [busy, items, priceDraft, saveAllQuotePricesForQuote, saveQuotePrice, stripPriceDraftCell],
   );
 
   const recordPayment = useCallback(async () => {
@@ -843,12 +1367,19 @@ export default function DtFileDetailPage() {
         token,
         method: 'POST',
         body: JSON.stringify({
-          chairman_user_id: commissionForm.chairman_user_id.trim() || null,
+          chairman_user_id: (commissionForm.chairman_manual.trim() || commissionForm.chairman_pick.trim()) || null,
           dt_file_id: id,
           kind: commissionKind,
         }),
       });
-      setCommissionForm({ chairman_user_id: '', member_title: '' });
+      setCommissionForm({
+        chairman_pick: '',
+        chairman_manual: '',
+        member_pick: '',
+        member_manual: '',
+        member_title: '',
+        apply_all_kinds: true,
+      });
       setCommissionDialogOpen(false);
       await fetchAll();
     } catch (e) {
@@ -856,30 +1387,99 @@ export default function DtFileDetailPage() {
     } finally {
       setBusy(false);
     }
-  }, [commissionForm.chairman_user_id, commissionKind, fetchAll, id, isSuperadmin, me?.role, schoolId, token]);
+  }, [
+    commissionForm.chairman_manual,
+    commissionForm.chairman_pick,
+    commissionKind,
+    fetchAll,
+    id,
+    isSuperadmin,
+    me?.role,
+    schoolId,
+    token,
+  ]);
 
   const addCommissionMember = useCallback(async () => {
     if (!token || !commission) return;
     if (isSuperadmin && !schoolId) return;
+    const uid = commissionForm.member_manual.trim() || commissionForm.member_pick.trim();
+    if (!uid) {
+      toast.error('Öğretmen seçin veya UUID girin.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await apiFetch(dtUrl(`/dogrudan-temin/commission/${commission.id}/members`, me?.role, schoolId), {
-        token,
-        method: 'POST',
-        body: JSON.stringify({
-          user_id: commissionForm.chairman_user_id.trim(),
-          title: commissionForm.member_title.trim() || null,
-        }),
+      if (commissionForm.apply_all_kinds) {
+        await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/commission/members-all-kinds`, me?.role, schoolId), {
+          token,
+          method: 'POST',
+          body: JSON.stringify({
+            user_id: uid,
+            title: commissionForm.member_title.trim() || null,
+          }),
+        });
+      } else {
+        await apiFetch(dtUrl(`/dogrudan-temin/commission/${commission.id}/members`, me?.role, schoolId), {
+          token,
+          method: 'POST',
+          body: JSON.stringify({
+            user_id: uid,
+            title: commissionForm.member_title.trim() || null,
+          }),
+        });
+      }
+      setCommissionForm({
+        chairman_pick: '',
+        chairman_manual: '',
+        member_pick: '',
+        member_manual: '',
+        member_title: '',
+        apply_all_kinds: commissionForm.apply_all_kinds,
       });
-      setCommissionForm({ chairman_user_id: '', member_title: '' });
+      setCommissionDialogOpen(false);
       await fetchAll();
+      toast.success(commissionForm.apply_all_kinds ? 'Üye tüm komisyon türlerine eklendi.' : 'Üye eklendi.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Hata');
     } finally {
       setBusy(false);
     }
-  }, [commission, fetchAll, isSuperadmin, me?.role, schoolId, token, commissionForm.chairman_user_id, commissionForm.member_title]);
+  }, [
+    commission,
+    commissionForm.apply_all_kinds,
+    commissionForm.member_manual,
+    commissionForm.member_pick,
+    commissionForm.member_title,
+    fetchAll,
+    id,
+    isSuperadmin,
+    me?.role,
+    schoolId,
+    token,
+  ]);
+
+  const removeCommissionMemberRow = useCallback(
+    async (memberId: string) => {
+      if (!token) return;
+      if (isSuperadmin && !schoolId) return;
+      setBusy(true);
+      setError(null);
+      try {
+        await apiFetch(dtUrl(`/dogrudan-temin/commission/members/${memberId}`, me?.role, schoolId), {
+          token,
+          method: 'DELETE',
+        });
+        await fetchAll();
+        toast.success('Üye kaldırıldı.');
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Hata');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [fetchAll, isSuperadmin, me?.role, schoolId, token],
+  );
 
   const downloadPaymentOrderPdf = useCallback(async (paymentId: string) => {
     if (!token) return;
@@ -1115,6 +1715,7 @@ export default function DtFileDetailPage() {
           </div>
 
           {activeTab === 'items' && (
+          <>
           <Card>
             <CardHeader className="py-3">
               <div className="flex items-center justify-between gap-2">
@@ -1124,14 +1725,95 @@ export default function DtFileDetailPage() {
                   <DtInfoHint title={DT_SECTION_HINTS.items} />
                 </CardTitle>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Dialog open={addOpen} onOpenChange={setAddOpen}>
+                  <Dialog
+                    open={addOpen}
+                    onOpenChange={(v) => {
+                      setAddOpen(v);
+                      if (!v) {
+                        setLibStaged([]);
+                        setLibSearch('');
+                      }
+                    }}
+                  >
                     <DialogTrigger asChild>
                       <Button variant="outline" size="sm" disabled={busy}>
                         Kalem ekle
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="max-w-lg" title="Kalem ekle">
-                      <div className="space-y-3">
+                    <DialogContent className="max-w-3xl" title="Kalem ekle">
+                      <div className="space-y-4">
+                        <div className="rounded-lg border border-emerald-200/50 bg-emerald-500/5 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                          <div className="mb-2 flex items-center gap-2 text-[12px] font-semibold text-foreground">
+                            <Library className="size-4 text-emerald-600" />
+                            Malzeme kütüphanesi
+                            <DtInfoHint title="Okul kütüphanesindeki CPV / malzeme satırlarını arayıp sepete ekleyin; sepetten çıkarabilir veya topluca dosyaya işlersiniz." />
+                          </div>
+                          <Input
+                            value={libSearch}
+                            onChange={(e) => setLibSearch(e.target.value)}
+                            className={DT_INPUT_SM}
+                            placeholder="Kütüphanede ara (kod / ad)…"
+                          />
+                          <div className="mt-2 max-h-40 overflow-y-auto rounded-md border border-border/70 bg-background text-[11px]">
+                            {libLoading ? (
+                              <p className="p-2 text-muted-foreground">Yükleniyor…</p>
+                            ) : libRows.length ? (
+                              libRows.map((r) => (
+                                <div
+                                  key={r.id}
+                                  className="flex items-start justify-between gap-2 border-b border-border/50 px-2 py-1.5 last:border-0"
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <span className="font-mono text-[10px] text-primary">{r.code}</span>
+                                    <p className="leading-snug text-foreground">{r.name}</p>
+                                  </div>
+                                  <Button type="button" size="sm" variant="secondary" className="h-7 shrink-0 text-[10px]" onClick={() => addLibToStaged(r)}>
+                                    Sepete
+                                  </Button>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="p-2 text-muted-foreground">Sonuç yok. Kütüphaneyi güncellemek için{' '}
+                                <Link href={dtUrl('/dogrudan-temin/malzeme-kutuphanesi', me?.role, schoolId)} className="text-primary underline">
+                                  Malzeme kütüphanesi
+                                </Link>
+                                .
+                              </p>
+                            )}
+                          </div>
+                          {libStaged.length > 0 ? (
+                            <div className="mt-2 space-y-1.5 rounded-md border border-primary/25 bg-primary/5 p-2">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Sepet ({libStaged.length})</p>
+                              {libStaged.map(({ row, qty }) => (
+                                <div key={row.id} className="flex flex-wrap items-center gap-2 border-b border-border/40 py-1 last:border-0">
+                                  <span className="min-w-0 flex-1 truncate font-medium text-foreground">{row.name}</span>
+                                  <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                    Miktar
+                                    <Input
+                                      className="h-7 w-16 px-1 text-[11px]"
+                                      value={qty}
+                                      onChange={(e) =>
+                                        setLibStaged((prev) =>
+                                          prev.map((p) => (p.row.id === row.id ? { ...p, qty: e.target.value } : p)),
+                                        )
+                                      }
+                                    />
+                                  </label>
+                                  <Button type="button" variant="ghost" size="sm" className="h-7 text-destructive" onClick={() => removeLibStaged(row.id)}>
+                                    Çıkar
+                                  </Button>
+                                </div>
+                              ))}
+                              <Button type="button" size="sm" className="mt-1 w-full" disabled={busy} onClick={() => void addLibraryBatch()}>
+                                Sepettekileri dosyaya ekle
+                              </Button>
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <div className="border-t border-border/60 pt-3">
+                          <p className="mb-2 text-[11px] font-semibold text-muted-foreground">Elle kalem</p>
+                          <div className="space-y-3">
                         <div className="space-y-1">
                           <div className="text-[11px] text-muted-foreground flex items-center gap-1">
                             Kalem adı
@@ -1157,16 +1839,16 @@ export default function DtFileDetailPage() {
                             <Input
                               value={itemForm.qty}
                               onChange={(e) => setItemForm((s) => ({ ...s, qty: e.target.value }))}
+                              onBlur={(e) => {
+                                const t = dtStripNumericTrailingZeros(e.target.value);
+                                if (t !== e.target.value) setItemForm((s) => ({ ...s, qty: t }));
+                              }}
                               className={DT_INPUT_SM}
                             />
                           </div>
                           <div className="space-y-1">
                             <div className="text-[11px] text-muted-foreground">Birim</div>
-                            <Input
-                              value={itemForm.unit}
-                              onChange={(e) => setItemForm((s) => ({ ...s, unit: e.target.value }))}
-                              className={DT_INPUT_SM}
-                            />
+                            <DtItemUnitSelect value={itemForm.unit} onChange={(u) => setItemForm((s) => ({ ...s, unit: u }))} />
                           </div>
                           <div className="space-y-1">
                             <div className="text-[11px] text-muted-foreground">KDV %</div>
@@ -1185,6 +1867,10 @@ export default function DtFileDetailPage() {
                           <Input
                             value={itemForm.estimated_unit_price}
                             onChange={(e) => setItemForm((s) => ({ ...s, estimated_unit_price: e.target.value }))}
+                            onBlur={(e) => {
+                              const t = dtStripNumericTrailingZeros(e.target.value);
+                              if (t !== e.target.value) setItemForm((s) => ({ ...s, estimated_unit_price: t }));
+                            }}
                             className={DT_INPUT_SM}
                           />
                         </div>
@@ -1195,6 +1881,8 @@ export default function DtFileDetailPage() {
                           <Button onClick={addItem} disabled={busy || !itemForm.name.trim()}>
                             Kaydet
                           </Button>
+                        </div>
+                          </div>
                         </div>
                       </div>
                     </DialogContent>
@@ -1224,7 +1912,7 @@ export default function DtFileDetailPage() {
             <CardContent className="pt-0">
               {items.length ? (
                 <div className="table-x-scroll rounded-md border border-border text-xs">
-                  <table className="w-full min-w-[820px] text-left">
+                  <table className="w-full min-w-[960px] text-left">
                     <thead>
                       <tr className="border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                         <th className="px-2 py-1.5">Kalem</th>
@@ -1232,6 +1920,7 @@ export default function DtFileDetailPage() {
                         <th className="px-2 py-1.5">Birim</th>
                         <th className="px-2 py-1.5">KDV</th>
                         <th className="px-2 py-1.5">Tahmini BF</th>
+                        <th className="w-px whitespace-nowrap px-1 py-1.5 text-center">İşlem</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -1245,6 +1934,32 @@ export default function DtFileDetailPage() {
                           <td className="px-2 py-1">{x.unit ?? '—'}</td>
                           <td className="px-2 py-1">%{x.vatRate}</td>
                           <td className="px-2 py-1">{x.estimatedUnitPrice ?? '—'}</td>
+                          <td className="px-1 py-0.5 text-center">
+                            <div className="flex items-center justify-center gap-0.5">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-8"
+                                disabled={busy}
+                                aria-label="Düzenle"
+                                onClick={() => openItemEdit(x)}
+                              >
+                                <Pencil className="size-3.5" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-8 text-destructive hover:bg-destructive/10"
+                                disabled={busy}
+                                aria-label="Kalemi sil"
+                                onClick={() => void deleteItemRow(x.id)}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1255,6 +1970,75 @@ export default function DtFileDetailPage() {
               )}
             </CardContent>
           </Card>
+          <Dialog open={!!editItemId} onOpenChange={(v) => !v && setEditItemId(null)}>
+            <DialogContent className="max-w-lg" title="Kalemi düzenle">
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <div className="text-[11px] text-muted-foreground">Kalem adı *</div>
+                  <Input
+                    value={editItemForm.name}
+                    onChange={(e) => setEditItemForm((s) => ({ ...s, name: e.target.value }))}
+                    className={DT_INPUT_SM}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[11px] text-muted-foreground">Teknik açıklama / şartname özeti</div>
+                  <textarea
+                    value={editItemForm.spec}
+                    onChange={(e) => setEditItemForm((s) => ({ ...s, spec: e.target.value }))}
+                    className={DT_TEXTAREA_SM}
+                  />
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <div className="text-[11px] text-muted-foreground">Miktar</div>
+                    <Input
+                      value={editItemForm.qty}
+                      onChange={(e) => setEditItemForm((s) => ({ ...s, qty: e.target.value }))}
+                      onBlur={(e) => {
+                        const t = dtStripNumericTrailingZeros(e.target.value);
+                        if (t !== e.target.value) setEditItemForm((s) => ({ ...s, qty: t }));
+                      }}
+                      className={DT_INPUT_SM}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-[11px] text-muted-foreground">Birim</div>
+                    <DtItemUnitSelect value={editItemForm.unit} onChange={(u) => setEditItemForm((s) => ({ ...s, unit: u }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-[11px] text-muted-foreground">KDV %</div>
+                    <Input
+                      value={editItemForm.vat_rate}
+                      onChange={(e) => setEditItemForm((s) => ({ ...s, vat_rate: e.target.value }))}
+                      className={DT_INPUT_SM}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[11px] text-muted-foreground">Tahmini birim fiyat (TL)</div>
+                  <Input
+                    value={editItemForm.estimated_unit_price}
+                    onChange={(e) => setEditItemForm((s) => ({ ...s, estimated_unit_price: e.target.value }))}
+                    onBlur={(e) => {
+                      const t = dtStripNumericTrailingZeros(e.target.value);
+                      if (t !== e.target.value) setEditItemForm((s) => ({ ...s, estimated_unit_price: t }));
+                    }}
+                    className={DT_INPUT_SM}
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setEditItemId(null)} disabled={busy}>
+                    Vazgeç
+                  </Button>
+                  <Button onClick={() => void saveItemEdit()} disabled={busy || !editItemForm.name.trim()}>
+                    Kaydet
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+          </>
           )}
 
           {activeTab === 'quotes' && (
@@ -1279,7 +2063,7 @@ export default function DtFileDetailPage() {
                   <DialogContent className="max-w-lg" title="Yeni teklif kaydı">
                     <div className="space-y-3">
                       <div className="space-y-1">
-                        <div className="text-[11px] text-muted-foreground">Amaç</div>
+                        <div className="text-[11px] font-medium text-foreground">Amaç</div>
                         <select
                           value={quotePurpose}
                           onChange={(e) => setQuotePurpose(e.target.value as 'bid' | 'market_research')}
@@ -1288,6 +2072,9 @@ export default function DtFileDetailPage() {
                           <option value="bid">Teklif / ihale</option>
                           <option value="market_research">Fiyat araştırması</option>
                         </select>
+                        <p className="text-[11px] leading-snug text-muted-foreground">
+                          Araştırma kayıtları sol sütunda, teklif/ihale kayıtları sağ sütunda gösterilir. Özet tabloda amaç sütununu kontrol edin.
+                        </p>
                       </div>
                       <div className="space-y-1">
                         <div className="text-[11px] text-muted-foreground">Firma</div>
@@ -1318,84 +2105,118 @@ export default function DtFileDetailPage() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="pt-0 space-y-4">
+            <CardContent className="pt-0 space-y-6">
               {quotes.length ? (
-                quotes.map((q) => {
-                  const v = vendors.find((x) => x.id === q.vendorId);
-                  return (
-                    <div
-                      key={q.id}
-                      className="rounded-lg border-2 border-border bg-card p-3 shadow-sm space-y-2"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold text-foreground truncate" title={v?.title ?? q.vendorId}>
-                            {v?.title ?? q.vendorId}
-                          </div>
-                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                            {q.purpose === 'market_research' ? (
-                              <span className="rounded px-1.5 py-0.5 text-[9px] font-semibold border border-slate-300 bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100">
-                                Araştırma
-                              </span>
-                            ) : null}
-                            <span
-                              className={`rounded px-1.5 py-0.5 text-[9px] font-semibold border ${dtQuoteStatusChipClass(q.status)}`}
-                              title={dtQuoteStatusHint(q.status)}
-                            >
-                              {dtQuoteStatusLabel(q.status)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="table-x-scroll rounded-md border border-border text-xs">
-                        <table className="w-full min-w-[720px] text-left">
-                          <thead>
-                            <tr className="border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                              <th className="px-2 py-1.5">Kalem</th>
-                              <th className="px-2 py-1.5">Miktar</th>
-                              <th className="px-2 py-1.5">Birim fiyat</th>
-                              <th className="px-2 py-1.5 w-[1%]"> </th>
+                <div className="space-y-6">
+                  <div className="overflow-x-auto rounded-lg border border-border bg-muted/10">
+                    <div className="border-b border-border bg-muted/30 px-3 py-2 text-xs font-semibold text-foreground">
+                      Özet — tüm firmalar (amaç ayrımı)
+                    </div>
+                    <table className="w-full min-w-[640px] text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/25 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          <th className="px-3 py-2 w-[140px]">Amaç</th>
+                          <th className="px-3 py-2">Firma</th>
+                          <th className="px-3 py-2 w-[120px]">Durum</th>
+                          <th className="px-3 py-2 text-right w-[120px]">Fiyat girilen</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {quotesOverviewSorted.map((q) => {
+                          const v = vendors.find((x) => x.id === q.vendorId);
+                          const pur = normalizeQuotePurpose(q.purpose);
+                          const rowTint =
+                            pur === 'market_research'
+                              ? 'bg-amber-50/80 dark:bg-amber-950/25'
+                              : 'bg-sky-50/80 dark:bg-sky-950/25';
+                          const qi = quoteItems[q.id] ?? [];
+                          const pricedFromApi = qi.filter((x) => String(x.unitPrice ?? '').trim() !== '').length;
+                          const pricedFromDraft = items.reduce(
+                            (n, it) => n + ((priceDraft[q.id]?.[it.id] ?? '').trim() ? 1 : 0),
+                            0,
+                          );
+                          const priced = Math.max(pricedFromApi, pricedFromDraft);
+                          return (
+                            <tr key={`ov-${q.id}`} className={cn(rowTint, 'hover:bg-background/40')}>
+                              <td className="px-3 py-2 align-middle">
+                                {pur === 'market_research' ? (
+                                  <span className="inline-flex rounded-md border border-amber-300/70 bg-amber-100/90 px-2 py-0.5 text-[10px] font-semibold text-amber-950 dark:border-amber-700/60 dark:bg-amber-950/50 dark:text-amber-50">
+                                    Araştırma
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex rounded-md border border-sky-300/70 bg-sky-100/90 px-2 py-0.5 text-[10px] font-semibold text-sky-950 dark:border-sky-700/60 dark:bg-sky-950/50 dark:text-sky-50">
+                                    Teklif
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 font-medium text-foreground">{v?.title ?? q.vendorId}</td>
+                              <td className="px-3 py-2">
+                                <span
+                                  className={cn(
+                                    'inline-flex rounded-md border px-2 py-0.5 text-[10px] font-semibold',
+                                    dtQuoteStatusChipClass(q.status),
+                                  )}
+                                  title={dtQuoteStatusHint(q.status)}
+                                >
+                                  {dtQuoteStatusLabel(q.status)}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                                {priced} / {items.length}
+                              </td>
                             </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border">
-                            {items.map((it) => (
-                              <tr key={`${q.id}-${it.id}`} className="hover:bg-muted/30">
-                                <td className="px-2 py-1">
-                                  <div className="font-medium">{it.name}</div>
-                                  {it.spec ? <div className="text-[11px] text-muted-foreground">{it.spec}</div> : null}
-                                </td>
-                                <td className="px-2 py-1">{it.qty}</td>
-                                <td className="px-2 py-1">
-                                  <Input
-                                    value={priceDraft[q.id]?.[it.id] ?? ''}
-                                    onChange={(e) =>
-                                      setPriceDraft((s) => ({
-                                        ...s,
-                                        [q.id]: { ...(s[q.id] ?? {}), [it.id]: e.target.value },
-                                      }))
-                                    }
-                                    className="h-8 w-[140px] px-2 py-1 text-xs"
-                                    placeholder="0.00"
-                                  />
-                                </td>
-                                <td className="px-2 py-1 text-right">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={busy || !(priceDraft[q.id]?.[it.id] ?? '').trim()}
-                                    onClick={() => void saveQuotePrice(q.id, it.id)}
-                                  >
-                                    Kaydet
-                                  </Button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="overflow-hidden rounded-xl border-2 border-border/70 shadow-sm">
+                    <div className="grid grid-cols-1 divide-y divide-border bg-muted/15 lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+                      <div className="bg-amber-50/95 px-3 py-2 text-xs font-bold text-amber-950 dark:bg-amber-950/45 dark:text-amber-50">
+                        Fiyat araştırması
+                      </div>
+                      <div className="bg-sky-50/95 px-3 py-2 text-xs font-bold text-sky-950 dark:bg-sky-950/45 dark:text-sky-50 lg:border-l lg:border-border/50">
+                        Teklif / ihale
                       </div>
                     </div>
-                  );
-                })
+                    <div className="divide-y divide-border">
+                      {quoteVendorsOrdered.length === 0 ? (
+                        <p className="p-6 text-center text-[11px] text-muted-foreground">Kayıt yok.</p>
+                      ) : (
+                        quoteVendorsOrdered.map((vendorId, rowIdx) => {
+                          const qRes = quoteResearchByVendor.get(vendorId) ?? null;
+                          const qBid = quoteBidByVendor.get(vendorId) ?? null;
+                          const vtitle = vendors.find((x) => x.id === vendorId)?.title ?? vendorId;
+                          return (
+                            <div
+                              key={vendorId}
+                              className={cn('border-t border-border', rowIdx === 0 && 'border-t-0')}
+                            >
+                              <div className="bg-muted/30 px-3 py-1.5 text-center text-[11px] font-semibold text-foreground">
+                                {vtitle}
+                              </div>
+                              <div className="grid grid-cols-1 lg:grid-cols-2">
+                                <div className="border-border/60 bg-amber-50/25 p-3 dark:bg-amber-950/15 lg:border-r">
+                                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground lg:hidden">
+                                    Araştırma
+                                  </div>
+                                  {vendorQuotePanel(qRes, 'Bu firmada araştırma kaydı yok.')}
+                                </div>
+                                <div className="bg-sky-50/25 p-3 dark:bg-sky-950/15">
+                                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground lg:hidden">
+                                    Teklif
+                                  </div>
+                                  {vendorQuotePanel(qBid, 'Bu firmada teklif kaydı yok.')}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
               ) : (
                 <p className="py-4 text-center text-[11px] text-muted-foreground">Teklif yok.</p>
               )}
@@ -1788,28 +2609,55 @@ export default function DtFileDetailPage() {
                     <DialogContent className="max-w-lg">
                       <div className="space-y-3">
                         <div className="space-y-1">
-                          <label className="text-[11px] font-medium text-muted-foreground uppercase">Kullanıcı ID</label>
+                          <label className="text-[11px] font-medium text-muted-foreground uppercase">Okul öğretmeni</label>
+                          <select
+                            className="h-9 w-full rounded border border-input bg-background px-2 text-xs"
+                            value={commissionForm.member_pick}
+                            onChange={(e) => setCommissionForm((s) => ({ ...s, member_pick: e.target.value }))}
+                          >
+                            <option value="">— Listeden seçin —</option>
+                            {commissionTeachers.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {(t.display_name || t.email || t.id).slice(0, 96)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-medium text-muted-foreground uppercase">El ile UUID</label>
                           <Input
-                            value={commissionForm.chairman_user_id}
-                            onChange={(e) => setCommissionForm((s) => ({ ...s, chairman_user_id: e.target.value }))}
-                            placeholder="Üye UUID"
+                            value={commissionForm.member_manual}
+                            onChange={(e) => setCommissionForm((s) => ({ ...s, member_manual: e.target.value }))}
+                            placeholder="Listede yoksa kullanıcı UUID"
                             className="text-xs"
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[11px] font-medium text-muted-foreground uppercase">Ünvan (Opsiyonel)</label>
+                          <label className="text-[11px] font-medium text-muted-foreground uppercase">Ünvan (opsiyonel)</label>
                           <Input
                             value={commissionForm.member_title}
                             onChange={(e) => setCommissionForm((s) => ({ ...s, member_title: e.target.value }))}
-                            placeholder="Üye Ünvanı"
+                            placeholder="Üye ünvanı"
                             className="text-xs"
                           />
                         </div>
+                        <label className="flex cursor-pointer items-start gap-2 text-[11px] leading-snug">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 size-3.5 shrink-0"
+                            checked={commissionForm.apply_all_kinds}
+                            onChange={(e) => setCommissionForm((s) => ({ ...s, apply_all_kinds: e.target.checked }))}
+                          />
+                          <span>Tüm komisyon türlerine ekle (yaklaşık maliyet, piyasa/satın alma, muayene/kabul)</span>
+                        </label>
                         <div className="flex justify-end gap-2 pt-2">
                           <Button variant="outline" onClick={() => setCommissionDialogOpen(false)} disabled={busy}>
                             Vazgeç
                           </Button>
-                          <Button onClick={addCommissionMember} disabled={busy || !commissionForm.chairman_user_id.trim()}>
+                          <Button
+                            onClick={() => void addCommissionMember()}
+                            disabled={busy || !(commissionForm.member_manual.trim() || commissionForm.member_pick.trim())}
+                          >
                             Üye Ekle
                           </Button>
                         </div>
@@ -1826,11 +2674,26 @@ export default function DtFileDetailPage() {
                     <DialogContent className="max-w-lg">
                       <div className="space-y-3">
                         <div className="space-y-1">
-                          <label className="text-[11px] font-medium text-muted-foreground uppercase">Başkan Kullanıcı ID (Opsiyonel)</label>
+                          <label className="text-[11px] font-medium text-muted-foreground uppercase">Başkan — okul öğretmeni (opsiyonel)</label>
+                          <select
+                            className="h-9 w-full rounded border border-input bg-background px-2 text-xs"
+                            value={commissionForm.chairman_pick}
+                            onChange={(e) => setCommissionForm((s) => ({ ...s, chairman_pick: e.target.value }))}
+                          >
+                            <option value="">— Yok —</option>
+                            {commissionTeachers.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {(t.display_name || t.email || t.id).slice(0, 96)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-medium text-muted-foreground uppercase">Başkan — el ile UUID</label>
                           <Input
-                            value={commissionForm.chairman_user_id}
-                            onChange={(e) => setCommissionForm((s) => ({ ...s, chairman_user_id: e.target.value }))}
-                            placeholder="Başkan UUID"
+                            value={commissionForm.chairman_manual}
+                            onChange={(e) => setCommissionForm((s) => ({ ...s, chairman_manual: e.target.value }))}
+                            placeholder="Listede yoksa UUID"
                             className="text-xs"
                           />
                         </div>
@@ -1838,7 +2701,7 @@ export default function DtFileDetailPage() {
                           <Button variant="outline" onClick={() => setCommissionDialogOpen(false)} disabled={busy}>
                             Vazgeç
                           </Button>
-                          <Button onClick={createCommission} disabled={busy}>
+                          <Button onClick={() => void createCommission()} disabled={busy}>
                             Oluştur
                           </Button>
                         </div>
@@ -1856,7 +2719,13 @@ export default function DtFileDetailPage() {
                     <div className="font-medium text-[11px] mb-1">Durumu</div>
                     <p className="text-sm">Komisyon ID: <code className="bg-muted px-1 py-0.5 rounded">{commission.id.slice(0, 12)}...</code></p>
                     {commission.chairmanUserId ? (
-                      <p className="mt-1">Başkan: <code className="bg-muted px-1 py-0.5 rounded">{commission.chairmanUserId.slice(0, 12)}...</code></p>
+                      <p className="mt-1">
+                        Başkan:{' '}
+                        <span className="font-medium">
+                          {commissionTeachers.find((t) => t.id === commission.chairmanUserId)?.display_name?.trim() ||
+                            `${commission.chairmanUserId.slice(0, 8)}…`}
+                        </span>
+                      </p>
                     ) : (
                       <p className="mt-1 text-muted-foreground">Başkan atanmadı</p>
                     )}
@@ -1874,16 +2743,19 @@ export default function DtFileDetailPage() {
                         <tbody className="divide-y divide-border">
                           {commissionMembers.map((m) => (
                             <tr key={m.id} className="hover:bg-muted/30">
-                              <td className="px-2 py-1.5"><code className="bg-muted px-1 py-0.5 rounded text-[10px]">{m.userId.slice(0, 12)}...</code></td>
+                              <td className="px-2 py-1.5">
+                                <span className="font-medium">
+                                  {commissionTeachers.find((t) => t.id === m.userId)?.display_name?.trim() ||
+                                    `${m.userId.slice(0, 8)}…`}
+                                </span>
+                              </td>
                               <td className="px-2 py-1.5 text-muted-foreground">{m.title || '—'}</td>
                               <td className="px-2 py-1.5 text-right">
                                 <Button
                                   variant="ghost"
                                   size="sm"
                                   disabled={busy}
-                                  onClick={() => {
-                                    // TODO: Remove member
-                                  }}
+                                  onClick={() => void removeCommissionMemberRow(m.id)}
                                 >
                                   ✕
                                 </Button>

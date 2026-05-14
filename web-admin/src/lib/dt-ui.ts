@@ -14,6 +14,48 @@ export const DT_TEMIN_TYPES = [
 ] as const;
 export type DtTeminTypeCode = (typeof DT_TEMIN_TYPES)[number];
 
+/** «Diğer» seçeneği (select value; API’ye gitmez). */
+export const DT_UNIT_SELECT_CUSTOM = '__dt_unit_other__';
+
+/** Kalem birimi — sık kullanılan ölçüler (liste + «Diğer» ile serbest metin). */
+export const DT_ITEM_UNIT_PRESETS = [
+  'Adet',
+  'Takım',
+  'Set',
+  'Çift',
+  'Kutu',
+  'Paket',
+  'Koli',
+  'Rulo',
+  'Bobin',
+  'Tomar',
+  'mm',
+  'cm',
+  'm',
+  'km',
+  'm²',
+  'm³',
+  'mg',
+  'g',
+  'kg',
+  'ton',
+  'ml',
+  'cl',
+  'Lt',
+  'Saat',
+  'Gün',
+  'Hafta',
+  'Ay',
+  'Yıl',
+  'Kişi',
+  'Öğrenci',
+  'Sınıf',
+  'kWh',
+  'kW',
+  'W',
+  'Sayfa',
+] as const;
+
 const TEMIN_LABELS: Record<DtTeminTypeCode, string> = {
   '22a_mal': 'Mal alımı (KİK 22/a)',
   '22b_hizmet': 'Hizmet alımı (22/b)',
@@ -245,7 +287,7 @@ export const DT_SECTION_HINTS: Record<DtDetailTabId, string> = {
   items:
     'İhtiyaç kalemleri ve yaklaşık maliyet; piyasa araştırması ve onay belgesi süreçlerinizle uyumlu tutun. Aşağıdan kalem ekleyebilir veya otomatik karar / belge üretebilirsiniz.',
   quotes:
-    'İstekli firmalara teklif kaydı açın; her kalem için birim fiyat girin. En uygun teklif seçimi kurumunuzun kararıdır.',
+    'Fiyat araştırması ile teklif/ihale kayıtlarını ayrı sütunlarda görürsünüz; her firma kartı pastel renkle ayrılır. Her kalem için birim fiyat girilir; en uygun teklif seçimi kurumunuzun kararıdır.',
   registry:
     'Evrak defteri: tarih/sayı ve muayene-kabul karar no alanları. PDF/DOCX üst bilgisinde kullanılır.',
   budget:
@@ -293,4 +335,19 @@ export function dtFormatNumberTr(
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits,
   }).format(n);
+}
+
+/** Form / API metnindeki "5.000000", "12,500000" gibi değerleri kullanıcıya sade gösterim için kısaltır. */
+export function dtStripNumericTrailingZeros(value: string | null | undefined): string {
+  if (value == null) return '';
+  const s = String(value).trim();
+  if (!s) return '';
+  const n = dtParseAmount(s);
+  if (n == null || !Number.isFinite(n)) return s;
+  if (n === 0 || Object.is(n, -0)) return '0';
+  if (Number.isInteger(n)) return String(Math.trunc(n));
+  return n
+    .toFixed(12)
+    .replace(/(\.\d*?)0+$/, '$1')
+    .replace(/\.$/, '');
 }

@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsEmail, IsIn, IsInt, IsOptional, IsString, IsArray, ValidateNested, Matches, Max, MaxLength, Min, IsObject } from 'class-validator';
+import { IsEmail, IsIn, IsInt, IsOptional, IsString, IsArray, ValidateNested, Matches, Max, MaxLength, Min, IsObject, ValidateIf } from 'class-validator';
 import { DtTeminType } from '../enums/dt-temin-type.enum';
 import { DT_COMMISSION_KINDS, DT_QUOTE_PURPOSES, DT_REGISTRY_STAGES } from '../dt-workflow.constants';
 
@@ -187,8 +187,46 @@ export class CreateDtVendorDto {
 export class ListDtVendorsDto {
   @IsOptional()
   @IsString()
+  @MaxLength(64)
+  school_id?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(80)
   search?: string;
+}
+
+export class PatchDtVendorDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  tax_no?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  contact_name?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  phone?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v != null && String(v).trim() !== '')
+  @IsEmail()
+  @MaxLength(255)
+  email?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  address?: string | null;
 }
 
 export class CreateDtQuoteDto {
@@ -401,7 +439,43 @@ export class CreateDtMaterialLibraryItemDto {
   vat_rate?: number;
 }
 
+export class PatchDtMaterialLibraryItemDto {
+  @IsOptional()
+  @IsString()
+  category_id?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  code?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  unit?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  vat_rate?: number;
+}
+
 export class ListDtMaterialLibraryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  school_id?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(256)
@@ -414,7 +488,7 @@ export class ListDtMaterialLibraryDto {
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(500)
+  @Max(10000)
   limit?: number;
 
   @IsOptional()
@@ -572,6 +646,11 @@ export class GenerateDtPaymentOrderDto {
 
 export class DtDashboardQueryDto {
   @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  school_id?: string;
+
+  @IsOptional()
   @IsInt()
   @Min(2000)
   @Max(2100)
@@ -579,6 +658,11 @@ export class DtDashboardQueryDto {
 }
 
 export class GetDtBudgetHierarchyDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  school_id?: string;
+
   @IsOptional()
   @IsInt()
   @Min(2000)

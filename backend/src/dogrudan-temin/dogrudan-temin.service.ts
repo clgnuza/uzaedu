@@ -1,4 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, In, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -37,6 +39,7 @@ import {
   CreateDtFileDto,
   CreateDtQuoteDto,
   CreateDtVendorDto,
+  PatchDtVendorDto,
   DtRegistryReportDto,
   GenerateDtDocDto,
   ListDtBudgetAccountsDto,
@@ -49,6 +52,7 @@ import {
   RecordDtPaymentDto,
   CreateDtMaterialCategoryDto,
   CreateDtMaterialLibraryItemDto,
+  PatchDtMaterialLibraryItemDto,
   ListDtMaterialLibraryDto,
   CreateDtAcceptanceCommissionDto,
   AddDtCommissionMemberDto,
@@ -66,6 +70,7 @@ import { DtAcceptanceCommissionMember } from './entities/dt-acceptance-commissio
 import { DtSchoolProcurementSettings } from './entities/dt-school-procurement-settings.entity';
 import { DtFileDocumentRegistry } from './entities/dt-file-document-registry.entity';
 import { User } from '../users/entities/user.entity';
+import { UserRole, UserStatus } from '../types/enums';
 import { DT_COMMISSION_KINDS, DT_REGISTRY_STAGES } from './dt-workflow.constants';
 
 @Injectable()
@@ -225,12 +230,24 @@ export class DogrudanTeminService {
     void userId;
     const saved = await this.itemRepo.save(item);
     await this.recalcFileTotalsBestEffort(schoolId, dtFileId);
-    return saved;
+    return {
+      ...saved,
+      qty: this.formatQtyOrAmountStringForApi(saved.qty) ?? saved.qty,
+      estimatedUnitPrice: this.formatQtyOrAmountStringForApi(saved.estimatedUnitPrice),
+      estimatedTotal: this.formatQtyOrAmountStringForApi(saved.estimatedTotal),
+    };
   }
 
   async listItems(schoolId: string, dtFileId: string) {
     const items = await this.itemRepo.find({ where: { schoolId, dtFileId }, order: { createdAt: 'ASC' } });
-    return { items };
+    return {
+      items: items.map((it) => ({
+        ...it,
+        qty: this.formatQtyOrAmountStringForApi(it.qty) ?? it.qty,
+        estimatedUnitPrice: this.formatQtyOrAmountStringForApi(it.estimatedUnitPrice),
+        estimatedTotal: this.formatQtyOrAmountStringForApi(it.estimatedTotal),
+      })),
+    };
   }
 
   async patchFile(schoolId: string, userId: string, id: string, dto: PatchDtFileDto) {
@@ -248,7 +265,11 @@ export class DogrudanTeminService {
   async patchItem(schoolId: string, userId: string, id: string, dto: PatchDtItemDto) {
     const row = await this.itemRepo.findOne({ where: { id, schoolId } });
     if (!row) throw new NotFoundException({ code: 'DT_ITEM_NOT_FOUND' });
-    if (dto.name !== undefined) row.name = dto.name.trim();
+    if (dto.name !== undefined) {
+      const n = dto.name.trim();
+      if (!n) throw new BadRequestException({ code: 'DT_ITEM_NAME_EMPTY' });
+      row.name = n;
+    }
     if (dto.spec !== undefined) row.spec = dto.spec?.trim() || null;
     if (dto.qty !== undefined) row.qty = this.parseQtyStored(dto.qty, row.qty || '1');
     if (dto.unit !== undefined) row.unit = dto.unit?.trim() || null;
@@ -259,7 +280,29 @@ export class DogrudanTeminService {
     void userId;
     const saved = await this.itemRepo.save(row);
     await this.recalcFileTotalsBestEffort(schoolId, row.dtFileId);
-    return saved;
+    return {
+      ...saved,
+      qty: this.formatQtyOrAmountStringForApi(saved.qty) ?? saved.qty,
+      estimatedUnitPrice: this.formatQtyOrAmountStringForApi(saved.estimatedUnitPrice),
+      estimatedTotal: this.formatQtyOrAmountStringForApi(saved.estimatedTotal),
+    };
+  }
+
+  async deleteItem(schoolId: string, userId: string, id: string) {
+    void userId;
+    const row = await this.itemRepo.findOne({ where: { id, schoolId }, select: ['id', 'dtFileId'] });
+    if (!row) throw new NotFoundException({ code: 'DT_ITEM_NOT_FOUND' });
+    const qi = await this.quoteItemRepo.count({ where: { schoolId, dtItemId: id } });
+    const aw = await this.awardRepo.count({ where: { schoolId, dtItemId: id } });
+    if (qi > 0 || aw > 0) {
+      throw new BadRequestException({
+        code: 'DT_ITEM_IN_USE',
+        message: 'Bu kalem için teklif satırı veya karar kaydı var; silinemez.',
+      });
+    }
+    await this.itemRepo.delete({ id, schoolId });
+    await this.recalcFileTotalsBestEffort(schoolId, row.dtFileId);
+    return { ok: true };
   }
 
   async listVendors(schoolId: string, q: ListDtVendorsDto) {
@@ -282,6 +325,39 @@ export class DogrudanTeminService {
       updatedByUserId: userId,
     });
     return this.vendorRepo.save(row);
+  }
+
+  async patchVendor(schoolId: string, userId: string, id: string, dto: PatchDtVendorDto) {
+    const row = await this.vendorRepo.findOne({ where: { id, schoolId } });
+    if (!row) throw new NotFoundException({ code: 'DT_VENDOR_NOT_FOUND' });
+    if (dto.title !== undefined) {
+      const t = dto.title.trim();
+      if (!t) throw new BadRequestException({ code: 'DT_VENDOR_TITLE_EMPTY' });
+      row.title = t;
+    }
+    if (dto.tax_no !== undefined) row.taxNo = dto.tax_no?.trim() || null;
+    if (dto.contact_name !== undefined) row.contactName = dto.contact_name?.trim() || null;
+    if (dto.phone !== undefined) row.phone = dto.phone?.trim() || null;
+    if (dto.email !== undefined) row.email = dto.email?.trim() || null;
+    if (dto.address !== undefined) row.address = dto.address?.trim() || null;
+    row.updatedByUserId = userId;
+    return this.vendorRepo.save(row);
+  }
+
+  async deleteVendor(schoolId: string, userId: string, id: string) {
+    void userId;
+    const row = await this.vendorRepo.findOne({ where: { id, schoolId }, select: ['id'] });
+    if (!row) throw new NotFoundException({ code: 'DT_VENDOR_NOT_FOUND' });
+    const qCount = await this.quoteRepo.count({ where: { schoolId, vendorId: id } });
+    const aCount = await this.awardRepo.count({ where: { schoolId, vendorId: id } });
+    if (qCount > 0 || aCount > 0) {
+      throw new BadRequestException({
+        code: 'DT_VENDOR_IN_USE',
+        message: 'Bu firma bir veya daha fazla dosyada teklif veya karar kaydında kullanılıyor; silinemez.',
+      });
+    }
+    await this.vendorRepo.delete({ id, schoolId });
+    return { ok: true };
   }
 
   async createQuote(schoolId: string, userId: string, dtFileId: string, dto: CreateDtQuoteDto) {
@@ -316,7 +392,13 @@ export class DogrudanTeminService {
     const quote = await this.quoteRepo.findOne({ where: { id: quoteId, schoolId }, select: ['id'] });
     if (!quote) throw new NotFoundException({ code: 'DT_QUOTE_NOT_FOUND' });
     const items = await this.quoteItemRepo.find({ where: { schoolId, quoteId }, order: { createdAt: 'ASC' } });
-    return { items };
+    return {
+      items: items.map((it) => ({
+        ...it,
+        unitPrice: this.formatQtyOrAmountStringForApi(it.unitPrice) ?? it.unitPrice,
+        total: this.formatQtyOrAmountStringForApi(it.total),
+      })),
+    };
   }
 
   async upsertQuoteItem(schoolId: string, quoteId: string, dto: UpsertDtQuoteItemDto) {
@@ -337,12 +419,16 @@ export class DogrudanTeminService {
       schoolId,
       quoteId: quote.id,
       dtItemId: item.id,
-      unitPrice: String(dto.unit_price).trim().replace(',', '.'),
+      unitPrice: this.formatQtyOrAmountNumberForApi(this.parseAmountRequired(dto.unit_price, 'DT_QUOTE_ITEM_UNIT_PRICE')),
       total: null,
     });
     const saved = await this.quoteItemRepo.save(row);
     await this.recalcFileTotalsBestEffort(schoolId, quote.dtFileId);
-    return saved;
+    return {
+      ...saved,
+      unitPrice: this.formatQtyOrAmountStringForApi(saved.unitPrice) ?? saved.unitPrice,
+      total: this.formatQtyOrAmountStringForApi(saved.total),
+    };
   }
 
   async listBudgetAccounts(schoolId: string, q: ListDtBudgetAccountsDto) {
@@ -566,7 +652,7 @@ export class DogrudanTeminService {
       const s = `%${q.search.trim()}%`;
       qb.andWhere('(m.code ILIKE :s OR m.name ILIKE :s OR m.description ILIKE :s)', { s });
     }
-    const limit = Math.min(q.limit ?? 100, 500);
+    const limit = Math.min(q.limit ?? 500, 10000);
     const skip = q.skip ?? 0;
     const [items, count] = await qb
       .orderBy('m.code', 'ASC')
@@ -601,6 +687,106 @@ export class DogrudanTeminService {
       createdByUserId: userId,
     });
     return this.matLibRepo.save(row);
+  }
+
+  async patchMaterialLibraryItem(schoolId: string, id: string, dto: PatchDtMaterialLibraryItemDto) {
+    const row = await this.matLibRepo.findOne({ where: { id, schoolId } });
+    if (!row) throw new NotFoundException({ code: 'DT_MATERIAL_NOT_FOUND' });
+
+    if (dto.code !== undefined) {
+      const code = dto.code.trim();
+      if (!code) throw new BadRequestException({ code: 'DT_MATERIAL_CODE_EMPTY' });
+      if (code !== row.code) {
+        const clash = await this.matLibRepo.findOne({ where: { schoolId, code }, select: ['id'] });
+        if (clash) throw new BadRequestException({ code: 'DT_MATERIAL_CODE_EXISTS' });
+      }
+      row.code = code;
+    }
+    if (dto.name !== undefined) {
+      const name = dto.name.trim();
+      if (!name) throw new BadRequestException({ code: 'DT_MATERIAL_NAME_EMPTY' });
+      row.name = name;
+    }
+    if (dto.description !== undefined) row.description = dto.description?.trim() || null;
+    if (dto.unit !== undefined) row.unit = dto.unit?.trim() || null;
+    if (dto.vat_rate !== undefined) row.vatRate = dto.vat_rate;
+
+    if (dto.category_id !== undefined) {
+      const cid = dto.category_id?.trim() || null;
+      if (cid) {
+        const cat = await this.matCatRepo.findOne({ where: { schoolId, id: cid }, select: ['id'] });
+        if (!cat) throw new NotFoundException({ code: 'DT_CATEGORY_NOT_FOUND' });
+        row.categoryId = cid;
+      } else {
+        row.categoryId = null;
+      }
+    }
+
+    return this.matLibRepo.save(row);
+  }
+
+  private readOrtakKamuCpvCatalog(): { code: string; name: string; type?: string }[] {
+    const candidates = [
+      join(__dirname, 'data', 'ortak-kamu-cpv-catalog.json'),
+      join(process.cwd(), 'dist', 'dogrudan-temin', 'data', 'ortak-kamu-cpv-catalog.json'),
+      join(process.cwd(), 'src', 'dogrudan-temin', 'data', 'ortak-kamu-cpv-catalog.json'),
+    ];
+    const path = candidates.find((p) => existsSync(p));
+    if (!path) {
+      throw new InternalServerErrorException({
+        code: 'DT_ORTAK_KAMU_CATALOG_MISSING',
+        message: 'ortak-kamu-cpv-catalog.json bulunamadı.',
+      });
+    }
+    const raw = readFileSync(path, 'utf8');
+    try {
+      const parsed = JSON.parse(raw) as { code: string; name: string; type?: string }[];
+      if (!Array.isArray(parsed)) throw new Error('not array');
+      const seen = new Set<string>();
+      return parsed.filter((r) => {
+        const c = String(r.code ?? '').trim();
+        if (!c || seen.has(c)) return false;
+        seen.add(c);
+        return true;
+      });
+    } catch {
+      throw new InternalServerErrorException({
+        code: 'DT_ORTAK_KAMU_CATALOG_INVALID',
+        message: 'CPV katalog JSON okunamadı.',
+      });
+    }
+  }
+
+  async seedOrtakKamuMaterialLibrary(schoolId: string, userId: string) {
+    const catalog = this.readOrtakKamuCpvCatalog();
+    const existing = await this.matLibRepo.find({ where: { schoolId }, select: ['code'] });
+    const have = new Set(existing.map((r) => r.code));
+    const pending = catalog.filter((r) => r.code && !have.has(r.code));
+    const chunkSize = 250;
+    let inserted = 0;
+    for (let i = 0; i < pending.length; i += chunkSize) {
+      const part = pending.slice(i, i + chunkSize);
+      await this.matLibRepo.insert(
+        part.map((r) => ({
+          schoolId,
+          categoryId: null,
+          code: String(r.code).trim(),
+          name: String(r.name ?? '').trim().slice(0, 512),
+          description: r.type?.trim()
+            ? `Ortak Kamu Alımları Sözlüğü (${r.type.trim()})`
+            : 'Ortak Kamu Alımları Sözlüğü',
+          unit: null,
+          vatRate: 20,
+          createdByUserId: userId,
+        })),
+      );
+      inserted += part.length;
+    }
+    return {
+      inserted,
+      skipped_existing: catalog.length - pending.length,
+      catalog_rows: catalog.length,
+    };
   }
 
   async listAwards(schoolId: string, dtFileId: string) {
@@ -724,8 +910,8 @@ export class DogrudanTeminService {
         dtFileId,
         dtItemId: c.dtItemId,
         vendorId: c.vendorId,
-        unitPrice: Number(c.unitPrice).toFixed(6),
-        total: Number.isFinite(total) ? total.toFixed(6) : null,
+        unitPrice: this.formatQtyOrAmountNumberForApi(Number(c.unitPrice)),
+        total: Number.isFinite(total) ? this.formatQtyOrAmountNumberForApi(total) : null,
         createdByUserId: prev ? prev.createdByUserId : userId,
         updatedByUserId: userId,
       });
@@ -808,18 +994,24 @@ export class DogrudanTeminService {
   }
 
   private pdfRegisterFonts(doc: InstanceType<typeof PDFDocument>): { regular: string; bold: string } {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const reg = require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans.ttf');
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const bold = require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf');
+    const resolveTtf = (name: string): string | null => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        return require.resolve(`dejavu-fonts-ttf/ttf/${name}`);
+      } catch {
+        const p = join(process.cwd(), 'node_modules', 'dejavu-fonts-ttf', 'ttf', name);
+        return existsSync(p) ? p : null;
+      }
+    };
+    const reg = resolveTtf('DejaVuSans.ttf');
+    const bold = resolveTtf('DejaVuSans-Bold.ttf');
+    if (reg && bold) {
       doc.registerFont('DT', reg);
       doc.registerFont('DTB', bold);
       doc.font('DT');
       return { regular: 'DT', bold: 'DTB' };
-    } catch {
-      return { regular: 'Helvetica', bold: 'Helvetica-Bold' };
     }
+    return { regular: 'Helvetica', bold: 'Helvetica-Bold' };
   }
 
   private pdfBuffer(
@@ -849,7 +1041,6 @@ export class DogrudanTeminService {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
       build(doc, fonts);
-      drawFooter();
       doc.end();
     });
   }
@@ -988,6 +1179,26 @@ export class DogrudanTeminService {
     return Number.isFinite(n) ? n : null;
   }
 
+  /** PG numeric / toFixed çıktısındaki gereksiz sondaki sıfırları kaldırır (API & formlar). */
+  private formatQtyOrAmountStringForApi(raw: string | null | undefined): string | null {
+    if (raw == null) return null;
+    const t = String(raw).trim();
+    if (!t) return null;
+    const n = this.toNum(t);
+    if (n == null || !Number.isFinite(n)) return t;
+    return this.formatQtyOrAmountNumberForApi(n);
+  }
+
+  private formatQtyOrAmountNumberForApi(n: number): string {
+    if (!Number.isFinite(n)) return '0';
+    if (n === 0 || Object.is(n, -0)) return '0';
+    if (Number.isInteger(n)) return String(Math.trunc(n));
+    return n
+      .toFixed(12)
+      .replace(/(\.\d*?)0+$/, '$1')
+      .replace(/\.$/, '');
+  }
+
   private parseAmountRequired(raw: unknown, errCode: string): number {
     const n = this.toNum(raw);
     if (n == null || !Number.isFinite(n)) {
@@ -996,19 +1207,19 @@ export class DogrudanTeminService {
     return n;
   }
 
-  /** Boş → null; doluysa TR/EN ondalık parse, veritabanına 6 hane */
+  /** Boş → null; doluysa TR/EN ondalık parse, gereksiz sondaki sıfırlar atılır. */
   private parseAmountOrNull(raw: unknown | null | undefined): string | null {
     if (raw == null) return null;
     const t = String(raw).trim();
     if (!t) return null;
     const n = this.toNum(t);
     if (n == null) throw new BadRequestException({ code: 'DT_INVALID_AMOUNT', message: 'Geçersiz tutar formatı.' });
-    return n.toFixed(6);
+    return this.formatQtyOrAmountNumberForApi(n);
   }
 
   private parseQtyStored(raw: unknown, fallback: string): string {
     const n = this.toNum(raw);
-    if (n != null) return String(n);
+    if (n != null) return this.formatQtyOrAmountNumberForApi(n);
     const t = String(raw ?? '').trim();
     if (!t) return fallback;
     throw new BadRequestException({ code: 'DT_INVALID_QTY', message: 'Geçersiz miktar formatı.' });
@@ -1152,7 +1363,7 @@ export class DogrudanTeminService {
     const pushC = (text: string, bold = false, size = 20) =>
       new Paragraph({
         alignment: AlignmentType.CENTER,
-        children: [new TextRun({ text, bold, size })],
+        children: [new TextRun({ text, bold, size, font: 'Times New Roman' })],
       });
     const out: Paragraph[] = [];
     out.push(pushC('T.C.', true, 22));
@@ -1187,6 +1398,83 @@ export class DogrudanTeminService {
     }
     if (regLines.length) out.push(...regLines);
     return out;
+  }
+
+  private dtDocxDefaultStyles() {
+    return {
+      default: {
+        document: {
+          run: {
+            font: 'Times New Roman',
+            size: 22,
+          },
+        },
+      },
+    } as const;
+  }
+
+  /** Evrak defteri aşamasına göre Sayı / tarih, Konu ve doğrudan temin no (resmî üst bilgi). */
+  private async buildDtDocxCorrespondenceHeader(
+    file: DtFile,
+    stage: string,
+  ): Promise<{ blocks: (Paragraph | Table)[]; docDateFormatted: string }> {
+    const registryRows = await this.registryRepo.find({ where: { schoolId: file.schoolId, dtFileId: file.id } });
+    const byStage = new Map(registryRows.map((r) => [r.stage, r] as const));
+    const r = byStage.get(stage);
+    const sayi = this.registrySayi(r);
+    const tarih = this.fmtTrDate(r?.docDate ?? null);
+    const none = {
+      style: BorderStyle.NONE,
+      size: 0,
+      color: 'FFFFFF',
+    };
+    const cellBorders = { top: none, bottom: none, left: none, right: none } as any;
+    const table = new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: {
+        top: none,
+        bottom: none,
+        left: none,
+        right: none,
+        insideHorizontal: none,
+        insideVertical: none,
+      },
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              borders: cellBorders,
+              children: [
+                new Paragraph({ children: [new TextRun({ text: sayi ? `Sayı: ${sayi}` : 'Sayı: …', size: 18 })] }),
+              ],
+            }),
+            new TableCell({
+              borders: cellBorders,
+              children: [
+                new Paragraph({
+                  children: [new TextRun({ text: tarih ? `Tarih: ${tarih}` : 'Tarih: …', size: 18 })],
+                  alignment: AlignmentType.RIGHT,
+                }),
+              ],
+            }),
+          ],
+        }),
+      ],
+    }) as any;
+    const konu = (file.subject ?? '').trim();
+    const out: (Paragraph | Table)[] = [
+      table,
+      new Paragraph({ children: [new TextRun({ text: `Konu: ${konu}`, size: 18 })] }),
+    ];
+    if (file.procurementRef?.trim()) {
+      out.push(
+        new Paragraph({
+          children: [new TextRun({ text: `Doğrudan temin numarası: ${file.procurementRef.trim()}`, size: 18 })],
+        }),
+      );
+    }
+    out.push(new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }));
+    return { blocks: out, docDateFormatted: tarih };
   }
 
   private async loadUserDisplayNames(ids: string[]): Promise<Map<string, string>> {
@@ -1278,7 +1566,7 @@ export class DogrudanTeminService {
           );
           doc.moveDown(0.6);
           doc.font(fonts.regular).fontSize(10).text(
-            `Müdürlüğümüzün ihtiyacı olan mal/malzeme yukarıya çıkarılmış olup 4734 Sayılı İhale Yasası'nın 22/d maddesi gereğince Doğrudan Temin yoluyla satın alınması için uygun görüldüğü takdirde OLUR'larınıza arz ederim.`,
+            `Müdürlüğümüzün ihtiyacı olan mal/malzeme yukarıya çıkarılmış olup 4734 sayılı Kamu İhale Kanunu'nun 22/d maddesi gereğince doğrudan temin yoluyla satın alınması uygun görüldüğü takdirde olurlarınıza arz ederim.`,
             { align: 'justify' },
           );
           doc.moveDown(0.8);
@@ -1636,7 +1924,7 @@ export class DogrudanTeminService {
             settings,
           });
           doc.font(fonts.regular).fontSize(10).text(
-            `${file.subject} işine ait ihtiyaç listesi onayı ekte sunulmuştur. Söz konusu mal/malzeme 4734 sayılı İhale Kanununun 9 Maddesi gereğince satın alınacağından; (1) Her türlü fiyat araştırmasını yapmak ve yaklaşık maliyet cetvelini hazırlayarak onaya sunmak üzere fiyat araştırma komisyonu, (2) Onay Belgesi'nin tanziminden sonra yazılı teklif mektupları alarak değerlendirmek ve ihaleyi sonuçlandırarak onaya sunmak üzere ihale komisyonu, (3) Mal/malzeme tesliminden sonra satın alınan mal/malzemelerin özelliklerini ve sayılarını kontrol ederek teslim almak üzere muayene ve teslim alma komisyonu oluşturulması müdürlüğümüzce uygun görülmektedir. Makamınızca da uygun görüldüğü takdirde OLUR'larınıza arz ederim.`,
+            `${file.subject} işine ait ihtiyaç listesi onayı ekte sunulmuştur. Söz konusu mal/malzeme 4734 sayılı Kamu İhale Kanunu'nun 9. maddesi gereğince satın alınacağından; (1) Her türlü fiyat araştırmasını yapmak ve yaklaşık maliyet cetvelini hazırlayarak onaya sunmak üzere fiyat araştırma komisyonu, (2) Onay belgesinin tanziminden sonra yazılı teklif mektupları alarak değerlendirmek ve ihaleyi sonuçlandırarak onaya sunmak üzere ihale komisyonu, (3) Mal/malzeme tesliminden sonra satın alınan mal/malzemelerin özelliklerini ve sayılarını kontrol ederek teslim almak üzere muayene ve teslim alma komisyonu oluşturulması müdürlüğümüzce uygun görülmektedir. Makamınızca da uygun görüldüğü takdirde olurlarınıza arz ederim.`,
             { align: 'justify' },
           );
           doc.moveDown(0.8);
@@ -1877,7 +2165,7 @@ export class DogrudanTeminService {
             }
             doc.moveDown(0.6);
             doc.font(fonts.regular).fontSize(9).text(
-              `İdaremizce ihtiyaç duyulan ve satın alınması düşünülen aşağıda cinsi, özellikleri ve miktarları yazılı malların/hizmetlerin 4734 Sayılı Kamu İhale Kanunu'nun 9'uncu Maddesi gereğince yaklaşık maliyetinin tesbitine esas olmak üzere her türlü fiyat araştırması yapılmıştır. Araştırma sonuçları yukarıdaki tabloda gösterilmiştir. Yukarıda açıklandığı üzere yaklaşık maliyetin KDV hariç ${this.fmtTry(grandApprox)} takdir ve tesbit edilerek iş bu Hesap Cetveli düzenlenerek imza altına alınmıştır.`,
+              `İdaremizce ihtiyaç duyulan ve satın alınması düşünülen aşağıda cinsi, özellikleri ve miktarları yazılı malların/hizmetlerin 4734 sayılı Kamu İhale Kanunu'nun 9. maddesi gereğince yaklaşık maliyetinin tespitine esas olmak üzere her türlü fiyat araştırması yapılmıştır. Araştırma sonuçları yukarıdaki tabloda gösterilmiştir. Yukarıda açıklandığı üzere yaklaşık maliyetin KDV hariç ${this.fmtTry(grandApprox)} takdir ve tespit edilerek iş bu hesap cetveli düzenlenerek imza altına alınmıştır.`,
               { align: 'justify' },
             );
             doc.moveDown(0.6);
@@ -1955,7 +2243,7 @@ export class DogrudanTeminService {
           }
           doc.moveDown(0.4);
           doc.font(fonts.regular).fontSize(9).text(
-            `4734 Sayılı Kamu İhale Kanunu'nun 22 nci Maddesi uyarınca Doğrudan Temin Usulüyle yapılacak alımlara ilişkin yapılan piyasa araştırmasında firmalarca/kişilerce teklif edilen fiyatlar değerlendirilerek yukarıda adı ve adresleri belirtilen kişi/firma/firmalardan alım yapılması uygun görülmüştür.`,
+            `4734 sayılı Kamu İhale Kanunu'nun 22. maddesi uyarınca doğrudan temin usulüyle yapılacak alımlara ilişkin yapılan piyasa araştırmasında firmalarca/kişilerce teklif edilen fiyatlar değerlendirilerek yukarıda adı ve adresleri belirtilen kişi/firma/firmalardan alım yapılması uygun görülmüştür.`,
             { align: 'justify' },
           );
           doc.moveDown(0.8);
@@ -2071,6 +2359,11 @@ export class DogrudanTeminService {
       if (dto.doc_type === 'sozlesme') {
         throw new BadRequestException({ code: 'DT_PDF_NOT_SUPPORTED', message: 'Sözleşme için PDF desteklenmiyor.' });
       }
+
+      throw new BadRequestException({
+        code: 'DT_PDF_NOT_SUPPORTED',
+        message: 'Bu belge türü için PDF üretimi tanımlı değil; DOCX seçin.',
+      });
     }
 
     if (dto.doc_type === 'ihtiyac_listesi') {
@@ -2146,6 +2439,7 @@ export class DogrudanTeminService {
         vendorById,
         quotes,
         docTitle: 'Piyasa araştırma tutanağı',
+        registryStage: 'piyasa_arastirma',
       });
       return this.persistDtGeneratedDocx({
         schoolId,
@@ -2172,6 +2466,7 @@ export class DogrudanTeminService {
         vendorById,
         quotes,
         docTitle: 'Yaklaşık maliyet cetveli',
+        registryStage: 'yaklasik_maliyet',
       });
       return this.persistDtGeneratedDocx({
         schoolId,
@@ -2483,13 +2778,14 @@ export class DogrudanTeminService {
     file: DtFile,
     letterhead: Paragraph[],
   ): Promise<Buffer> {
+    const { blocks: corr } = await this.buildDtDocxCorrespondenceHeader(file, 'komisyon_onay');
     const kindLabel: Record<string, string> = {
       yaklasik_maliyet: 'Yaklaşık maliyet komisyonu',
       piyasa_satinalma: 'Piyasa araştırma / satın alma komisyonu',
       muayene_kabul: 'Muayene ve kabul komisyonu',
     };
     const sections: Paragraph[] = [
-      new Paragraph({ children: [new TextRun({ text: 'Komisyon üye listesi / onay', bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
+      new Paragraph({ children: [new TextRun({ text: 'KOMİSYON ONAYI', bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: `${file.year} / ${file.fileNo} · ${file.subject}`, size: 20 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
     ];
@@ -2528,7 +2824,7 @@ export class DogrudanTeminService {
       });
       sections.push(new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }));
     }
-    const doc = new DocxDocument({ sections: [{ properties: {}, children: [...letterhead, ...sections] }] });
+    const doc = new DocxDocument({ styles: this.dtDocxDefaultStyles() as any, sections: [{ properties: {}, children: [...letterhead, ...corr, ...sections] }] });
     return Buffer.from(await Packer.toBuffer(doc));
   }
 
@@ -2539,8 +2835,9 @@ export class DogrudanTeminService {
     letterhead: Paragraph[],
   ): Promise<Buffer> {
     const settings = await this.procurementSettingsRepo.findOne({ where: { schoolId } });
+    const { blocks: corr } = await this.buildDtDocxCorrespondenceHeader(file, 'ihale_onay');
     const lines: Paragraph[] = [
-      new Paragraph({ children: [new TextRun({ text: 'Onay belgesi (taslak)', bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
+      new Paragraph({ children: [new TextRun({ text: 'ONAY BELGESİ', bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: `${file.year} / ${file.fileNo} · ${file.subject}`, size: 20 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
       new Paragraph({
@@ -2582,7 +2879,7 @@ export class DogrudanTeminService {
         children: [new TextRun({ text: `Müdür / yetkili: ${school?.principalName ?? '…………………'}`, size: 18 })],
       }),
     );
-    const doc = new DocxDocument({ sections: [{ properties: {}, children: [...letterhead, ...lines] }] });
+    const doc = new DocxDocument({ styles: this.dtDocxDefaultStyles() as any, sections: [{ properties: {}, children: [...letterhead, ...corr, ...lines] }] });
     return Buffer.from(await Packer.toBuffer(doc));
   }
 
@@ -2593,8 +2890,10 @@ export class DogrudanTeminService {
     vendorById: Map<string, DtVendor>;
     quotes: DtQuote[];
     docTitle: string;
+    registryStage: 'piyasa_arastirma' | 'yaklasik_maliyet';
   }): Promise<Buffer> {
-    const { letterhead, file, items, vendorById, quotes, docTitle } = input;
+    const { letterhead, file, items, vendorById, quotes, docTitle, registryStage } = input;
+    const { blocks: corr } = await this.buildDtDocxCorrespondenceHeader(file, registryStage);
     const firmQuotes = this.dedupeMarketResearchQuotes(quotes).slice(0, 3);
     const colData = await Promise.all(
       firmQuotes.map(async (q) => {
@@ -2650,7 +2949,7 @@ export class DogrudanTeminService {
     if (!firmQuotes.length) {
       sub.push(new Paragraph({ children: [new TextRun({ text: 'Fiyat araştırması teklifi yok; önce «Araştırma» amaçlı teklif ekleyin.', italics: true, size: 18 })] }));
     }
-    const doc = new DocxDocument({ sections: [{ properties: {}, children: [...letterhead, ...sub, table] }] });
+    const doc = new DocxDocument({ styles: this.dtDocxDefaultStyles() as any, sections: [{ properties: {}, children: [...letterhead, ...corr, ...sub, table] }] });
     return Buffer.from(await Packer.toBuffer(doc));
   }
 
@@ -2661,40 +2960,10 @@ export class DogrudanTeminService {
     letterhead: Paragraph[];
   }): Promise<Buffer> {
     const { school, file, items, letterhead } = input;
-    const registryRows = await this.registryRepo.find({ where: { schoolId: file.schoolId, dtFileId: file.id } });
-    const byStage = new Map(registryRows.map((r) => [r.stage, r] as const));
-    const r = byStage.get('ihtiyac_listesi');
-    const sayi = this.registrySayi(r);
-    const tarih = this.fmtTrDate(r?.docDate ?? null);
+    const { blocks: corr, docDateFormatted: tarih } = await this.buildDtDocxCorrespondenceHeader(file, 'ihtiyac_listesi');
     const header = [
       ...letterhead,
-      new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        borders: {
-          top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-          bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-          left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-          right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-          insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-          insideVertical: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-        },
-        rows: [
-          new TableRow({
-            children: [
-              new TableCell({
-                borders: { top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' } } as any,
-                children: [new Paragraph({ children: [new TextRun({ text: sayi ? `Sayı   : ${sayi}` : 'Sayı', size: 18 })] })],
-              }),
-              new TableCell({
-                borders: { top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' } } as any,
-                children: [new Paragraph({ children: [new TextRun({ text: tarih, size: 18 })], alignment: AlignmentType.RIGHT })],
-              }),
-            ],
-          }),
-        ],
-      }) as any,
-      new Paragraph({ children: [new TextRun({ text: `Konu : ${file.subject}`, size: 18 })] }),
-      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+      ...corr,
       new Paragraph({ children: [new TextRun({ text: `MAL/MALZEME İHTİYAÇ LİSTESİ`, bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
     ];
@@ -2736,10 +3005,11 @@ export class DogrudanTeminService {
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
       new Paragraph({ children: [new TextRun({ text: `${((school?.name ?? '').trim() || 'Kurum').toUpperCase()} MÜDÜRLÜĞÜNE`, bold: true, size: 18 })] }),
       new Paragraph({
+        alignment: AlignmentType.JUSTIFIED,
         children: [
           new TextRun({
             text:
-              `Müdürlüğümüzün ihtiyacı olan mal/malzeme yukarıya çıkarılmış olup 4734 Sayılı İhale Yasası'nın 22/d maddesi gereğince Doğrudan Temin yoluyla satın alınması için uygun görüldüğü takdirde OLUR'larınıza arz ederim.`,
+              `Müdürlüğümüzün ihtiyacı olan mal/malzeme yukarıya çıkarılmış olup 4734 sayılı Kamu İhale Kanunu'nun 22/d maddesi gereğince doğrudan temin yoluyla satın alınması uygun görüldüğü takdirde olurlarınıza arz ederim.`,
             size: 18,
           }),
         ],
@@ -2753,7 +3023,7 @@ export class DogrudanTeminService {
       new Paragraph({ children: [new TextRun({ text: school?.principalName ?? '…………………', bold: true, size: 18 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: 'İhale(Harcama Yetkilisi)', size: 18 })], alignment: AlignmentType.CENTER }),
     ];
-    const doc = new DocxDocument({ sections: [{ properties: {}, children: [...header, table, ...footer] as any }] });
+    const doc = new DocxDocument({ styles: this.dtDocxDefaultStyles() as any, sections: [{ properties: {}, children: [...header, table, ...footer] as any }] });
     return Buffer.from(await Packer.toBuffer(doc));
   }
 
@@ -2767,8 +3037,11 @@ export class DogrudanTeminService {
     docTitle: string;
   }): Promise<Buffer> {
     const { school, file, items, awardByItemId, vendorById, letterhead, docTitle } = input;
+    const regStage = /muayene|kabul/i.test(docTitle) ? 'muayene_kabul' : 'komisyon_onay';
+    const { blocks: corr } = await this.buildDtDocxCorrespondenceHeader(file, regStage);
     const header = [
       ...letterhead,
+      ...corr,
       new Paragraph({ children: [new TextRun({ text: docTitle, bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: `${file.year} / ${file.fileNo} · ${file.subject}`, size: 20 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
@@ -2812,7 +3085,7 @@ export class DogrudanTeminService {
       new Paragraph({ children: [new TextRun({ text: `Onaylayan: ${school?.principalName ?? ''}`, size: 18 })], alignment: AlignmentType.LEFT }),
     ];
 
-    const doc = new DocxDocument({ sections: [{ properties: {}, children: [...header, table, ...footer] }] });
+    const doc = new DocxDocument({ styles: this.dtDocxDefaultStyles() as any, sections: [{ properties: {}, children: [...header, table, ...footer] }] });
     return Buffer.from(await Packer.toBuffer(doc));
   }
 
@@ -2824,47 +3097,18 @@ export class DogrudanTeminService {
     letterhead: Paragraph[];
   }): Promise<Buffer> {
     const { file, items, vendor, letterhead } = input;
-    const registryRows = await this.registryRepo.find({ where: { schoolId: file.schoolId, dtFileId: file.id } });
-    const byStage = new Map(registryRows.map((r) => [r.stage, r] as const));
-    const r = byStage.get('teklif_mektubu');
-    const sayi = this.registrySayi(r);
-    const tarih = this.fmtTrDate(r?.docDate ?? null);
+    const { blocks: corr } = await this.buildDtDocxCorrespondenceHeader(file, 'teklif_mektubu');
     const header = [
       ...letterhead,
-      new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        borders: {
-          top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-          bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-          left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-          right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-          insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-          insideVertical: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-        },
-        rows: [
-          new TableRow({
-            children: [
-              new TableCell({
-                borders: { top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' } } as any,
-                children: [new Paragraph({ children: [new TextRun({ text: sayi ? `Sayı   : ${sayi}` : 'Sayı', size: 18 })] })],
-              }),
-              new TableCell({
-                borders: { top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' } } as any,
-                children: [new Paragraph({ children: [new TextRun({ text: tarih, size: 18 })], alignment: AlignmentType.RIGHT })],
-              }),
-            ],
-          }),
-        ],
-      }) as any,
-      new Paragraph({ children: [new TextRun({ text: `Konu : ${file.subject}`, size: 18 })] }),
-      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+      ...corr,
       new Paragraph({ children: [new TextRun({ text: 'TEKLİF MEKTUBU', bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
       new Paragraph({
+        alignment: AlignmentType.JUSTIFIED,
         children: [
           new TextRun({
             text:
-              `İdaremiz tarafından ${file.subject} işine ait aşağıda cinsi, özellikleri ve miktarları yazılı mallar/hizmetler 4734 sayılı Kamu İhale Kanunu'nun 22/d Maddesi gereğince Doğrudan Temin Usulüyle satın alınacaktır. İlgilenmeniz halinde; teklifin KDV hariç olarak sunulması, teklif edilen toplam bedelin rakam ve yazı ile birbirine uygun olarak yazılması, üzerinde kazıntı, silinti ve düzeltme yapılmaması, teklif mektubunun ad/soyad ve ticaret ünvanı yazılmak sureti ile kaşelenmesi ve imzalanması zorunlu olup, bu şartları taşımayan teklifler değerlendirilmeye alınmayacaktır.`,
+              `İdaremiz tarafından ${file.subject} işine ait aşağıda cinsi, özellikleri ve miktarları yazılı mallar/hizmetler 4734 sayılı Kamu İhale Kanunu'nun 22/d maddesi gereğince doğrudan temin usulüyle satın alınacaktır. İlgilenmeniz halinde; teklifin KDV hariç sunulması, teklif edilen toplam bedelin rakam ve yazıyla birbirine uygun yazılması, üzerinde kazıntı, silinti ve düzeltme bulunmaması, teklif mektubunun adı soyadı ve ticaret ünvanı yazılmak suretiyle kaşelenmesi ve imzalanması zorunludur; bu şartları taşımayan teklifler değerlendirmeye alınmayacaktır.`,
             size: 18,
           }),
         ],
@@ -2919,10 +3163,10 @@ export class DogrudanTeminService {
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
       new Paragraph({ children: [new TextRun({ text: 'DİĞER ŞARTLAR', bold: true, size: 18 })] }),
       new Paragraph({ children: [new TextRun({ text: 'Tarih: ….. / ….. / 202…', size: 18 })] }),
-      new Paragraph({ children: [new TextRun({ text: 'Teslim Süresi 10', size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: 'Teslim süresi: 10 (gün)', size: 18 })] }),
       new Paragraph({ children: [new TextRun({ text: 'Adı Soyadı, Ticaret Ünvanı, İmza, Kaşe', size: 18 })] }),
     ];
-    const doc = new DocxDocument({ sections: [{ properties: {}, children: [...header, table, ...footer] as any }] });
+    const doc = new DocxDocument({ styles: this.dtDocxDefaultStyles() as any, sections: [{ properties: {}, children: [...header, table, ...footer] as any }] });
     return Buffer.from(await Packer.toBuffer(doc));
   }
 
@@ -2935,9 +3179,11 @@ export class DogrudanTeminService {
   }): Promise<Buffer> {
     const { school, file, vendor, awarded, letterhead } = input;
     const total = awarded.reduce((sum, x) => sum + (Number(x.a.total) || 0), 0);
+    const { blocks: corr } = await this.buildDtDocxCorrespondenceHeader(file, 'ihale_onay');
     const header = [
       ...letterhead,
-      new Paragraph({ children: [new TextRun({ text: 'Sözleşme', bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
+      ...corr,
+      new Paragraph({ children: [new TextRun({ text: 'SÖZLEŞME', bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: `${file.year} / ${file.fileNo} · ${file.subject}`, size: 20 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: `Yüklenici: ${vendor.title}`, size: 20 })] }),
       new Paragraph({ children: [new TextRun({ text: `Toplam: ${total.toFixed(2)}`, size: 20 })] }),
@@ -2975,7 +3221,7 @@ export class DogrudanTeminService {
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
       new Paragraph({ children: [new TextRun({ text: `Onay: ${school?.principalName ?? ''}`, size: 18 })] }),
     ];
-    const doc = new DocxDocument({ sections: [{ properties: {}, children: [...header, table, ...footer] }] });
+    const doc = new DocxDocument({ styles: this.dtDocxDefaultStyles() as any, sections: [{ properties: {}, children: [...header, table, ...footer] }] });
     return Buffer.from(await Packer.toBuffer(doc));
   }
 
@@ -3000,6 +3246,26 @@ export class DogrudanTeminService {
     if (dto.realization_authority_title !== undefined) row.realizationAuthorityTitle = dto.realization_authority_title?.trim() || null;
     if (dto.official_correspondence_code !== undefined) row.officialCorrespondenceCode = dto.official_correspondence_code?.trim() || null;
     return this.procurementSettingsRepo.save(row);
+  }
+
+  /** Komisyon üyesi seçimi — `users` modülü kapalı olsa da doğrudan temin ekranında kullanılır. */
+  async listCommissionTeacherOptions(schoolId: string) {
+    const rows = await this.userRepo
+      .createQueryBuilder('u')
+      .select(['u.id', 'u.display_name', 'u.email', 'u.role'])
+      .where('u.school_id = :schoolId', { schoolId })
+      .andWhere('u.role IN (:...roles)', { roles: [UserRole.teacher, UserRole.school_admin] })
+      .andWhere('u.status = :status', { status: UserStatus.active })
+      .orderBy('u.display_name', 'ASC', 'NULLS LAST')
+      .addOrderBy('u.email', 'ASC')
+      .getMany();
+    return {
+      items: rows.map((u) => ({
+        id: u.id,
+        display_name: u.display_name,
+        email: u.email,
+      })),
+    };
   }
 
   async listDocumentRegistry(schoolId: string, dtFileId: string) {
@@ -3082,16 +3348,39 @@ export class DogrudanTeminService {
       );
       const qis = await this.quoteItemRepo.find({ where: { quoteId: rq.id } });
       if (qis.length) {
+        const itemIds = [...new Set(qis.map((x) => x.dtItemId))];
+        const items = itemIds.length
+          ? await this.itemRepo.find({ where: { schoolId, id: In(itemIds) }, select: ['id', 'qty'] })
+          : [];
+        const qtyById = new Map(items.map((it) => [it.id, it.qty] as const));
         await this.quoteItemRepo.save(
-          qis.map((qi) =>
-            this.quoteItemRepo.create({
+          qis.map((qi) => {
+            const up = this.toNum(qi.unitPrice);
+            if (up == null || !Number.isFinite(up)) {
+              throw new BadRequestException({
+                code: 'DT_INVALID_QUOTE_ITEM_PRICE',
+                message: 'Araştırmadan teklife aktarımda geçersiz birim fiyatı.',
+              });
+            }
+            const upStr = this.formatQtyOrAmountNumberForApi(up);
+            const qtyN = this.toNum(qtyById.get(qi.dtItemId));
+            let totalStr: string | null = null;
+            if (qtyN != null && Number.isFinite(qtyN) && Number.isFinite(qtyN * up)) {
+              totalStr = this.formatQtyOrAmountNumberForApi(qtyN * up);
+            } else {
+              const totN =
+                qi.total != null && String(qi.total).trim() !== '' ? this.toNum(qi.total) : null;
+              totalStr =
+                totN != null && Number.isFinite(totN) ? this.formatQtyOrAmountNumberForApi(totN) : null;
+            }
+            return this.quoteItemRepo.create({
               schoolId,
               quoteId: nq.id,
               dtItemId: qi.dtItemId,
-              unitPrice: qi.unitPrice,
-              total: qi.total,
-            }),
-          ),
+              unitPrice: upStr,
+              total: totalStr,
+            });
+          }),
         );
       }
       created += 1;
@@ -3206,6 +3495,42 @@ export class DogrudanTeminService {
     return this.commMemberRepo.save(member);
   }
 
+  async addCommissionMemberAllKinds(schoolId: string, authUserId: string, dtFileId: string, dto: AddDtCommissionMemberDto) {
+    const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId }, select: ['id'] });
+    if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
+
+    const uid = dto.user_id?.trim();
+    if (!uid) throw new BadRequestException({ code: 'DT_USER_ID_REQUIRED' });
+
+    let addedKinds = 0;
+    for (const kind of DT_COMMISSION_KINDS) {
+      let comm = await this.commissionRepo.findOne({ where: { schoolId, dtFileId, kind } });
+      if (!comm) {
+        comm = await this.commissionRepo.save(
+          this.commissionRepo.create({
+            schoolId,
+            dtFileId,
+            kind,
+            chairmanUserId: null,
+            createdByUserId: authUserId,
+          }),
+        );
+      }
+      const existing = await this.commMemberRepo.findOne({ where: { commissionId: comm.id, userId: uid } });
+      if (existing) continue;
+      await this.commMemberRepo.save(
+        this.commMemberRepo.create({
+          commissionId: comm.id,
+          userId: uid,
+          title: dto.title || null,
+          dutyLabel: dto.duty_label?.trim() || null,
+        }),
+      );
+      addedKinds += 1;
+    }
+    return { ok: true, added_kinds: addedKinds };
+  }
+
   async removeCommissionMember(schoolId: string, memberId: string) {
     const member = await this.commMemberRepo.findOne({ where: { id: memberId } });
     if (!member) throw new NotFoundException({ code: 'DT_MEMBER_NOT_FOUND' });
@@ -3271,7 +3596,7 @@ export class DogrudanTeminService {
       new Paragraph({ children: [new TextRun({ text: `Tarih: ${new Date().toLocaleDateString('tr-TR')}`, size: 18 })] }),
     ];
 
-    const doc = new DocxDocument({ sections: [{ properties: {}, children: [...header, table, ...footer] }] });
+    const doc = new DocxDocument({ styles: this.dtDocxDefaultStyles() as any, sections: [{ properties: {}, children: [...header, table, ...footer] }] });
     return Buffer.from(await Packer.toBuffer(doc));
   }
 

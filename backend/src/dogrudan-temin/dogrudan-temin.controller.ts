@@ -18,6 +18,7 @@ import {
   CreateDtFileDto,
   CreateDtQuoteDto,
   CreateDtVendorDto,
+  PatchDtVendorDto,
   DtRegistryReportDto,
   GenerateDtDocDto,
   ListDtBudgetAccountsDto,
@@ -30,6 +31,7 @@ import {
   UpsertDtQuoteItemDto,
   CreateDtMaterialCategoryDto,
   CreateDtMaterialLibraryItemDto,
+  PatchDtMaterialLibraryItemDto,
   ListDtMaterialLibraryDto,
   CreateDtAcceptanceCommissionDto,
   AddDtCommissionMemberDto,
@@ -71,6 +73,12 @@ export class DogrudanTeminController {
     @Query('school_id') sid?: string,
   ) {
     return this.svc.patchSchoolProcurementSettings(this.sid(p, sid), dto);
+  }
+
+  @Get('commission-teacher-options')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  listCommissionTeacherOptions(@CurrentUser() p: CurrentUserPayload, @Query('school_id') sid?: string) {
+    return this.svc.listCommissionTeacherOptions(this.sid(p, sid));
   }
 
   @Get('rules')
@@ -180,6 +188,12 @@ export class DogrudanTeminController {
     return this.svc.patchItem(this.sid(p, sid), p.userId, id, dto);
   }
 
+  @Delete('items/:id')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  deleteItem(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.deleteItem(this.sid(p, sid), p.userId, id);
+  }
+
   @Get('vendors')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   listVendors(@CurrentUser() p: CurrentUserPayload, @Query() q: ListDtVendorsDto, @Query('school_id') sid?: string) {
@@ -190,6 +204,23 @@ export class DogrudanTeminController {
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   createVendor(@CurrentUser() p: CurrentUserPayload, @Body() dto: CreateDtVendorDto, @Query('school_id') sid?: string) {
     return this.svc.createVendor(this.sid(p, sid), p.userId, dto);
+  }
+
+  @Patch('vendors/:id')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  patchVendor(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: PatchDtVendorDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.patchVendor(this.sid(p, sid), p.userId, id, dto);
+  }
+
+  @Delete('vendors/:id')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  deleteVendor(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.deleteVendor(this.sid(p, sid), p.userId, id);
   }
 
   @Get('files/:id/quotes')
@@ -395,6 +426,12 @@ export class DogrudanTeminController {
     return this.svc.listMaterialLibrary(this.sid(p, sid), q);
   }
 
+  @Post('materials/library/seed-ortak-kamu-catalog')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  seedOrtakKamuMaterialLibrary(@CurrentUser() p: CurrentUserPayload, @Query('school_id') sid?: string) {
+    return this.svc.seedOrtakKamuMaterialLibrary(this.sid(p, sid), p.userId);
+  }
+
   @Post('materials/library')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   createMaterialLibraryItem(
@@ -403,6 +440,17 @@ export class DogrudanTeminController {
     @Query('school_id') sid?: string,
   ) {
     return this.svc.createMaterialLibraryItem(this.sid(p, sid), p.userId, dto);
+  }
+
+  @Patch('materials/library/:id')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  patchMaterialLibraryItem(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: PatchDtMaterialLibraryItemDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.patchMaterialLibraryItem(this.sid(p, sid), id, dto);
   }
 
   @Get('files/:id/commission')
@@ -442,6 +490,17 @@ export class DogrudanTeminController {
     @Query('school_id') sid?: string,
   ) {
     return this.svc.syncCommissionMembers(this.sid(p, sid), p.userId, id, dto);
+  }
+
+  @Post('files/:id/commission/members-all-kinds')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  addCommissionMemberAllKinds(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: AddDtCommissionMemberDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.addCommissionMemberAllKinds(this.sid(p, sid), p.userId, id, dto);
   }
 
   @Post('commission/:commissionId/members')
