@@ -47,6 +47,7 @@ const EXAM_DUTY_CATEGORIES = [
   { value: 'aof', label: 'AÖF' },
   { value: 'ataaof', label: 'ATA-AÖF' },
   { value: 'auzef', label: 'AUZEF' },
+  { value: 'ankuzef', label: 'ANKUZEF' },
 ];
 
 const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
@@ -59,6 +60,7 @@ const CAT = {
   aof: { badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300', stripe: 'bg-emerald-500' },
   ataaof: { badge: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300', stripe: 'bg-violet-500' },
   auzef: { badge: 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300', stripe: 'bg-teal-500' },
+  ankuzef: { badge: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300', stripe: 'bg-orange-500' },
 } as Record<string, { badge: string; stripe: string }>;
 const CAT_DEFAULT = { badge: 'bg-muted text-muted-foreground', stripe: 'bg-muted-foreground/40' };
 
@@ -419,7 +421,7 @@ function extractUrlFromText(s: string): string | null {
   const m = s.match(/https?:\/\/[^\s<"'`]+/i);
   if (m) return m[0].replace(/[.,;]+$/, '');
   const dom = s.match(
-    /\b((?:gis\.)?osym\.gov\.tr|mebbis\.meb\.gov\.tr|augis\.anadolu\.edu\.tr|augis\.ata\.edu\.tr|auzefgis\.istanbul\.edu\.tr)\b/i,
+    /\b((?:gis\.)?osym\.gov\.tr|mebbis\.meb\.gov\.tr|augis\.anadolu\.edu\.tr|augis\.ata\.edu\.tr|auzefgis\.istanbul\.edu\.tr|gbs\.ankara\.edu\.tr)\b/i,
   );
   if (dom) return `https://${dom[1]}`;
   return null;

@@ -111,4 +111,20 @@ Detaylı duyuru ve başvuru takvimi için resmi web sitesini takip ediniz.`,
     exam_date: '',
     exam_date_end: '',
   },
+  ankuzef: {
+    title: 'Ankara Üniversitesi ANKUZEF Final Sınavları Görevli Başvuruları',
+    summary: 'ANKUZEF bahar yarıyılı final sınavlarında salon başkanı, gözetmen ve yedek gözetmen başvuruları.',
+    body: `Ankara Üniversitesi Açık ve Uzaktan Eğitim Fakültesi (ANKUZEF) final sınavlarında görev almak isteyen kamu personelleri, Görevli Bilgi Sistemi üzerinden tercihlerini iletebilir.
+
+Başvuru: gbs.ankara.edu.tr
+
+Görev türleri: salon başkanı, gözetmen, yedek gözetmen.`,
+    source_url: 'https://ankuzef.ankara.edu.tr',
+    application_start: '',
+    application_end: '',
+    application_approval_end: '',
+    result_date: '',
+    exam_date: '',
+    exam_date_end: '',
+  },
 };

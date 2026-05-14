@@ -20,6 +20,7 @@ import {
   parseExamDutyGptYmdHmsInTurkey,
   turkeyDayBeforeExamWithWallClock,
 } from './exam-duty-turkey-time';
+import { stripExamDutyAggregatorPromoLines } from './exam-duty-body-sanitize';
 import { ExamDutyGptService, type ExamDutyExtractResult } from './exam-duty-gpt.service';
 import { ExamDutiesService } from './exam-duties.service';
 import { AppConfigService } from '../app-config/app-config.service';
@@ -622,13 +623,27 @@ export class ExamDutySyncService {
     gptUsedForRow: boolean,
     dryRun: boolean,
   ): Promise<void> {
-    if (dryRun || !gptUsedForRow) return;
-    if (!duty.examDate && !duty.examDateEnd) {
+    if (dryRun) return;
+    const hasExam = !!(duty.examDate || duty.examDateEnd);
+    if (!gptUsedForRow) {
+      if (hasExam) {
+        this.logger.log(
+          `[ExamDutySync] Taslak kaldı (otomatik yayın yalnızca bu satırda GPT kullanıldıysa; sınav tarihleri regex/gövde ile doldu): ${duty.id.slice(0, 8)}…`,
+        );
+      }
+      return;
+    }
+    if (!hasExam) {
       this.logger.log(`[ExamDutySync] Otomatik yayın atlandı (sınav tarihi yok): ${duty.id.slice(0, 8)}…`);
       return;
     }
     const opts = await this.appConfig.getExamDutySyncOptions();
-    if (!opts.auto_publish_gpt_sync_duties) return;
+    if (!opts.auto_publish_gpt_sync_duties) {
+      this.logger.log(
+        `[ExamDutySync] Otomatik yayın atlandı (Sınav Görevleri → Ayarlar → "GPT ile sync'e eklenen yeni duyuruyu otomatik yayınla" kapalı / exam_duty_sync_options.auto_publish_gpt_sync_duties): ${duty.id.slice(0, 8)}…`,
+      );
+      return;
+    }
     try {
       await this.examDutiesService.publish(duty.id);
       this.logger.log(`[ExamDutySync] GPT sync duyuru otomatik yayınlandı: ${duty.id.slice(0, 8)}…`);
@@ -861,7 +876,9 @@ export class ExamDutySyncService {
       }
       existingIds.add(externalId);
 
-      const rawDesc = extractText(e.description ?? e.summary ?? e.content ?? e['content:encoded']);
+      const rawDesc = stripExamDutyAggregatorPromoLines(
+        extractText(e.description ?? e.summary ?? e.content ?? e['content:encoded']),
+      );
       const pubDate = parseRssDate(e.pubDate ?? e.published ?? e.updated ?? e['dc:date']);
       let parsed: {
         application_end?: Date;
@@ -1479,6 +1496,7 @@ export class ExamDutySyncService {
         }
         await new Promise((r) => setTimeout(r, 150));
       }
+      if (bodyText?.trim()) bodyText = stripExamDutyAggregatorPromoLines(bodyText);
 
       let gptResult: ExamDutyExtractResult | null = null;
       const hasBody = !!(bodyText?.trim());
@@ -2342,7 +2360,7 @@ export class ExamDutySyncService {
           bestLen = txt.length;
         }
       }
-      if (best) return best;
+      if (best) return stripExamDutyAggregatorPromoLines(best);
     } catch {
       // ignore
     }
@@ -2659,7 +2677,7 @@ export class ExamDutySyncService {
 
   /** GPT'ye göndermeden önce: güncelleme/yayın zamanı satırlarını kaldır (sınav/başvuru tarihi ile karışmasın). */
   private preprocessBodyForGpt(rawText: string): string {
-    const lines = rawText.split(/\n/);
+    const lines = stripExamDutyAggregatorPromoLines(rawText).split(/\n/);
     const filtered: string[] = [];
     for (const line of lines) {
       const t = line.trim();
@@ -2673,7 +2691,7 @@ export class ExamDutySyncService {
 
   /** Kaynak metinden sınav günleri ve oturumları ile ilgili tüm bölümleri çıkarır (içerikte tam gösterilsin). */
   private extractExamDaysAndSessionsFromText(rawText: string): string {
-    const normalized = rawText.trim().replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const normalized = stripExamDutyAggregatorPromoLines(rawText).trim().replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const datePattern = /\d{1,2}[.\/\-]\d{1,2}[.\/\-]\d{2,4}|\d{1,2}\s+(?:ocak|şubat|mart|nisan|mayıs|haziran|temmuz|ağustos|eylül|ekim|kasım|aralık)\s+\d{2,4}/i;
     const examKeyword = /sınav|oturum|gün|tarih/i;
 
@@ -2746,8 +2764,9 @@ export class ExamDutySyncService {
     if (examDate) bodyLines.push(`Sınav: ${fmt(examDate)}`);
     if (applicationUrl) bodyLines.push(`Başvuru: ${applicationUrl}`);
 
-    if (rawText?.trim()) {
-      const examDaysBlock = this.extractExamDaysAndSessionsFromText(rawText);
+    const raw = rawText?.trim() ? stripExamDutyAggregatorPromoLines(rawText) : '';
+    if (raw) {
+      const examDaysBlock = this.extractExamDaysAndSessionsFromText(raw);
       if (examDaysBlock) {
         bodyLines.push('');
         bodyLines.push('Sınav günleri ve oturumlar:');
@@ -2777,9 +2796,9 @@ export class ExamDutySyncService {
   /** Metinde başvuru URL'si ara (mebbis, e-devlet, osym, gis, auzefgis vb.) */
   private extractApplicationUrl(text: string): string | null {
     const patterns = [
-      /(https?:\/\/[^\s<>"']*(?:mebbis|e-?devlet|osym\.gov\.tr|gis\.osym\.gov\.tr|augis\.anadolu\.edu\.tr|auzefgis\.istanbul\.edu\.tr)[^\s<>"']*)/i,
+      /(https?:\/\/[^\s<>"']*(?:mebbis|e-?devlet|osym\.gov\.tr|gis\.osym\.gov\.tr|augis\.anadolu\.edu\.tr|auzefgis\.istanbul\.edu\.tr|gbs\.ankara\.edu\.tr)[^\s<>"']*)/i,
       /(https?:\/\/[^\s<>"']*(?:basvuru|tercih|yetki)[^\s<>"']*)/i,
-      /((?:mebbis|e-?devlet|gis\.osym\.gov\.tr|augis\.anadolu\.edu\.tr|auzefgis\.istanbul\.edu\.tr)[^\s<>"']*)/i,
+      /((?:mebbis|e-?devlet|gis\.osym\.gov\.tr|augis\.anadolu\.edu\.tr|auzefgis\.istanbul\.edu\.tr|gbs\.ankara\.edu\.tr)[^\s<>"']*)/i,
     ];
     for (const re of patterns) {
       const m = text.match(re);
@@ -2814,6 +2833,7 @@ export class ExamDutySyncService {
   private inferCategoryFromTitle(title: string): string {
     const t = title.toLowerCase();
     if (/ösym|osym/i.test(t)) return 'osym';
+    if (/ankuzef|anku[\s-]*zef|gbs\.ankara|ankara üniversitesi.*(açık|uzaktan)/i.test(t)) return 'ankuzef';
     if (/aöf|açık öğretim|anadolu üniversitesi/i.test(t) && !/ataaof|ata-aöf|atı/i.test(t)) return 'aof';
     if (/ataaof|ata-aöf|atı üniversitesi/i.test(t)) return 'ataaof';
     if (/auzef|iüauzef|istanbul üniversitesi açık/i.test(t)) return 'auzef';
@@ -2823,6 +2843,7 @@ export class ExamDutySyncService {
 
   /** Metinde geçen resmi başvuru adresleri (GPT'den önce) */
   private inferCategoryFromUrlsInText(t: string): string | null {
+    if (/gbs\.ankara\.edu\.tr/i.test(t)) return 'ankuzef';
     if (/auzefgis\.istanbul\.edu\.tr/i.test(t)) return 'auzef';
     if (/augis\.ata\.edu\.tr/i.test(t)) return 'ataaof';
     if (/augis\.anadolu\.edu\.tr/i.test(t)) return 'aof';
@@ -2837,6 +2858,7 @@ export class ExamDutySyncService {
     try {
       const u = new URL(href.trim());
       const host = u.hostname.toLowerCase();
+      if (host.includes('gbs.ankara')) return 'ankuzef';
       if (host.includes('auzefgis')) return 'auzef';
       if (host.includes('augis.ata')) return 'ataaof';
       if (host.includes('augis.anadolu')) return 'aof';
@@ -2877,6 +2899,7 @@ export class ExamDutySyncService {
     const t = text.toLowerCase();
     const fromUrl = this.inferCategoryFromUrlsInText(t);
     if (fromUrl) return fromUrl;
+    if (/ankuzef|gbs\.ankara\.edu\.tr|ankara üniversitesi.*(açık|uzaktan)/i.test(t)) return 'ankuzef';
     if (/auzef|auzefgis\.istanbul|iüauzef|istanbul üniversitesi açık/i.test(t)) return 'auzef';
     if (/ataaof|ata-aöf|atı üniversitesi/i.test(t)) return 'ataaof';
     if (/(?:aöf|açık öğretim|augis\.anadolu|anadolu üniversitesi)/i.test(t)) return 'aof';
@@ -2896,7 +2919,7 @@ export class ExamDutySyncService {
     const lower = combined.toLowerCase();
 
     if (
-      /gis\.osym|gis\.osym\.gov|mebbis\.meb|augis\.anadolu|auzefgis\.istanbul|basvuru\.osym\.gov/i.test(lower) ||
+      /gis\.osym|gis\.osym\.gov|mebbis\.meb|augis\.anadolu|auzefgis\.istanbul|gbs\.ankara|basvuru\.osym\.gov/i.test(lower) ||
       /görev\s*talebi|gorev\s*talebi|son\s*işlem\s*tarihi.*(görev|başvuru|tercih)|bina[-\s]?salon\s*görev.*tercih/i.test(lower)
     ) {
       return false;
@@ -2926,7 +2949,7 @@ export class ExamDutySyncService {
       /görev(?:ler)?i\s*iptal|iptal\s*edildi|geç\s*gelen.*öğretmen|kare\s*kod.*(?:okut|giriş|sistem)/i.test(
         lower,
       ) &&
-      !/başvuru\s*(?:açıldı|dönemi|yapıl|ekranı)|son\s*başvuru\s*tarihi|gis\.osym|mebbis\.meb|augis\.|auzefgis/i.test(
+      !/başvuru\s*(?:açıldı|dönemi|yapıl|ekranı)|son\s*başvuru\s*tarihi|gis\.osym|mebbis\.meb|augis\.|auzefgis|gbs\.ankara/i.test(
         lower,
       )
     ) {
@@ -2936,7 +2959,7 @@ export class ExamDutySyncService {
       /son\s*başvuru|son\s*başvuru\s*tarihi|son\s*istek\s*(zamanı|tarihi|gün)/i.test(lower) ||
       /başvuru\s*(yapılır|yapılabilecek|açıldı|dönemi|:|\s+\d)/i.test(lower) ||
       /tercih\s*(süreci|son|edilir)/i.test(lower) ||
-      /gis\.osym|gis\.osym\.gov\.tr|mebbis\.meb\.gov\.tr|augis\.anadolu\.edu\.tr|auzefgis\.istanbul\.edu\.tr|e-?devlet/i.test(
+      /gis\.osym|gis\.osym\.gov\.tr|mebbis\.meb\.gov\.tr|augis\.anadolu\.edu\.tr|auzefgis\.istanbul\.edu\.tr|gbs\.ankara\.edu\.tr|e-?devlet/i.test(
         lower,
       ) ||
       /sınav\s*başvurusu|görev\s*tercih|başvuru\s*açıldı/i.test(lower) ||
@@ -2987,7 +3010,7 @@ export class ExamDutySyncService {
       /ücret.*tablo|tablo.*ücret|brüt ücret|net ücret|hesaplanmış|güncellenmiştir|belli oldu|ek gelir|getiriyor/.test(
         lower,
       ) || (/\d+\s*tl|\d+\.\d+\s*tl/i.test(lower) && /ücret|brüt|net/i.test(lower));
-    return hasFeeKeywords && !/son\s*başvuru|sınav\s*tarihi|tercih\s*son|başvuru\s*yapılır|gis\.|mebbis|augis|auzefgis/i.test(lower);
+    return hasFeeKeywords && !/son\s*başvuru|sınav\s*tarihi|tercih\s*son|başvuru\s*yapılır|gis\.|mebbis|augis|auzefgis|gbs\.ankara/i.test(lower);
   }
 }
 

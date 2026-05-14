@@ -115,6 +115,17 @@ export function SvgKurumAuzef({ className, ...p }: SvgProps) {
   );
 }
 
+/** Kurum: ANKUZEF — üçgen çatı */
+export function SvgKurumAnkuzef({ className, ...p }: SvgProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={cn(base, 'size-5', className)} aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M12 3 3 10h18L12 3z" />
+      <path d="M5 10v11M10 10v11M14 10v11M19 10v11" />
+      <path d="M3 21h18" />
+    </svg>
+  );
+}
+
 /** Duyuru kartı başlığı */
 export function SvgMegaphone({ className, ...p }: SvgProps) {
   return (
@@ -131,4 +142,5 @@ export const KURUM_SVG: Record<string, ComponentType<SvgProps>> = {
   aof: SvgKurumAof,
   ataaof: SvgKurumAtaaof,
   auzef: SvgKurumAuzef,
+  ankuzef: SvgKurumAnkuzef,
 };

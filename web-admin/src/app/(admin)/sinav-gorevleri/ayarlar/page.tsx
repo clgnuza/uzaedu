@@ -37,6 +37,7 @@ const EXAM_DUTY_CATEGORIES = [
   { value: 'aof', label: 'AÖF' },
   { value: 'ataaof', label: 'ATA-AÖF' },
   { value: 'auzef', label: 'AUZEF' },
+  { value: 'ankuzef', label: 'ANKUZEF' },
 ] as const;
 
 const TABS = [

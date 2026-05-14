@@ -2564,7 +2564,7 @@ const DEFAULT_EXAM_DUTY_FEE_CATALOG: ExamDutyFeeCatalog = {
   version: '2',
   period_label: '2026 1. dönem (Ocak–Haziran)',
   source_note:
-    '2026 MEB/ÖSYM tabloları kamu mevzuat özetlerinden derlenmiştir. Anadolu AÖF ve ATA AÖF kalemleri yayımlanan net tutarlardan %15 GV + binde 7,59 DV varsayımıyla yaklaşık brüte çevrilmiştir. AUZEF için son yayımlı 2025-2026 güz dönemi tablosu kullanılmıştır.',
+    '2026 MEB/ÖSYM tabloları kamu mevzuat özetlerinden derlenmiştir. Anadolu AÖF ve ATA AÖF kalemleri yayımlanan net tutarlardan %15 GV + binde 7,59 DV varsayımıyla yaklaşık brüte çevrilmiştir. AUZEF ve ANKUZEF için son yayımlı 2025-2026 güz dönemi tablosu kullanılmıştır. ANKUZEF satırı resmi tablo ile doğrulanmalıdır.',
   gv_note:
     'Net ücret, brüt üzerinden seçilen GV oranı ve damga vergisi düşülerek tahmini hesaplanır. GV ve DV istisna alanları aylık maaşta önceden kullanılan tutar üzerinden ilerler.',
   gv_exemption_max_tl: 4211.33,
@@ -2656,6 +2656,18 @@ const DEFAULT_EXAM_DUTY_FEE_CATALOG: ExamDutyFeeCatalog = {
         { key: 'bina_sinav_sorumlusu_yard', label: 'Bina sınav sorumlusu yardımcısı', brut_tl: 1229.85 },
         { key: 'salon_baskani', label: 'Salon başkanı', brut_tl: 1069.43 },
         { key: 'gozetmen', label: 'Gözetmen', brut_tl: 909.02 },
+      ],
+    },
+    {
+      id: 'ankuzef',
+      label: 'Ankara Üniversitesi ANKUZEF',
+      description:
+        'Geçici: AUZEF (Türkiye geneli) ile aynı rol kalemleri; resmi ANKUZEF ücret tablosu yayımlandığında güncelleyin.',
+      roles: [
+        { key: 'bina_sinav_sorumlusu', label: 'Bina sınav sorumlusu', brut_tl: 1289.27 },
+        { key: 'bina_sinav_sorumlusu_yard', label: 'Bina sınav sorumlusu yardımcısı', brut_tl: 1059.04 },
+        { key: 'salon_baskani', label: 'Salon başkanı', brut_tl: 920.91 },
+        { key: 'gozetmen', label: 'Gözetmen', brut_tl: 782.78 },
       ],
     },
     {

@@ -9,7 +9,7 @@ import {
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 
-export const EXAM_DUTY_CATEGORIES = ['meb', 'osym', 'aof', 'ataaof', 'auzef'] as const;
+export const EXAM_DUTY_CATEGORIES = ['meb', 'osym', 'aof', 'ataaof', 'auzef', 'ankuzef'] as const;
 export type ExamDutyCategorySlug = (typeof EXAM_DUTY_CATEGORIES)[number];
 
 export function normalizeExamDutyCategorySlug(v: string | null | undefined): ExamDutyCategorySlug | null {
@@ -24,6 +24,7 @@ export const EXAM_DUTY_CATEGORY_LABELS: Record<ExamDutyCategorySlug, string> = {
   aof: 'AÖF',
   ataaof: 'ATA-AÖF',
   auzef: 'AUZEF',
+  ankuzef: 'ANKUZEF',
 };
 
 /** Kategoriye göre resmi başvuru URL'leri – kaynak URL ile karışmasın */
@@ -33,6 +34,7 @@ export const EXAM_DUTY_CATEGORY_APPLICATION_URLS: Record<ExamDutyCategorySlug, s
   aof: 'https://augis.anadolu.edu.tr',
   ataaof: 'https://augis.ata.edu.tr',
   auzef: 'https://auzefgis.istanbul.edu.tr',
+  ankuzef: 'https://gbs.ankara.edu.tr',
 };
 
 export function getApplicationUrlForCategory(categorySlug: string): string {

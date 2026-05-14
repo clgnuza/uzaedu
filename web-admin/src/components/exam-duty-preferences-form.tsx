@@ -28,6 +28,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   aof: 'AÖF',
   ataaof: 'ATA-AÖF',
   auzef: 'AUZEF',
+  ankuzef: 'ANKUZEF',
 };
 
 const CATEGORY_DESC: Record<string, string> = {
@@ -36,6 +37,7 @@ const CATEGORY_DESC: Record<string, string> = {
   aof: 'Anadolu Üniversitesi Açıköğretim',
   ataaof: 'ATA-AÖF sınav görevleri',
   auzef: 'İstanbul Üniversitesi AUZEF',
+  ankuzef: 'Ankara Üniversitesi ANKUZEF',
 };
 
 const CATEGORY_TAB_WELL: Record<string, { tabIdle: string; tabActive: string; iconIdle: string; iconActive: string }> = {
@@ -79,6 +81,14 @@ const CATEGORY_TAB_WELL: Record<string, { tabIdle: string; tabActive: string; ic
     iconIdle: 'bg-teal-200/85 text-teal-950 dark:bg-teal-800/55 dark:text-teal-100',
     iconActive: 'bg-teal-600 text-white shadow-inner dark:bg-teal-500',
   },
+  ankuzef: {
+    tabIdle:
+      'border border-orange-200/85 bg-linear-to-b from-orange-50/95 to-amber-50/40 text-orange-950 shadow-sm hover:border-orange-300 hover:shadow-md dark:border-orange-900/45 dark:from-orange-950/45 dark:to-amber-950/25 dark:text-orange-100',
+    tabActive:
+      'border-2 border-orange-400/85 bg-linear-to-br from-orange-100 via-orange-50 to-amber-50 text-orange-950 shadow-lg shadow-orange-500/28 ring-2 ring-orange-400/42 dark:border-orange-500 dark:from-orange-900/65 dark:via-orange-950 dark:to-amber-950/55 dark:text-orange-50 dark:shadow-orange-950/45 dark:ring-orange-500/38',
+    iconIdle: 'bg-orange-200/85 text-orange-950 dark:bg-orange-800/55 dark:text-orange-100',
+    iconActive: 'bg-orange-600 text-white shadow-inner dark:bg-orange-500',
+  },
 };
 
 const CATEGORY_TAB_FALLBACK = {
@@ -96,6 +106,7 @@ const CATEGORY_PANEL: Record<string, string> = {
   aof: 'border-emerald-300/65 bg-linear-to-br from-emerald-50/95 to-emerald-50/50 dark:border-emerald-800/50 dark:from-emerald-950/40 dark:to-emerald-950/20',
   ataaof: 'border-violet-300/65 bg-linear-to-br from-violet-50/95 to-violet-50/50 dark:border-violet-800/50 dark:from-violet-950/40 dark:to-violet-950/20',
   auzef: 'border-teal-300/65 bg-linear-to-br from-teal-50/95 to-teal-50/50 dark:border-teal-800/50 dark:from-teal-950/40 dark:to-teal-950/20',
+  ankuzef: 'border-orange-300/65 bg-linear-to-br from-orange-50/95 to-amber-50/50 dark:border-orange-800/50 dark:from-orange-950/40 dark:to-amber-950/20',
 };
 
 const DEFAULT_SYSTEM_MORNING_TIME = '07:00';

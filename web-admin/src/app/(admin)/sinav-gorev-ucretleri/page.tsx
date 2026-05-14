@@ -187,6 +187,19 @@ const CAT_META: Record<string, CatMeta> = {
     activeRing: 'ring-orange-400/55 dark:ring-rose-500/45',
     dotColor: 'bg-orange-500',
   },
+  ankuzef: {
+    icon: <Landmark className="size-5" strokeWidth={1.75} />,
+    label: 'ANKUZEF',
+    iconBg:
+      'bg-linear-to-br from-lime-400 via-emerald-500 to-teal-600 shadow-lg shadow-lime-500/35 ring-2 ring-white/40 dark:from-lime-500 dark:via-emerald-600 dark:to-teal-700 dark:ring-white/15',
+    iconColor: 'text-white drop-shadow-sm',
+    idleBg: 'bg-linear-to-br from-lime-50 to-emerald-50/90 dark:from-lime-950/35 dark:to-emerald-950/35',
+    idleBorder: 'border-lime-200/90 dark:border-lime-700/35',
+    activeBorder: 'border-lime-500 dark:border-emerald-400',
+    activeBg: 'bg-linear-to-br from-lime-100 via-emerald-50 to-teal-50 dark:from-lime-900/45 dark:via-emerald-950/40 dark:to-teal-950/25',
+    activeRing: 'ring-lime-400/55 dark:ring-emerald-500/45',
+    dotColor: 'bg-lime-600',
+  },
   ata_aof: {
     icon: <Landmark className="size-5" strokeWidth={1.75} />,
     label: 'ATA AÖF',

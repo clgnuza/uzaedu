@@ -80,6 +80,7 @@ const EXAM_DUTY_CATEGORIES = [
   { value: 'aof', label: 'AÖF' },
   { value: 'ataaof', label: 'ATA-AÖF' },
   { value: 'auzef', label: 'AUZEF' },
+  { value: 'ankuzef', label: 'ANKUZEF' },
 ] as const;
 
 const HHMM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
@@ -132,6 +133,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   aof: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
   ataaof: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300',
   auzef: 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300',
+  ankuzef: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
 };
 
 type ExamDutyItem = {

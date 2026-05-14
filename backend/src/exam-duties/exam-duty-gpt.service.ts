@@ -93,12 +93,12 @@ export class ExamDutyGptService {
           description:
             'Sonuç ilanı, görev/katılım duyurusu, sınav öncesi son işlem veya hatırlatma tarihi-saati. Son başvuru veya sınav günü değil. Yoksa null.',
         },
-        application_url: { type: 'string', description: 'Başvuru URL (gis.osym, mebbis, auzefgis vb.) veya null' },
-        category_slug: { type: 'string', description: 'meb, osym, aof, ataaof, auzef veya null' },
+        application_url: { type: 'string', description: 'Başvuru URL (gis.osym, mebbis, auzefgis, gbs.ankara.edu.tr vb.) veya null' },
+        category_slug: { type: 'string', description: 'meb, osym, aof, ataaof, auzef, ankuzef veya null' },
         is_application_announcement: {
           type: 'boolean',
           description:
-            'Yalnız öğretmen/personel için resmi GÖREV başvurusu veya tercih/son işlem duyurusu (ÖSYM GİS, MEBBİS, AUGİS vb.) true. Öğrenci sınavı/LGS tedbir, okuyucu-kodlayıcı kurs belgesi, özel eğitim uygulama haberi false — metinde sınav günü geçse bile.',
+            'Yalnız öğretmen/personel için resmi GÖREV başvurusu veya tercih/son işlem duyurusu (ÖSYM GİS, MEBBİS, AUGİS, ANKUZEF gbs.ankara.edu.tr vb.) true. Öğrenci sınavı/LGS tedbir, okuyucu-kodlayıcı kurs belgesi, özel eğitim uygulama haberi false — metinde sınav günü geçse bile.',
         },
       },
       required: [
@@ -131,7 +131,7 @@ KURALLAR:
 - son_basvuru = "Son başvuru", "Son istek zamanı", "Başvuru son tarihi", "Son işlem tarihi" (DD/MM/YYYY), "19 Nisan … saat 23.59'a kadar … görev talebi" gibi görev başvuru bitişi. Sınavın yapıldığı gün ASLA son_basvuru değildir.
 - Çoklu sınav: TUS+STS, 4 Adalet sınavı vb. → sinav_1_gunu en erken, sinav_2_gunu en geç, son_basvuru en geç başvuru bitişi.
 - baslangic metinde yoksa null dön. baslangic, yönetim arayüzündeki "Bşv. Açılış" (başvuru açılış) ile aynı değildir; Bşv. Açılış duyurunun eklendiği an olarak tutulur.
-- is_application_announcement: **Yalnız** öğretmen/görevli için resmi başvuru veya görev tercih/son işlem çağrısı (ÖSYM GİS, MEBBİS, AUGİS, görev talebi ekranı, bina-salon görev tercihi) true. Olay haberi, köşe yazısı, ücret tablosu, politika/regülasyon, **LGS/öğrenci merkezi sınavında özel eğitim tedbirleri**, **okuyucu-kodlayıcı için kurs/sertifika zorunluluğu** (görev başvurusu değil), öğrenci sınav takvimi anlatımı → **false**; sinav_* ve son_basvuru null (metinde öğrenci sınav günü geçse bile bunlar görev duyurusu tarihi değildir).
+- is_application_announcement: **Yalnız** öğretmen/görevli için resmi başvuru veya görev tercih/son işlem çağrısı (ÖSYM GİS, MEBBİS, AUGİS, ANKUZEF gbs.ankara.edu.tr, görev talebi ekranı, bina-salon görev tercihi) true. Olay haberi, köşe yazısı, ücret tablosu, politika/regülasyon, **LGS/öğrenci merkezi sınavında özel eğitim tedbirleri**, **okuyucu-kodlayıcı için kurs/sertifika zorunluluğu** (görev başvurusu değil), öğrenci sınav takvimi anlatımı → **false**; sinav_* ve son_basvuru null (metinde öğrenci sınav günü geçse bile bunlar görev duyurusu tarihi değildir).
 - Örnek FALSE: "Geç gelen öğretmenlerin görevleri iptal edildi", "kare kod ile bina girişi", haberde geçen saat (10.00, 09.00) sınav programı değil olay anlatımıdır; sinav_1_gunu/son_basvuru yazma.
 - Resmi duyuruda da son_basvuru ve sinav_* yoksa (sadece ücret tablosu vb.) is_application_announcement false.
 - KRİTİK: RSS/feed yayın tarihi, "Yayın tarihi", "Güncelleme", haberin listedeki görünür tarihi = sınav günü veya son başvuru DEĞİLDİR. Bu tarihleri sinav_1_gunu, sinav_2_gunu veya son_basvuru alanına YAZMA; yalnızca metinde başvuru/sınav olarak açıkça geçiyorsa doldur. Şüphede sinav alanlarını null bırak.`;
@@ -255,5 +255,5 @@ function toUrlStr(v: unknown): string | null {
 function toCategorySlug(v: unknown): string | null {
   if (v == null || v === '') return null;
   const s = String(v).trim().toLowerCase();
-  return ['meb', 'osym', 'aof', 'ataaof', 'auzef'].includes(s) ? s : null;
+  return ['meb', 'osym', 'aof', 'ataaof', 'auzef', 'ankuzef'].includes(s) ? s : null;
 }

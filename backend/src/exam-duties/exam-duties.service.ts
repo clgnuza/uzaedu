@@ -19,6 +19,7 @@ import { ListExamDutiesDto } from './dto/list-exam-duties.dto';
 import { UserRole, UserStatus } from '../types/enums';
 import { paginate } from '../common/dtos/pagination.dto';
 import type { ExamDutyNotificationReason } from './entities/exam-duty-notification-log.entity';
+import { stripExamDutyAggregatorPromoLines } from './exam-duty-body-sanitize';
 
 const EVENT_MAP: Record<ExamDutyNotificationReason, string> = {
   publish_now: 'exam_duty.open',
@@ -249,7 +250,7 @@ export class ExamDutiesService {
       title: dto.title,
       categorySlug: dto.category_slug,
       summary: dto.summary ?? null,
-      body: dto.body ?? null,
+      body: dto.body != null ? stripExamDutyAggregatorPromoLines(dto.body) || null : null,
       sourceUrl: dto.source_url ?? null,
       applicationUrl: dto.application_url ?? null,
       applicationStart: dto.application_start ? new Date(dto.application_start) : null,
@@ -288,7 +289,8 @@ export class ExamDutiesService {
     if (item.status === 'published') {
       if (dto.title != null) item.title = dto.title;
       if (dto.summary !== undefined) item.summary = dto.summary;
-      if (dto.body !== undefined) item.body = dto.body;
+      if (dto.body !== undefined)
+        item.body = dto.body != null ? stripExamDutyAggregatorPromoLines(dto.body) || null : null;
       if (dto.source_url !== undefined) item.sourceUrl = dto.source_url;
       if (dto.application_url !== undefined) item.applicationUrl = dto.application_url;
       if (dto.application_start !== undefined) item.applicationStart = dto.application_start ? new Date(dto.application_start) : null;
@@ -301,7 +303,8 @@ export class ExamDutiesService {
       if (dto.title != null) item.title = dto.title;
       if (dto.category_slug != null) item.categorySlug = dto.category_slug;
       if (dto.summary !== undefined) item.summary = dto.summary;
-      if (dto.body !== undefined) item.body = dto.body;
+      if (dto.body !== undefined)
+        item.body = dto.body != null ? stripExamDutyAggregatorPromoLines(dto.body) || null : null;
       if (dto.source_url !== undefined) item.sourceUrl = dto.source_url;
       if (dto.application_url !== undefined) item.applicationUrl = dto.application_url;
       if (dto.application_start !== undefined) item.applicationStart = dto.application_start ? new Date(dto.application_start) : null;
