@@ -125,12 +125,6 @@ export const MENU_SIDEBAR: MenuConfig = [
         allowedRoles: ['school_admin', 'superadmin'],
       },
       {
-        title: 'Yolluk resmi rapor (PDF)',
-        path: '/yolluk-hesaplama/rapor',
-        icon: Banknote,
-        allowedRoles: ['school_admin', 'superadmin'],
-      },
-      {
         title: 'Yolluk parametreleri',
         path: '/yolluk-hesaplama/ayarlar',
         icon: Settings,

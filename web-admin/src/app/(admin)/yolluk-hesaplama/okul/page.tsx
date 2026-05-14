@@ -947,12 +947,6 @@ export default function YollukOkulPage() {
               </p>
             </div>
           </div>
-          <Button variant="secondary" size="sm" className="shrink-0 gap-1.5 shadow-sm" asChild>
-            <a href="/yolluk-hesaplama/rapor">
-              <FileText className="size-4" />
-              PDF raporlar
-            </a>
-          </Button>
         </div>
       </div>
 

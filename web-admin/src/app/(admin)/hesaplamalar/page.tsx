@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useMemo } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { Calculator, ClipboardList, Layers, Settings, Sparkles, ArrowUpRight } from 'lucide-react';
+import { Banknote, Calculator, ClipboardList, Layers, Settings, Sparkles, ArrowUpRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type HubTile = {
@@ -45,6 +45,18 @@ const BASE_TILES: HubTile[] = [
     cardBg:
       'bg-linear-to-br from-white/95 via-violet-50/85 to-fuchsia-50/75 dark:from-zinc-900/95 dark:via-violet-950/45 dark:to-zinc-950/90',
     bar: 'from-violet-500 via-fuchsia-500 to-amber-400',
+  },
+  {
+    href: '/yolluk-hesaplama/okul',
+    title: 'Yolluk hesaplama (okul)',
+    description: 'Kurum için yurt içi yolluk kayıtları, kesinleştirme ve arşiv.',
+    icon: Banknote,
+    ring: 'shadow-[0_0_0_1px_rgba(251,191,36,0.35)] hover:shadow-[0_20px_50px_-12px_rgba(245,158,11,0.38)] dark:shadow-[0_0_0_1px_rgba(251,191,36,0.22)]',
+    iconShell:
+      'bg-linear-to-br from-amber-400 to-orange-600 text-white shadow-lg shadow-amber-500/35 dark:from-amber-500 dark:to-orange-700',
+    cardBg:
+      'bg-linear-to-br from-white/95 via-amber-50/85 to-orange-50/75 dark:from-zinc-900/95 dark:via-amber-950/40 dark:to-zinc-950/90',
+    bar: 'from-amber-400 via-orange-400 to-rose-500',
   },
   {
     href: '/yolluk-hesaplama/benim',
@@ -114,10 +126,11 @@ export default function HesaplamalarHubPage() {
   );
 
   const tiles = useMemo(() => {
-    let base = BASE_TILES;
-    if (me?.role !== 'teacher') {
-      base = base.filter((t) => t.href !== '/yolluk-hesaplama/benim');
-    }
+    const base = BASE_TILES.filter((t) => {
+      if (t.href === '/yolluk-hesaplama/benim') return me?.role === 'teacher';
+      if (t.href === '/yolluk-hesaplama/okul') return me?.role === 'school_admin' || me?.role === 'superadmin';
+      return true;
+    });
     if (!canAdminParams) return base;
     return [...base, ...ADMIN_TILES];
   }, [canAdminParams, me?.role]);
