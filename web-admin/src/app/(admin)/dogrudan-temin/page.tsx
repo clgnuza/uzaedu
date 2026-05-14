@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SchoolSelectWithFilter } from '@/components/school-select-with-filter';
+import { DtModuleWizard } from '@/components/dogrudan-temin/dt-wizard';
 
 type DtFileItem = {
   id: string;
@@ -140,6 +141,7 @@ export default function DogrudanTeminPage() {
           />
         </ToolbarHeading>
         <ToolbarActions>
+          <DtModuleWizard token={token} role={me?.role ?? null} schoolId={schoolId} files={items} />
           {isSuperadmin ? (
             <div className="hidden w-[320px] max-w-[60vw] md:block">
               <SchoolSelectWithFilter value={schoolId} onChange={setSchool} token={token} />

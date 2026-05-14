@@ -235,6 +235,7 @@ export class UpsertDtAwardItemDto {
 
 const DT_GENERATE_DOC_TYPES = [
   'ihtiyac_listesi',
+  'fiyat_arastirmasi',
   'teklif_isteme',
   'karar',
   'sozlesme',
@@ -243,6 +244,8 @@ const DT_GENERATE_DOC_TYPES = [
   'piyasa_arastirma_tutanagi',
   'yaklasik_maliyet_cetveli',
   'muayene_kabul_tutanagi',
+  'teslim_tesellum_tutanagi',
+  'teknik_sartname',
 ] as const;
 
 export class GenerateDtDocDto {

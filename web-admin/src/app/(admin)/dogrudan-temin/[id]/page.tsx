@@ -47,6 +47,7 @@ import {
   dtTeminTypeLabel,
 } from '@/lib/dt-ui';
 import { DtInfoHint } from '@/components/dogrudan-temin/dt-info-hint';
+import { DtFileWizard } from '@/components/dogrudan-temin/dt-wizard';
 
 type DtFileItem = {
   id: string;
@@ -194,7 +195,9 @@ export default function DtFileDetailPage() {
   });
   const [commission, setCommission] = useState<DtAcceptanceCommission | null>(null);
   const [commissionMembers, setCommissionMembers] = useState<DtAcceptanceCommissionMember[]>([]);
+  const [commissionsAll, setCommissionsAll] = useState<Array<{ kind: string }>>([]);
   const [activeTab, setActiveTab] = useState<DtDetailTabId>('items');
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [commissionForm, setCommissionForm] = useState({ chairman_user_id: '', member_title: '' });
   const [commissionDialogOpen, setCommissionDialogOpen] = useState(false);
   const [commissionKind, setCommissionKind] = useState<'muayene_kabul' | 'yaklasik_maliyet' | 'piyasa_satinalma'>('muayene_kabul');
@@ -232,7 +235,7 @@ export default function DtFileDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const [f, it, v, q, d, rulesRes, payRes, commRes, regRes, settingsRes] = await Promise.all([
+      const [f, it, v, q, d, rulesRes, payRes, commRes, regRes, settingsRes, commAllRes] = await Promise.all([
         apiFetch<DtFileItem>(dtUrl(`/dogrudan-temin/files/${id}`, me?.role, schoolId), { token: token! }),
         apiFetch<{ items: DtItem[] }>(dtUrl(`/dogrudan-temin/files/${id}/items`, me?.role, schoolId), { token: token! }),
         apiFetch<{ items: VendorItem[] }>(dtUrl(`/dogrudan-temin/vendors`, me?.role, schoolId), { token: token! }),
@@ -254,6 +257,9 @@ export default function DtFileDetailPage() {
         apiFetch<DtSchoolSettings>(dtUrl(`/dogrudan-temin/school-settings`, me?.role, schoolId), { token: token! }).catch(
           () => ({ officialCorrespondenceCode: null }),
         ),
+        apiFetch<{ commissions: Array<{ commission: { kind: string } }> }>(dtUrl(`/dogrudan-temin/files/${id}/commissions`, me?.role, schoolId), {
+          token: token!,
+        }).catch(() => ({ commissions: [] })),
       ]);
       setFile(f);
       setItems(it.items ?? []);
@@ -265,6 +271,7 @@ export default function DtFileDetailPage() {
       setCommission(commRes?.commission ?? null);
       setCommissionMembers(commRes?.members ?? []);
       setRegistryEntries(regRes.entries ?? []);
+      setCommissionsAll((commAllRes?.commissions ?? []).map((x) => ({ kind: x.commission.kind })));
       const code = String(settingsRes?.officialCorrespondenceCode ?? '').trim();
       setOfficialCode(code);
       setRegistryDraft(() => {
@@ -364,6 +371,11 @@ export default function DtFileDetailPage() {
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
+
+  useEffect(() => {
+    const w = String(searchParams.get('wizard') ?? '').trim().toLowerCase();
+    if (w === '1' || w === 'true' || w === 'yes') setWizardOpen(true);
+  }, [searchParams]);
 
   useEffect(() => {
     if (file?.id) setProcurementRefDraft(String(file.procurementRef ?? '').trim());
@@ -834,14 +846,36 @@ export default function DtFileDetailPage() {
         <ToolbarHeading>
           <ToolbarPageTitle className="text-base">Doğrudan temin dosyası</ToolbarPageTitle>
         </ToolbarHeading>
-        {isSuperadmin ? (
-          <ToolbarActions>
+        <ToolbarActions>
+          <Button variant="secondary" size="sm" disabled={busy} onClick={() => setWizardOpen(true)}>
+            <Sparkles className="size-4" />
+            Akış sihirbazı
+          </Button>
+          {isSuperadmin ? (
             <div className="w-[320px] max-w-[60vw]">
               <SchoolSelectWithFilter value={schoolId} onChange={setSchool} token={token} />
             </div>
-          </ToolbarActions>
-        ) : null}
+          ) : null}
+        </ToolbarActions>
       </Toolbar>
+
+      <DtFileWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        role={me?.role ?? null}
+        schoolId={schoolId}
+        token={token}
+        fileId={id}
+        subject={file?.subject ?? ''}
+        itemsCount={items.length}
+        registryEntries={registryEntries}
+        quotes={quotes}
+        docs={docs}
+        commissions={commissionsAll}
+        docVendorId={docVendorId}
+        onGoTab={(t) => setActiveTab(t as DtDetailTabId)}
+        onGenerateDoc={(docType, vendorId) => void generateDoc(docType, vendorId)}
+      />
 
       <div className="flex items-center gap-2 text-[11px]">
         <Link
@@ -1795,9 +1829,17 @@ export default function DtFileDetailPage() {
                     variant="outline"
                     size="sm"
                     disabled={busy || !docVendorId}
+                    onClick={() => void generateDoc('fiyat_arastirmasi', docVendorId)}
+                  >
+                    Fiyat araştırması
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || !docVendorId}
                     onClick={() => void generateDoc('teklif_isteme', docVendorId)}
                   >
-                    Teklif isteme
+                    Teklif mektubu
                   </Button>
                   <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('karar')}>
                     Karar
@@ -1827,6 +1869,12 @@ export default function DtFileDetailPage() {
                 </Button>
                 <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('muayene_kabul_tutanagi')}>
                   Muayene kabul
+                </Button>
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('teknik_sartname')}>
+                  Teknik şartname
+                </Button>
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('teslim_tesellum_tutanagi')}>
+                  Teslim/tesellüm
                 </Button>
               </div>
             </CardHeader>

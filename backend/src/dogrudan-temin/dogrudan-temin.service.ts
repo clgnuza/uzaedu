@@ -894,6 +894,55 @@ export class DogrudanTeminService {
     doc.y = y + 6;
   }
 
+  private pdfTable(
+    doc: InstanceType<typeof PDFDocument>,
+    fonts: { regular: string; bold: string },
+    columns: Array<{ header: string; width: number; align?: 'left' | 'center' | 'right' }>,
+    rows: string[][],
+    options?: { fontSize?: number; headerFontSize?: number; rowPaddingY?: number },
+  ) {
+    const startX = doc.x;
+    let y = doc.y;
+    const pageW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const totalW = columns.reduce((a, c) => a + c.width, 0) || 1;
+    const widths = columns.map((c) => (c.width / totalW) * pageW);
+    const fontSize = options?.fontSize ?? 8;
+    const headerFontSize = options?.headerFontSize ?? 8;
+    const padY = options?.rowPaddingY ?? 3;
+
+    const rowHeightFor = (cells: string[], size: number) => {
+      const hs = cells.map((t, i) => {
+        const w = widths[i] - 8;
+        const h = doc.heightOfString(String(t ?? ''), { width: w });
+        return h;
+      });
+      return Math.max(16, Math.max(...hs) + padY * 2 + 2);
+    };
+
+    const drawRow = (cells: string[], bold = false, size = fontSize) => {
+      const h = rowHeightFor(cells, size);
+      if (y + h > doc.page.height - doc.page.margins.bottom) {
+        doc.addPage();
+        y = doc.y;
+      }
+      let x = startX;
+      cells.forEach((t, i) => {
+        const w = widths[i];
+        doc.rect(x, y, w, h).stroke();
+        doc
+          .font(bold ? fonts.bold : fonts.regular)
+          .fontSize(size)
+          .text(String(t ?? ''), x + 4, y + padY, { width: w - 8, align: columns[i]?.align ?? 'left' });
+        x += w;
+      });
+      y += h;
+    };
+
+    drawRow(columns.map((c) => c.header), true, headerFontSize);
+    rows.forEach((r) => drawRow(r, false, fontSize));
+    doc.y = y + 6;
+  }
+
   private fmtTrDate(v: string | Date | null | undefined): string {
     if (!v) return '';
     try {
@@ -919,6 +968,21 @@ export class DogrudanTeminService {
     return p || s;
   }
 
+  private toNum(v: unknown): number | null {
+    if (v == null) return null;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    const s = String(v).trim();
+    if (!s) return null;
+    const n = Number(s.replace(/\./g, '').replace(',', '.').replace(/[^\d.-]/g, ''));
+    return Number.isFinite(n) ? n : null;
+  }
+
+  private fmtTry(v: unknown): string {
+    const n = this.toNum(v);
+    if (n == null) return '';
+    return `${new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}₺`;
+  }
+
   private async pdfOfficialTop(
     doc: InstanceType<typeof PDFDocument>,
     fonts: { regular: string; bold: string },
@@ -928,6 +992,8 @@ export class DogrudanTeminService {
       file: DtFile;
       stage: string;
       title: string;
+      konu?: string;
+      showProcurementRef?: boolean;
       registry: Map<string, DtFileDocumentRegistry>;
       settings: DtSchoolProcurementSettings | null;
     },
@@ -936,6 +1002,32 @@ export class DogrudanTeminService {
     const reg = registry.get(stage);
     const sayi = this.registrySayi(reg);
     const tarih = this.fmtTrDate(reg?.docDate ?? null);
+    const konu = (input.konu ?? file.subject).trim();
+    const showProcRef = input.showProcurementRef !== false;
+    this.pdfAntet(doc, fonts, school, settings);
+
+    const leftX = doc.x;
+    const rightX = doc.page.width - doc.page.margins.right;
+    const y0 = doc.y;
+    if (tarih) doc.font(fonts.regular).fontSize(10).text(tarih, rightX - 140, y0, { width: 140, align: 'right' });
+    doc.font(fonts.regular).fontSize(10);
+    if (sayi) doc.text(`Sayı : ${sayi}`, leftX, y0);
+    doc.text(`Konu : ${konu}`, leftX, doc.y);
+    if (showProcRef && file.procurementRef?.trim()) doc.text(`Doğrudan Temin Numarası : ${file.procurementRef.trim()}`, leftX, doc.y);
+    doc.moveDown(0.6);
+
+    if (title?.trim()) {
+      doc.font(fonts.bold).fontSize(13).text(title.trim(), { align: 'center' });
+      doc.moveDown(0.8);
+    }
+  }
+
+  private pdfAntet(
+    doc: InstanceType<typeof PDFDocument>,
+    fonts: { regular: string; bold: string },
+    school: Pick<School, 'name' | 'principalName'> | null,
+    settings: DtSchoolProcurementSettings | null,
+  ) {
     const headerLines = [
       'T.C.',
       settings?.headerLine2?.trim() || '',
@@ -947,20 +1039,6 @@ export class DogrudanTeminService {
     doc.font(fonts.bold).fontSize(12);
     for (const ln of headerLines.slice(1)) doc.text(ln, { align: 'center' });
     doc.moveDown(0.6);
-
-    const leftX = doc.x;
-    const rightX = doc.page.width - doc.page.margins.right;
-    if (tarih) {
-      doc.font(fonts.regular).fontSize(10).text(tarih, rightX - 120, doc.y, { width: 120, align: 'right' });
-    }
-    doc.font(fonts.regular).fontSize(10);
-    if (sayi) doc.text(`Sayı : ${sayi}`, leftX, doc.y);
-    doc.text(`Konu : ${file.subject}`, leftX, doc.y);
-    if (file.procurementRef?.trim()) doc.text(`Doğrudan Temin Numarası : ${file.procurementRef.trim()}`);
-    doc.moveDown(0.8);
-
-    doc.font(fonts.bold).fontSize(13).text(title, { align: 'center' });
-    doc.moveDown(0.8);
   }
 
   private pdfSignRow(
@@ -1140,42 +1218,133 @@ export class DogrudanTeminService {
             file,
             stage: 'ihtiyac_listesi',
             title: 'MAL/MALZEME İHTİYAÇ LİSTESİ',
+            konu: file.subject,
+            showProcurementRef: false,
             registry,
             settings,
           });
-          this.pdfSimpleTable(
+          this.pdfTable(
             doc,
             fonts,
-            ['No', 'Kalem', 'Miktar', 'Birim', 'KDV', 'Tahmini BF'],
+            [
+              { header: 'Sıra No', width: 45, align: 'center' },
+              { header: 'Mal/Malzemenin Adı', width: 180 },
+              { header: 'Özelliği', width: 210 },
+              { header: 'Miktarı', width: 70, align: 'right' },
+              { header: 'Ölçeği', width: 70, align: 'center' },
+            ],
             items.map((it, idx) => [
               String(idx + 1),
-              `${it.name}${it.spec ? `\n${it.spec}` : ''}`,
+              it.name ?? '',
+              it.spec ?? '',
               String(it.qty ?? ''),
               String(it.unit ?? ''),
-              `%${it.vatRate}`,
-              String(it.estimatedUnitPrice ?? ''),
             ]),
+            { fontSize: 8, headerFontSize: 8 },
           );
           doc.moveDown(0.6);
           doc.font(fonts.regular).fontSize(10).text(
-            'Müdürlüğümüzün ihtiyaç olan mal/malzeme yukarıya çıkarılmış olup 4734 sayılı Kanun’un 22. maddesi kapsamında doğrudan temin yoluyla satın alınması için uygun görülmüştür.',
+            `Müdürlüğümüzün ihtiyacı olan mal/malzeme yukarıya çıkarılmış olup 4734 Sayılı İhale Yasası'nın 22/d maddesi gereğince Doğrudan Temin yoluyla satın alınması için uygun görüldüğü takdirde OLUR'larınıza arz ederim.`,
             { align: 'justify' },
           );
           doc.moveDown(0.8);
+          doc.font(fonts.bold).fontSize(10).text(`${((school?.name ?? '').trim() || 'Kurum').toUpperCase()} MÜDÜRLÜĞÜNE`);
+          doc.moveDown(0.2);
           this.pdfSignRow(doc, fonts, [
             {
-              role: 'Gerçekleştirme Yetkilisi',
-              name: settings?.realizationAuthorityName ?? '',
+              role: '(İhale/Harcama Yetkilisi)',
+              name: settings?.realizationAuthorityName ?? '…………………',
               title: settings?.realizationAuthorityTitle ?? undefined,
             },
+          ]);
+          doc.moveDown(0.2);
+          doc.font(fonts.bold).fontSize(10).text('OLUR', { align: 'center' });
+          const d = this.fmtTrDate(registry.get('ihtiyac_listesi')?.docDate ?? null) || this.fmtTrDate(new Date());
+          if (d) doc.font(fonts.regular).fontSize(10).text(d, { align: 'center' });
+          this.pdfSignRow(doc, fonts, [
             {
-              role: 'Harcama Yetkilisi',
-              name: settings?.spendingAuthorityName ?? (school?.principalName ?? ''),
+              role: 'İhale(Harcama Yetkilisi)',
+              name: settings?.spendingAuthorityName ?? (school?.principalName ?? '…………………'),
               title: settings?.spendingAuthorityTitle ?? undefined,
             },
           ]);
         });
         return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'ihtiyac_listesi', buffer, filenameBase, fileFormat: 'pdf' });
+      }
+
+      if (dto.doc_type === 'fiyat_arastirmasi') {
+        const vendorId = String(dto.vendor_id ?? '').trim();
+        if (!vendorId) throw new BadRequestException({ code: 'DT_VENDOR_ID_REQUIRED' });
+        const vendor = vendorById.get(vendorId);
+        if (!vendor) throw new NotFoundException({ code: 'DT_VENDOR_NOT_FOUND' });
+        const signs = await this.commissionSignatureBlocks({ schoolId, dtFileId: file.id, kind: 'yaklasik_maliyet' });
+        const buffer = await this.pdfBuffer((doc, fonts) => {
+          this.pdfOfficialTop(doc, fonts, {
+            schoolId,
+            school,
+            file,
+            stage: 'fiyat_arastirma',
+            title: '',
+            konu: 'Fiyat Araştırması',
+            showProcurementRef: false,
+            registry,
+            settings,
+          });
+          doc.font(fonts.bold).fontSize(10).text('İLGİLİ KİŞİ/FİRMA');
+          doc.font(fonts.regular).fontSize(10).text(vendor.title);
+          if (vendor.address?.trim()) doc.font(fonts.regular).fontSize(9).text(vendor.address.trim());
+          doc.moveDown(0.5);
+          doc.font(fonts.regular).fontSize(10).text(
+            `${file.subject} işine ait aşağıda cinsi, özellikleri ve miktarları yazılı mallar/hizmetler 4734 sayılı Kamu İhale Kanunu'nun 22/d Maddesi gereğince Doğrudan Temin Usulüyle satın alınacağından yaklaşık maliyetin tespiti için piyasa araştırması yapılmaktadır; birim fiyatının ve tutarının KDV hariç bildirmenizi rica ederim/ederiz.`,
+            { align: 'justify' },
+          );
+          doc.moveDown(0.6);
+          this.pdfTable(
+            doc,
+            fonts,
+            [
+              { header: 'Sıra No', width: 40, align: 'center' },
+              { header: 'Malzemenin Adı', width: 160 },
+              { header: 'Özelliği', width: 180 },
+              { header: 'Miktarı', width: 60, align: 'right' },
+              { header: 'Ölçeği', width: 55, align: 'center' },
+              { header: 'Birim Fiyatı', width: 70, align: 'right' },
+              { header: 'Tutarı (KDV Hariç)', width: 85, align: 'right' },
+            ],
+            items.map((it, idx) => [
+              String(idx + 1),
+              it.name ?? '',
+              it.spec ?? '',
+              String(it.qty ?? ''),
+              String(it.unit ?? ''),
+              '',
+              '',
+            ]),
+            { fontSize: 7.5, headerFontSize: 7.5 },
+          );
+          doc.moveDown(0.8);
+          const blocks = signs.length
+            ? signs.map((s) => ({ ...s, role: 'Komisyon Üyesi' }))
+            : [
+                { role: 'Komisyon Üyesi', name: '…………………' },
+                { role: 'Komisyon Üyesi', name: '…………………' },
+                { role: 'Komisyon Üyesi', name: '…………………' },
+              ];
+          for (let i = 0; i < blocks.length; i += 3) {
+            this.pdfSignRow(doc, fonts, blocks.slice(i, i + 3));
+            doc.moveDown(0.2);
+          }
+        });
+        return this.persistDtGeneratedDocx({
+          schoolId,
+          userId,
+          dtFileId,
+          docType: 'fiyat_arastirmasi',
+          buffer,
+          filenameBase,
+          filenameExtra: vendor.title,
+          fileFormat: 'pdf',
+        });
       }
 
       if (dto.doc_type === 'teklif_isteme') {
@@ -1190,35 +1359,69 @@ export class DogrudanTeminService {
             file,
             stage: 'teklif_mektubu',
             title: 'TEKLİF MEKTUBU',
+            konu: file.subject,
+            showProcurementRef: true,
             registry,
             settings,
           });
+          doc.font(fonts.regular).fontSize(10).text(
+            `İdaremiz tarafından ${file.subject} işine ait aşağıda cinsi, özellikleri ve miktarları yazılı mallar/hizmetler 4734 sayılı Kamu İhale Kanunu'nun 22/d Maddesi gereğince Doğrudan Temin Usulüyle satın alınacaktır. İlgilenmeniz halinde; teklifin KDV hariç olarak sunulması, teklif edilen toplam bedelin rakam ve yazı ile birbirine uygun olarak yazılması, üzerinde kazıntı, silinti ve düzeltme yapılmaması, teklif mektubunun ad/soyad ve ticaret ünvanı yazılmak sureti ile kaşelenmesi ve imzalanması zorunlu olup, bu şartları taşımayan teklifler değerlendirilmeye alınmayacaktır.`,
+            { align: 'justify' },
+          );
+          doc.moveDown(0.7);
+          doc.font(fonts.bold).fontSize(10).text('Teklif Sahibinin');
           doc.font(fonts.regular).fontSize(10);
-          doc.text(`Firma Ünvanı : ${vendor.title}`);
-          if ((vendor as any).taxNo) doc.text(`Vergi No      : ${(vendor as any).taxNo}`);
-          if ((vendor as any).address) doc.text(`Adres         : ${(vendor as any).address}`);
-          doc.moveDown(0.5);
-          this.pdfSimpleTable(
+          doc.text(`Adı Soyadı/Ticaret Unvanı, Uyruğu : ${vendor.title}`);
+          doc.text(`Açık Tebligat Adresi : ${vendor.address ?? ''}`);
+          doc.text(`Bağlı Olduğu Vergi Dairesi ve Vergi Numarası : ${vendor.taxNo ?? ''}`);
+          doc.text(`Telefon ve Faks Numarası : ${vendor.phone ?? ''}`);
+          doc.text(`E-Mail Adresi (varsa) : ${vendor.email ?? ''}`);
+          doc.moveDown(0.6);
+          doc.font(fonts.bold).fontSize(10).text('SATIN ALINACAK MAL/MALZEME LİSTESİ');
+          doc.moveDown(0.2);
+          this.pdfTable(
             doc,
             fonts,
-            ['No', 'Malzeme adı', 'Özellik', 'Miktar', 'Ölçü', 'Birim fiyat'],
+            [
+              { header: 'S.No', width: 35, align: 'center' },
+              { header: 'Malzemenin Adı', width: 170 },
+              { header: 'Özelliği', width: 200 },
+              { header: 'Miktarı', width: 60, align: 'right' },
+              { header: 'Ölçeği', width: 55, align: 'center' },
+              { header: 'Birim Fiyatı', width: 70, align: 'right' },
+              { header: 'Tutarı (KDV Hariç)', width: 90, align: 'right' },
+            ],
             items.map((it, idx) => [
               String(idx + 1),
-              it.name,
+              it.name ?? '',
               it.spec ?? '',
               String(it.qty ?? ''),
               String(it.unit ?? ''),
               '',
+              '',
             ]),
+            { fontSize: 7.5, headerFontSize: 7.5 },
           );
           doc.moveDown(0.6);
+          doc.font(fonts.bold).fontSize(10).text('Diğer Hususlar');
+          doc.font(fonts.regular).fontSize(9);
+          doc.text('Teslim Edilecek Parti Miktarı : 1');
+          doc.text('Nakliye ve Sigortanın Kime Ait Olduğu : Satıcıya');
+          doc.text('Teknik Şartname : …………………………………………………………………………');
+          doc.text('Uyulması Gereken Standartlar : TSE ………………………………………………');
+          doc.text('Diğer Özel Şartlar : ………………………………………………………………………');
+          doc.moveDown(0.6);
           doc.font(fonts.regular).fontSize(9).text(
-            'Teklif edilen birim fiyatlar KDV hariç olup, şartnameye uygundur. Teslim/iş süresi ve diğer şartlar aşağıda belirtilmiştir.',
+            'Yukarıda belirtilen ve İdarenizce satın alınacak olan malların/hizmetlerin cinsi, özellikleri, miktarı ve diğer şartlarını okudum. KDV hariç toplam teklif edilen toplam bedelle vermeyi kabul ve taahhüt ediyorum/ediyoruz.',
             { align: 'justify' },
           );
           doc.moveDown(0.6);
+          doc.font(fonts.bold).fontSize(10).text('DİĞER ŞARTLAR');
+          doc.font(fonts.regular).fontSize(10).text('Tarih: ….. / ….. / 202…');
+          doc.text('Teslim Süresi: 10');
+          doc.moveDown(0.4);
           this.pdfSignRow(doc, fonts, [
-            { role: 'Teklif veren (Ad Soyad / Ünvan)', name: '…………………' },
+            { role: 'Adı Soyadı, Ticaret Ünvanı', name: vendor.contactName ?? '…………………' },
             { role: 'İmza / Kaşe', name: ' ' },
           ]);
         });
@@ -1244,19 +1447,89 @@ export class DogrudanTeminService {
             ? await this.commissionSignatureBlocks({ schoolId, dtFileId: file.id, kind: 'muayene_kabul' })
             : [];
         const buffer = await this.pdfBuffer((doc, fonts) => {
+          if (dto.doc_type === 'muayene_kabul_tutanagi') {
+            this.pdfOfficialTop(doc, fonts, {
+              schoolId,
+              school,
+              file,
+              stage: 'muayene_kabul',
+              title: '',
+              konu: '',
+              showProcurementRef: false,
+              registry,
+              settings,
+            });
+            doc.font(fonts.bold).fontSize(12).text('MUAYENE KABUL KOMİSYONU', { align: 'center' });
+            doc.font(fonts.bold).fontSize(13).text('MUAYENE VE KABUL KOMİSYONU KARARI', { align: 'center' });
+            doc.moveDown(0.6);
+            if (kararNo) doc.font(fonts.regular).fontSize(10).text(`Karar No : ${kararNo}`);
+            const kararTarih = this.fmtTrDate(registry.get('muayene_kabul')?.docDate ?? null) || this.fmtTrDate(new Date());
+            doc.font(fonts.regular).fontSize(10).text(`Karar Tarihi : ${kararTarih}`);
+            doc.text(`İdarenin Adı : ${((school?.name ?? '').trim() || 'Kurum')} Müdürlüğü`);
+            doc.text(`İşin Adı/Niteliği : ${file.subject}`);
+            doc.moveDown(0.5);
+            const rows = items.map((it, idx) => {
+              const a = awardByItemId.get(it.id) ?? null;
+              const unitPrice = a?.unitPrice ?? '';
+              const total = a?.total ?? '';
+              const qty = String(it.qty ?? '');
+              return [
+                String(idx + 1),
+                qty,
+                String(it.unit ?? ''),
+                unitPrice,
+                total,
+                qty,
+                '0',
+              ];
+            });
+            this.pdfTable(
+              doc,
+              fonts,
+              [
+                { header: 'SIRA\nNO', width: 40, align: 'center' },
+                { header: 'MİKTARI', width: 55, align: 'right' },
+                { header: 'ÖLÇEĞİ', width: 55, align: 'center' },
+                { header: 'BİRİM\nFİYATI', width: 70, align: 'right' },
+                { header: 'TOPLAM\nFİYAT\n(KDV HARİÇ)', width: 85, align: 'right' },
+                { header: 'KABUL\nEDİLEN\nMİKTAR', width: 75, align: 'right' },
+                { header: 'KALAN', width: 45, align: 'right' },
+              ],
+              rows,
+              { fontSize: 8, headerFontSize: 7.5 },
+            );
+            const sum = items.reduce((acc, it) => {
+              const a = awardByItemId.get(it.id);
+              const n = this.toNum(a?.total);
+              return acc + (n ?? 0);
+            }, 0);
+            doc.font(fonts.bold).fontSize(10).text(`Toplam (KDV Hariç) ${this.fmtTry(sum)}`);
+            doc.moveDown(0.6);
+            doc.font(fonts.regular).fontSize(10).text(
+              `İhale yetkilisince görevlendirilmemiz nedeniyle ${file.subject}’na ait yukarıda cinsi, miktarı ve tutarı belirtilen emtialar kontrolü yapılmış, alınmasında herhangi bir sakınca bulunmadığı tarafımızdan tesbit edilerek teslim alınmış ve iş bu karar tanzim ve imza edilmiştir.`,
+              { align: 'justify' },
+            );
+            doc.moveDown(0.8);
+            const blocks = muayeneSigns.length
+              ? muayeneSigns.map((s) => ({ ...s, role: 'Komisyon Üyesi' }))
+              : [
+                  { role: 'Komisyon Üyesi', name: '…………………' },
+                  { role: 'Komisyon Üyesi', name: '…………………' },
+                  { role: 'Komisyon Üyesi', name: '…………………' },
+                ];
+            for (let i = 0; i < blocks.length; i += 3) this.pdfSignRow(doc, fonts, blocks.slice(i, i + 3));
+            return;
+          }
+
           this.pdfOfficialTop(doc, fonts, {
             schoolId,
             school,
             file,
             stage,
-            title: dto.doc_type === 'muayene_kabul_tutanagi' ? 'MUAYENE VE KABUL KOMİSYONU KARARI' : 'DOĞRUDAN TEMİN KARARI',
+            title: 'DOĞRUDAN TEMİN KARARI',
             registry,
             settings,
           });
-          if (kararNo) {
-            doc.font(fonts.regular).fontSize(10).text(`Karar No : ${kararNo}`);
-            doc.moveDown(0.4);
-          }
           this.pdfSimpleTable(
             doc,
             fonts,
@@ -1274,24 +1547,6 @@ export class DogrudanTeminService {
               ];
             }),
           );
-          doc.moveDown(0.8);
-          if (dto.doc_type === 'muayene_kabul_tutanagi') {
-            void title;
-            doc.font(fonts.regular).fontSize(10).text('Yukarıda cinsi, miktarı ve fiyatı belirtilen malzemeler kontrol edilmiş ve teslim alınmıştır.');
-            doc.moveDown(0.8);
-            if (muayeneSigns.length) {
-              for (let i = 0; i < muayeneSigns.length; i += 3) {
-                this.pdfSignRow(doc, fonts, muayeneSigns.slice(i, i + 3));
-                doc.moveDown(0.4);
-              }
-            } else {
-              this.pdfSignRow(doc, fonts, [
-                { role: 'Başkan', name: '…………………' },
-                { role: 'Üye', name: '…………………' },
-                { role: 'Üye', name: '…………………' },
-              ]);
-            }
-          }
         });
         const docType = dto.doc_type === 'muayene_kabul_tutanagi' ? 'muayene_kabul_tutanagi' : 'karar';
         return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType, buffer, filenameBase, fileFormat: 'pdf' });
@@ -1299,22 +1554,36 @@ export class DogrudanTeminService {
 
       if (dto.doc_type === 'komisyon_onay') {
         const kindLabel: Record<string, string> = {
-          yaklasik_maliyet: 'Yaklaşık maliyet komisyonu',
-          piyasa_satinalma: 'Piyasa araştırma / satın alma komisyonu',
-          muayene_kabul: 'Muayene ve kabul komisyonu',
+          yaklasik_maliyet: 'Fiyat Araştırma ve Yaklaşık Maliyet Tesbit Komisyonu Adı, Ünvanı ve Görevleri',
+          piyasa_satinalma: 'Piyasa Araştırma-Satın Alma İhale Komisyonu Adı, Ünvanı ve Görevleri',
+          muayene_kabul: 'Muayene ve Teslim Alma Komisyonu Adı, Ünvanı ve Görevleri',
         };
-        const commBlocks = await Promise.all(
+        const commTables = await Promise.all(
           DT_COMMISSION_KINDS.map(async (kind) => {
             const comm = await this.commissionRepo.findOne({ where: { schoolId, dtFileId: file.id, kind } });
-            if (!comm) return { kind, chairman: null as string | null, members: [] as string[] };
+            if (!comm) return { kind, rows: [] as string[][] };
             const members = await this.commMemberRepo.find({ where: { commissionId: comm.id }, order: { createdAt: 'ASC' } });
             const ids = [...members.map((m) => m.userId), ...(comm.chairmanUserId ? [comm.chairmanUserId] : [])];
             const names = await this.loadUserDisplayNames(ids);
-            const chairman = comm.chairmanUserId ? (names.get(comm.chairmanUserId) ?? comm.chairmanUserId) : null;
-            const memberLines = members.map(
-              (m, i) => `${i + 1}. ${names.get(m.userId) ?? m.userId} — ${m.dutyLabel ?? m.title ?? 'Üye'}`,
-            );
-            return { kind, chairman, members: memberLines };
+            const rows: string[][] = [];
+            let n = 1;
+            if (comm.chairmanUserId) {
+              rows.push([
+                String(n++),
+                names.get(comm.chairmanUserId) ?? comm.chairmanUserId,
+                '—',
+                'Komisyon Başkanı',
+              ]);
+            }
+            for (const m of members) {
+              rows.push([
+                String(n++),
+                names.get(m.userId) ?? m.userId,
+                (m.title ?? '—') as string,
+                (m.dutyLabel ?? 'Komisyon Üyesi') as string,
+              ]);
+            }
+            return { kind, rows };
           }),
         );
         const buffer = await this.pdfBuffer((doc, fonts) => {
@@ -1324,84 +1593,144 @@ export class DogrudanTeminService {
             file,
             stage: 'komisyon_onay',
             title: 'KOMİSYON ONAYI',
+            konu: 'Yaklaşık Maliyet, Piyasa Araştırması ve Muayene Kabul Komisyon Onayı',
+            showProcurementRef: false,
             registry,
             settings,
           });
-          doc.font(fonts.regular).fontSize(10);
-          for (const b of commBlocks) {
-            doc.font(fonts.bold).text(kindLabel[b.kind] ?? b.kind);
-            if (!b.chairman && b.members.length === 0) {
-              doc.font(fonts.regular).text('(Henüz oluşturulmadı)');
-              doc.moveDown(0.4);
+          doc.font(fonts.regular).fontSize(10).text(
+            `${file.subject} işine ait ihtiyaç listesi onayı ekte sunulmuştur. Söz konusu mal/malzeme 4734 sayılı İhale Kanununun 9 Maddesi gereğince satın alınacağından; (1) Her türlü fiyat araştırmasını yapmak ve yaklaşık maliyet cetvelini hazırlayarak onaya sunmak üzere fiyat araştırma komisyonu, (2) Onay Belgesi'nin tanziminden sonra yazılı teklif mektupları alarak değerlendirmek ve ihaleyi sonuçlandırarak onaya sunmak üzere ihale komisyonu, (3) Mal/malzeme tesliminden sonra satın alınan mal/malzemelerin özelliklerini ve sayılarını kontrol ederek teslim almak üzere muayene ve teslim alma komisyonu oluşturulması müdürlüğümüzce uygun görülmektedir. Makamınızca da uygun görüldüğü takdirde OLUR'larınıza arz ederim.`,
+            { align: 'justify' },
+          );
+          doc.moveDown(0.8);
+          for (const t of commTables) {
+            doc.font(fonts.bold).fontSize(10).text(kindLabel[t.kind] ?? t.kind);
+            doc.moveDown(0.2);
+            if (!t.rows.length) {
+              doc.font(fonts.regular).fontSize(10).text('(Henüz oluşturulmadı)');
+              doc.moveDown(0.6);
               continue;
             }
-            if (b.chairman) doc.font(fonts.regular).text(`Başkan: ${b.chairman}`);
-            b.members.forEach((ln) => doc.font(fonts.regular).text(ln));
-            doc.moveDown(0.6);
+            this.pdfTable(
+              doc,
+              fonts,
+              [
+                { header: 'Sıra No', width: 50, align: 'center' },
+                { header: 'Adı Soyadı', width: 170 },
+                { header: 'Ünvanı', width: 130 },
+                { header: 'Görevi', width: 140 },
+              ],
+              t.rows,
+              { fontSize: 8.5, headerFontSize: 8.5 },
+            );
+            doc.moveDown(0.4);
           }
-          doc.moveDown(0.6);
-          doc.font(fonts.bold).text('OLUR', { align: 'center' });
-          doc.moveDown(0.3);
-          doc.font(fonts.regular).text(school?.principalName ?? '…………………', { align: 'center' });
+          doc.moveDown(0.2);
+          this.pdfSignRow(doc, fonts, [
+            {
+              role: '(İhale/Harcama Yetkilisi)',
+              name: settings?.realizationAuthorityName ?? '…………………',
+              title: settings?.realizationAuthorityTitle ?? undefined,
+            },
+          ]);
+          doc.moveDown(0.2);
+          doc.font(fonts.bold).fontSize(10).text('OLUR', { align: 'center' });
+          const d = this.fmtTrDate(registry.get('komisyon_onay')?.docDate ?? null) || this.fmtTrDate(new Date());
+          if (d) doc.font(fonts.regular).fontSize(10).text(d, { align: 'center' });
+          this.pdfSignRow(doc, fonts, [
+            {
+              role: 'İhale(Harcama Yetkilisi)',
+              name: settings?.spendingAuthorityName ?? (school?.principalName ?? '…………………'),
+              title: settings?.spendingAuthorityTitle ?? undefined,
+            },
+          ]);
         });
         return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'komisyon_onay', buffer, filenameBase, fileFormat: 'pdf' });
       }
 
       if (dto.doc_type === 'onay_belgesi') {
-        const kindLabel: Record<string, string> = {
-          yaklasik_maliyet: 'Yaklaşık maliyet komisyonu',
-          piyasa_satinalma: 'Piyasa araştırma / satın alma komisyonu',
-          muayene_kabul: 'Muayene ve kabul komisyonu',
-        };
-        const commRows = await Promise.all(
-          DT_COMMISSION_KINDS.map(async (kind) => {
-            const comm = await this.commissionRepo.findOne({ where: { schoolId, dtFileId: file.id, kind } });
-            if (!comm) return { kind, chairman: '', members: '' };
-            const members = await this.commMemberRepo.find({ where: { commissionId: comm.id }, order: { createdAt: 'ASC' } });
-            const ids = [...members.map((m) => m.userId), ...(comm.chairmanUserId ? [comm.chairmanUserId] : [])];
-            const names = await this.loadUserDisplayNames(ids);
-            const chairman = comm.chairmanUserId ? (names.get(comm.chairmanUserId) ?? comm.chairmanUserId) : '';
-            const mem = members
-              .map((m) => `${names.get(m.userId) ?? m.userId} (${m.dutyLabel ?? m.title ?? 'Üye'})`)
-              .join('\n');
-            return { kind, chairman, members: mem };
+        const onayReg = registry.get('ihale_onay');
+        const belgeTarih = this.fmtTrDate(onayReg?.docDate ?? null) || this.fmtTrDate(new Date());
+        const belgeSayi = this.registrySayi(onayReg);
+
+        const research = await this.quoteRepo.find({
+          where: { schoolId, dtFileId, purpose: 'market_research' },
+          order: { createdAt: 'ASC' },
+          take: 5,
+        });
+        const firmQuotes = research.slice(0, 3);
+        const firmTotals = await Promise.all(
+          firmQuotes.map(async (q) => {
+            const qis = await this.quoteItemRepo.find({ where: { quoteId: q.id } });
+            const byItem = new Map(qis.map((x) => [x.dtItemId, this.toNum(x.unitPrice)] as const));
+            const total = items.reduce((acc, it) => acc + (byItem.get(it.id) ?? 0) * (this.toNum(it.qty) ?? 0), 0);
+            return total;
           }),
         );
+        const avgTotal = firmTotals.length ? firmTotals.reduce((a, b) => a + b, 0) / firmTotals.length : 0;
+        const approxText = file.approxTotal ?? this.fmtTry(avgTotal);
+
+        const assigned = await (async () => {
+          const comm = await this.commissionRepo.findOne({ where: { schoolId, dtFileId: file.id, kind: 'yaklasik_maliyet' } });
+          if (!comm) return [] as string[][];
+          const members = await this.commMemberRepo.find({ where: { commissionId: comm.id }, order: { createdAt: 'ASC' } });
+          const ids = [...members.map((m) => m.userId), ...(comm.chairmanUserId ? [comm.chairmanUserId] : [])];
+          const names = await this.loadUserDisplayNames(ids);
+          const out: string[][] = [];
+          if (comm.chairmanUserId) out.push([names.get(comm.chairmanUserId) ?? comm.chairmanUserId, 'Komisyon Üyesi', '—']);
+          for (const m of members) out.push([names.get(m.userId) ?? m.userId, (m.dutyLabel ?? 'Komisyon Üyesi') as string, (m.title ?? '—') as string]);
+          return out;
+        })();
         const buffer = await this.pdfBuffer((doc, fonts) => {
-          this.pdfOfficialTop(doc, fonts, {
-            schoolId,
-            school,
-            file,
-            stage: 'ihale_onay',
-            title: 'ONAY BELGESİ',
-            registry,
-            settings,
-          });
-          doc.font(fonts.regular).fontSize(10);
-          doc.text(`İşin konusu : ${file.subject}`);
-          doc.text(`Yaklaşık maliyet (KDV hariç) : ${file.approxTotal ?? '—'}`);
-          doc.text(`Doğrudan temin usulü : 4734 sayılı Kanun 22. maddesi (${file.teminType})`);
+          this.pdfAntet(doc, fonts, school, settings);
+          doc.font(fonts.bold).fontSize(13).text('ONAY BELGESİ', { align: 'center' });
           doc.moveDown(0.6);
-          doc.font(fonts.bold).fontSize(10).text('Komisyon görevlileri');
-          doc.moveDown(0.3);
-          this.pdfSimpleTable(
+
+          doc.font(fonts.regular).fontSize(10);
+          doc.text(`Doğrudan Temini Yapan İdarenin Adı: ${settings?.headerLine3?.trim() || 'İlçe Milli Eğitim Müdürlüğü'}`);
+          doc.text(`Belge Tarih ve Sayısı: ${belgeTarih} ${belgeSayi}`.trim());
+          doc.text(`İşin Niteliği: ${file.subject}`);
+          doc.text(`İşin Miktarı: Ekli belgede gösterilmiştir.`);
+          doc.text(`Yaklaşık Maliyet (KDV Hariç)(₺): ${approxText}`);
+          doc.text(`Bütçe Tertibi: ${''}`);
+          doc.text(`İhale Usulü: 4734 Sayılı Kamu İhale Kanunu'nun 22/d Maddesi`);
+          doc.text(`İlanın Şekli ve Adedi: Yapılmayacak`);
+          doc.text(`Sözleşme Düzenlenip Düzenlenmeyeceği: Düzenlenmeyecektir`);
+          doc.text(`Şartname Düzenlenip Düzenlenmeyeceği: Düzenlenecektir`);
+          doc.text(`Yeterlilik Kriterleri Aranıp Aranmayacağı: Aranmayacaktır`);
+          doc.moveDown(0.6);
+
+          doc.font(fonts.bold).fontSize(10).text('Doğrudan Temin Usulü ile Mal ve Hizmet satın alınacaksa piyasa fiyat araştırması yapmak üzere görevlendirilecek kişi/kişiler');
+          doc.moveDown(0.2);
+          this.pdfTable(
             doc,
             fonts,
-            ['Komisyon', 'Başkan', 'Üyeler'],
-            commRows.map((r) => [kindLabel[r.kind] ?? r.kind, r.chairman || '—', r.members || '—']),
+            [
+              { header: 'Adı Soyadı', width: 210 },
+              { header: 'Görevi', width: 150 },
+              { header: 'Ünvanı', width: 150 },
+            ],
+            assigned.length ? assigned : [['—', '—', '—']],
+            { fontSize: 9, headerFontSize: 9 },
           );
+
+          if (file.procurementRef?.trim()) doc.font(fonts.regular).fontSize(10).text(`Doğrudan Temin Numarası ${file.procurementRef.trim()}`);
           doc.moveDown(0.6);
-          doc.font(fonts.bold).text('ONAY', { align: 'center' });
+          doc.font(fonts.bold).fontSize(10).text('DİĞER AÇIKLAMALAR');
           doc.moveDown(0.6);
+          doc.font(fonts.bold).fontSize(10).text('ONAY', { align: 'center' });
+          doc.font(fonts.regular).fontSize(10).text('Yukarıda belirtilen mal/malzeme/hizmetin satın alınması için ilgililerin görevlendirilmeleri hususu UYGUNDUR', { align: 'center' });
+          doc.moveDown(0.6);
+          const d = belgeTarih || this.fmtTrDate(new Date());
           this.pdfSignRow(doc, fonts, [
             {
-              role: 'Gerçekleştirme Yetkilisi',
-              name: settings?.realizationAuthorityName ?? '',
+              role: d,
+              name: settings?.realizationAuthorityName ?? '…………………',
               title: settings?.realizationAuthorityTitle ?? undefined,
             },
             {
-              role: 'Harcama Yetkilisi',
-              name: settings?.spendingAuthorityName ?? (school?.principalName ?? ''),
+              role: d,
+              name: settings?.spendingAuthorityName ?? (school?.principalName ?? '…………………'),
               title: settings?.spendingAuthorityTitle ?? undefined,
             },
           ]);
@@ -1417,52 +1746,274 @@ export class DogrudanTeminService {
         });
         const firmQuotes = research.slice(0, 3);
         const cols = await Promise.all(
-          firmQuotes.map(async (q) => {
+          firmQuotes.map(async (q, idx) => {
             const qis = await this.quoteItemRepo.find({ where: { quoteId: q.id }, order: { createdAt: 'ASC' } });
-            const byItem = new Map(qis.map((x) => [x.dtItemId, x.unitPrice] as const));
-            const title = vendorById.get(q.vendorId)?.title ?? q.vendorId;
-            return { title, byItem };
+            const byItem = new Map(qis.map((x) => [x.dtItemId, this.toNum(x.unitPrice)] as const));
+            const v = vendorById.get(q.vendorId) ?? null;
+            const title = v?.title?.trim() || `${idx + 1}. FİRMASI`;
+            const total = items.reduce((acc, it) => acc + (byItem.get(it.id) ?? 0) * (this.toNum(it.qty) ?? 0), 0);
+            return { vendor: v, title, byItem, total };
           }),
         );
-        const title =
-          dto.doc_type === 'piyasa_arastirma_tutanagi' ? 'Piyasa Fiyat Araştırma Tutanağı' : 'Yaklaşık Maliyet Cetveli';
         const stage = dto.doc_type === 'piyasa_arastirma_tutanagi' ? 'piyasa_arastirma' : 'yaklasik_maliyet';
         const commKind = dto.doc_type === 'piyasa_arastirma_tutanagi' ? 'piyasa_satinalma' : 'yaklasik_maliyet';
         const commSigns = await this.commissionSignatureBlocks({ schoolId, dtFileId: file.id, kind: commKind });
+        const avgTotal = cols.length ? cols.reduce((a, c) => a + (c.total ?? 0), 0) / cols.length : 0;
+        const lowest = cols.length ? cols.reduce((a, b) => (a.total <= b.total ? a : b)) : null;
+        const onay = registry.get('ihale_onay');
+        const onayTarih = this.fmtTrDate(onay?.docDate ?? null);
+        const onaySayi = this.registrySayi(onay);
         const buffer = await this.pdfBuffer((doc, fonts) => {
-          this.pdfOfficialTop(doc, fonts, {
-            schoolId,
-            school,
-            file,
-            stage,
-            title: dto.doc_type === 'piyasa_arastirma_tutanagi' ? 'PİYASA FİYAT ARAŞTIRMA TUTANAĞI' : 'YAKLAŞIK MALİYET CETVELİ',
-            registry,
-            settings,
-          });
-          const headers = ['No', 'Kalem', 'Miktar', ...cols.map((c) => c.title.slice(0, 18))];
-          const rows = items.map((it, idx) => [
-            String(idx + 1),
-            `${it.name}${it.spec ? `\n${it.spec}` : ''}`,
-            `${it.qty ?? ''} ${it.unit ?? ''}`.trim(),
-            ...cols.map((c) => String(c.byItem.get(it.id) ?? '')),
-          ]);
-          this.pdfSimpleTable(doc, fonts, headers, rows);
-          doc.moveDown(0.8);
-          if (commSigns.length) {
-            for (let i = 0; i < commSigns.length; i += 3) {
-              this.pdfSignRow(doc, fonts, commSigns.slice(i, i + 3));
-              doc.moveDown(0.4);
-            }
-          } else {
-            this.pdfSignRow(doc, fonts, [
-              { role: 'Başkan', name: '…………………' },
-              { role: 'Üye', name: '…………………' },
-              { role: 'Üye', name: '…………………' },
+          if (dto.doc_type === 'yaklasik_maliyet_cetveli') {
+            this.pdfAntet(doc, fonts, school, settings);
+            doc.font(fonts.bold).fontSize(13).text('YAKLAŞIK MALİYET CETVELİ', { align: 'center' });
+            doc.moveDown(0.6);
+            doc.font(fonts.regular).fontSize(10);
+            doc.text(`İdarenin Adı: ${((school?.name ?? '').trim() || 'Kurum')} Müdürlüğü`);
+            doc.text(`İşin Konusu: ${file.subject}`);
+            const d = this.fmtTrDate(registry.get('yaklasik_maliyet')?.docDate ?? null) || this.fmtTrDate(new Date());
+            doc.text(`Düzenleme Tarihi: ${d}`);
+            if (file.procurementRef?.trim()) doc.text(`Doğrudan Temin Numarası: ${file.procurementRef.trim()}`);
+            doc.moveDown(0.6);
+
+            const baseCols = [
+              { header: 'Sıra\nNo', width: 35, align: 'center' as const },
+              { header: 'Malzemenin Adı', width: 140 },
+              { header: 'Özelliği', width: 160 },
+              { header: 'Miktarı', width: 50, align: 'right' as const },
+              { header: 'Ölçüsü', width: 50, align: 'center' as const },
+            ];
+            const firmCols = cols.flatMap((c, i) => [
+              { header: `${String.fromCharCode(65 + i)} FİRMASI\nBirim Fiyatı`, width: 65, align: 'right' as const },
+              { header: `${String.fromCharCode(65 + i)} FİRMASI\nToplam Fiyat`, width: 70, align: 'right' as const },
             ]);
+            const approxCols = [
+              { header: 'Birim\nYaklaşık\nMaliyet\nFiyatı', width: 70, align: 'right' as const },
+              { header: 'Toplam\nYaklaşık\nMaliyet\nFiyatı', width: 80, align: 'right' as const },
+            ];
+            const tableCols = [...baseCols, ...firmCols, ...approxCols];
+
+            const rows = items.map((it, idx) => {
+              const qty = this.toNum(it.qty) ?? 0;
+              const prices = cols.map((c) => c.byItem.get(it.id) ?? null);
+              const totals = prices.map((p) => (p == null ? null : p * qty));
+              const avgUnit = prices.filter((p): p is number => typeof p === 'number').reduce((a, b) => a + b, 0) / (prices.filter((p) => typeof p === 'number').length || 1);
+              const avgLine = avgUnit * qty;
+              return [
+                String(idx + 1),
+                it.name ?? '',
+                it.spec ?? '',
+                String(it.qty ?? ''),
+                String(it.unit ?? ''),
+                ...cols.flatMap((c) => {
+                  const p = c.byItem.get(it.id);
+                  const t = p == null ? null : p * qty;
+                  return [
+                    p == null ? '' : new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(p),
+                    t == null ? '' : new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(t),
+                  ];
+                }),
+                Number.isFinite(avgUnit) ? new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(avgUnit) : '',
+                Number.isFinite(avgLine) ? new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(avgLine) : '',
+              ];
+            });
+
+            this.pdfTable(doc, fonts, tableCols, rows, { fontSize: 6.8, headerFontSize: 6.6, rowPaddingY: 2 });
+            doc.moveDown(0.2);
+            if (cols.length) {
+              const totalsLine = cols
+                .map((c, i) => `TOPLAM ${String.fromCharCode(65 + i)}: ${this.fmtTry(c.total)}`)
+                .join('   ');
+              doc.font(fonts.bold).fontSize(9).text(`${totalsLine}   YAKLAŞIK: ${this.fmtTry(avgTotal)}`);
+            }
+            doc.moveDown(0.6);
+            doc.font(fonts.regular).fontSize(9).text(
+              `İdaremizce ihtiyaç duyulan ve satın alınması düşünülen aşağıda cinsi, özellikleri ve miktarları yazılı malların/hizmetlerin 4734 Sayılı Kamu İhale Kanunu'nun 9'uncu Maddesi gereğince yaklaşık maliyetinin tesbitine esas olmak üzere her türlü fiyat araştırması yapılmıştır. Araştırma sonuçları yukarıdaki tabloda gösterilmiştir. Yukarıda açıklandığı üzere yaklaşık maliyetin KDV hariç ${this.fmtTry(avgTotal)} takdir ve tesbit edilerek iş bu Hesap Cetveli düzenlenerek imza altına alınmıştır.`,
+              { align: 'justify' },
+            );
+            doc.moveDown(0.6);
+            doc.font(fonts.bold).fontSize(10).text('YAKLAŞIK MALİYETİ YAPAN GÖREVLİ/GÖREVLİLER');
+            doc.moveDown(0.4);
+            const blocks = commSigns.length
+              ? commSigns.map((s) => ({ ...s, role: 'Komisyon Üyesi' }))
+              : [
+                  { role: 'Komisyon Üyesi', name: '…………………' },
+                  { role: 'Komisyon Üyesi', name: '…………………' },
+                  { role: 'Komisyon Üyesi', name: '…………………' },
+                ];
+            for (let i = 0; i < blocks.length; i += 3) this.pdfSignRow(doc, fonts, blocks.slice(i, i + 3));
+            return;
           }
+
+          this.pdfAntet(doc, fonts, school, settings);
+          doc.font(fonts.bold).fontSize(13).text('PİYASA FİYAT ARAŞTIRMA TUTANAĞI', { align: 'center' });
+          doc.moveDown(0.6);
+          doc.font(fonts.regular).fontSize(10);
+          doc.text(`İdarenin Adı: ${((school?.name ?? '').trim() || 'Kurum')} Müdürlüğü`);
+          doc.text(`Yapılan İş/Mal/Hizmetin Adı, Niteliği: ${file.subject}`);
+          doc.text(
+            `Alım ve Yetkilendirilen Görevlilere İlişkin Onay Belgesi/Görevlendirme Onayı Tarih ve No.su: ${[onayTarih, onaySayi].filter(Boolean).join(' ')}`.trim(),
+          );
+          if (file.procurementRef?.trim()) doc.text(`Doğrudan Temin Numarası ${file.procurementRef.trim()}`);
+          doc.moveDown(0.6);
+
+          const baseCols = [
+            { header: 'Sıra\nNo', width: 35, align: 'center' as const },
+            { header: 'Mal/Malzemenin Adı', width: 140 },
+            { header: 'Özelliği', width: 160 },
+            { header: 'Miktarı', width: 50, align: 'right' as const },
+            { header: 'Ölçüsü', width: 50, align: 'center' as const },
+          ];
+          const firmCols = cols.flatMap((c, i) => [
+            { header: `${i + 1}. FİRMASI\nBirim Fiyat`, width: 70, align: 'right' as const },
+            { header: `${i + 1}. FİRMASI\nToplam Fiyat`, width: 75, align: 'right' as const },
+          ]);
+          const tableCols = [...baseCols, ...firmCols];
+
+          const rows = items.map((it, idx) => {
+            const qty = this.toNum(it.qty) ?? 0;
+            return [
+              String(idx + 1),
+              it.name ?? '',
+              it.spec ?? '',
+              String(it.qty ?? ''),
+              String(it.unit ?? ''),
+              ...cols.flatMap((c) => {
+                const p = c.byItem.get(it.id);
+                const t = p == null ? null : p * qty;
+                return [
+                  p == null ? '' : new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(p),
+                  t == null ? '' : new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(t),
+                ];
+              }),
+            ];
+          });
+          this.pdfTable(doc, fonts, tableCols, rows, { fontSize: 6.8, headerFontSize: 6.6, rowPaddingY: 2 });
+          doc.moveDown(0.4);
+          if (cols.length) {
+            const totalsLine = cols
+              .map((c, i) => `TOPLAM TEKLİF ${i + 1}: ${this.fmtTry(c.total)}`)
+              .join('   ');
+            doc.font(fonts.bold).fontSize(9).text(totalsLine);
+          }
+          doc.moveDown(0.6);
+          if (lowest) {
+            doc.font(fonts.bold).fontSize(10).text('Tümünün Bu Kişi/Firmadan Alımı Uygun Görülmüştür');
+            doc.font(fonts.regular).fontSize(10).text(`${lowest.title}${lowest.vendor?.address ? `  ${lowest.vendor.address}` : ''}  ${this.fmtTry(lowest.total)}`);
+          }
+          doc.moveDown(0.4);
+          doc.font(fonts.regular).fontSize(9).text(
+            `4734 Sayılı Kamu İhale Kanunu'nun 22 nci Maddesi uyarınca Doğrudan Temin Usulüyle yapılacak alımlara ilişkin yapılan piyasa araştırmasında firmalarca/kişilerce teklif edilen fiyatlar değerlendirilerek yukarıda adı ve adresleri belirtilen kişi/firma/firmalardan alım yapılması uygun görülmüştür.`,
+            { align: 'justify' },
+          );
+          doc.moveDown(0.8);
+          const blocks = commSigns.length
+            ? commSigns.map((s) => ({ ...s, role: 'Komisyon Üyesi' }))
+            : [
+                { role: 'Komisyon Üyesi', name: '…………………' },
+                { role: 'Komisyon Üyesi', name: '…………………' },
+                { role: 'Komisyon Üyesi', name: '…………………' },
+              ];
+          for (let i = 0; i < blocks.length; i += 3) this.pdfSignRow(doc, fonts, blocks.slice(i, i + 3));
         });
         const docType = dto.doc_type;
         return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType, buffer, filenameBase, fileFormat: 'pdf' });
+      }
+
+      if (dto.doc_type === 'teknik_sartname') {
+        const buffer = await this.pdfBuffer((doc, fonts) => {
+          this.pdfAntet(doc, fonts, school, settings);
+          doc.font(fonts.bold).fontSize(13).text('TEKNİK ŞARTNAME', { align: 'center' });
+          doc.moveDown(0.8);
+          doc.font(fonts.regular).fontSize(10);
+          doc.text(`İdare : ${((school?.name ?? '').trim() || 'Kurum')} Müdürlüğü`);
+          doc.text(`Firma : İş için fiyat araştırması/teklif veren gerçek ve tüzel kişi`);
+          doc.moveDown(0.6);
+          doc.font(fonts.bold).fontSize(10).text('Satın Alım Konusu İşe İlişkin Bilgiler');
+          doc.font(fonts.regular).fontSize(10).text(`İşin Adı : ${file.subject}`);
+          doc.moveDown(0.6);
+          doc.font(fonts.bold).fontSize(10).text('Satın Alıma İlişkin Genel Koşullar');
+          doc.font(fonts.regular).fontSize(9).text(
+            `* Satın alınacak ürün/ürünlerin özelliklerinin en az teknik şartnamede belirtilmiş özelliklerde olması ön koşuldur.\n* Müdürlüğümüzün ihtiyaçlarının tam, kaliteli, talebi karşılar nitelikte, sıfır ve kullanılmamış ürünlerden karşılanması öncelikli şarttır.\n* Firmalar tüm ürün/hizmete ait garanti sürelerini tekliflerinde açıkça ve ayrıca belirtecektir.\n* Tekliflerinizde ürünlerin teslimat tarihlerine ait bilgiler mutlaka bildirilmelidir.\n* Müdürlüğümüz tarafından numune talep edilmesi halinde firma numune sağlamak durumundadır. Tüm nakliye, navlun, sigorta, gümrük, benzeri maliyetler ve tüm vergiler firma tarafından ödenir.\n* Satın alımımıza ait şartname maddelerinin tümüne teklif verilecektir. Ayrı ayrı, parçalı ve alternatif teklif verilemez.\n* Alımla ilgili tüm dokümanlar kaşelenmeli ve imzalanarak onaylanmalıdır.\n* Firma, resmi teklifinde belirtmiş olduğu ürün fiyatları haricinde başka hiçbir koşul veya isim altında bedel talep etmeyecektir.\n* İşbu dokümandan doğan/doğacak damga vergisi firma tarafından ödenecektir.`,
+            { align: 'left' },
+          );
+          doc.moveDown(0.6);
+          doc.font(fonts.bold).fontSize(10).text('Satın Alınacak Mal/Malzeme Listesi');
+          doc.moveDown(0.2);
+          this.pdfTable(
+            doc,
+            fonts,
+            [
+              { header: 'Sıra No', width: 50, align: 'center' },
+              { header: 'Mal/Malzemenin Adı', width: 180 },
+              { header: 'Teknik Özellikleri', width: 260 },
+            ],
+            items.map((it, idx) => [String(idx + 1), it.name ?? '', it.spec ?? '—']),
+            { fontSize: 9, headerFontSize: 9 },
+          );
+          doc.moveDown(0.8);
+          const d = this.fmtTrDate(new Date());
+          doc.font(fonts.regular).fontSize(10).text(d, { align: 'right' });
+          doc.moveDown(0.2);
+          this.pdfSignRow(doc, fonts, [
+            {
+              role: 'İhale(Harcama Yetkilisi)',
+              name: settings?.spendingAuthorityName ?? (school?.principalName ?? '…………………'),
+              title: settings?.spendingAuthorityTitle ?? undefined,
+            },
+            { role: 'FİRMA/KAŞE', name: ' ' },
+          ]);
+        });
+        return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'teknik_sartname', buffer, filenameBase, fileFormat: 'pdf' });
+      }
+
+      if (dto.doc_type === 'teslim_tesellum_tutanagi') {
+        const awardedVendorId = awards[0]?.vendorId ?? '';
+        const awardedVendor = awardedVendorId ? vendorById.get(awardedVendorId) ?? null : null;
+        const buffer = await this.pdfBuffer((doc, fonts) => {
+          doc.font(fonts.bold).fontSize(10).text('EK-1');
+          doc.moveDown(0.4);
+          doc.font(fonts.bold).fontSize(12).text('ÖDEME BELGESİ VE EKİ BELGELER TESLİM/TESELLÜM TUTANAĞI', { align: 'center' });
+          doc.moveDown(0.8);
+          this.pdfTable(
+            doc,
+            fonts,
+            [
+              { header: 'Kanıtlayıcı Belge Türü', width: 230 },
+              { header: 'Eki Belge', width: 170 },
+              { header: 'Hak Sahibi', width: 190 },
+            ],
+            [
+              ['Ödeme Emri Belgesi', '', awardedVendor?.title ?? '—'],
+              ['Muayene Kabul', '', awardedVendor?.title ?? '—'],
+              ['Piyasa Araştırma Tutanağı', '', awardedVendor?.title ?? '—'],
+              ['Onay Belgesi', '', awardedVendor?.title ?? '—'],
+              ['Yaklaşık Maliyet', '', awardedVendor?.title ?? '—'],
+              ['Taşınır İşlem Fişi', '', awardedVendor?.title ?? '—'],
+              ['Fatura', '', awardedVendor?.title ?? '—'],
+              ['Borcu Yoktur Belgesi', '', awardedVendor?.title ?? '—'],
+            ],
+            { fontSize: 9, headerFontSize: 9 },
+          );
+          doc.moveDown(0.6);
+          doc.font(fonts.regular).fontSize(9).text(
+            'Yukarıda hak sahipleri ile alacak tutarları gösterilen tahakkuk evrakı ve eki evraklar teslim alınmıştır. …../……/202…  Teslim Saati: ………',
+          );
+          doc.moveDown(0.8);
+          this.pdfSignRow(doc, fonts, [
+            { role: 'TESLİM EDEN', name: settings?.realizationAuthorityName ?? '…………………', title: settings?.realizationAuthorityTitle ?? undefined },
+            { role: 'TESLİM ALAN', name: '…………………', title: undefined },
+          ]);
+        });
+        return this.persistDtGeneratedDocx({
+          schoolId,
+          userId,
+          dtFileId,
+          docType: 'teslim_tesellum_tutanagi',
+          buffer,
+          filenameBase,
+          fileFormat: 'pdf',
+        });
       }
 
       if (dto.doc_type === 'sozlesme') {
@@ -1491,6 +2042,10 @@ export class DogrudanTeminService {
         filenameExtra: vendor.title,
         fileFormat: 'docx',
       });
+    }
+
+    if (dto.doc_type === 'fiyat_arastirmasi' || dto.doc_type === 'teknik_sartname' || dto.doc_type === 'teslim_tesellum_tutanagi') {
+      throw new BadRequestException({ code: 'DT_DOCX_NOT_SUPPORTED', message: 'Bu belge türü için DOCX desteklenmiyor.' });
     }
 
     if (dto.doc_type === 'sozlesme') {

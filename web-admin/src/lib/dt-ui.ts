@@ -99,14 +99,17 @@ export function dtQuoteStatusChipClass(status: string | null | undefined): strin
 
 const DOC_TYPES: Record<string, string> = {
   ihtiyac_listesi: 'İhtiyaç listesi',
-  teklif_isteme: 'Teklif isteme yazısı',
+  fiyat_arastirmasi: 'Fiyat araştırması yazısı',
+  teklif_isteme: 'Teklif mektubu',
   karar: 'Doğrudan temin kararı',
   sozlesme: 'Sözleşme taslağı',
   komisyon_onay: 'Komisyon onay listesi',
   onay_belgesi: 'Onay belgesi',
   piyasa_arastirma_tutanagi: 'Piyasa araştırma tutanağı',
   yaklasik_maliyet_cetveli: 'Yaklaşık maliyet cetveli',
-  muayene_kabul_tutanagi: 'Muayene ve kabul tutanağı',
+  muayene_kabul_tutanagi: 'Muayene ve kabul komisyonu kararı',
+  teslim_tesellum_tutanagi: 'Teslim/tesellüm tutanağı',
+  teknik_sartname: 'Teknik şartname',
 };
 
 export function dtDocTypeLabel(docType: string | null | undefined): string {
