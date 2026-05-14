@@ -252,6 +252,11 @@ export class GenerateDtDocDto {
 
   @IsOptional()
   @IsString()
+  @IsIn(['docx', 'pdf'])
+  file_format?: 'docx' | 'pdf';
+
+  @IsOptional()
+  @IsString()
   vendor_id?: string;
 }
 

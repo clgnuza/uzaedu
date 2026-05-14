@@ -24,6 +24,7 @@ import {
   Handshake,
   Landmark,
   FileStack,
+  FileText,
   type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -123,6 +124,14 @@ type DtAcceptanceCommissionMember = {
   title: string | null;
 };
 
+type RegistryEntry = {
+  stage: string;
+  docDate: string | null;
+  numberPrefix: string | null;
+  numberSuffix: string | null;
+  meta: Record<string, unknown>;
+};
+
 export default function DtFileDetailPage() {
   const { token, me } = useAuth();
   const params = useParams<{ id: string }>();
@@ -153,6 +162,9 @@ export default function DtFileDetailPage() {
   const [priceDraft, setPriceDraft] = useState<Record<string, Record<string, string>>>({});
   const [docs, setDocs] = useState<DocItem[]>([]);
   const [docVendorId, setDocVendorId] = useState('');
+  const [docFormat, setDocFormat] = useState<'docx' | 'pdf'>('docx');
+  const [registryEntries, setRegistryEntries] = useState<RegistryEntry[]>([]);
+  const [registryDraft, setRegistryDraft] = useState<Record<string, { doc_date: string; number_prefix: string; number_suffix: string }>>({});
   const [budgetAccounts, setBudgetAccounts] = useState<BudgetAccount[]>([]);
   const [budgetBlocks, setBudgetBlocks] = useState<BudgetBlock[]>([]);
   const [budgetForm, setBudgetForm] = useState({ budget_account_id: '', amount: '' });
@@ -188,6 +200,7 @@ export default function DtFileDetailPage() {
   const tabIcons: Record<DtDetailTabId, LucideIcon> = {
     items: PackageSearch,
     quotes: Handshake,
+    registry: FileText,
     budget: Landmark,
     payments: Banknote,
     commission: Users,
@@ -212,7 +225,7 @@ export default function DtFileDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const [f, it, v, q, d, rulesRes, payRes, commRes] = await Promise.all([
+      const [f, it, v, q, d, rulesRes, payRes, commRes, regRes] = await Promise.all([
         apiFetch<DtFileItem>(dtUrl(`/dogrudan-temin/files/${id}`, me?.role, schoolId), { token: token! }),
         apiFetch<{ items: DtItem[] }>(dtUrl(`/dogrudan-temin/files/${id}/items`, me?.role, schoolId), { token: token! }),
         apiFetch<{ items: VendorItem[] }>(dtUrl(`/dogrudan-temin/vendors`, me?.role, schoolId), { token: token! }),
@@ -228,6 +241,9 @@ export default function DtFileDetailPage() {
           ),
           { token: token! },
         ).catch(() => ({ commission: null, members: [] })),
+        apiFetch<{ entries: RegistryEntry[] }>(dtUrl(`/dogrudan-temin/files/${id}/document-registry`, me?.role, schoolId), { token: token! }).catch(
+          () => ({ entries: [] }),
+        ),
       ]);
       setFile(f);
       setItems(it.items ?? []);
@@ -238,6 +254,18 @@ export default function DtFileDetailPage() {
       setPayments(payRes.items ?? []);
       setCommission(commRes?.commission ?? null);
       setCommissionMembers(commRes?.members ?? []);
+      setRegistryEntries(regRes.entries ?? []);
+      setRegistryDraft(() => {
+        const next: Record<string, { doc_date: string; number_prefix: string; number_suffix: string }> = {};
+        (regRes.entries ?? []).forEach((r) => {
+          next[r.stage] = {
+            doc_date: r.docDate ?? '',
+            number_prefix: r.numberPrefix ?? '',
+            number_suffix: r.numberSuffix ?? '',
+          };
+        });
+        return next;
+      });
       const firstQuote = (q.items ?? [])[0]?.id ?? '';
       setActiveQuoteId((cur) => cur || firstQuote);
 
@@ -367,7 +395,7 @@ export default function DtFileDetailPage() {
         const res = await apiFetch<{ download_url: string }>(dtUrl(`/dogrudan-temin/files/${id}/docs/generate`, me?.role, schoolId), {
           token,
           method: 'POST',
-          body: JSON.stringify({ doc_type, ...(vendor_id ? { vendor_id } : {}) }),
+          body: JSON.stringify({ doc_type, file_format: docFormat, ...(vendor_id ? { vendor_id } : {}) }),
         });
         if (res?.download_url) window.open(res.download_url, '_blank', 'noopener,noreferrer');
         await fetchAll();
@@ -377,7 +405,7 @@ export default function DtFileDetailPage() {
         setBusy(false);
       }
     },
-    [fetchAll, id, isSuperadmin, me?.role, schoolId, token],
+    [docFormat, fetchAll, id, isSuperadmin, me?.role, schoolId, token],
   );
 
   const downloadDoc = useCallback(
@@ -557,6 +585,33 @@ export default function DtFileDetailPage() {
       setBusy(false);
     }
   }, [fetchAll, id, isSuperadmin, me?.role, procurementRefDraft, schoolId, token]);
+
+  const saveRegistry = useCallback(async () => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const entries = Object.entries(registryDraft).map(([stage, v]) => ({
+        stage,
+        doc_date: v.doc_date.trim() || null,
+        number_prefix: v.number_prefix.trim() || null,
+        number_suffix: v.number_suffix.trim() || null,
+        meta: {},
+      }));
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/document-registry`, me?.role, schoolId), {
+        token,
+        method: 'PUT',
+        body: JSON.stringify({ entries }),
+      });
+      toast.success('Belge tarih/sayı kaydedildi.');
+      await fetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [fetchAll, id, isSuperadmin, me?.role, registryDraft, schoolId, token]);
 
   const fetchQuoteItems = useCallback(
     async (qid: string) => {
@@ -1182,6 +1237,105 @@ export default function DtFileDetailPage() {
           </Card>
           )}
 
+          {activeTab === 'registry' && (
+          <Card>
+            <CardHeader className="py-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <FileText className="size-4 text-fuchsia-600" />
+                  Belge tarih ve sayısı
+                  <DtInfoHint title={DT_SECTION_HINTS.registry} />
+                </CardTitle>
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => void saveRegistry()}>
+                  Kaydet
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="table-x-scroll rounded-md border border-border text-xs">
+                <table className="w-full min-w-[860px] text-left">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      <th className="px-2 py-1.5">Belge</th>
+                      <th className="px-2 py-1.5 w-[170px]">Tarih</th>
+                      <th className="px-2 py-1.5">Sayı (prefix)</th>
+                      <th className="px-2 py-1.5 w-[120px]">Ek / no</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {(registryEntries.length ? registryEntries : [
+                      { stage: 'ihtiyac_listesi', docDate: null, numberPrefix: null, numberSuffix: null, meta: {} },
+                      { stage: 'komisyon_onay', docDate: null, numberPrefix: null, numberSuffix: null, meta: {} },
+                      { stage: 'fiyat_arastirma', docDate: null, numberPrefix: null, numberSuffix: null, meta: {} },
+                      { stage: 'yaklasik_maliyet', docDate: null, numberPrefix: null, numberSuffix: null, meta: {} },
+                      { stage: 'ihale_onay', docDate: null, numberPrefix: null, numberSuffix: null, meta: {} },
+                      { stage: 'teklif_mektubu', docDate: null, numberPrefix: null, numberSuffix: null, meta: {} },
+                      { stage: 'piyasa_arastirma', docDate: null, numberPrefix: null, numberSuffix: null, meta: {} },
+                      { stage: 'muayene_kabul', docDate: null, numberPrefix: null, numberSuffix: null, meta: {} },
+                    ]).map((r) => {
+                      const d = registryDraft[r.stage] ?? { doc_date: r.docDate ?? '', number_prefix: r.numberPrefix ?? '', number_suffix: r.numberSuffix ?? '' };
+                      const label: Record<string, string> = {
+                        ihtiyac_listesi: 'İhtiyaç listesi',
+                        komisyon_onay: 'Komisyon onayı',
+                        fiyat_arastirma: 'Fiyat araştırması',
+                        yaklasik_maliyet: 'Yaklaşık maliyet',
+                        ihale_onay: 'İhale onay belgesi',
+                        teklif_mektubu: 'Teklif mektubu',
+                        piyasa_arastirma: 'Piyasa araştırması',
+                        muayene_kabul: 'Muayene kabul',
+                      };
+                      return (
+                        <tr key={r.stage} className="hover:bg-muted/30">
+                          <td className="px-2 py-1.5 font-medium">{label[r.stage] ?? r.stage}</td>
+                          <td className="px-2 py-1.5">
+                            <Input
+                              type="date"
+                              className="h-8 text-xs"
+                              value={d.doc_date}
+                              onChange={(e) =>
+                                setRegistryDraft((s) => ({
+                                  ...s,
+                                  [r.stage]: { ...d, doc_date: e.target.value },
+                                }))
+                              }
+                            />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <Input
+                              className="h-8 text-xs"
+                              placeholder="örn. 123456789-934.01"
+                              value={d.number_prefix}
+                              onChange={(e) =>
+                                setRegistryDraft((s) => ({
+                                  ...s,
+                                  [r.stage]: { ...d, number_prefix: e.target.value },
+                                }))
+                              }
+                            />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <Input
+                              className="h-8 text-xs"
+                              placeholder="örn. 1"
+                              value={d.number_suffix}
+                              onChange={(e) =>
+                                setRegistryDraft((s) => ({
+                                  ...s,
+                                  [r.stage]: { ...d, number_suffix: e.target.value },
+                                }))
+                              }
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+          )}
+
           {activeTab === 'budget' && (
           <Card>
             <CardHeader className="py-3">
@@ -1570,6 +1724,14 @@ export default function DtFileDetailPage() {
                 </CardTitle>
                 <div className="flex flex-wrap items-center gap-2">
                   <select
+                    value={docFormat}
+                    onChange={(e) => setDocFormat(e.target.value as 'docx' | 'pdf')}
+                    className="h-8 rounded border border-input bg-background px-2 py-1 text-xs"
+                  >
+                    <option value="docx">DOCX</option>
+                    <option value="pdf">PDF</option>
+                  </select>
+                  <select
                     value={docVendorId}
                     onChange={(e) => setDocVendorId(e.target.value)}
                     className="h-8 rounded border border-input bg-background px-2 py-1 text-xs"
@@ -1598,7 +1760,7 @@ export default function DtFileDetailPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={busy || !docVendorId}
+                    disabled={busy || !docVendorId || docFormat === 'pdf'}
                     onClick={() => void generateDoc('sozlesme', docVendorId)}
                   >
                     Sözleşme

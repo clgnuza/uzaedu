@@ -138,7 +138,7 @@ export function dtBudgetBlockStatusHint(status: string | null | undefined): stri
   return BUDGET_BLOCK[k]?.hint ?? '';
 }
 
-export type DtDetailTabId = 'items' | 'quotes' | 'budget' | 'payments' | 'commission' | 'docs';
+export type DtDetailTabId = 'items' | 'quotes' | 'registry' | 'budget' | 'payments' | 'commission' | 'docs';
 
 export const DT_DETAIL_TABS: Array<{
   id: DtDetailTabId;
@@ -160,6 +160,13 @@ export const DT_DETAIL_TABS: Array<{
     shortHint: 'Firmalardan gelen fiyatlar.',
     activeClass: 'border-sky-500 text-sky-900 bg-sky-50/80 dark:bg-sky-950/30 dark:text-sky-100',
     inactiveClass: 'border-transparent text-muted-foreground hover:text-sky-900 hover:bg-sky-50/40 dark:hover:text-sky-100',
+  },
+  {
+    id: 'registry',
+    label: 'Belge tarih/sayı',
+    shortHint: 'Evrak defteri: tarih ve sayı alanları.',
+    activeClass: 'border-fuchsia-500 text-fuchsia-900 bg-fuchsia-50/80 dark:bg-fuchsia-950/30 dark:text-fuchsia-100',
+    inactiveClass: 'border-transparent text-muted-foreground hover:text-fuchsia-900 hover:bg-fuchsia-50/40 dark:hover:text-fuchsia-100',
   },
   {
     id: 'budget',
@@ -196,6 +203,8 @@ export const DT_SECTION_HINTS: Record<DtDetailTabId, string> = {
     'İhtiyaç kalemleri ve yaklaşık maliyet; piyasa araştırması ve onay belgesi süreçlerinizle uyumlu tutun. Aşağıdan kalem ekleyebilir veya otomatik karar / belge üretebilirsiniz.',
   quotes:
     'İstekli firmalara teklif kaydı açın; her kalem için birim fiyat girin. En uygun teklif seçimi kurumunuzun kararıdır.',
+  registry:
+    'Belge tarih ve sayı girişleri (evrak defteri). Resmî yazışma kodu ve dosya numarası ile birlikte belgelerinizin üst bilgisinde kullanılır.',
   budget:
     'Dosya için kullanılacak tutarı bütçe hesabında geçici olarak ayırır (bloke). İşlem bitince blokeyi kaldırın.',
   payments:

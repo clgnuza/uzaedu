@@ -12,7 +12,7 @@ import { dtUrl } from '@/lib/dt-url';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Alert } from '@/components/ui/alert';
 import { DtInfoHint } from '@/components/dogrudan-temin/dt-info-hint';
-import { ClipboardList, Plus } from 'lucide-react';
+import { ClipboardList, Plus, FileText, Users, BarChart3, Settings2, LayoutDashboard } from 'lucide-react';
 import { toast } from 'sonner';
 import { dtFileStatusBadgeClass, dtFileStatusLabel, dtTeminTypeLabel } from '@/lib/dt-ui';
 import Link from 'next/link';
@@ -223,6 +223,78 @@ export default function DogrudanTeminPage() {
           </Dialog>
         </ToolbarActions>
       </Toolbar>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <Card className="border-primary/15 bg-gradient-to-br from-sky-50/60 to-background dark:from-sky-950/20 dark:to-background">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold">VERİ GİRİŞİ</div>
+              <Settings2 className="size-4 text-sky-700 dark:text-sky-300" />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <Link
+                href={dtUrl('/dogrudan-temin/okul-bilgileri', me?.role, schoolId)}
+                className="rounded-md border bg-background/70 hover:bg-background px-3 py-2"
+              >
+                <div className="flex items-center gap-2">
+                  <FileText className="size-4 text-sky-600" />
+                  <div>
+                    <div className="text-[12px] font-medium">Okul bilgileri</div>
+                    <div className="text-[10px] text-muted-foreground">Antet / yetkililer</div>
+                  </div>
+                </div>
+              </Link>
+              <Link
+                href={dtUrl('/dogrudan-temin/firmalar', me?.role, schoolId)}
+                className="rounded-md border bg-background/70 hover:bg-background px-3 py-2"
+              >
+                <div className="flex items-center gap-2">
+                  <Users className="size-4 text-sky-600" />
+                  <div>
+                    <div className="text-[12px] font-medium">Firmalar</div>
+                    <div className="text-[10px] text-muted-foreground">İstekliler</div>
+                  </div>
+                </div>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-primary/15 bg-gradient-to-br from-emerald-50/60 to-background dark:from-emerald-950/20 dark:to-background">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold">BELGELER / RAPORLAR</div>
+              <BarChart3 className="size-4 text-emerald-700 dark:text-emerald-300" />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <Link
+                href={dtUrl('/dogrudan-temin/raporlar', me?.role, schoolId)}
+                className="rounded-md border bg-background/70 hover:bg-background px-3 py-2"
+              >
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="size-4 text-emerald-600" />
+                  <div>
+                    <div className="text-[12px] font-medium">Mutemet paketi</div>
+                    <div className="text-[10px] text-muted-foreground">XLSX defter</div>
+                  </div>
+                </div>
+              </Link>
+              <Link
+                href={dtUrl('/dogrudan-temin/dashboard', me?.role, schoolId)}
+                className="rounded-md border bg-background/70 hover:bg-background px-3 py-2"
+              >
+                <div className="flex items-center gap-2">
+                  <LayoutDashboard className="size-4 text-emerald-600" />
+                  <div>
+                    <div className="text-[12px] font-medium">Özet panel</div>
+                    <div className="text-[10px] text-muted-foreground">Durum / toplamlar</div>
+                  </div>
+                </div>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {!ok ? null : (
       <Card>

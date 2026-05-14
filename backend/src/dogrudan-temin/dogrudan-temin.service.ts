@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, In, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import * as XLSX from 'xlsx';
+import PDFDocument from 'pdfkit';
 import {
   AlignmentType,
   BorderStyle,
@@ -771,23 +772,26 @@ export class DogrudanTeminService {
     buffer: Buffer;
     filenameBase: string;
     filenameExtra?: string;
+    fileFormat?: 'docx' | 'pdf';
   }): Promise<{ download_url: string; filename: string }> {
     const { schoolId, userId, dtFileId, docType, buffer, filenameBase, filenameExtra } = input;
-    const key = `dogrudan_temin/generated/${uuidv4()}-${docType}.docx`;
-    await this.uploadService.uploadBuffer(
-      key,
-      buffer,
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    );
+    const fileFormat = input.fileFormat ?? 'docx';
+    const ext = fileFormat === 'pdf' ? 'pdf' : 'docx';
+    const mime =
+      fileFormat === 'pdf'
+        ? 'application/pdf'
+        : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    const key = `dogrudan_temin/generated/${uuidv4()}-${docType}.${ext}`;
+    await this.uploadService.uploadBuffer(key, buffer, mime);
     const suffix = filenameExtra ? `-${filenameExtra}` : '';
     const filename =
-      `${filenameBase}${suffix}`.replace(/[^\w\u00C0-\u024F\s.-]/gi, '').replace(/\s+/g, '-').slice(0, 180) + '.docx';
+      `${filenameBase}${suffix}`.replace(/[^\w\u00C0-\u024F\s.-]/gi, '').replace(/\s+/g, '-').slice(0, 180) + `.${ext}`;
     await this.docRepo.save(
       this.docRepo.create({
         schoolId,
         dtFileId,
         docType,
-        fileFormat: 'docx',
+        fileFormat,
         storageKey: key,
         filename,
         createdByUserId: userId,
@@ -795,6 +799,52 @@ export class DogrudanTeminService {
     );
     const downloadUrl = await this.uploadService.getSignedDownloadUrl(key, 3600, filename);
     return { download_url: downloadUrl, filename };
+  }
+
+  private pdfBuffer(build: (doc: InstanceType<typeof PDFDocument>) => void): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ size: 'A4', margin: 40 });
+      const chunks: Buffer[] = [];
+      doc.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+      build(doc);
+      doc.end();
+    });
+  }
+
+  private pdfHeader(doc: InstanceType<typeof PDFDocument>, lines: string[]) {
+    doc.fontSize(14).font('Helvetica-Bold').text(lines[0] ?? 'Kurum', { align: 'center' });
+    doc.moveDown(0.2);
+    doc.fontSize(10).font('Helvetica');
+    for (const ln of lines.slice(1)) {
+      if (!ln.trim()) continue;
+      doc.text(ln.trim(), { align: 'center' });
+    }
+    doc.moveDown(0.6);
+  }
+
+  private pdfSimpleTable(doc: InstanceType<typeof PDFDocument>, headers: string[], rows: string[][]) {
+    const startX = doc.x;
+    const startY = doc.y;
+    const pageW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const colW = pageW / Math.max(1, headers.length);
+    const rowH = 18;
+    const cell = (x: number, y: number, w: number, h: number, t: string, bold = false) => {
+      doc.rect(x, y, w, h).stroke();
+      doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9).text(t ?? '', x + 4, y + 4, { width: w - 8, height: h - 8 });
+    };
+    headers.forEach((h, i) => cell(startX + i * colW, startY, colW, rowH, h, true));
+    let y = startY + rowH;
+    for (const r of rows) {
+      r.forEach((t, i) => cell(startX + i * colW, y, colW, rowH, String(t ?? '')));
+      y += rowH;
+      if (y + rowH > doc.page.height - doc.page.margins.bottom) {
+        doc.addPage();
+        y = doc.y;
+      }
+    }
+    doc.y = y + 6;
   }
 
   private async buildDtLetterheadParagraphs(
@@ -851,6 +901,33 @@ export class DogrudanTeminService {
     return out;
   }
 
+  private async buildDtLetterheadLines(
+    schoolId: string,
+    school: Pick<School, 'name' | 'principalName'> | null,
+    file: DtFile,
+  ): Promise<string[]> {
+    const settings = await this.procurementSettingsRepo.findOne({ where: { schoolId } });
+    const registryRows = await this.registryRepo.find({ where: { schoolId, dtFileId: file.id } });
+    const byStage = new Map(registryRows.map((r) => [r.stage, r] as const));
+    const out: string[] = [];
+    out.push((school?.name ?? 'Kurum').trim());
+    if (settings?.headerLine2?.trim()) out.push(settings.headerLine2.trim());
+    if (settings?.headerLine3?.trim()) out.push(settings.headerLine3.trim());
+    if (settings?.headerLine4?.trim()) out.push(settings.headerLine4.trim());
+    if (settings?.officialCorrespondenceCode?.trim()) out.push(`Yazı / muhatap kodu: ${settings.officialCorrespondenceCode.trim()}`);
+    if (file.procurementRef?.trim()) out.push(`Doğrudan temin no: ${file.procurementRef.trim()}`);
+    const regLines: string[] = [];
+    for (const stage of DT_REGISTRY_STAGES) {
+      const r = byStage.get(stage);
+      if (!r) continue;
+      if (!r.docDate && !(r.numberPrefix ?? '').trim() && !(r.numberSuffix ?? '').trim()) continue;
+      const num = [r.numberPrefix?.trim(), r.numberSuffix?.trim()].filter(Boolean).join(' ') || '—';
+      regLines.push(`${stage}: ${r.docDate ?? '—'} / ${num}`);
+    }
+    if (regLines.length) out.push(...regLines);
+    return out;
+  }
+
   private async loadUserDisplayNames(ids: string[]): Promise<Map<string, string>> {
     const uniq = [...new Set(ids.filter(Boolean))];
     if (!uniq.length) return new Map();
@@ -867,7 +944,9 @@ export class DogrudanTeminService {
     const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId } });
     if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
     const school = await this.schoolRepo.findOne({ where: { id: schoolId }, select: ['id', 'name', 'principalName'] });
+    const fileFormat = dto.file_format === 'pdf' ? 'pdf' : 'docx';
     const letterhead = await this.buildDtLetterheadParagraphs(schoolId, school, file);
+    const letterheadLines = await this.buildDtLetterheadLines(schoolId, school, file);
     const items = await this.itemRepo.find({ where: { schoolId, dtFileId }, order: { createdAt: 'ASC' } });
     const awards = await this.awardRepo.find({ where: { schoolId, dtFileId } });
     const vendors = await this.vendorRepo.find({ where: { schoolId } });
@@ -876,9 +955,208 @@ export class DogrudanTeminService {
 
     const filenameBase = `DT-${file.year}-${file.fileNo}-${dto.doc_type}`.replace(/[^\w\u00C0-\u024F\s.-]/gi, '').replace(/\s+/g, '-');
 
+    if (fileFormat === 'pdf') {
+      if (dto.doc_type === 'ihtiyac_listesi') {
+        const buffer = await this.pdfBuffer((doc) => {
+          this.pdfHeader(doc, letterheadLines);
+          doc.font('Helvetica-Bold').fontSize(12).text('Mal/Malzeme İhtiyaç Listesi', { align: 'center' });
+          doc.moveDown(0.3);
+          doc.font('Helvetica').fontSize(10).text(`${file.year} / ${file.fileNo} · ${file.subject}`, { align: 'center' });
+          doc.moveDown(0.6);
+          this.pdfSimpleTable(
+            doc,
+            ['No', 'Kalem', 'Miktar', 'Birim', 'KDV', 'Tahmini BF'],
+            items.map((it, idx) => [
+              String(idx + 1),
+              `${it.name}${it.spec ? `\n${it.spec}` : ''}`,
+              String(it.qty ?? ''),
+              String(it.unit ?? ''),
+              `%${it.vatRate}`,
+              String(it.estimatedUnitPrice ?? ''),
+            ]),
+          );
+        });
+        return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'ihtiyac_listesi', buffer, filenameBase, fileFormat: 'pdf' });
+      }
+
+      if (dto.doc_type === 'teklif_isteme') {
+        const vendorId = String(dto.vendor_id ?? '').trim();
+        if (!vendorId) throw new BadRequestException({ code: 'DT_VENDOR_ID_REQUIRED' });
+        const vendor = vendorById.get(vendorId);
+        if (!vendor) throw new NotFoundException({ code: 'DT_VENDOR_NOT_FOUND' });
+        const buffer = await this.pdfBuffer((doc) => {
+          this.pdfHeader(doc, letterheadLines);
+          doc.font('Helvetica-Bold').fontSize(12).text('Teklif Mektubu', { align: 'center' });
+          doc.moveDown(0.3);
+          doc.font('Helvetica').fontSize(10).text(`${file.year} / ${file.fileNo} · ${file.subject}`, { align: 'center' });
+          doc.moveDown(0.2);
+          doc.font('Helvetica-Bold').fontSize(10).text(`Firma: ${vendor.title}`);
+          doc.moveDown(0.5);
+          this.pdfSimpleTable(
+            doc,
+            ['No', 'Kalem', 'Miktar', 'Birim', 'Teklif BF'],
+            items.map((it, idx) => [
+              String(idx + 1),
+              `${it.name}${it.spec ? `\n${it.spec}` : ''}`,
+              String(it.qty ?? ''),
+              String(it.unit ?? ''),
+              '',
+            ]),
+          );
+        });
+        return this.persistDtGeneratedDocx({
+          schoolId,
+          userId,
+          dtFileId,
+          docType: 'teklif_isteme',
+          buffer,
+          filenameBase,
+          filenameExtra: vendor.title,
+          fileFormat: 'pdf',
+        });
+      }
+
+      if (dto.doc_type === 'karar' || dto.doc_type === 'muayene_kabul_tutanagi') {
+        const title = dto.doc_type === 'muayene_kabul_tutanagi' ? 'Muayene ve Kabul Komisyonu Kararı' : 'Doğrudan Temin Kararı';
+        const buffer = await this.pdfBuffer((doc) => {
+          this.pdfHeader(doc, letterheadLines);
+          doc.font('Helvetica-Bold').fontSize(12).text(title, { align: 'center' });
+          doc.moveDown(0.3);
+          doc.font('Helvetica').fontSize(10).text(`${file.year} / ${file.fileNo} · ${file.subject}`, { align: 'center' });
+          doc.moveDown(0.6);
+          this.pdfSimpleTable(
+            doc,
+            ['No', 'Kalem', 'Miktar', 'Firma', 'BF', 'Tutar'],
+            items.map((it, idx) => {
+              const a = awardByItemId.get(it.id) ?? null;
+              const v = a ? vendorById.get(a.vendorId) ?? null : null;
+              return [
+                String(idx + 1),
+                `${it.name}${it.spec ? `\n${it.spec}` : ''}`,
+                `${it.qty ?? ''} ${it.unit ?? ''}`.trim(),
+                v?.title ?? '',
+                a?.unitPrice ?? '',
+                a?.total ?? '',
+              ];
+            }),
+          );
+        });
+        const docType = dto.doc_type === 'muayene_kabul_tutanagi' ? 'muayene_kabul_tutanagi' : 'karar';
+        return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType, buffer, filenameBase, fileFormat: 'pdf' });
+      }
+
+      if (dto.doc_type === 'komisyon_onay') {
+        const kindLabel: Record<string, string> = {
+          yaklasik_maliyet: 'Yaklaşık maliyet komisyonu',
+          piyasa_satinalma: 'Piyasa araştırma / satın alma komisyonu',
+          muayene_kabul: 'Muayene ve kabul komisyonu',
+        };
+        const commBlocks = await Promise.all(
+          DT_COMMISSION_KINDS.map(async (kind) => {
+            const comm = await this.commissionRepo.findOne({ where: { schoolId, dtFileId: file.id, kind } });
+            if (!comm) return { kind, chairman: null as string | null, members: [] as string[] };
+            const members = await this.commMemberRepo.find({ where: { commissionId: comm.id }, order: { createdAt: 'ASC' } });
+            const ids = [...members.map((m) => m.userId), ...(comm.chairmanUserId ? [comm.chairmanUserId] : [])];
+            const names = await this.loadUserDisplayNames(ids);
+            const chairman = comm.chairmanUserId ? (names.get(comm.chairmanUserId) ?? comm.chairmanUserId) : null;
+            const memberLines = members.map(
+              (m, i) => `${i + 1}. ${names.get(m.userId) ?? m.userId} — ${m.dutyLabel ?? m.title ?? 'Üye'}`,
+            );
+            return { kind, chairman, members: memberLines };
+          }),
+        );
+        const buffer = await this.pdfBuffer((doc) => {
+          this.pdfHeader(doc, letterheadLines);
+          doc.font('Helvetica-Bold').fontSize(12).text('Komisyon Onayı', { align: 'center' });
+          doc.moveDown(0.3);
+          doc.font('Helvetica').fontSize(10).text(`${file.year} / ${file.fileNo} · ${file.subject}`, { align: 'center' });
+          doc.moveDown(0.6);
+          doc.font('Helvetica').fontSize(10);
+          for (const b of commBlocks) {
+            doc.font('Helvetica-Bold').text(kindLabel[b.kind] ?? b.kind);
+            if (!b.chairman && b.members.length === 0) {
+              doc.font('Helvetica').text('(Henüz oluşturulmadı)');
+              doc.moveDown(0.4);
+              continue;
+            }
+            if (b.chairman) doc.font('Helvetica').text(`Başkan: ${b.chairman}`);
+            b.members.forEach((ln) => doc.font('Helvetica').text(ln));
+            doc.moveDown(0.6);
+          }
+        });
+        return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'komisyon_onay', buffer, filenameBase, fileFormat: 'pdf' });
+      }
+
+      if (dto.doc_type === 'onay_belgesi') {
+        const settings = await this.procurementSettingsRepo.findOne({ where: { schoolId } });
+        const buffer = await this.pdfBuffer((doc) => {
+          this.pdfHeader(doc, letterheadLines);
+          doc.font('Helvetica-Bold').fontSize(12).text('Onay Belgesi', { align: 'center' });
+          doc.moveDown(0.3);
+          doc.font('Helvetica').fontSize(10).text(`${file.year} / ${file.fileNo} · ${file.subject}`, { align: 'center' });
+          doc.moveDown(0.8);
+          doc.font('Helvetica').fontSize(10);
+          doc.text(`Yaklaşık maliyet toplamı: ${file.approxTotal ?? '—'}`);
+          doc.text(`Karar toplamı: ${file.decisionTotal ?? '—'}`);
+          doc.moveDown(0.5);
+          if (settings?.spendingAuthorityName?.trim()) {
+            doc.text(`Harcama yetkilisi: ${settings.spendingAuthorityName.trim()}${settings.spendingAuthorityTitle ? ` (${settings.spendingAuthorityTitle})` : ''}`);
+          }
+          if (settings?.realizationAuthorityName?.trim()) {
+            doc.text(`Gerçekleştirme görevlisi: ${settings.realizationAuthorityName.trim()}${settings.realizationAuthorityTitle ? ` (${settings.realizationAuthorityTitle})` : ''}`);
+          }
+          doc.moveDown(1.2);
+          doc.text(`OLUR`, { align: 'center' });
+          doc.moveDown(0.6);
+          doc.text(school?.principalName ?? '…………………', { align: 'center' });
+        });
+        return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'onay_belgesi', buffer, filenameBase, fileFormat: 'pdf' });
+      }
+
+      if (dto.doc_type === 'piyasa_arastirma_tutanagi' || dto.doc_type === 'yaklasik_maliyet_cetveli') {
+        const research = await this.quoteRepo.find({
+          where: { schoolId, dtFileId, purpose: 'market_research' },
+          order: { createdAt: 'ASC' },
+          take: 5,
+        });
+        const firmQuotes = research.slice(0, 3);
+        const cols = await Promise.all(
+          firmQuotes.map(async (q) => {
+            const qis = await this.quoteItemRepo.find({ where: { quoteId: q.id }, order: { createdAt: 'ASC' } });
+            const byItem = new Map(qis.map((x) => [x.dtItemId, x.unitPrice] as const));
+            const title = vendorById.get(q.vendorId)?.title ?? q.vendorId;
+            return { title, byItem };
+          }),
+        );
+        const title =
+          dto.doc_type === 'piyasa_arastirma_tutanagi' ? 'Piyasa Fiyat Araştırma Tutanağı' : 'Yaklaşık Maliyet Cetveli';
+        const buffer = await this.pdfBuffer((doc) => {
+          this.pdfHeader(doc, letterheadLines);
+          doc.font('Helvetica-Bold').fontSize(12).text(title, { align: 'center' });
+          doc.moveDown(0.3);
+          doc.font('Helvetica').fontSize(10).text(`${file.year} / ${file.fileNo} · ${file.subject}`, { align: 'center' });
+          doc.moveDown(0.6);
+          const headers = ['No', 'Kalem', 'Miktar', ...cols.map((c) => c.title.slice(0, 18))];
+          const rows = items.map((it, idx) => [
+            String(idx + 1),
+            `${it.name}${it.spec ? `\n${it.spec}` : ''}`,
+            `${it.qty ?? ''} ${it.unit ?? ''}`.trim(),
+            ...cols.map((c) => String(c.byItem.get(it.id) ?? '')),
+          ]);
+          this.pdfSimpleTable(doc, headers, rows);
+        });
+        const docType = dto.doc_type;
+        return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType, buffer, filenameBase, fileFormat: 'pdf' });
+      }
+
+      if (dto.doc_type === 'sozlesme') {
+        throw new BadRequestException({ code: 'DT_PDF_NOT_SUPPORTED', message: 'Sözleşme için PDF desteklenmiyor.' });
+      }
+    }
+
     if (dto.doc_type === 'ihtiyac_listesi') {
       const buffer = await this.buildIhtiyacListesiDocx({ school, file, items, letterhead });
-      return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'ihtiyac_listesi', buffer, filenameBase });
+      return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'ihtiyac_listesi', buffer, filenameBase, fileFormat: 'docx' });
     }
 
     if (dto.doc_type === 'teklif_isteme') {
@@ -895,6 +1173,7 @@ export class DogrudanTeminService {
         buffer,
         filenameBase,
         filenameExtra: vendor.title,
+        fileFormat: 'docx',
       });
     }
 
@@ -916,17 +1195,18 @@ export class DogrudanTeminService {
         buffer,
         filenameBase,
         filenameExtra: vendor.title,
+        fileFormat: 'docx',
       });
     }
 
     if (dto.doc_type === 'komisyon_onay') {
       const buffer = await this.buildKomisyonOnayDocx(schoolId, school, file, letterhead);
-      return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'komisyon_onay', buffer, filenameBase });
+      return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'komisyon_onay', buffer, filenameBase, fileFormat: 'docx' });
     }
 
     if (dto.doc_type === 'onay_belgesi') {
       const buffer = await this.buildOnayBelgesiDocx(schoolId, school, file, letterhead);
-      return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'onay_belgesi', buffer, filenameBase });
+      return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'onay_belgesi', buffer, filenameBase, fileFormat: 'docx' });
     }
 
     if (dto.doc_type === 'piyasa_arastirma_tutanagi') {
@@ -950,6 +1230,7 @@ export class DogrudanTeminService {
         docType: 'piyasa_arastirma_tutanagi',
         buffer,
         filenameBase,
+        fileFormat: 'docx',
       });
     }
 
@@ -974,6 +1255,7 @@ export class DogrudanTeminService {
         docType: 'yaklasik_maliyet_cetveli',
         buffer,
         filenameBase,
+        fileFormat: 'docx',
       });
     }
 
@@ -994,6 +1276,7 @@ export class DogrudanTeminService {
         docType: 'muayene_kabul_tutanagi',
         buffer,
         filenameBase,
+        fileFormat: 'docx',
       });
     }
 
@@ -1007,7 +1290,7 @@ export class DogrudanTeminService {
         letterhead,
         docTitle: 'Doğrudan temin kararı',
       });
-      return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'karar', buffer, filenameBase });
+      return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'karar', buffer, filenameBase, fileFormat: 'docx' });
     }
 
     throw new BadRequestException({ code: 'DT_INVALID_DOC_TYPE' });
