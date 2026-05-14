@@ -274,8 +274,8 @@ export default function DogrudanTeminPage() {
                 <div className="flex items-center gap-2">
                   <BarChart3 className="size-4 text-emerald-600" />
                   <div>
-                    <div className="text-[12px] font-medium">Mutemet paketi</div>
-                    <div className="text-[10px] text-muted-foreground">XLSX defter</div>
+                    <div className="text-[12px] font-medium">Kayıt / ödeme defteri</div>
+                    <div className="text-[10px] text-muted-foreground">XLSX</div>
                   </div>
                 </div>
               </Link>

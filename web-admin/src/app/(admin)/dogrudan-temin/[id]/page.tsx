@@ -132,6 +132,10 @@ type RegistryEntry = {
   meta: Record<string, unknown>;
 };
 
+type DtSchoolSettings = {
+  officialCorrespondenceCode: string | null;
+};
+
 export default function DtFileDetailPage() {
   const { token, me } = useAuth();
   const params = useParams<{ id: string }>();
@@ -164,7 +168,10 @@ export default function DtFileDetailPage() {
   const [docVendorId, setDocVendorId] = useState('');
   const [docFormat, setDocFormat] = useState<'docx' | 'pdf'>('docx');
   const [registryEntries, setRegistryEntries] = useState<RegistryEntry[]>([]);
-  const [registryDraft, setRegistryDraft] = useState<Record<string, { doc_date: string; number_prefix: string; number_suffix: string }>>({});
+  const [registryDraft, setRegistryDraft] = useState<
+    Record<string, { doc_date: string; number_prefix: string; number_suffix: string; meta: { karar_no?: string } }>
+  >({});
+  const [officialCode, setOfficialCode] = useState('');
   const [budgetAccounts, setBudgetAccounts] = useState<BudgetAccount[]>([]);
   const [budgetBlocks, setBudgetBlocks] = useState<BudgetBlock[]>([]);
   const [budgetForm, setBudgetForm] = useState({ budget_account_id: '', amount: '' });
@@ -225,7 +232,7 @@ export default function DtFileDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const [f, it, v, q, d, rulesRes, payRes, commRes, regRes] = await Promise.all([
+      const [f, it, v, q, d, rulesRes, payRes, commRes, regRes, settingsRes] = await Promise.all([
         apiFetch<DtFileItem>(dtUrl(`/dogrudan-temin/files/${id}`, me?.role, schoolId), { token: token! }),
         apiFetch<{ items: DtItem[] }>(dtUrl(`/dogrudan-temin/files/${id}/items`, me?.role, schoolId), { token: token! }),
         apiFetch<{ items: VendorItem[] }>(dtUrl(`/dogrudan-temin/vendors`, me?.role, schoolId), { token: token! }),
@@ -244,6 +251,9 @@ export default function DtFileDetailPage() {
         apiFetch<{ entries: RegistryEntry[] }>(dtUrl(`/dogrudan-temin/files/${id}/document-registry`, me?.role, schoolId), { token: token! }).catch(
           () => ({ entries: [] }),
         ),
+        apiFetch<DtSchoolSettings>(dtUrl(`/dogrudan-temin/school-settings`, me?.role, schoolId), { token: token! }).catch(
+          () => ({ officialCorrespondenceCode: null }),
+        ),
       ]);
       setFile(f);
       setItems(it.items ?? []);
@@ -255,13 +265,25 @@ export default function DtFileDetailPage() {
       setCommission(commRes?.commission ?? null);
       setCommissionMembers(commRes?.members ?? []);
       setRegistryEntries(regRes.entries ?? []);
+      const code = String(settingsRes?.officialCorrespondenceCode ?? '').trim();
+      setOfficialCode(code);
       setRegistryDraft(() => {
-        const next: Record<string, { doc_date: string; number_prefix: string; number_suffix: string }> = {};
+        const stageDefaults: Record<string, { ref: string; seq: string }> = {
+          ihtiyac_listesi: { ref: '934.01.01', seq: '1' },
+          komisyon_onay: { ref: '934.01.99', seq: '2' },
+          fiyat_arastirma: { ref: '934.02.03', seq: '3' },
+          ihale_onay: { ref: '934.01.02', seq: '4' },
+        };
+        const next: Record<string, { doc_date: string; number_prefix: string; number_suffix: string; meta: { karar_no?: string } }> = {};
         (regRes.entries ?? []).forEach((r) => {
+          const def = stageDefaults[r.stage];
+          const shouldFillPrefix = !String(r.numberPrefix ?? '').trim() && !!code && !!def?.ref;
+          const shouldFillSuffix = !String(r.numberSuffix ?? '').trim() && !!def?.seq;
           next[r.stage] = {
             doc_date: r.docDate ?? '',
-            number_prefix: r.numberPrefix ?? '',
-            number_suffix: r.numberSuffix ?? '',
+            number_prefix: shouldFillPrefix ? `${code}-${def.ref}` : (r.numberPrefix ?? ''),
+            number_suffix: shouldFillSuffix ? def.seq : (r.numberSuffix ?? ''),
+            meta: { karar_no: typeof r.meta?.karar_no === 'string' ? (r.meta.karar_no as string) : '' },
           };
         });
         return next;
@@ -597,14 +619,14 @@ export default function DtFileDetailPage() {
         doc_date: v.doc_date.trim() || null,
         number_prefix: v.number_prefix.trim() || null,
         number_suffix: v.number_suffix.trim() || null,
-        meta: {},
+        meta: stage === 'muayene_kabul' && v.meta?.karar_no?.trim() ? { karar_no: v.meta.karar_no.trim() } : {},
       }));
       await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/document-registry`, me?.role, schoolId), {
         token,
         method: 'PUT',
         body: JSON.stringify({ entries }),
       });
-      toast.success('Belge tarih/sayı kaydedildi.');
+      toast.success('Evrak defteri kaydedildi.');
       await fetchAll();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Hata');
@@ -1243,7 +1265,7 @@ export default function DtFileDetailPage() {
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <CardTitle className="flex items-center gap-2 text-sm">
                   <FileText className="size-4 text-fuchsia-600" />
-                  Belge tarih ve sayısı
+                  Evrak defteri (tarih / sayı)
                   <DtInfoHint title={DT_SECTION_HINTS.registry} />
                 </CardTitle>
                 <Button variant="outline" size="sm" disabled={busy} onClick={() => void saveRegistry()}>
@@ -1252,6 +1274,11 @@ export default function DtFileDetailPage() {
               </div>
             </CardHeader>
             <CardContent className="pt-0">
+              {officialCode ? (
+                <div className="mb-3 text-[11px] text-muted-foreground">
+                  Resmî yazışma kodu: <span className="font-semibold text-foreground">{officialCode}</span>
+                </div>
+              ) : null}
               <div className="table-x-scroll rounded-md border border-border text-xs">
                 <table className="w-full min-w-[860px] text-left">
                   <thead>
@@ -1260,6 +1287,7 @@ export default function DtFileDetailPage() {
                       <th className="px-2 py-1.5 w-[170px]">Tarih</th>
                       <th className="px-2 py-1.5">Sayı (prefix)</th>
                       <th className="px-2 py-1.5 w-[120px]">Ek / no</th>
+                      <th className="px-2 py-1.5 w-[140px]">Karar no</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -1273,7 +1301,7 @@ export default function DtFileDetailPage() {
                       { stage: 'piyasa_arastirma', docDate: null, numberPrefix: null, numberSuffix: null, meta: {} },
                       { stage: 'muayene_kabul', docDate: null, numberPrefix: null, numberSuffix: null, meta: {} },
                     ]).map((r) => {
-                      const d = registryDraft[r.stage] ?? { doc_date: r.docDate ?? '', number_prefix: r.numberPrefix ?? '', number_suffix: r.numberSuffix ?? '' };
+                      const d = registryDraft[r.stage] ?? { doc_date: r.docDate ?? '', number_prefix: r.numberPrefix ?? '', number_suffix: r.numberSuffix ?? '', meta: {} };
                       const label: Record<string, string> = {
                         ihtiyac_listesi: 'İhtiyaç listesi',
                         komisyon_onay: 'Komisyon onayı',
@@ -1325,6 +1353,23 @@ export default function DtFileDetailPage() {
                                 }))
                               }
                             />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            {r.stage === 'muayene_kabul' ? (
+                              <Input
+                                className="h-8 text-xs"
+                                placeholder="örn. 2023/3"
+                                value={d.meta?.karar_no ?? ''}
+                                onChange={(e) =>
+                                  setRegistryDraft((s) => ({
+                                    ...s,
+                                    [r.stage]: { ...d, meta: { ...(d.meta ?? {}), karar_no: e.target.value } },
+                                  }))
+                                }
+                              />
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
                           </td>
                         </tr>
                       );

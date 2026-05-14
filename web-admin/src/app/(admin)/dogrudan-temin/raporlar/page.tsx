@@ -150,7 +150,7 @@ export default function DtReportsPage() {
           <ToolbarIconHints
             items={[
               { label: 'Özet + defter', icon: Table },
-              { label: 'Mutemet XLSX', icon: FileDown },
+              { label: 'XLSX', icon: FileDown },
             ]}
             summary="HYS uyumlu sütunlar: Ozet, Dosya_satirlari, Odeme_satirlari, Aciklama."
           />
@@ -201,7 +201,7 @@ export default function DtReportsPage() {
               </Button>
               <Button size="sm" className="h-9" disabled={disabled} onClick={downloadRegistry}>
                 <FileDown className="size-3.5" />
-                Mutemet paketi (XLSX)
+                Kayıt / ödeme defteri (XLSX)
               </Button>
             </div>
           </div>

@@ -155,6 +155,20 @@ export const DT_DETAIL_TABS: Array<{
     inactiveClass: 'border-transparent text-muted-foreground hover:text-emerald-800 hover:bg-emerald-50/40 dark:hover:text-emerald-200',
   },
   {
+    id: 'registry',
+    label: 'Evrak defteri',
+    shortHint: 'Evrak defteri: tarih ve sayı alanları.',
+    activeClass: 'border-fuchsia-500 text-fuchsia-900 bg-fuchsia-50/80 dark:bg-fuchsia-950/30 dark:text-fuchsia-100',
+    inactiveClass: 'border-transparent text-muted-foreground hover:text-fuchsia-900 hover:bg-fuchsia-50/40 dark:hover:text-fuchsia-100',
+  },
+  {
+    id: 'commission',
+    label: 'Komisyonlar',
+    shortHint: 'Yaklaşık/Piyasa/Muayene komisyonları.',
+    activeClass: 'border-violet-500 text-violet-900 bg-violet-50/80 dark:bg-violet-950/30 dark:text-violet-100',
+    inactiveClass: 'border-transparent text-muted-foreground hover:text-violet-900 hover:bg-violet-50/40',
+  },
+  {
     id: 'quotes',
     label: 'Teklifler',
     shortHint: 'Firmalardan gelen fiyatlar.',
@@ -162,18 +176,11 @@ export const DT_DETAIL_TABS: Array<{
     inactiveClass: 'border-transparent text-muted-foreground hover:text-sky-900 hover:bg-sky-50/40 dark:hover:text-sky-100',
   },
   {
-    id: 'registry',
-    label: 'Belge tarih/sayı',
-    shortHint: 'Evrak defteri: tarih ve sayı alanları.',
-    activeClass: 'border-fuchsia-500 text-fuchsia-900 bg-fuchsia-50/80 dark:bg-fuchsia-950/30 dark:text-fuchsia-100',
-    inactiveClass: 'border-transparent text-muted-foreground hover:text-fuchsia-900 hover:bg-fuchsia-50/40 dark:hover:text-fuchsia-100',
-  },
-  {
-    id: 'budget',
-    label: 'Bütçe bloke',
-    shortHint: 'Ödeme öncesi tutarı hesaptan ayırma.',
-    activeClass: 'border-amber-500 text-amber-900 bg-amber-50/80 dark:bg-amber-950/30 dark:text-amber-100',
-    inactiveClass: 'border-transparent text-muted-foreground hover:text-amber-900 hover:bg-amber-50/40',
+    id: 'docs',
+    label: 'Belgeler',
+    shortHint: 'PDF/DOCX çıktıları.',
+    activeClass: 'border-slate-600 text-slate-900 bg-slate-100/90 dark:bg-slate-800/50 dark:text-slate-100',
+    inactiveClass: 'border-transparent text-muted-foreground hover:text-slate-800 hover:bg-slate-100/50 dark:hover:text-slate-200',
   },
   {
     id: 'payments',
@@ -183,18 +190,11 @@ export const DT_DETAIL_TABS: Array<{
     inactiveClass: 'border-transparent text-muted-foreground hover:text-lime-900 hover:bg-lime-50/40',
   },
   {
-    id: 'commission',
-    label: 'Kabul komisyonu',
-    shortHint: 'Teslim ve kabul için komisyon.',
-    activeClass: 'border-violet-500 text-violet-900 bg-violet-50/80 dark:bg-violet-950/30 dark:text-violet-100',
-    inactiveClass: 'border-transparent text-muted-foreground hover:text-violet-900 hover:bg-violet-50/40',
-  },
-  {
-    id: 'docs',
-    label: 'Belgeler',
-    shortHint: 'Üretilen Word çıktıları.',
-    activeClass: 'border-slate-600 text-slate-900 bg-slate-100/90 dark:bg-slate-800/50 dark:text-slate-100',
-    inactiveClass: 'border-transparent text-muted-foreground hover:text-slate-800 hover:bg-slate-100/50 dark:hover:text-slate-200',
+    id: 'budget',
+    label: 'Bütçe bloke',
+    shortHint: 'Ödeme öncesi tutarı hesaptan ayırma.',
+    activeClass: 'border-amber-500 text-amber-900 bg-amber-50/80 dark:bg-amber-950/30 dark:text-amber-100',
+    inactiveClass: 'border-transparent text-muted-foreground hover:text-amber-900 hover:bg-amber-50/40',
   },
 ];
 
@@ -204,13 +204,13 @@ export const DT_SECTION_HINTS: Record<DtDetailTabId, string> = {
   quotes:
     'İstekli firmalara teklif kaydı açın; her kalem için birim fiyat girin. En uygun teklif seçimi kurumunuzun kararıdır.',
   registry:
-    'Belge tarih ve sayı girişleri (evrak defteri). Resmî yazışma kodu ve dosya numarası ile birlikte belgelerinizin üst bilgisinde kullanılır.',
+    'Evrak defteri: tarih/sayı ve muayene-kabul karar no alanları. PDF/DOCX üst bilgisinde kullanılır.',
   budget:
     'Dosya için kullanılacak tutarı bütçe hesabında geçici olarak ayırır (bloke). İşlem bitince blokeyi kaldırın.',
   payments:
     'Ödeme emri öncesi platform kuralları (üstteki uyarılar) uygulanır. Tutar, teklif ve not alanlarını eksiksiz doldurun.',
   commission:
-    'Mal / hizmet tesliminde görevlendirilecek kabul komisyonu bilgileri. Üye eklerken kullanıcıyı doğru seçtiğinizden emin olun.',
+    'Yaklaşık maliyet, piyasa araştırma/satın alma ve muayene/kabul komisyonları. “Yaklaşıktan kopyala” ile üyeleri senkronlayabilirsiniz.',
   docs:
     'Sistem tarafından üretilen şablon belgeler. İmzalanmadan önce okul şablon ve mevzuat kontrolünden geçirin.',
 };
