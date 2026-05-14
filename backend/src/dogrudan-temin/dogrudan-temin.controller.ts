@@ -17,6 +17,7 @@ import {
   CreateDtBudgetAccountDto,
   CreateDtFileDto,
   CreateDtQuoteDto,
+  BulkDeleteDtQuotesDto,
   CreateDtVendorDto,
   PatchDtVendorDto,
   DtRegistryReportDto,
@@ -177,6 +178,12 @@ export class DogrudanTeminController {
     return this.svc.patchFile(this.sid(p, sid), p.userId, id, dto);
   }
 
+  @Delete('files/:id')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  deleteFile(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.deleteFile(this.sid(p, sid), p.userId, id);
+  }
+
   @Patch('items/:id')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   patchItem(
@@ -249,6 +256,40 @@ export class DogrudanTeminController {
     @Query('school_id') sid?: string,
   ) {
     return this.svc.createQuote(this.sid(p, sid), p.userId, id, dto);
+  }
+
+  @Patch('files/:fileId/quotes/:quoteId')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  patchQuote(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('fileId') fileId: string,
+    @Param('quoteId') quoteId: string,
+    @Body() dto: any,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.patchQuote(this.sid(p, sid), fileId, quoteId, dto);
+  }
+
+  @Delete('files/:fileId/quotes/:quoteId')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  deleteQuote(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('fileId') fileId: string,
+    @Param('quoteId') quoteId: string,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.deleteQuote(this.sid(p, sid), p.userId, fileId, quoteId);
+  }
+
+  @Post('files/:id/quotes/bulk-delete')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  bulkDeleteQuotes(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: BulkDeleteDtQuotesDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.deleteQuotesBulk(this.sid(p, sid), p.userId, id, dto.quote_ids);
   }
 
   @Post('quotes/:id/items')

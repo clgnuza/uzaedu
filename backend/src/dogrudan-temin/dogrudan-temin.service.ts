@@ -9,11 +9,14 @@ import PDFDocument = require('pdfkit');
 import {
   AlignmentType,
   BorderStyle,
+  convertInchesToTwip,
   Document as DocxDocument,
+  PageOrientation,
   Packer,
   Paragraph,
   Table,
   TableCell,
+  TableLayoutType,
   TableRow,
   TextRun,
   WidthType,
@@ -262,6 +265,14 @@ export class DogrudanTeminService {
     return this.fileRepo.save(row);
   }
 
+  async deleteFile(schoolId: string, userId: string, id: string) {
+    void userId;
+    const row = await this.fileRepo.findOne({ where: { id, schoolId }, select: ['id'] });
+    if (!row) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
+    await this.fileRepo.remove(row);
+    return { success: true };
+  }
+
   async patchItem(schoolId: string, userId: string, id: string, dto: PatchDtItemDto) {
     const row = await this.itemRepo.findOne({ where: { id, schoolId } });
     if (!row) throw new NotFoundException({ code: 'DT_ITEM_NOT_FOUND' });
@@ -366,6 +377,19 @@ export class DogrudanTeminService {
     const vendor = await this.vendorRepo.findOne({ where: { id: dto.vendor_id, schoolId }, select: ['id'] });
     if (!vendor) throw new NotFoundException({ code: 'DT_VENDOR_NOT_FOUND' });
     const purpose = dto.purpose === 'market_research' ? 'market_research' : 'bid';
+    const dup = await this.quoteRepo.findOne({
+      where: { schoolId, dtFileId, vendorId: vendor.id, purpose },
+      select: ['id'],
+    });
+    if (dup) {
+      throw new BadRequestException({
+        code: 'DT_QUOTE_DUPLICATE',
+        message:
+          purpose === 'market_research'
+            ? 'Bu firma için bu dosyada zaten bir fiyat araştırması kaydı var.'
+            : 'Bu firma için bu dosyada zaten bir teklif / ihale kaydı var.',
+      });
+    }
     const row = this.quoteRepo.create({
       schoolId,
       dtFileId,
@@ -379,6 +403,61 @@ export class DogrudanTeminService {
       updatedByUserId: userId,
     });
     return this.quoteRepo.save(row);
+  }
+
+  async patchQuote(schoolId: string, dtFileId: string, quoteId: string, dto: any) {
+    const quote = await this.quoteRepo.findOne({ where: { id: quoteId, schoolId, dtFileId }, select: ['id', 'status'] });
+    if (!quote) throw new NotFoundException({ code: 'DT_QUOTE_NOT_FOUND' });
+    if (dto.status !== undefined) {
+      const validStatuses = ['requested', 'received', 'accepted', 'rejected'];
+      if (!validStatuses.includes(dto.status)) {
+        throw new BadRequestException({ code: 'INVALID_STATUS' });
+      }
+      quote.status = dto.status;
+    }
+    return this.quoteRepo.save(quote);
+  }
+
+  async deleteQuote(schoolId: string, userId: string, dtFileId: string, quoteId: string) {
+    void userId;
+    const quote = await this.quoteRepo.findOne({ where: { id: quoteId, schoolId, dtFileId }, select: ['id'] });
+    if (!quote) throw new NotFoundException({ code: 'DT_QUOTE_NOT_FOUND' });
+    await this.quoteItemRepo.delete({ schoolId, quoteId });
+    await this.paymentRepo
+      .createQueryBuilder()
+      .update(DtPayment)
+      .set({ quoteId: null })
+      .where('school_id = :sid', { sid: schoolId })
+      .andWhere('quote_id = :qid', { qid: quoteId })
+      .execute();
+    await this.quoteRepo.delete({ id: quoteId, schoolId, dtFileId });
+    await this.recalcFileTotalsBestEffort(schoolId, dtFileId);
+    return { success: true };
+  }
+
+  async deleteQuotesBulk(schoolId: string, userId: string, dtFileId: string, quoteIds: string[]) {
+    void userId;
+    const ids = [...new Set(quoteIds.map((x) => String(x).trim()).filter(Boolean))];
+    if (!ids.length) throw new BadRequestException({ code: 'DT_QUOTE_IDS_EMPTY' });
+    if (ids.length > 100) throw new BadRequestException({ code: 'DT_QUOTE_IDS_TOO_MANY' });
+    const rows = await this.quoteRepo.find({ where: { schoolId, dtFileId, id: In(ids) }, select: ['id'] });
+    if (rows.length !== ids.length) {
+      throw new BadRequestException({
+        code: 'DT_QUOTE_BULK_INVALID',
+        message: 'Seçilen kayıtların tamamı bu dosyaya ait olmalıdır.',
+      });
+    }
+    await this.quoteItemRepo.delete({ schoolId, quoteId: In(ids) });
+    await this.paymentRepo
+      .createQueryBuilder()
+      .update(DtPayment)
+      .set({ quoteId: null })
+      .where('school_id = :sid', { sid: schoolId })
+      .andWhere('quote_id IN (:...ids)', { ids })
+      .execute();
+    await this.quoteRepo.delete({ schoolId, dtFileId, id: In(ids) });
+    await this.recalcFileTotalsBestEffort(schoolId, dtFileId);
+    return { deleted: ids.length };
   }
 
   async listQuotes(schoolId: string, dtFileId: string, purpose?: string) {
@@ -1091,18 +1170,33 @@ export class DogrudanTeminService {
     doc.y = y + 6;
   }
 
+  /** Örnek resmî şablon (ihtiyaç listesi): 4734 metni. */
+  private ihtiyacListesiKanunMetniTr(): string {
+    return "Müdürlüğümüzün ihtiyacı olan mal/malzeme yukarıya çıkarılmış olup 4734 Sayılı İhale Yasası'nın 22/d maddesi gereğince Doğrudan Temin yoluyla satın alınması için uygun görüldüğü takdirde OLUR'larınıza arz ederim.";
+  }
+
+  /** Tablo: Sıra No, Mal/Malzemenin Adı, Adet (yalnız birim «Adet» ise miktar), Ölçeği, Miktarı, Özelliği. */
+  private ihtiyacListesiTableRowCells(it: DtItem, idx: number): string[] {
+    const unit = (it.unit ?? '').trim();
+    const unitLower = unit.toLowerCase();
+    const qtyStr = this.formatQtyOrAmountStringForApi(it.qty) ?? String(it.qty ?? '');
+    const adetCol = unitLower === 'adet' ? qtyStr : '';
+    return [String(idx + 1), String(it.name ?? ''), adetCol, unit, qtyStr, String(it.spec ?? '')];
+  }
+
   private pdfTable(
     doc: InstanceType<typeof PDFDocument>,
     fonts: { regular: string; bold: string },
     columns: Array<{ header: string; width: number; align?: 'left' | 'center' | 'right' }>,
     rows: string[][],
-    options?: { fontSize?: number; headerFontSize?: number; rowPaddingY?: number },
+    options?: { fontSize?: number; headerFontSize?: number; rowPaddingY?: number; tableWidth?: number },
   ) {
     const startX = doc.x;
     let y = doc.y;
     const pageW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const tableW = options?.tableWidth != null ? Math.min(options.tableWidth, pageW) : pageW;
     const totalW = columns.reduce((a, c) => a + c.width, 0) || 1;
-    const widths = columns.map((c) => (c.width / totalW) * pageW);
+    const widths = columns.map((c) => (c.width / totalW) * tableW);
     const fontSize = options?.fontSize ?? 8;
     const headerFontSize = options?.headerFontSize ?? 8;
     const padY = options?.rowPaddingY ?? 3;
@@ -1301,6 +1395,21 @@ export class DogrudanTeminService {
     doc.moveDown(0.6);
   }
 
+  private pdfSignatureRight(
+    doc: InstanceType<typeof PDFDocument>,
+    fonts: { regular: string; bold: string },
+    block: { name: string; title?: string },
+  ) {
+    const left = doc.page.margins.left;
+    const w = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const x = left + w * 0.42;
+    const colW = w * 0.58;
+    const y = doc.y;
+    doc.font(fonts.bold).fontSize(10).text(block.name || '…………………', x, y, { width: colW, align: 'right' });
+    if (block.title?.trim()) doc.font(fonts.regular).fontSize(9).text(block.title.trim(), x, y + 14, { width: colW, align: 'right' });
+    doc.y = y + (block.title?.trim() ? 38 : 24);
+  }
+
   private pdfSignRow(
     doc: InstanceType<typeof PDFDocument>,
     fonts: { regular: string; bold: string },
@@ -1417,6 +1526,7 @@ export class DogrudanTeminService {
   private async buildDtDocxCorrespondenceHeader(
     file: DtFile,
     stage: string,
+    opts?: { konuText?: string },
   ): Promise<{ blocks: (Paragraph | Table)[]; docDateFormatted: string }> {
     const registryRows = await this.registryRepo.find({ where: { schoolId: file.schoolId, dtFileId: file.id } });
     const byStage = new Map(registryRows.map((r) => [r.stage, r] as const));
@@ -1461,7 +1571,7 @@ export class DogrudanTeminService {
         }),
       ],
     }) as any;
-    const konu = (file.subject ?? '').trim();
+    const konu = (opts?.konuText ?? file.subject ?? '').trim();
     const out: (Paragraph | Table)[] = [
       table,
       new Paragraph({ children: [new TextRun({ text: `Konu: ${konu}`, size: 18 })] }),
@@ -1541,7 +1651,7 @@ export class DogrudanTeminService {
             stage: 'ihtiyac_listesi',
             title: 'MAL/MALZEME İHTİYAÇ LİSTESİ',
             konu: file.subject,
-            showProcurementRef: false,
+            showProcurementRef: true,
             registry,
             settings,
           });
@@ -1549,29 +1659,21 @@ export class DogrudanTeminService {
             doc,
             fonts,
             [
-              { header: 'Sıra No', width: 45, align: 'center' },
-              { header: 'Mal/Malzemenin Adı', width: 180 },
-              { header: 'Özelliği', width: 210 },
-              { header: 'Miktarı', width: 70, align: 'right' },
-              { header: 'Ölçeği', width: 70, align: 'center' },
+              { header: 'Sıra No', width: 38, align: 'center' },
+              { header: 'Mal/Malzemenin Adı', width: 158 },
+              { header: 'Adet', width: 44, align: 'center' },
+              { header: 'Ölçeği', width: 54, align: 'center' },
+              { header: 'Miktarı', width: 56, align: 'right' },
+              { header: 'Özelliği', width: 200 },
             ],
-            items.map((it, idx) => [
-              String(idx + 1),
-              it.name ?? '',
-              it.spec ?? '',
-              String(it.qty ?? ''),
-              String(it.unit ?? ''),
-            ]),
+            items.map((it, idx) => this.ihtiyacListesiTableRowCells(it, idx)),
             { fontSize: 8, headerFontSize: 8 },
           );
           doc.moveDown(0.6);
-          doc.font(fonts.regular).fontSize(10).text(
-            `Müdürlüğümüzün ihtiyacı olan mal/malzeme yukarıya çıkarılmış olup 4734 sayılı Kamu İhale Kanunu'nun 22/d maddesi gereğince doğrudan temin yoluyla satın alınması uygun görüldüğü takdirde olurlarınıza arz ederim.`,
-            { align: 'justify' },
-          );
-          doc.moveDown(0.8);
           doc.font(fonts.bold).fontSize(10).text(`${((school?.name ?? '').trim() || 'Kurum').toUpperCase()} MÜDÜRLÜĞÜNE`);
-          doc.moveDown(0.2);
+          doc.moveDown(0.35);
+          doc.font(fonts.regular).fontSize(10).text(this.ihtiyacListesiKanunMetniTr(), { align: 'justify' });
+          doc.moveDown(0.8);
           this.pdfSignRow(doc, fonts, [
             {
               role: '(İhale/Harcama Yetkilisi)',
@@ -1880,60 +1982,47 @@ export class DogrudanTeminService {
           piyasa_satinalma: 'Piyasa Araştırma-Satın Alma İhale Komisyonu Adı, Ünvanı ve Görevleri',
           muayene_kabul: 'Muayene ve Teslim Alma Komisyonu Adı, Ünvanı ve Görevleri',
         };
-        const commTables = await Promise.all(
-          DT_COMMISSION_KINDS.map(async (kind) => {
-            const comm = await this.commissionRepo.findOne({ where: { schoolId, dtFileId: file.id, kind } });
-            if (!comm) return { kind, rows: [] as string[][] };
-            const members = await this.commMemberRepo.find({ where: { commissionId: comm.id }, order: { createdAt: 'ASC' } });
-            const ids = [...members.map((m) => m.userId), ...(comm.chairmanUserId ? [comm.chairmanUserId] : [])];
-            const prof = await this.loadUserCommissionProfile(ids);
-            const rows: string[][] = [];
-            let n = 1;
-            if (comm.chairmanUserId) {
-              const p = prof.get(comm.chairmanUserId);
-              rows.push([
-                String(n++),
-                p?.display ?? comm.chairmanUserId,
-                p?.unvan ?? '—',
-                'Komisyon Başkanı',
-              ]);
-            }
-            for (const m of members) {
-              const p = prof.get(m.userId);
-              const unvanCell = (m.title?.trim() || p?.unvan || '—') as string;
-              rows.push([
-                String(n++),
-                p?.display ?? m.userId,
-                unvanCell,
-                (m.dutyLabel ?? 'Komisyon Üyesi') as string,
-              ]);
-            }
-            return { kind, rows };
-          }),
-        );
+        const commTables = await this.buildKomisyonOnayCommissionTableRows(schoolId, file.id);
+        const olurDate = this.fmtTrDate(registry.get('komisyon_onay')?.docDate ?? null) || this.fmtTrDate(new Date());
+        const bodyText = `${file.subject} işine ait ihtiyaç listesi onayı ekte sunulmuştur. Söz konusu mal/malzeme 4734 sayılı Kamu İhale Kanunu'nun 9. maddesi gereğince satın alınacağından; (1) Her türlü fiyat araştırmasını yapmak ve yaklaşık maliyet cetvelini hazırlayarak onaya sunmak üzere fiyat araştırma komisyonu, (2) Onay belgesinin tanziminden sonra yazılı teklif mektupları alarak değerlendirmek ve ihaleyi sonuçlandırarak onaya sunmak üzere ihale komisyonu, (3) Mal/malzeme tesliminden sonra satın alınan mal/malzemelerin özelliklerini ve sayılarını kontrol ederek teslim almak üzere muayene ve teslim alma komisyonu oluşturulması müdürlüğümüzce uygun görülmektedir. Makamınızca da uygun görüldüğü takdirde olurlarınıza arz ederim.`;
         const buffer = await this.pdfBuffer((doc, fonts) => {
           this.pdfOfficialTop(doc, fonts, {
             schoolId,
             school,
             file,
             stage: 'komisyon_onay',
-            title: 'KOMİSYON ONAYI',
+            title: '',
             konu: 'Yaklaşık Maliyet, Piyasa Araştırması ve Muayene Kabul Komisyon Onayı',
             showProcurementRef: false,
             registry,
             settings,
           });
-          doc.font(fonts.regular).fontSize(10).text(
-            `${file.subject} işine ait ihtiyaç listesi onayı ekte sunulmuştur. Söz konusu mal/malzeme 4734 sayılı Kamu İhale Kanunu'nun 9. maddesi gereğince satın alınacağından; (1) Her türlü fiyat araştırmasını yapmak ve yaklaşık maliyet cetvelini hazırlayarak onaya sunmak üzere fiyat araştırma komisyonu, (2) Onay belgesinin tanziminden sonra yazılı teklif mektupları alarak değerlendirmek ve ihaleyi sonuçlandırarak onaya sunmak üzere ihale komisyonu, (3) Mal/malzeme tesliminden sonra satın alınan mal/malzemelerin özelliklerini ve sayılarını kontrol ederek teslim almak üzere muayene ve teslim alma komisyonu oluşturulması müdürlüğümüzce uygun görülmektedir. Makamınızca da uygun görüldüğü takdirde olurlarınıza arz ederim.`,
-            { align: 'justify' },
-          );
-          doc.moveDown(0.8);
+          const schoolLine = (school?.name ?? 'Kurum').trim().toLocaleUpperCase('tr-TR');
+          doc.font(fonts.bold).fontSize(11).text(`${schoolLine} MÜDÜRLÜĞÜNE`, { align: 'center' });
+          doc.font(fonts.regular).fontSize(10).text('(İhale/Harcama Yetkilisi)', { align: 'center' });
+          doc.moveDown(0.45);
+          doc.font(fonts.regular).fontSize(10).text(bodyText, { align: 'justify' });
+          doc.moveDown(0.85);
+          this.pdfSignatureRight(doc, fonts, {
+            name: settings?.realizationAuthorityName?.trim() || '…………………',
+            title: settings?.realizationAuthorityTitle?.trim() || undefined,
+          });
+          doc.moveDown(0.35);
+          doc.font(fonts.bold).fontSize(11).text('OLUR', { align: 'center' });
+          if (olurDate) doc.font(fonts.regular).fontSize(10).text(olurDate, { align: 'center' });
+          doc.moveDown(0.25);
+          const spendName = settings?.spendingAuthorityName?.trim() || school?.principalName?.trim() || '…………………';
+          const spendTitle = settings?.spendingAuthorityTitle?.trim() || 'Müdür';
+          doc.font(fonts.bold).fontSize(10).text(spendName, { align: 'center' });
+          doc.font(fonts.regular).fontSize(9).text(spendTitle, { align: 'center' });
+          doc.font(fonts.regular).fontSize(9).text('İhale (Harcama Yetkilisi)', { align: 'center' });
+          doc.moveDown(0.55);
           for (const t of commTables) {
-            doc.font(fonts.bold).fontSize(10).text(kindLabel[t.kind] ?? t.kind);
-            doc.moveDown(0.2);
+            doc.font(fonts.bold).fontSize(10).text(kindLabel[t.kind] ?? t.kind, { align: 'center' });
+            doc.moveDown(0.15);
             if (!t.rows.length) {
-              doc.font(fonts.regular).fontSize(10).text('(Henüz oluşturulmadı)');
-              doc.moveDown(0.6);
+              doc.font(fonts.regular).fontSize(10).text('(Henüz oluşturulmadı)', { align: 'center' });
+              doc.moveDown(0.45);
               continue;
             }
             this.pdfTable(
@@ -1948,92 +2037,75 @@ export class DogrudanTeminService {
               t.rows,
               { fontSize: 8.5, headerFontSize: 8.5 },
             );
-            doc.moveDown(0.4);
+            doc.moveDown(0.35);
           }
-          doc.moveDown(0.2);
-          this.pdfSignRow(doc, fonts, [
-            {
-              role: '(İhale/Harcama Yetkilisi)',
-              name: settings?.realizationAuthorityName ?? '…………………',
-              title: settings?.realizationAuthorityTitle ?? undefined,
-            },
-          ]);
-          doc.moveDown(0.2);
-          doc.font(fonts.bold).fontSize(10).text('OLUR', { align: 'center' });
-          const d = this.fmtTrDate(registry.get('komisyon_onay')?.docDate ?? null) || this.fmtTrDate(new Date());
-          if (d) doc.font(fonts.regular).fontSize(10).text(d, { align: 'center' });
-          this.pdfSignRow(doc, fonts, [
-            {
-              role: 'İhale(Harcama Yetkilisi)',
-              name: settings?.spendingAuthorityName ?? (school?.principalName ?? '…………………'),
-              title: settings?.spendingAuthorityTitle ?? undefined,
-            },
-          ]);
         });
         return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'komisyon_onay', buffer, filenameBase, fileFormat: 'pdf' });
       }
 
       if (dto.doc_type === 'onay_belgesi') {
-        const onayReg = registry.get('ihale_onay');
-        const belgeTarih = this.fmtTrDate(onayReg?.docDate ?? null) || this.fmtTrDate(new Date());
-        const belgeSayi = this.registrySayi(onayReg);
-
-        const research = await this.quoteRepo.find({
-          where: { schoolId, dtFileId, purpose: 'market_research' },
-          order: { createdAt: 'ASC' },
-          take: 12,
-        });
-        const firmQuotes = this.dedupeMarketResearchQuotes(research).slice(0, 3);
-        const firmTotals = await Promise.all(
-          firmQuotes.map(async (q) => {
-            const qis = await this.quoteItemRepo.find({ where: { quoteId: q.id } });
-            const byItem = new Map(qis.map((x) => [x.dtItemId, this.toNum(x.unitPrice)] as const));
-            const total = items.reduce((acc, it) => acc + (byItem.get(it.id) ?? 0) * (this.toNum(it.qty) ?? 0), 0);
-            return total;
-          }),
-        );
-        const avgTotal = firmTotals.length ? firmTotals.reduce((a, b) => a + b, 0) / firmTotals.length : 0;
-        const approxText = file.approxTotal ?? this.fmtTry(avgTotal);
-
-        const assigned = await (async () => {
-          const comm = await this.commissionRepo.findOne({ where: { schoolId, dtFileId: file.id, kind: 'yaklasik_maliyet' } });
-          if (!comm) return [] as string[][];
-          const members = await this.commMemberRepo.find({ where: { commissionId: comm.id }, order: { createdAt: 'ASC' } });
-          const ids = [...members.map((m) => m.userId), ...(comm.chairmanUserId ? [comm.chairmanUserId] : [])];
-          const prof = await this.loadUserCommissionProfile(ids);
-          const out: string[][] = [];
-          if (comm.chairmanUserId) {
-            const p = prof.get(comm.chairmanUserId);
-            out.push([p?.display ?? comm.chairmanUserId, 'Komisyon Başkanı', p?.unvan ?? '—']);
-          }
-          for (const m of members) {
-            const p = prof.get(m.userId);
-            const unvan = (m.title?.trim() || p?.unvan || '—') as string;
-            out.push([p?.display ?? m.userId, (m.dutyLabel ?? 'Komisyon Üyesi') as string, unvan]);
-          }
-          return out;
-        })();
+        const m = await this.loadOnayBelgesiModel(schoolId, school, file, items, registry, settings);
         const buffer = await this.pdfBuffer((doc, fonts) => {
+          const mx = doc.page.margins.left;
+          const my = doc.page.margins.top;
+          const mw = doc.page.width - mx - doc.page.margins.right;
+          const mh = doc.page.height - my - doc.page.margins.bottom;
+          doc.save();
+          doc.fillColor('#e8eef5').rect(mx, my, mw, mh).fill();
+          doc.fillColor('#000000');
+          doc.restore();
+
           this.pdfAntet(doc, fonts, school, settings);
-          doc.font(fonts.bold).fontSize(13).text('ONAY BELGESİ', { align: 'center' });
-          doc.moveDown(0.6);
+          doc.moveDown(0.25);
+          doc.x = mx;
+          doc.font(fonts.bold).fontSize(13).text('ONAY BELGESİ', mx, doc.y, { width: mw, align: 'center' });
+          doc.moveDown(0.55);
 
-          doc.font(fonts.regular).fontSize(10);
-          doc.text(`Doğrudan Temini Yapan İdarenin Adı: ${settings?.headerLine3?.trim() || 'İlçe Milli Eğitim Müdürlüğü'}`);
-          doc.text(`Belge Tarih ve Sayısı: ${belgeTarih} ${belgeSayi}`.trim());
-          doc.text(`İşin Niteliği: ${file.subject}`);
-          doc.text(`İşin Miktarı: Ekli belgede gösterilmiştir.`);
-          doc.text(`Yaklaşık Maliyet (KDV Hariç)(₺): ${approxText}`);
-          doc.text(`Bütçe Tertibi: ${''}`);
-          doc.text(`İhale Usulü: 4734 Sayılı Kamu İhale Kanunu'nun 22/d Maddesi`);
-          doc.text(`İlanın Şekli ve Adedi: Yapılmayacak`);
-          doc.text(`Sözleşme Düzenlenip Düzenlenmeyeceği: Düzenlenmeyecektir`);
-          doc.text(`Şartname Düzenlenip Düzenlenmeyeceği: Düzenlenecektir`);
-          doc.text(`Yeterlilik Kriterleri Aranıp Aranmayacağı: Aranmayacaktır`);
-          doc.moveDown(0.6);
+          const twoCol = [
+            { header: '', width: 230 },
+            { header: '', width: 280 },
+          ];
+          doc.x = mx;
+          this.pdfTable(doc, fonts, twoCol, [
+            ['Doğrudan Temini Yapan İdarenin Adı:', m.idareninAdi],
+            ['Belge Tarih ve Sayısı:', `${m.belgeTarih}     ${m.belgeSayi}`.trim()],
+          ], { fontSize: 9, headerFontSize: 9, tableWidth: mw });
 
-          doc.font(fonts.bold).fontSize(10).text('Doğrudan Temin Usulü ile Mal ve Hizmet satın alınacaksa piyasa fiyat araştırması yapmak üzere görevlendirilecek kişi/kişiler');
-          doc.moveDown(0.2);
+          doc.font(fonts.bold).fontSize(11).text(m.schoolMudUrluk, mx, doc.y, { width: mw, align: 'center' });
+          doc.moveDown(0.15);
+          doc.font(fonts.regular).fontSize(9).text('İhale/Harcama Yetkilisi', mx, doc.y, { width: mw, align: 'right' });
+          doc.moveDown(0.4);
+
+          doc.x = mx;
+          this.pdfTable(doc, fonts, twoCol, [
+            ['Doğrudan Temin Numarası', m.procurementRef],
+            ['İşin Tanımı', m.isinTanimi],
+            ['İşin Niteliği', m.isinNiteligi],
+            ['İşin Miktarı', 'Ekli belgede gösterilmiştir.'],
+          ], { fontSize: 9, tableWidth: mw });
+
+          const finRows: string[][] = [
+            ['Yaklaşık Maliyet (KDV Hariç)(₺):', m.approxText],
+            ['Kullanılabilir Ödenek Tutarı (KDV Dahil)(₺):', m.kullanilabilirOdenek],
+            ['Yatırım Proje Numarası (Varsa):', m.yatirimProjeNo],
+            ['Bütçe Tertibi:', m.butceTertibi],
+            ['Avans Verilecekse Şartları:', 'Verilmeyecektir.'],
+            ["İhale Usulü:", "4734 Sayılı Kamu İhale Kanunu'nun 22/d Maddesi"],
+            ['İlanın Şekli ve Adedi:', 'Yapılmayacak'],
+            ['Ön Yeterlik/İhale Dokümanı Satış Bedeli:', '0'],
+            ['Fiyat Farkı Ödenecekse Dayanağı BKK:', 'Ödenmeyecektir'],
+            ['Sözleşme Düzenlenip Düzenlenmeyeceği:', 'Düzenlenmeyecektir'],
+            ['Şartname Düzenlenip Düzenlenmeyeceği:', 'Düzenlenecektir'],
+            ['Yeterlilik Kriterleri Aranıp Aranmayacağı:', 'Aranmayacaktır'],
+          ];
+          doc.x = mx;
+          this.pdfTable(doc, fonts, twoCol, finRows, { fontSize: 8.5, tableWidth: mw });
+
+          const longLabel =
+            'Doğrudan Temin Usulü ile Mal ve Hizmet satın alınacaksa piyasa fiyat araştırması yapmak üzere görevlendirilecek kişi/kişiler';
+          doc.x = mx;
+          doc.font(fonts.bold).fontSize(8.5).text(longLabel, { width: mw });
+          doc.moveDown(0.12);
           this.pdfTable(
             doc,
             fonts,
@@ -2042,30 +2114,46 @@ export class DogrudanTeminService {
               { header: 'Görevi', width: 150 },
               { header: 'Ünvanı', width: 150 },
             ],
-            assigned.length ? assigned : [['—', '—', '—']],
-            { fontSize: 9, headerFontSize: 9 },
+            m.assignedRows,
+            { fontSize: 8.5, headerFontSize: 8.5, tableWidth: mw },
           );
 
-          if (file.procurementRef?.trim()) doc.font(fonts.regular).fontSize(10).text(`Doğrudan Temin Numarası ${file.procurementRef.trim()}`);
-          doc.moveDown(0.6);
-          doc.font(fonts.bold).fontSize(10).text('DİĞER AÇIKLAMALAR');
-          doc.moveDown(0.6);
-          doc.font(fonts.bold).fontSize(10).text('ONAY', { align: 'center' });
-          doc.font(fonts.regular).fontSize(10).text('Yukarıda belirtilen mal/malzeme/hizmetin satın alınması için ilgililerin görevlendirilmeleri hususu UYGUNDUR', { align: 'center' });
-          doc.moveDown(0.6);
-          const d = belgeTarih || this.fmtTrDate(new Date());
-          this.pdfSignRow(doc, fonts, [
-            {
-              role: d,
-              name: settings?.realizationAuthorityName ?? '…………………',
-              title: settings?.realizationAuthorityTitle ?? undefined,
-            },
-            {
-              role: d,
-              name: settings?.spendingAuthorityName ?? (school?.principalName ?? '…………………'),
-              title: settings?.spendingAuthorityTitle ?? undefined,
-            },
-          ]);
+          doc.x = mx;
+          doc.font(fonts.bold).fontSize(10).text('DİĞER AÇIKLAMALAR', { width: mw, align: 'center' });
+          const yDig = doc.y;
+          doc.rect(mx, yDig, mw, 26).stroke();
+          doc.moveDown(0.5);
+
+          doc.font(fonts.bold).fontSize(10).text('ONAY', mx, doc.y, { width: mw, align: 'center' });
+          doc.moveDown(0.25);
+          const d = m.belgeTarih;
+          const w2 = (mw - 20) / 2;
+          const xL = mx;
+          const xR = mx + w2 + 20;
+          let yS = doc.y;
+          doc.font(fonts.regular).fontSize(8.5).text('alınması için ilgililerin görevlendirilmeleri hususunu', xL, yS, {
+            width: w2,
+            align: 'center',
+          });
+          doc.font(fonts.bold).fontSize(10).text('UYGUNDUR', xR, yS, { width: w2, align: 'center' });
+          yS += 28;
+          doc.font(fonts.regular).fontSize(7.5).text('İhale Yetkilisi Adı-Soyadı-Ünvanı', xR, yS, { width: w2, align: 'center' });
+          yS += 16;
+          doc.font(fonts.regular).fontSize(8.5).text(d, xL, yS, { width: w2, align: 'center' });
+          doc.font(fonts.regular).fontSize(8.5).text(d, xR, yS, { width: w2, align: 'center' });
+          yS += 22;
+          doc.font(fonts.bold).fontSize(9).text(m.realizationName, xL, yS, { width: w2, align: 'center' });
+          doc.font(fonts.bold).fontSize(9).text(m.spendingName, xR, yS, { width: w2, align: 'center' });
+          yS += 16;
+          doc.font(fonts.regular).fontSize(8).text(m.realizationTitle, xL, yS, { width: w2, align: 'center' });
+          doc.font(fonts.regular).fontSize(8).text(m.spendingTitle, xR, yS, { width: w2, align: 'center' });
+          doc.y = yS + 22;
+          doc.x = mx;
+          doc.moveDown(0.3);
+          doc
+            .font(fonts.regular)
+            .fontSize(8)
+            .text('Ek: İdare Tarafından Hazırlanan Yaklaşık Maliyet Hesap Cetveli', mx, doc.y, { width: mw });
         });
         return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'onay_belgesi', buffer, filenameBase, fileFormat: 'pdf' });
       }
@@ -2421,7 +2509,7 @@ export class DogrudanTeminService {
     }
 
     if (dto.doc_type === 'onay_belgesi') {
-      const buffer = await this.buildOnayBelgesiDocx(schoolId, school, file, letterhead);
+      const buffer = await this.buildOnayBelgesiDocx(schoolId, school, file, letterhead, items);
       return this.persistDtGeneratedDocx({ schoolId, userId, dtFileId, docType: 'onay_belgesi', buffer, filenameBase, fileFormat: 'docx' });
     }
 
@@ -2772,60 +2860,337 @@ export class DogrudanTeminService {
     }
   }
 
+  private async buildKomisyonOnayCommissionTableRows(
+    schoolId: string,
+    dtFileId: string,
+  ): Promise<Array<{ kind: (typeof DT_COMMISSION_KINDS)[number]; rows: string[][] }>> {
+    return Promise.all(
+      DT_COMMISSION_KINDS.map(async (kind) => {
+        const comm = await this.commissionRepo.findOne({ where: { schoolId, dtFileId, kind } });
+        if (!comm) return { kind, rows: [] as string[][] };
+        const members = await this.commMemberRepo.find({ where: { commissionId: comm.id }, order: { createdAt: 'ASC' } });
+        const ids = [...members.map((m) => m.userId), ...(comm.chairmanUserId ? [comm.chairmanUserId] : [])];
+        const prof = await this.loadUserCommissionProfile(ids);
+        const rows: string[][] = [];
+        let n = 1;
+        if (comm.chairmanUserId) {
+          const p = prof.get(comm.chairmanUserId);
+          rows.push([String(n++), p?.display ?? comm.chairmanUserId, p?.unvan ?? '—', 'Komisyon Başkanı']);
+        }
+        for (const m of members) {
+          const p = prof.get(m.userId);
+          const unvanCell = (m.title?.trim() || p?.unvan || '—') as string;
+          rows.push([String(n++), p?.display ?? m.userId, unvanCell, (m.dutyLabel ?? 'Komisyon Üyesi') as string]);
+        }
+        return { kind, rows };
+      }),
+    );
+  }
+
+  private dtKomisyonOnayCommissionTableDocx(rows: string[][]): Table {
+    const dotted = { style: BorderStyle.DOTTED, size: 8, color: '000000' };
+    const allBorders = {
+      top: dotted,
+      bottom: dotted,
+      left: dotted,
+      right: dotted,
+      insideHorizontal: dotted,
+      insideVertical: dotted,
+    };
+    const colW = [1000, 3400, 2600, 2600];
+    const th = (text: string) =>
+      new TableCell({
+        borders: allBorders,
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({ text, bold: true, size: 18, font: 'Times New Roman' })],
+          }),
+        ],
+      });
+    const td = (text: string, center = false) =>
+      new TableCell({
+        borders: allBorders,
+        children: [
+          new Paragraph({
+            alignment: center ? AlignmentType.CENTER : AlignmentType.LEFT,
+            children: [new TextRun({ text, size: 18, font: 'Times New Roman' })],
+          }),
+        ],
+      });
+    const padded = [...rows];
+    while (padded.length < 3) padded.push(['', '', '', '']);
+    const headerRow = new TableRow({
+      children: [th('Sıra No'), th('Adı Soyadı'), th('Ünvanı'), th('Görevi')],
+    });
+    const dataRows = padded.map(
+      (r) =>
+        new TableRow({
+          children: [
+            td(r[0] ?? '', true),
+            td(r[1] ?? ''),
+            td(r[2] ?? ''),
+            td(r[3] ?? ''),
+          ],
+        }),
+    );
+    return new Table({
+      layout: TableLayoutType.FIXED,
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      columnWidths: colW,
+      borders: allBorders,
+      rows: [headerRow, ...dataRows],
+    });
+  }
+
   private async buildKomisyonOnayDocx(
     schoolId: string,
     school: Pick<School, 'name' | 'principalName'> | null,
     file: DtFile,
     letterhead: Paragraph[],
   ): Promise<Buffer> {
-    const { blocks: corr } = await this.buildDtDocxCorrespondenceHeader(file, 'komisyon_onay');
+    const settings = await this.procurementSettingsRepo.findOne({ where: { schoolId } });
+    const registryRows = await this.registryRepo.find({ where: { schoolId, dtFileId: file.id } });
+    const byStage = new Map(registryRows.map((r) => [r.stage, r] as const));
+    const olurDate = this.fmtTrDate(byStage.get('komisyon_onay')?.docDate ?? null) || this.fmtTrDate(new Date());
+
+    const { blocks: corr } = await this.buildDtDocxCorrespondenceHeader(file, 'komisyon_onay', {
+      konuText: 'Yaklaşık Maliyet, Piyasa Araştırması ve Muayene Kabul Komisyon Onayı',
+    });
+
     const kindLabel: Record<string, string> = {
-      yaklasik_maliyet: 'Yaklaşık maliyet komisyonu',
-      piyasa_satinalma: 'Piyasa araştırma / satın alma komisyonu',
-      muayene_kabul: 'Muayene ve kabul komisyonu',
+      yaklasik_maliyet: 'Fiyat Araştırma ve Yaklaşık Maliyet Tesbit Komisyonu Adı, Ünvanı ve Görevleri',
+      piyasa_satinalma: 'Piyasa Araştırma-Satın Alma İhale Komisyonu Adı, Ünvanı ve Görevleri',
+      muayene_kabul: 'Muayene ve Teslim Alma Komisyonu Adı, Ünvanı ve Görevleri',
     };
-    const sections: Paragraph[] = [
-      new Paragraph({ children: [new TextRun({ text: 'KOMİSYON ONAYI', bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
-      new Paragraph({ children: [new TextRun({ text: `${file.year} / ${file.fileNo} · ${file.subject}`, size: 20 })], alignment: AlignmentType.CENTER }),
-      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+
+    const commTables = await this.buildKomisyonOnayCommissionTableRows(schoolId, file.id);
+    const schoolLine = (school?.name ?? 'Kurum').trim().toLocaleUpperCase('tr-TR');
+    const bodyText = `${file.subject} işine ait ihtiyaç listesi onayı ekte sunulmuştur. Söz konusu mal/malzeme 4734 sayılı Kamu İhale Kanunu'nun 9. maddesi gereğince satın alınacağından; (1) Her türlü fiyat araştırmasını yapmak ve yaklaşık maliyet cetvelini hazırlayarak onaya sunmak üzere fiyat araştırma komisyonu, (2) Onay belgesinin tanziminden sonra yazılı teklif mektupları alarak değerlendirmek ve ihaleyi sonuçlandırarak onaya sunmak üzere ihale komisyonu, (3) Mal/malzeme tesliminden sonra satın alınan mal/malzemelerin özelliklerini ve sayılarını kontrol ederek teslim almak üzere muayene ve teslim alma komisyonu oluşturulması müdürlüğümüzce uygun görülmektedir. Makamınızca da uygun görüldüğü takdirde olurlarınıza arz ederim.`;
+
+    const none = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' } as const;
+    const cellNone = { top: none, bottom: none, left: none, right: none } as any;
+    const arzName = settings?.realizationAuthorityName?.trim() || '…………………';
+    const arzTitle = settings?.realizationAuthorityTitle?.trim();
+    const spendName = settings?.spendingAuthorityName?.trim() || school?.principalName?.trim() || '…………………';
+    const spendTitle = settings?.spendingAuthorityTitle?.trim() || 'Müdür';
+
+    const signTable = new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      layout: TableLayoutType.FIXED,
+      borders: {
+        top: none,
+        bottom: none,
+        left: none,
+        right: none,
+        insideHorizontal: none,
+        insideVertical: none,
+      },
+      columnWidths: [4680, 4680],
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              borders: cellNone,
+              children: [new Paragraph({ children: [new TextRun({ text: '', size: 2 })] })],
+            }),
+            new TableCell({
+              borders: cellNone,
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.RIGHT,
+                  children: [new TextRun({ text: arzName, bold: true, size: 20, font: 'Times New Roman' })],
+                }),
+                ...(arzTitle
+                  ? [
+                      new Paragraph({
+                        alignment: AlignmentType.RIGHT,
+                        children: [new TextRun({ text: arzTitle, size: 18, font: 'Times New Roman' })],
+                      }),
+                    ]
+                  : []),
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+
+    const bodyParts: (Paragraph | Table)[] = [
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [new TextRun({ text: `${schoolLine} MÜDÜRLÜĞÜNE`, bold: true, size: 22, font: 'Times New Roman' })],
+      }),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [new TextRun({ text: '(İhale/Harcama Yetkilisi)', size: 20, font: 'Times New Roman' })],
+      }),
+      new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: ' ', size: 4 })] }),
+      new Paragraph({
+        alignment: AlignmentType.JUSTIFIED,
+        children: [new TextRun({ text: bodyText, size: 20, font: 'Times New Roman' })],
+      }),
+      new Paragraph({ spacing: { before: 180, after: 120 }, children: [new TextRun({ text: ' ', size: 4 })] }),
+      signTable,
+      new Paragraph({ spacing: { before: 240, after: 80 }, children: [new TextRun({ text: ' ', size: 8 })] }),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [new TextRun({ text: 'OLUR', bold: true, size: 24, font: 'Times New Roman' })],
+      }),
     ];
-    for (const kind of DT_COMMISSION_KINDS) {
-      sections.push(
+    if (olurDate) {
+      bodyParts.push(
         new Paragraph({
-          children: [new TextRun({ text: kindLabel[kind] ?? kind, bold: true, size: 20 })],
+          alignment: AlignmentType.CENTER,
+          children: [new TextRun({ text: olurDate, size: 20, font: 'Times New Roman' })],
         }),
       );
-      const comm = await this.commissionRepo.findOne({ where: { schoolId, dtFileId: file.id, kind } });
-      if (!comm) {
-        sections.push(new Paragraph({ children: [new TextRun({ text: '(Henüz oluşturulmadı)', italics: true, size: 18 })] }));
-        sections.push(new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }));
-        continue;
+    }
+    bodyParts.push(
+      new Paragraph({ spacing: { after: 100 }, children: [new TextRun({ text: ' ', size: 6 })] }),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [new TextRun({ text: spendName, bold: true, size: 20, font: 'Times New Roman' })],
+      }),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [new TextRun({ text: spendTitle, size: 18, font: 'Times New Roman' })],
+      }),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [new TextRun({ text: 'İhale (Harcama Yetkilisi)', size: 18, font: 'Times New Roman' })],
+      }),
+      new Paragraph({ spacing: { before: 200, after: 120 }, children: [new TextRun({ text: ' ', size: 6 })] }),
+    );
+
+    for (const t of commTables) {
+      bodyParts.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 120 },
+          children: [new TextRun({ text: kindLabel[t.kind] ?? t.kind, bold: true, size: 20, font: 'Times New Roman' })],
+        }),
+      );
+      if (!t.rows.length) {
+        bodyParts.push(
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({ text: '(Henüz oluşturulmadı)', italics: true, size: 18, font: 'Times New Roman' })],
+          }),
+        );
+      } else {
+        bodyParts.push(this.dtKomisyonOnayCommissionTableDocx(t.rows));
       }
+      bodyParts.push(new Paragraph({ spacing: { after: 160 }, children: [new TextRun({ text: ' ', size: 6 })] }));
+    }
+
+    const doc = new DocxDocument({
+      styles: this.dtDocxDefaultStyles() as any,
+      sections: [
+        {
+          properties: {
+            page: {
+              size: { width: 11906, height: 16838, orientation: PageOrientation.PORTRAIT },
+              margin: {
+                top: convertInchesToTwip(0.98),
+                right: convertInchesToTwip(0.98),
+                bottom: convertInchesToTwip(0.98),
+                left: convertInchesToTwip(1.18),
+              },
+            },
+          },
+          children: [...letterhead, ...corr, ...bodyParts],
+        },
+      ],
+    });
+    return Buffer.from(await Packer.toBuffer(doc));
+  }
+
+  private async loadOnayBelgesiModel(
+    schoolId: string,
+    school: Pick<School, 'name' | 'principalName'> | null,
+    file: DtFile,
+    items: DtItem[],
+    registry: Map<string, DtFileDocumentRegistry>,
+    settings: DtSchoolProcurementSettings | null,
+  ) {
+    const onayReg = registry.get('ihale_onay');
+    const belgeTarih = this.fmtTrDate(onayReg?.docDate ?? null) || this.fmtTrDate(new Date());
+    const belgeSayi = this.registrySayi(onayReg);
+    const research = await this.quoteRepo.find({
+      where: { schoolId, dtFileId: file.id, purpose: 'market_research' },
+      order: { createdAt: 'ASC' },
+      take: 12,
+    });
+    const firmQuotes = this.dedupeMarketResearchQuotes(research).slice(0, 3);
+    const firmTotals = await Promise.all(
+      firmQuotes.map(async (q) => {
+        const qis = await this.quoteItemRepo.find({ where: { quoteId: q.id } });
+        const byItem = new Map(qis.map((x) => [x.dtItemId, this.toNum(x.unitPrice)] as const));
+        const total = items.reduce((acc, it) => acc + (byItem.get(it.id) ?? 0) * (this.toNum(it.qty) ?? 0), 0);
+        return total;
+      }),
+    );
+    const avgTotal = firmTotals.length ? firmTotals.reduce((a, b) => a + b, 0) / firmTotals.length : 0;
+    const approxText =
+      file.approxTotal != null && String(file.approxTotal).trim() !== ''
+        ? this.fmtTry(this.toNum(file.approxTotal) ?? 0) || String(file.approxTotal).trim()
+        : this.fmtTry(avgTotal) || '—';
+
+    const assigned = await (async () => {
+      const comm = await this.commissionRepo.findOne({ where: { schoolId, dtFileId: file.id, kind: 'yaklasik_maliyet' } });
+      if (!comm) return [] as string[][];
       const members = await this.commMemberRepo.find({ where: { commissionId: comm.id }, order: { createdAt: 'ASC' } });
       const ids = [...members.map((m) => m.userId), ...(comm.chairmanUserId ? [comm.chairmanUserId] : [])];
       const prof = await this.loadUserCommissionProfile(ids);
+      const out: string[][] = [];
       if (comm.chairmanUserId) {
         const p = prof.get(comm.chairmanUserId);
-        const unvan = p?.unvan ? ` (${p.unvan})` : '';
-        sections.push(
-          new Paragraph({
-            children: [
-              new TextRun({ text: 'Başkan: ', bold: true, size: 18 }),
-              new TextRun({ text: `${p?.display ?? comm.chairmanUserId}${unvan}`, size: 18 }),
-            ],
-          }),
-        );
+        out.push([p?.display ?? comm.chairmanUserId, 'Komisyon Başkanı', p?.unvan ?? '—']);
       }
-      members.forEach((m, i) => {
+      for (const m of members) {
         const p = prof.get(m.userId);
-        const unvan = p?.unvan ? ` · ${p.unvan}` : '';
-        const line = `${i + 1}. ${p?.display ?? m.userId}${unvan} — ${m.dutyLabel ?? m.title ?? 'Üye'}`;
-        sections.push(new Paragraph({ children: [new TextRun({ text: line, size: 18 })] }));
-      });
-      sections.push(new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }));
+        const unvan = (m.title?.trim() || p?.unvan || '—') as string;
+        out.push([p?.display ?? m.userId, (m.dutyLabel ?? 'Komisyon Üyesi') as string, unvan]);
+      }
+      return out;
+    })();
+
+    let butceTertibi = '';
+    let kullanilabilirOdenek = '—';
+    if (file.budgetAccountId) {
+      const acc = await this.budgetRepo.findOne({ where: { id: file.budgetAccountId, schoolId } });
+      if (acc) {
+        const parts = [acc.code?.trim(), acc.label?.trim()].filter(Boolean);
+        butceTertibi = parts.length ? parts.join(' / ') : acc.label;
+        const alloc = this.toNum(acc.allocated) ?? 0;
+        const blk = this.toNum(acc.blocked) ?? 0;
+        const sp = this.toNum(acc.spent) ?? 0;
+        const avail = alloc - blk - sp;
+        if (Number.isFinite(avail)) kullanilabilirOdenek = this.fmtTry(avail) || '—';
+      }
     }
-    const doc = new DocxDocument({ styles: this.dtDocxDefaultStyles() as any, sections: [{ properties: {}, children: [...letterhead, ...corr, ...sections] }] });
-    return Buffer.from(await Packer.toBuffer(doc));
+
+    const schoolLine = (school?.name ?? 'Kurum').trim().toLocaleUpperCase('tr-TR');
+    const assignedRows = assigned.length ? assigned : [['—', '—', '—']];
+    return {
+      belgeTarih,
+      belgeSayi: belgeSayi.trim() || '—',
+      idareninAdi: settings?.headerLine3?.trim() || 'İlçe Milli Eğitim Müdürlüğü',
+      schoolMudUrluk: `${schoolLine} MÜDÜRLÜĞÜNE`,
+      approxText,
+      kullanilabilirOdenek,
+      yatirimProjeNo: '',
+      butceTertibi: butceTertibi.trim() || '—',
+      procurementRef: file.procurementRef?.trim() || '—',
+      isinTanimi: dtTeminTypeTr(file.teminType) || 'Mal/Malzeme Alımı',
+      isinNiteligi: (file.subject ?? '').trim() || '—',
+      assignedRows,
+      realizationName: settings?.realizationAuthorityName?.trim() || '…………………',
+      realizationTitle: settings?.realizationAuthorityTitle?.trim() || 'Müdür Yardımcısı',
+      spendingName: settings?.spendingAuthorityName?.trim() || school?.principalName?.trim() || '…………………',
+      spendingTitle: settings?.spendingAuthorityTitle?.trim() || 'Müdür',
+    };
   }
 
   private async buildOnayBelgesiDocx(
@@ -2833,53 +3198,267 @@ export class DogrudanTeminService {
     school: Pick<School, 'name' | 'principalName'> | null,
     file: DtFile,
     letterhead: Paragraph[],
+    items: DtItem[],
   ): Promise<Buffer> {
     const settings = await this.procurementSettingsRepo.findOne({ where: { schoolId } });
-    const { blocks: corr } = await this.buildDtDocxCorrespondenceHeader(file, 'ihale_onay');
-    const lines: Paragraph[] = [
-      new Paragraph({ children: [new TextRun({ text: 'ONAY BELGESİ', bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
-      new Paragraph({ children: [new TextRun({ text: `${file.year} / ${file.fileNo} · ${file.subject}`, size: 20 })], alignment: AlignmentType.CENTER }),
-      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+    const registry = await this.registryMapForFile(schoolId, file.id);
+    const m = await this.loadOnayBelgesiModel(schoolId, school, file, items, registry, settings);
+
+    const b = {
+      top: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+      bottom: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+      left: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+      right: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+      insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: '000000' },
+      insideVertical: { style: BorderStyle.SINGLE, size: 2, color: '000000' },
+    };
+    const shade = { fill: 'E8EEF5' } as any;
+    const cellL = (text: string) =>
+      new TableCell({
+        borders: b,
+        shading: shade,
+        children: [new Paragraph({ children: [new TextRun({ text, size: 18 })] })],
+      });
+    const cellR = (text: string) =>
+      new TableCell({
+        borders: b,
+        shading: shade,
+        children: [new Paragraph({ children: [new TextRun({ text, size: 18 })] })],
+      });
+    const twoCol = [3200, 6160] as const;
+    const mk2 = (rows: Array<[string, string]>) =>
+      new Table({
+        layout: TableLayoutType.FIXED,
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        columnWidths: [...twoCol],
+        borders: b,
+        rows: rows.map(([l, r]) => new TableRow({ children: [cellL(l), cellR(r)] })),
+      });
+
+    const finRows: Array<[string, string]> = [
+      ['Yaklaşık Maliyet (KDV Hariç)(₺):', m.approxText],
+      ['Kullanılabilir Ödenek Tutarı (KDV Dahil)(₺):', m.kullanilabilirOdenek],
+      ['Yatırım Proje Numarası (Varsa):', m.yatirimProjeNo],
+      ['Bütçe Tertibi:', m.butceTertibi],
+      ['Avans Verilecekse Şartları:', 'Verilmeyecektir.'],
+      ["İhale Usulü:", "4734 Sayılı Kamu İhale Kanunu'nun 22/d Maddesi"],
+      ['İlanın Şekli ve Adedi:', 'Yapılmayacak'],
+      ['Ön Yeterlik/İhale Dokümanı Satış Bedeli:', '0'],
+      ['Fiyat Farkı Ödenecekse Dayanağı BKK:', 'Ödenmeyecektir'],
+      ['Sözleşme Düzenlenip Düzenlenmeyeceği:', 'Düzenlenmeyecektir'],
+      ['Şartname Düzenlenip Düzenlenmeyeceği:', 'Düzenlenecektir'],
+      ['Yeterlilik Kriterleri Aranıp Aranmayacağı:', 'Aranmayacaktır'],
+    ];
+
+    const th3 = (t: string) =>
+      new TableCell({
+        borders: b,
+        shading: shade,
+        children: [new Paragraph({ children: [new TextRun({ text: t, bold: true, size: 18 })] })],
+      });
+    const td3 = (t: string) =>
+      new TableCell({
+        borders: b,
+        shading: shade,
+        children: [new Paragraph({ children: [new TextRun({ text: t, size: 18 })] })],
+      });
+    const commTable = new Table({
+      layout: TableLayoutType.FIXED,
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      columnWidths: [3600, 2880, 2880],
+      borders: b,
+      rows: [
+        new TableRow({ children: [th3('Adı Soyadı'), th3('Görevi'), th3('Ünvanı')] }),
+        ...m.assignedRows.map(
+          (row) =>
+            new TableRow({
+              children: [td3(row[0] ?? ''), td3(row[1] ?? ''), td3(row[2] ?? '')],
+            }),
+        ),
+      ],
+    });
+
+    const none = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' } as const;
+    const cellNone = { top: none, bottom: none, left: none, right: none } as any;
+    const d = m.belgeTarih;
+    const signTable = new Table({
+      layout: TableLayoutType.FIXED,
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      columnWidths: [4680, 4680],
+      borders: {
+        top: none,
+        bottom: none,
+        left: none,
+        right: none,
+        insideHorizontal: none,
+        insideVertical: none,
+      },
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              borders: cellNone,
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [
+                    new TextRun({
+                      text: 'alınması için ilgililerin görevlendirilmeleri hususunu',
+                      size: 17,
+                    }),
+                  ],
+                }),
+                new Paragraph({ spacing: { before: 140 }, children: [new TextRun({ text: ' ', size: 4 })] }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: d, size: 18 })],
+                }),
+                new Paragraph({ spacing: { before: 140 }, children: [new TextRun({ text: ' ', size: 4 })] }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: m.realizationName, bold: true, size: 18 })],
+                }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: m.realizationTitle, size: 18 })],
+                }),
+              ],
+            }),
+            new TableCell({
+              borders: cellNone,
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: 'UYGUNDUR', bold: true, size: 22 })],
+                }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  spacing: { before: 100 },
+                  children: [new TextRun({ text: 'İhale Yetkilisi Adı-Soyadı-Ünvanı', size: 15 })],
+                }),
+                new Paragraph({ spacing: { before: 120 }, children: [new TextRun({ text: ' ', size: 4 })] }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: d, size: 18 })],
+                }),
+                new Paragraph({ spacing: { before: 140 }, children: [new TextRun({ text: ' ', size: 4 })] }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: m.spendingName, bold: true, size: 18 })],
+                }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: m.spendingTitle, size: 18 })],
+                }),
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+
+    const digerTable = new Table({
+      layout: TableLayoutType.FIXED,
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      columnWidths: [9360],
+      borders: b,
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              borders: b,
+              shading: shade,
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: 'DİĞER AÇIKLAMALAR', bold: true, size: 20 })],
+                }),
+                new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }),
+                new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }),
+                new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }),
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+
+    const bodyParts: (Paragraph | Table)[] = [
       new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 120 },
+        children: [new TextRun({ text: 'ONAY BELGESİ', bold: true, size: 26 })],
+      }),
+      mk2([
+        ['Doğrudan Temini Yapan İdarenin Adı:', m.idareninAdi],
+        ['Belge Tarih ve Sayısı:', `${m.belgeTarih}     ${m.belgeSayi}`.trim()],
+      ]),
+      new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: ' ', size: 4 })] }),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [new TextRun({ text: m.schoolMudUrluk, bold: true, size: 22 })],
+      }),
+      new Paragraph({
+        alignment: AlignmentType.RIGHT,
+        children: [new TextRun({ text: 'İhale/Harcama Yetkilisi', size: 18 })],
+      }),
+      new Paragraph({ spacing: { after: 160 }, children: [new TextRun({ text: ' ', size: 4 })] }),
+      mk2([
+        ['Doğrudan Temin Numarası', m.procurementRef],
+        ['İşin Tanımı', m.isinTanimi],
+        ['İşin Niteliği', m.isinNiteligi],
+        ['İşin Miktarı', 'Ekli belgede gösterilmiştir.'],
+      ]),
+      mk2(finRows),
+      new Paragraph({
+        spacing: { before: 120, after: 80 },
         children: [
           new TextRun({
-            text: `Yaklaşık maliyet toplamı: ${file.approxTotal ?? '—'}   Karar toplamı: ${file.decisionTotal ?? '—'}`,
+            text: 'Doğrudan Temin Usulü ile Mal ve Hizmet satın alınacaksa piyasa fiyat araştırması yapmak üzere görevlendirilecek kişi/kişiler',
+            bold: true,
             size: 18,
           }),
         ],
       }),
-    ];
-    if (settings?.spendingAuthorityName?.trim()) {
-      lines.push(
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: `Harcama yetkilisi: ${settings.spendingAuthorityName.trim()}${settings.spendingAuthorityTitle ? ` (${settings.spendingAuthorityTitle})` : ''}`,
-              size: 18,
-            }),
-          ],
-        }),
-      );
-    }
-    if (settings?.realizationAuthorityName?.trim()) {
-      lines.push(
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: `Gerçekleştirme görevlisi: ${settings.realizationAuthorityName.trim()}${settings.realizationAuthorityTitle ? ` (${settings.realizationAuthorityTitle})` : ''}`,
-              size: 18,
-            }),
-          ],
-        }),
-      );
-    }
-    lines.push(
-      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+      commTable,
+      new Paragraph({ spacing: { before: 200, after: 0 }, children: [new TextRun({ text: ' ', size: 4 })] }),
+      digerTable,
       new Paragraph({
-        children: [new TextRun({ text: `Müdür / yetkili: ${school?.principalName ?? '…………………'}`, size: 18 })],
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 220, after: 120 },
+        children: [new TextRun({ text: 'ONAY', bold: true, size: 22 })],
       }),
-    );
-    const doc = new DocxDocument({ styles: this.dtDocxDefaultStyles() as any, sections: [{ properties: {}, children: [...letterhead, ...corr, ...lines] }] });
+      signTable,
+      new Paragraph({ spacing: { before: 240 }, children: [new TextRun({ text: ' ', size: 4 })] }),
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: 'Ek: İdare Tarafından Hazırlanan Yaklaşık Maliyet Hesap Cetveli',
+            size: 16,
+          }),
+        ],
+      }),
+    ];
+
+    const doc = new DocxDocument({
+      styles: this.dtDocxDefaultStyles() as any,
+      sections: [
+        {
+          properties: {
+            page: {
+              size: { width: 11906, height: 16838, orientation: PageOrientation.PORTRAIT },
+              margin: {
+                top: convertInchesToTwip(0.98),
+                right: convertInchesToTwip(0.98),
+                bottom: convertInchesToTwip(0.98),
+                left: convertInchesToTwip(1.18),
+              },
+            },
+          },
+          children: [...letterhead, ...bodyParts],
+        },
+      ],
+    });
     return Buffer.from(await Packer.toBuffer(doc));
   }
 
@@ -2960,6 +3539,7 @@ export class DogrudanTeminService {
     letterhead: Paragraph[];
   }): Promise<Buffer> {
     const { school, file, items, letterhead } = input;
+    const settings = await this.procurementSettingsRepo.findOne({ where: { schoolId: file.schoolId } });
     const { blocks: corr, docDateFormatted: tarih } = await this.buildDtDocxCorrespondenceHeader(file, 'ihtiyac_listesi');
     const header = [
       ...letterhead,
@@ -2975,17 +3555,14 @@ export class DogrudanTeminService {
       });
     const td = (t: string) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t, size: 18 })] })] });
     const rows: TableRow[] = [
-      new TableRow({ children: [th('Sıra No'), th('Mal/Malzemenin Adı'), th('Özelliği'), th('Miktarı'), th('Ölçeği')] }),
-      ...items.map((it, idx) =>
-        new TableRow({
-          children: [
-            td(String(idx + 1)),
-            td(String(it.name ?? '')),
-            td(String(it.spec ?? '')),
-            td(String(it.qty ?? '')),
-            td(String(it.unit ?? '')),
-          ],
-        }),
+      new TableRow({
+        children: [th('Sıra No'), th('Mal/Malzemenin Adı'), th('Adet'), th('Ölçeği'), th('Miktarı'), th('Özelliği')],
+      }),
+      ...items.map(
+        (it, idx) =>
+          new TableRow({
+            children: this.ihtiyacListesiTableRowCells(it, idx).map((cell) => td(cell)),
+          }),
       ),
     ];
     const table = new Table({
@@ -3001,26 +3578,30 @@ export class DogrudanTeminService {
       },
     });
 
+    const raName = (settings?.realizationAuthorityName ?? '').trim() || '…………………';
+    const raTitle = (settings?.realizationAuthorityTitle ?? '').trim();
+    const spName = (settings?.spendingAuthorityName ?? school?.principalName ?? '').trim() || '…………………';
+    const spTitle = (settings?.spendingAuthorityTitle ?? '').trim();
+
     const footer: any[] = [
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
-      new Paragraph({ children: [new TextRun({ text: `${((school?.name ?? '').trim() || 'Kurum').toUpperCase()} MÜDÜRLÜĞÜNE`, bold: true, size: 18 })] }),
+      new Paragraph({
+        children: [new TextRun({ text: `${((school?.name ?? '').trim() || 'Kurum').toUpperCase()} MÜDÜRLÜĞÜNE`, bold: true, size: 18 })],
+      }),
       new Paragraph({
         alignment: AlignmentType.JUSTIFIED,
-        children: [
-          new TextRun({
-            text:
-              `Müdürlüğümüzün ihtiyacı olan mal/malzeme yukarıya çıkarılmış olup 4734 sayılı Kamu İhale Kanunu'nun 22/d maddesi gereğince doğrudan temin yoluyla satın alınması uygun görüldüğü takdirde olurlarınıza arz ederim.`,
-            size: 18,
-          }),
-        ],
+        children: [new TextRun({ text: this.ihtiyacListesiKanunMetniTr(), size: 18 })],
       }),
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
       new Paragraph({ children: [new TextRun({ text: '(İhale/Harcama Yetkilisi)', size: 18 })] }),
-      new Paragraph({ children: [new TextRun({ text: '…………………', bold: true, size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: raName, bold: true, size: 18 })] }),
+      ...(raTitle ? [new Paragraph({ children: [new TextRun({ text: raTitle, size: 18 })] })] : []),
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
       new Paragraph({ children: [new TextRun({ text: 'OLUR', bold: true, size: 18 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: tarih || this.fmtTrDate(new Date()), size: 18 })], alignment: AlignmentType.CENTER }),
-      new Paragraph({ children: [new TextRun({ text: school?.principalName ?? '…………………', bold: true, size: 18 })], alignment: AlignmentType.CENTER }),
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+      new Paragraph({ children: [new TextRun({ text: spName, bold: true, size: 18 })], alignment: AlignmentType.CENTER }),
+      ...(spTitle ? [new Paragraph({ children: [new TextRun({ text: spTitle, size: 18 })], alignment: AlignmentType.CENTER })] : []),
       new Paragraph({ children: [new TextRun({ text: 'İhale(Harcama Yetkilisi)', size: 18 })], alignment: AlignmentType.CENTER }),
     ];
     const doc = new DocxDocument({ styles: this.dtDocxDefaultStyles() as any, sections: [{ properties: {}, children: [...header, table, ...footer] as any }] });
@@ -3321,17 +3902,82 @@ export class DogrudanTeminService {
     return { commissions: out };
   }
 
+  /** Araştırma teklif kalemlerini teklif/ihale satırına yazar; aynı kalem (dt_item_id) varsa günceller. */
+  private async applyResearchQuoteItemsToBidQuote(
+    schoolId: string,
+    dtFileId: string,
+    targetQuoteId: string,
+    researchRows: DtQuoteItem[],
+  ) {
+    if (!researchRows.length) return;
+    const itemIds = [...new Set(researchRows.map((x) => x.dtItemId))];
+    const fileItems = itemIds.length
+      ? await this.itemRepo.find({ where: { schoolId, dtFileId, id: In(itemIds) }, select: ['id', 'qty'] })
+      : [];
+    const qtyById = new Map(fileItems.map((it) => [it.id, it.qty] as const));
+
+    const existingRows =
+      itemIds.length > 0
+        ? await this.quoteItemRepo.find({
+            where: { schoolId, quoteId: targetQuoteId, dtItemId: In(itemIds) },
+            select: ['id', 'dtItemId'],
+          })
+        : [];
+    const existingByItem = new Map(existingRows.map((e) => [e.dtItemId, e.id]));
+
+    await this.quoteItemRepo.save(
+      researchRows.map((qi) => {
+        const up = this.toNum(qi.unitPrice);
+        if (up == null || !Number.isFinite(up)) {
+          throw new BadRequestException({
+            code: 'DT_INVALID_QUOTE_ITEM_PRICE',
+            message: 'Araştırmadan teklife aktarımda geçersiz birim fiyatı.',
+          });
+        }
+        const upStr = this.formatQtyOrAmountNumberForApi(up);
+        const qtyN = this.toNum(qtyById.get(qi.dtItemId));
+        let totalStr: string | null = null;
+        if (qtyN != null && Number.isFinite(qtyN) && Number.isFinite(qtyN * up)) {
+          totalStr = this.formatQtyOrAmountNumberForApi(qtyN * up);
+        } else {
+          const totN = qi.total != null && String(qi.total).trim() !== '' ? this.toNum(qi.total) : null;
+          totalStr = totN != null && Number.isFinite(totN) ? this.formatQtyOrAmountNumberForApi(totN) : null;
+        }
+        const exId = existingByItem.get(qi.dtItemId);
+        return this.quoteItemRepo.create({
+          ...(exId ? { id: exId } : {}),
+          schoolId,
+          quoteId: targetQuoteId,
+          dtItemId: qi.dtItemId,
+          unitPrice: upStr,
+          total: totalStr,
+        });
+      }),
+    );
+  }
+
   async copyResearchQuotesToBid(schoolId: string, userId: string, dtFileId: string) {
     const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId }, select: ['id'] });
     if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
     const research = await this.quoteRepo.find({ where: { schoolId, dtFileId, purpose: 'market_research' } });
     let created = 0;
+    let merged = 0;
     for (const rq of research) {
+      const qis = await this.quoteItemRepo.find({
+        where: { schoolId, quoteId: rq.id },
+        order: { createdAt: 'ASC' },
+      });
       const existsBid = await this.quoteRepo.findOne({
         where: { schoolId, dtFileId, vendorId: rq.vendorId, purpose: 'bid' },
         select: ['id'],
       });
-      if (existsBid) continue;
+      if (existsBid) {
+        if (qis.length) {
+          await this.applyResearchQuoteItemsToBidQuote(schoolId, dtFileId, existsBid.id, qis);
+          merged += 1;
+        }
+        continue;
+      }
       const nq = await this.quoteRepo.save(
         this.quoteRepo.create({
           schoolId,
@@ -3346,47 +3992,11 @@ export class DogrudanTeminService {
           updatedByUserId: userId,
         }),
       );
-      const qis = await this.quoteItemRepo.find({ where: { quoteId: rq.id } });
-      if (qis.length) {
-        const itemIds = [...new Set(qis.map((x) => x.dtItemId))];
-        const items = itemIds.length
-          ? await this.itemRepo.find({ where: { schoolId, id: In(itemIds) }, select: ['id', 'qty'] })
-          : [];
-        const qtyById = new Map(items.map((it) => [it.id, it.qty] as const));
-        await this.quoteItemRepo.save(
-          qis.map((qi) => {
-            const up = this.toNum(qi.unitPrice);
-            if (up == null || !Number.isFinite(up)) {
-              throw new BadRequestException({
-                code: 'DT_INVALID_QUOTE_ITEM_PRICE',
-                message: 'Araştırmadan teklife aktarımda geçersiz birim fiyatı.',
-              });
-            }
-            const upStr = this.formatQtyOrAmountNumberForApi(up);
-            const qtyN = this.toNum(qtyById.get(qi.dtItemId));
-            let totalStr: string | null = null;
-            if (qtyN != null && Number.isFinite(qtyN) && Number.isFinite(qtyN * up)) {
-              totalStr = this.formatQtyOrAmountNumberForApi(qtyN * up);
-            } else {
-              const totN =
-                qi.total != null && String(qi.total).trim() !== '' ? this.toNum(qi.total) : null;
-              totalStr =
-                totN != null && Number.isFinite(totN) ? this.formatQtyOrAmountNumberForApi(totN) : null;
-            }
-            return this.quoteItemRepo.create({
-              schoolId,
-              quoteId: nq.id,
-              dtItemId: qi.dtItemId,
-              unitPrice: upStr,
-              total: totalStr,
-            });
-          }),
-        );
-      }
+      if (qis.length) await this.applyResearchQuoteItemsToBidQuote(schoolId, dtFileId, nq.id, qis);
       created += 1;
     }
-    if (created) await this.recalcFileTotalsBestEffort(schoolId, dtFileId);
-    return { created, total_research: research.length };
+    if (created || merged) await this.recalcFileTotalsBestEffort(schoolId, dtFileId);
+    return { created, merged, total_research: research.length };
   }
 
   async syncCommissionMembers(schoolId: string, userId: string, dtFileId: string, dto: SyncDtCommissionDto) {

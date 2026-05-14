@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
+import { dtReadonlyLoadFeedback, type DtReadonlyLoadBanner } from '@/lib/dt-readonly-load-error';
 import { Toolbar, ToolbarHeading, ToolbarPageTitle } from '@/components/layout/toolbar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ForbiddenView } from '@/components/errors/forbidden-view';
@@ -25,18 +26,18 @@ export default function DtKurallarPage() {
   const isSuper = me?.role === 'superadmin';
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loadBanner, setLoadBanner] = useState<DtReadonlyLoadBanner | null>(null);
   const [rules, setRules] = useState<DtRules | null>(null);
 
   const load = useCallback(async () => {
     if (!token || !isSuper) return;
     setLoading(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       const r = await apiFetch<DtRules>('/app-config/dogrudan-temin-rules', { token });
       setRules(r);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Yüklenemedi');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setLoading(false);
     }
@@ -49,7 +50,7 @@ export default function DtKurallarPage() {
   const save = async () => {
     if (!token || !rules) return;
     setSaving(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       const r = await apiFetch<DtRules>('/app-config/dogrudan-temin-rules', {
         token,
@@ -58,7 +59,7 @@ export default function DtKurallarPage() {
       });
       setRules(r);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Kaydedilemedi');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setSaving(false);
     }
@@ -82,7 +83,7 @@ export default function DtKurallarPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 pt-0">
-          {error ? <Alert message={error} /> : null}
+          {loadBanner ? <Alert variant={loadBanner.variant} message={loadBanner.message} /> : null}
           {loading || !rules ? (
             <LoadingSpinner label="Yükleniyor…" className="py-8" />
           ) : (

@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsEmail, IsIn, IsInt, IsOptional, IsString, IsArray, ValidateNested, Matches, Max, MaxLength, Min, IsObject, ValidateIf } from 'class-validator';
+import { IsEmail, IsIn, IsInt, IsOptional, IsString, IsArray, ValidateNested, Matches, Max, MaxLength, Min, IsObject, ValidateIf, ArrayMinSize, ArrayMaxSize, IsUUID } from 'class-validator';
 import { DtTeminType } from '../enums/dt-temin-type.enum';
 import { DT_COMMISSION_KINDS, DT_QUOTE_PURPOSES, DT_REGISTRY_STAGES } from '../dt-workflow.constants';
 
@@ -237,6 +237,14 @@ export class CreateDtQuoteDto {
   @IsString()
   @IsIn([...DT_QUOTE_PURPOSES])
   purpose?: (typeof DT_QUOTE_PURPOSES)[number];
+}
+
+export class BulkDeleteDtQuotesDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(100)
+  @IsUUID('4', { each: true })
+  quote_ids: string[];
 }
 
 export class ListDtQuotesQueryDto {

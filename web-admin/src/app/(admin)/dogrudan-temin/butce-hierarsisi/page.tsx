@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
+import { dtReadonlyLoadFeedback, type DtReadonlyLoadBanner } from '@/lib/dt-readonly-load-error';
 import { dtUrl } from '@/lib/dt-url';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
@@ -54,7 +55,7 @@ export default function DtBudgetHierarchyPage() {
   });
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadBanner, setLoadBanner] = useState<DtReadonlyLoadBanner | null>(null);
   const [items, setItems] = useState<BudgetItem[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [childrenCache, setChildrenCache] = useState<Record<string, BudgetItem[]>>({});
@@ -85,7 +86,7 @@ export default function DtBudgetHierarchyPage() {
   const fetchRoots = useCallback(async () => {
     if (!canFetch || !ok) return;
     setLoading(true);
-    setError(null);
+    setLoadBanner(null);
     setExpanded(new Set());
     setChildrenCache({});
     try {
@@ -97,7 +98,7 @@ export default function DtBudgetHierarchyPage() {
       );
       setItems(res.items ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Yüklenemedi');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
       setItems([]);
     } finally {
       setLoading(false);
@@ -128,7 +129,7 @@ export default function DtBudgetHierarchyPage() {
             );
             setChildrenCache((s) => ({ ...s, [id]: res.items ?? [] }));
           } catch (e) {
-            setError(e instanceof Error ? e.message : 'Alt kırılım yüklenemedi');
+            setLoadBanner(dtReadonlyLoadFeedback(e));
             return;
           }
         }
@@ -276,7 +277,7 @@ export default function DtBudgetHierarchyPage() {
         </p>
       </div>
 
-      {error && <Alert message={error} />}
+      {loadBanner ? <Alert variant={loadBanner.variant} message={loadBanner.message} /> : null}
 
       {!canFetch ? (
         <Alert variant="info" message={isSuperadmin ? 'Önce okul seçin.' : 'Oturum yükleniyor…'} />
