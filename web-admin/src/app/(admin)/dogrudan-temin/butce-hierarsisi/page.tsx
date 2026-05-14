@@ -7,6 +7,7 @@ import { dtUrl } from '@/lib/dt-url';
 import { Toolbar, ToolbarHeading, ToolbarPageTitle } from '@/components/layout/toolbar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
+import { DT_LEGAL_NOTICE } from '@/lib/dt-ui';
 import { ForbiddenView } from '@/components/errors/forbidden-view';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { ChevronDown, ChevronRight, Wallet } from 'lucide-react';
@@ -117,9 +118,15 @@ export default function DtBudgetHierarchyPage() {
           </div>
 
           <div className="flex gap-3 text-[10px] text-muted-foreground whitespace-nowrap">
-            <span>Ayrılan: {parseFloat(item.allocated).toLocaleString('tr-TR')}</span>
-            <span>Bloke: {parseFloat(item.blocked).toLocaleString('tr-TR')}</span>
-            <span className="text-green-600">Harcanan: {parseFloat(item.spent).toLocaleString('tr-TR')}</span>
+            <span title="Bu hesaba tahsis edilen yıllık ödenek tutarı (kurum kaydı).">
+              Ayrılan ödenek: {parseFloat(item.allocated).toLocaleString('tr-TR')}
+            </span>
+            <span title="Doğrudan temin dosyalarında geçici olarak ayrılmış tutar.">
+              Bloke: {parseFloat(item.blocked).toLocaleString('tr-TR')}
+            </span>
+            <span className="text-emerald-600 dark:text-emerald-400" title="Gerçekleşen harcama / ödeme kayıtları toplamı.">
+              Harcanan: {parseFloat(item.spent).toLocaleString('tr-TR')}
+            </span>
           </div>
         </div>
 
@@ -145,6 +152,8 @@ export default function DtBudgetHierarchyPage() {
           </div>
         </ToolbarHeading>
       </Toolbar>
+
+      <Alert variant="info" message={DT_LEGAL_NOTICE} />
 
       <Card>
         <CardHeader className="py-3">

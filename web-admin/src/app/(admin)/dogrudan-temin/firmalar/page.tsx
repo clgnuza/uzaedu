@@ -11,7 +11,9 @@ import { apiFetch } from '@/lib/api';
 import { dtUrl } from '@/lib/dt-url';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Alert } from '@/components/ui/alert';
-import { Building2, Plus } from 'lucide-react';
+import { Building2, Plus, BookUser } from 'lucide-react';
+import { toast } from 'sonner';
+import { DtInfoHint } from '@/components/dogrudan-temin/dt-info-hint';
 import { ToolbarActions } from '@/components/layout/toolbar';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -92,6 +94,7 @@ export default function DogrudanTeminVendorsPage() {
       });
       setCreateOpen(false);
       setForm({ title: '', tax_no: '', contact_name: '', phone: '', email: '' });
+      toast.success('Firma kaydedildi.');
       await fetchVendors();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Hata');
@@ -118,8 +121,14 @@ export default function DogrudanTeminVendorsPage() {
       ) : null}
       <Toolbar>
         <ToolbarHeading>
-          <ToolbarPageTitle className="text-base">DT Firmalar</ToolbarPageTitle>
-          <ToolbarIconHints items={[{ label: 'Firma havuzu', icon: Building2 }]} summary="Liste (phase)." />
+          <ToolbarPageTitle className="text-base">Doğrudan temin — firmalar</ToolbarPageTitle>
+          <ToolbarIconHints
+            items={[
+              { label: 'İstekli havuzu', icon: Building2 },
+              { label: 'Yetkili kişi', icon: BookUser },
+            ]}
+            summary="Teklif ve sözleşme belgelerinde seçilecek firmalar."
+          />
         </ToolbarHeading>
         <ToolbarActions>
           {isSuperadmin ? (
@@ -137,16 +146,25 @@ export default function DogrudanTeminVendorsPage() {
             <DialogContent className="max-w-lg">
               <div className="space-y-3">
                 <div className="space-y-1">
-                  <div className="text-[11px] text-muted-foreground">Firma adı</div>
+                  <div className="text-[11px] text-muted-foreground flex items-center gap-1">
+                    Firma / ticari unvan
+                    <DtInfoHint title="Teklif ve sözleşmede görünecek resmi kısa ad." />
+                  </div>
                   <Input value={form.title} onChange={(e) => setForm((s) => ({ ...s, title: e.target.value }))} />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <div className="text-[11px] text-muted-foreground">Vergi No</div>
+                    <div className="text-[11px] text-muted-foreground flex items-center gap-1">
+                      Vergi numarası
+                      <DtInfoHint title="Tüzel kişilerde VKN; şahıs firmalarında TCKN olabilir." />
+                    </div>
                     <Input value={form.tax_no} onChange={(e) => setForm((s) => ({ ...s, tax_no: e.target.value }))} />
                   </div>
                   <div className="space-y-1">
-                    <div className="text-[11px] text-muted-foreground">Yetkili</div>
+                    <div className="text-[11px] text-muted-foreground flex items-center gap-1">
+                      Yetkili kişi
+                      <DtInfoHint title="Teklif mektubunda imza yetkilisi olarak görünecek kişi (opsiyonel)." />
+                    </div>
                     <Input value={form.contact_name} onChange={(e) => setForm((s) => ({ ...s, contact_name: e.target.value }))} />
                   </div>
                 </div>
@@ -176,7 +194,11 @@ export default function DogrudanTeminVendorsPage() {
 
       {!ok ? null : (
       <Card>
-        <CardContent className="py-4">
+        <CardContent className="py-4 space-y-3">
+          <Alert
+            variant="info"
+            message="Vergi numarası ve iletişim bilgileri teklif isteme / sözleşme metinlerinde kullanılabilir; resmi unvanı MERSİS / fatura ünvanı ile aynı tutun."
+          />
           {error && <Alert message={error} className="mb-2" />}
           {loading ? (
             <LoadingSpinner label="Yükleniyor…" className="py-6 text-xs" />

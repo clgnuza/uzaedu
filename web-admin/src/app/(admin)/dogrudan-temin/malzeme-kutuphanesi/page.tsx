@@ -130,6 +130,11 @@ export default function DtMaterialLibraryPage() {
         </ToolbarHeading>
       </Toolbar>
 
+      <Alert
+        variant="info"
+        message="Kütüphane okul genelinde tekrar kullanılabilir kalem şablonlarıdır; doğrudan temin dosyasına aktarımı şimdilik manuel (kopyala-yapıştır) ile yapabilirsiniz."
+      />
+
       {error && <Alert message={error} />}
 
       {loading ? (

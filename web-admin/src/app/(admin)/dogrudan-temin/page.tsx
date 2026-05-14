@@ -11,7 +11,10 @@ import { apiFetch } from '@/lib/api';
 import { dtUrl } from '@/lib/dt-url';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Alert } from '@/components/ui/alert';
+import { DtInfoHint } from '@/components/dogrudan-temin/dt-info-hint';
 import { ClipboardList, Plus } from 'lucide-react';
+import { toast } from 'sonner';
+import { dtFileStatusBadgeClass, dtFileStatusLabel, dtTeminTypeLabel } from '@/lib/dt-ui';
 import Link from 'next/link';
 import { ToolbarActions } from '@/components/layout/toolbar';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
@@ -84,6 +87,10 @@ export default function DogrudanTeminPage() {
 
   const createFile = useCallback(async () => {
     if (!canFetch) return;
+    if (!form.file_no.trim() || !form.subject.trim()) {
+      toast.error('Dosya numarası ve konu zorunludur.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -99,6 +106,7 @@ export default function DogrudanTeminPage() {
       });
       setCreateOpen(false);
       setForm((s) => ({ ...s, file_no: '', subject: '' }));
+      toast.success('Dosya oluşturuldu.');
       await fetchFiles();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Hata');
@@ -184,7 +192,10 @@ export default function DogrudanTeminPage() {
                   <Input value={form.subject} onChange={(e) => setForm((s) => ({ ...s, subject: e.target.value }))} className="text-xs" placeholder="Tedarik konusu" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-muted-foreground uppercase">Temin Türü</label>
+                  <label className="text-[11px] font-medium text-muted-foreground uppercase flex items-center gap-1">
+                    Temin türü (4734/22)
+                    <DtInfoHint title="KİK 22. madde kapsamı; kurumunuzun seçtiği alt tür." />
+                  </label>
                   <select
                     value={form.temin_type}
                     onChange={(e) => setForm((s) => ({ ...s, temin_type: e.target.value }))}
@@ -215,7 +226,11 @@ export default function DogrudanTeminPage() {
 
       {!ok ? null : (
       <Card>
-        <CardContent className="py-4">
+        <CardContent className="py-4 space-y-3">
+          <Alert
+            variant="info"
+            message="Dosyalar okulunuzun doğrudan temin kayıtlarıdır; durum ve temin türü etiketleri aşağıda Türkçedir."
+          />
           {error && <Alert message={error} className="mb-2" />}
           {loading ? (
             <LoadingSpinner label="Yükleniyor…" className="py-6 text-xs" />
@@ -236,17 +251,12 @@ export default function DogrudanTeminPage() {
                         <p className="font-semibold text-sm line-clamp-2 group-hover:text-primary transition-colors">{x.subject}</p>
                         <p className="text-[11px] text-muted-foreground">{x.year} · #{x.fileNo}</p>
                       </div>
-                      <span className={`px-2 py-1 rounded text-[10px] font-semibold whitespace-nowrap ${
-                        x.status === 'draft' ? 'bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-200' :
-                        x.status === 'decision' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
-                        x.status === 'awarded' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
-                        'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
-                      }`}>
-                        {x.status.toUpperCase()}
+                      <span className={`px-2 py-1 rounded text-[10px] font-semibold whitespace-nowrap ${dtFileStatusBadgeClass(x.status)}`}>
+                        {dtFileStatusLabel(x.status)}
                       </span>
                     </div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {x.teminType}
+                    <div className="text-[11px] font-medium text-foreground/90">
+                      {dtTeminTypeLabel(x.teminType)}
                     </div>
                   </div>
                 </Link>

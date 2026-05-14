@@ -10,6 +10,7 @@ import { Alert } from '@/components/ui/alert';
 import { ForbiddenView } from '@/components/errors/forbidden-view';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { BarChart3, TrendingUp, Wallet, FileText } from 'lucide-react';
+import { dtFileStatusBadgeClass, dtFileStatusLabel, dtTeminTypeLabel, DT_LEGAL_NOTICE } from '@/lib/dt-ui';
 
 type DashboardData = {
   year: number;
@@ -75,6 +76,7 @@ export default function DtDashboardPage() {
 
       {data ? (
         <div className="space-y-4">
+          <Alert variant="info" message={DT_LEGAL_NOTICE} />
           {/* Summary Cards */}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <Card>
@@ -160,7 +162,7 @@ export default function DtDashboardPage() {
                     <tbody className="divide-y divide-border">
                       {data.by_type.map((item) => (
                         <tr key={item.temin_type} className="hover:bg-muted/30">
-                          <td className="px-2 py-1 font-medium">{item.temin_type}</td>
+                          <td className="px-2 py-1 font-medium">{dtTeminTypeLabel(item.temin_type)}</td>
                           <td className="px-2 py-1 text-right">{item.count}</td>
                           <td className="px-2 py-1 text-right">{parseFloat(item.approx_total).toLocaleString('tr-TR')}</td>
                           <td className="px-2 py-1 text-right">{parseFloat(item.decision_total).toLocaleString('tr-TR')}</td>
@@ -189,8 +191,10 @@ export default function DtDashboardPage() {
                         <p className="text-muted-foreground">{file.year}/{file.file_no}</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-[10px] text-muted-foreground">{file.temin_type}</p>
-                        <p className="rounded bg-primary/10 px-2 py-0.5 text-[10px] text-primary">{file.status}</p>
+                        <p className="text-[10px] text-muted-foreground">{dtTeminTypeLabel(file.temin_type)}</p>
+                        <p className={`rounded px-2 py-0.5 text-[10px] font-semibold ${dtFileStatusBadgeClass(file.status)}`}>
+                          {dtFileStatusLabel(file.status)}
+                        </p>
                       </div>
                     </div>
                   ))}

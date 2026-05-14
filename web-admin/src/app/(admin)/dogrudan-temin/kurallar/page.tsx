@@ -10,7 +10,7 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { Shield } from 'lucide-react';
+import { Shield, BadgeCheck, Landmark, Handshake, StickyNote, Megaphone } from 'lucide-react';
 
 type DtRules = {
   require_award_before_payment: boolean;
@@ -87,6 +87,7 @@ export default function DtKurallarPage() {
             <LoadingSpinner label="Yükleniyor…" className="py-8" />
           ) : (
             <div className="space-y-4">
+              <Alert variant="info" message="Bu ayarlar tüm okulların web arayüzünde doğrudan temin ödeme ve bloke adımlarına uygulanır. Değişiklik öncesi yedek / iletişim önerilir." />
               <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
                 <label className="flex items-start gap-3 cursor-pointer">
                   <input
@@ -96,8 +97,11 @@ export default function DtKurallarPage() {
                     className="size-4 rounded border-border mt-0.5"
                   />
                   <div className="flex-1">
-                    <div className="text-sm font-medium">Karar Zorunlu</div>
-                    <p className="text-[11px] text-muted-foreground">Ödeme kaydı yapmak için dosyada karar (award) olması gerekli</p>
+                    <div className="text-sm font-medium flex items-center gap-2">
+                      <BadgeCheck className="size-4 text-emerald-600 shrink-0" />
+                      Ödeme öncesi karar zorunlu
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">Açıkken ödeme kaydı için dosyada karar (ihale kararı / award) oluşmuş olmalı; aksi halde API reddeder.</p>
                   </div>
                 </label>
                 <label className="flex items-start gap-3 cursor-pointer">
@@ -108,8 +112,11 @@ export default function DtKurallarPage() {
                     className="size-4 rounded border-border mt-0.5"
                   />
                   <div className="flex-1">
-                    <div className="text-sm font-medium">Bütçe Hesabı Zorunlu</div>
-                    <p className="text-[11px] text-muted-foreground">Dosya oluştururken bütçe hesabı seçilmesi zorunlu</p>
+                    <div className="text-sm font-medium flex items-center gap-2">
+                      <Landmark className="size-4 text-amber-600 shrink-0" />
+                      Dosyada bütçe hesabı zorunlu
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">Ödeme veya bloke işlemlerinden önce dosyanın bir bütçe hesabına bağlanmasını zorunlu kılar.</p>
                   </div>
                 </label>
                 <label className="flex items-start gap-3 cursor-pointer">
@@ -120,13 +127,19 @@ export default function DtKurallarPage() {
                     className="size-4 rounded border-border mt-0.5"
                   />
                   <div className="flex-1">
-                    <div className="text-sm font-medium">Teklif Zorunlu</div>
-                    <p className="text-[11px] text-muted-foreground">Her ödeme mutlaka bir teklifle ilişkilendirilmeli</p>
+                    <div className="text-sm font-medium flex items-center gap-2">
+                      <Handshake className="size-4 text-sky-600 shrink-0" />
+                      Ödemede teklif seçimi zorunlu
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">Her ödeme kaydında hangi firma teklifine istinaden ödeme yapıldığı seçilmeli.</p>
                   </div>
                 </label>
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] font-medium text-muted-foreground uppercase">Ödeme Notu Min. Uzunluk (karakter)</label>
+                <label className="text-[11px] font-medium text-muted-foreground uppercase flex items-center gap-2">
+                  <StickyNote className="size-3.5" />
+                  Ödeme notu minimum uzunluk (karakter)
+                </label>
                 <p className="text-[10px] text-muted-foreground">0 = opsiyonel</p>
                 <Input
                   type="number"
@@ -140,7 +153,10 @@ export default function DtKurallarPage() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] font-medium text-muted-foreground uppercase">Okul Yöneticilerine Bildirim</label>
+                <label className="text-[11px] font-medium text-muted-foreground uppercase flex items-center gap-2">
+                  <Megaphone className="size-3.5" />
+                  Okul yöneticilerine üst bildirim
+                </label>
                 <p className="text-[10px] text-muted-foreground">Doğrudan Temin modülünün başında gösterilecek metin</p>
                 <textarea
                   value={rules.platform_notice_tr}

@@ -11,11 +11,41 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Alert } from '@/components/ui/alert';
 import { ForbiddenView } from '@/components/errors/forbidden-view';
-import { ClipboardList, ChevronLeft, Copy, FileDown, Sparkles, Archive, ArchiveRestore, Banknote, FileText, Wallet, Users, Files } from 'lucide-react';
+import {
+  ClipboardList,
+  ChevronLeft,
+  Copy,
+  FileDown,
+  Sparkles,
+  Archive,
+  Banknote,
+  Users,
+  PackageSearch,
+  Handshake,
+  Landmark,
+  FileStack,
+  type LucideIcon,
+} from 'lucide-react';
+import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SchoolSelectWithFilter } from '@/components/school-select-with-filter';
+import {
+  DT_DETAIL_TABS,
+  DT_LEGAL_NOTICE,
+  DT_SECTION_HINTS,
+  type DtDetailTabId,
+  dtBudgetBlockStatusLabel,
+  dtDocTypeLabel,
+  dtFileStatusBadgeClass,
+  dtFileStatusLabel,
+  dtQuoteStatusChipClass,
+  dtQuoteStatusHint,
+  dtQuoteStatusLabel,
+  dtTeminTypeLabel,
+} from '@/lib/dt-ui';
+import { DtInfoHint } from '@/components/dogrudan-temin/dt-info-hint';
 
 type DtFileItem = {
   id: string;
@@ -143,9 +173,21 @@ export default function DtFileDetailPage() {
   });
   const [commission, setCommission] = useState<DtAcceptanceCommission | null>(null);
   const [commissionMembers, setCommissionMembers] = useState<DtAcceptanceCommissionMember[]>([]);
-  const [activeTab, setActiveTab] = useState<'items' | 'quotes' | 'budget' | 'payments' | 'commission' | 'docs'>('items');
+  const [activeTab, setActiveTab] = useState<DtDetailTabId>('items');
   const [commissionForm, setCommissionForm] = useState({ chairman_user_id: '', member_title: '' });
   const [commissionDialogOpen, setCommissionDialogOpen] = useState(false);
+  const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(false);
+  const [confirmReleaseAllOpen, setConfirmReleaseAllOpen] = useState(false);
+  const [confirmAutoAwardOpen, setConfirmAutoAwardOpen] = useState(false);
+
+  const tabIcons: Record<DtDetailTabId, LucideIcon> = {
+    items: PackageSearch,
+    quotes: Handshake,
+    budget: Landmark,
+    payments: Banknote,
+    commission: Users,
+    docs: FileStack,
+  };
 
   const canFetch = useMemo(() => !!token && !!id && ok && (!isSuperadmin || !!schoolId), [token, id, ok, isSuperadmin, schoolId]);
 
@@ -206,6 +248,15 @@ export default function DtFileDetailPage() {
   const blockBudget = useCallback(async () => {
     if (!token) return;
     if (isSuperadmin && !schoolId) return;
+    if (!budgetForm.budget_account_id) {
+      toast.error('Önce bütçe hesabı seçin.');
+      return;
+    }
+    const amt = Number(String(budgetForm.amount).replace(',', '.'));
+    if (!budgetForm.amount.trim() || !Number.isFinite(amt) || amt <= 0) {
+      toast.error('Bloke tutarı pozitif bir sayı olmalı.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -215,13 +266,14 @@ export default function DtFileDetailPage() {
         body: JSON.stringify({ budget_account_id: budgetForm.budget_account_id, amount: budgetForm.amount }),
       });
       setBudgetForm({ budget_account_id: budgetForm.budget_account_id, amount: '' });
+      toast.success('Bütçe bloke edildi.');
       await fetchAll();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Hata');
     } finally {
       setBusy(false);
     }
-  }, [budgetForm.amount, budgetForm.budget_account_id, fetchAll, id, token]);
+  }, [budgetForm.amount, budgetForm.budget_account_id, fetchAll, id, isSuperadmin, me?.role, schoolId, token]);
 
   const releaseBudget = useCallback(
     async (block_id?: string) => {
@@ -236,6 +288,8 @@ export default function DtFileDetailPage() {
           body: JSON.stringify(block_id ? { block_id } : {}),
         });
         await fetchAll();
+        if (block_id) toast.success('Blokaj kaldırıldı.');
+        else toast.success('Tüm blokeler kaldırıldı.');
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Hata');
       } finally {
@@ -279,6 +333,7 @@ export default function DtFileDetailPage() {
         body: JSON.stringify({ mode: 'per_item_lowest' }),
       });
       await fetchAll();
+      toast.success('Otomatik karar uygulandı (kalem bazında en düşük teklif).');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Hata');
     } finally {
@@ -363,21 +418,7 @@ export default function DtFileDetailPage() {
     try {
       await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/archive`, me?.role, schoolId), { token, method: 'POST' });
       await fetchAll();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
-    } finally {
-      setBusy(false);
-    }
-  }, [fetchAll, id, isSuperadmin, me?.role, schoolId, token]);
-
-  const unarchive = useCallback(async () => {
-    if (!token) return;
-    if (isSuperadmin && !schoolId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/unarchive`, me?.role, schoolId), { token, method: 'POST' });
-      await fetchAll();
+      toast.success('Dosya arşivlendi.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Hata');
     } finally {
@@ -418,6 +459,10 @@ export default function DtFileDetailPage() {
   const createQuote = useCallback(async () => {
     if (!token || !quoteVendorId) return;
     if (isSuperadmin && !schoolId) return;
+    if (!vendors.length) {
+      toast.error('Önce en az bir firma kaydı oluşturun (Firmalar menüsü).');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -429,12 +474,13 @@ export default function DtFileDetailPage() {
       setQuoteOpen(false);
       setQuoteVendorId('');
       await fetchAll();
+      toast.success('Teklif kaydı oluşturuldu.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Hata');
     } finally {
       setBusy(false);
     }
-  }, [fetchAll, id, isSuperadmin, me?.role, quoteVendorId, schoolId, token]);
+  }, [fetchAll, id, isSuperadmin, me?.role, quoteVendorId, schoolId, token, vendors.length]);
 
   const fetchQuoteItems = useCallback(
     async (qid: string) => {
@@ -470,8 +516,13 @@ export default function DtFileDetailPage() {
           method: 'POST',
           body: JSON.stringify({ dt_item_id: dtItemId, unit_price }),
         });
-        setQuoteItems((s) => ({ ...s, [qid]: undefined as any }));
+        setQuoteItems((s) => {
+          const next = { ...s };
+          delete next[qid];
+          return next;
+        });
         await fetchQuoteItems(qid);
+        toast.success('Birim fiyat kaydedildi.');
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Hata');
       } finally {
@@ -484,7 +535,28 @@ export default function DtFileDetailPage() {
   const recordPayment = useCallback(async () => {
     if (!token) return;
     if (isSuperadmin && !schoolId) return;
-    if (!paymentForm.amount.trim()) return;
+    if (!paymentForm.amount.trim()) {
+      toast.error('Ödeme tutarını girin.');
+      return;
+    }
+    const payAmt = Number(String(paymentForm.amount).replace(',', '.'));
+    if (!Number.isFinite(payAmt) || payAmt <= 0) {
+      toast.error('Tutar geçerli pozitif bir sayı olmalı.');
+      return;
+    }
+    if (dtRules?.require_quote_on_payment && !paymentForm.quote_id.trim()) {
+      toast.error('Platform kuralı: ödeme için teklif seçimi zorunlu.');
+      return;
+    }
+    const minNote = dtRules?.payment_note_min_length ?? 0;
+    if (minNote > 0 && paymentForm.note.trim().length < minNote) {
+      toast.error(`Ödeme notu en az ${minNote} karakter olmalı.`);
+      return;
+    }
+    if (dtRules?.require_budget_account_on_file && !file?.budgetAccountId) {
+      toast.error('Platform kuralı: dosyada bütçe hesabı atanmış olmalı.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -500,6 +572,7 @@ export default function DtFileDetailPage() {
         }),
       });
       setPaymentForm({ amount: '', quote_id: '', note: '', reference_no: '', paid_at: '' });
+      toast.success('Ödeme kaydı eklendi.');
       await fetchAll();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Hata');
@@ -507,7 +580,11 @@ export default function DtFileDetailPage() {
       setBusy(false);
     }
   }, [
+    dtRules?.payment_note_min_length,
+    dtRules?.require_budget_account_on_file,
+    dtRules?.require_quote_on_payment,
     fetchAll,
+    file?.budgetAccountId,
     id,
     isSuperadmin,
     me?.role,
@@ -601,7 +678,7 @@ export default function DtFileDetailPage() {
     <div className="space-y-3 text-xs">
       <Toolbar>
         <ToolbarHeading>
-          <ToolbarPageTitle className="text-base">DT Dosya</ToolbarPageTitle>
+          <ToolbarPageTitle className="text-base">Doğrudan temin dosyası</ToolbarPageTitle>
         </ToolbarHeading>
         {isSuperadmin ? (
           <ToolbarActions>
@@ -635,111 +712,251 @@ export default function DtFileDetailPage() {
                     {file.subject}
                   </CardTitle>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`px-2 py-1 rounded text-[10px] font-semibold ${
-                      file.status === 'draft' ? 'bg-slate-100 text-slate-800' :
-                      file.status === 'decision' ? 'bg-blue-100 text-blue-800' :
-                      file.status === 'awarded' ? 'bg-green-100 text-green-800' :
-                      'bg-purple-100 text-purple-800'
-                    }`}>
-                      {file.status.toUpperCase()}
+                    <span className={`px-2 py-1 rounded text-[10px] font-semibold ${dtFileStatusBadgeClass(file.status)}`}>
+                      {dtFileStatusLabel(file.status)}
                     </span>
                     <span className="text-[11px] text-muted-foreground">{file.year}</span>
                     <span className="text-[11px] text-muted-foreground">#{file.fileNo}</span>
-                    <span className="text-[11px] text-muted-foreground">{file.teminType}</span>
+                    <span className="text-[11px] font-medium text-foreground">{dtTeminTypeLabel(file.teminType)}</span>
                   </div>
                 </div>
                 <div className="flex gap-1">
-                  <Button variant="outline" size="sm" title="Arşivle" disabled={busy} onClick={archive}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    title="Arşivle"
+                    disabled={busy}
+                    onClick={() => setConfirmArchiveOpen(true)}
+                  >
                     <Archive className="size-4" />
                   </Button>
-                  <Button variant="outline" size="sm" title="Kopyala" disabled={busy}>
-                    <Copy className="size-4" />
-                  </Button>
+                  <Dialog open={copyOpen} onOpenChange={setCopyOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm" title="Dosyayı kopyala" disabled={busy}>
+                        <Copy className="size-4" />
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-lg" title="Dosyayı kopyala">
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <div className="text-[11px] text-muted-foreground">Hedef yıl (opsiyonel)</div>
+                            <Input value={copyForm.target_year} onChange={(e) => setCopyForm((s) => ({ ...s, target_year: e.target.value }))} />
+                          </div>
+                          <div className="space-y-1">
+                            <div className="text-[11px] text-muted-foreground">Yeni dosya no (opsiyonel)</div>
+                            <Input value={copyForm.file_no} onChange={(e) => setCopyForm((s) => ({ ...s, file_no: e.target.value }))} />
+                          </div>
+                        </div>
+                        <div className="flex justify-end gap-2 pt-2">
+                          <Button variant="outline" onClick={() => setCopyOpen(false)} disabled={busy}>
+                            Vazgeç
+                          </Button>
+                          <Button onClick={copyFile} disabled={busy}>
+                            Kopyala
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t">
                 <div className="space-y-1">
-                  <div className="text-[10px] uppercase font-semibold text-muted-foreground">Yaklaşık</div>
+                  <div className="text-[10px] uppercase font-semibold text-muted-foreground flex items-center gap-1">
+                    Yaklaşık maliyet
+                    <DtInfoHint title="Kalemler üzerinden hesaplanan tahmini toplam; onay belgesi ve piyasa araştırması ile tutarlı olmalı." />
+                  </div>
                   <div className="text-lg font-semibold">{file.approxTotal ?? '—'}</div>
                 </div>
                 <div className="space-y-1">
-                  <div className="text-[10px] uppercase font-semibold text-muted-foreground">Karar</div>
+                  <div className="text-[10px] uppercase font-semibold text-muted-foreground flex items-center gap-1">
+                    Karar tutarı
+                    <DtInfoHint title="İhale/karar belgesine yansıyan toplam tutar (kararlandıktan sonra)." />
+                  </div>
                   <div className="text-lg font-semibold">{file.decisionTotal ?? '—'}</div>
                 </div>
                 <div className="space-y-1">
-                  <div className="text-[10px] uppercase font-semibold text-muted-foreground">Ödenen</div>
-                  <div className="text-lg font-semibold text-green-600">{file.paymentTotal ?? '—'}</div>
+                  <div className="text-[10px] uppercase font-semibold text-muted-foreground flex items-center gap-1">
+                    Ödenen
+                    <DtInfoHint title="Bu dosyaya kayıtlı ödemelerin toplamı." />
+                  </div>
+                  <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">{file.paymentTotal ?? '—'}</div>
                 </div>
               </div>
             </CardHeader>
           </Card>
 
-          <div className="flex gap-1 border-b overflow-x-auto">
-            {[
-              { id: 'items', label: 'Kalemler', icon: ClipboardList },
-              { id: 'quotes', label: 'Teklifler', icon: FileText },
-              { id: 'budget', label: 'Bütçe', icon: Wallet },
-              { id: 'payments', label: 'Ödemeler', icon: Banknote },
-              { id: 'commission', label: 'Komisyon', icon: Users },
-              { id: 'docs', label: 'Belgeler', icon: Files },
-            ].map((tab: any) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  activeTab === tab.id
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <tab.icon className="size-4" />
-                {tab.label}
-              </button>
-            ))}
-            <div className="ml-auto flex items-center gap-1 pr-2">
-              <Dialog open={copyOpen} onOpenChange={setCopyOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="ghost" size="sm" disabled={busy}>
-                    <Copy className="size-4" />
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-lg">
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <div className="text-[11px] text-muted-foreground">Hedef yıl (opsiyonel)</div>
-                          <Input value={copyForm.target_year} onChange={(e) => setCopyForm((s) => ({ ...s, target_year: e.target.value }))} />
-                        </div>
-                        <div className="space-y-1">
-                          <div className="text-[11px] text-muted-foreground">Yeni dosya no (opsiyonel)</div>
-                          <Input value={copyForm.file_no} onChange={(e) => setCopyForm((s) => ({ ...s, file_no: e.target.value }))} />
-                        </div>
-                      </div>
-                      <div className="flex justify-end gap-2 pt-2">
-                        <Button variant="outline" onClick={() => setCopyOpen(false)} disabled={busy}>
-                          Vazgeç
-                        </Button>
-                        <Button onClick={copyFile} disabled={busy}>
-                          Kopyala
-                        </Button>
-                      </div>
-                    </div>
-                  </DialogContent>
-                </Dialog>
+          <Alert variant="info" message={DT_LEGAL_NOTICE} />
+
+          {dtRules?.platform_notice_tr?.trim() ? (
+            <Alert variant="warning" message={dtRules.platform_notice_tr.trim()} />
+          ) : null}
+
+          <div className="rounded-lg border border-border/80 bg-muted/10 p-1.5">
+            <div className="flex gap-1 overflow-x-auto">
+              {DT_DETAIL_TABS.map((tab) => {
+                const Icon = tabIcons[tab.id];
+                const active = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                    title={tab.shortHint}
+                    className={`flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium border-2 transition-colors whitespace-nowrap ${
+                      active ? tab.activeClass : tab.inactiveClass
+                    }`}
+                  >
+                    <Icon className="size-4 shrink-0 opacity-90" />
+                    {tab.label}
+                    <DtInfoHint title={tab.shortHint} className="opacity-70" />
+                  </button>
+                );
+              })}
             </div>
+            <p className="mt-2 px-2 text-[11px] text-muted-foreground border-t border-border/60 pt-2">{DT_SECTION_HINTS[activeTab]}</p>
           </div>
 
+          {activeTab === 'items' && (
           <Card>
             <CardHeader className="py-3">
               <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-sm">Teklifler</CardTitle>
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <PackageSearch className="size-4 text-emerald-600" />
+                  İhtiyaç listesi
+                  <DtInfoHint title={DT_SECTION_HINTS.items} />
+                </CardTitle>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Dialog open={addOpen} onOpenChange={setAddOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm" disabled={busy}>
+                        Kalem ekle
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-lg" title="Kalem ekle">
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <div className="text-[11px] text-muted-foreground flex items-center gap-1">
+                            Kalem adı
+                            <DtInfoHint title="Satın alınacak mal veya hizmetin kısa adı." />
+                          </div>
+                          <Input value={itemForm.name} onChange={(e) => setItemForm((s) => ({ ...s, name: e.target.value }))} />
+                        </div>
+                        <div className="space-y-1">
+                          <div className="text-[11px] text-muted-foreground">Teknik açıklama / şartname özeti</div>
+                          <textarea
+                            value={itemForm.spec}
+                            onChange={(e) => setItemForm((s) => ({ ...s, spec: e.target.value }))}
+                            className="min-h-[90px] w-full rounded-lg border border-input bg-background px-4 py-2 text-foreground transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:border-primary/30"
+                          />
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="space-y-1">
+                            <div className="text-[11px] text-muted-foreground">Miktar</div>
+                            <Input value={itemForm.qty} onChange={(e) => setItemForm((s) => ({ ...s, qty: e.target.value }))} />
+                          </div>
+                          <div className="space-y-1">
+                            <div className="text-[11px] text-muted-foreground">Birim</div>
+                            <Input value={itemForm.unit} onChange={(e) => setItemForm((s) => ({ ...s, unit: e.target.value }))} />
+                          </div>
+                          <div className="space-y-1">
+                            <div className="text-[11px] text-muted-foreground">KDV %</div>
+                            <Input value={itemForm.vat_rate} onChange={(e) => setItemForm((s) => ({ ...s, vat_rate: e.target.value }))} />
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="text-[11px] text-muted-foreground flex items-center gap-1">
+                            Tahmini birim fiyat (TL)
+                            <DtInfoHint title="Piyasa araştırması sonucu; KDV hariç veya kurumunuza göre — tutarlılığı kontrol edin." />
+                          </div>
+                          <Input value={itemForm.estimated_unit_price} onChange={(e) => setItemForm((s) => ({ ...s, estimated_unit_price: e.target.value }))} />
+                        </div>
+                        <div className="flex justify-end gap-2 pt-2">
+                          <Button variant="outline" onClick={() => setAddOpen(false)} disabled={busy}>
+                            Vazgeç
+                          </Button>
+                          <Button onClick={addItem} disabled={busy || !itemForm.name.trim()}>
+                            Kaydet
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || items.length === 0}
+                    onClick={() => setConfirmAutoAwardOpen(true)}
+                    title="Her kalem için en düşük birim fiyatlı teklifi seçer"
+                  >
+                    <Sparkles className="size-3.5 mr-1 inline" />
+                    Karar otomatik
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('ihtiyac_listesi')}>
+                    <FileDown className="size-3.5 mr-1 inline" />
+                    İhtiyaç listesi (DOCX)
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('karar')}>
+                    <FileDown className="size-3.5 mr-1 inline" />
+                    Karar (DOCX)
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {items.length ? (
+                <div className="table-x-scroll rounded-md border border-border text-xs">
+                  <table className="w-full min-w-[820px] text-left">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <th className="px-2 py-1.5">Kalem</th>
+                        <th className="px-2 py-1.5">Miktar</th>
+                        <th className="px-2 py-1.5">Birim</th>
+                        <th className="px-2 py-1.5">KDV</th>
+                        <th className="px-2 py-1.5">Tahmini BF</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {items.map((x) => (
+                        <tr key={x.id} className="hover:bg-muted/30">
+                          <td className="px-2 py-1">
+                            <div className="font-medium">{x.name}</div>
+                            {x.spec ? <div className="text-[11px] text-muted-foreground">{x.spec}</div> : null}
+                          </td>
+                          <td className="px-2 py-1">{x.qty}</td>
+                          <td className="px-2 py-1">{x.unit ?? '—'}</td>
+                          <td className="px-2 py-1">%{x.vatRate}</td>
+                          <td className="px-2 py-1">{x.estimatedUnitPrice ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="py-6 text-center text-[11px] text-muted-foreground">Henüz kalem yok. Teklif ve karar önce kalemleri tanımlayın.</p>
+              )}
+            </CardContent>
+          </Card>
+          )}
+
+          {activeTab === 'quotes' && (
+          <Card>
+            <CardHeader className="py-3">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <Handshake className="size-4 text-sky-600" />
+                  Teklifler
+                  <DtInfoHint title={DT_SECTION_HINTS.quotes} />
+                </CardTitle>
                 <Dialog open={quoteOpen} onOpenChange={setQuoteOpen}>
                   <DialogTrigger asChild>
                     <Button variant="outline" size="sm" disabled={busy}>
                       Teklif ekle
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="max-w-lg">
+                  <DialogContent className="max-w-lg" title="Yeni teklif kaydı">
                     <div className="space-y-3">
                       <div className="space-y-1">
                         <div className="text-[11px] text-muted-foreground">Firma</div>
@@ -781,13 +998,19 @@ export default function DtFileDetailPage() {
                           key={q.id}
                           type="button"
                           onClick={() => setActiveQuoteId(q.id)}
-                          className={`rounded-md border px-2 py-1 text-[11px] font-medium ${
+                          className={`rounded-md border px-2 py-1 text-[11px] font-medium flex flex-wrap items-center gap-1.5 ${
                             active
                               ? 'border-primary/40 bg-primary/5 text-primary'
                               : 'border-border bg-background hover:bg-muted/40'
                           }`}
                         >
-                          {v?.title ?? q.vendorId.slice(0, 8)}
+                          <span>{v?.title ?? q.vendorId.slice(0, 8)}</span>
+                          <span
+                            className={`rounded px-1 py-0.5 text-[9px] font-semibold border ${dtQuoteStatusChipClass(q.status)}`}
+                            title={dtQuoteStatusHint(q.status)}
+                          >
+                            {dtQuoteStatusLabel(q.status)}
+                          </span>
                         </button>
                       );
                     })}
@@ -847,11 +1070,17 @@ export default function DtFileDetailPage() {
               )}
             </CardContent>
           </Card>
+          )}
 
+          {activeTab === 'budget' && (
           <Card>
             <CardHeader className="py-3">
               <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-sm">Bütçe</CardTitle>
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <Landmark className="size-4 text-amber-600" />
+                  Bütçe bloke
+                  <DtInfoHint title={DT_SECTION_HINTS.budget} />
+                </CardTitle>
                 <div className="flex flex-wrap items-center gap-2">
                   <select
                     value={budgetForm.budget_account_id}
@@ -879,7 +1108,12 @@ export default function DtFileDetailPage() {
                   >
                     Bloke et
                   </Button>
-                  <Button variant="outline" size="sm" disabled={busy || budgetBlocks.length === 0} onClick={() => void releaseBudget()}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || budgetBlocks.length === 0}
+                    onClick={() => setConfirmReleaseAllOpen(true)}
+                  >
                     Blokeleri kaldır
                   </Button>
                 </div>
@@ -904,7 +1138,7 @@ export default function DtFileDetailPage() {
                           <tr key={b.id} className="hover:bg-muted/30">
                             <td className="px-2 py-1">{acc ? (acc.code ? `${acc.code} · ` : '') + acc.label : b.budgetAccountId.slice(0, 8)}</td>
                             <td className="px-2 py-1">{b.amount}</td>
-                            <td className="px-2 py-1">{b.status}</td>
+                            <td className="px-2 py-1">{dtBudgetBlockStatusLabel(b.status)}</td>
                             <td className="px-2 py-1 text-right">
                               <Button
                                 variant="outline"
@@ -926,17 +1160,16 @@ export default function DtFileDetailPage() {
               )}
             </CardContent>
           </Card>
+          )}
 
-          {dtRules?.platform_notice_tr?.trim() ? (
-            <Alert message={dtRules.platform_notice_tr.trim()} />
-          ) : null}
-
+          {activeTab === 'payments' && (
           <Card>
             <CardHeader className="py-3">
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <CardTitle className="flex items-center gap-2 text-sm">
-                  <Banknote className="size-4 text-primary" />
+                  <Banknote className="size-4 text-lime-700 dark:text-lime-300" />
                   Ödemeler
+                  <DtInfoHint title={DT_SECTION_HINTS.payments} />
                 </CardTitle>
                 {dtRules ? (
                   <p className="text-[10px] text-muted-foreground">
@@ -1068,11 +1301,17 @@ export default function DtFileDetailPage() {
               )}
             </CardContent>
           </Card>
+          )}
 
+          {activeTab === 'commission' && (
           <Card>
             <CardHeader className="py-3">
               <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-sm">Kabul Komisyonu</CardTitle>
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <Users className="size-4 text-violet-600" />
+                  Kabul komisyonu
+                  <DtInfoHint title={DT_SECTION_HINTS.commission} />
+                </CardTitle>
                 {commission ? (
                   <Dialog open={commissionDialogOpen} onOpenChange={setCommissionDialogOpen}>
                     <DialogTrigger asChild>
@@ -1194,11 +1433,17 @@ export default function DtFileDetailPage() {
               )}
             </CardContent>
           </Card>
+          )}
 
+          {activeTab === 'docs' && (
           <Card>
             <CardHeader className="py-3">
               <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-sm">Belgeler</CardTitle>
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <FileStack className="size-4 text-slate-600" />
+                  Belgeler
+                  <DtInfoHint title={DT_SECTION_HINTS.docs} />
+                </CardTitle>
                 <div className="flex flex-wrap items-center gap-2">
                   <select
                     value={docVendorId}
@@ -1251,7 +1496,7 @@ export default function DtFileDetailPage() {
                     <tbody className="divide-y divide-border">
                       {docs.map((d) => (
                         <tr key={d.id} className="hover:bg-muted/30">
-                          <td className="px-2 py-1">{d.docType}</td>
+                          <td className="px-2 py-1">{dtDocTypeLabel(d.docType)}</td>
                           <td className="px-2 py-1">{d.filename}</td>
                           <td className="px-2 py-1 text-right">
                             <Button variant="outline" size="sm" disabled={busy} onClick={() => void downloadDoc(d.id)}>
@@ -1268,129 +1513,81 @@ export default function DtFileDetailPage() {
               )}
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader className="py-3">
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-sm">İhtiyaç listesi</CardTitle>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Dialog open={addOpen} onOpenChange={setAddOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" size="sm" disabled={busy}>
-                        Kalem ekle
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-lg">
-                      <div className="space-y-3">
-                        <div className="space-y-1">
-                          <div className="text-[11px] text-muted-foreground">Kalem</div>
-                          <Input value={itemForm.name} onChange={(e) => setItemForm((s) => ({ ...s, name: e.target.value }))} />
-                        </div>
-                        <div className="space-y-1">
-                          <div className="text-[11px] text-muted-foreground">Açıklama</div>
-                          <textarea
-                            value={itemForm.spec}
-                            onChange={(e) => setItemForm((s) => ({ ...s, spec: e.target.value }))}
-                            className="min-h-[90px] w-full rounded-lg border border-input bg-background px-4 py-2 text-foreground transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:border-primary/30"
-                          />
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                          <div className="space-y-1">
-                            <div className="text-[11px] text-muted-foreground">Miktar</div>
-                            <Input value={itemForm.qty} onChange={(e) => setItemForm((s) => ({ ...s, qty: e.target.value }))} />
-                          </div>
-                          <div className="space-y-1">
-                            <div className="text-[11px] text-muted-foreground">Birim</div>
-                            <Input value={itemForm.unit} onChange={(e) => setItemForm((s) => ({ ...s, unit: e.target.value }))} />
-                          </div>
-                          <div className="space-y-1">
-                            <div className="text-[11px] text-muted-foreground">KDV</div>
-                            <Input value={itemForm.vat_rate} onChange={(e) => setItemForm((s) => ({ ...s, vat_rate: e.target.value }))} />
-                          </div>
-                        </div>
-                        <div className="space-y-1">
-                          <div className="text-[11px] text-muted-foreground">Tahmini birim fiyat</div>
-                          <Input value={itemForm.estimated_unit_price} onChange={(e) => setItemForm((s) => ({ ...s, estimated_unit_price: e.target.value }))} />
-                        </div>
-                        <div className="flex justify-end gap-2 pt-2">
-                          <Button variant="outline" onClick={() => setAddOpen(false)} disabled={busy}>
-                            Vazgeç
-                          </Button>
-                          <Button onClick={addItem} disabled={busy || !itemForm.name.trim()}>
-                            Kaydet
-                          </Button>
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={autoAward}
-                    className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium hover:bg-muted/40 disabled:opacity-60"
-                  >
-                    <Sparkles className="size-3.5" />
-                    Karar otomatik
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => generateDoc('ihtiyac_listesi')}
-                    className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium hover:bg-muted/40 disabled:opacity-60"
-                  >
-                    <FileDown className="size-3.5" />
-                    İhtiyaç listesi (DOCX)
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => generateDoc('karar')}
-                    className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium hover:bg-muted/40 disabled:opacity-60"
-                  >
-                    <FileDown className="size-3.5" />
-                    Karar (DOCX)
-                  </button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-0">
-              {items.length ? (
-                <div className="table-x-scroll rounded-md border border-border text-xs">
-                  <table className="w-full min-w-[820px] text-left">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        <th className="px-2 py-1.5">Kalem</th>
-                        <th className="px-2 py-1.5">Miktar</th>
-                        <th className="px-2 py-1.5">Birim</th>
-                        <th className="px-2 py-1.5">KDV</th>
-                        <th className="px-2 py-1.5">Tahmini BF</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {items.map((x) => (
-                        <tr key={x.id} className="hover:bg-muted/30">
-                          <td className="px-2 py-1">
-                            <div className="font-medium">{x.name}</div>
-                            {x.spec ? <div className="text-[11px] text-muted-foreground">{x.spec}</div> : null}
-                          </td>
-                          <td className="px-2 py-1">{x.qty}</td>
-                          <td className="px-2 py-1">{x.unit ?? '—'}</td>
-                          <td className="px-2 py-1">%{x.vatRate}</td>
-                          <td className="px-2 py-1">{x.estimatedUnitPrice ?? '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="py-6 text-center text-[11px] text-muted-foreground">Kalem yok.</p>
-              )}
-            </CardContent>
-          </Card>
+          )}
         </>
       ) : (
         <p className="py-10 text-center text-[11px] text-muted-foreground">Dosya bulunamadı.</p>
       )}
+
+      <Dialog open={confirmArchiveOpen} onOpenChange={setConfirmArchiveOpen}>
+        <DialogContent title="Dosyayı arşive al">
+          <p className="text-sm text-muted-foreground">
+            Arşivlenen dosya varsayılan listede gizlenir. Arşiv dahil filtresiyle tekrar bulunabilir.
+          </p>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button type="button" variant="outline" onClick={() => setConfirmArchiveOpen(false)} disabled={busy}>
+              Vazgeç
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={busy}
+              onClick={async () => {
+                setConfirmArchiveOpen(false);
+                await archive();
+              }}
+            >
+              Arşivle
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmReleaseAllOpen} onOpenChange={setConfirmReleaseAllOpen}>
+        <DialogContent title="Tüm bütçe blokelerini kaldır">
+          <p className="text-sm text-muted-foreground">
+            Bu dosyaya ait tüm aktif blokeler serbest bırakılır. Devam etmeden önce mali işler biriminizle uyumlu olduğundan emin olun.
+          </p>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button type="button" variant="outline" onClick={() => setConfirmReleaseAllOpen(false)} disabled={busy}>
+              Vazgeç
+            </Button>
+            <Button
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                setConfirmReleaseAllOpen(false);
+                await releaseBudget();
+              }}
+            >
+              Tümünü kaldır
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmAutoAwardOpen} onOpenChange={setConfirmAutoAwardOpen}>
+        <DialogContent title="Otomatik karar">
+          <p className="text-sm text-muted-foreground">
+            Her kalem için girilmiş teklif fiyatları arasından en düşük birim fiyatı kabul olarak işaretlenir. Mevzuat ve kurum içi karar sürecinize aykırı olmadığını kontrol edin.
+          </p>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button type="button" variant="outline" onClick={() => setConfirmAutoAwardOpen(false)} disabled={busy}>
+              Vazgeç
+            </Button>
+            <Button
+              type="button"
+              disabled={busy || items.length === 0}
+              onClick={async () => {
+                setConfirmAutoAwardOpen(false);
+                await autoAward();
+              }}
+            >
+              Uygula
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

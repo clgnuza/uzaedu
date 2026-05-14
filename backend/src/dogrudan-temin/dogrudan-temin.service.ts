@@ -53,6 +53,7 @@ import {
   AddDtCommissionMemberDto,
 } from './dto/dt.dto';
 import { AppConfigService } from '../app-config/app-config.service';
+import { dtFileStatusTr, dtTeminTypeTr } from './dt-temin-labels';
 import { DtPayment } from './entities/dt-payment.entity';
 import { DtMaterialLibrary } from './entities/dt-material-library.entity';
 import { DtMaterialCategory } from './entities/dt-material-category.entity';
@@ -850,16 +851,40 @@ export class DogrudanTeminService {
     return { download_url: downloadUrl, filename };
   }
 
+  private registryIncludeArchived(q: DtRegistryReportDto): boolean {
+    const v = q.include_archived;
+    return v === '1' || v === 'true' || v === 'yes';
+  }
+
   async registryReport(schoolId: string, q: DtRegistryReportDto) {
+    const includeArchived = this.registryIncludeArchived(q);
+    const summary = await this.registrySummaryByType(schoolId, q, includeArchived);
+    const files = await this.registryLedgerFiles(schoolId, q, includeArchived);
+    const payments = await this.registryLedgerPayments(schoolId, q, includeArchived);
+    return {
+      year: q.year,
+      month: q.month ?? null,
+      include_archived: includeArchived,
+      /** @deprecated kullanın: summary */
+      items: summary,
+      summary,
+      files,
+      payments,
+    };
+  }
+
+  private async registrySummaryByType(schoolId: string, q: DtRegistryReportDto, includeArchived: boolean) {
     const qb = this.fileRepo.createQueryBuilder('f');
     qb.where('f.schoolId = :sid', { sid: schoolId }).andWhere('f.year = :y', { y: q.year });
     if (q.month) {
       qb.andWhere('EXTRACT(MONTH FROM f.createdAt) = :m', { m: q.month });
     }
+    if (!includeArchived) qb.andWhere('f.archivedAt IS NULL');
     qb.select('f.teminType', 'temin_type')
       .addSelect('COUNT(*)', 'count')
       .addSelect('COALESCE(SUM(COALESCE(f.approxTotal, 0)),0)', 'approx_total')
       .addSelect('COALESCE(SUM(COALESCE(f.decisionTotal, 0)),0)', 'decision_total')
+      .addSelect('COALESCE(SUM(COALESCE(f.paymentTotal, 0)),0)', 'payment_total')
       .groupBy('f.teminType')
       .orderBy('f.teminType', 'ASC');
     const rows = await qb.getRawMany<{
@@ -867,34 +892,193 @@ export class DogrudanTeminService {
       count: string;
       approx_total: string;
       decision_total: string;
+      payment_total: string;
     }>();
-    return {
-      year: q.year,
-      month: q.month ?? null,
-      items: rows.map((r) => ({
-        temin_type: r.temin_type,
-        count: Number(r.count) || 0,
-        approx_total: Number(r.approx_total) || 0,
-        decision_total: Number(r.decision_total) || 0,
-      })),
-    };
+    return rows.map((r) => ({
+      temin_type: r.temin_type,
+      temin_label: dtTeminTypeTr(r.temin_type),
+      count: Number(r.count) || 0,
+      approx_total: Number(r.approx_total) || 0,
+      decision_total: Number(r.decision_total) || 0,
+      payment_total: Number(r.payment_total) || 0,
+    }));
+  }
+
+  private async registryLedgerFiles(schoolId: string, q: DtRegistryReportDto, includeArchived: boolean) {
+    const qb = this.fileRepo
+      .createQueryBuilder('f')
+      .innerJoin('schools', 'sch', 'sch.id = f.schoolId')
+      .leftJoin('dt_budget_accounts', 'b', 'b.id = f.budgetAccountId AND b.schoolId = f.schoolId')
+      .where('f.schoolId = :sid', { sid: schoolId })
+      .andWhere('f.year = :y', { y: q.year });
+    if (q.month) {
+      qb.andWhere('EXTRACT(MONTH FROM f.createdAt) = :m', { m: q.month });
+    }
+    if (!includeArchived) qb.andWhere('f.archivedAt IS NULL');
+    qb.orderBy('f.createdAt', 'DESC')
+      .select('sch.name', 'school_name')
+      .addSelect('f.year', 'year')
+      .addSelect('f.fileNo', 'file_no')
+      .addSelect('f.subject', 'subject')
+      .addSelect('f.teminType', 'temin_code')
+      .addSelect('f.status', 'status_code')
+      .addSelect('f.approxTotal', 'approx_total')
+      .addSelect('f.decisionTotal', 'decision_total')
+      .addSelect('f.paymentTotal', 'payment_total')
+      .addSelect('b.code', 'budget_code')
+      .addSelect('b.label', 'budget_label')
+      .addSelect('f.createdAt', 'created_at')
+      .addSelect('f.archivedAt', 'archived_at');
+    const rows = await qb.getRawMany<{
+      school_name: string;
+      year: string;
+      file_no: string;
+      subject: string;
+      temin_code: string;
+      status_code: string;
+      approx_total: string | null;
+      decision_total: string | null;
+      payment_total: string | null;
+      budget_code: string | null;
+      budget_label: string | null;
+      created_at: Date;
+      archived_at: Date | null;
+    }>();
+    return rows.map((r) => ({
+      school_name: r.school_name,
+      year: Number(r.year) || q.year,
+      file_no: r.file_no,
+      subject: r.subject,
+      temin_code: r.temin_code,
+      temin_label: dtTeminTypeTr(r.temin_code),
+      status_code: r.status_code,
+      status_label: dtFileStatusTr(r.status_code),
+      approx_total: Number(r.approx_total) || 0,
+      decision_total: Number(r.decision_total) || 0,
+      payment_total: Number(r.payment_total) || 0,
+      budget_code: r.budget_code,
+      budget_label: r.budget_label,
+      created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+      archived_at: r.archived_at ? (r.archived_at instanceof Date ? r.archived_at.toISOString() : String(r.archived_at)) : null,
+    }));
+  }
+
+  private async registryLedgerPayments(schoolId: string, q: DtRegistryReportDto, includeArchived: boolean) {
+    const qb = this.paymentRepo
+      .createQueryBuilder('p')
+      .innerJoin('dt_files', 'f', 'f.id = p.dt_file_id')
+      .leftJoin('dt_quotes', 'qt', 'qt.id = p.quote_id')
+      .leftJoin('dt_vendors', 'v', 'v.id = qt.vendor_id')
+      .innerJoin('schools', 'sch', 'sch.id = f.schoolId')
+      .where('p.schoolId = :sid', { sid: schoolId })
+      .andWhere('f.year = :y', { y: q.year });
+    if (q.month) {
+      qb.andWhere('EXTRACT(MONTH FROM p.paidAt) = :m', { m: q.month });
+    }
+    if (!includeArchived) qb.andWhere('f.archivedAt IS NULL');
+    qb.orderBy('p.paidAt', 'DESC')
+      .select('sch.name', 'school_name')
+      .addSelect('f.year', 'year')
+      .addSelect('f.fileNo', 'file_no')
+      .addSelect('f.subject', 'file_subject')
+      .addSelect('p.paidAt', 'paid_at')
+      .addSelect('p.amount', 'amount')
+      .addSelect('p.referenceNo', 'reference_no')
+      .addSelect('p.note', 'note')
+      .addSelect('v.title', 'vendor_title');
+    const rows = await qb.getRawMany<{
+      school_name: string;
+      year: string;
+      file_no: string;
+      file_subject: string;
+      paid_at: Date;
+      amount: string;
+      reference_no: string | null;
+      note: string | null;
+      vendor_title: string | null;
+    }>();
+    return rows.map((r) => ({
+      school_name: r.school_name,
+      year: Number(r.year) || q.year,
+      file_no: r.file_no,
+      file_subject: r.file_subject,
+      paid_at: r.paid_at instanceof Date ? r.paid_at.toISOString() : String(r.paid_at),
+      amount: Number(r.amount) || 0,
+      reference_no: r.reference_no,
+      note: r.note,
+      vendor_title: r.vendor_title,
+    }));
   }
 
   async registryReportXlsx(schoolId: string, q: DtRegistryReportDto) {
     const data = await this.registryReport(schoolId, q);
-    const rows = (data.items ?? []).map((x: any) => ({
-      year: data.year,
-      month: data.month ?? '',
-      temin_type: x.temin_type,
-      count: x.count,
-      approx_total: x.approx_total,
-      decision_total: x.decision_total,
-    }));
-    const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ year: data.year, month: data.month ?? '', temin_type: '', count: 0, approx_total: 0, decision_total: 0 }]);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'dt_kayit_formu');
+
+    const ozet = (data.summary as Array<Record<string, unknown>>).map((x) => ({
+      Yıl: data.year,
+      'Ay (filtre)': data.month ?? '',
+      'Temin kodu': x.temin_type,
+      'Temin açıklaması': x.temin_label,
+      'Dosya adedi': x.count,
+      'Yaklaşık toplam (TL)': x.approx_total,
+      'Karar toplamı (TL)': x.decision_total,
+      'Ödenen toplam (TL)': x.payment_total,
+    }));
+    const wsOzet = XLSX.utils.json_to_sheet(
+      ozet.length ? ozet : [{ Yıl: data.year, 'Ay (filtre)': data.month ?? '', Not: 'Kayıt yok' }],
+    );
+    XLSX.utils.book_append_sheet(wb, wsOzet, 'Ozet');
+
+    const dosyaSatirlari = (data.files as Array<Record<string, unknown>>).map((r) => ({
+      'Okul': r.school_name,
+      'Yıl': r.year,
+      'Dosya no': r.file_no,
+      'Konu': r.subject,
+      'Temin kodu': r.temin_code,
+      'Temin': r.temin_label,
+      'Durum kodu': r.status_code,
+      'Durum': r.status_label,
+      'Yaklaşık (TL)': r.approx_total,
+      'Karar (TL)': r.decision_total,
+      'Ödenen (TL)': r.payment_total,
+      'Ekonomik kod': r.budget_code ?? '',
+      'Bütçe hesabı': r.budget_label ?? '',
+      'Kayıt tarihi': r.created_at,
+      'Arşiv': r.archived_at ? 'Evet' : 'Hayır',
+    }));
+    const wsDosya = XLSX.utils.json_to_sheet(
+      dosyaSatirlari.length ? dosyaSatirlari : [{ Not: 'Bu dönemde dosya yok' }],
+    );
+    XLSX.utils.book_append_sheet(wb, wsDosya, 'Dosya_satirlari');
+
+    const odemeSatirlari = (data.payments as Array<Record<string, unknown>>).map((r) => ({
+      'Okul': r.school_name,
+      'Yıl': r.year,
+      'Dosya no': r.file_no,
+      'Konu': r.file_subject,
+      'Ödeme tarihi': r.paid_at,
+      'Tutar (TL)': r.amount,
+      'Referans no': r.reference_no ?? '',
+      'Açıklama': r.note ?? '',
+      'Firma (teklif)': r.vendor_title ?? '',
+    }));
+    const wsOdeme = XLSX.utils.json_to_sheet(
+      odemeSatirlari.length ? odemeSatirlari : [{ Not: 'Bu dönemde ödeme yok' }],
+    );
+    XLSX.utils.book_append_sheet(wb, wsOdeme, 'Odeme_satirlari');
+
+    const meta = [
+      { Alan: 'Hazırlayan', Değer: 'Öğretmen Pro — Doğrudan temin modülü' },
+      { Alan: 'Not', Değer: 'HMB Harcama Yönetim Sistemi (HYS) sütun eşlemesi kurumunuza özeldir; bu dosyayı mutemet kontrolüne sunun.' },
+      { Alan: 'Yıl', Değer: data.year },
+      { Alan: 'Ay filtresi', Değer: data.month ?? 'Tümü' },
+      { Alan: 'Arşiv dahil', Değer: data.include_archived ? 'Evet' : 'Hayır' },
+    ];
+    const wsMeta = XLSX.utils.json_to_sheet(meta);
+    XLSX.utils.book_append_sheet(wb, wsMeta, 'Aciklama');
+
     const out = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
-    const filename = `DT-kayit-formu-${data.year}${data.month ? '-' + String(data.month).padStart(2, '0') : ''}.xlsx`;
+    const filename = `DT-mutemet-${data.year}${data.month ? '-' + String(data.month).padStart(2, '0') : ''}.xlsx`;
     const key = `dogrudan_temin/generated/${uuidv4()}-kayit-formu.xlsx`;
     await this.uploadService.uploadBuffer(
       key,

@@ -289,6 +289,11 @@ export class DtRegistryReportDto {
   @Min(1)
   @Max(12)
   month?: number;
+
+  /** Arşivlenmiş dosyaları da dahil et (mutemet yıllık denetim) */
+  @IsOptional()
+  @IsIn(['0', '1', 'true', 'false', 'yes', 'no'])
+  include_archived?: string;
 }
 
 export class RecordDtPaymentDto {
