@@ -10,7 +10,7 @@ import { Alert } from '@/components/ui/alert';
 import { ForbiddenView } from '@/components/errors/forbidden-view';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { BarChart3, TrendingUp, Wallet, FileText } from 'lucide-react';
-import { dtFileStatusBadgeClass, dtFileStatusLabel, dtTeminTypeLabel, DT_LEGAL_NOTICE } from '@/lib/dt-ui';
+import { dtFileStatusBadgeClass, dtFileStatusLabel, dtTeminTypeLabel, DT_LEGAL_NOTICE, dtFormatNumberTr } from '@/lib/dt-ui';
 
 type DashboardData = {
   year: number;
@@ -96,7 +96,7 @@ export default function DtDashboardPage() {
                 <div className="flex items-start justify-between">
                   <div>
                     <p className="text-xs text-muted-foreground">Yaklaşık Toplam</p>
-                    <p className="text-lg font-bold">{parseFloat(data.summary.approx_total).toLocaleString('tr-TR')}</p>
+                    <p className="text-lg font-bold">{dtFormatNumberTr(data.summary.approx_total)}</p>
                     <p className="text-xs text-muted-foreground">₺</p>
                   </div>
                   <TrendingUp className="size-5 text-blue-500" />
@@ -109,7 +109,7 @@ export default function DtDashboardPage() {
                 <div className="flex items-start justify-between">
                   <div>
                     <p className="text-xs text-muted-foreground">Karar Toplam</p>
-                    <p className="text-lg font-bold">{parseFloat(data.summary.decision_total).toLocaleString('tr-TR')}</p>
+                    <p className="text-lg font-bold">{dtFormatNumberTr(data.summary.decision_total)}</p>
                     <p className="text-xs text-muted-foreground">₺</p>
                   </div>
                   <BarChart3 className="size-5 text-green-500" />
@@ -122,7 +122,7 @@ export default function DtDashboardPage() {
                 <div className="flex items-start justify-between">
                   <div>
                     <p className="text-xs text-muted-foreground">Ödenen</p>
-                    <p className="text-lg font-bold">{parseFloat(data.summary.payment_total).toLocaleString('tr-TR')}</p>
+                    <p className="text-lg font-bold">{dtFormatNumberTr(data.summary.payment_total)}</p>
                     <p className="text-xs text-muted-foreground">₺</p>
                   </div>
                   <Wallet className="size-5 text-amber-500" />
@@ -134,7 +134,7 @@ export default function DtDashboardPage() {
               <CardContent className="pt-4">
                 <div>
                   <p className="text-xs text-muted-foreground">Bekleyen Ödeme</p>
-                  <p className="text-lg font-bold text-red-600">{parseFloat(data.summary.pending_payment).toLocaleString('tr-TR')}</p>
+                  <p className="text-lg font-bold text-red-600">{dtFormatNumberTr(data.summary.pending_payment)}</p>
                   <p className="text-xs text-muted-foreground">₺</p>
                 </div>
               </CardContent>
@@ -164,9 +164,9 @@ export default function DtDashboardPage() {
                         <tr key={item.temin_type} className="hover:bg-muted/30">
                           <td className="px-2 py-1 font-medium">{dtTeminTypeLabel(item.temin_type)}</td>
                           <td className="px-2 py-1 text-right">{item.count}</td>
-                          <td className="px-2 py-1 text-right">{parseFloat(item.approx_total).toLocaleString('tr-TR')}</td>
-                          <td className="px-2 py-1 text-right">{parseFloat(item.decision_total).toLocaleString('tr-TR')}</td>
-                          <td className="px-2 py-1 text-right text-green-600">{parseFloat(item.payment_total).toLocaleString('tr-TR')}</td>
+                          <td className="px-2 py-1 text-right">{dtFormatNumberTr(item.approx_total)}</td>
+                          <td className="px-2 py-1 text-right">{dtFormatNumberTr(item.decision_total)}</td>
+                          <td className="px-2 py-1 text-right text-green-600">{dtFormatNumberTr(item.payment_total)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -222,7 +222,7 @@ export default function DtDashboardPage() {
                       {data.recent_payments.map((payment) => (
                         <tr key={payment.id} className="hover:bg-muted/30">
                           <td className="px-2 py-1">{new Date(payment.paid_at).toLocaleDateString('tr-TR')}</td>
-                          <td className="px-2 py-1 font-medium">{parseFloat(payment.amount).toLocaleString('tr-TR')} ₺</td>
+                          <td className="px-2 py-1 font-medium">{dtFormatNumberTr(payment.amount)} ₺</td>
                         </tr>
                       ))}
                     </tbody>

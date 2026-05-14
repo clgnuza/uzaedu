@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, In, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import * as XLSX from 'xlsx';
-import PDFDocument from 'pdfkit';
+import PDFDocument = require('pdfkit');
 import {
   AlignmentType,
   BorderStyle,
@@ -216,13 +216,10 @@ export class DogrudanTeminService {
       dtFileId,
       name: dto.name.trim(),
       spec: dto.spec?.trim() || null,
-      qty: dto.qty != null ? String(dto.qty).trim().replace(',', '.') : '1',
+      qty: this.parseQtyStored(dto.qty ?? '1', '1'),
       unit: dto.unit?.trim() || null,
       vatRate: typeof dto.vat_rate === 'number' ? dto.vat_rate : 20,
-      estimatedUnitPrice:
-        dto.estimated_unit_price != null && String(dto.estimated_unit_price).trim()
-          ? String(dto.estimated_unit_price).trim().replace(',', '.')
-          : null,
+      estimatedUnitPrice: this.parseAmountOrNull(dto.estimated_unit_price as unknown),
       estimatedTotal: null,
     });
     void userId;
@@ -253,14 +250,11 @@ export class DogrudanTeminService {
     if (!row) throw new NotFoundException({ code: 'DT_ITEM_NOT_FOUND' });
     if (dto.name !== undefined) row.name = dto.name.trim();
     if (dto.spec !== undefined) row.spec = dto.spec?.trim() || null;
-    if (dto.qty !== undefined) row.qty = String(dto.qty).trim().replace(',', '.');
+    if (dto.qty !== undefined) row.qty = this.parseQtyStored(dto.qty, row.qty || '1');
     if (dto.unit !== undefined) row.unit = dto.unit?.trim() || null;
     if (dto.vat_rate !== undefined) row.vatRate = dto.vat_rate;
     if (dto.estimated_unit_price !== undefined) {
-      row.estimatedUnitPrice =
-        dto.estimated_unit_price != null && String(dto.estimated_unit_price).trim()
-          ? String(dto.estimated_unit_price).trim().replace(',', '.')
-          : null;
+      row.estimatedUnitPrice = this.parseAmountOrNull(dto.estimated_unit_price as unknown);
     }
     void userId;
     const saved = await this.itemRepo.save(row);
@@ -367,7 +361,7 @@ export class DogrudanTeminService {
       label: dto.label.trim(),
       allocated:
         dto.allocated != null && String(dto.allocated).trim()
-          ? String(dto.allocated).trim().replace(',', '.')
+          ? (this.toNum(dto.allocated) ?? 0).toFixed(6)
           : '0',
       blocked: '0',
       spent: '0',
@@ -385,7 +379,9 @@ export class DogrudanTeminService {
       select: ['id', 'blocked'],
     });
     if (!acc) throw new NotFoundException({ code: 'DT_BUDGET_NOT_FOUND' });
-    const amount = String(dto.amount).trim().replace(',', '.');
+    const amt = this.parseAmountRequired(dto.amount, 'DT_BLOCK_AMOUNT');
+    if (amt <= 0) throw new BadRequestException({ code: 'DT_BLOCK_AMOUNT', message: 'Tutar 0\'dan büyük olmalıdır.' });
+    const amount = amt.toFixed(6);
     const block = await this.blockRepo.save(
       this.blockRepo.create({
         schoolId,
@@ -399,7 +395,7 @@ export class DogrudanTeminService {
         updatedByUserId: userId,
       }),
     );
-    const nextBlocked = (Number(acc.blocked) || 0) + (Number(amount) || 0);
+    const nextBlocked = (this.toNum(acc.blocked) ?? 0) + amt;
     acc.blocked = nextBlocked.toFixed(6);
     acc.updatedByUserId = userId;
     await this.budgetRepo.save(acc);
@@ -424,7 +420,7 @@ export class DogrudanTeminService {
     if (blocks.length === 0) return { ok: true, released: 0 };
 
     const byAcc = new Map<string, number>();
-    for (const b of blocks) byAcc.set(b.budgetAccountId, (byAcc.get(b.budgetAccountId) ?? 0) + (Number(b.amount) || 0));
+    for (const b of blocks) byAcc.set(b.budgetAccountId, (byAcc.get(b.budgetAccountId) ?? 0) + (this.toNum(b.amount) ?? 0));
 
     for (const b of blocks) {
       b.status = 'released';
@@ -437,7 +433,7 @@ export class DogrudanTeminService {
     const accs = accIds.length ? await this.budgetRepo.find({ where: { id: (accIds as any), schoolId } as any }) : [];
     for (const acc of accs) {
       const dec = byAcc.get(acc.id) ?? 0;
-      const next = (Number(acc.blocked) || 0) - dec;
+      const next = (this.toNum(acc.blocked) ?? 0) - dec;
       acc.blocked = Math.max(0, next).toFixed(6);
       acc.updatedByUserId = userId;
     }
@@ -466,8 +462,9 @@ export class DogrudanTeminService {
     const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId } });
     if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
 
-    const amt = Number(String(dto.amount).trim().replace(',', '.'));
-    if (!Number.isFinite(amt) || amt <= 0) throw new BadRequestException({ code: 'DT_PAYMENT_AMOUNT' });
+    const amt = this.parseAmountRequired(dto.amount, 'DT_PAYMENT_AMOUNT');
+    if (amt <= 0) throw new BadRequestException({ code: 'DT_PAYMENT_AMOUNT', message: 'Tutar 0\'dan büyük olmalıdır.' });
+    if (amt <= 0) throw new BadRequestException({ code: 'DT_PAYMENT_AMOUNT' });
 
     if (rules.require_budget_account_on_file && !file.budgetAccountId?.trim()) {
       throw new BadRequestException({ code: 'DT_RULE_BUDGET_REQUIRED' });
@@ -518,7 +515,7 @@ export class DogrudanTeminService {
         select: ['id', 'spent'],
       });
       if (acc) {
-        const nextSpent = (Number(acc.spent) || 0) + amt;
+        const nextSpent = (this.toNum(acc.spent) ?? 0) + amt;
         acc.spent = nextSpent.toFixed(6);
         acc.updatedByUserId = userId;
         await this.budgetRepo.save(acc);
@@ -741,20 +738,26 @@ export class DogrudanTeminService {
   }
 
   async listDocs(schoolId: string, dtFileId: string) {
-    const items = await this.docRepo.find({
+    const rows = await this.docRepo.find({
       where: { schoolId, dtFileId },
       order: { createdAt: 'DESC' },
-      take: 50,
+      take: 80,
     });
-    return {
-      items: items.map((x) => ({
+    const seen = new Set<string>();
+    const items: Array<{ id: string; docType: string; fileFormat: string; filename: string; createdAt: Date }> = [];
+    for (const x of rows) {
+      const k = `${x.docType}\t${x.fileFormat}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      items.push({
         id: x.id,
         docType: x.docType,
         fileFormat: x.fileFormat,
         filename: x.filename,
         createdAt: x.createdAt,
-      })),
-    };
+      });
+    }
+    return { items };
   }
 
   async getDocDownloadUrl(schoolId: string, id: string) {
@@ -786,6 +789,9 @@ export class DogrudanTeminService {
     const suffix = filenameExtra ? `-${filenameExtra}` : '';
     const filename =
       `${filenameBase}${suffix}`.replace(/[^\w\u00C0-\u024F\s.-]/gi, '').replace(/\s+/g, '-').slice(0, 180) + `.${ext}`;
+    if (!filenameExtra) {
+      await this.docRepo.delete({ schoolId, dtFileId, docType, fileFormat });
+    }
     await this.docRepo.save(
       this.docRepo.create({
         schoolId,
@@ -973,8 +979,51 @@ export class DogrudanTeminService {
     if (typeof v === 'number') return Number.isFinite(v) ? v : null;
     const s = String(v).trim();
     if (!s) return null;
-    const n = Number(s.replace(/\./g, '').replace(',', '.').replace(/[^\d.-]/g, ''));
+    const hasComma = s.includes(',');
+    const hasDot = s.includes('.');
+    let norm = s.replace(/\s/g, '').replace(/[^\d.,-]/g, '');
+    if (hasComma && hasDot) norm = norm.replace(/\./g, '').replace(',', '.');
+    else if (hasComma) norm = norm.replace(',', '.');
+    const n = Number(norm);
     return Number.isFinite(n) ? n : null;
+  }
+
+  private parseAmountRequired(raw: unknown, errCode: string): number {
+    const n = this.toNum(raw);
+    if (n == null || !Number.isFinite(n)) {
+      throw new BadRequestException({ code: errCode, message: 'Geçersiz tutar veya sayı formatı.' });
+    }
+    return n;
+  }
+
+  /** Boş → null; doluysa TR/EN ondalık parse, veritabanına 6 hane */
+  private parseAmountOrNull(raw: unknown | null | undefined): string | null {
+    if (raw == null) return null;
+    const t = String(raw).trim();
+    if (!t) return null;
+    const n = this.toNum(t);
+    if (n == null) throw new BadRequestException({ code: 'DT_INVALID_AMOUNT', message: 'Geçersiz tutar formatı.' });
+    return n.toFixed(6);
+  }
+
+  private parseQtyStored(raw: unknown, fallback: string): string {
+    const n = this.toNum(raw);
+    if (n != null) return String(n);
+    const t = String(raw ?? '').trim();
+    if (!t) return fallback;
+    throw new BadRequestException({ code: 'DT_INVALID_QTY', message: 'Geçersiz miktar formatı.' });
+  }
+
+  /** Aynı firmadan birden fazla «araştırma» teklifi sütunların kaymasına yol açmasın; ilk kayıt kullanılır. */
+  private dedupeMarketResearchQuotes(quotes: DtQuote[]): DtQuote[] {
+    const seen = new Set<string>();
+    const out: DtQuote[] = [];
+    for (const q of quotes) {
+      if (seen.has(q.vendorId)) continue;
+      seen.add(q.vendorId);
+      out.push(q);
+    }
+    return out;
   }
 
   private fmtTry(v: unknown): string {
@@ -1072,21 +1121,23 @@ export class DogrudanTeminService {
       ...(comm.chairmanUserId ? [comm.chairmanUserId] : []),
       ...members.map((m) => m.userId),
     ];
-    const names = await this.loadUserDisplayNames(ids);
+    const prof = await this.loadUserCommissionProfile(ids);
 
     const out: Array<{ name: string; title?: string; role?: string }> = [];
     if (comm.chairmanUserId) {
+      const p = prof.get(comm.chairmanUserId);
       out.push({
         role: 'Başkan',
-        name: names.get(comm.chairmanUserId) ?? comm.chairmanUserId,
-        title: 'Komisyon Başkanı',
+        name: p?.display ?? comm.chairmanUserId,
+        title: p?.unvan ?? 'Komisyon Başkanı',
       });
     }
     for (const m of members) {
+      const p = prof.get(m.userId);
       out.push({
         role: (m.dutyLabel ?? m.title ?? 'Üye') as string,
-        name: names.get(m.userId) ?? m.userId,
-        title: undefined,
+        name: p?.display ?? m.userId,
+        title: p?.unvan,
       });
     }
     return out;
@@ -1098,51 +1149,16 @@ export class DogrudanTeminService {
     file: DtFile,
   ): Promise<Paragraph[]> {
     const settings = await this.procurementSettingsRepo.findOne({ where: { schoolId } });
-    const registryRows = await this.registryRepo.find({ where: { schoolId, dtFileId: file.id } });
-    const byStage = new Map(registryRows.map((r) => [r.stage, r]));
     const pushC = (text: string, bold = false, size = 20) =>
       new Paragraph({
         alignment: AlignmentType.CENTER,
         children: [new TextRun({ text, bold, size })],
       });
     const out: Paragraph[] = [];
-    out.push(pushC((school?.name ?? 'Kurum').trim(), true, 24));
+    out.push(pushC('T.C.', true, 22));
     if (settings?.headerLine2?.trim()) out.push(pushC(settings.headerLine2.trim(), false, 18));
     if (settings?.headerLine3?.trim()) out.push(pushC(settings.headerLine3.trim(), false, 18));
-    if (settings?.headerLine4?.trim()) out.push(pushC(settings.headerLine4.trim(), false, 18));
-    if (settings?.officialCorrespondenceCode?.trim()) {
-      out.push(
-        new Paragraph({
-          alignment: AlignmentType.CENTER,
-          children: [new TextRun({ text: `Yazı / muhatap kodu: ${settings.officialCorrespondenceCode.trim()}`, size: 18 })],
-        }),
-      );
-    }
-    if (file.procurementRef?.trim()) {
-      out.push(
-        new Paragraph({
-          alignment: AlignmentType.CENTER,
-          children: [new TextRun({ text: `İhale kayıt no: ${file.procurementRef.trim()}`, size: 18 })],
-        }),
-      );
-    }
-    const regLines: string[] = [];
-    for (const stage of DT_REGISTRY_STAGES) {
-      const r = byStage.get(stage);
-      if (!r) continue;
-      if (!r.docDate && !(r.numberPrefix ?? '').trim() && !(r.numberSuffix ?? '').trim()) continue;
-      const num = [r.numberPrefix?.trim(), r.numberSuffix?.trim()].filter(Boolean).join(' ') || '—';
-      regLines.push(`${stage}: ${r.docDate ?? '—'} / ${num}`);
-    }
-    if (regLines.length) {
-      out.push(
-        new Paragraph({
-          alignment: AlignmentType.CENTER,
-          children: [new TextRun({ text: 'Evrak defteri (girişler):', bold: true, size: 18 })],
-        }),
-      );
-      for (const ln of regLines) out.push(pushC(ln, false, 16));
-    }
+    out.push(pushC((settings?.headerLine4?.trim() || school?.name || 'Kurum').trim(), false, 18));
     return out;
   }
 
@@ -1182,6 +1198,24 @@ export class DogrudanTeminService {
     });
     return new Map(
       users.map((u) => [u.id, ((u as any).display_name as string | null)?.trim() || (u as any).email || u.id]),
+    );
+  }
+
+  /** Komisyon PDF/DOCX: profil evrak_defaults.ogretmen_unvani, branş, öğretmen ünvanı */
+  private async loadUserCommissionProfile(ids: string[]): Promise<Map<string, { display: string; unvan?: string }>> {
+    const uniq = [...new Set(ids.filter(Boolean))];
+    if (!uniq.length) return new Map();
+    const users = await this.userRepo.find({
+      where: { id: In(uniq) },
+      select: ['id', 'display_name', 'email', 'teacherBranch', 'teacherTitle', 'evrakDefaults'] as any,
+    });
+    return new Map(
+      users.map((u: any) => {
+        const display = (u.display_name as string | null)?.trim() || u.email || u.id;
+        const ev = u.evrakDefaults as { ogretmen_unvani?: string } | null;
+        const unvanRaw = (ev?.ogretmen_unvani ?? u.teacherBranch ?? u.teacherTitle ?? '').toString().trim();
+        return [u.id, { display, unvan: unvanRaw || undefined }];
+      }),
     );
   }
 
@@ -1564,22 +1598,25 @@ export class DogrudanTeminService {
             if (!comm) return { kind, rows: [] as string[][] };
             const members = await this.commMemberRepo.find({ where: { commissionId: comm.id }, order: { createdAt: 'ASC' } });
             const ids = [...members.map((m) => m.userId), ...(comm.chairmanUserId ? [comm.chairmanUserId] : [])];
-            const names = await this.loadUserDisplayNames(ids);
+            const prof = await this.loadUserCommissionProfile(ids);
             const rows: string[][] = [];
             let n = 1;
             if (comm.chairmanUserId) {
+              const p = prof.get(comm.chairmanUserId);
               rows.push([
                 String(n++),
-                names.get(comm.chairmanUserId) ?? comm.chairmanUserId,
-                '—',
+                p?.display ?? comm.chairmanUserId,
+                p?.unvan ?? '—',
                 'Komisyon Başkanı',
               ]);
             }
             for (const m of members) {
+              const p = prof.get(m.userId);
+              const unvanCell = (m.title?.trim() || p?.unvan || '—') as string;
               rows.push([
                 String(n++),
-                names.get(m.userId) ?? m.userId,
-                (m.title ?? '—') as string,
+                p?.display ?? m.userId,
+                unvanCell,
                 (m.dutyLabel ?? 'Komisyon Üyesi') as string,
               ]);
             }
@@ -1656,9 +1693,9 @@ export class DogrudanTeminService {
         const research = await this.quoteRepo.find({
           where: { schoolId, dtFileId, purpose: 'market_research' },
           order: { createdAt: 'ASC' },
-          take: 5,
+          take: 12,
         });
-        const firmQuotes = research.slice(0, 3);
+        const firmQuotes = this.dedupeMarketResearchQuotes(research).slice(0, 3);
         const firmTotals = await Promise.all(
           firmQuotes.map(async (q) => {
             const qis = await this.quoteItemRepo.find({ where: { quoteId: q.id } });
@@ -1675,10 +1712,17 @@ export class DogrudanTeminService {
           if (!comm) return [] as string[][];
           const members = await this.commMemberRepo.find({ where: { commissionId: comm.id }, order: { createdAt: 'ASC' } });
           const ids = [...members.map((m) => m.userId), ...(comm.chairmanUserId ? [comm.chairmanUserId] : [])];
-          const names = await this.loadUserDisplayNames(ids);
+          const prof = await this.loadUserCommissionProfile(ids);
           const out: string[][] = [];
-          if (comm.chairmanUserId) out.push([names.get(comm.chairmanUserId) ?? comm.chairmanUserId, 'Komisyon Üyesi', '—']);
-          for (const m of members) out.push([names.get(m.userId) ?? m.userId, (m.dutyLabel ?? 'Komisyon Üyesi') as string, (m.title ?? '—') as string]);
+          if (comm.chairmanUserId) {
+            const p = prof.get(comm.chairmanUserId);
+            out.push([p?.display ?? comm.chairmanUserId, 'Komisyon Başkanı', p?.unvan ?? '—']);
+          }
+          for (const m of members) {
+            const p = prof.get(m.userId);
+            const unvan = (m.title?.trim() || p?.unvan || '—') as string;
+            out.push([p?.display ?? m.userId, (m.dutyLabel ?? 'Komisyon Üyesi') as string, unvan]);
+          }
           return out;
         })();
         const buffer = await this.pdfBuffer((doc, fonts) => {
@@ -1742,9 +1786,9 @@ export class DogrudanTeminService {
         const research = await this.quoteRepo.find({
           where: { schoolId, dtFileId, purpose: 'market_research' },
           order: { createdAt: 'ASC' },
-          take: 5,
+          take: 12,
         });
-        const firmQuotes = research.slice(0, 3);
+        const firmQuotes = this.dedupeMarketResearchQuotes(research).slice(0, 3);
         const cols = await Promise.all(
           firmQuotes.map(async (q, idx) => {
             const qis = await this.quoteItemRepo.find({ where: { quoteId: q.id }, order: { createdAt: 'ASC' } });
@@ -1758,8 +1802,8 @@ export class DogrudanTeminService {
         const stage = dto.doc_type === 'piyasa_arastirma_tutanagi' ? 'piyasa_arastirma' : 'yaklasik_maliyet';
         const commKind = dto.doc_type === 'piyasa_arastirma_tutanagi' ? 'piyasa_satinalma' : 'yaklasik_maliyet';
         const commSigns = await this.commissionSignatureBlocks({ schoolId, dtFileId: file.id, kind: commKind });
-        const avgTotal = cols.length ? cols.reduce((a, c) => a + (c.total ?? 0), 0) / cols.length : 0;
-        const lowest = cols.length ? cols.reduce((a, b) => (a.total <= b.total ? a : b)) : null;
+        const ranked = cols.filter((c) => Number.isFinite(c.total));
+        const lowest = ranked.length ? ranked.reduce((a, b) => (a.total <= b.total ? a : b)) : null;
         const onay = registry.get('ihale_onay');
         const onayTarih = this.fmtTrDate(onay?.docDate ?? null);
         const onaySayi = this.registrySayi(onay);
@@ -1783,22 +1827,27 @@ export class DogrudanTeminService {
               { header: 'Miktarı', width: 50, align: 'right' as const },
               { header: 'Ölçüsü', width: 50, align: 'center' as const },
             ];
-            const firmCols = cols.flatMap((c, i) => [
-              { header: `${String.fromCharCode(65 + i)} FİRMASI\nBirim Fiyatı`, width: 65, align: 'right' as const },
-              { header: `${String.fromCharCode(65 + i)} FİRMASI\nToplam Fiyat`, width: 70, align: 'right' as const },
-            ]);
+            const firmCols = cols.flatMap((c, i) => {
+              const shortName = (c.title ?? '').trim().slice(0, 24) || `Firma ${i + 1}`;
+              return [
+                { header: `${String.fromCharCode(65 + i)} FİRMASI\n${shortName}\nBirim Fiyatı`, width: 65, align: 'right' as const },
+                { header: `${String.fromCharCode(65 + i)} FİRMASI\nToplam Fiyat`, width: 70, align: 'right' as const },
+              ];
+            });
             const approxCols = [
               { header: 'Birim\nYaklaşık\nMaliyet\nFiyatı', width: 70, align: 'right' as const },
               { header: 'Toplam\nYaklaşık\nMaliyet\nFiyatı', width: 80, align: 'right' as const },
             ];
             const tableCols = [...baseCols, ...firmCols, ...approxCols];
 
+            let grandApprox = 0;
             const rows = items.map((it, idx) => {
               const qty = this.toNum(it.qty) ?? 0;
               const prices = cols.map((c) => c.byItem.get(it.id) ?? null);
-              const totals = prices.map((p) => (p == null ? null : p * qty));
-              const avgUnit = prices.filter((p): p is number => typeof p === 'number').reduce((a, b) => a + b, 0) / (prices.filter((p) => typeof p === 'number').length || 1);
-              const avgLine = avgUnit * qty;
+              const nums = prices.filter((p): p is number => p != null && Number.isFinite(p));
+              const avgUnit = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : NaN;
+              const avgLine = Number.isFinite(avgUnit) ? avgUnit * qty : 0;
+              grandApprox += avgLine;
               return [
                 String(idx + 1),
                 it.name ?? '',
@@ -1824,11 +1873,11 @@ export class DogrudanTeminService {
               const totalsLine = cols
                 .map((c, i) => `TOPLAM ${String.fromCharCode(65 + i)}: ${this.fmtTry(c.total)}`)
                 .join('   ');
-              doc.font(fonts.bold).fontSize(9).text(`${totalsLine}   YAKLAŞIK: ${this.fmtTry(avgTotal)}`);
+              doc.font(fonts.bold).fontSize(9).text(`${totalsLine}   YAKLAŞIK: ${this.fmtTry(grandApprox)}`);
             }
             doc.moveDown(0.6);
             doc.font(fonts.regular).fontSize(9).text(
-              `İdaremizce ihtiyaç duyulan ve satın alınması düşünülen aşağıda cinsi, özellikleri ve miktarları yazılı malların/hizmetlerin 4734 Sayılı Kamu İhale Kanunu'nun 9'uncu Maddesi gereğince yaklaşık maliyetinin tesbitine esas olmak üzere her türlü fiyat araştırması yapılmıştır. Araştırma sonuçları yukarıdaki tabloda gösterilmiştir. Yukarıda açıklandığı üzere yaklaşık maliyetin KDV hariç ${this.fmtTry(avgTotal)} takdir ve tesbit edilerek iş bu Hesap Cetveli düzenlenerek imza altına alınmıştır.`,
+              `İdaremizce ihtiyaç duyulan ve satın alınması düşünülen aşağıda cinsi, özellikleri ve miktarları yazılı malların/hizmetlerin 4734 Sayılı Kamu İhale Kanunu'nun 9'uncu Maddesi gereğince yaklaşık maliyetinin tesbitine esas olmak üzere her türlü fiyat araştırması yapılmıştır. Araştırma sonuçları yukarıdaki tabloda gösterilmiştir. Yukarıda açıklandığı üzere yaklaşık maliyetin KDV hariç ${this.fmtTry(grandApprox)} takdir ve tesbit edilerek iş bu Hesap Cetveli düzenlenerek imza altına alınmıştır.`,
               { align: 'justify' },
             );
             doc.moveDown(0.6);
@@ -1864,10 +1913,13 @@ export class DogrudanTeminService {
             { header: 'Miktarı', width: 50, align: 'right' as const },
             { header: 'Ölçüsü', width: 50, align: 'center' as const },
           ];
-          const firmCols = cols.flatMap((c, i) => [
-            { header: `${i + 1}. FİRMASI\nBirim Fiyat`, width: 70, align: 'right' as const },
-            { header: `${i + 1}. FİRMASI\nToplam Fiyat`, width: 75, align: 'right' as const },
-          ]);
+          const firmCols = cols.flatMap((c, i) => {
+            const shortName = (c.title ?? '').trim().slice(0, 24) || `Firma ${i + 1}`;
+            return [
+              { header: `${i + 1}. FİRMASI\n${shortName}\nBirim Fiyat`, width: 70, align: 'right' as const },
+              { header: `${i + 1}. FİRMASI\nToplam Fiyat`, width: 75, align: 'right' as const },
+            ];
+          });
           const tableCols = [...baseCols, ...firmCols];
 
           const rows = items.map((it, idx) => {
@@ -2084,14 +2136,15 @@ export class DogrudanTeminService {
       const research = await this.quoteRepo.find({
         where: { schoolId, dtFileId, purpose: 'market_research' },
         order: { createdAt: 'ASC' },
-        take: 5,
+        take: 12,
       });
+      const quotes = this.dedupeMarketResearchQuotes(research).slice(0, 3);
       const buffer = await this.buildQuoteFirmMatrixDocx({
         letterhead,
         file,
         items,
         vendorById,
-        quotes: research,
+        quotes,
         docTitle: 'Piyasa araştırma tutanağı',
       });
       return this.persistDtGeneratedDocx({
@@ -2109,14 +2162,15 @@ export class DogrudanTeminService {
       const research = await this.quoteRepo.find({
         where: { schoolId, dtFileId, purpose: 'market_research' },
         order: { createdAt: 'ASC' },
-        take: 5,
+        take: 12,
       });
+      const quotes = this.dedupeMarketResearchQuotes(research).slice(0, 3);
       const buffer = await this.buildQuoteFirmMatrixDocx({
         letterhead,
         file,
         items,
         vendorById,
-        quotes: research,
+        quotes,
         docTitle: 'Yaklaşık maliyet cetveli',
       });
       return this.persistDtGeneratedDocx({
@@ -2408,9 +2462,9 @@ export class DogrudanTeminService {
   private async recalcFileTotalsBestEffort(schoolId: string, dtFileId: string): Promise<void> {
     try {
       const items = await this.itemRepo.find({ where: { schoolId, dtFileId }, select: ['id', 'qty', 'estimatedUnitPrice'] as any });
-      const approx = items.reduce((sum, it) => sum + (Number(it.qty) || 0) * (Number(it.estimatedUnitPrice) || 0), 0);
+      const approx = items.reduce((sum, it) => sum + (this.toNum(it.qty) ?? 0) * (this.toNum(it.estimatedUnitPrice) ?? 0), 0);
       const awards = await this.awardRepo.find({ where: { schoolId, dtFileId }, select: ['total'] as any });
-      const decision = awards.reduce((sum, a) => sum + (Number(a.total) || 0), 0);
+      const decision = awards.reduce((sum, a) => sum + (this.toNum(a.total) ?? 0), 0);
       await this.fileRepo.update(
         { id: dtFileId, schoolId },
         {
@@ -2453,19 +2507,23 @@ export class DogrudanTeminService {
       }
       const members = await this.commMemberRepo.find({ where: { commissionId: comm.id }, order: { createdAt: 'ASC' } });
       const ids = [...members.map((m) => m.userId), ...(comm.chairmanUserId ? [comm.chairmanUserId] : [])];
-      const names = await this.loadUserDisplayNames(ids);
+      const prof = await this.loadUserCommissionProfile(ids);
       if (comm.chairmanUserId) {
+        const p = prof.get(comm.chairmanUserId);
+        const unvan = p?.unvan ? ` (${p.unvan})` : '';
         sections.push(
           new Paragraph({
             children: [
               new TextRun({ text: 'Başkan: ', bold: true, size: 18 }),
-              new TextRun({ text: names.get(comm.chairmanUserId) ?? comm.chairmanUserId, size: 18 }),
+              new TextRun({ text: `${p?.display ?? comm.chairmanUserId}${unvan}`, size: 18 }),
             ],
           }),
         );
       }
       members.forEach((m, i) => {
-        const line = `${i + 1}. ${names.get(m.userId) ?? m.userId} — ${m.dutyLabel ?? m.title ?? 'Üye'}`;
+        const p = prof.get(m.userId);
+        const unvan = p?.unvan ? ` · ${p.unvan}` : '';
+        const line = `${i + 1}. ${p?.display ?? m.userId}${unvan} — ${m.dutyLabel ?? m.title ?? 'Üye'}`;
         sections.push(new Paragraph({ children: [new TextRun({ text: line, size: 18 })] }));
       });
       sections.push(new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }));
@@ -2537,7 +2595,7 @@ export class DogrudanTeminService {
     docTitle: string;
   }): Promise<Buffer> {
     const { letterhead, file, items, vendorById, quotes, docTitle } = input;
-    const firmQuotes = quotes.slice(0, 3);
+    const firmQuotes = this.dedupeMarketResearchQuotes(quotes).slice(0, 3);
     const colData = await Promise.all(
       firmQuotes.map(async (q) => {
         const qis = await this.quoteItemRepo.find({ where: { quoteId: q.id }, order: { createdAt: 'ASC' } });
@@ -2553,7 +2611,7 @@ export class DogrudanTeminService {
         th('No'),
         th('Kalem'),
         th('Miktar'),
-        ...colData.map((c) => th(c.title.slice(0, 40))),
+        ...colData.map((c) => th((c.title ?? '').trim().slice(0, 36) || 'Firma')),
       ],
     });
     const dataRows = items.map((it, idx) => {
@@ -2561,7 +2619,14 @@ export class DogrudanTeminService {
         td(String(idx + 1)),
         td(`${it.name}${it.spec ? `\n${it.spec}` : ''}`),
         td(`${it.qty ?? ''} ${it.unit ?? ''}`.trim()),
-        ...colData.map((c) => td(String(c.byItem.get(it.id) ?? ''))),
+        ...colData.map((c) => {
+          const n = this.toNum(c.byItem.get(it.id));
+          const cell =
+            n == null
+              ? ''
+              : new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+          return td(cell);
+        }),
       ];
       return new TableRow({ children: cells });
     });
@@ -2595,27 +2660,61 @@ export class DogrudanTeminService {
     items: DtItem[];
     letterhead: Paragraph[];
   }): Promise<Buffer> {
-    const { file, items, letterhead } = input;
+    const { school, file, items, letterhead } = input;
+    const registryRows = await this.registryRepo.find({ where: { schoolId: file.schoolId, dtFileId: file.id } });
+    const byStage = new Map(registryRows.map((r) => [r.stage, r] as const));
+    const r = byStage.get('ihtiyac_listesi');
+    const sayi = this.registrySayi(r);
+    const tarih = this.fmtTrDate(r?.docDate ?? null);
     const header = [
       ...letterhead,
-      new Paragraph({ children: [new TextRun({ text: `Doğrudan Temin İhtiyaç Listesi`, bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
-      new Paragraph({ children: [new TextRun({ text: `${file.year} / ${file.fileNo} · ${file.subject}`, size: 20 })], alignment: AlignmentType.CENTER }),
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: {
+          top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+          bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+          left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+          right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+          insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+          insideVertical: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+        },
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({
+                borders: { top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' } } as any,
+                children: [new Paragraph({ children: [new TextRun({ text: sayi ? `Sayı   : ${sayi}` : 'Sayı', size: 18 })] })],
+              }),
+              new TableCell({
+                borders: { top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' } } as any,
+                children: [new Paragraph({ children: [new TextRun({ text: tarih, size: 18 })], alignment: AlignmentType.RIGHT })],
+              }),
+            ],
+          }),
+        ],
+      }) as any,
+      new Paragraph({ children: [new TextRun({ text: `Konu : ${file.subject}`, size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+      new Paragraph({ children: [new TextRun({ text: `MAL/MALZEME İHTİYAÇ LİSTESİ`, bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
     ];
 
-    const th = (t: string) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t, bold: true, size: 18 })] })], shading: { fill: 'E8ECF0' } as any });
+    const th = (t: string) =>
+      new TableCell({
+        children: [new Paragraph({ children: [new TextRun({ text: t, bold: true, size: 18 })] })],
+        shading: { fill: 'E8ECF0' } as any,
+      });
     const td = (t: string) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t, size: 18 })] })] });
     const rows: TableRow[] = [
-      new TableRow({ children: [th('No'), th('Kalem'), th('Miktar'), th('Birim'), th('KDV'), th('Tahmini BF')] }),
+      new TableRow({ children: [th('Sıra No'), th('Mal/Malzemenin Adı'), th('Özelliği'), th('Miktarı'), th('Ölçeği')] }),
       ...items.map((it, idx) =>
         new TableRow({
           children: [
             td(String(idx + 1)),
-            td(`${it.name}${it.spec ? `\n${it.spec}` : ''}`),
+            td(String(it.name ?? '')),
+            td(String(it.spec ?? '')),
             td(String(it.qty ?? '')),
             td(String(it.unit ?? '')),
-            td(`%${it.vatRate}`),
-            td(String(it.estimatedUnitPrice ?? '')),
           ],
         }),
       ),
@@ -2633,7 +2732,28 @@ export class DogrudanTeminService {
       },
     });
 
-    const doc = new DocxDocument({ sections: [{ properties: {}, children: [...header, table] }] });
+    const footer: any[] = [
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+      new Paragraph({ children: [new TextRun({ text: `${((school?.name ?? '').trim() || 'Kurum').toUpperCase()} MÜDÜRLÜĞÜNE`, bold: true, size: 18 })] }),
+      new Paragraph({
+        children: [
+          new TextRun({
+            text:
+              `Müdürlüğümüzün ihtiyacı olan mal/malzeme yukarıya çıkarılmış olup 4734 Sayılı İhale Yasası'nın 22/d maddesi gereğince Doğrudan Temin yoluyla satın alınması için uygun görüldüğü takdirde OLUR'larınıza arz ederim.`,
+            size: 18,
+          }),
+        ],
+      }),
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+      new Paragraph({ children: [new TextRun({ text: '(İhale/Harcama Yetkilisi)', size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: '…………………', bold: true, size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+      new Paragraph({ children: [new TextRun({ text: 'OLUR', bold: true, size: 18 })], alignment: AlignmentType.CENTER }),
+      new Paragraph({ children: [new TextRun({ text: tarih || this.fmtTrDate(new Date()), size: 18 })], alignment: AlignmentType.CENTER }),
+      new Paragraph({ children: [new TextRun({ text: school?.principalName ?? '…………………', bold: true, size: 18 })], alignment: AlignmentType.CENTER }),
+      new Paragraph({ children: [new TextRun({ text: 'İhale(Harcama Yetkilisi)', size: 18 })], alignment: AlignmentType.CENTER }),
+    ];
+    const doc = new DocxDocument({ sections: [{ properties: {}, children: [...header, table, ...footer] as any }] });
     return Buffer.from(await Packer.toBuffer(doc));
   }
 
@@ -2704,24 +2824,73 @@ export class DogrudanTeminService {
     letterhead: Paragraph[];
   }): Promise<Buffer> {
     const { file, items, vendor, letterhead } = input;
+    const registryRows = await this.registryRepo.find({ where: { schoolId: file.schoolId, dtFileId: file.id } });
+    const byStage = new Map(registryRows.map((r) => [r.stage, r] as const));
+    const r = byStage.get('teklif_mektubu');
+    const sayi = this.registrySayi(r);
+    const tarih = this.fmtTrDate(r?.docDate ?? null);
     const header = [
       ...letterhead,
-      new Paragraph({ children: [new TextRun({ text: 'Teklif İsteme Yazısı', bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
-      new Paragraph({ children: [new TextRun({ text: `${file.year} / ${file.fileNo} · ${file.subject}`, size: 20 })], alignment: AlignmentType.CENTER }),
-      new Paragraph({ children: [new TextRun({ text: `Firma: ${vendor.title}`, size: 20 })] }),
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: {
+          top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+          bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+          left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+          right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+          insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+          insideVertical: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+        },
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({
+                borders: { top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' } } as any,
+                children: [new Paragraph({ children: [new TextRun({ text: sayi ? `Sayı   : ${sayi}` : 'Sayı', size: 18 })] })],
+              }),
+              new TableCell({
+                borders: { top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' } } as any,
+                children: [new Paragraph({ children: [new TextRun({ text: tarih, size: 18 })], alignment: AlignmentType.RIGHT })],
+              }),
+            ],
+          }),
+        ],
+      }) as any,
+      new Paragraph({ children: [new TextRun({ text: `Konu : ${file.subject}`, size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+      new Paragraph({ children: [new TextRun({ text: 'TEKLİF MEKTUBU', bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+      new Paragraph({
+        children: [
+          new TextRun({
+            text:
+              `İdaremiz tarafından ${file.subject} işine ait aşağıda cinsi, özellikleri ve miktarları yazılı mallar/hizmetler 4734 sayılı Kamu İhale Kanunu'nun 22/d Maddesi gereğince Doğrudan Temin Usulüyle satın alınacaktır. İlgilenmeniz halinde; teklifin KDV hariç olarak sunulması, teklif edilen toplam bedelin rakam ve yazı ile birbirine uygun olarak yazılması, üzerinde kazıntı, silinti ve düzeltme yapılmaması, teklif mektubunun ad/soyad ve ticaret ünvanı yazılmak sureti ile kaşelenmesi ve imzalanması zorunlu olup, bu şartları taşımayan teklifler değerlendirilmeye alınmayacaktır.`,
+            size: 18,
+          }),
+        ],
+      }),
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+      new Paragraph({ children: [new TextRun({ text: 'Teklif Sahibinin', bold: true, size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: `Adı Soyadı/Ticaret Unvanı, Uyruğu : ${vendor.title}`, size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: `Açık Tebligat Adresi : ${vendor.address ?? ''}`, size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: `Bağlı Olduğu Vergi Dairesi ve Vergi Numarası : ${vendor.taxNo ?? ''}`, size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: `Telefon ve Faks Numarası : ${vendor.phone ?? ''}`, size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: `E-Mail Adresi (varsa) : ${vendor.email ?? ''}`, size: 18 })] }),
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
     ];
     const th = (t: string) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t, bold: true, size: 18 })] })], shading: { fill: 'E8ECF0' } as any });
     const td = (t: string) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t, size: 18 })] })] });
     const rows: TableRow[] = [
-      new TableRow({ children: [th('No'), th('Kalem'), th('Miktar'), th('Birim'), th('Birim fiyat')] }),
+      new TableRow({ children: [th('S.No'), th('Malzemenin Adı'), th('Özelliği'), th('Miktarı'), th('Ölçeği'), th('Birim Fiyatı'), th('Tutarı (KDV Hariç)')] }),
       ...items.map((it, idx) =>
         new TableRow({
           children: [
             td(String(idx + 1)),
-            td(`${it.name}${it.spec ? `\n${it.spec}` : ''}`),
+            td(String(it.name ?? '')),
+            td(String(it.spec ?? '')),
             td(String(it.qty ?? '')),
             td(String(it.unit ?? '')),
+            td(''),
             td(''),
           ],
         }),
@@ -2739,7 +2908,21 @@ export class DogrudanTeminService {
         insideVertical: { style: BorderStyle.SINGLE, size: 2, color: '000000' },
       },
     });
-    const doc = new DocxDocument({ sections: [{ properties: {}, children: [...header, table] }] });
+    const footer: any[] = [
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+      new Paragraph({ children: [new TextRun({ text: 'Diğer Hususlar', bold: true, size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: 'Teslim Edilecek Parti Miktarı : 1', size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: 'Nakliye ve Sigortanın Kime Ait Olduğu : Satıcıya', size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: 'Teknik Şartname : …………………………………………………………………………', size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: 'Uyulması Gereken Standartlar : TSE ………………………………………………', size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: 'Diğer Özel Şartlar : ………………………………………………………………………', size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+      new Paragraph({ children: [new TextRun({ text: 'DİĞER ŞARTLAR', bold: true, size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: 'Tarih: ….. / ….. / 202…', size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: 'Teslim Süresi 10', size: 18 })] }),
+      new Paragraph({ children: [new TextRun({ text: 'Adı Soyadı, Ticaret Ünvanı, İmza, Kaşe', size: 18 })] }),
+    ];
+    const doc = new DocxDocument({ sections: [{ properties: {}, children: [...header, table, ...footer] as any }] });
     return Buffer.from(await Packer.toBuffer(doc));
   }
 
@@ -3101,9 +3284,9 @@ export class DogrudanTeminService {
     const activeFiles = files.filter((f) => !f.archivedAt);
 
     const activeCount = activeFiles.length;
-    const approxTotal = activeFiles.reduce((sum, f) => sum + (Number(f.approxTotal) || 0), 0);
-    const decisionTotal = activeFiles.reduce((sum, f) => sum + (Number(f.decisionTotal) || 0), 0);
-    const paymentTotal = activeFiles.reduce((sum, f) => sum + (Number(f.paymentTotal) || 0), 0);
+    const approxTotal = activeFiles.reduce((sum, f) => sum + (this.toNum(f.approxTotal) ?? 0), 0);
+    const decisionTotal = activeFiles.reduce((sum, f) => sum + (this.toNum(f.decisionTotal) ?? 0), 0);
+    const paymentTotal = activeFiles.reduce((sum, f) => sum + (this.toNum(f.paymentTotal) ?? 0), 0);
 
     const pendingPayments = await this.paymentRepo
       .createQueryBuilder('p')
@@ -3117,9 +3300,9 @@ export class DogrudanTeminService {
       const key = f.teminType || 'unknown';
       const stats = byType.get(key) || { count: 0, approx: 0, decision: 0, payment: 0 };
       stats.count += 1;
-      stats.approx += Number(f.approxTotal) || 0;
-      stats.decision += Number(f.decisionTotal) || 0;
-      stats.payment += Number(f.paymentTotal) || 0;
+      stats.approx += this.toNum(f.approxTotal) ?? 0;
+      stats.decision += this.toNum(f.decisionTotal) ?? 0;
+      stats.payment += this.toNum(f.paymentTotal) ?? 0;
       byType.set(key, stats);
     });
 

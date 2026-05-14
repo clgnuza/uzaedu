@@ -6,6 +6,7 @@ import { ArrowRight, CheckCircle2, Circle, ClipboardList, FileStack, FileText, H
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api';
+import type { DtDetailTabId } from '@/lib/dt-ui';
 import { dtUrl } from '@/lib/dt-url';
 
 type ModuleFileItem = {
@@ -268,7 +269,7 @@ export function DtFileWizard({
   docs: DocItem[];
   commissions: CommissionListItem[];
   docVendorId: string;
-  onGoTab: (tab: 'items' | 'registry' | 'commission' | 'quotes' | 'docs' | 'payments' | 'budget') => void;
+  onGoTab: (tab: DtDetailTabId) => void;
   onGenerateDoc: (docType: string, vendorId?: string) => void;
 }) {
   const byDoc = useMemo(() => new Set(docs.map((d) => d.docType)), [docs]);

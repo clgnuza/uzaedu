@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { cn } from '@/lib/utils';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Toolbar, ToolbarHeading, ToolbarPageTitle } from '@/components/layout/toolbar';
 import { ToolbarIconHints } from '@/components/layout/toolbar-icon-hints';
@@ -12,9 +13,9 @@ import { dtUrl } from '@/lib/dt-url';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Alert } from '@/components/ui/alert';
 import { DtInfoHint } from '@/components/dogrudan-temin/dt-info-hint';
-import { ClipboardList, Plus, FileText, Users, BarChart3, Settings2, LayoutDashboard } from 'lucide-react';
+import { ClipboardList, Plus, FileText, Users, BarChart3, Settings2, LayoutDashboard, Archive, FolderOpen } from 'lucide-react';
 import { toast } from 'sonner';
-import { dtFileStatusBadgeClass, dtFileStatusLabel, dtTeminTypeLabel } from '@/lib/dt-ui';
+import { dtFileStatusBadgeClass, dtFileStatusLabel, dtTeminTypeLabel, DT_INPUT_SM, DT_SELECT_SM } from '@/lib/dt-ui';
 import Link from 'next/link';
 import { ToolbarActions } from '@/components/layout/toolbar';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
@@ -31,6 +32,7 @@ type DtFileItem = {
   teminType: string;
   status: string;
   createdAt: string;
+  archivedAt?: string | null;
 };
 
 export default function DogrudanTeminPage() {
@@ -51,7 +53,7 @@ export default function DogrudanTeminPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const nowYear = useMemo(() => new Date().getFullYear(), []);
-  const [filters, setFilters] = useState({ search: '', include_archived: false });
+  const [filters, setFilters] = useState({ search: '', listScope: 'active' as 'active' | 'archive' });
   const [form, setForm] = useState({
     year: String(nowYear),
     file_no: '',
@@ -71,16 +73,19 @@ export default function DogrudanTeminPage() {
     try {
       const q = new URLSearchParams();
       if (filters.search.trim()) q.set('search', filters.search.trim());
-      if (filters.include_archived) q.set('include_archived', '1');
-      const path = q.toString() ? `/dogrudan-temin/files?${q.toString()}` : '/dogrudan-temin/files';
+      if (filters.listScope === 'archive') q.set('include_archived', '1');
+      const path = `/dogrudan-temin/files${q.toString() ? `?${q.toString()}` : ''}`;
       const res = await apiFetch<{ items: DtFileItem[] }>(dtUrl(path, me?.role, schoolId), { token });
-      setItems(res.items ?? []);
+      const raw = res.items ?? [];
+      const next =
+        filters.listScope === 'archive' ? raw.filter((x) => !!x.archivedAt) : raw.filter((x) => !x.archivedAt);
+      setItems(next);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Yüklenemedi');
     } finally {
       setLoading(false);
     }
-  }, [filters.include_archived, filters.search, isSuperadmin, me?.role, schoolId, token]);
+  }, [filters.listScope, filters.search, isSuperadmin, me?.role, schoolId, token]);
 
   useEffect(() => {
     fetchFiles();
@@ -128,43 +133,74 @@ export default function DogrudanTeminPage() {
   );
 
   return (
-    <div className="space-y-3 text-xs">
+    <div className="space-y-2 px-2 pb-6 text-xs sm:space-y-3 sm:px-0">
       {!ok ? (
         <ForbiddenView description="Bu okulda Doğrudan Temin modülü kapalı." />
       ) : null}
+      <div className="rounded-xl border border-indigo-500/20 bg-gradient-to-r from-indigo-500/10 via-violet-500/8 to-sky-500/10 px-3 py-2 shadow-sm sm:px-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <ClipboardList className="size-4 text-indigo-600 dark:text-indigo-300" />
+            <span className="text-sm font-semibold text-foreground">Doğrudan Temin</span>
+          </div>
+          <ToolbarIconHints
+            items={[
+              { label: 'Aktif dosyalar', icon: FolderOpen },
+              { label: 'Arşiv', icon: Archive },
+            ]}
+            summary="Modül girişi"
+            className="hidden sm:flex"
+          />
+        </div>
+      </div>
       <Toolbar>
         <ToolbarHeading>
-          <ToolbarPageTitle className="text-base">Doğrudan Temin</ToolbarPageTitle>
-          <ToolbarIconHints
-            items={[{ label: 'Dosyalar', icon: ClipboardList }]}
-            summary="Dosyalar listesi (phase)."
-          />
+          <ToolbarPageTitle className="sr-only">Doğrudan Temin</ToolbarPageTitle>
         </ToolbarHeading>
         <ToolbarActions>
           <DtModuleWizard token={token} role={me?.role ?? null} schoolId={schoolId} files={items} />
           {isSuperadmin ? (
-            <div className="hidden w-[320px] max-w-[60vw] md:block">
+            <div className="w-full min-w-0 sm:w-[min(320px,72vw)]">
               <SchoolSelectWithFilter value={schoolId} onChange={setSchool} token={token} />
             </div>
           ) : null}
-          <div className="hidden items-center gap-2 md:flex">
-            <div className="flex items-center rounded-md border border-input bg-background px-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            <div className="inline-flex rounded-xl border border-border/70 bg-muted/30 p-0.5 shadow-inner">
+              <button
+                type="button"
+                onClick={() => setFilters((s) => ({ ...s, listScope: 'active' }))}
+                className={cn(
+                  'inline-flex flex-1 items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition-all sm:flex-none sm:px-3',
+                  filters.listScope === 'active'
+                    ? 'bg-gradient-to-br from-sky-500/20 to-cyan-500/15 text-sky-950 shadow-sm dark:text-sky-50'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <FolderOpen className="size-3.5" />
+                Aktif
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilters((s) => ({ ...s, listScope: 'archive' }))}
+                className={cn(
+                  'inline-flex flex-1 items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition-all sm:flex-none sm:px-3',
+                  filters.listScope === 'archive'
+                    ? 'bg-gradient-to-br from-rose-500/20 to-amber-500/15 text-rose-950 shadow-sm dark:text-rose-50'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Archive className="size-3.5" />
+                Arşiv
+              </button>
+            </div>
+            <div className="flex min-w-0 flex-1 items-center rounded-xl border border-border/70 bg-background/90 px-2 shadow-sm sm:max-w-[240px]">
               <input
                 value={filters.search}
                 onChange={(e) => setFilters((s) => ({ ...s, search: e.target.value }))}
                 placeholder="Ara (no / konu)"
-                className="h-8 w-[220px] border-0 bg-transparent text-xs focus:outline-none focus:ring-0"
+                className="h-9 min-w-0 flex-1 border-0 bg-transparent text-xs focus:outline-none focus:ring-0"
               />
             </div>
-            <label className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={filters.include_archived}
-                onChange={(e) => setFilters((s) => ({ ...s, include_archived: e.target.checked }))}
-                className="size-3.5 rounded border-input"
-              />
-              Arşiv dahil
-            </label>
           </div>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
@@ -182,16 +218,21 @@ export default function DogrudanTeminPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="text-[11px] font-medium text-muted-foreground uppercase">Yıl *</label>
-                    <Input value={form.year} onChange={(e) => setForm((s) => ({ ...s, year: e.target.value }))} className="text-xs" />
+                    <Input value={form.year} onChange={(e) => setForm((s) => ({ ...s, year: e.target.value }))} className={DT_INPUT_SM} />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[11px] font-medium text-muted-foreground uppercase">Dosya No *</label>
-                    <Input value={form.file_no} onChange={(e) => setForm((s) => ({ ...s, file_no: e.target.value }))} className="text-xs" />
+                    <Input value={form.file_no} onChange={(e) => setForm((s) => ({ ...s, file_no: e.target.value }))} className={DT_INPUT_SM} />
                   </div>
                 </div>
                 <div className="space-y-1">
                   <label className="text-[11px] font-medium text-muted-foreground uppercase">Konu *</label>
-                  <Input value={form.subject} onChange={(e) => setForm((s) => ({ ...s, subject: e.target.value }))} className="text-xs" placeholder="Tedarik konusu" />
+                  <Input
+                    value={form.subject}
+                    onChange={(e) => setForm((s) => ({ ...s, subject: e.target.value }))}
+                    className={DT_INPUT_SM}
+                    placeholder="Tedarik konusu"
+                  />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[11px] font-medium text-muted-foreground uppercase flex items-center gap-1">
@@ -201,7 +242,7 @@ export default function DogrudanTeminPage() {
                   <select
                     value={form.temin_type}
                     onChange={(e) => setForm((s) => ({ ...s, temin_type: e.target.value }))}
-                    className="w-full h-9 rounded border border-input bg-background px-2 text-xs"
+                    className={DT_SELECT_SM}
                   >
                     <option value="22a_mal">Mal Alımı (22/a)</option>
                     <option value="22b_hizmet">Hizmet Alımı (22/b)</option>
@@ -309,7 +350,7 @@ export default function DogrudanTeminPage() {
           {loading ? (
             <LoadingSpinner label="Yükleniyor…" className="py-6 text-xs" />
           ) : items.length ? (
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 lg:gap-3">
               {items.map((x) => (
                 <Link
                   key={x.id}
@@ -319,28 +360,39 @@ export default function DogrudanTeminPage() {
                       : `/dogrudan-temin/${x.id}`
                   }
                 >
-                  <div className="group h-full rounded-lg border border-border bg-card p-3 hover:border-primary/40 hover:shadow-sm transition-all">
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="flex-1">
-                        <p className="font-semibold text-sm line-clamp-2 group-hover:text-primary transition-colors">{x.subject}</p>
-                        <p className="text-[11px] text-muted-foreground">{x.year} · #{x.fileNo}</p>
+                  <div className="group h-full rounded-xl border border-border/80 bg-card p-2.5 shadow-sm transition-all hover:border-primary/35 hover:shadow-md sm:p-3">
+                    <div className="mb-1.5 flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="line-clamp-2 text-sm font-semibold transition-colors group-hover:text-primary">{x.subject}</p>
+                        <p className="text-[10px] text-muted-foreground sm:text-[11px]">
+                          {x.year} · #{x.fileNo}
+                        </p>
                       </div>
-                      <span className={`px-2 py-1 rounded text-[10px] font-semibold whitespace-nowrap ${dtFileStatusBadgeClass(x.status)}`}>
-                        {dtFileStatusLabel(x.status)}
-                      </span>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        {x.archivedAt ? (
+                          <span className="whitespace-nowrap rounded-md border border-rose-300/60 bg-rose-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-rose-900 dark:text-rose-100">
+                            Arşiv
+                          </span>
+                        ) : null}
+                        <span className={`whitespace-nowrap rounded-md px-1.5 py-0.5 text-[9px] font-semibold sm:text-[10px] ${dtFileStatusBadgeClass(x.status)}`}>
+                          {dtFileStatusLabel(x.status)}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-[11px] font-medium text-foreground/90">
-                      {dtTeminTypeLabel(x.teminType)}
-                    </div>
+                    <div className="text-[10px] font-medium text-foreground/90 sm:text-[11px]">{dtTeminTypeLabel(x.teminType)}</div>
                   </div>
                 </Link>
               ))}
             </div>
           ) : (
             <div className="py-8 text-center">
-              <ClipboardList className="size-10 text-muted-foreground/30 mx-auto mb-2" />
-              <p className="text-[11px] text-muted-foreground">Henüz dosya yok.</p>
-              <p className="text-[10px] text-muted-foreground mt-1">Başlamak için "Yeni dosya" düğmesini kullanın.</p>
+              <ClipboardList className="mx-auto mb-2 size-10 text-muted-foreground/30" />
+              <p className="text-[11px] text-muted-foreground">
+                {filters.listScope === 'archive' ? 'Arşivde kayıt yok.' : 'Henüz dosya yok.'}
+              </p>
+              {filters.listScope === 'active' ? (
+                <p className="mt-1 text-[10px] text-muted-foreground">Başlamak için &quot;Yeni dosya&quot; düğmesini kullanın.</p>
+              ) : null}
             </div>
           )}
         </CardContent>

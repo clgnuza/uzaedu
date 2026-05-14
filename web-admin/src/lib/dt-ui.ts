@@ -141,7 +141,15 @@ export function dtBudgetBlockStatusHint(status: string | null | undefined): stri
   return BUDGET_BLOCK[k]?.hint ?? '';
 }
 
-export type DtDetailTabId = 'items' | 'quotes' | 'registry' | 'budget' | 'payments' | 'commission' | 'docs';
+export type DtDetailTabId =
+  | 'items'
+  | 'quotes'
+  | 'registry'
+  | 'budget'
+  | 'payments'
+  | 'commission'
+  | 'docs'
+  | 'archive';
 
 export const DT_DETAIL_TABS: Array<{
   id: DtDetailTabId;
@@ -149,55 +157,87 @@ export const DT_DETAIL_TABS: Array<{
   shortHint: string;
   activeClass: string;
   inactiveClass: string;
+  iconActiveClass: string;
 }> = [
   {
     id: 'items',
     label: 'İhtiyaç kalemleri',
     shortHint: 'Mal/hizmet satırları ve tahmini bedel.',
-    activeClass: 'border-emerald-500 text-emerald-800 bg-emerald-50/80 dark:bg-emerald-950/30 dark:text-emerald-100',
-    inactiveClass: 'border-transparent text-muted-foreground hover:text-emerald-800 hover:bg-emerald-50/40 dark:hover:text-emerald-200',
+    activeClass:
+      'border-emerald-500/80 bg-gradient-to-br from-emerald-500/18 via-emerald-400/8 to-teal-500/10 text-emerald-950 shadow-sm dark:from-emerald-500/25 dark:via-emerald-950/40 dark:to-teal-950/20 dark:text-emerald-50',
+    inactiveClass:
+      'border-border/40 bg-muted/15 text-muted-foreground hover:border-emerald-400/35 hover:bg-emerald-500/8 hover:text-emerald-900 dark:hover:text-emerald-100',
+    iconActiveClass: 'text-emerald-600 dark:text-emerald-300',
   },
   {
     id: 'registry',
     label: 'Evrak defteri',
     shortHint: 'Evrak defteri: tarih ve sayı alanları.',
-    activeClass: 'border-fuchsia-500 text-fuchsia-900 bg-fuchsia-50/80 dark:bg-fuchsia-950/30 dark:text-fuchsia-100',
-    inactiveClass: 'border-transparent text-muted-foreground hover:text-fuchsia-900 hover:bg-fuchsia-50/40 dark:hover:text-fuchsia-100',
+    activeClass:
+      'border-fuchsia-500/80 bg-gradient-to-br from-fuchsia-500/18 via-fuchsia-400/8 to-pink-500/10 text-fuchsia-950 shadow-sm dark:from-fuchsia-500/22 dark:via-fuchsia-950/35 dark:to-pink-950/20 dark:text-fuchsia-50',
+    inactiveClass:
+      'border-border/40 bg-muted/15 text-muted-foreground hover:border-fuchsia-400/35 hover:bg-fuchsia-500/8 hover:text-fuchsia-900 dark:hover:text-fuchsia-100',
+    iconActiveClass: 'text-fuchsia-600 dark:text-fuchsia-300',
   },
   {
     id: 'commission',
     label: 'Komisyonlar',
     shortHint: 'Yaklaşık/Piyasa/Muayene komisyonları.',
-    activeClass: 'border-violet-500 text-violet-900 bg-violet-50/80 dark:bg-violet-950/30 dark:text-violet-100',
-    inactiveClass: 'border-transparent text-muted-foreground hover:text-violet-900 hover:bg-violet-50/40',
+    activeClass:
+      'border-violet-500/80 bg-gradient-to-br from-violet-500/18 via-violet-400/8 to-indigo-500/10 text-violet-950 shadow-sm dark:from-violet-500/22 dark:via-violet-950/35 dark:to-indigo-950/20 dark:text-violet-50',
+    inactiveClass:
+      'border-border/40 bg-muted/15 text-muted-foreground hover:border-violet-400/35 hover:bg-violet-500/8 hover:text-violet-900 dark:hover:text-violet-100',
+    iconActiveClass: 'text-violet-600 dark:text-violet-300',
   },
   {
     id: 'quotes',
     label: 'Teklifler',
     shortHint: 'Firmalardan gelen fiyatlar.',
-    activeClass: 'border-sky-500 text-sky-900 bg-sky-50/80 dark:bg-sky-950/30 dark:text-sky-100',
-    inactiveClass: 'border-transparent text-muted-foreground hover:text-sky-900 hover:bg-sky-50/40 dark:hover:text-sky-100',
+    activeClass:
+      'border-sky-500/80 bg-gradient-to-br from-sky-500/18 via-sky-400/8 to-cyan-500/10 text-sky-950 shadow-sm dark:from-sky-500/22 dark:via-sky-950/35 dark:to-cyan-950/20 dark:text-sky-50',
+    inactiveClass:
+      'border-border/40 bg-muted/15 text-muted-foreground hover:border-sky-400/35 hover:bg-sky-500/8 hover:text-sky-900 dark:hover:text-sky-100',
+    iconActiveClass: 'text-sky-600 dark:text-sky-300',
   },
   {
     id: 'docs',
     label: 'Belgeler',
     shortHint: 'PDF/DOCX çıktıları.',
-    activeClass: 'border-slate-600 text-slate-900 bg-slate-100/90 dark:bg-slate-800/50 dark:text-slate-100',
-    inactiveClass: 'border-transparent text-muted-foreground hover:text-slate-800 hover:bg-slate-100/50 dark:hover:text-slate-200',
+    activeClass:
+      'border-slate-500/80 bg-gradient-to-br from-slate-500/16 via-slate-400/8 to-zinc-500/10 text-slate-950 shadow-sm dark:from-slate-500/20 dark:via-slate-900/45 dark:to-zinc-950/25 dark:text-slate-100',
+    inactiveClass:
+      'border-border/40 bg-muted/15 text-muted-foreground hover:border-slate-400/35 hover:bg-slate-500/8 hover:text-slate-800 dark:hover:text-slate-200',
+    iconActiveClass: 'text-slate-600 dark:text-slate-300',
   },
   {
     id: 'payments',
     label: 'Ödemeler',
     shortHint: 'Gerçekleşen ödeme kayıtları.',
-    activeClass: 'border-lime-600 text-lime-900 bg-lime-50/80 dark:bg-lime-950/25 dark:text-lime-100',
-    inactiveClass: 'border-transparent text-muted-foreground hover:text-lime-900 hover:bg-lime-50/40',
+    activeClass:
+      'border-lime-600/80 bg-gradient-to-br from-lime-500/18 via-lime-400/8 to-green-500/10 text-lime-950 shadow-sm dark:from-lime-500/20 dark:via-lime-950/30 dark:to-green-950/20 dark:text-lime-50',
+    inactiveClass:
+      'border-border/40 bg-muted/15 text-muted-foreground hover:border-lime-500/35 hover:bg-lime-500/8 hover:text-lime-900 dark:hover:text-lime-100',
+    iconActiveClass: 'text-lime-600 dark:text-lime-300',
   },
   {
     id: 'budget',
     label: 'Bütçe bloke',
     shortHint: 'Ödeme öncesi tutarı hesaptan ayırma.',
-    activeClass: 'border-amber-500 text-amber-900 bg-amber-50/80 dark:bg-amber-950/30 dark:text-amber-100',
-    inactiveClass: 'border-transparent text-muted-foreground hover:text-amber-900 hover:bg-amber-50/40',
+    activeClass:
+      'border-amber-500/80 bg-gradient-to-br from-amber-500/18 via-amber-400/8 to-orange-500/10 text-amber-950 shadow-sm dark:from-amber-500/22 dark:via-amber-950/35 dark:to-orange-950/20 dark:text-amber-50',
+    inactiveClass:
+      'border-border/40 bg-muted/15 text-muted-foreground hover:border-amber-400/35 hover:bg-amber-500/8 hover:text-amber-900 dark:hover:text-amber-100',
+    iconActiveClass: 'text-amber-600 dark:text-amber-300',
+  },
+  {
+    id: 'archive',
+    label: 'Arşiv',
+    shortHint: 'Arşiv durumu, bağlantı paylaşımı ve arşivdeki dosyalar.',
+    activeClass:
+      'border-rose-500/80 bg-gradient-to-br from-rose-500/16 via-orange-400/8 to-amber-500/10 text-rose-950 shadow-sm dark:from-rose-500/20 dark:via-rose-950/35 dark:to-amber-950/20 dark:text-rose-50',
+    inactiveClass:
+      'border-border/40 bg-muted/15 text-muted-foreground hover:border-rose-400/35 hover:bg-rose-500/8 hover:text-rose-900 dark:hover:text-rose-100',
+    iconActiveClass: 'text-rose-600 dark:text-rose-300',
   },
 ];
 
@@ -216,4 +256,41 @@ export const DT_SECTION_HINTS: Record<DtDetailTabId, string> = {
     'Yaklaşık maliyet, piyasa araştırma/satın alma ve muayene/kabul komisyonları. “Yaklaşıktan kopyala” ile üyeleri senkronlayabilirsiniz.',
   docs:
     'Sistem tarafından üretilen şablon belgeler. İmzalanmadan önce okul şablon ve mevzuat kontrolünden geçirin.',
+  archive:
+    'Dosyayı arşivden çıkarın, kopyalayın veya bağlantıyı paylaşın. Aynı okulda arşivlenmiş diğer dosyaları buradan açabilirsiniz.',
 };
+
+/** Doğrudan temin formları — kompakt, yuvarlatılmış girişler */
+export const DT_INPUT_SM =
+  'h-9 rounded-xl border border-border/70 bg-background px-3 text-xs shadow-sm transition-[border-color,box-shadow] placeholder:text-muted-foreground/70 focus-visible:border-primary/45 focus-visible:ring-2 focus-visible:ring-primary/15 focus-visible:outline-none disabled:opacity-50';
+
+export const DT_SELECT_SM = `${DT_INPUT_SM} cursor-pointer`;
+
+export const DT_TEXTAREA_SM =
+  'min-h-[88px] w-full rounded-xl border border-border/70 bg-background px-3 py-2 text-xs shadow-sm transition-[border-color,box-shadow] placeholder:text-muted-foreground/70 focus-visible:border-primary/45 focus-visible:ring-2 focus-visible:ring-primary/15 focus-visible:outline-none disabled:opacity-50';
+
+export function dtParseAmount(value: string | number | null | undefined): number | null {
+  if (value == null) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const s = String(value).trim();
+  if (!s) return null;
+  const hasComma = s.includes(',');
+  const hasDot = s.includes('.');
+  let norm = s.replace(/\s/g, '').replace(/[^\d.,-]/g, '');
+  if (hasComma && hasDot) norm = norm.replace(/\./g, '').replace(',', '.');
+  else if (hasComma) norm = norm.replace(',', '.');
+  const n = Number(norm);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function dtFormatNumberTr(
+  value: string | number | null | undefined,
+  fractionDigits = 2,
+): string {
+  const n = dtParseAmount(value);
+  if (n == null) return '—';
+  return new Intl.NumberFormat('tr-TR', {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(n);
+}

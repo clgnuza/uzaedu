@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { cn } from '@/lib/utils';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
@@ -18,6 +19,9 @@ import {
   FileDown,
   Sparkles,
   Archive,
+  FolderArchive,
+  Share2,
+  Mail,
   Banknote,
   Users,
   PackageSearch,
@@ -34,13 +38,17 @@ import { Input } from '@/components/ui/input';
 import { SchoolSelectWithFilter } from '@/components/school-select-with-filter';
 import {
   DT_DETAIL_TABS,
+  DT_INPUT_SM,
   DT_LEGAL_NOTICE,
   DT_SECTION_HINTS,
+  DT_TEXTAREA_SM,
   type DtDetailTabId,
   dtBudgetBlockStatusLabel,
   dtDocTypeLabel,
   dtFileStatusBadgeClass,
   dtFileStatusLabel,
+  dtFormatNumberTr,
+  dtParseAmount,
   dtQuoteStatusChipClass,
   dtQuoteStatusHint,
   dtQuoteStatusLabel,
@@ -61,6 +69,7 @@ type DtFileItem = {
   decisionTotal: string | null;
   paymentTotal: string | null;
   procurementRef?: string | null;
+  archivedAt?: string | null;
 };
 
 type DtItem = {
@@ -162,7 +171,6 @@ export default function DtFileDetailPage() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [quoteVendorId, setQuoteVendorId] = useState('');
-  const [activeQuoteId, setActiveQuoteId] = useState<string>('');
   const [quoteItems, setQuoteItems] = useState<Record<string, QuoteItem[]>>({});
   const [priceDraft, setPriceDraft] = useState<Record<string, Record<string, string>>>({});
   const [docs, setDocs] = useState<DocItem[]>([]);
@@ -206,6 +214,8 @@ export default function DtFileDetailPage() {
   const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(false);
   const [confirmReleaseAllOpen, setConfirmReleaseAllOpen] = useState(false);
   const [confirmAutoAwardOpen, setConfirmAutoAwardOpen] = useState(false);
+  const [archiveList, setArchiveList] = useState<DtFileItem[]>([]);
+  const [archiveListLoading, setArchiveListLoading] = useState(false);
 
   const tabIcons: Record<DtDetailTabId, LucideIcon> = {
     items: PackageSearch,
@@ -215,6 +225,7 @@ export default function DtFileDetailPage() {
     payments: Banknote,
     commission: Users,
     docs: FileStack,
+    archive: FolderArchive,
   };
 
   const canFetch = useMemo(() => !!token && !!id && ok && (!isSuperadmin || !!schoolId), [token, id, ok, isSuperadmin, schoolId]);
@@ -295,8 +306,6 @@ export default function DtFileDetailPage() {
         });
         return next;
       });
-      const firstQuote = (q.items ?? [])[0]?.id ?? '';
-      setActiveQuoteId((cur) => cur || firstQuote);
 
       const [bud, bl] = await Promise.all([
         apiFetch<{ items: BudgetAccount[] }>(
@@ -321,8 +330,8 @@ export default function DtFileDetailPage() {
       toast.error('Önce bütçe hesabı seçin.');
       return;
     }
-    const amt = Number(String(budgetForm.amount).replace(',', '.'));
-    if (!budgetForm.amount.trim() || !Number.isFinite(amt) || amt <= 0) {
+    const amt = dtParseAmount(budgetForm.amount);
+    if (!budgetForm.amount.trim() || amt == null || amt <= 0) {
       toast.error('Bloke tutarı pozitif bir sayı olmalı.');
       return;
     }
@@ -504,6 +513,68 @@ export default function DtFileDetailPage() {
     }
   }, [fetchAll, id, isSuperadmin, me?.role, schoolId, token]);
 
+  const unarchive = useCallback(async () => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/unarchive`, me?.role, schoolId), { token, method: 'POST' });
+      await fetchAll();
+      toast.success('Dosya arşivden çıkarıldı.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setBusy(false);
+    }
+  }, [fetchAll, id, isSuperadmin, me?.role, schoolId, token]);
+
+  const sharePageUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    return window.location.href;
+  }, [id, schoolId]);
+
+  const copyShareLink = useCallback(async () => {
+    const url = sharePageUrl || (typeof window !== 'undefined' ? window.location.href : '');
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('Bağlantı panoya kopyalandı.');
+    } catch {
+      toast.error('Panoya kopyalanamadı.');
+    }
+  }, [sharePageUrl]);
+
+  const mailShareLink = useCallback(() => {
+    const url = sharePageUrl || (typeof window !== 'undefined' ? window.location.href : '');
+    const subj = encodeURIComponent(file?.subject ? `DT: ${file.subject}` : 'Doğrudan temin dosyası');
+    const body = encodeURIComponent(`Merhaba,\n\nDosya bağlantısı:\n${url}\n`);
+    window.open(`mailto:?subject=${subj}&body=${body}`, '_blank');
+  }, [file?.subject, sharePageUrl]);
+
+  useEffect(() => {
+    if (activeTab !== 'archive' || !canFetch || !token) return;
+    let cancelled = false;
+    setArchiveListLoading(true);
+    void (async () => {
+      try {
+        const res = await apiFetch<{ items: DtFileItem[] }>(
+          dtUrl('/dogrudan-temin/files?include_archived=1', me?.role, schoolId),
+          { token },
+        );
+        const rows = (res.items ?? []).filter((x) => !!x.archivedAt);
+        if (!cancelled) setArchiveList(rows);
+      } catch {
+        if (!cancelled) setArchiveList([]);
+      } finally {
+        if (!cancelled) setArchiveListLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, canFetch, me?.role, schoolId, token]);
+
   const copyFile = useCallback(async () => {
     if (!token) return;
     if (isSuperadmin && !schoolId) return;
@@ -664,8 +735,8 @@ export default function DtFileDetailPage() {
   );
 
   useEffect(() => {
-    if (activeQuoteId) void fetchQuoteItems(activeQuoteId);
-  }, [activeQuoteId, fetchQuoteItems]);
+    for (const q of quotes) void fetchQuoteItems(q.id);
+  }, [quotes, fetchQuoteItems]);
 
   const saveQuotePrice = useCallback(
     async (qid: string, dtItemId: string) => {
@@ -704,8 +775,8 @@ export default function DtFileDetailPage() {
       toast.error('Ödeme tutarını girin.');
       return;
     }
-    const payAmt = Number(String(paymentForm.amount).replace(',', '.'));
-    if (!Number.isFinite(payAmt) || payAmt <= 0) {
+    const payAmt = dtParseAmount(paymentForm.amount);
+    if (payAmt == null || payAmt <= 0) {
       toast.error('Tutar geçerli pozitif bir sayı olmalı.');
       return;
     }
@@ -816,7 +887,7 @@ export default function DtFileDetailPage() {
     setBusy(true);
     try {
       const res = await apiFetch<{ buffer: string; filename: string }>(
-        dtUrl(`/dogrudan-temin/files/${id}/payments/${paymentId}/order-pdf`, me?.role, schoolId),
+        dtUrl(`/dogrudan-temin/payments/${paymentId}/order-pdf`, me?.role, schoolId),
         {
           token,
           method: 'POST',
@@ -841,10 +912,10 @@ export default function DtFileDetailPage() {
   if (!ok) return <ForbiddenView description="Bu okulda Doğrudan Temin modülü kapalı." />;
 
   return (
-    <div className="space-y-3 text-xs">
+    <div className="space-y-2 px-2 pb-8 text-xs sm:space-y-3 sm:px-0">
       <Toolbar>
         <ToolbarHeading>
-          <ToolbarPageTitle className="text-base">Doğrudan temin dosyası</ToolbarPageTitle>
+          <ToolbarPageTitle className="text-sm sm:text-base">Doğrudan temin dosyası</ToolbarPageTitle>
         </ToolbarHeading>
         <ToolbarActions>
           <Button variant="secondary" size="sm" disabled={busy} onClick={() => setWizardOpen(true)}>
@@ -852,7 +923,7 @@ export default function DtFileDetailPage() {
             Akış sihirbazı
           </Button>
           {isSuperadmin ? (
-            <div className="w-[320px] max-w-[60vw]">
+            <div className="w-full min-w-0 sm:w-[min(320px,70vw)]">
               <SchoolSelectWithFilter value={schoolId} onChange={setSchool} token={token} />
             </div>
           ) : null}
@@ -891,101 +962,118 @@ export default function DtFileDetailPage() {
         <LoadingSpinner label="Yükleniyor…" className="py-10 text-xs" />
       ) : file ? (
         <>
-          <Card className="border-primary/15 bg-gradient-to-br from-background to-muted/20">
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1">
-                  <CardTitle className="flex items-center gap-2 text-base mb-2">
-                    <ClipboardList className="size-5 text-primary" />
-                    {file.subject}
-                  </CardTitle>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`px-2 py-1 rounded text-[10px] font-semibold ${dtFileStatusBadgeClass(file.status)}`}>
-                      {dtFileStatusLabel(file.status)}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">{file.year}</span>
-                    <span className="text-[11px] text-muted-foreground">#{file.fileNo}</span>
-                    <span className="text-[11px] font-medium text-foreground">{dtTeminTypeLabel(file.teminType)}</span>
+          <div className="rounded-xl border border-indigo-500/25 bg-gradient-to-r from-indigo-500/12 via-violet-500/8 to-sky-500/10 px-3 py-2.5 shadow-sm sm:px-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start gap-2">
+                  <ClipboardList className="mt-0.5 size-4 shrink-0 text-indigo-600 dark:text-indigo-300" />
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-semibold leading-snug text-foreground sm:text-base">{file.subject}</h2>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${dtFileStatusBadgeClass(file.status)}`}>
+                        {dtFileStatusLabel(file.status)}
+                      </span>
+                      {file.archivedAt ? (
+                        <span className="rounded-md border border-rose-400/50 bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-rose-900 dark:text-rose-100">
+                          Arşivde
+                        </span>
+                      ) : null}
+                      <span className="text-[10px] text-muted-foreground">
+                        {file.year} · #{file.fileNo}
+                      </span>
+                      <span className="text-[10px] font-medium text-muted-foreground">{dtTeminTypeLabel(file.teminType)}</span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-background/70 px-2 py-0.5 text-[10px]">
+                        <span className="text-muted-foreground">Yaklaşık</span>
+                        <span className="font-semibold tabular-nums text-foreground">{dtFormatNumberTr(file.approxTotal)}</span>
+                      </span>
+                      <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-background/70 px-2 py-0.5 text-[10px]">
+                        <span className="text-muted-foreground">Karar</span>
+                        <span className="font-semibold tabular-nums text-foreground">{dtFormatNumberTr(file.decisionTotal)}</span>
+                      </span>
+                      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-900 dark:text-emerald-100">
+                        <span className="text-emerald-800/80 dark:text-emerald-200/90">Ödenen</span>
+                        <span className="font-semibold tabular-nums">{dtFormatNumberTr(file.paymentTotal)}</span>
+                      </span>
+                    </div>
                   </div>
                 </div>
-                <div className="flex gap-1">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    title="Arşivle"
-                    disabled={busy}
-                    onClick={() => setConfirmArchiveOpen(true)}
-                  >
-                    <Archive className="size-4" />
-                  </Button>
-                  <Dialog open={copyOpen} onOpenChange={setCopyOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" size="sm" title="Dosyayı kopyala" disabled={busy}>
-                        <Copy className="size-4" />
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-lg" title="Dosyayı kopyala">
-                      <div className="space-y-3">
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="space-y-1">
-                            <div className="text-[11px] text-muted-foreground">Hedef yıl (opsiyonel)</div>
-                            <Input value={copyForm.target_year} onChange={(e) => setCopyForm((s) => ({ ...s, target_year: e.target.value }))} />
-                          </div>
-                          <div className="space-y-1">
-                            <div className="text-[11px] text-muted-foreground">Yeni dosya no (opsiyonel)</div>
-                            <Input value={copyForm.file_no} onChange={(e) => setCopyForm((s) => ({ ...s, file_no: e.target.value }))} />
-                          </div>
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center gap-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2"
+                  title="Arşiv sekmesinde detay"
+                  disabled={busy}
+                  onClick={() => setActiveTab('archive')}
+                >
+                  <FolderArchive className="size-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2"
+                  title="Arşivle"
+                  disabled={busy}
+                  onClick={() => setConfirmArchiveOpen(true)}
+                >
+                  <Archive className="size-4" />
+                </Button>
+                <Dialog open={copyOpen} onOpenChange={setCopyOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-8 px-2" title="Dosyayı kopyala" disabled={busy}>
+                      <Copy className="size-4" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-lg" title="Dosyayı kopyala">
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <div className="text-[11px] text-muted-foreground">Hedef yıl (opsiyonel)</div>
+                          <Input
+                            value={copyForm.target_year}
+                            onChange={(e) => setCopyForm((s) => ({ ...s, target_year: e.target.value }))}
+                            className={DT_INPUT_SM}
+                          />
                         </div>
-                        <div className="flex justify-end gap-2 pt-2">
-                          <Button variant="outline" onClick={() => setCopyOpen(false)} disabled={busy}>
-                            Vazgeç
-                          </Button>
-                          <Button onClick={copyFile} disabled={busy}>
-                            Kopyala
-                          </Button>
+                        <div className="space-y-1">
+                          <div className="text-[11px] text-muted-foreground">Yeni dosya no (opsiyonel)</div>
+                          <Input
+                            value={copyForm.file_no}
+                            onChange={(e) => setCopyForm((s) => ({ ...s, file_no: e.target.value }))}
+                            className={DT_INPUT_SM}
+                          />
                         </div>
                       </div>
-                    </DialogContent>
-                  </Dialog>
-                </div>
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" onClick={() => setCopyOpen(false)} disabled={busy}>
+                          Vazgeç
+                        </Button>
+                        <Button onClick={copyFile} disabled={busy}>
+                          Kopyala
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </div>
-              <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t">
-                <div className="space-y-1">
-                  <div className="text-[10px] uppercase font-semibold text-muted-foreground flex items-center gap-1">
-                    Yaklaşık maliyet
-                    <DtInfoHint title="Kalemler üzerinden hesaplanan tahmini toplam; onay belgesi ve piyasa araştırması ile tutarlı olmalı." />
-                  </div>
-                  <div className="text-lg font-semibold">{file.approxTotal ?? '—'}</div>
-                </div>
-                <div className="space-y-1">
-                  <div className="text-[10px] uppercase font-semibold text-muted-foreground flex items-center gap-1">
-                    Karar tutarı
-                    <DtInfoHint title="İhale/karar belgesine yansıyan toplam tutar (kararlandıktan sonra)." />
-                  </div>
-                  <div className="text-lg font-semibold">{file.decisionTotal ?? '—'}</div>
-                </div>
-                <div className="space-y-1">
-                  <div className="text-[10px] uppercase font-semibold text-muted-foreground flex items-center gap-1">
-                    Ödenen
-                    <DtInfoHint title="Bu dosyaya kayıtlı ödemelerin toplamı." />
-                  </div>
-                  <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">{file.paymentTotal ?? '—'}</div>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t">
-                <span className="text-[11px] text-muted-foreground">İhale kayıt no</span>
-                <Input
-                  value={procurementRefDraft}
-                  onChange={(e) => setProcurementRefDraft(e.target.value)}
-                  className="h-8 max-w-[220px] text-xs"
-                  placeholder="örn. 2025/12"
-                />
-                <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void saveProcurementRef()}>
-                  Kaydet
-                </Button>
-              </div>
-            </CardHeader>
-          </Card>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border/40 pt-2">
+              <span className="text-[10px] text-muted-foreground">İhale kayıt no</span>
+              <Input
+                value={procurementRefDraft}
+                onChange={(e) => setProcurementRefDraft(e.target.value)}
+                className={cn(DT_INPUT_SM, 'max-w-[min(100%,220px)]')}
+                placeholder="örn. 2025/12"
+              />
+              <Button type="button" variant="outline" size="sm" className="h-8" disabled={busy} onClick={() => void saveProcurementRef()}>
+                Kaydet
+              </Button>
+            </div>
+          </div>
 
           <Alert variant="info" message={DT_LEGAL_NOTICE} />
 
@@ -993,8 +1081,8 @@ export default function DtFileDetailPage() {
             <Alert variant="warning" message={dtRules.platform_notice_tr.trim()} />
           ) : null}
 
-          <div className="rounded-lg border border-border/80 bg-muted/10 p-1.5">
-            <div className="flex gap-1 overflow-x-auto">
+          <div className="rounded-xl border border-border/70 bg-muted/20 p-1.5 shadow-inner">
+            <div className="grid grid-cols-2 gap-1 sm:flex sm:flex-wrap sm:gap-1">
               {DT_DETAIL_TABS.map((tab) => {
                 const Icon = tabIcons[tab.id];
                 const active = activeTab === tab.id;
@@ -1004,18 +1092,26 @@ export default function DtFileDetailPage() {
                     type="button"
                     onClick={() => setActiveTab(tab.id)}
                     title={tab.shortHint}
-                    className={`flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium border-2 transition-colors whitespace-nowrap ${
-                      active ? tab.activeClass : tab.inactiveClass
-                    }`}
+                    className={cn(
+                      'flex items-center justify-center gap-1.5 rounded-lg border-2 px-2 py-1.5 text-[11px] font-semibold transition-all sm:justify-start sm:px-2.5 sm:text-xs',
+                      active ? tab.activeClass : tab.inactiveClass,
+                    )}
                   >
-                    <Icon className="size-4 shrink-0 opacity-90" />
-                    {tab.label}
-                    <DtInfoHint title={tab.shortHint} className="opacity-70" />
+                    <Icon
+                      className={cn(
+                        'size-3.5 shrink-0 sm:size-4',
+                        active ? tab.iconActiveClass : 'text-muted-foreground/80',
+                      )}
+                    />
+                    <span className="truncate">{tab.label}</span>
+                    <DtInfoHint title={tab.shortHint} className="hidden opacity-70 sm:inline" />
                   </button>
                 );
               })}
             </div>
-            <p className="mt-2 px-2 text-[11px] text-muted-foreground border-t border-border/60 pt-2">{DT_SECTION_HINTS[activeTab]}</p>
+            <p className="mt-1.5 border-t border-border/50 px-1.5 pt-1.5 text-[10px] leading-snug text-muted-foreground sm:text-[11px]">
+              {DT_SECTION_HINTS[activeTab]}
+            </p>
           </div>
 
           {activeTab === 'items' && (
@@ -1041,28 +1137,44 @@ export default function DtFileDetailPage() {
                             Kalem adı
                             <DtInfoHint title="Satın alınacak mal veya hizmetin kısa adı." />
                           </div>
-                          <Input value={itemForm.name} onChange={(e) => setItemForm((s) => ({ ...s, name: e.target.value }))} />
+                          <Input
+                            value={itemForm.name}
+                            onChange={(e) => setItemForm((s) => ({ ...s, name: e.target.value }))}
+                            className={DT_INPUT_SM}
+                          />
                         </div>
                         <div className="space-y-1">
                           <div className="text-[11px] text-muted-foreground">Teknik açıklama / şartname özeti</div>
                           <textarea
                             value={itemForm.spec}
                             onChange={(e) => setItemForm((s) => ({ ...s, spec: e.target.value }))}
-                            className="min-h-[90px] w-full rounded-lg border border-input bg-background px-4 py-2 text-foreground transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:border-primary/30"
+                            className={DT_TEXTAREA_SM}
                           />
                         </div>
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                           <div className="space-y-1">
                             <div className="text-[11px] text-muted-foreground">Miktar</div>
-                            <Input value={itemForm.qty} onChange={(e) => setItemForm((s) => ({ ...s, qty: e.target.value }))} />
+                            <Input
+                              value={itemForm.qty}
+                              onChange={(e) => setItemForm((s) => ({ ...s, qty: e.target.value }))}
+                              className={DT_INPUT_SM}
+                            />
                           </div>
                           <div className="space-y-1">
                             <div className="text-[11px] text-muted-foreground">Birim</div>
-                            <Input value={itemForm.unit} onChange={(e) => setItemForm((s) => ({ ...s, unit: e.target.value }))} />
+                            <Input
+                              value={itemForm.unit}
+                              onChange={(e) => setItemForm((s) => ({ ...s, unit: e.target.value }))}
+                              className={DT_INPUT_SM}
+                            />
                           </div>
                           <div className="space-y-1">
                             <div className="text-[11px] text-muted-foreground">KDV %</div>
-                            <Input value={itemForm.vat_rate} onChange={(e) => setItemForm((s) => ({ ...s, vat_rate: e.target.value }))} />
+                            <Input
+                              value={itemForm.vat_rate}
+                              onChange={(e) => setItemForm((s) => ({ ...s, vat_rate: e.target.value }))}
+                              className={DT_INPUT_SM}
+                            />
                           </div>
                         </div>
                         <div className="space-y-1">
@@ -1070,7 +1182,11 @@ export default function DtFileDetailPage() {
                             Tahmini birim fiyat (TL)
                             <DtInfoHint title="Piyasa araştırması sonucu; KDV hariç veya kurumunuza göre — tutarlılığı kontrol edin." />
                           </div>
-                          <Input value={itemForm.estimated_unit_price} onChange={(e) => setItemForm((s) => ({ ...s, estimated_unit_price: e.target.value }))} />
+                          <Input
+                            value={itemForm.estimated_unit_price}
+                            onChange={(e) => setItemForm((s) => ({ ...s, estimated_unit_price: e.target.value }))}
+                            className={DT_INPUT_SM}
+                          />
                         </div>
                         <div className="flex justify-end gap-2 pt-2">
                           <Button variant="outline" onClick={() => setAddOpen(false)} disabled={busy}>
@@ -1202,90 +1318,84 @@ export default function DtFileDetailPage() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="pt-0 space-y-2">
+            <CardContent className="pt-0 space-y-4">
               {quotes.length ? (
-                <>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {quotes.map((q) => {
-                      const v = vendors.find((x) => x.id === q.vendorId);
-                      const active = q.id === activeQuoteId;
-                      return (
-                        <button
-                          key={q.id}
-                          type="button"
-                          onClick={() => setActiveQuoteId(q.id)}
-                          className={`rounded-md border px-2 py-1 text-[11px] font-medium flex flex-wrap items-center gap-1.5 ${
-                            active
-                              ? 'border-primary/40 bg-primary/5 text-primary'
-                              : 'border-border bg-background hover:bg-muted/40'
-                          }`}
-                        >
-                          <span>{v?.title ?? q.vendorId.slice(0, 8)}</span>
-                          {q.purpose === 'market_research' ? (
-                            <span className="rounded px-1 py-0.5 text-[9px] font-semibold border border-slate-300 bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100">
-                              Araştırma
+                quotes.map((q) => {
+                  const v = vendors.find((x) => x.id === q.vendorId);
+                  return (
+                    <div
+                      key={q.id}
+                      className="rounded-lg border-2 border-border bg-card p-3 shadow-sm space-y-2"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-foreground truncate" title={v?.title ?? q.vendorId}>
+                            {v?.title ?? q.vendorId}
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            {q.purpose === 'market_research' ? (
+                              <span className="rounded px-1.5 py-0.5 text-[9px] font-semibold border border-slate-300 bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                                Araştırma
+                              </span>
+                            ) : null}
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-[9px] font-semibold border ${dtQuoteStatusChipClass(q.status)}`}
+                              title={dtQuoteStatusHint(q.status)}
+                            >
+                              {dtQuoteStatusLabel(q.status)}
                             </span>
-                          ) : null}
-                          <span
-                            className={`rounded px-1 py-0.5 text-[9px] font-semibold border ${dtQuoteStatusChipClass(q.status)}`}
-                            title={dtQuoteStatusHint(q.status)}
-                          >
-                            {dtQuoteStatusLabel(q.status)}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {activeQuoteId ? (
-                    <div className="table-x-scroll rounded-md border border-border text-xs">
-                      <table className="w-full min-w-[720px] text-left">
-                        <thead>
-                          <tr className="border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                            <th className="px-2 py-1.5">Kalem</th>
-                            <th className="px-2 py-1.5">Miktar</th>
-                            <th className="px-2 py-1.5">Birim fiyat</th>
-                            <th className="px-2 py-1.5 w-[1%]"> </th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border">
-                          {items.map((it) => (
-                            <tr key={it.id} className="hover:bg-muted/30">
-                              <td className="px-2 py-1">
-                                <div className="font-medium">{it.name}</div>
-                                {it.spec ? <div className="text-[11px] text-muted-foreground">{it.spec}</div> : null}
-                              </td>
-                              <td className="px-2 py-1">{it.qty}</td>
-                              <td className="px-2 py-1">
-                                <Input
-                                  value={priceDraft[activeQuoteId]?.[it.id] ?? ''}
-                                  onChange={(e) =>
-                                    setPriceDraft((s) => ({
-                                      ...s,
-                                      [activeQuoteId]: { ...(s[activeQuoteId] ?? {}), [it.id]: e.target.value },
-                                    }))
-                                  }
-                                  className="h-8 w-[140px] px-2 py-1 text-xs"
-                                  placeholder="0.00"
-                                />
-                              </td>
-                              <td className="px-2 py-1 text-right">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  disabled={busy || !(priceDraft[activeQuoteId]?.[it.id] ?? '').trim()}
-                                  onClick={() => void saveQuotePrice(activeQuoteId, it.id)}
-                                >
-                                  Kaydet
-                                </Button>
-                              </td>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="table-x-scroll rounded-md border border-border text-xs">
+                        <table className="w-full min-w-[720px] text-left">
+                          <thead>
+                            <tr className="border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              <th className="px-2 py-1.5">Kalem</th>
+                              <th className="px-2 py-1.5">Miktar</th>
+                              <th className="px-2 py-1.5">Birim fiyat</th>
+                              <th className="px-2 py-1.5 w-[1%]"> </th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {items.map((it) => (
+                              <tr key={`${q.id}-${it.id}`} className="hover:bg-muted/30">
+                                <td className="px-2 py-1">
+                                  <div className="font-medium">{it.name}</div>
+                                  {it.spec ? <div className="text-[11px] text-muted-foreground">{it.spec}</div> : null}
+                                </td>
+                                <td className="px-2 py-1">{it.qty}</td>
+                                <td className="px-2 py-1">
+                                  <Input
+                                    value={priceDraft[q.id]?.[it.id] ?? ''}
+                                    onChange={(e) =>
+                                      setPriceDraft((s) => ({
+                                        ...s,
+                                        [q.id]: { ...(s[q.id] ?? {}), [it.id]: e.target.value },
+                                      }))
+                                    }
+                                    className="h-8 w-[140px] px-2 py-1 text-xs"
+                                    placeholder="0.00"
+                                  />
+                                </td>
+                                <td className="px-2 py-1 text-right">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={busy || !(priceDraft[q.id]?.[it.id] ?? '').trim()}
+                                    onClick={() => void saveQuotePrice(q.id, it.id)}
+                                  >
+                                    Kaydet
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  ) : null}
-                </>
+                  );
+                })
               ) : (
                 <p className="py-4 text-center text-[11px] text-muted-foreground">Teklif yok.</p>
               )}
@@ -1909,6 +2019,99 @@ export default function DtFileDetailPage() {
               )}
             </CardContent>
           </Card>
+          )}
+
+          {activeTab === 'archive' && (
+            <Card className="overflow-hidden border-rose-200/40 shadow-sm dark:border-rose-900/30">
+              <CardHeader className="border-b border-rose-500/10 bg-gradient-to-r from-rose-500/10 to-amber-500/8 py-3">
+                <CardTitle className="flex items-center gap-2 text-sm text-rose-900 dark:text-rose-100">
+                  <FolderArchive className="size-4 shrink-0" />
+                  Modül arşivi ve paylaşım
+                  <DtInfoHint title={DT_SECTION_HINTS.archive} />
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 pt-4">
+                {file.archivedAt ? (
+                  <div className="rounded-lg border border-rose-300/50 bg-rose-500/5 px-3 py-2 text-[11px] text-rose-950 dark:border-rose-800/60 dark:bg-rose-950/20 dark:text-rose-50">
+                    Bu kayıt arşivde. Liste görünümünde gizlenir; arşiv filtresiyle erişilir.
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
+                    Dosyayı arşivlediğinizde varsayılan listeden kalkar; buradan geri alabilir veya kopyalayabilirsiniz.
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {file.archivedAt ? (
+                    <Button type="button" size="sm" variant="default" disabled={busy} onClick={() => void unarchive()}>
+                      Arşivden çıkar
+                    </Button>
+                  ) : (
+                    <Button type="button" size="sm" variant="destructive" disabled={busy} onClick={() => setConfirmArchiveOpen(true)}>
+                      <Archive className="mr-1 size-3.5" /> Arşivle
+                    </Button>
+                  )}
+                  <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => setCopyOpen(true)}>
+                    <Copy className="mr-1 size-3.5" /> Kopyala
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void copyShareLink()}>
+                    <Share2 className="mr-1 size-3.5" /> Bağlantı kopyala
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={mailShareLink}>
+                    <Mail className="mr-1 size-3.5" /> E-posta gönder
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setActiveTab('registry')}>
+                    Evrak düzenle
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setActiveTab('items')}>
+                    Kalemler
+                  </Button>
+                </div>
+                <div>
+                  <div className="mb-2 text-[11px] font-semibold text-foreground">Okul arşivindeki diğer dosyalar</div>
+                  {archiveListLoading ? (
+                    <LoadingSpinner label="Arşiv yükleniyor…" className="py-6 text-xs" />
+                  ) : archiveList.length ? (
+                    <div className="max-h-[min(50vh,320px)] overflow-auto rounded-lg border border-border text-[11px]">
+                      <table className="w-full min-w-[280px] text-left">
+                        <thead className="sticky top-0 bg-muted/90 backdrop-blur-sm">
+                          <tr className="border-b border-border text-[10px] font-semibold uppercase text-muted-foreground">
+                            <th className="px-2 py-1.5">Yıl / No</th>
+                            <th className="px-2 py-1.5">Konu</th>
+                            <th className="px-2 py-1.5 w-[1%]" />
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {archiveList.map((a) => (
+                            <tr key={a.id} className={a.id === id ? 'bg-rose-500/10' : 'hover:bg-muted/40'}>
+                              <td className="px-2 py-1.5 whitespace-nowrap">
+                                {a.year} · {a.fileNo}
+                              </td>
+                              <td className="px-2 py-1.5">{a.subject}</td>
+                              <td className="px-2 py-1.5 text-right">
+                                <Link
+                                  href={
+                                    isSuperadmin && schoolId
+                                      ? `/dogrudan-temin/${a.id}?school_id=${encodeURIComponent(schoolId)}`
+                                      : `/dogrudan-temin/${a.id}`
+                                  }
+                                  className="text-primary hover:underline"
+                                >
+                                  Aç
+                                </Link>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="rounded-lg border border-dashed border-border/70 py-6 text-center text-[11px] text-muted-foreground">
+                      Arşivde başka dosya yok.
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
           )}
         </>
       ) : (
