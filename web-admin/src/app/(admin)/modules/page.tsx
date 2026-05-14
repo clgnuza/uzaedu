@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
@@ -71,6 +71,30 @@ export default function ModulesPage() {
   const [bulkBusy, setBulkBusy] = useState(false);
   const limit = 500;
   const isSuperadmin = me?.role === 'superadmin';
+  const mainScrollRef = useRef<HTMLDivElement>(null);
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const [hScroll, setHScroll] = useState({ sw: 0, cw: 0 });
+
+  const refreshHorizontalScroll = useCallback(() => {
+    const el = mainScrollRef.current;
+    if (!el) {
+      setHScroll({ sw: 0, cw: 0 });
+      return;
+    }
+    setHScroll({ sw: el.scrollWidth, cw: el.clientWidth });
+  }, []);
+
+  useLayoutEffect(() => {
+    refreshHorizontalScroll();
+  }, [data?.items, loading, refreshHorizontalScroll]);
+
+  useLayoutEffect(() => {
+    const el = mainScrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => refreshHorizontalScroll());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [refreshHorizontalScroll, data]);
 
   const fetchSchools = useCallback(async () => {
     if (!token) return;
@@ -294,7 +318,31 @@ export default function ModulesPage() {
           {loading ? (
             <LoadingSpinner label="Okullar yükleniyor…" className="py-6 text-xs" />
           ) : data && data.items.length > 0 ? (
-            <div className="table-x-scroll max-h-[min(70vh,calc(100dvh-14rem))] overflow-auto rounded-md border border-border text-xs">
+            <div className="overflow-hidden rounded-md border border-border text-xs">
+              {hScroll.sw > hScroll.cw ? (
+                <div
+                  ref={topScrollRef}
+                  className="table-x-scroll max-w-full overflow-x-auto overflow-y-hidden border-b border-border bg-muted/40"
+                  onScroll={() => {
+                    const m = mainScrollRef.current;
+                    const t = topScrollRef.current;
+                    if (!m || !t || m.scrollLeft === t.scrollLeft) return;
+                    m.scrollLeft = t.scrollLeft;
+                  }}
+                >
+                  <div className="h-2.5 shrink-0" style={{ width: hScroll.sw }} aria-hidden />
+                </div>
+              ) : null}
+              <div
+                ref={mainScrollRef}
+                className="table-x-scroll max-h-[min(70vh,calc(100dvh-14rem))] max-w-full overflow-auto"
+                onScroll={() => {
+                  const m = mainScrollRef.current;
+                  const t = topScrollRef.current;
+                  if (!m || !t || t.scrollLeft === m.scrollLeft) return;
+                  t.scrollLeft = m.scrollLeft;
+                }}
+              >
               <table className="w-full min-w-max border-collapse text-left">
                 <thead className="sticky top-0 z-20">
                   <tr className="border-b border-border bg-muted/95 backdrop-blur-sm">
@@ -358,6 +406,7 @@ export default function ModulesPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           ) : (
             <p className="py-6 text-center text-muted-foreground">Henüz okul bulunmuyor.</p>
