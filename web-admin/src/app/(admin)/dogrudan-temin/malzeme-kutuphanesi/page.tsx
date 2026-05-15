@@ -190,9 +190,7 @@ export default function DtMaterialLibraryPage() {
         dtUrl('/dogrudan-temin/materials/library/seed-ortak-kamu-catalog', me?.role, schoolId),
         { token, method: 'POST', body: '{}' },
       );
-      toast.success(
-        `Ortak Kamu Sözlüğü: +${res.inserted} yeni, ${res.skipped_existing} zaten vardı (toplam ${res.catalog_rows} CPV).`,
-      );
+      toast.success(`Hesap Planı: +${res.inserted} (toplam ${res.catalog_rows}).`);
       await fetchPage(false);
     } catch (e) {
       setLoadBanner(dtReadonlyLoadFeedback(e));
@@ -264,15 +262,14 @@ export default function DtMaterialLibraryPage() {
             </div>
             <div className="min-w-0 flex-1 space-y-2">
               <ToolbarHeading>
-                <ToolbarPageTitle className="text-lg sm:text-xl">Malzeme kütüphanesi (CPV)</ToolbarPageTitle>
+                <ToolbarPageTitle className="text-lg sm:text-xl">Malzeme kütüphanesi (Hesap Planı)</ToolbarPageTitle>
                 <ToolbarDescription>
-                  Okul genelinde tekrar kullanılabilir kalem şablonları. Ortak Kamu Alımları Sözlüğü ile 9449 CPV kodunu tek
-                  tıkla ekleyebilirsiniz; mevcut kodlar atlanır.
+                  Okul genelinde tekrar kullanılabilir kalem şablonları. Hesap planı listesini tek tıkla yükleyebilirsiniz.
                 </ToolbarDescription>
               </ToolbarHeading>
               <div className="flex flex-wrap gap-2">
                 <Button className="h-9 gap-1.5" disabled={!canFetch || busy} variant="secondary" onClick={() => void seedCatalog()}>
-                  Ortak Kamu sözlüğünü yükle
+                  Hesap planını yükle
                 </Button>
                 <Button className="h-9 gap-1.5" disabled={!canFetch || busy} variant="outline" onClick={() => setShowNewItemDialog(true)}>
                   <Plus className="size-4" />
@@ -296,7 +293,7 @@ export default function DtMaterialLibraryPage() {
       <div className="flex gap-2 rounded-xl border border-emerald-200/45 bg-emerald-500/8 p-3 dark:border-emerald-500/20 dark:bg-emerald-950/25">
         <Info className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-300" aria-hidden />
         <p className="text-[11px] leading-relaxed text-emerald-950/90 dark:text-emerald-50/90">
-          <span className="font-semibold text-foreground">İpucu:</span> CPV kodu ile arama yapın; listeyi sayfa sayfa yükleyin.
+          <span className="font-semibold text-foreground">İpucu:</span> Hesap kodu ile arama yapın; listeyi sayfa sayfa yükleyin.
           Doğrudan temin dosyasına aktarım şimdilik manuel (kopyala-yapıştır) ile yapılabilir.
         </p>
       </div>

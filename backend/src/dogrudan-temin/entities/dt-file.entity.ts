@@ -1,4 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import type { DtTeknikSartnameDraftV1 } from '../dt-teknik-sartname-draft';
 
 @Entity('dt_files')
 export class DtFile {
@@ -49,6 +50,9 @@ export class DtFile {
 
   @Column({ name: 'archived_at', type: 'timestamptz', nullable: true })
   archivedAt: Date | null;
+
+  @Column({ name: 'teknik_sartname_json', type: 'jsonb', nullable: true })
+  teknikSartnameJson: DtTeknikSartnameDraftV1 | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

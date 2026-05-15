@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -106,6 +106,16 @@ export default function DtReportsPage() {
   const [previewBusy, setPreviewBusy] = useState(false);
   const [loadBanner, setLoadBanner] = useState<DtReadonlyLoadBanner | null>(null);
   const [data, setData] = useState<RegistryPayload | null>(null);
+
+  useEffect(() => {
+    const el = document.createElement('style');
+    el.setAttribute('data-dt-registry-rapor-print', '');
+    el.textContent = '@page { size: A4 landscape; margin: 10mm; }';
+    document.head.appendChild(el);
+    return () => {
+      el.remove();
+    };
+  }, []);
 
   const setSchool = useCallback(
     (sid: string) => {

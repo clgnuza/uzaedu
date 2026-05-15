@@ -283,6 +283,7 @@ const DT_GENERATE_DOC_TYPES = [
   'ihtiyac_listesi',
   'fiyat_arastirmasi',
   'teklif_isteme',
+  'harcama_talimati',
   'karar',
   'sozlesme',
   'komisyon_onay',
@@ -307,6 +308,46 @@ export class GenerateDtDocDto {
   @IsOptional()
   @IsString()
   vendor_id?: string;
+}
+
+export const DT_BULK_ARCHIVE_DOC_TYPES = [
+  'ihtiyac_listesi',
+  'teknik_sartname',
+  'komisyon_onay',
+  'fiyat_arastirmasi',
+  'yaklasik_maliyet_cetveli',
+  'onay_belgesi',
+  'teklif_isteme',
+  'piyasa_arastirma_tutanagi',
+  'muayene_kabul_tutanagi',
+  'teslim_tesellum_tutanagi',
+] as const;
+
+export class BulkDtDocArchiveItemDto {
+  @IsString()
+  @IsIn([...DT_BULK_ARCHIVE_DOC_TYPES])
+  doc_type: (typeof DT_BULK_ARCHIVE_DOC_TYPES)[number];
+
+  @IsOptional()
+  @IsString()
+  vendor_id?: string;
+}
+
+export class BulkDtDocsArchiveDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => BulkDtDocArchiveItemDto)
+  items: BulkDtDocArchiveItemDto[];
+
+  @IsOptional()
+  @IsString()
+  default_vendor_id?: string;
+
+  /** `rar` isteği şimdilik reddedilir; yalnızca ZIP üretilir. */
+  @IsOptional()
+  @IsIn(['zip', 'rar'])
+  archive_format?: 'zip' | 'rar';
 }
 
 export class CopyDtFileDto {
@@ -340,6 +381,22 @@ export class CreateDtBudgetAccountDto {
   @IsString()
   @MaxLength(255)
   label: string;
+
+  @IsOptional()
+  @IsString()
+  allocated?: string;
+}
+
+export class PatchDtBudgetAccountDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  code?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  label?: string;
 
   @IsOptional()
   @IsString()
@@ -680,4 +737,9 @@ export class GetDtBudgetHierarchyDto {
   @IsOptional()
   @IsString()
   parent_id?: string | null;
+}
+
+export class PutDtTeknikSartnameDraftDto {
+  @IsObject()
+  draft!: Record<string, unknown>;
 }

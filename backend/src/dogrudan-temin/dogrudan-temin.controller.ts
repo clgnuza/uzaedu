@@ -22,7 +22,9 @@ import {
   PatchDtVendorDto,
   DtRegistryReportDto,
   GenerateDtDocDto,
+  BulkDtDocsArchiveDto,
   ListDtBudgetAccountsDto,
+  PatchDtBudgetAccountDto,
   ListDtFilesDto,
   ListDtVendorsDto,
   PatchDtFileDto,
@@ -42,6 +44,7 @@ import {
   ListDtQuotesQueryDto,
   PatchDtSchoolProcurementSettingsDto,
   PutDtDocumentRegistryDto,
+  PutDtTeknikSartnameDraftDto,
   SyncDtCommissionDto,
 } from './dto/dt.dto';
 
@@ -137,6 +140,12 @@ export class DogrudanTeminController {
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   listPayments(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
     return this.svc.listPayments(this.sid(p, sid), id);
+  }
+
+  @Get('files/:id/mys-yukle.xlsx')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  mysYukleXlsx(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.mysYukleXlsx(this.sid(p, sid), id);
   }
 
   @Post('files/:id/payments')
@@ -329,6 +338,23 @@ export class DogrudanTeminController {
     return this.svc.createBudgetAccount(this.sid(p, sid), p.userId, dto);
   }
 
+  @Patch('budgets/:id')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  patchBudget(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: PatchDtBudgetAccountDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.patchBudgetAccount(this.sid(p, sid), p.userId, id, dto);
+  }
+
+  @Delete('budgets/:id')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  deleteBudget(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.deleteBudgetAccount(this.sid(p, sid), p.userId, id);
+  }
+
   @Post('files/:id/budget/block')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   blockBudget(
@@ -407,6 +433,35 @@ export class DogrudanTeminController {
     return this.svc.listDocs(this.sid(p, sid), id);
   }
 
+  @Get('files/:id/piyasa-arastirma-tutanagi-preview')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  piyasaArastirmaTutanagiPreview(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.getPiyasaArastirmaTutanagiPreview(this.sid(p, sid), id);
+  }
+
+  @Get('files/:id/yaklasik-maliyet-cetveli-preview')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  yaklasikMaliyetCetveliPreview(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.getYaklasikMaliyetCetveliPreview(this.sid(p, sid), id);
+  }
+
+  @Get('files/:id/teknik-sartname-draft')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  getTeknikSartnameDraft(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.getTeknikSartnameDraft(this.sid(p, sid), id);
+  }
+
+  @Put('files/:id/teknik-sartname-draft')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  putTeknikSartnameDraft(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: PutDtTeknikSartnameDraftDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.putTeknikSartnameDraft(this.sid(p, sid), p.userId, id, dto);
+  }
+
   @Get('docs/:id/download')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   downloadDoc(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
@@ -422,6 +477,17 @@ export class DogrudanTeminController {
     @Query('school_id') sid?: string,
   ) {
     return this.svc.generateDocForFile(this.sid(p, sid), p.userId, id, dto);
+  }
+
+  @Post('files/:id/docs/bulk-archive')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  bulkArchiveDtDocs(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: BulkDtDocsArchiveDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.bulkArchiveDtDocsAsZip(this.sid(p, sid), p.userId, id, dto);
   }
 
   @Get('files/:id/document-registry')

@@ -255,6 +255,8 @@ export function DtFileWizard({
   docVendorId,
   onGoTab,
   onGenerateDoc,
+  onOpenPiyasaPreview,
+  onOpenYaklasikPreview,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -271,6 +273,8 @@ export function DtFileWizard({
   docVendorId: string;
   onGoTab: (tab: DtDetailTabId) => void;
   onGenerateDoc: (docType: string, vendorId?: string) => void;
+  onOpenPiyasaPreview?: () => void;
+  onOpenYaklasikPreview?: () => void;
 }) {
   const byDoc = useMemo(() => new Set(docs.map((d) => d.docType)), [docs]);
   const reg = useMemo(() => new Map(registryEntries.map((r) => [r.stage, r] as const)), [registryEntries]);
@@ -397,13 +401,25 @@ export function DtFileWizard({
                 >
                   Fiyat araştırma
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => onGenerateDoc('yaklasik_maliyet_cetveli')} disabled={!researchDone}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    onOpenYaklasikPreview ? onOpenYaklasikPreview() : onGenerateDoc('yaklasik_maliyet_cetveli')
+                  }
+                  disabled={!researchDone}
+                >
                   Yaklaşık
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => onGenerateDoc('onay_belgesi')} disabled={!regDone}>
                   Onay
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => onGenerateDoc('piyasa_arastirma_tutanagi')} disabled={!researchDone}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => (onOpenPiyasaPreview ? onOpenPiyasaPreview() : onGenerateDoc('piyasa_arastirma_tutanagi'))}
+                  disabled={!researchDone}
+                >
                   Piyasa
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => onGenerateDoc('muayene_kabul_tutanagi')} disabled={!kararNoDone}>

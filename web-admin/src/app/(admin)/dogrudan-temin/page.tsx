@@ -29,6 +29,9 @@ import {
   ListChecks,
   Info,
   Sparkles,
+  ExternalLink,
+  Trash2,
+  Calendar,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DT_LEGAL_NOTICE, dtFileStatusBadgeClass, dtFileStatusLabel, dtTeminTypeLabel, DT_INPUT_SM, DT_SELECT_SM } from '@/lib/dt-ui';
@@ -367,61 +370,116 @@ export default function DogrudanTeminPage() {
                   </div>
                 ) : (
                   <div className="divide-y divide-border/40">
+                    <div className="hidden grid-cols-[160px_1fr_140px_120px_92px] gap-2 border-b border-border/40 bg-muted/20 px-3 py-2 text-[10px] font-medium text-muted-foreground sm:grid sm:px-4">
+                      <div>Dosya</div>
+                      <div>Konu</div>
+                      <div>Durum</div>
+                      <div>Tarih</div>
+                      <div className="text-right">İşlem</div>
+                    </div>
                     {items.map((item) => (
                       <div key={item.id} className={cn('transition-colors', teminBgColor(item.teminType))}>
-                        <div className="flex min-w-0 items-start gap-2 px-3 py-2.5 sm:px-4 sm:gap-3 group">
-                          <Link
-                            href={
-                              isSuperadmin && schoolId
-                                ? `/dogrudan-temin/${item.id}?school_id=${encodeURIComponent(schoolId)}`
-                                : `/dogrudan-temin/${item.id}`
-                            }
-                            className="flex min-w-0 flex-1 items-start gap-2"
-                          >
-                            <div className={cn('shrink-0 w-1 h-10 rounded-r', teminCardAccent(item.teminType))} />
-                            <div className="min-w-0 flex-1">
-                              <div className="flex min-w-0 items-baseline gap-2">
-                                <span className="text-[11px] font-bold text-foreground">{item.fileNo}</span>
-                                <span className="text-[10px] text-muted-foreground flex-1 min-w-0 truncate">{item.subject}</span>
+                        <div className="grid min-w-0 grid-cols-1 gap-2 px-3 py-2.5 sm:grid-cols-[160px_1fr_140px_120px_92px] sm:items-center sm:gap-2 sm:px-4">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <div className={cn('shrink-0 h-9 w-1 rounded-full', teminCardAccent(item.teminType))} />
+                            <div className="min-w-0">
+                              <div className="flex items-baseline gap-1.5">
+                                <span className="text-[11px] font-semibold tabular-nums text-foreground">{item.year}</span>
+                                <span className="text-[11px] font-semibold tabular-nums text-foreground">·</span>
+                                <span className="text-[11px] font-semibold tabular-nums text-foreground">#{item.fileNo}</span>
                               </div>
-                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                <span className="inline-block rounded px-1.5 py-0.5 text-[9px] font-medium bg-muted text-muted-foreground">{item.year}</span>
-                                <span className={cn('inline-block rounded px-1.5 py-0.5 text-[9px] font-medium', dtFileStatusBadgeClass(item.status))}>{dtFileStatusLabel(item.status)}</span>
-                                <span className="inline-block rounded px-1.5 py-0.5 text-[9px] font-medium bg-muted text-muted-foreground">{dtTeminTypeLabel(item.teminType)}</span>
+                              <div className="mt-0.5 text-[10px] font-medium text-muted-foreground">
+                                {dtTeminTypeLabel(item.teminType)}
+                                {item.archivedAt ? ' · Arşiv' : ''}
                               </div>
                             </div>
-                          </Link>
-                          <Dialog open={deleteConfirm === item.id} onOpenChange={(open) => setDeleteConfirm(open ? item.id : null)}>
-                            <button
-                              onClick={() => setDeleteConfirm(item.id)}
-                              className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-xs text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 p-1.5"
-                              title="Dosyayı sil"
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="truncate text-[11px] font-medium text-foreground">{item.subject}</div>
+                            <div className="mt-0.5 flex flex-wrap gap-1.5 sm:hidden">
+                              <span
+                                className={cn(
+                                  'inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-medium',
+                                  dtFileStatusBadgeClass(item.status),
+                                )}
+                              >
+                                {dtFileStatusLabel(item.status)}
+                              </span>
+                              <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
+                                <Calendar className="size-3" aria-hidden />
+                                {new Date(item.createdAt).toLocaleDateString('tr-TR')}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="hidden sm:block">
+                            <span
+                              className={cn(
+                                'inline-flex items-center rounded px-2 py-1 text-[10px] font-semibold',
+                                dtFileStatusBadgeClass(item.status),
+                              )}
                             >
-                              ✕
-                            </button>
-                            <DialogContent className="max-w-sm">
-                              <div className="space-y-3">
-                                <div className="flex gap-2 rounded-lg border border-rose-200/50 bg-rose-500/8 p-3 dark:border-rose-500/20 dark:bg-rose-950/25">
-                                  <Info className="mt-0.5 size-4 shrink-0 text-rose-600 dark:text-rose-400" aria-hidden />
-                                  <p className="text-sm text-rose-950/90 dark:text-rose-100/90">
-                                    <strong className="font-semibold">Dosya silinecek!</strong> Bu işlem geri alınamaz.
-                                  </p>
+                              {dtFileStatusLabel(item.status)}
+                            </span>
+                          </div>
+
+                          <div className="hidden text-[10px] text-muted-foreground sm:flex sm:items-center sm:gap-1">
+                            <Calendar className="size-3.5" aria-hidden />
+                            <span className="tabular-nums">{new Date(item.createdAt).toLocaleDateString('tr-TR')}</span>
+                          </div>
+
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Link
+                              href={
+                                isSuperadmin && schoolId
+                                  ? `/dogrudan-temin/${item.id}?school_id=${encodeURIComponent(schoolId)}`
+                                  : `/dogrudan-temin/${item.id}`
+                              }
+                              className="inline-flex"
+                            >
+                              <Button size="sm" variant="outline" className="h-8 px-2 text-[10px]" disabled={busy}>
+                                <ExternalLink className="mr-1 size-3.5" />
+                                Aç
+                              </Button>
+                            </Link>
+                            <Dialog open={deleteConfirm === item.id} onOpenChange={(open) => setDeleteConfirm(open ? item.id : null)}>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-500/10 dark:text-rose-400 dark:hover:text-rose-300"
+                                onClick={() => setDeleteConfirm(item.id)}
+                                disabled={busy}
+                                title="Dosyayı sil"
+                              >
+                                <Trash2 className="size-4" />
+                              </Button>
+                              <DialogContent className="max-w-sm">
+                                <div className="space-y-3">
+                                  <div className="flex gap-2 rounded-lg border border-rose-200/50 bg-rose-500/8 p-3 dark:border-rose-500/20 dark:bg-rose-950/25">
+                                    <Info className="mt-0.5 size-4 shrink-0 text-rose-600 dark:text-rose-400" aria-hidden />
+                                    <p className="text-sm text-rose-950/90 dark:text-rose-100/90">
+                                      <strong className="font-semibold">Dosya silinecek!</strong> Bu işlem geri alınamaz.
+                                    </p>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="font-semibold text-foreground">{item.subject}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {item.year} · #{item.fileNo}
+                                    </p>
+                                  </div>
+                                  <div className="flex justify-end gap-2 border-t pt-3">
+                                    <Button variant="outline" size="sm" onClick={() => setDeleteConfirm(null)} disabled={busy}>
+                                      İptal
+                                    </Button>
+                                    <Button variant="destructive" size="sm" onClick={() => deleteFile(item.id)} disabled={busy}>
+                                      Sil
+                                    </Button>
+                                  </div>
                                 </div>
-                                <div>
-                                  <p className="font-semibold text-foreground">{item.subject}</p>
-                                  <p className="text-xs text-muted-foreground mt-0.5">Dosya no: {item.fileNo}</p>
-                                </div>
-                                <div className="flex justify-end gap-2 border-t pt-3">
-                                  <Button variant="outline" size="sm" onClick={() => setDeleteConfirm(null)} disabled={busy}>
-                                    İptal
-                                  </Button>
-                                  <Button variant="destructive" size="sm" onClick={() => deleteFile(item.id)} disabled={busy}>
-                                    Sil
-                                  </Button>
-                                </div>
-                              </div>
-                            </DialogContent>
-                          </Dialog>
+                              </DialogContent>
+                            </Dialog>
+                          </div>
                         </div>
                       </div>
                     ))}
