@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, In, IsNull, Repository } from 'typeorm';
@@ -1187,19 +1187,22 @@ export class DogrudanTeminService {
 
   private readHesapPlaniCatalog(): { code: string; name: string; unit: string | null; vatRate: number }[] {
     const envPath = String(process.env.DT_MATERIAL_CATALOG_XLS_PATH ?? '').trim();
+    const names = ['hesap_plani1.xls', 'hesap_plani1.xlsx', 'hesap_plani1.csv'] as const;
     const candidates = [
       envPath || null,
-      join(__dirname, 'data', 'hesap_plani1.xls'),
-      join(process.cwd(), 'dist', 'dogrudan-temin', 'data', 'hesap_plani1.xls'),
-      join(process.cwd(), 'src', 'dogrudan-temin', 'data', 'hesap_plani1.xls'),
-      'c:\\Users\\mehme\\OneDrive\\Desktop\\hesap_plani1.xls',
+      ...names.flatMap((n) => [
+        join(__dirname, 'data', n),
+        join(process.cwd(), 'dist', 'dogrudan-temin', 'data', n),
+        join(process.cwd(), 'src', 'dogrudan-temin', 'data', n),
+      ]),
     ].filter((p): p is string => !!p);
 
     const path = candidates.find((p) => existsSync(p));
     if (!path) {
       throw new InternalServerErrorException({
         code: 'DT_HESAP_PLANI_MISSING',
-        message: 'hesap_plani1.xls bulunamadı. (DT_MATERIAL_CATALOG_XLS_PATH ile yol verin.)',
+        message:
+          'hesap_plani1.xls / .xlsx / .csv bulunamadı. Dosyayı backend/src/dogrudan-temin/data/ altına koyun veya DT_MATERIAL_CATALOG_XLS_PATH ile tam yol verin.',
       });
     }
 
@@ -1256,27 +1259,21 @@ export class DogrudanTeminService {
     } catch {
       throw new InternalServerErrorException({
         code: 'DT_HESAP_PLANI_INVALID',
-        message: 'hesap_plani1.xls okunamadı.',
+        message: 'Hesap planı dosyası okunamadı (sütun başlıkları: HESAPKODU, AÇIKLAMA; isteğe bağlı ÖLÇÜ BİRİMİ, KDV).',
       });
     }
   }
 
   async seedOrtakKamuMaterialLibrary(schoolId: string, userId: string) {
-    // Eski verileri komple temizle (CPV dahil)
+    // Eski verileri komple temizle (hesap planı kütüphanesi)
     await this.matLibRepo.delete({ schoolId } as any);
     await this.matCatRepo.delete({ schoolId } as any);
 
-    // Yeni katalog: hesap planı Excel
+    // hesap_plani1: noktalı kod hiyerarşisi → kategori = üst kodlar (en fazla 2 segment derinlik)
     const catalog = this.readHesapPlaniCatalog();
     const nameByCode = new Map(catalog.map((r) => [String(r.code).trim(), String(r.name).trim()]));
     const codes = catalog.map((r) => String(r.code).trim()).filter(Boolean);
     const codeSet = new Set(codes);
-
-    const isParent = (c: string) => {
-      const prefix = `${c}.`;
-      // 12k satırda startsWith taraması pahalı; prefix setini önceden üret.
-      return parentSet.has(c);
-    };
 
     const parentSet = new Set<string>();
     for (const c of codes) {
@@ -1286,9 +1283,9 @@ export class DogrudanTeminService {
       }
     }
 
+    const isParent = (c: string) => parentSet.has(c);
     const level = (c: string) => c.split('.').length;
 
-    // Kategori seviyesi: sadece 1-2 seviye (çok kategori olmasın)
     const categoryCodes = new Set<string>();
     for (const c of codes) {
       if (!isParent(c)) continue;
@@ -1296,7 +1293,6 @@ export class DogrudanTeminService {
       if (lv <= 2) categoryCodes.add(c);
     }
 
-    // Kategori ağacı
     const root = await this.matCatRepo.save(
       this.matCatRepo.create({ schoolId, name: 'Hesap Planı', parentId: null }),
     );
@@ -1318,7 +1314,6 @@ export class DogrudanTeminService {
       catIdByCode.set(c, cat.id);
     }
 
-    // Malzemeler: sadece yaprak (altı olmayan) kodlar
     const leafRows = catalog.filter((r) => {
       const c = String(r.code).trim();
       return c && codeSet.has(c) && !isParent(c);
@@ -1330,7 +1325,6 @@ export class DogrudanTeminService {
         const cc = parts.slice(0, i).join('.');
         if (categoryCodes.has(cc)) return catIdByCode.get(cc) ?? null;
       }
-      // tek seviye ise direkt kategori olabilir; değilse null
       return null;
     };
 
