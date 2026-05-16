@@ -395,9 +395,9 @@ export function DtFileWizard({
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => onGenerateDoc('fiyat_arastirmasi', docVendorId)}
-                  disabled={!itemsDone || !docVendorId}
-                  title={!docVendorId ? 'Firma seçin' : undefined}
+                  onClick={() => onGenerateDoc('fiyat_arastirmasi', docVendorId || undefined)}
+                  disabled={!itemsDone}
+                  title={!docVendorId ? 'Firma yoksa şablonda boş alanlar kullanılır' : undefined}
                 >
                   Fiyat araştırma
                 </Button>

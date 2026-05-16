@@ -352,3 +352,14 @@ export function dtStripNumericTrailingZeros(value: string | null | undefined): s
     .replace(/(\.\d*?)0+$/, '$1')
     .replace(/\.$/, '');
 }
+
+/** Tutar: gruplama yok, virgülden sonra her zaman 2 hane (örn. 1500,00). */
+export function dtFormatAmountTr2(value: string | number | null | undefined): string {
+  const n = dtParseAmount(value);
+  if (n == null || !Number.isFinite(n)) return '';
+  return new Intl.NumberFormat('tr-TR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+    useGrouping: false,
+  }).format(n);
+}

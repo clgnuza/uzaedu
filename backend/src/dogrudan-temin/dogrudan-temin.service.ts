@@ -41,6 +41,7 @@ import {
   AddDtItemDto,
   AutoAwardDto,
   BlockDtBudgetDto,
+  PatchDtBudgetBlockDto,
   ReleaseDtBudgetDto,
   CopyDtFileDto,
   CreateDtBudgetAccountDto,
@@ -61,6 +62,7 @@ import {
   UpsertDtAwardItemDto,
   UpsertDtQuoteItemDto,
   RecordDtPaymentDto,
+  PatchDtPaymentDto,
   CreateDtMaterialCategoryDto,
   CreateDtMaterialLibraryItemDto,
   PatchDtMaterialLibraryItemDto,
@@ -71,6 +73,7 @@ import {
   PutDtDocumentRegistryDto,
   SyncDtCommissionDto,
   PutDtTeknikSartnameDraftDto,
+  PutDtSozlesmeDraftDto,
 } from './dto/dt.dto';
 import { AppConfigService } from '../app-config/app-config.service';
 import { dtFileStatusTr, dtTeminTypeTr } from './dt-temin-labels';
@@ -85,6 +88,8 @@ import { User } from '../users/entities/user.entity';
 import { UserRole, UserStatus } from '../types/enums';
 import { DT_COMMISSION_KINDS, DT_REGISTRY_STAGES } from './dt-workflow.constants';
 import { normalizeDtTeknikSartnameDraft } from './dt-teknik-sartname-draft';
+import { buildDefaultSozlesmeBodyHtml, escapeHtml, normalizeDtSozlesmeDraft } from './dt-sozlesme-draft';
+import * as cheerio from 'cheerio';
 
 @Injectable()
 export class DogrudanTeminService {
@@ -205,6 +210,7 @@ export class DogrudanTeminService {
       updatedByUserId: userId,
       archivedAt: null,
       teknikSartnameJson: src.teknikSartnameJson ?? null,
+      sozlesmeJson: src.sozlesmeJson ?? null,
     });
 
     if (items.length) {
@@ -291,6 +297,64 @@ export class DogrudanTeminService {
     file.updatedByUserId = userId;
     await this.fileRepo.save(file);
     return { draft };
+  }
+
+  async getSozlesmeDraft(schoolId: string, dtFileId: string, vendorId: string) {
+    const vid = String(vendorId ?? '').trim();
+    if (!vid) throw new BadRequestException({ code: 'DT_VENDOR_ID_REQUIRED' });
+    const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId } });
+    if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
+    const school = await this.schoolRepo.findOne({ where: { id: schoolId }, select: ['name', 'principalName'] });
+    const settings = await this.procurementSettingsRepo.findOne({ where: { schoolId } });
+    const vendor = await this.vendorRepo.findOne({ where: { id: vid, schoolId } });
+    if (!vendor) throw new NotFoundException({ code: 'DT_VENDOR_NOT_FOUND' });
+    const items = await this.itemRepo.find({ where: { schoolId, dtFileId }, order: { createdAt: 'ASC' } });
+    const awards = await this.awardRepo.find({ where: { schoolId, dtFileId } });
+    const awardByItemId = new Map(awards.map((a) => [a.dtItemId, a]));
+    const awarded = items
+      .map((it) => ({ it, a: awardByItemId.get(it.id) ?? null }))
+      .filter((x) => x.a && x.a.vendorId === vid) as Array<{ it: DtItem; a: DtAward }>;
+    if (awarded.length === 0) throw new BadRequestException({ code: 'DT_NO_AWARDS_FOR_VENDOR' });
+    const total = awarded.reduce((sum, x) => sum + (Number(x.a.total) || 0), 0);
+    const totalFmt = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(total);
+    const defaultHtml = buildDefaultSozlesmeBodyHtml({
+      schoolName: (school?.name ?? '').trim() || 'Kurum',
+      subject: file.subject,
+      year: file.year,
+      fileNo: file.fileNo,
+      procurementRef: (file.procurementRef ?? '').trim(),
+      vendorTitle: vendor.title,
+      vendorAddress: (vendor.address ?? '').trim(),
+      vendorTaxNo: (vendor.taxNo ?? '').trim(),
+      totalFormatted: totalFmt,
+      principalName: (settings?.spendingAuthorityName ?? '').trim() || (school?.principalName ?? '').trim(),
+    });
+    const saved = file.sozlesmeJson as { vendorId?: string; bodyHtml?: string } | null;
+    const bodyHtml =
+      saved && saved.vendorId === vid && String(saved.bodyHtml ?? '').trim()
+        ? String(saved.bodyHtml)
+        : defaultHtml;
+    return { vendor_id: vid, body_html: bodyHtml, default_html: defaultHtml };
+  }
+
+  async putSozlesmeDraft(schoolId: string, userId: string, dtFileId: string, dto: PutDtSozlesmeDraftDto) {
+    const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId } });
+    if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
+    const vendorId = String(dto.vendor_id ?? '').trim();
+    if (!vendorId) throw new BadRequestException({ code: 'DT_VENDOR_ID_REQUIRED' });
+    const vendor = await this.vendorRepo.findOne({ where: { id: vendorId, schoolId } });
+    if (!vendor) throw new NotFoundException({ code: 'DT_VENDOR_NOT_FOUND' });
+    const items = await this.itemRepo.find({ where: { schoolId, dtFileId }, order: { createdAt: 'ASC' } });
+    const awards = await this.awardRepo.find({ where: { schoolId, dtFileId } });
+    const awardByItemId = new Map(awards.map((a) => [a.dtItemId, a]));
+    const awarded = items
+      .map((it) => ({ it, a: awardByItemId.get(it.id) ?? null }))
+      .filter((x) => x.a && x.a.vendorId === vendorId) as Array<{ it: DtItem; a: DtAward }>;
+    if (awarded.length === 0) throw new BadRequestException({ code: 'DT_NO_AWARDS_FOR_VENDOR' });
+    file.sozlesmeJson = normalizeDtSozlesmeDraft(vendorId, dto.body_html);
+    file.updatedByUserId = userId;
+    await this.fileRepo.save(file);
+    return { ok: true };
   }
 
   async patchFile(schoolId: string, userId: string, id: string, dto: PatchDtFileDto) {
@@ -661,11 +725,21 @@ export class DogrudanTeminService {
     if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
     const acc = await this.budgetRepo.findOne({
       where: { id: dto.budget_account_id, schoolId },
-      select: ['id', 'blocked'],
+      select: ['id', 'allocated', 'blocked', 'spent'],
     });
     if (!acc) throw new NotFoundException({ code: 'DT_BUDGET_NOT_FOUND' });
     const amt = this.parseAmountRequired(dto.amount, 'DT_BLOCK_AMOUNT');
     if (amt <= 0) throw new BadRequestException({ code: 'DT_BLOCK_AMOUNT', message: 'Tutar 0\'dan büyük olmalıdır.' });
+    const alloc = this.toNum(acc.allocated) ?? 0;
+    const blockedTot = this.toNum(acc.blocked) ?? 0;
+    const spent = this.toNum(acc.spent) ?? 0;
+    const available = alloc - blockedTot - spent;
+    if (amt > available + 1e-6) {
+      throw new BadRequestException({
+        code: 'DT_BLOCK_EXCEEDS_AVAILABLE',
+        message: `Kullanılabilir tutar ${this.formatQtyOrAmountNumberForApi(Math.max(0, available))} ₺ (ödenek − bloke − harcama).`,
+      });
+    }
     const amount = amt.toFixed(6);
     const block = await this.blockRepo.save(
       this.blockRepo.create({
@@ -698,9 +772,18 @@ export class DogrudanTeminService {
     const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId }, select: ['id'] });
     if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
 
-    const blocks = dto.block_id?.trim()
-      ? await this.blockRepo.find({ where: { id: dto.block_id.trim(), schoolId, dtFileId, status: 'blocked' } as any })
-      : await this.blockRepo.find({ where: { schoolId, dtFileId, status: 'blocked' } as any, take: 500 });
+    let blocks: DtBudgetBlock[];
+    if (dto.block_id?.trim()) {
+      const b = await this.blockRepo.findOne({ where: { id: dto.block_id.trim(), schoolId, dtFileId } as any });
+      if (!b) throw new NotFoundException({ code: 'DT_BUDGET_BLOCK_NOT_FOUND' });
+      if (String(b.status ?? '').trim().toLowerCase() !== 'blocked') {
+        return { ok: true, released: 0 };
+      }
+      blocks = [b];
+    } else {
+      const all = await this.blockRepo.find({ where: { schoolId, dtFileId } as any, take: 500 });
+      blocks = all.filter((x) => String(x.status ?? '').trim().toLowerCase() === 'blocked');
+    }
 
     if (blocks.length === 0) return { ok: true, released: 0 };
 
@@ -725,6 +808,77 @@ export class DogrudanTeminService {
     if (accs.length) await this.budgetRepo.save(accs);
 
     return { ok: true, released: blocks.length };
+  }
+
+  async patchBudgetBlock(
+    schoolId: string,
+    userId: string,
+    dtFileId: string,
+    blockId: string,
+    dto: PatchDtBudgetBlockDto,
+  ) {
+    const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId }, select: ['id'] });
+    if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
+    const block = await this.blockRepo.findOne({ where: { id: blockId, schoolId, dtFileId } as any });
+    if (!block) throw new NotFoundException({ code: 'DT_BUDGET_BLOCK_NOT_FOUND' });
+    if (String(block.status ?? '').trim().toLowerCase() !== 'blocked') {
+      throw new BadRequestException({
+        code: 'DT_BUDGET_BLOCK_NOT_ACTIVE',
+        message: 'Yalnızca aktif blokeler düzenlenebilir.',
+      });
+    }
+    const oldAmt = this.toNum(block.amount) ?? 0;
+    const newAmt = this.parseAmountRequired(dto.amount, 'DT_BLOCK_AMOUNT');
+    if (newAmt <= 0) throw new BadRequestException({ code: 'DT_BLOCK_AMOUNT', message: 'Tutar 0\'dan büyük olmalıdır.' });
+    const delta = newAmt - oldAmt;
+    if (Math.abs(delta) < 1e-12) return block;
+
+    const acc = await this.budgetRepo.findOne({
+      where: { id: block.budgetAccountId, schoolId },
+      select: ['id', 'allocated', 'blocked', 'spent'],
+    });
+    if (!acc) throw new NotFoundException({ code: 'DT_BUDGET_NOT_FOUND' });
+    const alloc = this.toNum(acc.allocated) ?? 0;
+    const blockedTot = this.toNum(acc.blocked) ?? 0;
+    const spent = this.toNum(acc.spent) ?? 0;
+    const nextBlockedTot = blockedTot + delta;
+    if (nextBlockedTot + spent > alloc + 1e-6) {
+      const avail = Math.max(0, alloc - blockedTot - spent);
+      throw new BadRequestException({
+        code: 'DT_BLOCK_EXCEEDS_AVAILABLE',
+        message: `Ödenek üst sınırı aşıldı. Bu blok için en fazla ${this.formatQtyOrAmountNumberForApi(avail + oldAmt)} ₺ girilebilir (mevcut blok + kullanılabilir).`,
+      });
+    }
+    if (nextBlockedTot < -1e-9) {
+      throw new BadRequestException({ code: 'DT_BLOCK_INVALID', message: 'Bloke tutarı negatif olamaz.' });
+    }
+
+    block.amount = newAmt.toFixed(6);
+    block.updatedByUserId = userId;
+    acc.blocked = nextBlockedTot.toFixed(6);
+    acc.updatedByUserId = userId;
+    await this.blockRepo.save(block);
+    await this.budgetRepo.save(acc);
+    return block;
+  }
+
+  async deleteBudgetBlock(schoolId: string, userId: string, dtFileId: string, blockId: string) {
+    const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId }, select: ['id'] });
+    if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
+    const block = await this.blockRepo.findOne({ where: { id: blockId, schoolId, dtFileId } as any });
+    if (!block) throw new NotFoundException({ code: 'DT_BUDGET_BLOCK_NOT_FOUND' });
+    const st = String(block.status ?? '').trim().toLowerCase();
+    if (st === 'blocked') {
+      return this.releaseBudget(schoolId, userId, dtFileId, { block_id: blockId });
+    }
+    if (st === 'released') {
+      await this.blockRepo.remove(block);
+      return { ok: true, released: 0, purged: true };
+    }
+    throw new BadRequestException({
+      code: 'DT_BUDGET_BLOCK_BAD_STATE',
+      message: 'Bu blok kaydı bu işlemle kaldırılamıyor.',
+    });
   }
 
   async getDtRules() {
@@ -809,6 +963,113 @@ export class DogrudanTeminService {
 
     await this.recalcPaymentTotal(schoolId, dtFileId);
     return row;
+  }
+
+  async patchPayment(
+    schoolId: string,
+    userId: string,
+    dtFileId: string,
+    paymentId: string,
+    dto: PatchDtPaymentDto,
+  ) {
+    const rules = await this.appConfig.getDtRulesConfig();
+    const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId } });
+    if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
+    const payment = await this.paymentRepo.findOne({ where: { id: paymentId, schoolId, dtFileId } });
+    if (!payment) throw new NotFoundException({ code: 'DT_PAYMENT_NOT_FOUND' });
+
+    const oldAmt = this.toNum(payment.amount) ?? 0;
+    let newAmt = oldAmt;
+    const amountProvided =
+      dto.amount !== undefined && dto.amount !== null && String(dto.amount).trim() !== '';
+    if (amountProvided) {
+      newAmt = this.parseAmountRequired(dto.amount, 'DT_PAYMENT_AMOUNT');
+      if (newAmt <= 0) throw new BadRequestException({ code: 'DT_PAYMENT_AMOUNT', message: 'Tutar 0\'dan büyük olmalıdır.' });
+    }
+
+    const nextNote = dto.note !== undefined ? (dto.note?.trim() ?? '') : (payment.note ?? '').trim();
+    if (dto.note !== undefined && rules.payment_note_min_length > 0 && nextNote.length < rules.payment_note_min_length) {
+      throw new BadRequestException({ code: 'DT_RULE_NOTE_TOO_SHORT' });
+    }
+
+    let quoteId = payment.quoteId;
+    if (dto.quote_id !== undefined) {
+      const raw = dto.quote_id?.trim() ?? '';
+      if (!raw) {
+        quoteId = null;
+        if (rules.require_quote_on_payment) throw new BadRequestException({ code: 'DT_RULE_QUOTE_REQUIRED' });
+      } else {
+        const q = await this.quoteRepo.findOne({ where: { id: raw, schoolId, dtFileId }, select: ['id'] });
+        if (!q) throw new NotFoundException({ code: 'DT_QUOTE_NOT_FOUND' });
+        quoteId = q.id;
+      }
+    }
+
+    let paidAt = payment.paidAt;
+    if (dto.paid_at !== undefined) {
+      if (dto.paid_at?.trim()) {
+        const d = new Date(dto.paid_at.trim());
+        if (!Number.isNaN(d.getTime())) paidAt = d;
+      } else {
+        paidAt = new Date();
+      }
+    }
+
+    const delta = newAmt - oldAmt;
+    if (delta !== 0) {
+      if (rules.require_budget_account_on_file && !file.budgetAccountId?.trim()) {
+        throw new BadRequestException({ code: 'DT_RULE_BUDGET_REQUIRED' });
+      }
+      if (file.budgetAccountId) {
+        const acc = await this.budgetRepo.findOne({
+          where: { id: file.budgetAccountId, schoolId },
+          select: ['id', 'spent'],
+        });
+        if (acc) {
+          const nextSpent = Math.max(0, (this.toNum(acc.spent) ?? 0) + delta);
+          acc.spent = nextSpent.toFixed(6);
+          acc.updatedByUserId = userId;
+          await this.budgetRepo.save(acc);
+        }
+      }
+    }
+    if (amountProvided) {
+      payment.amount = newAmt.toFixed(6);
+    }
+
+    if (dto.quote_id !== undefined) payment.quoteId = quoteId;
+    if (dto.note !== undefined) payment.note = nextNote ? nextNote : null;
+    if (dto.reference_no !== undefined) payment.referenceNo = dto.reference_no?.trim() || null;
+    if (dto.paid_at !== undefined) payment.paidAt = paidAt;
+
+    await this.paymentRepo.save(payment);
+    await this.recalcPaymentTotal(schoolId, dtFileId);
+    return payment;
+  }
+
+  async deletePayment(schoolId: string, userId: string, dtFileId: string, paymentId: string) {
+    const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId } });
+    if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
+    const payment = await this.paymentRepo.findOne({ where: { id: paymentId, schoolId, dtFileId } });
+    if (!payment) throw new NotFoundException({ code: 'DT_PAYMENT_NOT_FOUND' });
+
+    const amt = this.toNum(payment.amount) ?? 0;
+    if (file.budgetAccountId) {
+      const acc = await this.budgetRepo.findOne({
+        where: { id: file.budgetAccountId, schoolId },
+        select: ['id', 'spent'],
+      });
+      if (acc) {
+        const nextSpent = Math.max(0, (this.toNum(acc.spent) ?? 0) - amt);
+        acc.spent = nextSpent.toFixed(6);
+        acc.updatedByUserId = userId;
+        await this.budgetRepo.save(acc);
+      }
+    }
+
+    await this.paymentRepo.remove(payment);
+    await this.recalcPaymentTotal(schoolId, dtFileId);
+    return { ok: true };
   }
 
   private async recalcPaymentTotal(schoolId: string, dtFileId: string): Promise<void> {
@@ -1243,23 +1504,51 @@ export class DogrudanTeminService {
     const rows = await this.docRepo.find({
       where: { schoolId, dtFileId },
       order: { createdAt: 'DESC' },
-      take: 80,
+      take: 200,
     });
-    const seen = new Set<string>();
-    const items: Array<{ id: string; docType: string; fileFormat: string; filename: string; createdAt: Date }> = [];
-    for (const x of rows) {
-      const k = `${x.docType}\t${x.fileFormat}`;
-      if (seen.has(k)) continue;
-      seen.add(k);
-      items.push({
+    return {
+      items: rows.map((x) => ({
         id: x.id,
         docType: x.docType,
         fileFormat: x.fileFormat,
         filename: x.filename,
         createdAt: x.createdAt,
-      });
-    }
-    return { items };
+      })),
+    };
+  }
+
+  async deleteGeneratedDoc(schoolId: string, docId: string) {
+    const row = await this.docRepo.findOne({ where: { id: docId, schoolId } });
+    if (!row) throw new NotFoundException({ code: 'DT_DOC_NOT_FOUND' });
+    await this.uploadService.deleteObject(row.storageKey);
+    await this.docRepo.delete({ id: docId, schoolId });
+    return { ok: true };
+  }
+
+  private static readonly DT_GEN_DOC_TR: Record<string, string> = {
+    ihtiyac_listesi: 'İhtiyaç listesi',
+    fiyat_arastirmasi: 'Fiyat araştırması',
+    teklif_isteme: 'Teklif mektubu',
+    harcama_talimati: 'Harcama talimatı',
+    karar: 'Doğrudan temin kararı',
+    sozlesme: 'Sözleşme taslağı',
+    komisyon_onay: 'Komisyon onay listesi',
+    onay_belgesi: 'Onay belgesi',
+    piyasa_arastirma_tutanagi: 'Piyasa araştırma tutanağı',
+    yaklasik_maliyet_cetveli: 'Yaklaşık maliyet cetveli',
+    muayene_kabul_tutanagi: 'Muayene ve kabul komisyonu kararı',
+    teslim_tesellum_tutanagi: 'Teslim/tesellüm tutanağı',
+    teknik_sartname: 'Teknik şartname',
+  };
+
+  private dtGeneratedDocTitle(docType: string): string {
+    const k = (docType ?? '').trim().toLowerCase();
+    return DogrudanTeminService.DT_GEN_DOC_TR[k] ?? docType;
+  }
+
+  private dtFilenameStamp(d = new Date()): string {
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
   }
 
   async getDocDownloadUrl(schoolId: string, id: string) {
@@ -1285,8 +1574,9 @@ export class DogrudanTeminService {
     const fileFormat = input.fileFormat ?? 'docx';
     const ext = fileFormat === 'pdf' ? 'pdf' : 'docx';
     const suffix = filenameExtra ? `-${filenameExtra}` : '';
+    const uniq = `${this.dtFilenameStamp()}-${uuidv4().slice(0, 8)}`;
     const filename =
-      `${filenameBase}${suffix}`.replace(/[^\w\u00C0-\u024F\s.-]/gi, '').replace(/\s+/g, '-').slice(0, 180) + `.${ext}`;
+      `${filenameBase}${suffix}-${uniq}`.replace(/[^\w\u00C0-\u024F\s.-]/gi, '').replace(/\s+/g, '-').slice(0, 170) + `.${ext}`;
     if (input.skipPersist) {
       return { download_url: '', filename, buffer };
     }
@@ -1294,11 +1584,21 @@ export class DogrudanTeminService {
       fileFormat === 'pdf'
         ? 'application/pdf'
         : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-    const key = `dogrudan_temin/generated/${uuidv4()}-${docType}.${ext}`;
-    await this.uploadService.uploadBuffer(key, buffer, mime);
-    if (!filenameExtra) {
+
+    const existing = await this.docRepo.find({ where: { schoolId, dtFileId, docType, fileFormat } });
+    for (const ex of existing) {
+      try {
+        await this.uploadService.deleteObject(ex.storageKey);
+      } catch {
+        void 0;
+      }
+    }
+    if (existing.length) {
       await this.docRepo.delete({ schoolId, dtFileId, docType, fileFormat });
     }
+
+    const key = `dogrudan_temin/generated/${uuidv4()}-${docType}.${ext}`;
+    await this.uploadService.uploadBuffer(key, buffer, mime);
     await this.docRepo.save(
       this.docRepo.create({
         schoolId,
@@ -1324,8 +1624,8 @@ export class DogrudanTeminService {
         return existsSync(p) ? p : null;
       }
     };
-    const reg = resolveTtf('DejaVuSans.ttf');
-    const bold = resolveTtf('DejaVuSans-Bold.ttf');
+    const reg = resolveTtf('DejaVuSerif.ttf') ?? resolveTtf('DejaVuSans.ttf');
+    const bold = resolveTtf('DejaVuSerif-Bold.ttf') ?? resolveTtf('DejaVuSans-Bold.ttf');
     if (reg && bold) {
       doc.registerFont('DT', reg);
       doc.registerFont('DTB', bold);
@@ -1337,28 +1637,38 @@ export class DogrudanTeminService {
 
   private pdfBuffer(
     build: (doc: InstanceType<typeof PDFDocument>, fonts: { regular: string; bold: string }) => void,
-    pageOpts?: { layout?: 'portrait' | 'landscape' },
+    pageOpts?: { layout?: 'portrait' | 'landscape'; margin?: number },
   ): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       /** A4 yatay (pt); bazı pdfkit sürümlerinde `layout: landscape` tek başına MediaBox’ı çevirmeyebilir. */
       const a4Landscape: [number, number] = [841.89, 595.28];
+      const margin = pageOpts?.margin != null && pageOpts.margin > 0 ? pageOpts.margin : 40;
       const doc =
         pageOpts?.layout === 'landscape'
-          ? new PDFDocument({ size: a4Landscape, margin: 40 })
-          : new PDFDocument({ size: 'A4', margin: 40 });
+          ? new PDFDocument({ size: a4Landscape, margin })
+          : new PDFDocument({ size: 'A4', margin });
       const fonts = this.pdfRegisterFonts(doc);
       let pageNo = 1;
       const drawFooter = () => {
         const savedX = doc.x;
         const savedY = doc.y;
         const w = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-        /** Alt kenara yakın ama sayfa dışına taşmayacak şekilde; aksi halde doc.y sayfa sonuna gidip hemen addPage ile boş 1. sayfa oluşur. */
-        const y = Math.min(doc.page.height - doc.page.margins.bottom - 4, doc.page.height - 22);
+        /**
+         * Footer çizimi content akışını etkilememeli.
+         * `lineBreak: false` ve sabit yükseklik ile otomatik sayfa kırılmasını engelleriz.
+         */
+        const y = doc.page.height - doc.page.margins.bottom - 14;
         doc.save();
-        doc.font(fonts.regular).fontSize(8).fillColor('#6b7280').text(`Sayfa ${pageNo}`, doc.page.margins.left, y, {
-          width: w,
-          align: 'right',
-        });
+        doc
+          .font(fonts.regular)
+          .fontSize(8)
+          .fillColor('#6b7280')
+          .text(`Sayfa ${pageNo}`, doc.page.margins.left, y, {
+            width: w,
+            height: 10,
+            align: 'right',
+            lineBreak: false,
+          });
         doc.restore();
         doc.x = savedX;
         doc.y = savedY;
@@ -1368,6 +1678,8 @@ export class DogrudanTeminService {
         pageNo += 1;
         drawFooter();
       });
+      doc.x = doc.page.margins.left;
+      doc.y = doc.page.margins.top;
       const chunks: Buffer[] = [];
       doc.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -1435,11 +1747,16 @@ export class DogrudanTeminService {
     return [String(idx + 1), String(it.name ?? ''), String(it.spec ?? ''), qtyStr, unit || '—'];
   }
 
-  /** İhtiyaç listesi: dış çerçeve ve düşey çizgiler tek çizgi; satırlar arası yatay çizgi noktalı (başlık altı düz). */
+  /** İhtiyaç listesi: dış çerçeve ve düşey çizgiler tek çizgi; satırlar arası yatay çizgi noktalı (başlık altı düz). DOCX ile aynı sütun oranı (twip). */
   private pdfIhtiyacListesiTable(
     doc: InstanceType<typeof PDFDocument>,
     fonts: { regular: string; bold: string },
-    columns: Array<{ header: string; width: number; align?: 'left' | 'center' | 'right' }>,
+    columns: Array<{
+      header: string;
+      width: number;
+      align?: 'left' | 'center' | 'right';
+      dataAlign?: 'left' | 'center' | 'right';
+    }>,
     rows: string[][],
   ) {
     const startX = doc.page.margins.left;
@@ -1451,14 +1768,16 @@ export class DogrudanTeminService {
     const fontSize = 10;
     const headerFontSize = 10;
     const padY = 4;
+    const usablePageH = doc.page.height - doc.page.margins.top - doc.page.margins.bottom - 8;
 
     const rowHeightFor = (cells: string[], size: number, bold: boolean) => {
       doc.font(bold ? fonts.bold : fonts.regular).fontSize(size);
       const hs = cells.map((t, i) => {
         const w = widths[i] - 8;
-        return doc.heightOfString(String(t ?? ''), { width: w });
+        return doc.heightOfString(String(t ?? ''), { width: w, lineGap: 0.35 });
       });
-      return Math.max(18, Math.max(...hs) + padY * 2 + 2);
+      const raw = Math.max(20, Math.max(...hs, 10) + padY * 2 + 2);
+      return Math.min(raw, usablePageH);
     };
 
     const allRows = [columns.map((c) => c.header), ...rows];
@@ -1477,13 +1796,17 @@ export class DogrudanTeminService {
       doc.moveTo(xx, y1).lineTo(xx, y2).stroke();
     };
 
+    const bottomY = doc.page.height - doc.page.margins.bottom;
     let yCursor = y;
     for (let r = 0; r < allRows.length; r++) {
-      const h = heights[r] ?? 20;
-      if (yCursor + h > doc.page.height - doc.page.margins.bottom) {
+      let h = heights[r] ?? 20;
+      if (yCursor + h > bottomY) {
         doc.addPage();
-        yCursor = doc.y;
+        yCursor = doc.page.margins.top;
+        doc.x = startX;
+        doc.y = yCursor;
       }
+      if (yCursor + h > bottomY) h = Math.max(16, bottomY - yCursor - 2);
       const y0 = yCursor;
       const y1 = yCursor + h;
       const isHeader = r === 0;
@@ -1512,11 +1835,15 @@ export class DogrudanTeminService {
       for (let i = 0; i < widths.length; i++) {
         const w = widths[i];
         const t = String(cells[i] ?? '');
-        const align = columns[i]?.align ?? 'left';
-        doc
-          .font(isHeader ? fonts.bold : fonts.regular)
-          .fontSize(isHeader ? headerFontSize : fontSize)
-          .text(t, x + 4, y0 + padY, { width: w - 8, align });
+        const col = columns[i];
+        const align = isHeader ? col?.align ?? 'center' : col?.dataAlign ?? col?.align ?? 'left';
+        const sz = isHeader ? headerFontSize : fontSize;
+        doc.font(isHeader ? fonts.bold : fonts.regular).fontSize(sz);
+        const innerW = w - 8;
+        const textH = doc.heightOfString(t || ' ', { width: innerW, lineGap: 0.35 });
+        const textY = y0 + padY + Math.max(0, h - padY * 2 - textH) / 2;
+        const innerMaxH = Math.max(8, h - padY * 2);
+        doc.text(t, x + 4, textY, { width: innerW, height: innerMaxH, align, lineGap: 0.35, ellipsis: true });
         x += w;
       }
       yCursor = y1;
@@ -1580,22 +1907,30 @@ export class DogrudanTeminService {
       maxBottom = Math.max(maxBottom, curY);
     }
     doc.y = maxBottom + 8;
+    doc.x = left;
   }
 
-  /** Fiyat araştırması: malzeme tablosu (gri başlık, son satır KDV hariç teklif). */
+  /** Fiyat araştırması: malzeme tablosu (gri başlık, son satır KDV hariç teklif). `compact`: teklif mektubunda dikey yer kazanır. */
   private pdfFiyatArastirmaMalzemeTable(
     doc: InstanceType<typeof PDFDocument>,
     fonts: { regular: string; bold: string },
     items: DtItem[],
+    opts?: { compact?: boolean },
   ) {
+    const compact = opts?.compact === true;
     const startX = doc.page.margins.left;
     const tableW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
     const fr = [0.065, 0.24, 0.24, 0.085, 0.085, 0.145, 0.14];
     const widths = fr.map((f) => f * tableW);
-    const pad = 3;
+    const pad = compact ? 2 : 3;
     const hdrFill = '#e8e8e8';
 
-    const hSub = 14;
+    const hSub = compact ? 12 : 14;
+    const hHdr = compact ? 17 : 20;
+    const fsHdr = compact ? 8 : 8.5;
+    const fsCell = compact ? 7.5 : 8;
+    const minRow = compact ? 14 : 16;
+
     let y = doc.y;
     let x = startX;
     for (let i = 0; i < 5; i++) {
@@ -1605,12 +1940,14 @@ export class DogrudanTeminService {
     doc.strokeColor('#000000').rect(x, y, widths[5] + widths[6], hSub).stroke();
     doc
       .font(fonts.regular)
-      .fontSize(8.5)
+      .fontSize(fsHdr)
       .fillColor('#000000')
-      .text('Teklif Edilen KDV Hariç', x + pad, y + 3, { width: widths[5] + widths[6] - pad * 2, align: 'right' });
+      .text('Teklif Edilen KDV Hariç', x + pad, y + (compact ? 2 : 3), {
+        width: widths[5] + widths[6] - pad * 2,
+        align: 'right',
+      });
     y += hSub;
 
-    const hHdr = 20;
     x = startX;
     const labels = ['S.No', 'Malzemenin Adı', 'Özelliği', 'Miktarı', 'Ölçeği', 'Birim Fiyatı', 'Tutarı'];
     for (let i = 0; i < 7; i++) {
@@ -1621,18 +1958,18 @@ export class DogrudanTeminService {
       const align = i === 0 || i === 3 || i === 4 ? 'center' : i >= 5 ? 'right' : 'left';
       doc
         .font(fonts.bold)
-        .fontSize(8.5)
+        .fontSize(fsHdr)
         .fillColor('#000000')
-        .text(labels[i], x + pad, y + 5, { width: widths[i] - pad * 2, align: align as any });
+        .text(labels[i], x + pad, y + (compact ? 4 : 5), { width: widths[i] - pad * 2, align: align as any });
       x += widths[i];
     }
     y += hHdr;
 
     const rowHFor = (cells: string[]) => {
-      doc.font(fonts.regular).fontSize(8);
+      doc.font(fonts.regular).fontSize(fsCell);
       const hs = cells.map((t, i) => doc.heightOfString(String(t ?? ''), { width: widths[i] - pad * 2 }));
       const mx = hs.length ? Math.max(...hs) : 8;
-      return Math.max(16, mx + pad * 2 + 2);
+      return Math.max(minRow, mx + pad * 2 + 2);
     };
 
     for (let r = 0; r < items.length; r++) {
@@ -1649,7 +1986,9 @@ export class DogrudanTeminService {
       const rh = rowHFor(cells);
       if (y + rh > doc.page.height - doc.page.margins.bottom) {
         doc.addPage();
-        y = doc.y;
+        y = doc.page.margins.top;
+        doc.x = startX;
+        doc.y = y;
       }
       x = startX;
       for (let i = 0; i < 7; i++) {
@@ -1657,7 +1996,7 @@ export class DogrudanTeminService {
         const align = i === 0 || i === 3 || i === 4 ? 'center' : i >= 5 ? 'right' : 'left';
         doc
           .font(fonts.regular)
-          .fontSize(8)
+          .fontSize(fsCell)
           .fillColor('#000000')
           .text(String(cells[i] ?? ''), x + pad, y + pad, { width: widths[i] - pad * 2, align: align as any });
         x += widths[i];
@@ -1665,100 +2004,156 @@ export class DogrudanTeminService {
       y += rh;
     }
 
-    const rhLast = 18;
-    if (y + rhLast > doc.page.height - doc.page.margins.bottom) {
+    const wLabel = widths.slice(0, 5).reduce((a, b) => a + b, 0);
+    const labelText = 'KDV Hariç Teklif Edilen Fiyat:';
+    doc.font(fonts.bold).fontSize(fsHdr);
+    const labelH = Math.max(compact ? 16 : 18, doc.heightOfString(labelText, { width: wLabel - pad * 2 }) + pad * 2 + 2);
+    if (y + labelH > doc.page.height - doc.page.margins.bottom) {
       doc.addPage();
-      y = doc.y;
+      y = doc.page.margins.top;
+      doc.x = startX;
+      doc.y = y;
     }
     x = startX;
-    for (let i = 0; i < 5; i++) {
-      doc.strokeColor('#000000').rect(x, y, widths[i], rhLast).stroke();
-      x += widths[i];
-    }
-    doc.strokeColor('#000000').rect(x, y, widths[5] + widths[6], rhLast).stroke();
+    doc.strokeColor('#000000').rect(x, y, wLabel, labelH).stroke();
     doc
       .font(fonts.bold)
-      .fontSize(8.5)
-      .text('KDV Hariç Teklif Edilen Fiyat:', x + pad, y + 4, { width: widths[5] + widths[6] - pad * 2 });
+      .fontSize(fsHdr)
+      .fillColor('#000000')
+      .text(labelText, x + pad, y + pad, { width: wLabel - pad * 2, align: 'left' });
+    x += wLabel;
+    doc.strokeColor('#000000').rect(x, y, widths[5], labelH).stroke();
+    x += widths[5];
+    doc.strokeColor('#000000').rect(x, y, widths[6], labelH).stroke();
 
     doc.x = startX;
-    doc.y = y + rhLast + 6;
+    doc.y = y + labelH + 6;
   }
 
-  /** Fiyat araştırması: sol «Diğer şartlar» (noktalı çerçeve), sağ firma imza alanı. */
+  /** Fiyat araştırması / teklif: önce tam genişlik «Diğer şartlar», altında «Firma / İmza» (sayfa kırılımına dayanıklı). */
   private pdfFiyatArastirmaAltBlok(
     doc: InstanceType<typeof PDFDocument>,
     fonts: { regular: string; bold: string },
+    vendor?: Pick<DtVendor, 'title' | 'address' | 'taxNo' | 'phone' | 'email' | 'contactName'> | null,
+    opts?: { compact?: boolean },
   ) {
+    const compact = opts?.compact === true;
     const startX = doc.page.margins.left;
     const fullW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-    const gap = 10;
-    const leftW = fullW * 0.54;
-    const rightW = Math.max(170, fullW - leftW - gap);
     const rows = this.dtFiyatArastirmaDigerSartRows();
-    const y0 = doc.y;
-    const labelW = leftW * 0.58;
-    const valW = leftW - labelW;
-    const padY = 5;
-    const xR = startX + leftW + gap;
+    const labelW = fullW * 0.36;
+    const valW = fullW - labelW;
+    const padY = compact ? 3 : 4;
+    const pad = 3;
+    const rowMin = compact ? 17 : 19;
+    const gapBeforeFirma = compact ? 12 : 18;
+    const reserveFirma = compact ? 100 : 120;
 
-    let yL = y0;
-    doc.font(fonts.bold).fontSize(10).fillColor('#000000').text('DİĞER ŞARTLAR', startX, yL, { width: leftW });
-    yL += 14;
-
-    let yR = yL;
-    doc.font(fonts.regular).fontSize(9).text('Tarih:', xR, yR, { width: rightW });
-    yR += 12;
-    for (let k = 0; k < 4; k++) {
-      doc.save();
-      doc.strokeColor('#000000').dash(2, { space: 2 }).moveTo(xR, yR).lineTo(xR + rightW, yR).stroke();
-      doc.undash();
-      doc.restore();
-      yR += 13;
-    }
-    yR += 4;
-    doc.font(fonts.regular).fontSize(8).fillColor('#000000');
-    const cap = 'Adı Soyadı, Ticaret Ünvanı, İmza, Kaşe veya Açık Adres, Tel. No';
-    const capH = doc.heightOfString(cap, { width: rightW });
-    doc.text(cap, xR, yR, { width: rightW, align: 'left' });
-    yR += Math.max(capH, 12) + 6;
-    for (let k = 0; k < 4; k++) {
-      doc.save();
-      doc.strokeColor('#000000').dash(2, { space: 2 }).moveTo(xR, yR).lineTo(xR + rightW, yR).stroke();
-      doc.undash();
-      doc.restore();
-      yR += 13;
-    }
+    let y = doc.y;
+    doc
+      .font(fonts.bold)
+      .fontSize(compact ? 9.5 : 10)
+      .fillColor('#000000')
+      .text('DİĞER ŞARTLAR', startX, y, { width: fullW });
+    y = doc.y + 5;
 
     for (const { label: lb, value: val } of rows) {
-      doc.font(fonts.regular).fontSize(8);
-      const innerLw = Math.max(40, labelW - 6);
-      const innerVw = Math.max(36, valW - 8);
+      doc.font(fonts.regular).fontSize(compact ? 7.2 : 7.5);
+      const innerLw = Math.max(40, labelW - pad * 2);
+      const innerVw = Math.max(36, valW - pad * 2);
       const hLb = doc.heightOfString(lb, { width: innerLw });
       const hVal = val ? doc.heightOfString(val, { width: innerVw }) : 0;
-      const rh = Math.max(24, hLb + padY * 2, hVal + padY * 2);
+      const rh = Math.max(rowMin, hLb + padY * 2, hVal + padY * 2);
 
-      if (yL + rh > doc.page.height - doc.page.margins.bottom - 28) {
+      if (y + rh > doc.page.height - doc.page.margins.bottom - 36) {
         doc.addPage();
-        yL = doc.page.margins.top;
+        y = doc.page.margins.top;
+        doc.x = startX;
+        doc.y = y;
       }
 
       doc.save();
-      doc.fillColor('#e8e8e8').rect(startX, yL, labelW, rh).fill();
+      doc.fillColor('#e8e8e8').rect(startX, y, labelW, rh).fill();
       doc.restore();
       doc.save();
       doc.strokeColor('#000000').dash(2, { space: 2 });
-      doc.rect(startX, yL, labelW, rh).stroke();
-      doc.rect(startX + labelW, yL, valW, rh).stroke();
+      doc.rect(startX, y, labelW, rh).stroke();
+      doc.rect(startX + labelW, y, valW, rh).stroke();
       doc.undash();
       doc.restore();
-      doc.fillColor('#000000').font(fonts.regular).fontSize(8).text(lb, startX + 3, yL + padY, { width: innerLw });
-      if (val) doc.font(fonts.regular).fontSize(8).text(val, startX + labelW + 4, yL + padY, { width: innerVw });
-      yL += rh;
+      doc.fillColor('#000000');
+      doc.font(fonts.regular).fontSize(compact ? 7.2 : 7.5).text(lb, startX + pad, y + padY, { width: innerLw });
+      if (val) doc.text(val, startX + labelW + pad, y + padY, { width: innerVw });
+      y += rh;
     }
 
+    doc.save();
+    doc.undash();
+    doc.strokeColor('#000000');
+    doc.restore();
+    doc.fillColor('#000000');
+    doc.y = y;
+
+    y += gapBeforeFirma;
+    const boxW = fullW - 8;
+    const boxX = startX + 4;
+    if (y + reserveFirma > doc.page.height - doc.page.margins.bottom) {
+      doc.addPage();
+      y = doc.page.margins.top;
+      doc.x = startX;
+      doc.y = y;
+    }
+    const firmaTop = y;
+    const innerPadX = 22;
+    const solidLine = (yy: number) => {
+      doc.save();
+      doc.strokeColor('#000000').lineWidth(0.4).undash();
+      doc.moveTo(boxX + innerPadX, yy).lineTo(boxX + boxW - innerPadX, yy).stroke();
+      doc.restore();
+    };
+
+    doc.font(fonts.bold).fontSize(8).text('FİRMA / İMZA', boxX, y, { width: boxW, align: 'center' });
+    y = doc.y + 6;
+    doc.font(fonts.regular).fontSize(7.5).text('Tarih:', boxX, y, { width: boxW, align: 'center' });
+    y = doc.y + 4;
+    solidLine(y);
+    y += 10;
+
+    const vt = (vendor?.title ?? '').trim();
+    const va = (vendor?.address ?? '').trim();
+    const vContact = [vendor?.contactName, vendor?.taxNo, vendor?.phone, vendor?.email]
+      .map((s) => (s ?? '').trim())
+      .filter(Boolean)
+      .join(' · ');
+    if (vt) {
+      doc.font(fonts.bold).fontSize(8).text(vt, boxX, y, { width: boxW, align: 'center' });
+      y = doc.y + 4;
+    }
+    if (va) {
+      doc.font(fonts.regular).fontSize(7.5).text(va, boxX, y, { width: boxW, align: 'center' });
+      y = doc.y + 4;
+    }
+    if (vContact) {
+      doc.font(fonts.regular).fontSize(7.5).text(vContact, boxX, y, { width: boxW, align: 'center' });
+      y = doc.y + 6;
+    }
+    solidLine(y);
+    y += 10;
+    doc.font(fonts.regular).fontSize(7.5).fillColor('#000000');
+    const cap = 'Adı Soyadı, Ticaret Ünvanı, İmza, Kaşe veya Açık Adres, Tel. No';
+    doc.text(cap, boxX, y, { width: boxW, align: 'center' });
+    y = doc.y + 6;
+    solidLine(y);
+    y += 10;
+
+    const firmaBottom = y + 6;
+    doc.save();
+    doc.strokeColor('#000000').lineWidth(0.85).undash();
+    doc.rect(boxX, firmaTop, boxW, firmaBottom - firmaTop).stroke();
+    doc.restore();
+
     doc.x = startX;
-    doc.y = Math.max(yL, yR) + 10;
+    doc.y = firmaBottom;
   }
 
   private pdfTable(
@@ -1781,6 +2176,16 @@ export class DogrudanTeminService {
       includeHeader?: boolean;
       /** Tablo hücre çerçeveleri kesik çizgi (ör. teknik şartname). */
       borderDash?: boolean;
+      /** Başlık satırı dolgu rengi (Word benzeri gri başlık). */
+      headerFillColor?: string;
+      /** Satır minimum yüksekliği çarpanı (varsayılan 1.22); düşük = daha sıkı tablo. */
+      rowHeightMinFactor?: number;
+      /** Tablo bittiğinde `doc.y` artışı (pt). */
+      tableTailGap?: number;
+      /** `rowHeightFor` içinde metin + dolgu sonrası ek pt (varsayılan 3). */
+      rowBottomPad?: number;
+      /** Tablo dış çerçeve + iç ızgara tek çizim (komşu hücrede çift çizgi olmaz). */
+      singleStrokeGrid?: boolean;
     },
   ) {
     const startX = doc.x;
@@ -1803,20 +2208,109 @@ export class DogrudanTeminService {
         return doc.heightOfString(String(t ?? ''), { width: innerW, lineGap: lg });
       });
       const textH = hs.length ? Math.max(...hs) : 0;
-      const minOne = size * 1.22;
-      return Math.ceil(Math.max(minOne, textH) + padY * 2 + 3);
+      const minF = options?.rowHeightMinFactor ?? 1.22;
+      const minOne = size * minF;
+      const tail = options?.rowBottomPad ?? 3;
+      return Math.ceil(Math.max(minOne, textH) + padY * 2 + tail);
     };
+
+    const includeHeader = options?.includeHeader !== false;
+    const subHdr = options?.subHeaderRow;
+    const specs: Array<{ cells: string[]; bold: boolean; size: number }> = [];
+    if (includeHeader) {
+      specs.push({ cells: columns.map((c) => c.header), bold: true, size: headerFontSize });
+      if (subHdr && subHdr.length === columns.length) {
+        specs.push({
+          cells: subHdr,
+          bold: true,
+          size: options?.subHeaderFontSize ?? Math.max(6, headerFontSize - 0.8),
+        });
+      }
+    }
+    rows.forEach((r) => specs.push({ cells: r, bold: false, size: fontSize }));
+
+    const heights = specs.map((s) => rowHeightFor(s.cells, s.size, s.bold));
+    const totalTableH = heights.reduce((a, h) => a + h, 0);
+    const totalTableW = widths.reduce((a, w) => a + w, 0);
+    const bottomLim = doc.page.height - doc.page.margins.bottom;
+    const useSingle =
+      options?.singleStrokeGrid === true && doc.y + totalTableH <= bottomLim && specs.length > 0;
+
+    if (useSingle) {
+      const y0 = y;
+      let yy = y0;
+      specs.forEach((s, ri) => {
+        const h = heights[ri];
+        if (s.bold && options?.headerFillColor) {
+          let xx = startX;
+          for (const w of widths) {
+            doc.save();
+            doc.fillColor(options.headerFillColor).rect(xx, yy, w, h).fill();
+            doc.restore();
+            xx += w;
+          }
+        }
+        yy += h;
+      });
+
+      doc.save();
+      doc.strokeColor('#111827').lineWidth(0.4);
+      if (options?.borderDash) doc.dash(2, { space: 2 });
+      doc.rect(startX, y0, totalTableW, totalTableH).stroke();
+      let xAcc = startX;
+      for (let i = 0; i < widths.length - 1; i++) {
+        xAcc += widths[i];
+        doc.moveTo(xAcc, y0).lineTo(xAcc, y0 + totalTableH).stroke();
+      }
+      let yAcc = y0;
+      for (let j = 0; j < heights.length - 1; j++) {
+        yAcc += heights[j];
+        doc.moveTo(startX, yAcc).lineTo(startX + totalTableW, yAcc).stroke();
+      }
+      if (options?.borderDash) doc.undash();
+      doc.restore();
+
+      yy = y0;
+      specs.forEach((s, ri) => {
+        const h = heights[ri];
+        const lg = lineGapFor(s.size);
+        let xx = startX;
+        s.cells.forEach((t, i) => {
+          doc
+            .font(s.bold ? fonts.bold : fonts.regular)
+            .fontSize(s.size)
+            .text(String(t ?? ''), xx + padX, yy + padY, {
+              width: Math.max(4, widths[i] - padX * 2),
+              align: columns[i]?.align ?? 'left',
+              lineGap: lg,
+            });
+          xx += widths[i];
+        });
+        yy += h;
+      });
+
+      y = y0 + totalTableH;
+      doc.y = y + (options?.tableTailGap ?? 6);
+      doc.x = startX;
+      return;
+    }
 
     const drawRow = (cells: string[], bold = false, size = fontSize) => {
       const lg = lineGapFor(size);
       const h = rowHeightFor(cells, size, bold);
       if (y + h > doc.page.height - doc.page.margins.bottom) {
         doc.addPage();
-        y = doc.y;
+        doc.x = startX;
+        y = doc.page.margins.top;
       }
       let x = startX;
       cells.forEach((t, i) => {
         const w = widths[i];
+        if (bold && options?.headerFillColor) {
+          doc.save();
+          doc.fillColor(options.headerFillColor).rect(x, y, w, h).fill();
+          doc.restore();
+        }
         if (options?.borderDash) {
           doc.save();
           doc.strokeColor('#000000').dash(2, { space: 2 });
@@ -1839,16 +2333,301 @@ export class DogrudanTeminService {
       y += h;
     };
 
-    const includeHeader = options?.includeHeader !== false;
-    if (includeHeader) {
-      drawRow(columns.map((c) => c.header), true, headerFontSize);
-      const sub = options?.subHeaderRow;
-      if (sub && sub.length === columns.length) {
-        drawRow(sub, true, options?.subHeaderFontSize ?? Math.max(6, headerFontSize - 0.8));
-      }
+    specs.forEach((s) => drawRow(s.cells, s.bold, s.size));
+    doc.y = y + (options?.tableTailGap ?? 6);
+    doc.x = startX;
+  }
+
+  private dtTeslimTesellumAnnexRows(): Array<{ belge: string; adedi: string }> {
+    return [
+      { belge: 'Ödeme Emri Belgesi', adedi: '1' },
+      { belge: 'Taşınır İşlem Fişi', adedi: '1' },
+      { belge: 'Fatura', adedi: '1' },
+      { belge: 'Borcu Yoktur Belgesi', adedi: '1' },
+      { belge: 'Muayene ve kabul komisyonu kararı', adedi: '1' },
+      { belge: 'Piyasa araştırma tutanağı', adedi: '1' },
+      { belge: 'Onay belgesi', adedi: '1' },
+      { belge: 'Yaklaşık maliyet cetveli', adedi: '1' },
+    ];
+  }
+
+  private async buildTeslimTesellumTutanagiDocx(input: {
+    school: Pick<School, 'name' | 'principalName'> | null;
+    file: DtFile;
+    settings: DtSchoolProcurementSettings | null;
+    awardedVendor: DtVendor | null;
+    letterhead: Paragraph[];
+  }): Promise<Buffer> {
+    const { school, file, settings, awardedVendor, letterhead } = input;
+    const trf = 'Times New Roman';
+    const solid = {
+      top: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+      bottom: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+      left: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+      right: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+      insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: '000000' },
+      insideVertical: { style: BorderStyle.SINGLE, size: 2, color: '000000' },
+    } as const;
+    const hdr = { fill: 'DDE7F0' } as any;
+    const duzenleme = this.fmtTrDate(new Date()) || '…/…/…';
+    const kodRaw = (settings?.officialCorrespondenceCode ?? '').trim();
+    const kodParts = kodRaw ? kodRaw.split(/[.\s/|-]+/).filter((p) => p.length > 0) : [];
+    const kod5 = [0, 1, 2, 3, 4].map((i) => (kodParts[i] ?? '').slice(0, 8));
+    const kodLine = kod5.map((k) => (k ? k : '…')).join('   ');
+    const schoolName = ((school?.name ?? '').trim() || 'Kurum').toUpperCase();
+    const harcamaBirimi = `${schoolName} MÜDÜRLÜĞÜNE`;
+    const muhasebe = '…………………………………………';
+    const hakAd = (awardedVendor?.title ?? '').trim() || '—';
+    const tckVkn = (awardedVendor?.taxNo ?? '').trim() || '……………………………';
+    const annexRows = this.dtTeslimTesellumAnnexRows();
+    const tahakkukFirst = '…………………………';
+    const yevTarihFirst = '…/…/…';
+    const yevNoFirst = '…………';
+    const butceCell = '………………';
+    const subj = (file.subject ?? '').trim();
+    const pref = (file.procurementRef ?? '').trim();
+    const subjLine =
+      subj && pref ? `İşin konusu: ${subj}   Doğrudan temin no: ${pref}` : subj ? `İşin konusu: ${subj}` : pref ? `Doğrudan temin no: ${pref}` : '';
+
+    const pCell = (
+      text: string,
+      o?: { bold?: boolean; left?: boolean; shading?: boolean; colSpan?: number; rowSpan?: number; band?: boolean },
+    ) =>
+      new TableCell({
+        borders: solid,
+        columnSpan: o?.colSpan,
+        rowSpan: o?.rowSpan,
+        shading: o?.band ? ({ fill: '1C3D6E' } as any) : o?.shading ? hdr : undefined,
+        verticalAlign: VerticalAlign.CENTER,
+        children: [
+          new Paragraph({
+            alignment: o?.left ? AlignmentType.LEFT : AlignmentType.CENTER,
+            spacing: { before: 50, after: 50 },
+            children: [
+              new TextRun({
+                text,
+                bold: o?.bold ?? false,
+                size: o?.band ? 24 : o?.bold ? 18 : 17,
+                font: trf,
+                color: o?.band ? 'FFFFFF' : undefined,
+              } as any),
+            ],
+          }),
+        ],
+      });
+
+    const topRows: TableRow[] = [
+      new TableRow({
+        children: [
+          pCell('Harcama Birimi Kurumsal Kod', { bold: true, shading: true }),
+          pCell(kodLine || '…   …   …   …   …', { shading: false }),
+        ],
+      }),
+      new TableRow({
+        children: [
+          pCell('Muhasebe Birimi', { bold: true, shading: true }),
+          pCell(muhasebe),
+        ],
+      }),
+      new TableRow({
+        children: [
+          pCell('Harcama Birimi', { bold: true, shading: true }),
+          pCell(harcamaBirimi),
+        ],
+      }),
+      new TableRow({
+        children: [
+          pCell('Düzenleme Tarihi', { bold: true, shading: true }),
+          pCell(duzenleme),
+        ],
+      }),
+      new TableRow({
+        children: [
+          pCell('Form Sıra No', { bold: true, shading: true }),
+          pCell('Torba Numarası', { bold: true, shading: true }),
+        ],
+      }),
+    ];
+
+    const cw = [1217, 1030, 1030, 1872, 655, 1498, 1123, 935];
+    const subLabels = ['Tahakkuk İşlem No', 'Yevmiye Tarihi', 'Yevmiye No', 'Kanıtlayıcı Belge Türü', 'Adedi', 'Adı Soyadı', 'TCK/VKN', ''];
+    const head1 = new TableRow({
+      children: [
+        pCell('Ödeme Emri Belgesi', { bold: true, band: true, colSpan: 3 }),
+        pCell('Eki Belge', { bold: true, band: true, colSpan: 2 }),
+        pCell('Hak Sahibi', { bold: true, band: true, colSpan: 2 }),
+        pCell('Bütçe Tutarı Gideri', { bold: true, band: true, colSpan: 1 }),
+      ],
+    });
+    const head2 = new TableRow({
+      children: subLabels.map((t, i) =>
+        t ? pCell(t, { bold: true, shading: true }) : pCell('\u00a0', { shading: true }),
+      ),
+    });
+    const dataRows = annexRows.map((row, idx) => {
+      const tah = idx === 0 ? tahakkukFirst : '';
+      const yt = idx === 0 ? yevTarihFirst : '';
+      const yn = idx === 0 ? yevNoFirst : '';
+      const cells = [tah, yt, yn, row.belge, row.adedi, hakAd, tckVkn, butceCell];
+      return new TableRow({
+        children: cells.map((c) => pCell(c ?? '', { bold: false, shading: idx % 2 === 1 })),
+      });
+    });
+
+    const mainTable = new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      layout: TableLayoutType.FIXED,
+      columnWidths: [...cw],
+      borders: solid,
+      rows: [head1, head2, ...dataRows],
+    });
+
+    const xCount = 1;
+    const yCount = annexRows.length;
+    const summary = `Yukarıda hak sahipleri ile alacak tutarları gösterilen toplam ${xCount} adet tahakkuk evrakı ile birlikte ait toplam ${yCount} adet evrak ve eki teslim alınmıştır. ${duzenleme}  Teslim saati: ………`;
+
+    const teslimEdenName = (settings?.realizationAuthorityName ?? '').trim() || '…………………';
+    const teslimEdenTitle = (settings?.realizationAuthorityTitle ?? '').trim() || '…………………';
+    const teslimAlanTitle = '…………………';
+
+    const signRow = new TableRow({
+      children: [
+        new TableCell({
+          borders: solid,
+          verticalAlign: VerticalAlign.CENTER,
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              spacing: { before: 80, after: 40 },
+              children: [new TextRun({ text: 'TESLİM EDEN', bold: true, size: 18, font: trf })],
+            }),
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              spacing: { after: 40 },
+              children: [new TextRun({ text: teslimEdenName, bold: true, size: 20, font: trf })],
+            }),
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              spacing: { after: 120 },
+              children: [new TextRun({ text: teslimEdenTitle, size: 18, font: trf })],
+            }),
+          ],
+        }),
+        new TableCell({
+          borders: solid,
+          verticalAlign: VerticalAlign.CENTER,
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              spacing: { before: 80, after: 40 },
+              children: [new TextRun({ text: 'TESLİM ALAN', bold: true, size: 18, font: trf })],
+            }),
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              spacing: { after: 60 },
+              children: [new TextRun({ text: '\u00a0', size: 22, font: trf })],
+            }),
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              spacing: { after: 120 },
+              children: [new TextRun({ text: teslimAlanTitle, size: 18, font: trf })],
+            }),
+          ],
+        }),
+      ],
+    });
+    const signTable = new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      layout: TableLayoutType.FIXED,
+      columnWidths: [4680, 4680],
+      borders: solid,
+      rows: [signRow],
+    });
+
+    const notes = [
+      '* Merkezi Yönetim Harcama belgeleri Yönetmeliğindeki belgenin adı yazılacaktır.',
+      '** Bu bölümler Muhasebe birimi tarafından muhasebeleştirme işlemi tamamlandıktan sonra doldurulacaktır.',
+      '*** Bu bölüme muhasebeleştirme işlemi tamamlandıktan sonra evrakın konulduğu torba numarası yazılacaktır.',
+    ];
+
+    const body: (Paragraph | Table)[] = [
+      new Paragraph({
+        alignment: AlignmentType.RIGHT,
+        spacing: { after: 80 },
+        children: [new TextRun({ text: 'EK-1', bold: true, size: 22, font: trf })],
+      }),
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        layout: TableLayoutType.FIXED,
+        columnWidths: [9360],
+        borders: solid,
+        rows: [
+          new TableRow({
+            children: [pCell('ÖDEME BELGESİ VE EKİ BELGELERİN TESLİM-TESELLÜM TUTANAĞI', { bold: true, band: true })],
+          }),
+        ],
+      }),
+      new Paragraph({ spacing: { after: 100 }, children: [new TextRun({ text: ' ', size: 4, font: trf })] }),
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        layout: TableLayoutType.FIXED,
+        columnWidths: [4680, 4680],
+        borders: solid,
+        rows: topRows,
+      }),
+      new Paragraph({ spacing: { after: 80 }, children: [new TextRun({ text: ' ', size: 4, font: trf })] }),
+    ];
+    if (subjLine) {
+      body.push(
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          layout: TableLayoutType.FIXED,
+          columnWidths: [9360],
+          borders: solid,
+          rows: [new TableRow({ children: [pCell(subjLine)] })],
+        }),
+      );
+      body.push(new Paragraph({ spacing: { after: 80 }, children: [new TextRun({ text: ' ', size: 4, font: trf })] }));
     }
-    rows.forEach((r) => drawRow(r, false, fontSize));
-    doc.y = y + 6;
+    body.push(mainTable);
+    body.push(
+      new Paragraph({
+        alignment: AlignmentType.JUSTIFIED,
+        spacing: { before: 120, after: 160 },
+        children: [new TextRun({ text: summary, size: 20, font: trf })],
+      }),
+    );
+    body.push(signTable);
+    body.push(new Paragraph({ spacing: { before: 120, after: 40 }, children: [new TextRun({ text: ' ', size: 4, font: trf })] }));
+    for (const ln of notes) {
+      body.push(
+        new Paragraph({
+          spacing: { after: 40 },
+          children: [new TextRun({ text: ln, size: 14, font: trf })],
+        }),
+      );
+    }
+
+    const doc = new DocxDocument({
+      styles: this.dtDocxDefaultStyles() as any,
+      sections: [
+        {
+          properties: {
+            page: {
+              size: { width: 11906, height: 16838, orientation: PageOrientation.PORTRAIT },
+              margin: {
+                top: convertInchesToTwip(0.98),
+                right: convertInchesToTwip(0.98),
+                bottom: convertInchesToTwip(0.98),
+                left: convertInchesToTwip(1.18),
+              },
+            },
+          },
+          children: [...letterhead, ...body],
+        },
+      ],
+    });
+    return Buffer.from(await Packer.toBuffer(doc));
   }
 
   /** Teslim/tesellüm tutanağı — üst bilgi + 8 sütunlu ana tablo (şablon). */
@@ -1859,6 +2638,7 @@ export class DogrudanTeminService {
       school: Pick<School, 'name' | 'principalName'> | null;
       settings: DtSchoolProcurementSettings | null;
       awardedVendor: DtVendor | null;
+      file?: Pick<DtFile, 'subject' | 'procurementRef'> | null;
     },
   ) {
     const left = doc.page.margins.left;
@@ -1874,16 +2654,7 @@ export class DogrudanTeminService {
     const hakAd = (input.awardedVendor?.title ?? '').trim() || '—';
     const tckVkn = (input.awardedVendor?.taxNo ?? '').trim() || '……………………………';
 
-    const annexRows: Array<{ belge: string; adedi: string }> = [
-      { belge: 'Ödeme Emri Belgesi', adedi: '1' },
-      { belge: 'Taşınır İşlem Fişi', adedi: '1' },
-      { belge: 'Fatura', adedi: '1' },
-      { belge: 'Borcu Yoktur Belgesi', adedi: '1' },
-      { belge: 'Muayene Kabul', adedi: '1' },
-      { belge: 'Piyasa Araştırma Tutanağı', adedi: '1' },
-      { belge: 'Onay Belgesi', adedi: '1' },
-      { belge: 'Yaklaşık Maliyet', adedi: '1' },
-    ];
+    const annexRows = this.dtTeslimTesellumAnnexRows();
     const tahakkukFirst = '…………………………';
     const yevTarihFirst = '…/…/…';
     const yevNoFirst = '…………';
@@ -1899,19 +2670,26 @@ export class DogrudanTeminService {
       w: number,
       h: number,
       text: string,
-      opts?: { bold?: boolean; size?: number; align?: 'left' | 'center' | 'right' },
+      opts?: { bold?: boolean; size?: number; align?: 'left' | 'center' | 'right'; color?: string },
     ) => {
-      const size = opts?.size ?? 7.5;
-      const align = opts?.align ?? 'left';
-      doc.font(opts?.bold ? fonts.bold : fonts.regular).fontSize(size);
+      const size = opts?.size ?? 8;
+      const align = opts?.align ?? 'center';
       const pad = 2;
-      doc.text(text, x + pad, y + pad, { width: Math.max(4, w - pad * 2), height: h - pad * 2, align, lineGap: 0.5 });
+      const innerW = Math.max(4, w - pad * 2);
+      const innerH = Math.max(2, h - pad * 2);
+      doc.font(opts?.bold ? fonts.bold : fonts.regular).fontSize(size);
+      if (opts?.color) doc.fillColor(opts.color);
+      const sample = text.length ? text : ' ';
+      const textH = doc.heightOfString(sample, { width: innerW, lineGap: 0.5 });
+      const textY = y + pad + Math.max(0, (innerH - textH) / 2);
+      doc.text(text, x + pad, textY, { width: innerW, height: innerH, align, lineGap: 0.5 });
+      if (opts?.color) doc.fillColor('#000000');
     };
 
     // EK-1 sağ üst
     const yTop = doc.y;
     doc.save();
-    doc.font(fonts.bold).fontSize(10);
+    doc.font(fonts.bold).fontSize(10.5);
     const ek = 'EK-1';
     const ekW = doc.widthOfString(ek);
     doc.text(ek, right - ekW, yTop);
@@ -1920,16 +2698,20 @@ export class DogrudanTeminService {
     doc.y = yTop + 14;
     doc.x = left;
 
-    // Başlık satırı (tam genişlik)
-    const titleH = 28;
-    strokeCell(left, doc.y, pageW, titleH);
-    doc.font(fonts.bold).fontSize(10).text(
-      'ÖDEME BELGESİ VE EKİ BELGELER TESLİM/TESELLÜM TUTANAĞI',
-      left,
-      doc.y + 6,
-      { width: pageW, align: 'center' },
-    );
-    doc.y += titleH + 4;
+    // Başlık şeridi (tam genişlik)
+    const titleH = 30;
+    const titleY = doc.y;
+    doc.save();
+    doc.rect(left, titleY, pageW, titleH).fill('#1C3D6E');
+    doc.restore();
+    strokeCell(left, titleY, pageW, titleH);
+    textCell(left, titleY, pageW, titleH, 'ÖDEME BELGESİ VE EKİ BELGELERİN TESLİM-TESELLÜM TUTANAĞI', {
+      bold: true,
+      size: 10.5,
+      align: 'center',
+      color: '#FFFFFF',
+    });
+    doc.y = titleY + titleH + 4;
 
     // --- Üst bilgi (3 satır, iki sütun) ---
     const half = pageW / 2;
@@ -1937,7 +2719,7 @@ export class DogrudanTeminService {
     const y1 = doc.y;
     strokeCell(left, y1, half, rowInfoH);
     strokeCell(left + half, y1, half, rowInfoH);
-    doc.font(fonts.bold).fontSize(7).text('Harcama Birimi Kurumsal Kod', left + 3, y1 + 3, { width: half - 6 });
+    textCell(left, y1, half, 12, 'Harcama Birimi Kurumsal Kod', { bold: true, size: 7, align: 'center' });
     const boxTop = y1 + 14;
     const boxH = 16;
     const gap = 3;
@@ -1949,54 +2731,81 @@ export class DogrudanTeminService {
       textCell(bx, boxTop, boxW, boxH, kod5[i] ?? '', { size: 9, align: 'center' });
       bx += boxW + gap;
     }
-    doc.font(fonts.bold).fontSize(7).text('Muhasebe Birimi', left + half + 3, y1 + 3, { width: half - 6 });
-    doc.font(fonts.regular).fontSize(8).text(muhasebe, left + half + 3, y1 + 16, { width: half - 6 });
+    textCell(left + half, y1, half, 12, 'Muhasebe Birimi', { bold: true, size: 7, align: 'center' });
+    textCell(left + half, y1 + 12, half, rowInfoH - 12, muhasebe, { size: 8, align: 'center' });
 
     const y2 = y1 + rowInfoH;
     strokeCell(left, y2, half, rowInfoH);
     strokeCell(left + half, y2, half, rowInfoH);
-    doc.font(fonts.bold).fontSize(7).text('Harcama Birimi', left + 3, y2 + 3, { width: half - 6 });
-    doc.font(fonts.regular).fontSize(7.5).text(harcamaBirimi, left + 3, y2 + 14, { width: half - 6, align: 'left' });
-    doc.font(fonts.bold).fontSize(7).text('Düzenleme Tarihi', left + half + 3, y2 + 3, { width: half - 6 });
-    doc.font(fonts.regular).fontSize(9).text(duzenleme, left + half + 3, y2 + 16, { width: half - 6 });
+    textCell(left, y2, half, 12, 'Harcama Birimi', { bold: true, size: 7, align: 'center' });
+    textCell(left, y2 + 12, half, rowInfoH - 12, harcamaBirimi, { size: 7.5, align: 'center' });
+    textCell(left + half, y2, half, 12, 'Düzenleme Tarihi', { bold: true, size: 7, align: 'center' });
+    textCell(left + half, y2 + 12, half, rowInfoH - 12, duzenleme, { size: 9, align: 'center' });
 
     const y3 = y2 + rowInfoH;
     strokeCell(left, y3, half, rowInfoH);
     strokeCell(left + half, y3, half, rowInfoH);
-    doc.font(fonts.bold).fontSize(7).text('Form Sıra No', left + 3, y3 + 10, { width: half - 6 });
-    doc.font(fonts.bold).fontSize(7).text('Torba Numarası', left + half + 3, y3 + 10, { width: half - 6 });
-    doc.y = y3 + rowInfoH + 8;
+    textCell(left, y3, half, rowInfoH, 'Form Sıra No', { bold: true, size: 7, align: 'center' });
+    textCell(left + half, y3, half, rowInfoH, 'Torba Numarası', { bold: true, size: 7, align: 'center' });
+    let yAfterInfo = y3 + rowInfoH;
+    const f = input.file;
+    const subj = (f?.subject ?? '').trim();
+    const pref = (f?.procurementRef ?? '').trim();
+    const subjLine =
+      subj && pref ? `İşin konusu: ${subj}   Doğrudan temin no: ${pref}` : subj ? `İşin konusu: ${subj}` : pref ? `Doğrudan temin no: ${pref}` : '';
+    if (subjLine) {
+      const hSubj = 28;
+      strokeCell(left, yAfterInfo, pageW, hSubj);
+      textCell(left, yAfterInfo, pageW, hSubj, subjLine, { size: 8, align: 'center' });
+      yAfterInfo += hSubj;
+    }
+    doc.y = yAfterInfo + 8;
     doc.x = left;
 
     // --- Ana tablo (birleşik başlık + alt başlıklar) ---
     const fr = [0.13, 0.11, 0.11, 0.2, 0.07, 0.16, 0.12, 0.1];
     const ws = fr.map((f) => f * pageW);
-    const hG = 18;
-    const hSub = 22;
-    const hData = 22;
+    const hG = 20;
+    const hSub = 24;
+    const hData = 24;
     const yT = doc.y;
     let x = left;
     const w123 = ws[0] + ws[1] + ws[2];
     const w45 = ws[3] + ws[4];
     const w67 = ws[5] + ws[6];
+    doc.save();
+    doc.rect(x, yT, w123, hG).fill('#1C3D6E');
+    doc.restore();
     strokeCell(x, yT, w123, hG);
-    textCell(x, yT, w123, hG, 'Ödeme Emri Belgesi', { bold: true, size: 7.5, align: 'center' });
+    textCell(x, yT, w123, hG, 'Ödeme Emri Belgesi', { bold: true, size: 8, align: 'center', color: '#FFFFFF' });
     x += w123;
+    doc.save();
+    doc.rect(x, yT, w45, hG).fill('#1C3D6E');
+    doc.restore();
     strokeCell(x, yT, w45, hG);
-    textCell(x, yT, w45, hG, 'Eki Belge', { bold: true, size: 7.5, align: 'center' });
+    textCell(x, yT, w45, hG, 'Eki Belge', { bold: true, size: 8, align: 'center', color: '#FFFFFF' });
     x += w45;
+    doc.save();
+    doc.rect(x, yT, w67, hG).fill('#1C3D6E');
+    doc.restore();
     strokeCell(x, yT, w67, hG);
-    textCell(x, yT, w67, hG, 'Hak Sahibi', { bold: true, size: 7.5, align: 'center' });
+    textCell(x, yT, w67, hG, 'Hak Sahibi', { bold: true, size: 8, align: 'center', color: '#FFFFFF' });
     x += w67;
+    doc.save();
+    doc.rect(x, yT, ws[7], hG).fill('#1C3D6E');
+    doc.restore();
     strokeCell(x, yT, ws[7], hG);
-    textCell(x, yT, ws[7], hG, 'Bütçe Tutarı Gideri', { bold: true, size: 6.8, align: 'center' });
+    textCell(x, yT, ws[7], hG, 'Bütçe Tutarı Gideri', { bold: true, size: 7.2, align: 'center', color: '#FFFFFF' });
 
     const ySub = yT + hG;
     x = left;
     const subLabels = ['Tahakkuk İşlem No', 'Yevmiye Tarihi', 'Yevmiye No', 'Kanıtlayıcı Belge Türü', 'Adedi', 'Adı Soyadı', 'TCK/VKN', ''];
     for (let i = 0; i < 8; i++) {
+      doc.save();
+      doc.rect(x, ySub, ws[i], hSub).fill('#DDE7F0');
+      doc.restore();
       strokeCell(x, ySub, ws[i], hSub);
-      if (subLabels[i]) textCell(x, ySub, ws[i], hSub, subLabels[i], { bold: true, size: 6.5, align: 'center' });
+      if (subLabels[i]) textCell(x, ySub, ws[i], hSub, subLabels[i], { bold: true, size: 7, align: 'center' });
       x += ws[i];
     }
 
@@ -2008,8 +2817,13 @@ export class DogrudanTeminService {
       const cells = [tah, yt, yn, row.belge, row.adedi, hakAd, tckVkn, butceCell];
       x = left;
       for (let i = 0; i < 8; i++) {
+        if (idx % 2 === 1) {
+          doc.save();
+          doc.rect(x, yD, ws[i], hData).fill('#F5F7FA');
+          doc.restore();
+        }
         strokeCell(x, yD, ws[i], hData);
-        textCell(x, yD, ws[i], hData, cells[i] ?? '', { size: 7.5, align: i === 0 || i >= 3 ? 'left' : 'center' });
+        textCell(x, yD, ws[i], hData, cells[i] ?? '', { size: 8, align: 'center' });
         x += ws[i];
       }
       yD += hData;
@@ -2020,8 +2834,8 @@ export class DogrudanTeminService {
 
     const xCount = 1;
     const yCount = annexRows.length;
-    doc.font(fonts.regular).fontSize(8.5).text(
-      `Yukarıda hak sahipleri ile alacak tutarları gösterilen toplam ${xCount} adet tahakkuk evrakı ve ait toplam ${yCount} adet evrakı ve ekleri teslim alınmıştır. ${duzenleme}  Teslim Saati: ………`,
+    doc.font(fonts.regular).fontSize(9).text(
+      `Yukarıda hak sahipleri ile alacak tutarları gösterilen toplam ${xCount} adet tahakkuk evrakı ile birlikte ait toplam ${yCount} adet evrak ve eki teslim alınmıştır. ${duzenleme}  Teslim saati: ………`,
       left,
       doc.y,
       { width: pageW, align: 'justify' },
@@ -2030,9 +2844,11 @@ export class DogrudanTeminService {
 
     const teslimEdenName = (input.settings?.realizationAuthorityName ?? '').trim() || '…………………';
     const teslimEdenTitle = (input.settings?.realizationAuthorityTitle ?? '').trim() || '…………………';
+    const teslimAlanName = '\u00a0';
+    const teslimAlanTitle = '…………………';
     this.pdfSignRow(doc, fonts, [
       { role: 'TESLİM EDEN', name: teslimEdenName, title: teslimEdenTitle },
-      { role: 'TESLİM ALAN', name: '…………………', title: 'Adı Soyadı' },
+      { role: 'TESLİM ALAN', name: teslimAlanName, title: teslimAlanTitle },
     ]);
     const yAfter = doc.y;
     const colW = pageW / 2;
@@ -2387,6 +3203,19 @@ export class DogrudanTeminService {
     return new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
   }
 
+  /** Sözleşme cetveli: miktar + birim; PG/toFixed kaynaklı gereksiz ondalıkları göstermez. */
+  private fmtSozlesmeQtyCell(qty: unknown, unit: string | null | undefined): string {
+    const n = this.toNum(qty);
+    const u = String(unit ?? '').trim();
+    const qtyPart =
+      n != null
+        ? Number.isInteger(n) || Math.abs(n - Math.round(n)) < 1e-7
+          ? String(Math.round(n))
+          : new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 4 }).format(n)
+        : String(qty ?? '').trim() || '—';
+    return u ? `${qtyPart} ${u}` : qtyPart;
+  }
+
   /** İmza / komisyon hücrelerinde ad-soyadın tutarlı görünmesi (büyük harf). */
   private dtCommissionSignNameUpper(name: string): string {
     const t = String(name ?? '').trim();
@@ -2425,6 +3254,60 @@ export class DogrudanTeminService {
     doc.y = y0 + h + 10;
   }
 
+  /** Word benzeri: sol sütun gri etiket, sağ değer; satır satır tam çerçeve. */
+  private pdfKeyValueBandTable(
+    doc: InstanceType<typeof PDFDocument>,
+    fonts: { regular: string; bold: string },
+    mx: number,
+    mw: number,
+    rows: Array<{ label: string; value: string }>,
+    opts?: {
+      labelFrac?: number;
+      fontSize?: number;
+      fill?: string;
+      minRowH?: number;
+      /** Metin yüksekliğine ek dikey pay (varsayılan 8). */
+      rowContentPad?: number;
+      /** Hücre içi üst offset (varsayılan 4). */
+      cellTop?: number;
+      lineGap?: number;
+    },
+  ) {
+    const lf = opts?.labelFrac ?? 0.304;
+    const lw = mw * lf;
+    const vw = mw - lw;
+    const fs = opts?.fontSize ?? 9;
+    const fill = opts?.fill ?? '#D9E1F2';
+    const minRow = opts?.minRowH ?? 24;
+    const rcp = opts?.rowContentPad ?? 8;
+    const cellTop = opts?.cellTop ?? 4;
+    const bottom = doc.page.height - doc.page.margins.bottom;
+    const lg = opts?.lineGap ?? 0.28;
+    for (const r of rows) {
+      doc.font(fonts.bold).fontSize(fs);
+      const hL = doc.heightOfString(r.label, { width: Math.max(8, lw - 10), lineGap: lg });
+      doc.font(fonts.regular).fontSize(fs);
+      const hV = doc.heightOfString(r.value || '—', { width: Math.max(8, vw - 10), lineGap: lg });
+      const h = Math.ceil(Math.max(minRow, hL + rcp, hV + rcp));
+      if (doc.y + h > bottom) {
+        doc.addPage();
+        doc.x = mx;
+        doc.y = doc.page.margins.top;
+      }
+      const y0 = doc.y;
+      doc.save();
+      doc.fillColor(fill).rect(mx, y0, lw, h).fill();
+      doc.restore();
+      doc.fillColor('#000000');
+      doc.rect(mx, y0, lw, h).stroke();
+      doc.rect(mx + lw, y0, vw, h).stroke();
+      doc.font(fonts.bold).fontSize(fs).text(r.label, mx + 5, y0 + cellTop, { width: lw - 10, lineGap: lg });
+      doc.font(fonts.regular).fontSize(fs).text(r.value || '—', mx + lw + 5, y0 + cellTop, { width: vw - 10, lineGap: lg });
+      doc.y = y0 + h;
+    }
+    doc.x = mx;
+  }
+
   private async pdfOfficialTop(
     doc: InstanceType<typeof PDFDocument>,
     fonts: { regular: string; bold: string },
@@ -2440,31 +3323,77 @@ export class DogrudanTeminService {
       showProcurementRef?: boolean;
       registry: Map<string, DtFileDocumentRegistry>;
       settings: DtSchoolProcurementSettings | null;
+      /** Varsayılan 13 (yakl. Word 28 yarım punto). */
+      titleFontSize?: number;
+      /** Başlıktan sonraki `moveDown` (varsayılan ihtiyaç 1.15 / diğer 1.05). */
+      afterTitleMoveDown?: number;
+      /** Üst blok (antet + sayı/tarih/konu) daha sıkı; piyasa tutanağı tek sayfa için. */
+      tightTop?: boolean;
+      /** true ise «Konu» satırı çizilmez (muayene kabul üst bilgisi). */
+      omitKonuLine?: boolean;
     },
   ) {
     const { school, file, stage, title, registry, settings } = input;
+    const tight = input.tightTop === true;
     const reg = registry.get(stage);
     const sayi = this.registrySayi(reg);
     const tarih = this.fmtTrDate(reg?.docDate ?? null);
     const konu = (input.konu ?? file.subject).trim();
     const showProcRef = input.showProcurementRef !== false;
-    this.pdfAntet(doc, fonts, school, settings);
-    doc.moveDown(0.55);
+    this.pdfAntet(
+      doc,
+      fonts,
+      school,
+      settings,
+      tight ? { tailMoveDown: 0.2, fontSize: 9 } : undefined,
+    );
+    doc.moveDown(tight ? 0.28 : 0.55);
 
-    const leftX = doc.x;
+    const leftX = doc.page.margins.left;
     const rightX = doc.page.width - doc.page.margins.right;
-    const y0 = doc.y;
-    if (tarih) doc.font(fonts.regular).fontSize(10).text(tarih, rightX - 140, y0, { width: 140, align: 'right' });
-    doc.font(fonts.regular).fontSize(10);
-    if (sayi) doc.text(`Sayı : ${sayi}`, leftX, y0);
-    doc.text(`Konu : ${konu}`, leftX, doc.y);
-    if (showProcRef && file.procurementRef?.trim()) doc.text(`Doğrudan Temin Numarası : ${file.procurementRef.trim()}`, leftX, doc.y);
-    doc.moveDown(0.6);
+    const metaW = rightX - leftX;
+    let yy = doc.y;
+    const gap = tight ? 2 : 3;
+    doc.font(fonts.regular).fontSize(tight ? 8.5 : 10);
+    if (tarih) doc.text(tarih, rightX - 140, yy, { width: 140, align: 'right' });
+    if (sayi) doc.text(`Sayı : ${sayi}`, leftX, yy, { width: Math.max(80, metaW - 150), align: 'left' });
+    if (tarih || sayi) {
+      const h1 = Math.max(
+        tarih ? doc.heightOfString(tarih, { width: 140 }) : 0,
+        sayi ? doc.heightOfString(`Sayı : ${sayi}`, { width: Math.max(80, metaW - 150) }) : 0,
+        12,
+      );
+      yy += h1 + gap;
+    }
+    if (!input.omitKonuLine) {
+      const konuLine = `Konu : ${konu}`;
+      const hKonu = doc.heightOfString(konuLine, { width: metaW });
+      doc.text(konuLine, leftX, yy, { width: metaW, align: 'left' });
+      yy += hKonu + gap;
+    }
+    if (showProcRef && file.procurementRef?.trim()) {
+      const dtLine = `Doğrudan Temin Numarası : ${file.procurementRef.trim()}`;
+      const hDt = doc.heightOfString(dtLine, { width: metaW });
+      doc.text(dtLine, leftX, yy, { width: metaW, align: 'left' });
+      yy += hDt + gap;
+    }
+    doc.x = leftX;
+    doc.y = yy;
+    doc.moveDown(tight ? 0.32 : 0.6);
 
     if (title?.trim()) {
-      doc.font(fonts.bold).fontSize(13).fillColor('#000000');
+      const titleSz = input.titleFontSize ?? (tight ? 11 : 13);
+      doc.font(fonts.bold).fontSize(titleSz).fillColor('#000000');
       doc.text(title.trim(), { align: 'center', underline: input.titleUnderline === true });
-      doc.moveDown(stage === 'ihtiyac_listesi' ? 1.15 : 1.05);
+      const down =
+        input.afterTitleMoveDown != null
+          ? input.afterTitleMoveDown
+          : tight
+            ? 0.38
+            : stage === 'ihtiyac_listesi'
+              ? 1.15
+              : 1.05;
+      doc.moveDown(down);
     }
   }
 
@@ -2473,6 +3402,7 @@ export class DogrudanTeminService {
     fonts: { regular: string; bold: string },
     school: Pick<School, 'name' | 'principalName'> | null,
     settings: DtSchoolProcurementSettings | null,
+    opts?: { tailMoveDown?: number; fontSize?: number },
   ) {
     const headerLines = [
       'T.C.',
@@ -2481,32 +3411,57 @@ export class DogrudanTeminService {
       settings?.headerLine4?.trim() || (school?.name ?? '').trim(),
     ].filter((x) => x && x.trim());
 
-    doc.font(fonts.bold).fontSize(10).text(headerLines[0] ?? 'T.C.', { align: 'center' });
-    doc.font(fonts.bold).fontSize(12);
-    for (const ln of headerLines.slice(1)) doc.text(ln, { align: 'center' });
-    doc.moveDown(0.6);
+    const fs = opts?.fontSize ?? 10;
+    doc.font(fonts.regular).fontSize(fs);
+    for (const ln of headerLines.length ? headerLines : ['T.C.'])
+      doc.text(ln, { align: 'center' });
+    doc.moveDown(opts?.tailMoveDown ?? 0.6);
   }
 
   private pdfSignatureRight(
     doc: InstanceType<typeof PDFDocument>,
     fonts: { regular: string; bold: string },
     block: { name: string; title?: string },
+    opts?: { nameSize?: number; titleSize?: number },
   ) {
     const left = doc.page.margins.left;
     const w = doc.page.width - doc.page.margins.left - doc.page.margins.right;
     const x = left + w * 0.42;
     const colW = w * 0.58;
     const y = doc.y;
-    doc.font(fonts.bold).fontSize(10).text(block.name || '…………………', x, y, { width: colW, align: 'right' });
-    if (block.title?.trim()) doc.font(fonts.regular).fontSize(9).text(block.title.trim(), x, y + 14, { width: colW, align: 'right' });
-    doc.y = y + (block.title?.trim() ? 38 : 24);
+    const nameSize = opts?.nameSize ?? 10;
+    const titleSize = opts?.titleSize ?? 9;
+    let sy = y;
+    doc.font(fonts.bold).fontSize(nameSize).text(block.name || '…………………', x, sy, {
+      width: colW,
+      align: 'right',
+      lineGap: 0.35,
+    });
+    sy = doc.y;
+    if (block.title?.trim()) {
+      doc.font(fonts.regular).fontSize(titleSize).text(block.title.trim(), x, sy, {
+        width: colW,
+        align: 'right',
+        lineGap: 0.35,
+      });
+    }
+    doc.y = doc.y + 6;
+    doc.x = left;
   }
 
   private pdfSignRow(
     doc: InstanceType<typeof PDFDocument>,
     fonts: { regular: string; bold: string },
     blocks: Array<{ name: string; title?: string; role?: string }>,
-    opts?: { boxed?: boolean; hideRole?: boolean; commissionUpperName?: boolean },
+    opts?: {
+      boxed?: boolean;
+      hideRole?: boolean;
+      commissionUpperName?: boolean;
+      boxHeight?: number;
+      boxedGapAfter?: number;
+      /** İmza satırı sıkı (piyasa tutanağı). */
+      compact?: boolean;
+    },
   ) {
     const left = doc.page.margins.left;
     const w = doc.page.width - doc.page.margins.left - doc.page.margins.right;
@@ -2515,23 +3470,28 @@ export class DogrudanTeminService {
     const gap = 10;
     const innerW = colW - gap;
     const x0 = (i: number) => left + i * colW + gap / 2;
-    const boxH = opts?.boxed ? 96 : 50;
-    const gapAfter = opts?.boxed ? 14 : 8;
+    const compact = opts?.compact === true;
+    const boxH = opts?.boxed ? (opts.boxHeight ?? (compact ? 48 : 96)) : 50;
+    const gapAfter = opts?.boxed ? (opts.boxedGapAfter ?? (compact ? 4 : 14)) : 8;
+    const topPad = opts?.boxed ? (compact ? 3 : 8) : 0;
+    const roleFs = compact ? 7 : 9;
+    const nameFs = compact ? 8 : 10;
+    const titleFs = compact ? 7 : 9;
     let maxBottom = y;
     blocks.forEach((b, i) => {
       const x = x0(i);
       if (opts?.boxed) doc.rect(x, y, innerW, boxH).stroke();
-      let ty = y + (opts?.boxed ? 8 : 0);
+      let ty = y + topPad;
       if (b.role && !opts?.hideRole) {
-        doc.font(fonts.regular).fontSize(9).text(b.role, x, ty, { width: innerW, align: 'center' });
-        ty = doc.y + 3;
+        doc.font(fonts.regular).fontSize(roleFs).text(b.role, x, ty, { width: innerW, align: 'center' });
+        ty = doc.y + (compact ? 2 : 3);
       }
       const nmRaw = (b.name ?? '').trim() || '…………………';
       const nm = opts?.commissionUpperName ? this.dtCommissionSignNameUpper(nmRaw) : nmRaw;
-      doc.font(fonts.bold).fontSize(10).text(nm, x, ty, { width: innerW, align: 'center' });
-      ty = doc.y + 3;
+      doc.font(fonts.bold).fontSize(nameFs).text(nm, x, ty, { width: innerW, align: 'center' });
+      ty = doc.y + (compact ? 2 : 3);
       if (b.title?.trim()) {
-        doc.font(fonts.regular).fontSize(9).text(b.title.trim(), x, ty, { width: innerW, align: 'center' });
+        doc.font(fonts.regular).fontSize(titleFs).text(b.title.trim(), x, ty, { width: innerW, align: 'center' });
       }
       maxBottom = Math.max(maxBottom, doc.y);
     });
@@ -2573,49 +3533,57 @@ export class DogrudanTeminService {
     return out;
   }
 
+  /** İlk dolu komisyonu döndürür (ör. tutanakta fiyat araştırma komisyonu öncelikli). */
+  private async commissionSignatureBlocksFirstAvailable(
+    schoolId: string,
+    dtFileId: string,
+    kinds: readonly string[],
+  ): Promise<Array<{ name: string; title?: string; role?: string }>> {
+    for (const kind of kinds) {
+      const blocks = await this.commissionSignatureBlocks({ schoolId, dtFileId, kind });
+      if (blocks.length) return blocks;
+    }
+    return [];
+  }
+
   private async buildDtLetterheadParagraphs(
     schoolId: string,
     school: Pick<School, 'name' | 'principalName'> | null,
     file: DtFile,
   ): Promise<Paragraph[]> {
     const settings = await this.procurementSettingsRepo.findOne({ where: { schoolId } });
-    const pushC = (text: string, bold = false, size = 20) =>
+    const pushC = (text: string, bold = false, size = 24, spacingAfter = 0) =>
       new Paragraph({
         alignment: AlignmentType.CENTER,
+        spacing: {
+          before: 0,
+          after: spacingAfter,
+          line: 240,
+          lineRule: 'exactly' as any,
+        },
         children: [new TextRun({ text, bold, size, font: 'Times New Roman' })],
       });
     const out: Paragraph[] = [];
-    out.push(pushC('T.C.', true, 22));
-    if (settings?.headerLine2?.trim()) out.push(pushC(settings.headerLine2.trim(), false, 18));
-    if (settings?.headerLine3?.trim()) out.push(pushC(settings.headerLine3.trim(), false, 18));
-    out.push(pushC((settings?.headerLine4?.trim() || school?.name || 'Kurum').trim(), false, 18));
+    out.push(pushC('T.C.', false, 24));
+    if (settings?.headerLine2?.trim()) out.push(pushC(settings.headerLine2.trim(), false, 24));
+    if (settings?.headerLine3?.trim()) out.push(pushC(settings.headerLine3.trim(), false, 24));
+    out.push(pushC((settings?.headerLine4?.trim() || school?.name || 'Kurum').trim(), false, 24, 160));
     return out;
   }
 
+  /** Word `buildDtLetterheadParagraphs` ile aynı metin sırası (sözleşme PDF üst bilgisi). */
   private async buildDtLetterheadLines(
     schoolId: string,
     school: Pick<School, 'name' | 'principalName'> | null,
     file: DtFile,
   ): Promise<string[]> {
     const settings = await this.procurementSettingsRepo.findOne({ where: { schoolId } });
-    const registryRows = await this.registryRepo.find({ where: { schoolId, dtFileId: file.id } });
-    const byStage = new Map(registryRows.map((r) => [r.stage, r] as const));
     const out: string[] = [];
-    out.push((school?.name ?? 'Kurum').trim());
+    out.push('T.C.');
     if (settings?.headerLine2?.trim()) out.push(settings.headerLine2.trim());
     if (settings?.headerLine3?.trim()) out.push(settings.headerLine3.trim());
-    if (settings?.headerLine4?.trim()) out.push(settings.headerLine4.trim());
-    if (settings?.officialCorrespondenceCode?.trim()) out.push(`Yazı / muhatap kodu: ${settings.officialCorrespondenceCode.trim()}`);
-    if (file.procurementRef?.trim()) out.push(`Doğrudan temin no: ${file.procurementRef.trim()}`);
-    const regLines: string[] = [];
-    for (const stage of DT_REGISTRY_STAGES) {
-      const r = byStage.get(stage);
-      if (!r) continue;
-      if (!r.docDate && !(r.numberPrefix ?? '').trim() && !(r.numberSuffix ?? '').trim()) continue;
-      const num = [r.numberPrefix?.trim(), r.numberSuffix?.trim()].filter(Boolean).join(' ') || '—';
-      regLines.push(`${stage}: ${r.docDate ?? '—'} / ${num}`);
-    }
-    if (regLines.length) out.push(...regLines);
+    out.push((settings?.headerLine4?.trim() || school?.name || 'Kurum').trim());
+    void file;
     return out;
   }
 
@@ -2625,7 +3593,7 @@ export class DogrudanTeminService {
         document: {
           run: {
             font: 'Times New Roman',
-            size: 22,
+            size: 24,
           },
         },
       },
@@ -2643,7 +3611,7 @@ export class DogrudanTeminService {
     const r = byStage.get(stage);
     const sayi = this.registrySayi(r);
     const tarih = this.fmtTrDate(r?.docDate ?? null);
-    const tsz = opts?.textSizeHalfPts ?? 18;
+    const tsz = opts?.textSizeHalfPts ?? 24;
     const none = {
       style: BorderStyle.NONE,
       size: 0,
@@ -2666,14 +3634,16 @@ export class DogrudanTeminService {
             new TableCell({
               borders: cellBorders,
               children: [
-                new Paragraph({ children: [new TextRun({ text: sayi ? `Sayı: ${sayi}` : 'Sayı: …', size: tsz })] }),
+                new Paragraph({
+                  children: [new TextRun({ text: sayi ? `Sayı : ${sayi}` : 'Sayı : …', size: tsz })],
+                }),
               ],
             }),
             new TableCell({
               borders: cellBorders,
               children: [
                 new Paragraph({
-                  children: [new TextRun({ text: tarih ? `Tarih: ${tarih}` : 'Tarih: …', size: tsz })],
+                  children: [new TextRun({ text: tarih ? `${tarih}` : '…', size: tsz })],
                   alignment: AlignmentType.RIGHT,
                 }),
               ],
@@ -2685,16 +3655,21 @@ export class DogrudanTeminService {
     const konu = (opts?.konuText ?? file.subject ?? '').trim();
     const out: (Paragraph | Table)[] = [
       table,
-      new Paragraph({ children: [new TextRun({ text: `Konu: ${konu}`, size: tsz })] }),
+      new Paragraph({ children: [new TextRun({ text: `Konu : ${konu}`, size: tsz })] }),
     ];
     if (file.procurementRef?.trim()) {
       out.push(
         new Paragraph({
-          children: [new TextRun({ text: `Doğrudan temin numarası: ${file.procurementRef.trim()}`, size: tsz })],
+          children: [new TextRun({ text: `Doğrudan Temin Numarası : ${file.procurementRef.trim()}`, size: tsz })],
         }),
       );
     }
-    out.push(new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }));
+    out.push(
+      new Paragraph({
+        spacing: { before: 0, after: 160 },
+        children: [new TextRun({ text: '\u00a0', size: 2 })],
+      }),
+    );
     return { blocks: out, docDateFormatted: tarih };
   }
 
@@ -2747,7 +3722,14 @@ export class DogrudanTeminService {
     const vendorById = new Map(vendors.map((v) => [v.id, v]));
     const awardByItemId = new Map(awards.map((a) => [a.dtItemId, a]));
 
-    const filenameBase = `DT-${file.year}-${file.fileNo}-${dto.doc_type}`.replace(/[^\w\u00C0-\u024F\s.-]/gi, '').replace(/\s+/g, '-');
+    const safeFileNo = String(file.fileNo ?? '')
+      .trim()
+      .replace(/[^\w\u00C0-\u024F\s.-]/gi, '')
+      .replace(/\s+/g, '-') || 'dosya';
+    const docTitle = this.dtGeneratedDocTitle(dto.doc_type);
+    const filenameBase = `DT-${file.year}-${safeFileNo}-${docTitle}`
+      .replace(/[^\w\u00C0-\u024F\s.-]/gi, '')
+      .replace(/\s+/g, '-');
 
     if (fileFormat === 'pdf') {
       const registry = await this.registryMapForFile(schoolId, file.id);
@@ -2757,55 +3739,60 @@ export class DogrudanTeminService {
         const buffer = await this.pdfBuffer((doc, fonts) => {
           void letterheadLines;
           void letterhead;
-          const tnr = { regular: 'Times-Roman' as const, bold: 'Times-Bold' as const };
           this.pdfOfficialTop(doc, fonts, {
             schoolId,
             school,
             file,
             stage: 'ihtiyac_listesi',
             title: 'MAL/MALZEME İHTİYAÇ LİSTESİ',
+            titleFontSize: 14,
             konu: file.subject,
             showProcurementRef: true,
             registry,
             settings,
           });
-          doc.font(tnr.regular).fontSize(10);
+          doc.font(fonts.regular).fontSize(10);
           doc.x = doc.page.margins.left;
           this.pdfIhtiyacListesiTable(
             doc,
-            tnr,
+            fonts,
             [
-              { header: 'Sıra No', width: 34, align: 'center' },
-              { header: 'Mal/Malzemenin Adı', width: 168 },
-              { header: 'Özelliği', width: 148 },
-              { header: 'Miktarı', width: 52, align: 'center' },
-              { header: 'Ölçeği', width: 50, align: 'center' },
+              { header: 'Sıra No', width: 900, align: 'center', dataAlign: 'center' },
+              { header: 'Mal/Malzemenin Adı', width: 3200, align: 'center', dataAlign: 'left' },
+              { header: 'Özelliği', width: 2660, align: 'center', dataAlign: 'left' },
+              { header: 'Miktarı', width: 1300, align: 'center', dataAlign: 'center' },
+              { header: 'Ölçeği', width: 1300, align: 'center', dataAlign: 'center' },
             ],
             items.map((it, idx) => this.ihtiyacListesiTableRowCells(it, idx)),
           );
           doc.moveDown(0.45);
           const mud = `${((school?.name ?? '').trim() || 'Kurum').toUpperCase()} MÜDÜRLÜĞÜNE`;
-          doc.font(tnr.bold).fontSize(11).text(mud, { align: 'center' });
+          doc.font(fonts.bold).fontSize(11).text(mud, { align: 'center' });
           doc.moveDown(0.25);
-          doc.font(tnr.regular).fontSize(10).text('(İhale/Harcama Yetkilisi)', { align: 'center' });
+          doc.font(fonts.regular).fontSize(10).text('(İhale/Harcama Yetkilisi)', { align: 'center' });
           doc.moveDown(0.45);
-          doc.font(tnr.regular).fontSize(11).text(this.ihtiyacListesiKanunMetniTr(), { align: 'justify' });
+          doc.font(fonts.regular).fontSize(10).text(this.ihtiyacListesiKanunMetniTr(), { align: 'justify' });
           doc.moveDown(0.55);
-          this.pdfSignatureRight(doc, tnr, {
-            name: (settings?.realizationAuthorityName ?? '').trim() || '…………………',
-            title: (settings?.realizationAuthorityTitle ?? '').trim() || undefined,
-          });
+          this.pdfSignatureRight(
+            doc,
+            fonts,
+            {
+              name: (settings?.realizationAuthorityName ?? '').trim() || '…………………',
+              title: (settings?.realizationAuthorityTitle ?? '').trim() || undefined,
+            },
+            { nameSize: 11, titleSize: 10 },
+          );
           doc.moveDown(0.35);
-          doc.font(tnr.bold).fontSize(11).text('OLUR', { align: 'center' });
+          doc.font(fonts.bold).fontSize(11).text('OLUR', { align: 'center' });
           const d = this.fmtTrDate(registry.get('ihtiyac_listesi')?.docDate ?? null) || this.fmtTrDate(new Date());
-          if (d) doc.font(tnr.regular).fontSize(10).text(d, { align: 'center' });
+          if (d) doc.font(fonts.regular).fontSize(10).text(d, { align: 'center' });
           doc.moveDown(0.2);
-          doc.font(tnr.bold).fontSize(10).text(settings?.spendingAuthorityName ?? (school?.principalName ?? '…………………'), {
+          doc.font(fonts.bold).fontSize(10).text(settings?.spendingAuthorityName ?? (school?.principalName ?? '…………………'), {
             align: 'center',
           });
           const spTitle = (settings?.spendingAuthorityTitle ?? '').trim();
-          if (spTitle) doc.font(tnr.regular).fontSize(9).text(spTitle, { align: 'center' });
-          doc.font(tnr.regular).fontSize(9).text('İhale(Harcama Yetkilisi)', { align: 'center' });
+          if (spTitle) doc.font(fonts.regular).fontSize(9).text(spTitle, { align: 'center' });
+          doc.font(fonts.regular).fontSize(9).text('İhale(Harcama Yetkilisi)', { align: 'center' });
         });
         return this.persistDtGeneratedDocx({ skipPersist: opts?.skipPersist, schoolId, userId, dtFileId, docType: 'ihtiyac_listesi', buffer, filenameBase, fileFormat: 'pdf' });
       }
@@ -2857,17 +3844,23 @@ export class DogrudanTeminService {
               ];
           this.pdfFiyatArastirmaKomisyonUclu(doc, fonts, blocks);
           doc.moveDown(0.35);
-          doc.font(fonts.bold).fontSize(11).text('SATIN ALINACAK MAL/MALZEME LİSTESİ', { align: 'center' });
+          const mx = doc.page.margins.left;
+          const mw = doc.page.width - mx - doc.page.margins.right;
+          doc.x = mx;
+          doc
+            .font(fonts.bold)
+            .fontSize(11)
+            .text('SATIN ALINACAK MAL/MALZEME LİSTESİ', mx, doc.y, { width: mw, align: 'center', lineGap: 0 });
           doc.moveDown(0.25);
-          doc.x = doc.page.margins.left;
+          doc.x = mx;
           this.pdfFiyatArastirmaMalzemeTable(doc, fonts, items);
           doc.moveDown(0.35);
-          doc.font(fonts.regular).fontSize(10).text(
+          doc.font(fonts.regular).fontSize(9).text(
             'Yukarıda ismi belirtilen mal/malzemenin birim ve toplam fiyatı günün şartlarına göre belirlenmiş olup belirtilen fiyatlar üzerinden vermeyi teklif ediyorum. Arz olunur.',
             { align: 'center' },
           );
-          doc.moveDown(0.5);
-          this.pdfFiyatArastirmaAltBlok(doc, fonts);
+          doc.moveDown(0.35);
+          this.pdfFiyatArastirmaAltBlok(doc, fonts, vendor);
         });
         return this.persistDtGeneratedDocx({
           skipPersist: opts?.skipPersist,
@@ -2899,6 +3892,8 @@ export class DogrudanTeminService {
         const taahhutTeklif =
           `Yukarıda belirtilen ve İdarenizce satın alınacak olan malların / hizmetlerin cinsi, özellikleri, miktarı ve diğer şartlarını okudum. KDV hariç teklif edilen toplam bedel (para birimi belirtilerek rakam ve yazı ile yazılacaktır) ……………………………………………………………………………………………………………………………………………………………………………………………………………………………………………………………………………………… bedelle vermeyi kabul ve taahhüt ediyorum / ediyoruz.`;
         const buffer = await this.pdfBuffer((doc, fonts) => {
+          const mxT = doc.page.margins.left;
+          const mwT = doc.page.width - mxT - doc.page.margins.right;
           this.pdfOfficialTop(doc, fonts, {
             schoolId,
             school,
@@ -2911,24 +3906,37 @@ export class DogrudanTeminService {
             registry,
             settings,
           });
-          doc.font(fonts.regular).fontSize(10).fillColor('#000000').text(introTeklif, { align: 'justify' });
-          doc.moveDown(0.65);
-          doc.font(fonts.bold).fontSize(10).text('Teklif Sahibinin');
-          doc.font(fonts.regular).fontSize(10);
-          doc.text(`Adı Soyadı/Ticaret Unvanı, Uyruğu : ${vendor.title}`);
-          doc.text(`Açık Tebligat Adresi : ${vendor.address ?? ''}`);
-          doc.text(`Bağlı Olduğu Vergi Dairesi ve Vergi Numarası : ${vendor.taxNo ?? ''}`);
-          doc.text(`Telefon ve Faks Numarası : ${vendor.phone ?? ''}`);
-          doc.text(`E-Mail Adresi (varsa) : ${vendor.email ?? ''}`);
-          doc.moveDown(0.55);
-          doc.font(fonts.bold).fontSize(11).text('SATIN ALINACAK MAL/MALZEME LİSTESİ', { align: 'center' });
-          doc.moveDown(0.25);
-          doc.x = doc.page.margins.left;
-          this.pdfFiyatArastirmaMalzemeTable(doc, fonts, items);
-          doc.moveDown(0.5);
-          doc.font(fonts.regular).fontSize(10).text(taahhutTeklif, { align: 'justify' });
-          doc.moveDown(0.45);
-          this.pdfFiyatArastirmaAltBlok(doc, fonts);
+          doc.x = mxT;
+          doc
+            .font(fonts.regular)
+            .fontSize(9.5)
+            .fillColor('#000000')
+            .text(introTeklif, mxT, doc.y, { width: mwT, align: 'justify', lineGap: 0.32 });
+          doc.moveDown(0.38);
+          doc.font(fonts.bold).fontSize(9.5).text('Teklif Sahibinin', mxT, doc.y, { width: mwT });
+          doc.font(fonts.regular).fontSize(9.5);
+          doc.text(`Adı Soyadı/Ticaret Unvanı, Uyruğu : ${vendor.title}`, mxT, doc.y, { width: mwT });
+          doc.text(`Açık Tebligat Adresi : ${vendor.address ?? ''}`, mxT, doc.y, { width: mwT });
+          doc.text(`Bağlı Olduğu Vergi Dairesi ve Vergi Numarası : ${vendor.taxNo ?? ''}`, mxT, doc.y, { width: mwT });
+          doc.text(`Telefon ve Faks Numarası : ${vendor.phone ?? ''}`, mxT, doc.y, { width: mwT });
+          doc.text(`E-Mail Adresi (varsa) : ${vendor.email ?? ''}`, mxT, doc.y, { width: mwT });
+          doc.moveDown(0.32);
+          doc.x = mxT;
+          doc
+            .font(fonts.bold)
+            .fontSize(11)
+            .text('SATIN ALINACAK MAL/MALZEME LİSTESİ', mxT, doc.y, { width: mwT, align: 'center', lineGap: 0 });
+          doc.moveDown(0.22);
+          doc.x = mxT;
+          this.pdfFiyatArastirmaMalzemeTable(doc, fonts, items, { compact: true });
+          doc.moveDown(0.22);
+          doc.x = mxT;
+          doc
+            .font(fonts.regular)
+            .fontSize(8.5)
+            .text(taahhutTeklif, mxT, doc.y, { width: mwT, align: 'justify', lineGap: 0.28 });
+          doc.moveDown(0.2);
+          this.pdfFiyatArastirmaAltBlok(doc, fonts, vendor, { compact: true });
         });
         return this.persistDtGeneratedDocx({
           skipPersist: opts?.skipPersist,
@@ -2954,33 +3962,49 @@ export class DogrudanTeminService {
         const buffer = await this.pdfBuffer(
           (doc, fonts) => {
           if (dto.doc_type === 'muayene_kabul_tutanagi') {
-            this.pdfOfficialTop(doc, fonts, {
+            const mx = doc.page.margins.left;
+            const mw = doc.page.width - mx - doc.page.margins.right;
+            void this.pdfOfficialTop(doc, fonts, {
               schoolId,
               school,
               file,
               stage: 'muayene_kabul',
               title: '',
               konu: '',
+              omitKonuLine: true,
               showProcurementRef: false,
               registry,
               settings,
+              tightTop: true,
             });
-            doc.moveDown(0.35);
-            doc.font(fonts.bold).fontSize(13).fillColor('#000000').text('MUAYENE VE KABUL KOMİSYONU KARARI', { align: 'center' });
-            doc.moveDown(0.45);
+            doc.x = mx;
+            doc.moveDown(0.12);
+            doc.font(fonts.bold).fontSize(11).fillColor('#000000').text('MUAYENE VE KABUL KOMİSYONU KARARI', mx, doc.y, { width: mw, align: 'center' });
+            doc.moveDown(0.22);
             const kararTarih = this.fmtTrDate(registry.get('muayene_kabul')?.docDate ?? null) || this.fmtTrDate(new Date());
             const idareAd = `${((school?.name ?? '').trim() || 'Kurum').toLocaleUpperCase('tr-TR')} MÜDÜRLÜĞÜ`;
-            this.pdfLabeledRowsBox(doc, fonts, [
+            const kvLabelFrac = 2200 / 9360;
+            this.pdfKeyValueBandTable(doc, fonts, mx, mw, [
               { label: 'Karar No', value: kararNo || '—' },
               { label: 'Karar Tarihi', value: kararTarih },
               { label: 'İdarenin Adı', value: idareAd },
               { label: 'İşin Adı/Niteliği', value: file.subject },
-            ]);
-            doc.moveDown(0.35);
-            doc.font(fonts.bold).fontSize(11).text(`${idareAd}NE`, { align: 'center' });
-            doc.font(fonts.regular).fontSize(10).text(kararTarih, { align: 'center' });
-            doc.moveDown(0.45);
-            const pageInner = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+            ], {
+              labelFrac: kvLabelFrac,
+              fill: '#E8ECF0',
+              fontSize: 7.65,
+              minRowH: 13,
+              rowContentPad: 5,
+              cellTop: 2,
+              lineGap: 0.2,
+            });
+            doc.moveDown(0.06);
+            doc.x = mx;
+            doc.font(fonts.bold).fontSize(9.5).text(`${idareAd}NE`, mx, doc.y, { width: mw, align: 'center' });
+            doc.font(fonts.regular).fontSize(8.5).text(kararTarih, mx, doc.y, { width: mw, align: 'center' });
+            doc.moveDown(0.2);
+            doc.x = mx;
+            const pageInner = mw;
             const wf = (f: number) => Math.max(26, Math.floor(f * pageInner));
             const fmtNum = (v: unknown) => {
               const n = this.toNum(v);
@@ -3002,6 +4026,7 @@ export class DogrudanTeminService {
                 '0',
               ];
             });
+            doc.x = mx;
             this.pdfTable(
               doc,
               fonts,
@@ -3017,11 +4042,16 @@ export class DogrudanTeminService {
               ],
               rows,
               {
-                fontSize: 8,
-                headerFontSize: 7.4,
-                rowPaddingY: 4,
-                cellPaddingX: 4,
-                lineGap: 0.9,
+                fontSize: 7.5,
+                headerFontSize: 7.1,
+                rowPaddingY: 2,
+                cellPaddingX: 3,
+                lineGap: 0.22,
+                headerFillColor: '#E8ECF0',
+                tableWidth: mw,
+                rowHeightMinFactor: 1,
+                rowBottomPad: 1,
+                tableTailGap: 1,
               },
             );
             const sum = items.reduce((acc, it) => {
@@ -3029,14 +4059,18 @@ export class DogrudanTeminService {
               const n = this.toNum(a?.total);
               return acc + (n ?? 0);
             }, 0);
-            doc.moveDown(0.35);
-            doc.font(fonts.bold).fontSize(10).text(`Toplam (KDV Hariç) ${this.fmtTry(sum)}`, { align: 'left' });
-            doc.moveDown(0.45);
-            doc.font(fonts.regular).fontSize(10).text(
+            doc.moveDown(0.12);
+            doc.x = mx;
+            doc.font(fonts.bold).fontSize(8.75).text(`Toplam (KDV Hariç) ${this.fmtTry(sum)}`, mx, doc.y, { width: mw, align: 'left' });
+            doc.moveDown(0.18);
+            doc.font(fonts.regular).fontSize(7.65).text(
               `İhale yetkilisince görevlendirilmemiz nedeniyle ${file.subject} işine ait yukarıda cinsi, miktarı ve tutarı belirtilen emtialar kontrolü yapılmış, alınmasında herhangi bir sakınca bulunmadığı tarafımızdan tesbit edilerek teslim alınmış ve iş bu karar tanzim ve imza edilmiştir.`,
-              { align: 'justify' },
+              mx,
+              doc.y,
+              { width: mw, align: 'justify', lineGap: 0.2 },
             );
-            doc.moveDown(0.65);
+            doc.moveDown(0.2);
+            doc.x = mx;
             const blocks = muayeneSigns.length
               ? muayeneSigns.map((s) => ({ ...s, role: 'Komisyon Üyesi' }))
               : [
@@ -3049,8 +4083,10 @@ export class DogrudanTeminService {
                 boxed: true,
                 hideRole: false,
                 commissionUpperName: true,
+                compact: true,
               });
             }
+            doc.x = mx;
             return;
           }
 
@@ -3063,10 +4099,21 @@ export class DogrudanTeminService {
             registry,
             settings,
           });
-          this.pdfSimpleTable(
+          doc.font(fonts.regular).fontSize(10).text(`${file.year} / ${file.fileNo} · ${file.subject}`, {
+            align: 'center',
+          });
+          doc.moveDown(0.35);
+          this.pdfTable(
             doc,
             fonts,
-            ['No', 'Kalem', 'Miktar', 'Firma', 'BF', 'Tutar'],
+            [
+              { header: 'No', width: 55, align: 'center' },
+              { header: 'Kalem', width: 255 },
+              { header: 'Miktar', width: 110, align: 'center' },
+              { header: 'Firma', width: 210 },
+              { header: 'BF', width: 85, align: 'right' },
+              { header: 'Tutar', width: 95, align: 'right' },
+            ],
             items.map((it, idx) => {
               const a = awardByItemId.get(it.id) ?? null;
               const v = a ? vendorById.get(a.vendorId) ?? null : null;
@@ -3075,13 +4122,23 @@ export class DogrudanTeminService {
                 `${it.name}${it.spec ? `\n${it.spec}` : ''}`,
                 `${it.qty ?? ''} ${it.unit ?? ''}`.trim(),
                 v?.title ?? '',
-                a?.unitPrice ?? '',
-                a?.total ?? '',
+                a?.unitPrice == null ? '' : String(a.unitPrice),
+                a?.total == null ? '' : String(a.total),
               ];
             }),
+            {
+              fontSize: 9,
+              headerFontSize: 9,
+              rowPaddingY: 4,
+              cellPaddingX: 5,
+              lineGap: 0.35,
+              headerFillColor: '#E8ECF0',
+            },
           );
+          doc.moveDown(0.2);
+          doc.font(fonts.regular).fontSize(9).text(`Onaylayan: ${school?.principalName ?? ''}`, { align: 'left' });
           },
-          dto.doc_type === 'muayene_kabul_tutanagi' ? { layout: 'landscape' as const } : undefined,
+          dto.doc_type === 'muayene_kabul_tutanagi' ? { layout: 'landscape' as const, margin: 28 } : undefined,
         );
         const docType = dto.doc_type === 'muayene_kabul_tutanagi' ? 'muayene_kabul_tutanagi' : 'karar';
         return this.persistDtGeneratedDocx({ skipPersist: opts?.skipPersist, schoolId, userId, dtFileId, docType, buffer, filenameBase, fileFormat: 'pdf' });
@@ -3097,6 +4154,17 @@ export class DogrudanTeminService {
         const olurDate = this.fmtTrDate(registry.get('komisyon_onay')?.docDate ?? null) || this.fmtTrDate(new Date());
         const bodyText = `${file.subject} işine ait ihtiyaç listesi onayı ekte sunulmuştur. Söz konusu mal/malzeme 4734 sayılı Kamu İhale Kanunu'nun 9. maddesi gereğince satın alınacağından; (1) Her türlü fiyat araştırmasını yapmak ve yaklaşık maliyet cetvelini hazırlayarak onaya sunmak üzere fiyat araştırma komisyonu, (2) Onay belgesinin tanziminden sonra yazılı teklif mektupları alarak değerlendirmek ve ihaleyi sonuçlandırarak onaya sunmak üzere ihale komisyonu, (3) Mal/malzeme tesliminden sonra satın alınan mal/malzemelerin özelliklerini ve sayılarını kontrol ederek teslim almak üzere muayene ve teslim alma komisyonu oluşturulması müdürlüğümüzce uygun görülmektedir. Makamınızca da uygun görüldüğü takdirde olurlarınıza arz ederim.`;
         const buffer = await this.pdfBuffer((doc, fonts) => {
+          const mx = doc.page.margins.left;
+          const mw = doc.page.width - mx - doc.page.margins.right;
+          const bottom = doc.page.height - doc.page.margins.bottom;
+          const ensureGap = (need: number) => {
+            if (doc.y + need > bottom - 8) {
+              doc.addPage();
+              doc.x = mx;
+              doc.y = doc.page.margins.top;
+            }
+          };
+
           this.pdfOfficialTop(doc, fonts, {
             schoolId,
             school,
@@ -3108,47 +4176,69 @@ export class DogrudanTeminService {
             registry,
             settings,
           });
+          doc.x = mx;
           const schoolLine = (school?.name ?? 'Kurum').trim().toLocaleUpperCase('tr-TR');
-          doc.font(fonts.bold).fontSize(11).text(`${schoolLine} MÜDÜRLÜĞÜNE`, { align: 'center' });
-          doc.font(fonts.regular).fontSize(10).text('(İhale/Harcama Yetkilisi)', { align: 'center' });
-          doc.moveDown(0.45);
-          doc.font(fonts.regular).fontSize(10).text(bodyText, { align: 'justify' });
-          doc.moveDown(0.85);
+          doc.font(fonts.bold).fontSize(10).text(`${schoolLine} MÜDÜRLÜĞÜNE`, mx, doc.y, { width: mw, align: 'center', lineGap: 0.3 });
+          doc.font(fonts.regular).fontSize(9).text('(İhale/Harcama Yetkilisi)', mx, doc.y, { width: mw, align: 'center', lineGap: 0.3 });
+          doc.moveDown(0.35);
+          doc.x = mx;
+          doc.font(fonts.regular).fontSize(9).text(bodyText, mx, doc.y, {
+            width: mw,
+            align: 'justify',
+            lineGap: 0.32,
+          });
+          doc.moveDown(0.5);
+          doc.x = mx;
           this.pdfSignatureRight(doc, fonts, {
             name: settings?.realizationAuthorityName?.trim() || '…………………',
             title: settings?.realizationAuthorityTitle?.trim() || undefined,
-          });
-          doc.moveDown(0.35);
-          doc.font(fonts.bold).fontSize(11).text('OLUR', { align: 'center' });
-          if (olurDate) doc.font(fonts.regular).fontSize(10).text(olurDate, { align: 'center' });
+          }, { nameSize: 9.5, titleSize: 8.5 });
+          doc.x = mx;
           doc.moveDown(0.25);
+          doc.font(fonts.bold).fontSize(10).text('OLUR', mx, doc.y, { width: mw, align: 'center' });
+          if (olurDate) doc.font(fonts.regular).fontSize(9).text(olurDate, mx, doc.y, { width: mw, align: 'center' });
+          doc.moveDown(0.2);
           const spendName = settings?.spendingAuthorityName?.trim() || school?.principalName?.trim() || '…………………';
           const spendTitle = settings?.spendingAuthorityTitle?.trim() || 'Müdür';
-          doc.font(fonts.bold).fontSize(10).text(spendName, { align: 'center' });
-          doc.font(fonts.regular).fontSize(9).text(spendTitle, { align: 'center' });
-          doc.font(fonts.regular).fontSize(9).text('İhale (Harcama Yetkilisi)', { align: 'center' });
-          doc.moveDown(0.55);
+          doc.font(fonts.bold).fontSize(9.5).text(spendName, mx, doc.y, { width: mw, align: 'center', lineGap: 0.25 });
+          doc.font(fonts.regular).fontSize(8.5).text(spendTitle, mx, doc.y, { width: mw, align: 'center', lineGap: 0.25 });
+          doc.font(fonts.regular).fontSize(8.5).text('İhale (Harcama Yetkilisi)', mx, doc.y, { width: mw, align: 'center', lineGap: 0.25 });
+          doc.moveDown(0.4);
+          doc.x = mx;
+
+          const tblOpts = {
+            fontSize: 7.75,
+            headerFontSize: 7.75,
+            headerFillColor: '#E8ECF0',
+            tableWidth: mw,
+            rowPaddingY: 2.5,
+            cellPaddingX: 3.5,
+            lineGap: 0.22,
+          } as const;
+          const cols = [
+            { header: 'Sıra No', width: 44, align: 'center' as const },
+            { header: 'Adı Soyadı', width: 200 },
+            { header: 'Ünvanı', width: 123 },
+            { header: 'Görevi', width: 123 },
+          ];
+
           for (const t of commTables) {
-            doc.font(fonts.bold).fontSize(10).text(kindLabel[t.kind] ?? t.kind, { align: 'center' });
-            doc.moveDown(0.15);
+            const kindTitle = kindLabel[t.kind] ?? t.kind;
+            doc.font(fonts.bold).fontSize(8.25);
+            const kindH = doc.heightOfString(kindTitle, { width: mw, align: 'center', lineGap: 0.22 });
+            ensureGap(kindH + (t.rows.length ? 40 + t.rows.length * 14 : 28));
+            doc.font(fonts.bold).fontSize(8.25).text(kindTitle, mx, doc.y, { width: mw, align: 'center', lineGap: 0.22 });
+            doc.moveDown(0.12);
+            doc.x = mx;
             if (!t.rows.length) {
-              doc.font(fonts.regular).fontSize(10).text('(Henüz oluşturulmadı)', { align: 'center' });
-              doc.moveDown(0.45);
+              doc.font(fonts.regular).fontSize(8.5).text('(Henüz oluşturulmadı)', mx, doc.y, { width: mw, align: 'center' });
+              doc.moveDown(0.35);
+              doc.x = mx;
               continue;
             }
-            this.pdfTable(
-              doc,
-              fonts,
-              [
-                { header: 'Sıra No', width: 50, align: 'center' },
-                { header: 'Adı Soyadı', width: 170 },
-                { header: 'Ünvanı', width: 130 },
-                { header: 'Görevi', width: 140 },
-              ],
-              t.rows,
-              { fontSize: 8.5, headerFontSize: 8.5 },
-            );
-            doc.moveDown(0.35);
+            this.pdfTable(doc, fonts, cols, t.rows, tblOpts);
+            doc.moveDown(0.22);
+            doc.x = mx;
           }
         });
         return this.persistDtGeneratedDocx({ skipPersist: opts?.skipPersist, schoolId, userId, dtFileId, docType: 'komisyon_onay', buffer, filenameBase, fileFormat: 'pdf' });
@@ -3158,19 +4248,27 @@ export class DogrudanTeminService {
         const m = await this.loadOnayBelgesiModel(schoolId, school, file, items, registry, settings);
         const buffer = await this.pdfBuffer((doc, fonts) => {
           const mx = doc.page.margins.left;
-          const my = doc.page.margins.top;
           const mw = doc.page.width - mx - doc.page.margins.right;
-          const mh = doc.page.height - my - doc.page.margins.bottom;
-          doc.save();
-          doc.fillColor('#e8eef5').rect(mx, my, mw, mh).fill();
-          doc.fillColor('#000000');
-          doc.restore();
+          const tblNoHdr = {
+            rowPaddingY: 2,
+            lineGap: 0.2,
+            cellPaddingX: 4,
+            includeHeader: false,
+          } as const;
+          const tblHdrTight = {
+            rowPaddingY: 2,
+            lineGap: 0.2,
+            cellPaddingX: 4,
+            fontSize: 7.35,
+            headerFontSize: 7.35,
+            headerFillColor: '#E8ECF0',
+          } as const;
 
           this.pdfAntet(doc, fonts, school, settings);
-          doc.moveDown(0.25);
+          doc.moveDown(0.05);
           doc.x = mx;
-          doc.font(fonts.bold).fontSize(13).text('ONAY BELGESİ', mx, doc.y, { width: mw, align: 'center' });
-          doc.moveDown(0.55);
+          doc.font(fonts.bold).fontSize(11).text('ONAY BELGESİ', mx, doc.y, { width: mw, align: 'center' });
+          doc.moveDown(0.18);
 
           const twoCol = [
             { header: '', width: 230 },
@@ -3180,12 +4278,12 @@ export class DogrudanTeminService {
           this.pdfTable(doc, fonts, twoCol, [
             ['Doğrudan Temini Yapan İdarenin Adı:', m.idareninAdi],
             ['Belge Tarih ve Sayısı:', `${m.belgeTarih}     ${m.belgeSayi}`.trim()],
-          ], { fontSize: 9, headerFontSize: 9, tableWidth: mw });
+          ], { fontSize: 8.25, headerFontSize: 8.25, tableWidth: mw, ...tblNoHdr });
 
-          doc.font(fonts.bold).fontSize(11).text(m.schoolMudUrluk, mx, doc.y, { width: mw, align: 'center' });
-          doc.moveDown(0.15);
-          doc.font(fonts.regular).fontSize(9).text('İhale/Harcama Yetkilisi', mx, doc.y, { width: mw, align: 'right' });
-          doc.moveDown(0.4);
+          doc.font(fonts.bold).fontSize(9).text(m.schoolMudUrluk, mx, doc.y, { width: mw, align: 'center' });
+          doc.moveDown(0.04);
+          doc.font(fonts.regular).fontSize(7.75).text('İhale/Harcama Yetkilisi', mx, doc.y, { width: mw, align: 'right' });
+          doc.moveDown(0.12);
 
           doc.x = mx;
           this.pdfTable(doc, fonts, twoCol, [
@@ -3193,7 +4291,7 @@ export class DogrudanTeminService {
             ['İşin Tanımı', m.isinTanimi],
             ['İşin Niteliği', m.isinNiteligi],
             ['İşin Miktarı', 'Ekli belgede gösterilmiştir.'],
-          ], { fontSize: 9, tableWidth: mw });
+          ], { fontSize: 8.25, tableWidth: mw, ...tblNoHdr });
 
           const finRows: string[][] = [
             ['Yaklaşık Maliyet (KDV Hariç)(₺):', m.approxText],
@@ -3210,13 +4308,21 @@ export class DogrudanTeminService {
             ['Yeterlilik Kriterleri Aranıp Aranmayacağı:', 'Aranmayacaktır'],
           ];
           doc.x = mx;
-          this.pdfTable(doc, fonts, twoCol, finRows, { fontSize: 8.5, tableWidth: mw });
+          this.pdfTable(doc, fonts, twoCol, finRows, {
+            fontSize: 7.1,
+            headerFontSize: 7.1,
+            tableWidth: mw,
+            rowPaddingY: 1.65,
+            lineGap: 0.18,
+            cellPaddingX: 3.5,
+            includeHeader: false,
+          });
 
           const longLabel =
             'Doğrudan Temin Usulü ile Mal ve Hizmet satın alınacaksa piyasa fiyat araştırması yapmak üzere görevlendirilecek kişi/kişiler';
           doc.x = mx;
-          doc.font(fonts.bold).fontSize(8.5).text(longLabel, { width: mw });
-          doc.moveDown(0.12);
+          doc.font(fonts.bold).fontSize(7).text(longLabel, mx, doc.y, { width: mw, lineGap: 0.16 });
+          doc.moveDown(0.04);
           this.pdfTable(
             doc,
             fonts,
@@ -3226,45 +4332,48 @@ export class DogrudanTeminService {
               { header: 'Ünvanı', width: 150 },
             ],
             m.assignedRows,
-            { fontSize: 8.5, headerFontSize: 8.5, tableWidth: mw },
+            { tableWidth: mw, ...tblHdrTight },
           );
 
           doc.x = mx;
-          doc.font(fonts.bold).fontSize(10).text('DİĞER AÇIKLAMALAR', { width: mw, align: 'center' });
+          doc.font(fonts.bold).fontSize(8.75).text('DİĞER AÇIKLAMALAR', mx, doc.y, { width: mw, align: 'center' });
           const yDig = doc.y;
-          doc.rect(mx, yDig, mw, 26).stroke();
-          doc.moveDown(0.5);
+          const digerH = 12;
+          doc.rect(mx, yDig, mw, digerH).stroke();
+          doc.y = yDig + digerH + 3;
+          doc.x = mx;
 
-          doc.font(fonts.bold).fontSize(10).text('ONAY', mx, doc.y, { width: mw, align: 'center' });
-          doc.moveDown(0.25);
+          doc.font(fonts.bold).fontSize(8.75).text('ONAY', mx, doc.y, { width: mw, align: 'center' });
+          doc.moveDown(0.1);
           const d = m.belgeTarih;
-          const w2 = (mw - 20) / 2;
+          const w2 = (mw - 12) / 2;
           const xL = mx;
-          const xR = mx + w2 + 20;
+          const xR = mx + w2 + 12;
           let yS = doc.y;
-          doc.font(fonts.regular).fontSize(8.5).text('alınması için ilgililerin görevlendirilmeleri hususunu', xL, yS, {
+          doc.font(fonts.regular).fontSize(7.25).text('alınması için ilgililerin görevlendirilmeleri hususunu', xL, yS, {
             width: w2,
             align: 'center',
+            lineGap: 0.15,
           });
-          doc.font(fonts.bold).fontSize(10).text('UYGUNDUR', xR, yS, { width: w2, align: 'center' });
-          yS += 28;
-          doc.font(fonts.regular).fontSize(7.5).text('İhale Yetkilisi Adı-Soyadı-Ünvanı', xR, yS, { width: w2, align: 'center' });
-          yS += 16;
-          doc.font(fonts.regular).fontSize(8.5).text(d, xL, yS, { width: w2, align: 'center' });
-          doc.font(fonts.regular).fontSize(8.5).text(d, xR, yS, { width: w2, align: 'center' });
-          yS += 22;
-          doc.font(fonts.bold).fontSize(9).text(m.realizationName, xL, yS, { width: w2, align: 'center' });
-          doc.font(fonts.bold).fontSize(9).text(m.spendingName, xR, yS, { width: w2, align: 'center' });
-          yS += 16;
-          doc.font(fonts.regular).fontSize(8).text(m.realizationTitle, xL, yS, { width: w2, align: 'center' });
-          doc.font(fonts.regular).fontSize(8).text(m.spendingTitle, xR, yS, { width: w2, align: 'center' });
-          doc.y = yS + 22;
+          doc.font(fonts.bold).fontSize(8.75).text('UYGUNDUR', xR, yS, { width: w2, align: 'center' });
+          yS += 18;
+          doc.font(fonts.regular).fontSize(6.75).text('İhale Yetkilisi Adı-Soyadı-Ünvanı', xR, yS, { width: w2, align: 'center' });
+          yS += 11;
+          doc.font(fonts.regular).fontSize(7.25).text(d, xL, yS, { width: w2, align: 'center' });
+          doc.font(fonts.regular).fontSize(7.25).text(d, xR, yS, { width: w2, align: 'center' });
+          yS += 15;
+          doc.font(fonts.bold).fontSize(7.75).text(m.realizationName, xL, yS, { width: w2, align: 'center' });
+          doc.font(fonts.bold).fontSize(7.75).text(m.spendingName, xR, yS, { width: w2, align: 'center' });
+          yS += 11;
+          doc.font(fonts.regular).fontSize(7).text(m.realizationTitle, xL, yS, { width: w2, align: 'center' });
+          doc.font(fonts.regular).fontSize(7).text(m.spendingTitle, xR, yS, { width: w2, align: 'center' });
+          doc.y = yS + 12;
           doc.x = mx;
-          doc.moveDown(0.3);
+          doc.moveDown(0.06);
           doc
             .font(fonts.regular)
-            .fontSize(8)
-            .text('Ek: İdare Tarafından Hazırlanan Yaklaşık Maliyet Hesap Cetveli', mx, doc.y, { width: mw });
+            .fontSize(7)
+            .text('Ek: İdare Tarafından Hazırlanan Yaklaşık Maliyet Hesap Cetveli', mx, doc.y, { width: mw, lineGap: 0.15 });
         });
         return this.persistDtGeneratedDocx({ skipPersist: opts?.skipPersist, schoolId, userId, dtFileId, docType: 'onay_belgesi', buffer, filenameBase, fileFormat: 'pdf' });
       }
@@ -3273,8 +4382,10 @@ export class DogrudanTeminService {
         const maxFirms = 4;
         const cols = await this.loadMarketResearchFirmColumns(schoolId, file.id, items, vendorById, maxFirms);
         const stage = dto.doc_type === 'piyasa_arastirma_tutanagi' ? 'piyasa_arastirma' : 'yaklasik_maliyet';
-        const commKind = dto.doc_type === 'piyasa_arastirma_tutanagi' ? 'piyasa_satinalma' : 'yaklasik_maliyet';
-        const commSigns = await this.commissionSignatureBlocks({ schoolId, dtFileId: file.id, kind: commKind });
+        const commSigns =
+          dto.doc_type === 'piyasa_arastirma_tutanagi'
+            ? await this.commissionSignatureBlocksFirstAvailable(schoolId, file.id, ['yaklasik_maliyet', 'piyasa_satinalma'])
+            : await this.commissionSignatureBlocks({ schoolId, dtFileId: file.id, kind: 'yaklasik_maliyet' });
         const lowest = this.pickLowestQuoteColumn(cols);
         const onay = registry.get('ihale_onay');
         const onayTarih = this.fmtTrDate(onay?.docDate ?? null);
@@ -3282,28 +4393,45 @@ export class DogrudanTeminService {
         const buffer = await this.pdfBuffer(
           (doc, fonts) => {
           if (dto.doc_type === 'yaklasik_maliyet_cetveli') {
+            const mx = doc.page.margins.left;
+            const mw = doc.page.width - mx - doc.page.margins.right;
             void this.pdfOfficialTop(doc, fonts, {
               schoolId,
               school,
               file,
               stage: 'yaklasik_maliyet',
               title: 'YAKLAŞIK MALİYET CETVELİ',
+              titleFontSize: 11,
+              afterTitleMoveDown: 0.28,
               konu: file.subject,
               showProcurementRef: true,
               registry,
               settings,
+              tightTop: true,
             });
-            doc.moveDown(0.35);
+            doc.x = mx;
+            doc.moveDown(0.08);
             const idare = `${((school?.name ?? '').trim() || 'Kurum').toLocaleUpperCase('tr-TR')} MÜDÜRLÜĞÜ`;
             const düzen = this.fmtTrDate(registry.get('yaklasik_maliyet')?.docDate ?? null) || this.fmtTrDate(new Date());
-            this.pdfLabeledRowsBox(doc, fonts, [
+            const kvLabelFrac = 2200 / 9360;
+            this.pdfKeyValueBandTable(doc, fonts, mx, mw, [
               { label: 'İdarenin Adı', value: idare },
               { label: 'Doğrudan Temin Numarası', value: file.procurementRef?.trim() ?? '—' },
               { label: 'İşin Konusu', value: file.subject },
               { label: 'Düzenleme Tarihi', value: düzen },
-            ]);
+            ], {
+              labelFrac: kvLabelFrac,
+              fill: '#E8ECF0',
+              fontSize: 7.65,
+              minRowH: 13,
+              rowContentPad: 5,
+              cellTop: 2,
+              lineGap: 0.2,
+            });
+            doc.moveDown(0.03);
+            doc.x = mx;
 
-            const pageInner = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+            const pageInner = mw;
             const nF = cols.length;
             const snip = (s: string, n: number) => {
               const t = (s ?? '').trim();
@@ -3393,8 +4521,8 @@ export class DogrudanTeminService {
             });
             if (cols.length) {
               rows.push([
-                'TOPLAM',
                 '',
+                'TOPLAM (KDV hariç)',
                 '',
                 '',
                 '',
@@ -3404,8 +4532,8 @@ export class DogrudanTeminService {
               ]);
             }
             rows.push([
-              'Yaklaşık maliyet tutarı (KDV hariç)',
               '',
+              'Yaklaşık maliyet tutarı (KDV hariç)',
               '',
               '',
               '',
@@ -3414,62 +4542,95 @@ export class DogrudanTeminService {
               this.fmtTry(grandApprox),
             ]);
 
+            doc.x = mx;
             this.pdfTable(doc, fonts, tableCols, rows, {
-              fontSize: 8.5,
-              headerFontSize: 8,
+              fontSize: 7.5,
+              headerFontSize: 7.25,
               subHeaderRow: cols.length ? subHeaderRow : undefined,
-              subHeaderFontSize: 7.5,
-              rowPaddingY: 6,
-              cellPaddingX: 6,
-              lineGap: 0.95,
+              subHeaderFontSize: 6.75,
+              rowPaddingY: 2,
+              cellPaddingX: 3,
+              lineGap: 0.2,
+              headerFillColor: '#E8ECF0',
+              tableWidth: mw,
+              rowHeightMinFactor: 1,
+              rowBottomPad: 1,
+              tableTailGap: 1,
             });
-            doc.moveDown(0.55);
-            doc.font(fonts.regular).fontSize(9.5).text(
+            doc.moveDown(0.1);
+            doc.x = mx;
+            doc.font(fonts.regular).fontSize(7.65).text(
               `İdaremizce ihtiyaç duyulan ve satın alınması düşünülen aşağıda cinsi, özellikleri ve miktarları yazılı malların/hizmetlerin 4734 sayılı Kamu İhale Kanunu'nun 9. maddesi gereğince yaklaşık maliyetinin tespitine esas olmak üzere her türlü fiyat araştırması yapılmıştır. Araştırma sonuçları yukarıdaki tabloda gösterilmiştir. Yukarıda açıklandığı üzere yaklaşık maliyetin KDV hariç ${this.fmtTry(grandApprox)} takdir ve tespit edilerek iş bu hesap cetveli düzenlenerek imza altına alınmıştır.`,
-              { align: 'justify' },
+              mx,
+              doc.y,
+              { width: mw, align: 'justify', lineGap: 0.2 },
             );
-            doc.moveDown(0.55);
-            doc.font(fonts.bold).fontSize(10).text('YAKLAŞIK MALİYETİ YAPAN GÖREVLİ / GÖREVLİLER', { align: 'center' });
-            doc.moveDown(0.35);
+            doc.moveDown(0.12);
+            doc.x = mx;
+            doc.font(fonts.bold).fontSize(9).text('YAKLAŞIK MALİYETİ YAPAN GÖREVLİ / GÖREVLİLER', mx, doc.y, { width: mw, align: 'center' });
+            doc.moveDown(0.08);
             const blocks = commSigns.length
-              ? commSigns.map((s) => ({ ...s, role: s.role ?? 'Komisyon Üyesi' }))
+              ? commSigns.map((s) => ({ ...s, role: (s.role ?? '').trim() || 'Komisyon Üyesi' }))
               : [
                   { role: 'Komisyon Üyesi', name: '…………………', title: '' },
                   { role: 'Komisyon Üyesi', name: '…………………', title: '' },
                   { role: 'Komisyon Üyesi', name: '…………………', title: '' },
                 ];
             for (let i = 0; i < blocks.length; i += 3) {
-              this.pdfSignRow(doc, fonts, blocks.slice(i, i + 3), { boxed: true, hideRole: false });
+              this.pdfSignRow(doc, fonts, blocks.slice(i, i + 3), {
+                boxed: true,
+                hideRole: false,
+                commissionUpperName: true,
+                compact: true,
+              });
             }
+            doc.x = mx;
             return;
           }
 
-          this.pdfOfficialTop(doc, fonts, {
+          const mx = doc.page.margins.left;
+          const mw = doc.page.width - mx - doc.page.margins.right;
+          void this.pdfOfficialTop(doc, fonts, {
             schoolId,
             school,
             file,
             stage: 'piyasa_arastirma',
             title: 'PİYASA FİYAT ARAŞTIRMA TUTANAĞI',
+            titleUnderline: true,
+            titleFontSize: 11,
+            afterTitleMoveDown: 0.28,
             konu: file.subject,
             showProcurementRef: true,
             registry,
             settings,
+            tightTop: true,
           });
-          doc.moveDown(0.35);
+          doc.x = mx;
+          doc.moveDown(0.08);
           const idareAd = `${((school?.name ?? '').trim() || 'Kurum').toLocaleUpperCase('tr-TR')} MÜDÜRLÜĞÜ`;
           const piyasaDocTarih = this.fmtTrDate(registry.get('piyasa_arastirma')?.docDate ?? null) || this.fmtTrDate(new Date());
-          this.pdfLabeledRowsBox(doc, fonts, [
+          const kvLabelFrac = 2200 / 9360;
+          this.pdfKeyValueBandTable(doc, fonts, mx, mw, [
             { label: 'İdarenin Adı', value: idareAd },
             { label: 'Doğrudan Temin Numarası', value: file.procurementRef?.trim() ?? '—' },
             { label: 'İşin Konusu', value: file.subject },
             {
-              label: 'Alım ve Yetkilendirilen Görevlilere İlişkin Onay Belgesi/Görevlendirme Onayı Tarih ve No.su',
+              label:
+                'Alım ve Yetkilendirilen Görevlilere İlişkin Onay Belgesi/Görevlendirme Onayı Tarih ve No.su',
               value: [onayTarih, onaySayi].filter(Boolean).join('  ') || '—',
             },
             { label: 'Tutanak Tarihi', value: piyasaDocTarih },
-          ]);
+          ], {
+            labelFrac: kvLabelFrac,
+            fontSize: 7.65,
+            minRowH: 13,
+            rowContentPad: 5,
+            cellTop: 2,
+            lineGap: 0.2,
+          });
+          doc.moveDown(0.03);
 
-          const pageInner = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+          const pageInner = mw;
           const nF = cols.length;
           const snip = (s: string, n: number) => {
             const t = (s ?? '').trim();
@@ -3502,10 +4663,11 @@ export class DogrudanTeminService {
           const firmCols = cols.flatMap((c, i) => {
             const letter = String.fromCharCode(65 + i);
             const subRaw = this.dtFirmTableSubtitle(letter, (c.title ?? '').trim() || `Firma ${i + 1}`);
-            const sub = subRaw ? snip(subRaw, 34) : '';
+            const sub = subRaw ? snip(subRaw, 46) : '';
+            const h1 = `${letter} FİRMASI`;
             return [
-              { header: `${letter} FİRMASI`, width: firmW, align: 'center' as const },
-              { header: sub, width: firmW, align: 'center' as const },
+              { header: sub ? `${h1}\n${sub}` : h1, width: firmW, align: 'center' as const },
+              { header: '\u00a0', width: firmW, align: 'center' as const },
             ];
           });
           const subHeaderRow = [
@@ -3534,70 +4696,96 @@ export class DogrudanTeminService {
           });
           if (cols.length) {
             rows.push([
-              'TOPLAM TEKLİF',
               '',
+              'TOPLAM TEKLİF (KDV hariç)',
               '',
               '',
               '',
               ...cols.flatMap((c) => ['', Number.isFinite(c.total) ? this.fmtTry(c.total) : '']),
             ]);
           }
+          doc.x = mx;
           this.pdfTable(doc, fonts, tableCols, rows, {
-            fontSize: 8.5,
-            headerFontSize: 8,
+            fontSize: 7.5,
+            headerFontSize: 7.25,
             subHeaderRow: cols.length ? subHeaderRow : undefined,
-            subHeaderFontSize: 7.5,
-            rowPaddingY: 6,
-            cellPaddingX: 6,
-            lineGap: 0.95,
+            subHeaderFontSize: 6.75,
+            rowPaddingY: 2,
+            cellPaddingX: 3,
+            lineGap: 0.2,
+            headerFillColor: '#D9E1F2',
+            tableWidth: mw,
+            rowHeightMinFactor: 1,
+            rowBottomPad: 1,
+            tableTailGap: 1,
           });
-          doc.moveDown(0.55);
+          doc.moveDown(0.08);
+          doc.x = mx;
 
           if (lowest) {
-            doc.font(fonts.bold).fontSize(10).text(file.subject);
-            doc.moveDown(0.25);
-            doc.font(fonts.bold).fontSize(10).text('Tümünün Bu Kişi/Firmadan Alımı Uygun Görülmüştür');
-            doc.moveDown(0.3);
-            const tw = pageInner;
-            const lw = Math.floor(tw * 0.24);
-            doc.x = doc.page.margins.left;
-            this.pdfTable(
+            doc.font(fonts.bold).fontSize(9).text(file.subject, mx, doc.y, { width: mw, align: 'left', lineGap: 0.22 });
+            doc.moveDown(0.1);
+            doc.font(fonts.bold).fontSize(8.75).text('Tümünün Bu Kişi/Firmadan Alımı Uygun Görülmüştür', mx, doc.y, {
+              width: mw,
+              align: 'left',
+              lineGap: 0.22,
+            });
+            doc.moveDown(0.12);
+            this.pdfKeyValueBandTable(
               doc,
               fonts,
+              mx,
+              mw,
               [
-                { header: ' ', width: lw, align: 'left' },
-                { header: ' ', width: tw - lw, align: 'left' },
+                { label: 'Adı', value: `${lowest.firmLabel}\n${lowest.title}`.trim() },
+                { label: 'Adresi', value: (lowest.vendor?.address ?? '').trim() || '—' },
+                { label: 'Teklif Ettiği Fiyat (KDV Hariç)', value: this.fmtTry(lowest.total) },
               ],
-              [
-                ['Adı', `${lowest.firmLabel}\n${lowest.title}`.trim()],
-                ['Adresi', (lowest.vendor?.address ?? '').trim() || '—'],
-                ['Teklif Ettiği Fiyat (KDV Hariç)', this.fmtTry(lowest.total)],
-              ],
-              { fontSize: 9.5, includeHeader: false, rowPaddingY: 5 },
+              {
+                labelFrac: 3100 / 9360,
+                fontSize: 7.65,
+                minRowH: 13,
+                rowContentPad: 5,
+                cellTop: 2,
+                lineGap: 0.2,
+              },
             );
-            doc.moveDown(0.45);
+            doc.moveDown(0.04);
           }
 
-          doc.font(fonts.regular).fontSize(9.5).text(
+          doc.x = mx;
+          doc.font(fonts.regular).fontSize(7.65).text(
             `4734 sayılı Kamu İhale Kanunu'nun 22. maddesi uyarınca doğrudan temin usulüyle yapılacak alımlara ilişkin yapılan piyasa araştırmasında firmalarca/kişilerce teklif edilen fiyatlar değerlendirilerek yukarıda adı ve adresleri belirtilen kişi/firma/firmalardan alım yapılması uygun görülmüştür.`,
-            { align: 'justify' },
+            mx,
+            doc.y,
+            { width: mw, align: 'justify', lineGap: 0.2 },
           );
-          doc.moveDown(0.55);
-          doc.font(fonts.bold).fontSize(10).text('PİYASA FİYAT ARAŞTIRMA GÖREVLİSİ / GÖREVLİLERİ', { align: 'center' });
-          doc.moveDown(0.35);
+          doc.moveDown(0.12);
+          doc.x = mx;
+          doc.font(fonts.bold).fontSize(9).text('PİYASA FİYAT ARAŞTIRMA GÖREVLİSİ / GÖREVLİLERİ', mx, doc.y, { width: mw, align: 'center' });
+          doc.moveDown(0.08);
           const blocks = commSigns.length
-            ? commSigns.map((s) => ({ ...s, role: s.role ?? '' }))
+            ? commSigns.map((s) => ({ ...s, role: (s.role ?? '').trim() || 'Komisyon Üyesi' }))
             : [
-                { role: '', name: '…………………', title: '' },
-                { role: '', name: '…………………', title: '' },
-                { role: '', name: '…………………', title: '' },
+                { role: 'Komisyon Üyesi', name: '…………………', title: '' },
+                { role: 'Komisyon Üyesi', name: '…………………', title: '' },
+                { role: 'Komisyon Üyesi', name: '…………………', title: '' },
               ];
           for (let i = 0; i < blocks.length; i += 3) {
-            this.pdfSignRow(doc, fonts, blocks.slice(i, i + 3), { boxed: true, hideRole: true, commissionUpperName: true });
+            this.pdfSignRow(doc, fonts, blocks.slice(i, i + 3), {
+              boxed: true,
+              hideRole: false,
+              commissionUpperName: true,
+              compact: true,
+            });
           }
+          doc.x = mx;
         },
           dto.doc_type === 'piyasa_arastirma_tutanagi' || dto.doc_type === 'yaklasik_maliyet_cetveli'
-            ? { layout: 'landscape' as const }
+            ? {
+                layout: 'landscape' as const,
+                margin: dto.doc_type === 'piyasa_arastirma_tutanagi' ? 26 : 28,
+              }
             : undefined,
         );
         const docType = dto.doc_type;
@@ -3610,79 +4798,128 @@ export class DogrudanTeminService {
           subject: file.subject,
           items: items.map((it) => ({ name: it.name, spec: it.spec })),
         });
-        const buffer = await this.pdfBuffer((doc, fonts) => {
-          this.pdfAntet(doc, fonts, school, settings);
-          doc.font(fonts.bold).fontSize(11);
-          if (draft.schoolLine.trim()) {
-            doc.text(draft.schoolLine.trim(), { align: 'center' });
-            doc.moveDown(0.2);
-          }
-          doc.font(fonts.bold).fontSize(13).text(draft.docTitle.trim() || 'TEKNİK ŞARTNAME', { align: 'center' });
-          doc.moveDown(0.55);
-          doc.font(fonts.bold).fontSize(10).text(draft.s1_title);
-          doc.moveDown(0.15);
-          doc.font(fonts.regular).fontSize(9.5).text(draft.s1_1, { align: 'justify' });
-          doc.moveDown(0.45);
-          doc.font(fonts.bold).fontSize(10).text(draft.s2_title);
-          doc.moveDown(0.12);
-          doc.font(fonts.regular).fontSize(9.5).text(draft.s2_idare, { align: 'justify' });
-          doc.font(fonts.regular).fontSize(9.5).text(draft.s2_firma, { align: 'justify' });
-          doc.moveDown(0.45);
-          doc.font(fonts.bold).fontSize(10).text(draft.s3_title);
-          doc.moveDown(0.12);
-          doc.font(fonts.regular).fontSize(9.5).text(draft.s3_1, { align: 'justify' });
-          doc.moveDown(0.45);
-          doc.font(fonts.bold).fontSize(10).text(draft.s4_title);
-          doc.moveDown(0.12);
-          doc.font(fonts.regular).fontSize(9.5).text(`İşin Adı : ${draft.s4_jobName}`, { align: 'justify' });
-          doc.moveDown(0.45);
-          doc.font(fonts.bold).fontSize(10).text(draft.s5_title);
-          doc.moveDown(0.12);
-          doc.font(fonts.regular).fontSize(9).text(draft.s5_bullets.map((b) => `* ${b}`).join('\n'), { align: 'left' });
-          doc.moveDown(0.45);
-          doc.font(fonts.bold).fontSize(10).text(draft.tableTitle);
-          doc.moveDown(0.15);
-          this.pdfTable(
-            doc,
-            fonts,
-            [
-              { header: 'Sıra No', width: 50, align: 'center' },
-              { header: 'Mal/Malzemenin Adı', width: 180 },
-              { header: 'Teknik Özellikleri', width: 260 },
-            ],
-            draft.tableRows.map((r, idx) => [String(idx + 1), r.name || '—', (r.spec ?? '').trim() || '—']),
-            { fontSize: 9, headerFontSize: 9, borderDash: true },
-          );
-          doc.moveDown(0.35);
-          doc.font(fonts.bold).fontSize(10).text(draft.s6_title);
-          doc.moveDown(0.12);
-          doc.font(fonts.regular).fontSize(9.5).text(draft.s6_body, { align: 'justify' });
-          doc.moveDown(0.45);
-          doc.font(fonts.bold).fontSize(10).text(draft.s7_title);
-          doc.moveDown(0.12);
-          doc.font(fonts.regular).fontSize(9.5).text(draft.s7_1, { align: 'justify' });
-          doc.font(fonts.regular).fontSize(9.5).text(draft.s7_2, { align: 'justify' });
-          doc.font(fonts.regular).fontSize(9.5).text(draft.s7_3, { align: 'justify' });
-          doc.moveDown(0.55);
-          const dRaw = draft.documentDate?.trim();
-          const d =
-            dRaw && !Number.isNaN(new Date(dRaw).getTime()) ? this.fmtTrDate(dRaw) : this.fmtTrDate(new Date());
-          doc.font(fonts.regular).fontSize(10).text(d, { align: 'right' });
-          doc.moveDown(0.25);
-          const principalName =
-            (settings?.spendingAuthorityName ?? '').trim() || (school?.principalName ?? '').trim() || '…………………';
-          const principalTitle = (settings?.spendingAuthorityTitle ?? '').trim();
-          this.pdfSignRow(doc, fonts, [
-            { role: draft.firmSignCaption.trim() || 'FİRMA/KAŞE', name: ' ' },
-            {
-              role: draft.schoolStampLine.trim() || 'İmza/Mühür',
-              name: principalName,
-              title: [draft.schoolTitleLine, principalTitle || undefined, draft.schoolRoleLine]
-                .filter((x) => (x ?? '').toString().trim())
-                .join('\n'),
-            },
-          ]);
-        });
+        const buffer = await this.pdfBuffer(
+          (doc, fonts) => {
+            const mx = doc.page.margins.left;
+            const mw = doc.page.width - mx - doc.page.margins.right;
+            const bodyFs = 8.35;
+            const titleFs = 9.25;
+            const lg = 0.22;
+            const gapS = 0.1;
+            const gapM = 0.22;
+            const gapL = 0.28;
+
+            this.pdfAntet(doc, fonts, school, settings, { tailMoveDown: 0.22, fontSize: 9.5 });
+            doc.x = mx;
+            doc.moveDown(0.08);
+            doc.font(fonts.bold).fontSize(10.5);
+            if (draft.schoolLine.trim()) {
+              doc.text(draft.schoolLine.trim(), mx, doc.y, { width: mw, align: 'center', lineGap: lg });
+              doc.moveDown(gapS);
+            }
+            doc.font(fonts.bold).fontSize(12).text(draft.docTitle.trim() || 'TEKNİK ŞARTNAME', mx, doc.y, { width: mw, align: 'center' });
+            doc.moveDown(gapM);
+            doc.font(fonts.bold).fontSize(titleFs).text(draft.s1_title, mx, doc.y, { width: mw, align: 'left' });
+            doc.moveDown(gapS);
+            doc.font(fonts.regular).fontSize(bodyFs).text(draft.s1_1, mx, doc.y, { width: mw, align: 'justify', lineGap: lg });
+            doc.moveDown(gapL);
+            doc.font(fonts.bold).fontSize(titleFs).text(draft.s2_title, mx, doc.y, { width: mw, align: 'left' });
+            doc.moveDown(gapS);
+            doc.font(fonts.regular).fontSize(bodyFs).text(draft.s2_idare, mx, doc.y, { width: mw, align: 'justify', lineGap: lg });
+            doc.font(fonts.regular).fontSize(bodyFs).text(draft.s2_firma, mx, doc.y, { width: mw, align: 'justify', lineGap: lg });
+            doc.moveDown(gapL);
+            doc.font(fonts.bold).fontSize(titleFs).text(draft.s3_title, mx, doc.y, { width: mw, align: 'left' });
+            doc.moveDown(gapS);
+            doc.font(fonts.regular).fontSize(bodyFs).text(draft.s3_1, mx, doc.y, { width: mw, align: 'justify', lineGap: lg });
+            doc.moveDown(gapL);
+            doc.font(fonts.bold).fontSize(titleFs).text(draft.s4_title, mx, doc.y, { width: mw, align: 'left' });
+            doc.moveDown(gapS);
+            doc.font(fonts.regular).fontSize(bodyFs).text(`İşin Adı : ${draft.s4_jobName}`, mx, doc.y, { width: mw, align: 'justify', lineGap: lg });
+            doc.moveDown(gapL);
+            doc.font(fonts.bold).fontSize(titleFs).text(draft.s5_title, mx, doc.y, { width: mw, align: 'left' });
+            doc.moveDown(gapS);
+            doc.font(fonts.regular).fontSize(bodyFs - 0.25).text(draft.s5_bullets.map((b) => `* ${b}`).join('\n'), mx, doc.y, {
+              width: mw,
+              align: 'left',
+              lineGap: lg,
+            });
+            doc.moveDown(gapL);
+            doc.font(fonts.bold).fontSize(titleFs).text(draft.tableTitle, mx, doc.y, { width: mw, align: 'left' });
+            doc.moveDown(gapS);
+            doc.x = mx;
+            const wf = (f: number) => Math.max(22, Math.floor(f * mw));
+            this.pdfTable(
+              doc,
+              fonts,
+              [
+                { header: 'Sıra No', width: wf(0.1), align: 'center' },
+                { header: 'Mal/Malzemenin Adı', width: wf(0.34) },
+                { header: 'Teknik Özellikleri', width: wf(0.56) },
+              ],
+              draft.tableRows.map((r, idx) => [String(idx + 1), r.name || '—', (r.spec ?? '').trim() || '—']),
+              {
+                fontSize: 8,
+                headerFontSize: 8,
+                borderDash: false,
+                headerFillColor: '#E8ECF0',
+                singleStrokeGrid: true,
+                tableWidth: mw,
+                rowPaddingY: 2.5,
+                cellPaddingX: 3.5,
+                lineGap: 0.2,
+                rowHeightMinFactor: 1.06,
+                rowBottomPad: 1.5,
+                tableTailGap: 2,
+              },
+            );
+            doc.moveDown(gapM);
+            doc.x = mx;
+            doc.font(fonts.bold).fontSize(titleFs).text(draft.s6_title, mx, doc.y, { width: mw, align: 'left' });
+            doc.moveDown(gapS);
+            doc.font(fonts.regular).fontSize(bodyFs).text(draft.s6_body, mx, doc.y, { width: mw, align: 'justify', lineGap: lg });
+            doc.moveDown(gapL);
+            doc.font(fonts.bold).fontSize(titleFs).text(draft.s7_title, mx, doc.y, { width: mw, align: 'left' });
+            doc.moveDown(gapS);
+            doc.font(fonts.regular).fontSize(bodyFs).text(draft.s7_1, mx, doc.y, { width: mw, align: 'justify', lineGap: lg });
+            doc.font(fonts.regular).fontSize(bodyFs).text(draft.s7_2, mx, doc.y, { width: mw, align: 'justify', lineGap: lg });
+            doc.font(fonts.regular).fontSize(bodyFs).text(draft.s7_3, mx, doc.y, { width: mw, align: 'justify', lineGap: lg });
+            doc.moveDown(gapL);
+            const dRaw = draft.documentDate?.trim();
+            const d =
+              dRaw && !Number.isNaN(new Date(dRaw).getTime()) ? this.fmtTrDate(dRaw) : this.fmtTrDate(new Date());
+            doc.font(fonts.regular).fontSize(9).text(d, mx, doc.y, { width: mw, align: 'right' });
+            doc.moveDown(0.12);
+            const principalName =
+              (settings?.spendingAuthorityName ?? '').trim() || (school?.principalName ?? '').trim() || '…………………';
+            const principalTitle = (settings?.spendingAuthorityTitle ?? '').trim();
+            const st = draft.schoolTitleLine.trim();
+            const pt = principalTitle;
+            const rl = draft.schoolRoleLine.trim();
+            const titleMid: string[] =
+              st && pt
+                ? st.localeCompare(pt, 'tr', { sensitivity: 'base' }) === 0
+                  ? [st]
+                  : [st, pt]
+                : [pt || st].filter(Boolean);
+            if (rl) titleMid.push(rl);
+            const signTitle = titleMid.join('\n');
+            doc.x = mx;
+            this.pdfSignRow(
+              doc,
+              fonts,
+              [
+                { role: draft.firmSignCaption.trim() || 'FİRMA/KAŞE', name: ' ' },
+                {
+                  role: draft.schoolStampLine.trim() || 'İmza/Mühür',
+                  name: principalName,
+                  title: signTitle || undefined,
+                },
+              ],
+              { boxed: true, compact: true },
+            );
+          },
+          { margin: 34 },
+        );
         return this.persistDtGeneratedDocx({ skipPersist: opts?.skipPersist, schoolId, userId, dtFileId, docType: 'teknik_sartname', buffer, filenameBase, fileFormat: 'pdf' });
       }
 
@@ -3690,7 +4927,7 @@ export class DogrudanTeminService {
         const awardedVendorId = awards[0]?.vendorId ?? '';
         const awardedVendor = awardedVendorId ? vendorById.get(awardedVendorId) ?? null : null;
         const buffer = await this.pdfBuffer((doc, fonts) => {
-          this.pdfTeslimTesellumTutanagiLayout(doc, fonts, { school, settings, awardedVendor });
+          this.pdfTeslimTesellumTutanagiLayout(doc, fonts, { school, settings, awardedVendor, file });
         });
         return this.persistDtGeneratedDocx({ skipPersist: opts?.skipPersist,
           schoolId,
@@ -3703,13 +4940,78 @@ export class DogrudanTeminService {
         });
       }
 
-      if (dto.doc_type === 'sozlesme' || dto.doc_type === 'harcama_talimati') {
-        throw new BadRequestException({
-          code: 'DT_PDF_NOT_SUPPORTED',
-          message:
-            dto.doc_type === 'harcama_talimati'
-              ? 'Harcama talimatı yalnızca DOCX olarak üretilir; DOCX seçin.'
-              : 'Sözleşme için PDF desteklenmiyor.',
+      if (dto.doc_type === 'harcama_talimati') {
+        const ctx = await this.loadHarcamaTalimatiContext({ school, file, items });
+        const buffer = await this.pdfBuffer((doc, fonts) => {
+          this.pdfHarcamaTalimatiLayout(doc, fonts, { school, items, ctx });
+        });
+        return this.persistDtGeneratedDocx({
+          skipPersist: opts?.skipPersist,
+          schoolId,
+          userId,
+          dtFileId,
+          docType: 'harcama_talimati',
+          buffer,
+          filenameBase,
+          fileFormat: 'pdf',
+        });
+      }
+
+      if (dto.doc_type === 'sozlesme') {
+        const vendorId = String(dto.vendor_id ?? '').trim();
+        if (!vendorId) throw new BadRequestException({ code: 'DT_VENDOR_ID_REQUIRED' });
+        const vendor = vendorById.get(vendorId);
+        if (!vendor) throw new NotFoundException({ code: 'DT_VENDOR_NOT_FOUND' });
+        const awarded = items
+          .map((it) => ({ it, a: awardByItemId.get(it.id) ?? null }))
+          .filter((x) => x.a && x.a.vendorId === vendorId) as Array<{ it: DtItem; a: DtAward }>;
+        if (awarded.length === 0) throw new BadRequestException({ code: 'DT_NO_AWARDS_FOR_VENDOR' });
+        const settings = await this.procurementSettingsRepo.findOne({ where: { schoolId } });
+        const signName = (settings?.spendingAuthorityName ?? '').trim() || (school?.principalName ?? '').trim();
+        const total = awarded.reduce((sum, x) => sum + (Number(x.a.total) || 0), 0);
+        const totalFmt = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(total);
+        const draft = file.sozlesmeJson as { vendorId?: string; bodyHtml?: string } | null;
+        const defaultBody = buildDefaultSozlesmeBodyHtml({
+          schoolName: (school?.name ?? '').trim() || 'Kurum',
+          subject: file.subject,
+          year: file.year,
+          fileNo: file.fileNo,
+          procurementRef: (file.procurementRef ?? '').trim(),
+          vendorTitle: vendor.title,
+          vendorAddress: (vendor.address ?? '').trim(),
+          vendorTaxNo: (vendor.taxNo ?? '').trim(),
+          totalFormatted: totalFmt,
+          principalName: signName,
+        });
+        const bodyHtml =
+          draft && draft.vendorId === vendorId && String(draft.bodyHtml ?? '').trim()
+            ? String(draft.bodyHtml)
+            : defaultBody;
+        const rIh = registry.get('ihale_onay');
+        const html = this.buildSozlesmeExportHtml({
+          letterheadLines,
+          sayi: this.registrySayi(rIh),
+          tarih: this.fmtTrDate(rIh?.docDate ?? null),
+          procurementRef: (file.procurementRef ?? '').trim(),
+          subject: file.subject,
+          year: file.year,
+          fileNo: file.fileNo,
+          vendorTitle: vendor.title,
+          total: totalFmt,
+          awarded,
+          bodyHtml,
+        });
+        const buffer = await this.renderSozlesmePdfFromHtml(html);
+        return this.persistDtGeneratedDocx({
+          skipPersist: opts?.skipPersist,
+          schoolId,
+          userId,
+          dtFileId,
+          docType: 'sozlesme',
+          buffer,
+          filenameBase,
+          filenameExtra: vendor.title,
+          fileFormat: 'pdf',
         });
       }
 
@@ -3749,8 +5051,25 @@ export class DogrudanTeminService {
       });
     }
 
-    if (dto.doc_type === 'teknik_sartname' || dto.doc_type === 'teslim_tesellum_tutanagi') {
-      throw new BadRequestException({ code: 'DT_DOCX_NOT_SUPPORTED', message: 'Bu belge türü için DOCX desteklenmiyor.' });
+    if (dto.doc_type === 'teslim_tesellum_tutanagi') {
+      const settings = await this.procurementSettingsRepo.findOne({ where: { schoolId } });
+      const awardedVendorId = awards[0]?.vendorId ?? '';
+      const awardedVendor = awardedVendorId ? (vendorById.get(awardedVendorId) ?? null) : null;
+      const buffer = await this.buildTeslimTesellumTutanagiDocx({ school, file, settings, awardedVendor, letterhead });
+      return this.persistDtGeneratedDocx({
+        skipPersist: opts?.skipPersist,
+        schoolId,
+        userId,
+        dtFileId,
+        docType: 'teslim_tesellum_tutanagi',
+        buffer,
+        filenameBase,
+        fileFormat: 'docx',
+      });
+    }
+
+    if (dto.doc_type === 'teknik_sartname') {
+      throw new BadRequestException({ code: 'DT_DOCX_NOT_SUPPORTED', message: 'Teknik şartname için DOCX desteklenmiyor.' });
     }
 
     if (dto.doc_type === 'fiyat_arastirmasi') {
@@ -3795,7 +5114,28 @@ export class DogrudanTeminService {
         .map((it) => ({ it, a: awardByItemId.get(it.id) ?? null }))
         .filter((x) => x.a && x.a.vendorId === vendorId) as Array<{ it: DtItem; a: DtAward }>;
       if (awarded.length === 0) throw new BadRequestException({ code: 'DT_NO_AWARDS_FOR_VENDOR' });
-      const buffer = await this.buildSozlesmeDocx({ school, file, vendor, awarded, letterhead });
+      const settings = await this.procurementSettingsRepo.findOne({ where: { schoolId } });
+      const signName = (settings?.spendingAuthorityName ?? '').trim() || (school?.principalName ?? '').trim();
+      const total = awarded.reduce((sum, x) => sum + (Number(x.a.total) || 0), 0);
+      const totalFmt = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(total);
+      const draft = file.sozlesmeJson as { vendorId?: string; bodyHtml?: string } | null;
+      const defaultBody = buildDefaultSozlesmeBodyHtml({
+        schoolName: (school?.name ?? '').trim() || 'Kurum',
+        subject: file.subject,
+        year: file.year,
+        fileNo: file.fileNo,
+        procurementRef: (file.procurementRef ?? '').trim(),
+        vendorTitle: vendor.title,
+        vendorAddress: (vendor.address ?? '').trim(),
+        vendorTaxNo: (vendor.taxNo ?? '').trim(),
+        totalFormatted: totalFmt,
+        principalName: signName,
+      });
+      const bodyHtml =
+        draft && draft.vendorId === vendorId && String(draft.bodyHtml ?? '').trim()
+          ? String(draft.bodyHtml)
+          : defaultBody;
+      const buffer = await this.buildSozlesmeDocx({ file, vendor, awarded, letterhead, bodyHtml });
       return this.persistDtGeneratedDocx({ skipPersist: opts?.skipPersist,
         schoolId,
         userId,
@@ -3821,7 +5161,10 @@ export class DogrudanTeminService {
     if (dto.doc_type === 'piyasa_arastirma_tutanagi') {
       const cols = await this.loadMarketResearchFirmColumns(schoolId, file.id, items, vendorById, 4);
       const lowest = this.pickLowestQuoteColumn(cols);
-      const commissionBlocks = await this.commissionSignatureBlocks({ schoolId, dtFileId: file.id, kind: 'piyasa_satinalma' });
+      const commissionBlocks = await this.commissionSignatureBlocksFirstAvailable(schoolId, file.id, [
+        'yaklasik_maliyet',
+        'piyasa_satinalma',
+      ]);
       const buffer = await this.buildPiyasaArastirmaTutanagiDocx({
         schoolId,
         school,
@@ -4254,14 +5597,48 @@ export class DogrudanTeminService {
   }
 
   private mysUnitCode(unit: string | null): string {
-    const u = String(unit ?? '').trim().toLowerCase();
-    if (!u) return 'ADET_BIRIM';
-    if (u.includes('adet')) return 'ADET_BIRIM';
-    if (u === 'kg' || u.includes('kilo')) return 'KG_BIRIM';
-    if (u === 'lt' || u.includes('litre')) return 'LITRE_BIRIM';
-    if (u === 'm' || u.includes('metre')) return 'METRE_BIRIM';
+    const raw = String(unit ?? '').trim();
+    if (!raw) return 'ADET_BIRIM';
+    const collapsed = raw.replace(/\s+/g, '').toUpperCase();
+    if (/^[A-Z0-9_]+_BIRIM$/.test(collapsed)) return collapsed;
+
+    let u = raw.toLowerCase().normalize('NFKC');
+    u = u.replace(/²/g, '2').replace(/³/g, '3');
+
+    if (u.includes('metrekare') || u === 'm2') return 'METREKARE_BIRIM';
+    if (u.includes('metreküp') || u.includes('metrekup') || u === 'm3') return 'METREKUP_BIRIM';
+    if (u === 'mm' || u.startsWith('mm')) return 'MILIMETRE_BIRIM';
+    if (u === 'cm' || u.startsWith('cm')) return 'SANTIMETRE_BIRIM';
+    if (u === 'km' || u.startsWith('km')) return 'KILOMETRE_BIRIM';
+    if (u === 'mg' || u.includes('miligram')) return 'MILIGRAM_BIRIM';
+    if (u === 'g' || u === 'gr' || u === 'gram') return 'GRAM_BIRIM';
+    if (u.includes('ton')) return 'TON_BIRIM';
+    if (u === 'kg' || u.includes('kilogram') || u.includes('kilo')) return 'KG_BIRIM';
+    if (u === 'ml' || u.startsWith('ml')) return 'MILILITRE_BIRIM';
+    if (u === 'cl') return 'CL_BIRIM';
+    if (u === 'lt' || u === 'l' || u.includes('litre') || u.includes('liter')) return 'LITRE_BIRIM';
+    if (u.includes('metre') || u === 'm') return 'METRE_BIRIM';
+    if (u.includes('saat')) return 'SAAT_BIRIM';
+    if (u.includes('gün') || u.includes('gun')) return 'GUN_BIRIM';
+    if (u.includes('hafta')) return 'HAFTA_BIRIM';
+    if (u === 'ay') return 'AY_BIRIM';
+    if (u.includes('yıl') || u.includes('yil')) return 'YIL_BIRIM';
+    if (u.includes('kwh')) return 'KWH_BIRIM';
+    if (u === 'kw' || u.includes('kilowatt')) return 'KW_BIRIM';
+    if (u === 'w' || u.includes('watt')) return 'W_BIRIM';
+    if (u.includes('sayfa')) return 'SAYFA_BIRIM';
+    if (u.includes('kişi') || u.includes('kisi') || u.includes('öğrenci') || u.includes('ogrenci')) return 'KISI_BIRIM';
+    if (u.includes('sınıf') || u.includes('sinif')) return 'SINIF_BIRIM';
+    if (u.includes('takım') || u.includes('takim')) return 'TAKIM_BIRIM';
+    if (u.includes('set')) return 'SET_BIRIM';
+    if (u.includes('çift') || u.includes('cift')) return 'CIFT_BIRIM';
+    if (u.includes('bobin')) return 'BOBIN_BIRIM';
+    if (u.includes('tomar')) return 'TOMAR_BIRIM';
+    if (u.includes('rulo')) return 'RULO_BIRIM';
+    if (u.includes('koli')) return 'KOLI_BIRIM';
     if (u.includes('paket')) return 'PAKET_BIRIM';
     if (u.includes('kutu')) return 'KUTU_BIRIM';
+    if (u.includes('adet')) return 'ADET_BIRIM';
     return 'ADET_BIRIM';
   }
 
@@ -4270,7 +5647,10 @@ export class DogrudanTeminService {
     if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
 
     const items = await this.itemRepo.find({ where: { schoolId, dtFileId }, order: { createdAt: 'ASC' } });
-    const quotes = await this.quoteRepo.find({ where: { schoolId, dtFileId }, select: ['id', 'vendorId'] as any });
+    const quotes = await this.quoteRepo.find({
+      where: { schoolId, dtFileId, purpose: 'market_research' },
+      select: ['id', 'vendorId'] as any,
+    });
     const quoteIds = quotes.map((q) => q.id);
     const quoteById = new Map(quotes.map((q) => [q.id, q]));
 
@@ -4305,7 +5685,12 @@ export class DogrudanTeminService {
 
       const offers = offersByItem.get(it.id) ?? [];
       if (!offers.length) {
-        rows.push(['', '', '', '', '', '', '', '']);
+        const est = this.toNum((it as any).estimatedUnitPrice);
+        if (est != null && est > 0 && Number.isFinite(est)) {
+          rows.push(['', '', '', '', '', '', est, '']);
+        } else {
+          rows.push(['', '', '', '', '', '', '', '']);
+        }
         continue;
       }
       for (const o of offers) {
@@ -4698,18 +6083,15 @@ export class DogrudanTeminService {
       insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: '000000' },
       insideVertical: { style: BorderStyle.SINGLE, size: 2, color: '000000' },
     };
-    const shade = { fill: 'E8EEF5' } as any;
     const cellL = (text: string) =>
       new TableCell({
         borders: b,
-        shading: shade,
-        children: [new Paragraph({ children: [new TextRun({ text, size: 18 })] })],
+        children: [new Paragraph({ children: [new TextRun({ text, size: 19 })] })],
       });
     const cellR = (text: string) =>
       new TableCell({
         borders: b,
-        shading: shade,
-        children: [new Paragraph({ children: [new TextRun({ text, size: 18 })] })],
+        children: [new Paragraph({ children: [new TextRun({ text, size: 19 })] })],
       });
     const twoCol = [3200, 6160] as const;
     const mk2 = (rows: Array<[string, string]>) =>
@@ -4739,14 +6121,12 @@ export class DogrudanTeminService {
     const th3 = (t: string) =>
       new TableCell({
         borders: b,
-        shading: shade,
-        children: [new Paragraph({ children: [new TextRun({ text: t, bold: true, size: 18 })] })],
+        children: [new Paragraph({ children: [new TextRun({ text: t, bold: true, size: 19 })] })],
       });
     const td3 = (t: string) =>
       new TableCell({
         borders: b,
-        shading: shade,
-        children: [new Paragraph({ children: [new TextRun({ text: t, size: 18 })] })],
+        children: [new Paragraph({ children: [new TextRun({ text: t, size: 19 })] })],
       });
     const commTable = new Table({
       layout: TableLayoutType.FIXED,
@@ -4790,23 +6170,23 @@ export class DogrudanTeminService {
                   children: [
                     new TextRun({
                       text: 'alınması için ilgililerin görevlendirilmeleri hususunu',
-                      size: 17,
+                      size: 19,
                     }),
                   ],
                 }),
                 new Paragraph({ spacing: { before: 140 }, children: [new TextRun({ text: ' ', size: 4 })] }),
                 new Paragraph({
                   alignment: AlignmentType.CENTER,
-                  children: [new TextRun({ text: d, size: 18 })],
+                  children: [new TextRun({ text: d, size: 20 })],
                 }),
                 new Paragraph({ spacing: { before: 140 }, children: [new TextRun({ text: ' ', size: 4 })] }),
                 new Paragraph({
                   alignment: AlignmentType.CENTER,
-                  children: [new TextRun({ text: m.realizationName, bold: true, size: 18 })],
+                  children: [new TextRun({ text: m.realizationName, bold: true, size: 20 })],
                 }),
                 new Paragraph({
                   alignment: AlignmentType.CENTER,
-                  children: [new TextRun({ text: m.realizationTitle, size: 18 })],
+                  children: [new TextRun({ text: m.realizationTitle, size: 20 })],
                 }),
               ],
             }),
@@ -4815,26 +6195,26 @@ export class DogrudanTeminService {
               children: [
                 new Paragraph({
                   alignment: AlignmentType.CENTER,
-                  children: [new TextRun({ text: 'UYGUNDUR', bold: true, size: 22 })],
+                  children: [new TextRun({ text: 'UYGUNDUR', bold: true, size: 24 })],
                 }),
                 new Paragraph({
                   alignment: AlignmentType.CENTER,
                   spacing: { before: 100 },
-                  children: [new TextRun({ text: 'İhale Yetkilisi Adı-Soyadı-Ünvanı', size: 15 })],
+                  children: [new TextRun({ text: 'İhale Yetkilisi Adı-Soyadı-Ünvanı', size: 17 })],
                 }),
                 new Paragraph({ spacing: { before: 120 }, children: [new TextRun({ text: ' ', size: 4 })] }),
                 new Paragraph({
                   alignment: AlignmentType.CENTER,
-                  children: [new TextRun({ text: d, size: 18 })],
+                  children: [new TextRun({ text: d, size: 20 })],
                 }),
                 new Paragraph({ spacing: { before: 140 }, children: [new TextRun({ text: ' ', size: 4 })] }),
                 new Paragraph({
                   alignment: AlignmentType.CENTER,
-                  children: [new TextRun({ text: m.spendingName, bold: true, size: 18 })],
+                  children: [new TextRun({ text: m.spendingName, bold: true, size: 20 })],
                 }),
                 new Paragraph({
                   alignment: AlignmentType.CENTER,
-                  children: [new TextRun({ text: m.spendingTitle, size: 18 })],
+                  children: [new TextRun({ text: m.spendingTitle, size: 20 })],
                 }),
               ],
             }),
@@ -4853,15 +6233,12 @@ export class DogrudanTeminService {
           children: [
             new TableCell({
               borders: b,
-              shading: shade,
               children: [
                 new Paragraph({
                   alignment: AlignmentType.CENTER,
-                  children: [new TextRun({ text: 'DİĞER AÇIKLAMALAR', bold: true, size: 20 })],
+                  children: [new TextRun({ text: 'DİĞER AÇIKLAMALAR', bold: true, size: 21 })],
                 }),
-                new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }),
-                new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }),
-                new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }),
+                new Paragraph({ spacing: { after: 40 }, children: [new TextRun({ text: '\u00a0', size: 6 })] }),
               ],
             }),
           ],
@@ -4872,23 +6249,23 @@ export class DogrudanTeminService {
     const bodyParts: (Paragraph | Table)[] = [
       new Paragraph({
         alignment: AlignmentType.CENTER,
-        spacing: { after: 120 },
-        children: [new TextRun({ text: 'ONAY BELGESİ', bold: true, size: 26 })],
+        spacing: { after: 90 },
+        children: [new TextRun({ text: 'ONAY BELGESİ', bold: true, size: 24 })],
       }),
       mk2([
         ['Doğrudan Temini Yapan İdarenin Adı:', m.idareninAdi],
         ['Belge Tarih ve Sayısı:', `${m.belgeTarih}     ${m.belgeSayi}`.trim()],
       ]),
-      new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: ' ', size: 4 })] }),
+      new Paragraph({ spacing: { after: 80 }, children: [new TextRun({ text: ' ', size: 4 })] }),
       new Paragraph({
         alignment: AlignmentType.CENTER,
-        children: [new TextRun({ text: m.schoolMudUrluk, bold: true, size: 22 })],
+        children: [new TextRun({ text: m.schoolMudUrluk, bold: true, size: 21 })],
       }),
       new Paragraph({
         alignment: AlignmentType.RIGHT,
-        children: [new TextRun({ text: 'İhale/Harcama Yetkilisi', size: 18 })],
+        children: [new TextRun({ text: 'İhale/Harcama Yetkilisi', size: 17 })],
       }),
-      new Paragraph({ spacing: { after: 160 }, children: [new TextRun({ text: ' ', size: 4 })] }),
+      new Paragraph({ spacing: { after: 100 }, children: [new TextRun({ text: ' ', size: 4 })] }),
       mk2([
         ['Doğrudan Temin Numarası', m.procurementRef],
         ['İşin Tanımı', m.isinTanimi],
@@ -4897,25 +6274,25 @@ export class DogrudanTeminService {
       ]),
       mk2(finRows),
       new Paragraph({
-        spacing: { before: 120, after: 80 },
+        spacing: { before: 80, after: 60 },
         children: [
           new TextRun({
             text: 'Doğrudan Temin Usulü ile Mal ve Hizmet satın alınacaksa piyasa fiyat araştırması yapmak üzere görevlendirilecek kişi/kişiler',
             bold: true,
-            size: 18,
+            size: 17,
           }),
         ],
       }),
       commTable,
-      new Paragraph({ spacing: { before: 200, after: 0 }, children: [new TextRun({ text: ' ', size: 4 })] }),
+      new Paragraph({ spacing: { before: 120, after: 0 }, children: [new TextRun({ text: ' ', size: 4 })] }),
       digerTable,
       new Paragraph({
         alignment: AlignmentType.CENTER,
-        spacing: { before: 220, after: 120 },
-        children: [new TextRun({ text: 'ONAY', bold: true, size: 22 })],
+        spacing: { before: 120, after: 80 },
+        children: [new TextRun({ text: 'ONAY', bold: true, size: 21 })],
       }),
       signTable,
-      new Paragraph({ spacing: { before: 240 }, children: [new TextRun({ text: ' ', size: 4 })] }),
+      new Paragraph({ spacing: { before: 140 }, children: [new TextRun({ text: ' ', size: 4 })] }),
       new Paragraph({
         children: [
           new TextRun({
@@ -4986,7 +6363,7 @@ export class DogrudanTeminService {
     const { blocks: corr } = await this.buildDtDocxCorrespondenceHeader(file, 'piyasa_arastirma', { textSizeHalfPts: 22 });
     const trf = 'Times New Roman';
     const headGap = new Paragraph({
-      spacing: { before: 40, after: 60 },
+      spacing: { before: 20, after: 36 },
       children: [new TextRun({ text: '\u00a0', size: 4, font: trf })],
     });
     const solid = {
@@ -5003,7 +6380,7 @@ export class DogrudanTeminService {
         borders: solid,
         children: [
           new Paragraph({
-            spacing: { before: 12, after: 12 },
+            spacing: { before: 6, after: 6 },
             children: [new TextRun({ text: t, size: dataSize, font: trf })],
           }),
         ],
@@ -5014,7 +6391,7 @@ export class DogrudanTeminService {
         borders: solid,
         children: [
           new Paragraph({
-            spacing: { before: 12, after: 12 },
+            spacing: { before: 6, after: 6 },
             children: [new TextRun({ text: t, bold: true, size: 18, font: trf })],
           }),
         ],
@@ -5046,11 +6423,11 @@ export class DogrudanTeminService {
     const titleBits: (Paragraph | Table)[] = [
       new Paragraph({
         alignment: AlignmentType.CENTER,
-        spacing: { before: 80, after: 100 },
+        spacing: { before: 40, after: 56 },
         children: [new TextRun({ text: 'PİYASA FİYAT ARAŞTIRMA TUTANAĞI', bold: true, size: 28, font: trf })],
       }),
       infoTable,
-      new Paragraph({ spacing: { after: 40 }, children: [new TextRun({ text: ' ', size: 4 })] }),
+      new Paragraph({ spacing: { after: 24 }, children: [new TextRun({ text: ' ', size: 4 })] }),
     ];
 
     const baseW = [440, 2480, 2080, 520, 520];
@@ -5066,7 +6443,7 @@ export class DogrudanTeminService {
         children: [
           new Paragraph({
             alignment: AlignmentType.CENTER,
-            spacing: { before: 20, after: 20 },
+            spacing: { before: 10, after: 10 },
             children: [new TextRun({ text: t, bold: true, size: 20, font: trf })],
           }),
         ],
@@ -5078,7 +6455,7 @@ export class DogrudanTeminService {
         children: [
           new Paragraph({
             alignment: AlignmentType.CENTER,
-            spacing: { before: 12, after: 12 },
+            spacing: { before: 6, after: 6 },
             children: [new TextRun({ text: t, bold: true, size: 18, font: trf })],
           }),
         ],
@@ -5150,7 +6527,7 @@ export class DogrudanTeminService {
               borders: solid,
               children: [
                 new Paragraph({
-                  spacing: { before: 12, after: 12 },
+                  spacing: { before: 6, after: 6 },
                   children: [new TextRun({ text: 'TOPLAM TEKLİF', bold: true, size: 20, font: trf })],
                 }),
               ],
@@ -5208,17 +6585,17 @@ export class DogrudanTeminService {
                 children: [
                   new Paragraph({
                     alignment: AlignmentType.CENTER,
-                    spacing: { before: 24, after: 0 },
+                    spacing: { before: 10, after: 0 },
                     children: [new TextRun({ text: (b.role ?? '').trim() || 'Komisyon Üyesi', size: 16, font: trf })],
                   }),
                   new Paragraph({
                     alignment: AlignmentType.CENTER,
-                    spacing: { before: 20, after: 0 },
+                    spacing: { before: 8, after: 0 },
                     children: [new TextRun({ text: this.dtCommissionSignNameUpper(b.name), bold: true, size: 18, font: trf })],
                   }),
                   new Paragraph({
                     alignment: AlignmentType.CENTER,
-                    spacing: { before: 20, after: 24 },
+                    spacing: { before: 8, after: 12 },
                     children: [new TextRun({ text: (b.title ?? '').trim() || '\u00a0', size: 16, font: trf })],
                   }),
                 ],
@@ -5239,36 +6616,48 @@ export class DogrudanTeminService {
       new TableCell({
         shading: hdr,
         borders: solid,
-        children: [new Paragraph({ children: [new TextRun({ text: k, bold: true, size: 12, font: trf })] })],
+        verticalAlign: VerticalAlign.CENTER,
+        children: [
+          new Paragraph({
+            spacing: { before: 8, after: 8 },
+            children: [new TextRun({ text: k, bold: true, size: 18, font: trf })],
+          }),
+        ],
       });
     const vCell = (v: string) =>
       new TableCell({
         borders: solid,
-        children: [new Paragraph({ children: [new TextRun({ text: v, size: 12, font: trf })] })],
+        verticalAlign: VerticalAlign.CENTER,
+        children: [
+          new Paragraph({
+            spacing: { before: 8, after: 8 },
+            children: [new TextRun({ text: v, size: 18, font: trf })],
+          }),
+        ],
       });
 
     const afterTable: (Paragraph | Table)[] = [
-      new Paragraph({ spacing: { before: 40, after: 40 }, children: [new TextRun({ text: ' ', size: 2 })] }),
+      new Paragraph({ spacing: { before: 16, after: 16 }, children: [new TextRun({ text: ' ', size: 2 })] }),
     ];
     if (lowest) {
       afterTable.push(
         new Paragraph({
-          spacing: { after: 40 },
-          children: [new TextRun({ text: file.subject, bold: true, size: 18, font: trf })],
+          spacing: { after: 20 },
+          children: [new TextRun({ text: file.subject, bold: true, size: 20, font: trf })],
         }),
       );
       afterTable.push(
         new Paragraph({
-          spacing: { after: 40 },
+          spacing: { after: 20 },
           children: [
-            new TextRun({ text: 'Tümünün Bu Kişi/Firmadan Alımı Uygun Görülmüştür', bold: true, size: 18, font: trf }),
+            new TextRun({ text: 'Tümünün Bu Kişi/Firmadan Alımı Uygun Görülmüştür', bold: true, size: 19, font: trf }),
           ],
         }),
       );
       afterTable.push(
         new Table({
           width: { size: 100, type: WidthType.PERCENTAGE },
-          columnWidths: [2200, 7160],
+          columnWidths: [3100, 6260],
           layout: TableLayoutType.FIXED,
           borders: solid,
           rows: [
@@ -5807,7 +7196,7 @@ export class DogrudanTeminService {
       ...letterhead,
       ...corr,
       new Paragraph({
-        spacing: { before: 160, after: 220 },
+        spacing: { before: 200, after: 360 },
         children: [new TextRun({ text: 'MAL/MALZEME İHTİYAÇ LİSTESİ', bold: true, size: 28, font: tnr })],
         alignment: AlignmentType.CENTER,
       }),
@@ -5823,7 +7212,7 @@ export class DogrudanTeminService {
         children: [
           new Paragraph({
             alignment: align,
-            children: [new TextRun({ text, bold: true, size: 22, font: tnr })],
+            children: [new TextRun({ text, bold: true, size: 24, font: tnr })],
           }),
         ],
       });
@@ -5849,7 +7238,7 @@ export class DogrudanTeminService {
         children: [
           new Paragraph({
             alignment: align,
-            children: [new TextRun({ text, size: 22, font: tnr })],
+            children: [new TextRun({ text, size: 24, font: tnr })],
           }),
         ],
       });
@@ -5904,13 +7293,13 @@ export class DogrudanTeminService {
               children: [
                 new Paragraph({
                   alignment: AlignmentType.RIGHT,
-                  children: [new TextRun({ text: raName, bold: true, size: 22, font: tnr })],
+                  children: [new TextRun({ text: raName, bold: true, size: 24, font: tnr })],
                 }),
                 ...(raTitle
                   ? [
                       new Paragraph({
                         alignment: AlignmentType.RIGHT,
-                        children: [new TextRun({ text: raTitle, size: 20, font: tnr })],
+                        children: [new TextRun({ text: raTitle, size: 22, font: tnr })],
                       }),
                     ]
                   : []),
@@ -5926,17 +7315,17 @@ export class DogrudanTeminService {
       new Paragraph({ spacing: { before: 200 }, children: [new TextRun({ text: ' ', size: 6 })] }),
       new Paragraph({
         alignment: AlignmentType.CENTER,
-        children: [new TextRun({ text: mud, bold: true, size: 22, font: tnr })],
+        children: [new TextRun({ text: mud, bold: true, size: 24, font: tnr })],
       }),
       new Paragraph({
         alignment: AlignmentType.CENTER,
         spacing: { before: 80 },
-        children: [new TextRun({ text: '(İhale/Harcama Yetkilisi)', size: 20, font: tnr })],
+        children: [new TextRun({ text: '(İhale/Harcama Yetkilisi)', size: 22, font: tnr })],
       }),
       new Paragraph({ spacing: { before: 160 }, children: [new TextRun({ text: ' ', size: 4 })] }),
       new Paragraph({
         alignment: AlignmentType.JUSTIFIED,
-        children: [new TextRun({ text: this.ihtiyacListesiKanunMetniTr(), size: 22, font: tnr })],
+        children: [new TextRun({ text: this.ihtiyacListesiKanunMetniTr(), size: 24, font: tnr })],
       }),
       new Paragraph({ spacing: { before: 200 }, children: [new TextRun({ text: ' ', size: 4 })] }),
       signRealTable,
@@ -5948,26 +7337,26 @@ export class DogrudanTeminService {
       new Paragraph({
         alignment: AlignmentType.CENTER,
         spacing: { before: 80 },
-        children: [new TextRun({ text: tarih || this.fmtTrDate(new Date()), size: 20, font: tnr })],
+        children: [new TextRun({ text: tarih || this.fmtTrDate(new Date()), size: 24, font: tnr })],
       }),
       new Paragraph({ spacing: { before: 160 }, children: [new TextRun({ text: ' ', size: 6 })] }),
       new Paragraph({
         alignment: AlignmentType.CENTER,
-        children: [new TextRun({ text: spName, bold: true, size: 22, font: tnr })],
+        children: [new TextRun({ text: spName, bold: true, size: 24, font: tnr })],
       }),
       ...(spTitle
         ? [
             new Paragraph({
               alignment: AlignmentType.CENTER,
               spacing: { before: 40 },
-              children: [new TextRun({ text: spTitle, size: 20, font: tnr })],
+              children: [new TextRun({ text: spTitle, size: 22, font: tnr })],
             }),
           ]
         : []),
       new Paragraph({
         alignment: AlignmentType.CENTER,
         spacing: { before: 80 },
-        children: [new TextRun({ text: 'İhale(Harcama Yetkilisi)', size: 20, font: tnr })],
+        children: [new TextRun({ text: 'İhale(Harcama Yetkilisi)', size: 22, font: tnr })],
       }),
     ];
 
@@ -6277,13 +7666,12 @@ export class DogrudanTeminService {
     return (leaf?.label ?? '').trim() || '……………………………';
   }
 
-  private async buildHarcamaTalimatiDocx(input: {
+  private async loadHarcamaTalimatiContext(input: {
     school: Pick<School, 'name' | 'principalName'> | null;
     file: DtFile;
     items: DtItem[];
-    letterhead: Paragraph[];
-  }): Promise<Buffer> {
-    const { school, file, items, letterhead } = input;
+  }) {
+    const { school, file, items } = input;
     const settings = await this.procurementSettingsRepo.findOne({ where: { schoolId: file.schoolId } });
     const regRows = await this.registryRepo.find({ where: { schoolId: file.schoolId, dtFileId: file.id } });
     const byStage = new Map(regRows.map((r) => [r.stage, r] as const));
@@ -6308,7 +7696,222 @@ export class DogrudanTeminService {
     const raTitle = (settings?.realizationAuthorityTitle ?? '').trim() || '…………………';
     const spName = (settings?.spendingAuthorityName ?? school?.principalName ?? '').trim() || '…………………';
     const spTitle = (settings?.spendingAuthorityTitle ?? '').trim() || 'Müdür';
+    const subject = (file.subject ?? '').trim() || '—';
+    return {
+      settings,
+      sayiStr,
+      tarihIh,
+      tarihOlur,
+      tertibi,
+      kullanilabilir,
+      approxStr,
+      hukuki,
+      birimAd,
+      raName,
+      raTitle,
+      spName,
+      spTitle,
+      subject,
+    };
+  }
 
+  private pdfHarcamaTalimatiLayout(
+    doc: InstanceType<typeof PDFDocument>,
+    fonts: { regular: string; bold: string },
+    input: {
+      school: Pick<School, 'name' | 'principalName'> | null;
+      items: DtItem[];
+      ctx: {
+        settings: DtSchoolProcurementSettings | null;
+        sayiStr: string;
+        tarihIh: string;
+        tarihOlur: string;
+        tertibi: string;
+        kullanilabilir: string;
+        approxStr: string;
+        hukuki: string;
+        birimAd: string;
+        raName: string;
+        raTitle: string;
+        spName: string;
+        spTitle: string;
+        subject: string;
+      };
+    },
+  ) {
+    const { school, items, ctx } = input;
+    const left = doc.page.margins.left;
+    const right = doc.page.width - doc.page.margins.right;
+    const pageW = right - left;
+    const bottom = doc.page.height - doc.page.margins.bottom;
+    const lg = 0.85;
+    const ensure = (minH: number) => {
+      if (doc.y + minH > bottom) {
+        doc.addPage();
+        doc.x = left;
+        doc.y = doc.page.margins.top;
+      }
+    };
+
+    doc.x = left;
+    doc.fillColor('#000000');
+    this.pdfAntet(doc, fonts, school, ctx.settings);
+
+    const yEk = doc.y;
+    doc.save();
+    doc.font(fonts.bold).fontSize(10.5);
+    const ek = 'Ek-1';
+    doc.text(ek, right - doc.widthOfString(ek), yEk);
+    doc.restore();
+    doc.y = yEk + 16;
+    doc.x = left;
+
+    doc.font(fonts.bold).fontSize(13);
+    doc.text('HARCAMA TALİMATI', left, doc.y, { width: pageW, align: 'center', underline: true });
+    doc.moveDown(0.85);
+
+    const rowInfoH = 24;
+    ensure(rowInfoH + 8);
+    const ySay = doc.y;
+    doc.rect(left, ySay, pageW * 0.5, rowInfoH).stroke();
+    doc.rect(left + pageW * 0.5, ySay, pageW * 0.5, rowInfoH).stroke();
+    const sayiLine = ctx.sayiStr ? `Sayı: ${ctx.sayiStr}` : 'Sayı: ……………………………';
+    doc.font(fonts.regular).fontSize(10).text(sayiLine, left + 6, ySay + 5, { width: pageW * 0.5 - 12 });
+    doc.text(`Tarih: ${ctx.tarihIh}`, left + pageW * 0.5 + 6, ySay + 5, { width: pageW * 0.5 - 12, align: 'right' });
+    doc.y = ySay + rowInfoH + 10;
+    doc.x = left;
+
+    ensure(70);
+    doc.font(fonts.bold).fontSize(10).text('Harcama talebinde bulunan birim:', left, doc.y, { width: pageW });
+    doc.y += 14;
+    const yB = doc.y;
+    const hB = 30;
+    doc.rect(left, yB, pageW, hB).stroke();
+    doc.font(fonts.bold).fontSize(11).text(ctx.birimAd, left + 4, yB + 7, { width: pageW - 8, align: 'center', lineGap: lg });
+    doc.y = yB + hB + 12;
+    doc.x = left;
+
+    ensure(22);
+    doc.font(fonts.bold).fontSize(10).text('YAPILACAK HARCAMANIN', left, doc.y, { width: pageW, align: 'center' });
+    doc.moveDown(0.55);
+
+    const wL = pageW * 0.3;
+    const wV = pageW - wL;
+    const rowSpecsPdf: { label: string; value: string }[] = [
+      { label: 'Gerekçesi ve Hukuki Dayanağı', value: ctx.hukuki },
+      { label: "Konusu/nev'i / Niteliği", value: ctx.subject },
+      { label: 'Miktarı', value: `${items.length} Kalem` },
+      { label: 'Gerçekleştirme Süresi', value: '………… Gün' },
+      { label: 'Gerçekleştirme Usulü', value: ctx.hukuki },
+      { label: 'Yaklaşık Maliyet', value: ctx.approxStr },
+      { label: 'Kullanılabilir Ödenek Tutarı', value: ctx.kullanilabilir },
+      { label: 'Ödeneğin Bütçe Tertibi', value: ctx.tertibi },
+      { label: 'Gerçekleştirme Görevlileri', value: `${ctx.raName}\n${ctx.raTitle}` },
+      { label: '', value: '' },
+    ];
+
+    doc.font(fonts.regular).fontSize(9);
+    for (const spec of rowSpecsPdf) {
+      if (!spec.label.trim() && !spec.value.trim()) {
+        ensure(16);
+        const yE = doc.y;
+        doc.rect(left, yE, pageW, 12).stroke();
+        doc.y = yE + 12;
+        continue;
+      }
+      doc.font(fonts.bold).fontSize(9);
+      const hLbl = doc.heightOfString(spec.label || ' ', { width: wL - 10, lineGap: lg });
+      doc.font(fonts.regular).fontSize(9);
+      const hVal = doc.heightOfString(spec.value || '—', { width: wV - 10, lineGap: lg });
+      const h = Math.ceil(Math.max(26, hLbl + 10, hVal + 10));
+      ensure(h + 2);
+      if (doc.y + h > bottom) {
+        doc.addPage();
+        doc.x = left;
+        doc.y = doc.page.margins.top;
+      }
+      const y0 = doc.y;
+      doc.save();
+      doc.rect(left, y0, wL, h).fill('#E8EEF5');
+      doc.restore();
+      doc.rect(left, y0, wL, h).stroke();
+      doc.rect(left + wL, y0, wV, h).stroke();
+      doc.fillColor('#000000');
+      doc.font(fonts.bold).fontSize(9).text(spec.label || ' ', left + 5, y0 + 5, { width: wL - 10, lineGap: lg });
+      doc.font(fonts.regular).fontSize(9).text(spec.value || '—', left + wL + 5, y0 + 5, { width: wV - 10, lineGap: lg });
+      doc.y = y0 + h;
+    }
+    doc.x = left;
+    doc.moveDown(0.35);
+
+    ensure(88);
+    const yA = doc.y;
+    const hA = 72;
+    doc.rect(left, yA, pageW, hA).stroke();
+    doc.font(fonts.bold).fontSize(10).text('AÇIKLAMALAR:', left + 6, yA + 6, { width: pageW - 12 });
+    doc.y = yA + hA + 10;
+    doc.x = left;
+
+    const wHalf = pageW / 2;
+    const padS = 10;
+    const hS = 128;
+    ensure(hS + 20);
+    const yS = doc.y;
+    doc.rect(left, yS, wHalf, hS).stroke();
+    doc.rect(left + wHalf, yS, wHalf, hS).stroke();
+
+    doc.font(fonts.regular).fontSize(9).text(
+      'Yukarıda belirtilen hizmetin/ işin alımının gerçekleştirilmesi uygundur',
+      left + padS,
+      yS + padS,
+      { width: wHalf - padS * 2, align: 'center', lineGap: lg },
+    );
+    doc.font(fonts.regular).fontSize(8.5).text('Teklif Eden Yetkilinin', left + padS, yS + 38, { width: wHalf - padS * 2 });
+    doc.font(fonts.bold).fontSize(10).text(ctx.raName, left + padS, yS + 56, { width: wHalf - padS * 2, align: 'center' });
+    doc.font(fonts.regular).fontSize(9).text(ctx.raTitle, left + padS, yS + 74, { width: wHalf - padS * 2, align: 'center' });
+
+    doc.font(fonts.bold).fontSize(11).text('O  L  U  R', left + wHalf + padS, yS + padS, { width: wHalf - padS * 2, align: 'center' });
+    doc.font(fonts.regular).fontSize(9).text(ctx.tarihOlur, left + wHalf + padS, yS + 32, { width: wHalf - padS * 2, align: 'center' });
+    doc.font(fonts.regular).fontSize(8.5).text('Harcama Yetkilisi*', left + wHalf + padS, yS + 56, { width: wHalf - padS * 2, align: 'center' });
+    doc.font(fonts.bold).fontSize(10).text(ctx.spName, left + wHalf + padS, yS + 74, { width: wHalf - padS * 2, align: 'center' });
+    doc.font(fonts.regular).fontSize(9).text(ctx.spTitle, left + wHalf + padS, yS + 92, { width: wHalf - padS * 2, align: 'center' });
+
+    doc.y = yS + hS + 12;
+    doc.x = left;
+
+    doc.font(fonts.regular).fontSize(8.5).fillColor('#CC0000');
+    doc.text(
+      '*Bu sütun, yönetim kurulu, komisyon veya komite kararlarıyla yapılan harcamalarda kurul, komisyon, komite üyelerinin imzalarını kapsayacak şekilde düzenlenecektir.',
+      left,
+      doc.y,
+      { width: pageW, align: 'left', lineGap: lg },
+    );
+    doc.fillColor('#000000');
+  }
+
+  private async buildHarcamaTalimatiDocx(input: {
+    school: Pick<School, 'name' | 'principalName'> | null;
+    file: DtFile;
+    items: DtItem[];
+    letterhead: Paragraph[];
+  }): Promise<Buffer> {
+    const { school, file, items, letterhead } = input;
+    const ctx = await this.loadHarcamaTalimatiContext({ school, file, items });
+    const {
+      sayiStr,
+      tarihIh,
+      tarihOlur,
+      tertibi,
+      kullanilabilir,
+      approxStr,
+      hukuki,
+      birimAd,
+      raName,
+      raTitle,
+      spName,
+      spTitle,
+      subject,
+    } = ctx;
     const tr = 'Times New Roman';
     const solid = {
       top: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
@@ -6324,19 +7927,52 @@ export class DogrudanTeminService {
       insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
       insideVertical: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
     } as const;
+    const lblRuns = (t: string) => {
+      const size = t.length > 34 ? 18 : 20;
+      const lines = (t || '\u00a0').split(/\r?\n/);
+      const runs: TextRun[] = [];
+      lines.forEach((line, i) => {
+        if (i > 0) runs.push(new TextRun({ break: 1 }));
+        runs.push(new TextRun({ text: line || '\u00a0', bold: true, size, font: tr }));
+      });
+      return runs;
+    };
     const lbl = (t: string) =>
       new TableCell({
         borders: solid,
         shading: { fill: 'E8EEF5' } as any,
-        children: [new Paragraph({ children: [new TextRun({ text: t, bold: true, size: 20, font: tr })] })],
+        margins: { top: 50, bottom: 50, left: 70, right: 70 } as any,
+        children: [
+          new Paragraph({
+            spacing: { line: 260, lineRule: 'atLeast' as any },
+            children: lblRuns(t),
+          }),
+        ],
       });
+    const valSize = (t: string) => {
+      const flat = t.replace(/\s+/g, ' ').trim();
+      if (flat.length > 220) return 18;
+      if (flat.length > 120) return 20;
+      return 22;
+    };
+    const valRuns = (t: string, size: number) => {
+      const lines = (t || '\u00a0').split(/\r?\n/);
+      const runs: TextRun[] = [];
+      lines.forEach((line, i) => {
+        if (i > 0) runs.push(new TextRun({ break: 1 }));
+        runs.push(new TextRun({ text: line || '\u00a0', size, font: tr }));
+      });
+      return runs;
+    };
     const val = (t: string, opts?: { center?: boolean }) =>
       new TableCell({
         borders: solid,
+        margins: { top: 50, bottom: 50, left: 80, right: 80 } as any,
         children: [
           new Paragraph({
             alignment: opts?.center ? AlignmentType.CENTER : AlignmentType.LEFT,
-            children: [new TextRun({ text: t || '\u00a0', size: 20, font: tr })],
+            spacing: { line: 280, lineRule: 'atLeast' as any },
+            children: valRuns(t, valSize(t)),
           }),
         ],
       });
@@ -6444,7 +8080,7 @@ export class DogrudanTeminService {
 
     const rowSpecs: { label: string; value: string }[] = [
       { label: 'Gerekçesi ve Hukuki Dayanağı', value: hukuki },
-      { label: "Konusu/nev'i / Niteliği", value: (file.subject ?? '').trim() || '—' },
+      { label: "Konusu/nev'i / Niteliği", value: subject },
       { label: 'Miktarı', value: `${items.length} Kalem` },
       { label: 'Gerçekleştirme Süresi', value: '………… Gün' },
       { label: 'Gerçekleştirme Usulü', value: hukuki },
@@ -6488,7 +8124,7 @@ export class DogrudanTeminService {
     const mainTable = new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
       layout: TableLayoutType.FIXED,
-      columnWidths: [720, 3240, 5400],
+      columnWidths: [760, 3120, 5480],
       borders: solid,
       rows: mainRows,
     });
@@ -6713,16 +8349,17 @@ export class DogrudanTeminService {
         children: [
           new TableCell({
             columnSpan: 5,
-            children: [new Paragraph({ children: [new TextRun({ text: ' ', size: 18 })] })],
-          }),
-          new TableCell({
-            columnSpan: 2,
             children: [
               new Paragraph({
-                alignment: AlignmentType.LEFT,
                 children: [new TextRun({ text: 'KDV Hariç Teklif Edilen Fiyat:', bold: true, size: 18, font: trFont })],
               }),
             ],
+          }),
+          new TableCell({
+            children: [new Paragraph({ children: [new TextRun({ text: '\u00a0', size: 18, font: trFont })] })],
+          }),
+          new TableCell({
+            children: [new Paragraph({ children: [new TextRun({ text: '\u00a0', size: 18, font: trFont })] })],
           }),
         ],
       }),
@@ -6735,21 +8372,11 @@ export class DogrudanTeminService {
     });
   }
 
-  /** DİĞER ŞARTLAR + imza alanı (DOCX) — fiyat araştırması ve teklif mektubu. */
-  private buildDtDocxDigerSartlarImzaBottom(trFont: string): Table {
-    const none = {
-      style: BorderStyle.NONE,
-      size: 0,
-      color: 'FFFFFF',
-    } as const;
-    const noneTbl = {
-      top: none,
-      bottom: none,
-      left: none,
-      right: none,
-      insideHorizontal: none,
-      insideVertical: none,
-    } as any;
+  /** Fiyat araştırması / teklif DOCX altı: tam genişlik diğer şartlar + altında çerçeveli firma/imza. */
+  private buildDtDocxFiyatArastirmaAltStack(
+    trFont: string,
+    vendor?: Pick<DtVendor, 'title' | 'address' | 'taxNo' | 'phone' | 'email' | 'contactName'> | null,
+  ): Array<Paragraph | Table> {
     const dotted = { style: BorderStyle.DOTTED, size: 4, color: '000000' };
     const dottedTbl = {
       top: dotted,
@@ -6759,7 +8386,14 @@ export class DogrudanTeminService {
       insideHorizontal: dotted,
       insideVertical: dotted,
     } as const;
-    const cellNone = { top: none, bottom: none, left: none, right: none } as any;
+    const solidBox = {
+      top: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+      bottom: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+      left: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+      right: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+      insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+      insideVertical: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+    } as const;
 
     const digerRows = this.dtFiyatArastirmaDigerSartRows().map(
       ({ label: lb, value: val }) =>
@@ -6767,11 +8401,11 @@ export class DogrudanTeminService {
           children: [
             new TableCell({
               shading: { fill: 'E8E8E8' } as any,
-              children: [new Paragraph({ children: [new TextRun({ text: lb, size: 18, font: trFont })] })],
+              children: [new Paragraph({ children: [new TextRun({ text: lb, size: 16, font: trFont })] })],
             }),
             new TableCell({
               children: [
-                new Paragraph({ children: [new TextRun({ text: val || '\u00a0', size: 18, font: trFont })] }),
+                new Paragraph({ children: [new TextRun({ text: val || '\u00a0', size: 16, font: trFont })] }),
               ],
             }),
           ],
@@ -6779,59 +8413,102 @@ export class DogrudanTeminService {
     );
     const digerNested = new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
-      columnWidths: [2106, 2574],
+      columnWidths: [3600, 5400],
       borders: dottedTbl,
       rows: digerRows,
     });
 
     const line = () =>
       new Paragraph({
-        children: [new TextRun({ text: '…………………………………………………………………………………………………………', size: 18, font: trFont })],
+        children: [new TextRun({ text: '………………………………………………………………', size: 14, font: trFont })],
+        alignment: AlignmentType.CENTER,
       });
 
-    const bottomRow = new TableRow({
-      children: [
-        new TableCell({
-          borders: cellNone,
-          children: [
-            new Paragraph({ children: [new TextRun({ text: 'DİĞER ŞARTLAR', bold: true, size: 18, font: trFont })] }),
-            new Paragraph({ children: [new TextRun({ text: ' ', size: 6 })] }),
-            digerNested,
-          ],
+    const vt = (vendor?.title ?? '').trim();
+    const va = (vendor?.address ?? '').trim();
+    const vContact = [vendor?.contactName, vendor?.taxNo, vendor?.phone, vendor?.email]
+      .map((s) => String(s ?? '').trim())
+      .filter(Boolean)
+      .join(' · ');
+
+    const firmaInner: Paragraph[] = [
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [new TextRun({ text: 'FİRMA / İMZA', bold: true, size: 18, font: trFont })],
+      }),
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 4 })] }),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [new TextRun({ text: 'Tarih:', size: 15, font: trFont })],
+      }),
+      line(),
+    ];
+    if (vt) {
+      firmaInner.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [new TextRun({ text: vt, bold: true, size: 16, font: trFont })],
         }),
-        new TableCell({
-          borders: cellNone,
+      );
+    }
+    if (va) {
+      firmaInner.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [new TextRun({ text: va, size: 15, font: trFont })],
+        }),
+      );
+    }
+    if (vContact) {
+      firmaInner.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [new TextRun({ text: vContact, size: 14, font: trFont })],
+        }),
+      );
+    }
+    firmaInner.push(line());
+    firmaInner.push(new Paragraph({ children: [new TextRun({ text: ' ', size: 4 })] }));
+    firmaInner.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [
+          new TextRun({
+            text: 'Adı Soyadı, Ticaret Ünvanı, İmza, Kaşe veya Açık Adres, Tel. No',
+            size: 14,
+            font: trFont,
+          }),
+        ],
+      }),
+    );
+    firmaInner.push(new Paragraph({ children: [new TextRun({ text: ' ', size: 4 })] }));
+    firmaInner.push(line());
+
+    const firmaBox = new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      columnWidths: [9000],
+      borders: solidBox,
+      rows: [
+        new TableRow({
           children: [
-            new Paragraph({ children: [new TextRun({ text: 'Tarih:', size: 18, font: trFont })] }),
-            line(),
-            line(),
-            line(),
-            line(),
-            new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }),
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: 'Adı Soyadı, Ticaret Ünvanı, İmza, Kaşe veya Açık Adres, Tel. No',
-                  size: 16,
-                  font: trFont,
-                }),
-              ],
+            new TableCell({
+              verticalAlign: VerticalAlign.TOP,
+              children: firmaInner,
             }),
-            new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }),
-            line(),
-            line(),
-            line(),
-            line(),
           ],
         }),
       ],
     });
-    return new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      columnWidths: [4500, 4500],
-      borders: noneTbl,
-      rows: [bottomRow],
-    });
+
+    return [
+      new Paragraph({
+        children: [new TextRun({ text: 'DİĞER ŞARTLAR', bold: true, size: 22, font: trFont })],
+      }),
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 6 })] }),
+      digerNested,
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+      firmaBox,
+    ];
   }
 
   private async buildFiyatArastirmasiDocx(input: {
@@ -6949,7 +8626,7 @@ export class DogrudanTeminService {
     header.push(new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }));
 
     const malTable = this.buildDtDocxMalzemeKdvHaricListesiTable(items, trFont);
-    const bottomTable = this.buildDtDocxDigerSartlarImzaBottom(trFont);
+    const altStack = this.buildDtDocxFiyatArastirmaAltStack(trFont, vendor);
 
     const footer: any[] = [
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
@@ -6958,13 +8635,13 @@ export class DogrudanTeminService {
         children: [
           new TextRun({
             text: 'Yukarıda ismi belirtilen mal/malzemenin birim ve toplam fiyatı günün şartlarına göre belirlenmiş olup belirtilen fiyatlar üzerinden vermeyi teklif ediyorum. Arz olunur.',
-            size: 18,
+            size: 16,
             font: trFont,
           }),
         ],
       }),
-      new Paragraph({ children: [new TextRun({ text: ' ', size: 12 })] }),
-      bottomTable as any,
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }),
+      ...altStack,
     ];
 
     const doc = new DocxDocument({
@@ -7026,15 +8703,15 @@ export class DogrudanTeminService {
       new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }),
     ];
     const malTable = this.buildDtDocxMalzemeKdvHaricListesiTable(items, trFont);
-    const bottomTable = this.buildDtDocxDigerSartlarImzaBottom(trFont);
+    const altStack = this.buildDtDocxFiyatArastirmaAltStack(trFont, vendor);
     const footer: any[] = [
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
       new Paragraph({
         alignment: AlignmentType.JUSTIFIED,
-        children: [new TextRun({ text: taahhutTeklif, size: 18, font: trFont })],
+        children: [new TextRun({ text: taahhutTeklif, size: 16, font: trFont })],
       }),
-      new Paragraph({ children: [new TextRun({ text: ' ', size: 12 })] }),
-      bottomTable as any,
+      new Paragraph({ children: [new TextRun({ text: ' ', size: 8 })] }),
+      ...altStack,
     ];
     const doc = new DocxDocument({
       styles: this.dtDocxDefaultStyles() as any,
@@ -7043,14 +8720,172 @@ export class DogrudanTeminService {
     return Buffer.from(await Packer.toBuffer(doc));
   }
 
+  private sozlesmeSanitizeClientHtml(html: string): string {
+    return String(html ?? '')
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+      .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  }
+
+  private sozlesmeHtmlToDocxParagraphs(trFont: string, html: string): Paragraph[] {
+    const cleaned = this.sozlesmeSanitizeClientHtml(html);
+    const $ = cheerio.load(`<body>${cleaned}</body>`);
+    const out: Paragraph[] = [];
+    const pushPara = (text: string, bold = false) => {
+      const t = text.replace(/\s+/g, ' ').trim();
+      if (!t) return;
+      out.push(
+        new Paragraph({
+          alignment: AlignmentType.JUSTIFIED,
+          spacing: { after: convertInchesToTwip(0.03) },
+          children: [new TextRun({ text: t, bold, size: 20, font: trFont })],
+        }),
+      );
+    };
+    $('body')
+      .children()
+      .each((_, el) => {
+        if (el.type !== 'tag') return;
+        const name = (el as any).tagName?.toLowerCase?.() ?? '';
+        const $el = $(el);
+        if (name === 'ul' || name === 'ol') {
+          $el.find('li').each((__, li) => {
+            const t = $(li).text().replace(/\s+/g, ' ').trim();
+            if (t) pushPara(`• ${t}`, false);
+          });
+          return;
+        }
+        if (name === 'h1' || name === 'h2' || name === 'h3') {
+          pushPara($el.text(), true);
+          return;
+        }
+        if (name === 'p' || name === 'div' || name === 'section' || name === 'article') {
+          pushPara($el.text(), false);
+          return;
+        }
+        pushPara($el.text(), false);
+      });
+    if (!out.length) {
+      const plain = cheerio.load(cleaned).root().text().trim();
+      if (plain) pushPara(plain, false);
+    }
+    return out.length ? out : [new Paragraph({ children: [new TextRun({ text: ' ', size: 20, font: trFont })] })];
+  }
+
+  private buildSozlesmeExportHtml(input: {
+    letterheadLines: string[];
+    sayi: string;
+    tarih: string;
+    procurementRef: string;
+    subject: string;
+    year: number;
+    fileNo: string;
+    vendorTitle: string;
+    total: string;
+    awarded: Array<{ it: DtItem; a: DtAward }>;
+    bodyHtml: string;
+  }): string {
+    const e = escapeHtml;
+    const lh = (input.letterheadLines ?? [])
+      .map((l) => String(l ?? '').trim())
+      .filter(Boolean)
+      .map((l) => `<div class="lh-line">${e(l)}</div>`)
+      .join('');
+    const rows = input.awarded
+      .map((x, idx) => {
+        const qty = this.fmtSozlesmeQtyCell(x.it.qty, x.it.unit);
+        const bf = this.fmtAmountCellTr(x.a.unitPrice) || '—';
+        const tut = this.fmtAmountCellTr(x.a.total) || '—';
+        const kalem = e(`${x.it.name ?? ''}${x.it.spec ? `\n${x.it.spec}` : ''}`).replace(/\n/g, '<br/>');
+        return `<tr><td class="td-num">${idx + 1}</td><td>${kalem}</td><td class="td-num">${e(qty)}</td><td class="td-num">${e(bf)}</td><td class="td-num">${e(tut)}</td></tr>`;
+      })
+      .join('');
+    const bodySafe = this.sozlesmeSanitizeClientHtml(input.bodyHtml);
+    const sayiDisp = input.sayi?.trim() ? e(input.sayi.trim()) : '…';
+    const tarihDisp = input.tarih?.trim() ? e(input.tarih.trim()) : '…';
+    const procBlock = input.procurementRef
+      ? `<p class="meta-line"><strong>Doğrudan Temin Numarası :</strong> ${e(input.procurementRef)}</p>`
+      : '';
+    return `<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8"/><style>
+      @page { size: A4; margin: 22mm 16mm 24mm 25mm; }
+      *,*::before,*::after{box-sizing:border-box}
+      html,body{margin:0;padding:0}
+      body{
+        font-family:'Times New Roman',Times,serif;
+        font-size:11.5pt;
+        line-height:1.42;
+        color:#000;
+        -webkit-print-color-adjust:exact;
+        print-color-adjust:exact;
+        overflow-wrap:anywhere;
+        word-break:normal;
+      }
+      .sheet{width:100%;max-width:100%;padding:0;margin:0}
+      .letterhead{text-align:center;margin:0 0 8mm;padding-bottom:3mm;border-bottom:0.5pt solid #000}
+      .lh-line{font-size:10.5pt;line-height:1.22;margin:0 0 0.8mm;overflow-wrap:anywhere;word-break:break-word}
+      .sayi-row{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:3mm 6mm;margin:4mm 0 2mm;font-size:11pt}
+      .sayi-row > div{min-width:0;flex:1 1 38%;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
+      .sayi-row > div:last-child{flex:0 1 auto;text-align:right}
+      .meta-line{margin:0 0 2mm;text-align:justify;overflow-wrap:anywhere;word-break:break-word;hyphens:auto}
+      h1{text-align:center;font-size:13pt;font-weight:700;margin:5mm 0 2mm;letter-spacing:0.02em;overflow-wrap:anywhere}
+      .sub{text-align:center;font-size:10.5pt;margin:0 0 4mm;overflow-wrap:anywhere;word-break:break-word}
+      .party{margin:0 0 1.5mm;text-align:justify;overflow-wrap:anywhere;word-break:break-word;hyphens:auto}
+      table.mal{width:100%;max-width:100%;table-layout:fixed;border-collapse:collapse;margin:3mm 0 5mm}
+      table.mal th,table.mal td{border:0.5pt solid #000;padding:3px 4px;vertical-align:top;font-size:9.5pt;word-wrap:break-word;overflow-wrap:anywhere;hyphens:auto}
+      table.mal th{background:#f0f0f0;font-weight:700}
+      table.mal .td-num{text-align:right;font-variant-numeric:tabular-nums;white-space:normal}
+      .body{margin-top:3mm;text-align:justify;overflow-wrap:anywhere;word-break:break-word;hyphens:auto}
+      .body p,.body div{margin:0 0 0.35em}
+      .body ul,.body ol{margin:0.25em 0 0.45em;padding-left:1.15em;max-width:100%}
+      .body li{margin:0 0 0.2em}
+      .body table{table-layout:fixed!important;width:100%!important;max-width:100%!important;border-collapse:collapse}
+      .body td,.body th{word-break:break-word;white-space:normal}
+      .body img,.body video,.body svg{max-width:100%!important;height:auto!important}
+      .body pre{white-space:pre-wrap;word-break:break-word;max-width:100%;overflow-wrap:anywhere}
+    </style></head><body><div class="sheet">
+    <div class="letterhead">${lh}</div>
+    <div class="sayi-row"><div><strong>Sayı :</strong> ${sayiDisp}</div><div>${tarihDisp}</div></div>
+    <p class="meta-line"><strong>Konu :</strong> ${e((input.subject ?? '').trim() || '—')}</p>
+    ${procBlock}
+    <h1>SÖZLEŞME</h1>
+    <div class="sub">${e(String(input.year))} / ${e(input.fileNo)} · ${e((input.subject ?? '').trim() || '—')}</div>
+    <p class="party"><strong>Yüklenici :</strong> ${e(input.vendorTitle)}</p>
+    <p class="party"><strong>Toplam (KDV hariç) :</strong> ${e(input.total)}</p>
+    <table class="mal"><colgroup><col style="width:6%"/><col style="width:38%"/><col style="width:14%"/><col style="width:20%"/><col style="width:22%"/></colgroup><thead><tr><th>No</th><th>Kalem</th><th>Miktar</th><th>Birim fiyat<br/><span style="font-weight:400;font-size:8.5pt">(KDV hariç)</span></th><th>Tutar<br/><span style="font-weight:400;font-size:8.5pt">(KDV hariç)</span></th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="body">${bodySafe}</div>
+    </div></body></html>`;
+  }
+
+  private async renderSozlesmePdfFromHtml(fullPageHtml: string): Promise<Buffer> {
+    const { chromium } = await import('playwright');
+    const browser = await chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(fullPageHtml, { waitUntil: 'load', timeout: 45_000 });
+      const buf = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        preferCSSPageSize: true,
+        margin: { top: '0', bottom: '0', left: '0', right: '0' },
+      });
+      return Buffer.from(buf);
+    } finally {
+      await browser.close();
+    }
+  }
+
   private async buildSozlesmeDocx(input: {
-    school: Pick<School, 'name' | 'principalName'> | null;
     file: DtFile;
     vendor: DtVendor;
     awarded: Array<{ it: DtItem; a: DtAward }>;
     letterhead: Paragraph[];
+    bodyHtml: string;
   }): Promise<Buffer> {
-    const { school, file, vendor, awarded, letterhead } = input;
+    const { file, vendor, awarded, letterhead, bodyHtml } = input;
+    const trFont = 'Times New Roman';
     const total = awarded.reduce((sum, x) => sum + (Number(x.a.total) || 0), 0);
     const { blocks: corr } = await this.buildDtDocxCorrespondenceHeader(file, 'ihale_onay');
     const header = [
@@ -7059,21 +8894,21 @@ export class DogrudanTeminService {
       new Paragraph({ children: [new TextRun({ text: 'SÖZLEŞME', bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: `${file.year} / ${file.fileNo} · ${file.subject}`, size: 20 })], alignment: AlignmentType.CENTER }),
       new Paragraph({ children: [new TextRun({ text: `Yüklenici: ${vendor.title}`, size: 20 })] }),
-      new Paragraph({ children: [new TextRun({ text: `Toplam: ${total.toFixed(2)}`, size: 20 })] }),
+      new Paragraph({ children: [new TextRun({ text: `Toplam (KDV hariç): ${this.fmtAmountCellTr(total) || '0,00'}`, size: 20 })] }),
       new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
     ];
     const th = (t: string) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t, bold: true, size: 18 })] })], shading: { fill: 'E8ECF0' } as any });
     const td = (t: string) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t, size: 18 })] })] });
     const rows: TableRow[] = [
-      new TableRow({ children: [th('No'), th('Kalem'), th('Miktar'), th('BF'), th('Tutar')] }),
+      new TableRow({ children: [th('No'), th('Kalem'), th('Miktar'), th('Birim fiyat\n(KDV hariç)'), th('Tutar\n(KDV hariç)')] }),
       ...awarded.map((x, idx) =>
         new TableRow({
           children: [
             td(String(idx + 1)),
             td(`${x.it.name}${x.it.spec ? `\n${x.it.spec}` : ''}`),
-            td(`${x.it.qty ?? ''} ${x.it.unit ?? ''}`.trim()),
-            td(String(x.a.unitPrice ?? '')),
-            td(String(x.a.total ?? '')),
+            td(this.fmtSozlesmeQtyCell(x.it.qty, x.it.unit)),
+            td(this.fmtAmountCellTr(x.a.unitPrice) || '—'),
+            td(this.fmtAmountCellTr(x.a.total) || '—'),
           ],
         }),
       ),
@@ -7090,11 +8925,11 @@ export class DogrudanTeminService {
         insideVertical: { style: BorderStyle.SINGLE, size: 2, color: '000000' },
       },
     });
-    const footer = [
-      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
-      new Paragraph({ children: [new TextRun({ text: `Onay: ${school?.principalName ?? ''}`, size: 18 })] }),
-    ];
-    const doc = new DocxDocument({ styles: this.dtDocxDefaultStyles() as any, sections: [{ properties: {}, children: [...header, table, ...footer] }] });
+    const clauseParas = this.sozlesmeHtmlToDocxParagraphs(trFont, bodyHtml);
+    const doc = new DocxDocument({
+      styles: this.dtDocxDefaultStyles() as any,
+      sections: [{ properties: {}, children: [...header, table, ...clauseParas] }],
+    });
     return Buffer.from(await Packer.toBuffer(doc));
   }
 
@@ -7125,7 +8960,15 @@ export class DogrudanTeminService {
   async listCommissionTeacherOptions(schoolId: string) {
     const rows = await this.userRepo
       .createQueryBuilder('u')
-      .select(['u.id', 'u.display_name', 'u.email', 'u.role'])
+      .select([
+        'u.id',
+        'u.display_name',
+        'u.email',
+        'u.role',
+        'u.teacherBranch',
+        'u.teacherTitle',
+        'u.evrakDefaults',
+      ])
       .where('u.school_id = :schoolId', { schoolId })
       .andWhere('u.role IN (:...roles)', { roles: [UserRole.teacher, UserRole.school_admin] })
       .andWhere('u.status = :status', { status: UserStatus.active })
@@ -7133,11 +8976,19 @@ export class DogrudanTeminService {
       .addOrderBy('u.email', 'ASC')
       .getMany();
     return {
-      items: rows.map((u) => ({
-        id: u.id,
-        display_name: u.display_name,
-        email: u.email,
-      })),
+      items: rows.map((u) => {
+        const ev = u.evrakDefaults as { ogretmen_unvani?: string } | null | undefined;
+        const fromEvrak = (ev?.ogretmen_unvani ?? '').trim();
+        const fromBranch = (u.teacherBranch ?? '').trim();
+        const fromTitle = (u.teacherTitle ?? '').trim();
+        const unvan = fromEvrak || fromBranch || fromTitle || null;
+        return {
+          id: u.id,
+          display_name: u.display_name,
+          email: u.email,
+          unvan,
+        };
+      }),
     };
   }
 
@@ -7451,55 +9302,62 @@ export class DogrudanTeminService {
     const file = await this.fileRepo.findOne({ where: { id: dtFileId, schoolId } });
     if (!file) throw new NotFoundException({ code: 'DT_FILE_NOT_FOUND' });
 
+    const school = await this.schoolRepo.findOne({ where: { id: schoolId }, select: ['id', 'name', 'principalName'] });
+    const settings = await this.procurementSettingsRepo.findOne({ where: { schoolId } });
+    const registry = await this.registryMapForFile(schoolId, dtFileId);
     const quote = payment.quoteId ? await this.quoteRepo.findOne({ where: { id: payment.quoteId } }) : null;
     const vendor = quote ? await this.vendorRepo.findOne({ where: { id: quote.vendorId } }) : null;
-    const school = await this.schoolRepo.findOne({ where: { id: schoolId } });
 
-    const header = [
-      new Paragraph({ children: [new TextRun({ text: (school?.name ?? 'Kurum').trim(), bold: true, size: 24 })], alignment: AlignmentType.CENTER }),
-      new Paragraph({ children: [new TextRun({ text: 'ÖDEME EMRİ BELGESİ', bold: true, size: 22 })], alignment: AlignmentType.CENTER }),
-      new Paragraph({ children: [new TextRun({ text: `${file.year} / ${file.fileNo}`, size: 20 })], alignment: AlignmentType.CENTER }),
-      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
-      new Paragraph({ children: [new TextRun({ text: `Belge No: ${orderNo ?? payment.referenceNo ?? paymentId.slice(0, 8)}`, size: 18 })] }),
-      new Paragraph({ children: [new TextRun({ text: `Tarih: ${new Date(payment.createdAt).toLocaleDateString('tr-TR')}`, size: 18 })] }),
-      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
+    const belgeNo = (orderNo ?? payment.referenceNo ?? payment.id).trim() || payment.id;
+    const amountFmt = this.fmtTry(this.toNum(payment.amount));
+    const paidStr = this.fmtTrDate(payment.paidAt) || '—';
+    const createdStr = this.fmtTrDate(payment.createdAt) || paidStr;
+
+    const rows: Array<{ label: string; value: string }> = [
+      { label: 'Dosya', value: `${file.year} / ${file.fileNo}` },
+      { label: 'İşin konusu', value: (file.subject ?? '').trim() || '—' },
+      { label: 'Belge / referans no', value: belgeNo },
+      { label: 'Yüklenici', value: (vendor?.title ?? '—').trim() || '—' },
+      { label: 'Ödeme tutarı', value: amountFmt || `${this.fmtAmountCellTr(payment.amount)} TL` },
+      { label: 'Ödeme tarihi', value: paidStr },
+      { label: 'Referans no', value: (payment.referenceNo ?? '—').trim() || '—' },
+      { label: 'Ödeme notu', value: (payment.note ?? '—').trim() || '—' },
     ];
+    if (notes?.trim()) rows.push({ label: 'Ek açıklama', value: notes.trim() });
 
-    const th = (t: string) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t, bold: true, size: 18 })] })], shading: { fill: 'E8ECF0' } as any });
-    const td = (t: string) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t, size: 18 })] })] });
-
-    const rows: TableRow[] = [
-      new TableRow({ children: [th('Açıklama'), th('Değer')] }),
-      new TableRow({ children: [td('İş Adı'), td(file.subject)] }),
-      new TableRow({ children: [td('Yüklenici'), td(vendor?.title ?? '—')] }),
-      new TableRow({ children: [td('Ödeme Tutarı'), td(`${payment.amount} TL`)] }),
-      new TableRow({ children: [td('Ödeme Tarihi'), td(new Date(payment.paidAt).toLocaleDateString('tr-TR'))] }),
-      new TableRow({ children: [td('Referans No'), td(payment.referenceNo ?? '—')] }),
-      new TableRow({ children: [td('Not'), td(payment.note ?? '—')] }),
-      ...(notes ? [new TableRow({ children: [td('Açıklama'), td(notes)] })] : []),
-    ];
-
-    const table = new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      rows,
-      borders: {
-        top: { style: BorderStyle.SINGLE, size: 2, color: '000000' },
-        bottom: { style: BorderStyle.SINGLE, size: 2, color: '000000' },
-        left: { style: BorderStyle.SINGLE, size: 2, color: '000000' },
-        right: { style: BorderStyle.SINGLE, size: 2, color: '000000' },
-        insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: '000000' },
-        insideVertical: { style: BorderStyle.SINGLE, size: 2, color: '000000' },
-      },
+    return this.pdfBuffer((doc, fonts) => {
+      this.pdfOfficialTop(doc, fonts, {
+        schoolId,
+        school,
+        file,
+        stage: 'ihale_onay',
+        title: 'ÖDEME EMRİ',
+        konu: `Doğrudan temin ödemesi — ${(file.subject ?? '').trim() || '—'}`.slice(0, 240),
+        showProcurementRef: true,
+        registry,
+        settings,
+      });
+      const mx = doc.page.margins.left;
+      const mw = doc.page.width - mx - doc.page.margins.right;
+      doc.x = mx;
+      doc.font(fonts.regular).fontSize(9.5).fillColor('#000000');
+      doc.text(`Belge düzenleme tarihi: ${createdStr}`, { width: mw });
+      doc.moveDown(0.45);
+      this.pdfKeyValueBandTable(doc, fonts, mx, mw, rows, { fontSize: 9.25, minRowH: 22 });
+      doc.moveDown(0.55);
+      doc.x = mx;
+      this.pdfSignatureRight(
+        doc,
+        fonts,
+        {
+          name: (settings?.spendingAuthorityName ?? '').trim() || (school?.principalName ?? '').trim() || '…………………',
+          title: (settings?.spendingAuthorityTitle ?? '').trim() || undefined,
+        },
+        { nameSize: 10.5, titleSize: 9.5 },
+      );
+      doc.moveDown(0.15);
+      doc.font(fonts.regular).fontSize(8.5).text('İhale (Harcama) Yetkilisi', mx, doc.y, { width: mw, align: 'right' });
     });
-
-    const footer = [
-      new Paragraph({ children: [new TextRun({ text: ' ', size: 10 })] }),
-      new Paragraph({ children: [new TextRun({ text: `Onay: ${school?.principalName ?? ''}`, size: 18 })] }),
-      new Paragraph({ children: [new TextRun({ text: `Tarih: ${new Date().toLocaleDateString('tr-TR')}`, size: 18 })] }),
-    ];
-
-    const doc = new DocxDocument({ styles: this.dtDocxDefaultStyles() as any, sections: [{ properties: {}, children: [...header, table, ...footer] }] });
-    return Buffer.from(await Packer.toBuffer(doc));
   }
 
   async getDashboard(schoolId: string, year?: number) {

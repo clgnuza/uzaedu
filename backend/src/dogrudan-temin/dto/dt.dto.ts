@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { IsEmail, IsIn, IsInt, IsOptional, IsString, IsArray, ValidateNested, Matches, Max, MaxLength, Min, IsObject, ValidateIf, ArrayMinSize, ArrayMaxSize, IsUUID } from 'class-validator';
 import { DtTeminType } from '../enums/dt-temin-type.enum';
 import { DT_COMMISSION_KINDS, DT_QUOTE_PURPOSES, DT_REGISTRY_STAGES } from '../dt-workflow.constants';
@@ -415,6 +415,7 @@ export class BlockDtBudgetDto {
   @IsString()
   budget_account_id: string;
 
+  @Transform(({ value }: { value: unknown }) => (value === undefined || value === null ? value : String(value)))
   @IsString()
   amount: string;
 }
@@ -423,6 +424,12 @@ export class ReleaseDtBudgetDto {
   @IsOptional()
   @IsString()
   block_id?: string;
+}
+
+export class PatchDtBudgetBlockDto {
+  @Transform(({ value }: { value: unknown }) => (value === undefined || value === null ? value : String(value)))
+  @IsString()
+  amount: string;
 }
 
 export class DtRegistryReportDto {
@@ -443,24 +450,62 @@ export class DtRegistryReportDto {
   include_archived?: string;
 }
 
+function dtPaymentFieldStringify({ value }: { value: unknown }): unknown {
+  if (value === undefined || value === null) return value;
+  return String(value);
+}
+
 export class RecordDtPaymentDto {
+  @Transform(dtPaymentFieldStringify)
   @IsString()
   amount: string;
 
   @IsOptional()
+  @Transform(dtPaymentFieldStringify)
   @IsString()
   quote_id?: string | null;
 
   @IsOptional()
+  @Transform(dtPaymentFieldStringify)
   @IsString()
   note?: string | null;
 
   @IsOptional()
+  @Transform(dtPaymentFieldStringify)
   @IsString()
   @MaxLength(64)
   reference_no?: string | null;
 
   @IsOptional()
+  @Transform(dtPaymentFieldStringify)
+  @IsString()
+  paid_at?: string | null;
+}
+
+export class PatchDtPaymentDto {
+  @IsOptional()
+  @Transform(dtPaymentFieldStringify)
+  @IsString()
+  amount?: string;
+
+  @IsOptional()
+  @Transform(dtPaymentFieldStringify)
+  @IsString()
+  quote_id?: string | null;
+
+  @IsOptional()
+  @Transform(dtPaymentFieldStringify)
+  @IsString()
+  note?: string | null;
+
+  @IsOptional()
+  @Transform(dtPaymentFieldStringify)
+  @IsString()
+  @MaxLength(64)
+  reference_no?: string | null;
+
+  @IsOptional()
+  @Transform(dtPaymentFieldStringify)
   @IsString()
   paid_at?: string | null;
 }
@@ -697,8 +742,9 @@ export class PutDtDocumentRegistryDto {
 }
 
 export class GenerateDtPaymentOrderDto {
+  /** Ödeme kaydının bağlı olduğu doğrudan temin dosyası (URL’deki ödeme id’si ile eşleşmeli). */
   @IsString()
-  payment_id: string;
+  dt_file_id: string;
 
   @IsOptional()
   @IsString()
@@ -742,4 +788,13 @@ export class GetDtBudgetHierarchyDto {
 export class PutDtTeknikSartnameDraftDto {
   @IsObject()
   draft!: Record<string, unknown>;
+}
+
+export class PutDtSozlesmeDraftDto {
+  @IsUUID()
+  vendor_id!: string;
+
+  @IsString()
+  @MaxLength(400000)
+  body_html!: string;
 }

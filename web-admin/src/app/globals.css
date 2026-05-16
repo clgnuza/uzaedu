@@ -1231,3 +1231,12 @@ body {
     animation-iteration-count: 1 !important;
   }
 }
+
+/* TipTap — boş editörde placeholder (sözleşme gövdesi) */
+.ProseMirror p.is-editor-empty:first-child::before {
+  color: var(--muted-foreground);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}

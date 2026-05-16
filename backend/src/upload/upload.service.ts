@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
 import { AppConfigService } from '../app-config/app-config.service';
@@ -150,6 +150,15 @@ export class UploadService {
       new PutObjectCommand({ Bucket: r2_bucket, Key: key, Body: buffer, ContentType: contentType }),
     );
     return key;
+  }
+
+  /** R2’den nesneyi siler (yoksa hata vermez). */
+  async deleteObject(key: string): Promise<void> {
+    const config = await this.appConfig.getR2Config();
+    const { r2_bucket } = config;
+    if (!r2_bucket) throw new BadRequestException({ code: 'R2_NOT_CONFIGURED', message: 'R2 ayarları eksik.' });
+    const client = await this.getS3Client();
+    await client.send(new DeleteObjectCommand({ Bucket: r2_bucket, Key: key }));
   }
 
   /**

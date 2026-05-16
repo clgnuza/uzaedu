@@ -7,7 +7,7 @@ export function ClientShellWidgets() {
   return (
     <>
       <CookieBanner />
-      <Toaster position="top-right" richColors closeButton />
+      <Toaster position="top-right" richColors closeButton style={{ zIndex: 9999 }} />
     </>
   );
 }
