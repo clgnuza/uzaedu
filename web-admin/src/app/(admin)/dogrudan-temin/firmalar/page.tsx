@@ -7,6 +7,7 @@ import { ForbiddenView } from '@/components/errors/forbidden-view';
 import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
+import { dtReadonlyLoadFeedback, type DtReadonlyLoadBanner } from '@/lib/dt-readonly-load-error';
 import { dtUrl } from '@/lib/dt-url';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Alert } from '@/components/ui/alert';
@@ -55,7 +56,7 @@ export default function DogrudanTeminVendorsPage() {
   const canFetch = useMemo(() => !!token && (!isSuperadmin || !!schoolId), [token, isSuperadmin, schoolId]);
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadBanner, setLoadBanner] = useState<DtReadonlyLoadBanner | null>(null);
   const [items, setItems] = useState<VendorItem[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -87,12 +88,12 @@ export default function DogrudanTeminVendorsPage() {
       return;
     }
     setLoading(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       const res = await apiFetch<{ items: VendorItem[] }>(dtUrl('/dogrudan-temin/vendors', me?.role, schoolId), { token });
       setItems(res.items ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Yüklenemedi');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setLoading(false);
     }
@@ -105,7 +106,7 @@ export default function DogrudanTeminVendorsPage() {
   const createVendor = useCallback(async () => {
     if (!canFetch) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       await apiFetch(dtUrl('/dogrudan-temin/vendors', me?.role, schoolId), {
         token,
@@ -123,7 +124,7 @@ export default function DogrudanTeminVendorsPage() {
       toast.success('Firma kaydedildi.');
       await fetchVendors();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -144,7 +145,7 @@ export default function DogrudanTeminVendorsPage() {
   const saveEdit = useCallback(async () => {
     if (!canFetch || !editId || !editForm.title.trim()) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       await apiFetch(dtUrl(`/dogrudan-temin/vendors/${editId}`, me?.role, schoolId), {
         token,
@@ -162,7 +163,7 @@ export default function DogrudanTeminVendorsPage() {
       toast.success('Firma güncellendi.');
       await fetchVendors();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -171,7 +172,7 @@ export default function DogrudanTeminVendorsPage() {
   const confirmDelete = useCallback(async () => {
     if (!canFetch || !deleteTarget) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       await apiFetch(dtUrl(`/dogrudan-temin/vendors/${deleteTarget.id}`, me?.role, schoolId), {
         token,
@@ -181,7 +182,7 @@ export default function DogrudanTeminVendorsPage() {
       toast.success('Firma silindi.');
       await fetchVendors();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -360,7 +361,7 @@ export default function DogrudanTeminVendorsPage() {
             </div>
           </div>
 
-          {error ? <Alert message={error} /> : null}
+          {loadBanner ? <Alert variant={loadBanner.variant} message={loadBanner.message} /> : null}
           {loading ? (
             <LoadingSpinner label="Firmalar yükleniyor…" className="py-12 text-xs" />
           ) : items.length ? (

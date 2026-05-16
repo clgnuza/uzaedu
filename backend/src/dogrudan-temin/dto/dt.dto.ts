@@ -1,5 +1,5 @@
-import { Type } from 'class-transformer';
-import { IsEmail, IsIn, IsInt, IsOptional, IsString, IsArray, ValidateNested, Matches, Max, MaxLength, Min, IsObject, ValidateIf } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
+import { IsEmail, IsIn, IsInt, IsOptional, IsString, IsArray, ValidateNested, Matches, Max, MaxLength, Min, IsObject, ValidateIf, ArrayMinSize, ArrayMaxSize, IsUUID } from 'class-validator';
 import { DtTeminType } from '../enums/dt-temin-type.enum';
 import { DT_COMMISSION_KINDS, DT_QUOTE_PURPOSES, DT_REGISTRY_STAGES } from '../dt-workflow.constants';
 
@@ -239,6 +239,14 @@ export class CreateDtQuoteDto {
   purpose?: (typeof DT_QUOTE_PURPOSES)[number];
 }
 
+export class BulkDeleteDtQuotesDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(100)
+  @IsUUID('4', { each: true })
+  quote_ids: string[];
+}
+
 export class ListDtQuotesQueryDto {
   @IsOptional()
   @IsString()
@@ -275,6 +283,7 @@ const DT_GENERATE_DOC_TYPES = [
   'ihtiyac_listesi',
   'fiyat_arastirmasi',
   'teklif_isteme',
+  'harcama_talimati',
   'karar',
   'sozlesme',
   'komisyon_onay',
@@ -299,6 +308,46 @@ export class GenerateDtDocDto {
   @IsOptional()
   @IsString()
   vendor_id?: string;
+}
+
+export const DT_BULK_ARCHIVE_DOC_TYPES = [
+  'ihtiyac_listesi',
+  'teknik_sartname',
+  'komisyon_onay',
+  'fiyat_arastirmasi',
+  'yaklasik_maliyet_cetveli',
+  'onay_belgesi',
+  'teklif_isteme',
+  'piyasa_arastirma_tutanagi',
+  'muayene_kabul_tutanagi',
+  'teslim_tesellum_tutanagi',
+] as const;
+
+export class BulkDtDocArchiveItemDto {
+  @IsString()
+  @IsIn([...DT_BULK_ARCHIVE_DOC_TYPES])
+  doc_type: (typeof DT_BULK_ARCHIVE_DOC_TYPES)[number];
+
+  @IsOptional()
+  @IsString()
+  vendor_id?: string;
+}
+
+export class BulkDtDocsArchiveDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => BulkDtDocArchiveItemDto)
+  items: BulkDtDocArchiveItemDto[];
+
+  @IsOptional()
+  @IsString()
+  default_vendor_id?: string;
+
+  /** `rar` isteği şimdilik reddedilir; yalnızca ZIP üretilir. */
+  @IsOptional()
+  @IsIn(['zip', 'rar'])
+  archive_format?: 'zip' | 'rar';
 }
 
 export class CopyDtFileDto {
@@ -338,6 +387,22 @@ export class CreateDtBudgetAccountDto {
   allocated?: string;
 }
 
+export class PatchDtBudgetAccountDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  code?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  label?: string;
+
+  @IsOptional()
+  @IsString()
+  allocated?: string;
+}
+
 export class ListDtBudgetAccountsDto {
   @IsOptional()
   @IsInt()
@@ -350,6 +415,7 @@ export class BlockDtBudgetDto {
   @IsString()
   budget_account_id: string;
 
+  @Transform(({ value }: { value: unknown }) => (value === undefined || value === null ? value : String(value)))
   @IsString()
   amount: string;
 }
@@ -358,6 +424,12 @@ export class ReleaseDtBudgetDto {
   @IsOptional()
   @IsString()
   block_id?: string;
+}
+
+export class PatchDtBudgetBlockDto {
+  @Transform(({ value }: { value: unknown }) => (value === undefined || value === null ? value : String(value)))
+  @IsString()
+  amount: string;
 }
 
 export class DtRegistryReportDto {
@@ -378,24 +450,62 @@ export class DtRegistryReportDto {
   include_archived?: string;
 }
 
+function dtPaymentFieldStringify({ value }: { value: unknown }): unknown {
+  if (value === undefined || value === null) return value;
+  return String(value);
+}
+
 export class RecordDtPaymentDto {
+  @Transform(dtPaymentFieldStringify)
   @IsString()
   amount: string;
 
   @IsOptional()
+  @Transform(dtPaymentFieldStringify)
   @IsString()
   quote_id?: string | null;
 
   @IsOptional()
+  @Transform(dtPaymentFieldStringify)
   @IsString()
   note?: string | null;
 
   @IsOptional()
+  @Transform(dtPaymentFieldStringify)
   @IsString()
   @MaxLength(64)
   reference_no?: string | null;
 
   @IsOptional()
+  @Transform(dtPaymentFieldStringify)
+  @IsString()
+  paid_at?: string | null;
+}
+
+export class PatchDtPaymentDto {
+  @IsOptional()
+  @Transform(dtPaymentFieldStringify)
+  @IsString()
+  amount?: string;
+
+  @IsOptional()
+  @Transform(dtPaymentFieldStringify)
+  @IsString()
+  quote_id?: string | null;
+
+  @IsOptional()
+  @Transform(dtPaymentFieldStringify)
+  @IsString()
+  note?: string | null;
+
+  @IsOptional()
+  @Transform(dtPaymentFieldStringify)
+  @IsString()
+  @MaxLength(64)
+  reference_no?: string | null;
+
+  @IsOptional()
+  @Transform(dtPaymentFieldStringify)
   @IsString()
   paid_at?: string | null;
 }
@@ -632,8 +742,9 @@ export class PutDtDocumentRegistryDto {
 }
 
 export class GenerateDtPaymentOrderDto {
+  /** Ödeme kaydının bağlı olduğu doğrudan temin dosyası (URL’deki ödeme id’si ile eşleşmeli). */
   @IsString()
-  payment_id: string;
+  dt_file_id: string;
 
   @IsOptional()
   @IsString()
@@ -672,4 +783,18 @@ export class GetDtBudgetHierarchyDto {
   @IsOptional()
   @IsString()
   parent_id?: string | null;
+}
+
+export class PutDtTeknikSartnameDraftDto {
+  @IsObject()
+  draft!: Record<string, unknown>;
+}
+
+export class PutDtSozlesmeDraftDto {
+  @IsUUID()
+  vendor_id!: string;
+
+  @IsString()
+  @MaxLength(400000)
+  body_html!: string;
 }

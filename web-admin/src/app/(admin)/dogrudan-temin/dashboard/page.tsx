@@ -33,6 +33,7 @@ import { ToolbarHeading, ToolbarPageTitle, ToolbarDescription } from '@/componen
 import { SchoolSelectWithFilter } from '@/components/school-select-with-filter';
 import { DtInfoHint } from '@/components/dogrudan-temin/dt-info-hint';
 import { Button } from '@/components/ui/button';
+import { dtReadonlyLoadFeedback, type DtReadonlyLoadBanner } from '@/lib/dt-readonly-load-error';
 
 type DashboardData = {
   year: number;
@@ -80,7 +81,7 @@ export default function DtDashboardPage() {
   });
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadBanner, setLoadBanner] = useState<DtReadonlyLoadBanner | null>(null);
   const [data, setData] = useState<DashboardData | null>(null);
 
   const setSchool = useCallback(
@@ -109,7 +110,7 @@ export default function DtDashboardPage() {
   const fetchDashboard = useCallback(async () => {
     if (!canFetch || !ok) return;
     setLoading(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       const qs = new URLSearchParams();
       qs.set('year', String(year));
@@ -119,7 +120,7 @@ export default function DtDashboardPage() {
       );
       setData(res);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Yüklenemedi');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
       setData(null);
     } finally {
       setLoading(false);
@@ -215,7 +216,7 @@ export default function DtDashboardPage() {
         </p>
       </div>
 
-      {error && <Alert message={error} />}
+      {loadBanner ? <Alert variant={loadBanner.variant} message={loadBanner.message} /> : null}
 
       {!canFetch ? (
         <Alert variant="info" message={isSuperadmin ? 'Önce okul seçin.' : 'Oturum yükleniyor…'} />

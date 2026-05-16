@@ -11,22 +11,27 @@ import { DogrudanTeminService } from './dogrudan-temin.service';
 import {
   AddDtItemDto,
   BlockDtBudgetDto,
+  PatchDtBudgetBlockDto,
   ReleaseDtBudgetDto,
   AutoAwardDto,
   CopyDtFileDto,
   CreateDtBudgetAccountDto,
   CreateDtFileDto,
   CreateDtQuoteDto,
+  BulkDeleteDtQuotesDto,
   CreateDtVendorDto,
   PatchDtVendorDto,
   DtRegistryReportDto,
   GenerateDtDocDto,
+  BulkDtDocsArchiveDto,
   ListDtBudgetAccountsDto,
+  PatchDtBudgetAccountDto,
   ListDtFilesDto,
   ListDtVendorsDto,
   PatchDtFileDto,
   PatchDtItemDto,
   RecordDtPaymentDto,
+  PatchDtPaymentDto,
   UpsertDtAwardItemDto,
   UpsertDtQuoteItemDto,
   CreateDtMaterialCategoryDto,
@@ -41,6 +46,8 @@ import {
   ListDtQuotesQueryDto,
   PatchDtSchoolProcurementSettingsDto,
   PutDtDocumentRegistryDto,
+  PutDtTeknikSartnameDraftDto,
+  PutDtSozlesmeDraftDto,
   SyncDtCommissionDto,
 } from './dto/dt.dto';
 
@@ -138,6 +145,12 @@ export class DogrudanTeminController {
     return this.svc.listPayments(this.sid(p, sid), id);
   }
 
+  @Get('files/:id/mys-yukle.xlsx')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  mysYukleXlsx(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.mysYukleXlsx(this.sid(p, sid), id);
+  }
+
   @Post('files/:id/payments')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   recordPayment(
@@ -147,6 +160,29 @@ export class DogrudanTeminController {
     @Query('school_id') sid?: string,
   ) {
     return this.svc.recordPayment(this.sid(p, sid), p.userId, id, dto);
+  }
+
+  @Patch('files/:id/payments/:paymentId')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  patchPayment(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Param('paymentId') paymentId: string,
+    @Body() dto: PatchDtPaymentDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.patchPayment(this.sid(p, sid), p.userId, id, paymentId, dto);
+  }
+
+  @Delete('files/:id/payments/:paymentId')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  deletePayment(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Param('paymentId') paymentId: string,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.deletePayment(this.sid(p, sid), p.userId, id, paymentId);
   }
 
   @Get('files/:id/items')
@@ -175,6 +211,12 @@ export class DogrudanTeminController {
     @Query('school_id') sid?: string,
   ) {
     return this.svc.patchFile(this.sid(p, sid), p.userId, id, dto);
+  }
+
+  @Delete('files/:id')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  deleteFile(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.deleteFile(this.sid(p, sid), p.userId, id);
   }
 
   @Patch('items/:id')
@@ -251,6 +293,40 @@ export class DogrudanTeminController {
     return this.svc.createQuote(this.sid(p, sid), p.userId, id, dto);
   }
 
+  @Patch('files/:fileId/quotes/:quoteId')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  patchQuote(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('fileId') fileId: string,
+    @Param('quoteId') quoteId: string,
+    @Body() dto: any,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.patchQuote(this.sid(p, sid), fileId, quoteId, dto);
+  }
+
+  @Delete('files/:fileId/quotes/:quoteId')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  deleteQuote(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('fileId') fileId: string,
+    @Param('quoteId') quoteId: string,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.deleteQuote(this.sid(p, sid), p.userId, fileId, quoteId);
+  }
+
+  @Post('files/:id/quotes/bulk-delete')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  bulkDeleteQuotes(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: BulkDeleteDtQuotesDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.deleteQuotesBulk(this.sid(p, sid), p.userId, id, dto.quote_ids);
+  }
+
   @Post('quotes/:id/items')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   upsertQuoteItem(
@@ -288,6 +364,23 @@ export class DogrudanTeminController {
     return this.svc.createBudgetAccount(this.sid(p, sid), p.userId, dto);
   }
 
+  @Patch('budgets/:id')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  patchBudget(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: PatchDtBudgetAccountDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.patchBudgetAccount(this.sid(p, sid), p.userId, id, dto);
+  }
+
+  @Delete('budgets/:id')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  deleteBudget(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.deleteBudgetAccount(this.sid(p, sid), p.userId, id);
+  }
+
   @Post('files/:id/budget/block')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   blockBudget(
@@ -303,6 +396,29 @@ export class DogrudanTeminController {
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   listBudgetBlocks(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
     return this.svc.listBudgetBlocks(this.sid(p, sid), id);
+  }
+
+  @Patch('files/:id/budget/blocks/:blockId')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  patchBudgetBlock(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Param('blockId') blockId: string,
+    @Body() dto: PatchDtBudgetBlockDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.patchBudgetBlock(this.sid(p, sid), p.userId, id, blockId, dto);
+  }
+
+  @Delete('files/:id/budget/blocks/:blockId')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  deleteBudgetBlock(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Param('blockId') blockId: string,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.deleteBudgetBlock(this.sid(p, sid), p.userId, id, blockId);
   }
 
   @Post('files/:id/budget/release')
@@ -366,10 +482,67 @@ export class DogrudanTeminController {
     return this.svc.listDocs(this.sid(p, sid), id);
   }
 
+  @Get('files/:id/piyasa-arastirma-tutanagi-preview')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  piyasaArastirmaTutanagiPreview(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.getPiyasaArastirmaTutanagiPreview(this.sid(p, sid), id);
+  }
+
+  @Get('files/:id/yaklasik-maliyet-cetveli-preview')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  yaklasikMaliyetCetveliPreview(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.getYaklasikMaliyetCetveliPreview(this.sid(p, sid), id);
+  }
+
+  @Get('files/:id/teknik-sartname-draft')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  getTeknikSartnameDraft(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.getTeknikSartnameDraft(this.sid(p, sid), id);
+  }
+
+  @Put('files/:id/teknik-sartname-draft')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  putTeknikSartnameDraft(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: PutDtTeknikSartnameDraftDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.putTeknikSartnameDraft(this.sid(p, sid), p.userId, id, dto);
+  }
+
+  @Get('files/:id/sozlesme-draft')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  getSozlesmeDraft(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Query('vendor_id') vendorId: string,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.getSozlesmeDraft(this.sid(p, sid), id, vendorId);
+  }
+
+  @Put('files/:id/sozlesme-draft')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  putSozlesmeDraft(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: PutDtSozlesmeDraftDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.putSozlesmeDraft(this.sid(p, sid), p.userId, id, dto);
+  }
+
   @Get('docs/:id/download')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   downloadDoc(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
     return this.svc.getDocDownloadUrl(this.sid(p, sid), id);
+  }
+
+  @Delete('docs/:id')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  deleteGeneratedDoc(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') sid?: string) {
+    return this.svc.deleteGeneratedDoc(this.sid(p, sid), id);
   }
 
   @Post('files/:id/docs/generate')
@@ -381,6 +554,17 @@ export class DogrudanTeminController {
     @Query('school_id') sid?: string,
   ) {
     return this.svc.generateDocForFile(this.sid(p, sid), p.userId, id, dto);
+  }
+
+  @Post('files/:id/docs/bulk-archive')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  bulkArchiveDtDocs(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: BulkDtDocsArchiveDto,
+    @Query('school_id') sid?: string,
+  ) {
+    return this.svc.bulkArchiveDtDocsAsZip(this.sid(p, sid), p.userId, id, dto);
   }
 
   @Get('files/:id/document-registry')
@@ -528,8 +712,8 @@ export class DogrudanTeminController {
     @Body() dto: GenerateDtPaymentOrderDto,
     @Query('school_id') sid?: string,
   ) {
-    const buffer = await this.svc.generatePaymentOrderPdf(this.sid(p, sid), dto.payment_id, id, dto.order_no, dto.notes);
-    return { buffer: buffer.toString('base64'), filename: `odeme-emri-${Date.now()}.docx` };
+    const buffer = await this.svc.generatePaymentOrderPdf(this.sid(p, sid), dto.dt_file_id, id, dto.order_no, dto.notes);
+    return { buffer: buffer.toString('base64'), filename: `odeme-emri-${Date.now()}.pdf` };
   }
 
   @Get('dashboard')

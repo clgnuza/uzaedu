@@ -141,8 +141,9 @@ export function dtQuoteStatusChipClass(status: string | null | undefined): strin
 
 const DOC_TYPES: Record<string, string> = {
   ihtiyac_listesi: 'İhtiyaç listesi',
-  fiyat_arastirmasi: 'Fiyat araştırması yazısı',
+  fiyat_arastirmasi: 'Fiyat araştırması',
   teklif_isteme: 'Teklif mektubu',
+  harcama_talimati: 'Harcama talimatı',
   karar: 'Doğrudan temin kararı',
   sozlesme: 'Sözleşme taslağı',
   komisyon_onay: 'Komisyon onay listesi',
@@ -291,7 +292,7 @@ export const DT_SECTION_HINTS: Record<DtDetailTabId, string> = {
   registry:
     'Evrak defteri: tarih/sayı ve muayene-kabul karar no alanları. PDF/DOCX üst bilgisinde kullanılır.',
   budget:
-    'Dosya için kullanılacak tutarı bütçe hesabında geçici olarak ayırır (bloke). İşlem bitince blokeyi kaldırın.',
+    'Dosya için bütçe hesabını üstte seçin; bloke tutarı bu hesaptan düşer. Tertip ve ödenek tutarları «Bütçe hiyerarşisi» sayfasından tanımlanır.',
   payments:
     'Ödeme emri öncesi platform kuralları (üstteki uyarılar) uygulanır. Tutar, teklif ve not alanlarını eksiksiz doldurun.',
   commission:
@@ -350,4 +351,15 @@ export function dtStripNumericTrailingZeros(value: string | null | undefined): s
     .toFixed(12)
     .replace(/(\.\d*?)0+$/, '$1')
     .replace(/\.$/, '');
+}
+
+/** Tutar: gruplama yok, virgülden sonra her zaman 2 hane (örn. 1500,00). */
+export function dtFormatAmountTr2(value: string | number | null | undefined): string {
+  const n = dtParseAmount(value);
+  if (n == null || !Number.isFinite(n)) return '';
+  return new Intl.NumberFormat('tr-TR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+    useGrouping: false,
+  }).format(n);
 }

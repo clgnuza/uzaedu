@@ -79,7 +79,7 @@ export function DialogContent({
   const content = (
     <>
       <div
-        className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm transition-all duration-200"
+        className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm transition-all duration-200 print:hidden"
         onClick={() => onOpenChange(false)}
         aria-hidden
       />
@@ -89,7 +89,7 @@ export function DialogContent({
         aria-labelledby={title ? 'dialog-title' : undefined}
         aria-describedby={descriptionId}
         className={cn(
-          'fixed left-1/2 top-1/2 z-50 flex max-h-[min(92dvh,calc(100dvh-0.75rem))] w-[min(100%,calc(100vw-1rem))] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border/80 bg-background shadow-2xl ring-1 ring-black/5 dark:ring-white/10 sm:max-h-[min(90vh,calc(100dvh-2rem))] sm:w-[min(100%,calc(100vw-2rem))] sm:rounded-2xl',
+          'fixed left-1/2 top-1/2 z-50 flex max-h-[min(92dvh,calc(100dvh-0.75rem))] w-[min(100%,calc(100vw-1rem))] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border/80 bg-background shadow-2xl ring-1 ring-black/5 dark:ring-white/10 sm:max-h-[min(90vh,calc(100dvh-2rem))] sm:w-[min(100%,calc(100vw-2rem))] sm:rounded-2xl print:static print:max-h-none print:min-h-0 print:w-full print:max-w-none print:translate-x-0 print:translate-y-0 print:overflow-visible print:shadow-none print:ring-0',
           className,
         )}
         {...props}
@@ -109,7 +109,7 @@ export function DialogContent({
             </button>
           </div>
         )}
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 print:overflow-visible">
           {children}
         </div>
       </div>

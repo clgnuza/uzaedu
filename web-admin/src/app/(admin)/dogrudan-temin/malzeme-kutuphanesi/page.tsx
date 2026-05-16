@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
+import { dtReadonlyLoadFeedback, type DtReadonlyLoadBanner } from '@/lib/dt-readonly-load-error';
 import { dtUrl } from '@/lib/dt-url';
 import { ToolbarHeading, ToolbarPageTitle, ToolbarDescription } from '@/components/layout/toolbar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -45,7 +46,7 @@ export default function DtMaterialLibraryPage() {
   const canFetch = useMemo(() => !!token && (!isSuperadmin || !!schoolId), [token, isSuperadmin, schoolId]);
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadBanner, setLoadBanner] = useState<DtReadonlyLoadBanner | null>(null);
   const [busy, setBusy] = useState(false);
   const [categories, setCategories] = useState<MatCategory[]>([]);
   const [items, setItems] = useState<MatLibItem[]>([]);
@@ -92,7 +93,7 @@ export default function DtMaterialLibraryPage() {
     async (append: boolean) => {
       if (!canFetch || !ok) return;
       setLoading(!append);
-      setError(null);
+      setLoadBanner(null);
       try {
         const skip = append ? items.length : 0;
         const q = new URLSearchParams();
@@ -109,7 +110,7 @@ export default function DtMaterialLibraryPage() {
         setTotal(itemsRes.count ?? 0);
         setItems((prev) => (append ? [...prev, ...(itemsRes.items ?? [])] : itemsRes.items ?? []));
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Yüklenemedi');
+        setLoadBanner(dtReadonlyLoadFeedback(e));
       } finally {
         setLoading(false);
       }
@@ -132,7 +133,7 @@ export default function DtMaterialLibraryPage() {
   const addCategory = useCallback(async () => {
     if (!canFetch || !newCatName.trim()) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       await apiFetch(dtUrl('/dogrudan-temin/materials/categories', me?.role, schoolId), {
         token,
@@ -144,7 +145,7 @@ export default function DtMaterialLibraryPage() {
       toast.success('Kategori eklendi.');
       await fetchPage(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -153,7 +154,7 @@ export default function DtMaterialLibraryPage() {
   const addItem = useCallback(async () => {
     if (!canFetch || !newItemCode.trim() || !newItemName.trim()) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       await apiFetch(dtUrl('/dogrudan-temin/materials/library', me?.role, schoolId), {
         token,
@@ -174,7 +175,7 @@ export default function DtMaterialLibraryPage() {
       toast.success('Malzeme eklendi.');
       await fetchPage(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -183,18 +184,16 @@ export default function DtMaterialLibraryPage() {
   const seedCatalog = useCallback(async () => {
     if (!canFetch) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       const res = await apiFetch<{ inserted: number; skipped_existing: number; catalog_rows: number }>(
         dtUrl('/dogrudan-temin/materials/library/seed-ortak-kamu-catalog', me?.role, schoolId),
         { token, method: 'POST', body: '{}' },
       );
-      toast.success(
-        `Ortak Kamu Sözlüğü: +${res.inserted} yeni, ${res.skipped_existing} zaten vardı (toplam ${res.catalog_rows} CPV).`,
-      );
+      toast.success(`Hesap Planı: +${res.inserted} (toplam ${res.catalog_rows}).`);
       await fetchPage(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -214,7 +213,7 @@ export default function DtMaterialLibraryPage() {
   const saveEdit = useCallback(async () => {
     if (!canFetch || !editId || !editCode.trim() || !editName.trim()) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       await apiFetch(dtUrl(`/dogrudan-temin/materials/library/${editId}`, me?.role, schoolId), {
         token,
@@ -233,7 +232,7 @@ export default function DtMaterialLibraryPage() {
       toast.success('Malzeme güncellendi.');
       await fetchPage(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -263,15 +262,14 @@ export default function DtMaterialLibraryPage() {
             </div>
             <div className="min-w-0 flex-1 space-y-2">
               <ToolbarHeading>
-                <ToolbarPageTitle className="text-lg sm:text-xl">Malzeme kütüphanesi (CPV)</ToolbarPageTitle>
+                <ToolbarPageTitle className="text-lg sm:text-xl">Malzeme kütüphanesi (Hesap Planı)</ToolbarPageTitle>
                 <ToolbarDescription>
-                  Okul genelinde tekrar kullanılabilir kalem şablonları. Ortak Kamu Alımları Sözlüğü ile 9449 CPV kodunu tek
-                  tıkla ekleyebilirsiniz; mevcut kodlar atlanır.
+                  Okul genelinde tekrar kullanılabilir kalem şablonları. Hesap planı listesini tek tıkla yükleyebilirsiniz.
                 </ToolbarDescription>
               </ToolbarHeading>
               <div className="flex flex-wrap gap-2">
                 <Button className="h-9 gap-1.5" disabled={!canFetch || busy} variant="secondary" onClick={() => void seedCatalog()}>
-                  Ortak Kamu sözlüğünü yükle
+                  Hesap planını yükle
                 </Button>
                 <Button className="h-9 gap-1.5" disabled={!canFetch || busy} variant="outline" onClick={() => setShowNewItemDialog(true)}>
                   <Plus className="size-4" />
@@ -295,12 +293,12 @@ export default function DtMaterialLibraryPage() {
       <div className="flex gap-2 rounded-xl border border-emerald-200/45 bg-emerald-500/8 p-3 dark:border-emerald-500/20 dark:bg-emerald-950/25">
         <Info className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-300" aria-hidden />
         <p className="text-[11px] leading-relaxed text-emerald-950/90 dark:text-emerald-50/90">
-          <span className="font-semibold text-foreground">İpucu:</span> CPV kodu ile arama yapın; listeyi sayfa sayfa yükleyin.
+          <span className="font-semibold text-foreground">İpucu:</span> Hesap kodu ile arama yapın; listeyi sayfa sayfa yükleyin.
           Doğrudan temin dosyasına aktarım şimdilik manuel (kopyala-yapıştır) ile yapılabilir.
         </p>
       </div>
 
-      {error && <Alert message={error} />}
+      {loadBanner ? <Alert variant={loadBanner.variant} message={loadBanner.message} /> : null}
 
       {!canFetch ? (
         <Alert variant="info" message={isSuperadmin ? 'Önce okul seçin.' : 'Oturum yükleniyor…'} />

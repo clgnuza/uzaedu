@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -18,6 +18,7 @@ import { ToolbarHeading, ToolbarPageTitle, ToolbarDescription } from '@/componen
 import { DtInfoHint } from '@/components/dogrudan-temin/dt-info-hint';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { DT_INPUT_SM, DT_LEGAL_NOTICE } from '@/lib/dt-ui';
+import { dtReadonlyLoadFeedback, type DtReadonlyLoadBanner } from '@/lib/dt-readonly-load-error';
 import { cn } from '@/lib/utils';
 
 type RegistrySummaryRow = {
@@ -103,8 +104,18 @@ export default function DtReportsPage() {
   const [includeArchived, setIncludeArchived] = useState(false);
   const [busy, setBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loadBanner, setLoadBanner] = useState<DtReadonlyLoadBanner | null>(null);
   const [data, setData] = useState<RegistryPayload | null>(null);
+
+  useEffect(() => {
+    const el = document.createElement('style');
+    el.setAttribute('data-dt-registry-rapor-print', '');
+    el.textContent = '@page { size: A4 landscape; margin: 10mm; }';
+    document.head.appendChild(el);
+    return () => {
+      el.remove();
+    };
+  }, []);
 
   const setSchool = useCallback(
     (sid: string) => {
@@ -129,13 +140,13 @@ export default function DtReportsPage() {
     if (!token) return;
     if (isSuperadmin && !schoolId) return;
     setPreviewBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       const path = `/dogrudan-temin/reports/registry?${buildQs().toString()}`;
       const res = await apiFetch<RegistryPayload>(dtUrl(path, me?.role, schoolId), { token });
       setData(res);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
       setData(null);
     } finally {
       setPreviewBusy(false);
@@ -146,13 +157,13 @@ export default function DtReportsPage() {
     if (!token) return;
     if (isSuperadmin && !schoolId) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       const path = `/dogrudan-temin/reports/registry.xlsx?${buildQs().toString()}`;
       const res = await apiFetch<{ download_url: string }>(dtUrl(path, me?.role, schoolId), { token });
       if (res?.download_url) window.open(res.download_url, '_blank', 'noopener,noreferrer');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -221,7 +232,7 @@ export default function DtReportsPage() {
             <DtInfoHint title="Önce önizleme ile rakamları kontrol edin; ardından XLSX indirin." />
           </div>
 
-          {error ? <Alert message={error} /> : null}
+          {loadBanner ? <Alert variant={loadBanner.variant} message={loadBanner.message} /> : null}
 
           <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end">
             <div className="grid w-full min-w-0 grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end">

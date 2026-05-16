@@ -51,6 +51,12 @@ trust_debug.txt
 yolluk2026.xls
 backend/test.txt
 backend/_*.html
+backend/hesap_plani.csv
+hesap_plani.csv
+convert_excel.py
+gen_sql.py
+gen_full_sql.py
+backend/load-materials.js
 
 # Flutter (proje eklendiğinde kullan)
 # .dart_tool/

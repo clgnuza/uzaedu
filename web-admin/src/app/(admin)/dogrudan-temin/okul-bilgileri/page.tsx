@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import type { Me } from '@/providers/auth-provider';
 import { apiFetch } from '@/lib/api';
+import { dtReadonlyLoadFeedback, type DtReadonlyLoadBanner } from '@/lib/dt-readonly-load-error';
 import { dtUrl } from '@/lib/dt-url';
 import { ToolbarHeading, ToolbarPageTitle, ToolbarDescription } from '@/components/layout/toolbar';
 import { Card, CardContent } from '@/components/ui/card';
@@ -125,7 +126,7 @@ export default function DtOkulBilgileriPage() {
   );
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadBanner, setLoadBanner] = useState<DtReadonlyLoadBanner | null>(null);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<FormState>({
     header_line2: '',
@@ -156,7 +157,7 @@ export default function DtOkulBilgileriPage() {
       return;
     }
     setLoading(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       const row = await apiFetch<DtSchoolSettings>(dtUrl('/dogrudan-temin/school-settings', me?.role, schoolId), { token });
       let next = mapApiToForm(row);
@@ -165,7 +166,7 @@ export default function DtOkulBilgileriPage() {
       }
       setForm(next);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Yüklenemedi');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setLoading(false);
     }
@@ -280,7 +281,7 @@ export default function DtOkulBilgileriPage() {
         </p>
       </div>
 
-      {error ? <Alert message={error} /> : null}
+      {loadBanner ? <Alert variant={loadBanner.variant} message={loadBanner.message} /> : null}
       {loading ? <LoadingSpinner label="Ayarlar yükleniyor…" className="py-12 text-xs" /> : null}
 
       {!loading && (!isSuperadmin || schoolId) ? (

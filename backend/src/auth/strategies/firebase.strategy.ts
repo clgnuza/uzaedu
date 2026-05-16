@@ -3,7 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-custom';
 import { Request } from 'express';
 import * as admin from 'firebase-admin';
-import { AuthService } from '../auth.service';
+import { AuthService } from '../auth.service.js';
 import { User } from '../../users/entities/user.entity';
 import { AUTH_COOKIE_NAME } from '../auth-cookie';
 import { UserRole } from '../../types/enums';

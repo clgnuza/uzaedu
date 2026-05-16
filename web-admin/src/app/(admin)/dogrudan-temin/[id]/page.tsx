@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from 'react';
 import { cn } from '@/lib/utils';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, isAbortError } from '@/lib/api';
+import { dtReadonlyLoadFeedback, type DtReadonlyLoadBanner } from '@/lib/dt-readonly-load-error';
 import { dtUrl } from '@/lib/dt-url';
 import { Toolbar, ToolbarActions, ToolbarHeading, ToolbarPageTitle } from '@/components/layout/toolbar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,9 +15,13 @@ import { Alert } from '@/components/ui/alert';
 import { ForbiddenView } from '@/components/errors/forbidden-view';
 import {
   ClipboardList,
+  CheckCircle2,
   ChevronLeft,
   Copy,
+  ArchiveRestore,
+  Link2,
   FileDown,
+  Search,
   Sparkles,
   Archive,
   FolderArchive,
@@ -32,28 +37,34 @@ import {
   Library,
   Pencil,
   Trash2,
+  Info,
+  UserPlus,
   type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SchoolSelectWithFilter } from '@/components/school-select-with-filter';
+import { DtSozlesmeBodyEditor } from '@/components/dogrudan-temin/dt-sozlesme-body-editor';
 import {
   DT_DETAIL_TABS,
   DT_INPUT_SM,
   DT_ITEM_UNIT_PRESETS,
   DT_LEGAL_NOTICE,
   DT_SECTION_HINTS,
+  DT_SELECT_SM,
   DT_TEXTAREA_SM,
   DT_UNIT_SELECT_CUSTOM,
   type DtDetailTabId,
+  dtBudgetBlockStatusHint,
   dtBudgetBlockStatusLabel,
   dtDocTypeLabel,
   dtFileStatusBadgeClass,
   dtFileStatusLabel,
   dtFormatNumberTr,
   dtParseAmount,
+  dtFormatAmountTr2,
   dtQuoteStatusChipClass,
   dtQuoteStatusHint,
   dtQuoteStatusLabel,
@@ -76,6 +87,43 @@ type DtFileItem = {
   paymentTotal: string | null;
   procurementRef?: string | null;
   archivedAt?: string | null;
+};
+
+type DtTeknikSartnameTableRow = { id: string; name: string; spec: string };
+type DtTeknikSartnameDraft = {
+  version: 1;
+  schoolLine: string;
+  docTitle: string;
+  s1_title: string;
+  s1_1: string;
+  s2_title: string;
+  s2_idare: string;
+  s2_firma: string;
+  s3_title: string;
+  s3_1: string;
+  s4_title: string;
+  s4_jobName: string;
+  s5_title: string;
+  s5_bullets: string[];
+  tableTitle: string;
+  tableRows: DtTeknikSartnameTableRow[];
+  s6_title: string;
+  s6_body: string;
+  s7_title: string;
+  s7_1: string;
+  s7_2: string;
+  s7_3: string;
+  documentDate: string | null;
+  firmSignCaption: string;
+  schoolStampLine: string;
+  schoolTitleLine: string;
+  schoolRoleLine: string;
+};
+
+type DtSozlesmeDraftRes = {
+  vendor_id: string;
+  body_html: string;
+  default_html: string;
 };
 
 type DtItem = {
@@ -105,6 +153,81 @@ function normalizeQuotePurpose(p: string | null | undefined): 'bid' | 'market_re
   return p === 'market_research' ? 'market_research' : 'bid';
 }
 
+type PiyasaArastirmaPreview = {
+  file: { id: string; subject: string; procurement_ref: string | null; year: number; file_no: string };
+  school_name: string | null;
+  onay: { tarih: string; sayi: string };
+  items: Array<{ id: string; name: string; spec: string; qty: string; unit: string }>;
+  firms: Array<{
+    index: number;
+    quote_id: string;
+    vendor_id: string;
+    firm_label: string;
+    vendor_title: string;
+    complete: boolean;
+    total: number | null;
+    total_formatted: string | null;
+    lines: Array<{
+      dt_item_id: string;
+      unit_price: number | null;
+      unit_price_formatted: string | null;
+      line_total: number | null;
+      line_total_formatted: string | null;
+    }>;
+  }>;
+  selected: {
+    quote_id: string;
+    vendor_id: string;
+    vendor_title: string;
+    address: string;
+    total: number;
+    total_formatted: string;
+    complete: boolean;
+  } | null;
+  selection_basis: string | null;
+  warnings: string[];
+};
+
+type YaklasikMaliyetPreview = {
+  file: { id: string; subject: string; procurement_ref: string | null; year: number; file_no: string };
+  school_name: string | null;
+  düzenleme_tarih: string;
+  hesaplama_yöntemi: string;
+  firms: Array<{
+    index: number;
+    letter: string;
+    quote_id: string;
+    vendor_id: string;
+    firm_label: string;
+    vendor_title: string;
+    complete: boolean;
+    total: number | null;
+    total_formatted: string | null;
+  }>;
+  items: Array<{
+    sort: number;
+    id: string;
+    name: string;
+    spec: string;
+    qty: string;
+    unit: string;
+    avg_unit: number | null;
+    avg_line: number | null;
+    avg_unit_formatted: string | null;
+    avg_line_formatted: string | null;
+    firm_lines: Array<{
+      quote_id: string;
+      unit_price: number | null;
+      unit_price_formatted: string | null;
+      line_total: number | null;
+      line_total_formatted: string | null;
+    }>;
+  }>;
+  grand_approx_total: number;
+  grand_approx_formatted: string;
+  warnings: string[];
+};
+
 /** Firma bazlı sabit pastel kart (aynı vendorId her zaman aynı ton). */
 function vendorQuoteCardShell(vendorId: string): string {
   const shells = [
@@ -118,6 +241,14 @@ function vendorQuoteCardShell(vendorId: string): string {
   let h = 0;
   for (let i = 0; i < vendorId.length; i++) h = (h * 31 + vendorId.charCodeAt(i)) >>> 0;
   return `${shells[h % shells.length]} space-y-2 p-3`;
+}
+
+function newDtTeknikRowId(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
 }
 
 function DtItemUnitSelect({ value, onChange }: { value: string; onChange: (u: string) => void }) {
@@ -166,6 +297,13 @@ function DtItemUnitSelect({ value, onChange }: { value: string; onChange: (u: st
   );
 }
 type DocItem = { id: string; docType: string; fileFormat: string; filename: string; createdAt: string };
+
+function formatDtDocCreatedAt(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '—';
+  return new Date(t).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' });
+}
 type BudgetAccount = {
   id: string;
   year: number;
@@ -185,6 +323,36 @@ type BudgetBlock = {
   releasedAt: string | null;
 };
 
+function dtBudgetBlockActive(status: string | null | undefined): boolean {
+  return String(status ?? '').trim().toLowerCase() === 'blocked';
+}
+
+function dtBudgetBlockReleased(status: string | null | undefined): boolean {
+  return String(status ?? '').trim().toLowerCase() === 'released';
+}
+
+function mapBudgetBlockFromApi(raw: unknown): BudgetBlock {
+  const r = raw as Record<string, unknown>;
+  const statusRaw = r.status;
+  const status = typeof statusRaw === 'string' ? statusRaw : String(statusRaw ?? '');
+  return {
+    id: String(r.id ?? ''),
+    budgetAccountId: String(r.budgetAccountId ?? r.budget_account_id ?? ''),
+    amount: String(r.amount ?? ''),
+    status,
+    blockedAt: (() => {
+      const v = r.blockedAt ?? r.blocked_at;
+      return v != null ? String(v) : '';
+    })(),
+    releasedAt: (() => {
+      const v = r.releasedAt ?? r.released_at;
+      if (v == null) return null;
+      const s = String(v).trim();
+      return s ? s : null;
+    })(),
+  };
+}
+
 type DtRules = {
   require_award_before_payment: boolean;
   require_budget_account_on_file: boolean;
@@ -202,6 +370,13 @@ type DtPaymentRow = {
   referenceNo: string | null;
 };
 
+function dtPaymentDateInput(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
+}
+
 type DtAcceptanceCommission = {
   id: string;
   chairmanUserId: string | null;
@@ -214,7 +389,27 @@ type DtAcceptanceCommissionMember = {
   title: string | null;
 };
 
-type CommissionTeacherOption = { id: string; display_name?: string | null; email?: string | null };
+type CommissionTeacherOption = { id: string; display_name?: string | null; email?: string | null; unvan?: string | null };
+
+const COMMISSION_KIND_LABELS: Record<'yaklasik_maliyet' | 'piyasa_satinalma' | 'muayene_kabul', string> = {
+  yaklasik_maliyet: 'Yaklaşık maliyet',
+  piyasa_satinalma: 'Piyasa / satın alma',
+  muayene_kabul: 'Muayene / kabul',
+};
+
+/** Toplu PDF (ZIP) — sıra ve etiketler kurum şablon ekranıyla uyumlu. */
+const DT_BULK_ARCHIVE_UI: Array<{ doc_type: string; label: string; needsVendor: boolean }> = [
+  { doc_type: 'ihtiyac_listesi', label: '1-İhtiyaç Listesi Belgesi', needsVendor: false },
+  { doc_type: 'teknik_sartname', label: '2-Teknik Şartname', needsVendor: false },
+  { doc_type: 'komisyon_onay', label: '3-Komisyon Onay Belgesi', needsVendor: false },
+  { doc_type: 'fiyat_arastirmasi', label: '4-Fiyat Araştırma', needsVendor: true },
+  { doc_type: 'yaklasik_maliyet_cetveli', label: '5-Yaklaşık Maliyet Belgesi', needsVendor: false },
+  { doc_type: 'onay_belgesi', label: '6-İhale Onay Belgesi', needsVendor: false },
+  { doc_type: 'teklif_isteme', label: '7-Teklif Mektubu', needsVendor: true },
+  { doc_type: 'piyasa_arastirma_tutanagi', label: '8-Piyasa Araştırma Belgesi', needsVendor: false },
+  { doc_type: 'muayene_kabul_tutanagi', label: '9-Muayene Kabul Kom. Raporu', needsVendor: false },
+  { doc_type: 'teslim_tesellum_tutanagi', label: '10-Teslim/Tesellüm', needsVendor: false },
+];
 
 type RegistryEntry = {
   stage: string;
@@ -242,16 +437,22 @@ export default function DtFileDetailPage() {
   const ok = isSuperadmin || enabled === null || enabled.length === 0 || enabled.includes('dogrudan_temin');
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadBanner, setLoadBanner] = useState<DtReadonlyLoadBanner | null>(null);
   const [file, setFile] = useState<DtFileItem | null>(null);
   const [items, setItems] = useState<DtItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
+  /** null → mevcut sayfa dosyası (`id`); doluysa arşiv satırından kopyalanan kaynak. */
+  const [copySourceId, setCopySourceId] = useState<string | null>(null);
   const [copyForm, setCopyForm] = useState({ target_year: '', file_no: '' });
+  const [confirmDeleteFileId, setConfirmDeleteFileId] = useState<string | null>(null);
   const [vendors, setVendors] = useState<VendorItem[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [quoteOpen, setQuoteOpen] = useState(false);
+  const [deleteQuoteId, setDeleteQuoteId] = useState<string | null>(null);
+  const [selectedQuoteIds, setSelectedQuoteIds] = useState<string[]>([]);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [quoteVendorId, setQuoteVendorId] = useState('');
   const [quoteItems, setQuoteItems] = useState<Record<string, QuoteItem[]>>({});
   const quoteItemsLoadedRef = useRef<Set<string>>(new Set());
@@ -265,6 +466,24 @@ export default function DtFileDetailPage() {
   const [docs, setDocs] = useState<DocItem[]>([]);
   const [docVendorId, setDocVendorId] = useState('');
   const [docFormat, setDocFormat] = useState<'docx' | 'pdf'>('docx');
+  const [bulkArchiveOpen, setBulkArchiveOpen] = useState(false);
+  const [bulkArchiveSel, setBulkArchiveSel] = useState<Record<string, boolean>>({});
+  const [piyasaPreviewOpen, setPiyasaPreviewOpen] = useState(false);
+  const [piyasaPreviewLoading, setPiyasaPreviewLoading] = useState(false);
+  const [piyasaPreview, setPiyasaPreview] = useState<PiyasaArastirmaPreview | null>(null);
+  const [yaklasikPreviewOpen, setYaklasikPreviewOpen] = useState(false);
+  const [yaklasikPreviewLoading, setYaklasikPreviewLoading] = useState(false);
+  const [yaklasikPreview, setYaklasikPreview] = useState<YaklasikMaliyetPreview | null>(null);
+  const [teknikSartnameOpen, setTeknikSartnameOpen] = useState(false);
+  const [teknikSartnameLoading, setTeknikSartnameLoading] = useState(false);
+  const [teknikSartnameSaving, setTeknikSartnameSaving] = useState(false);
+  const [teknikDraft, setTeknikDraft] = useState<DtTeknikSartnameDraft | null>(null);
+  const [sozlesmeOpen, setSozlesmeOpen] = useState(false);
+  const [sozlesmeLoading, setSozlesmeLoading] = useState(false);
+  const [sozlesmeSaving, setSozlesmeSaving] = useState(false);
+  const [sozlesmeBodyHtml, setSozlesmeBodyHtml] = useState('');
+  const [sozlesmeDefaultHtml, setSozlesmeDefaultHtml] = useState('');
+  const [sozlesmeEditorKey, setSozlesmeEditorKey] = useState(0);
   const [registryEntries, setRegistryEntries] = useState<RegistryEntry[]>([]);
   const [registryDraft, setRegistryDraft] = useState<
     Record<string, { doc_date: string; number_prefix: string; number_suffix: string; meta: { karar_no?: string } }>
@@ -273,8 +492,20 @@ export default function DtFileDetailPage() {
   const [budgetAccounts, setBudgetAccounts] = useState<BudgetAccount[]>([]);
   const [budgetBlocks, setBudgetBlocks] = useState<BudgetBlock[]>([]);
   const [budgetForm, setBudgetForm] = useState({ budget_account_id: '', amount: '' });
+  const [budgetBlockEditOpen, setBudgetBlockEditOpen] = useState(false);
+  const [budgetBlockEditId, setBudgetBlockEditId] = useState<string | null>(null);
+  const [budgetBlockEditAmount, setBudgetBlockEditAmount] = useState('');
   const [dtRules, setDtRules] = useState<DtRules | null>(null);
   const [payments, setPayments] = useState<DtPaymentRow[]>([]);
+  const [paymentEditOpen, setPaymentEditOpen] = useState(false);
+  const [paymentEditId, setPaymentEditId] = useState<string | null>(null);
+  const [paymentEditForm, setPaymentEditForm] = useState({
+    amount: '',
+    quote_id: '',
+    note: '',
+    reference_no: '',
+    paid_at: '',
+  });
   const [paymentForm, setPaymentForm] = useState({
     amount: '',
     quote_id: '',
@@ -317,9 +548,13 @@ export default function DtFileDetailPage() {
     member_title: '',
     apply_all_kinds: true,
   });
-  const [commissionDialogOpen, setCommissionDialogOpen] = useState(false);
+  const [commissionCreateDialogOpen, setCommissionCreateDialogOpen] = useState(false);
+  const [commissionMemberDialogOpen, setCommissionMemberDialogOpen] = useState(false);
+  const [commissionChairmanDialogOpen, setCommissionChairmanDialogOpen] = useState(false);
+  const [commissionTeacherQuery, setCommissionTeacherQuery] = useState('');
   const [commissionKind, setCommissionKind] = useState<'muayene_kabul' | 'yaklasik_maliyet' | 'piyasa_satinalma'>('muayene_kabul');
   const [procurementRefDraft, setProcurementRefDraft] = useState('');
+  const [fileBudgetAccountDraft, setFileBudgetAccountDraft] = useState('');
   const [quotePurpose, setQuotePurpose] = useState<'bid' | 'market_research'>('bid');
   const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(false);
   const [confirmReleaseAllOpen, setConfirmReleaseAllOpen] = useState(false);
@@ -354,7 +589,7 @@ export default function DtFileDetailPage() {
   const fetchAll = useCallback(async () => {
     if (!canFetch) return;
     setLoading(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       const [f, it, v, q, d, rulesRes, payRes, commRes, regRes, settingsRes, commAllRes] = await Promise.all([
         apiFetch<DtFileItem>(dtUrl(`/dogrudan-temin/files/${id}`, me?.role, schoolId), { token: token! }),
@@ -425,9 +660,9 @@ export default function DtFileDetailPage() {
         apiFetch<{ items: BudgetBlock[] }>(dtUrl(`/dogrudan-temin/files/${id}/budget/blocks`, me?.role, schoolId), { token: token! }),
       ]);
       setBudgetAccounts(bud.items ?? []);
-      setBudgetBlocks(bl.items ?? []);
+      setBudgetBlocks((bl.items ?? []).map((x) => mapBudgetBlockFromApi(x)));
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Yüklenemedi');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setLoading(false);
     }
@@ -456,40 +691,127 @@ export default function DtFileDetailPage() {
 
   const blockBudget = useCallback(async () => {
     if (!token) return;
-    if (isSuperadmin && !schoolId) return;
+    if (isSuperadmin && !schoolId) {
+      toast.error('Okul seçin.');
+      return;
+    }
     if (!budgetForm.budget_account_id) {
       toast.error('Önce bütçe hesabı seçin.');
       return;
     }
     const amt = dtParseAmount(budgetForm.amount);
     if (!budgetForm.amount.trim() || amt == null || amt <= 0) {
-      toast.error('Bloke tutarı pozitif bir sayı olmalı.');
+      toast.error('Tutar pozitif bir sayı olmalı.');
       return;
     }
+    const accPick = budgetAccounts.find((a) => a.id === budgetForm.budget_account_id);
+    if (accPick) {
+      const alloc = dtParseAmount(accPick.allocated) ?? 0;
+      const blocked = dtParseAmount(accPick.blocked) ?? 0;
+      const spent = dtParseAmount(accPick.spent) ?? 0;
+      const available = Math.max(0, alloc - blocked - spent);
+      if (amt > available + 1e-9) {
+        toast.error(`Kullanılabilir tutar en fazla ${dtFormatNumberTr(available)} ₺.`);
+        return;
+      }
+    }
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/budget/block`, me?.role, schoolId), {
         token,
         method: 'POST',
-        body: JSON.stringify({ budget_account_id: budgetForm.budget_account_id, amount: budgetForm.amount }),
+        body: JSON.stringify({ budget_account_id: budgetForm.budget_account_id, amount: dtFormatAmountTr2(amt) }),
       });
       setBudgetForm({ budget_account_id: budgetForm.budget_account_id, amount: '' });
       toast.success('Bütçe bloke edildi.');
       await fetchAll();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
-  }, [budgetForm.amount, budgetForm.budget_account_id, fetchAll, id, isSuperadmin, me?.role, schoolId, token]);
+  }, [budgetAccounts, budgetForm.amount, budgetForm.budget_account_id, fetchAll, id, isSuperadmin, me?.role, schoolId, token]);
+
+  const saveBudgetBlockEdit = useCallback(async () => {
+    if (!token || !budgetBlockEditId) return;
+    if (isSuperadmin && !schoolId) {
+      toast.error('Okul seçin.');
+      return;
+    }
+    const payAmt = dtParseAmount(budgetBlockEditAmount);
+    if (!budgetBlockEditAmount.trim() || payAmt == null || payAmt <= 0) {
+      toast.error('Tutar pozitif bir sayı olmalı.');
+      return;
+    }
+    setBusy(true);
+    setLoadBanner(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/budget/blocks/${budgetBlockEditId}`, me?.role, schoolId), {
+        token,
+        method: 'PATCH',
+        body: JSON.stringify({ amount: dtFormatAmountTr2(payAmt) }),
+      });
+      setBudgetBlockEditOpen(false);
+      setBudgetBlockEditId(null);
+      setBudgetBlockEditAmount('');
+      toast.success('Blokaj güncellendi.');
+      await fetchAll();
+    } catch (e) {
+      setLoadBanner(dtReadonlyLoadFeedback(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [budgetBlockEditAmount, budgetBlockEditId, fetchAll, id, isSuperadmin, me?.role, schoolId, token]);
+
+  const deleteBudgetBlockRow = useCallback(
+    async (b: BudgetBlock) => {
+      if (!token) return;
+      if (isSuperadmin && !schoolId) {
+        toast.error('Okul seçin.');
+        return;
+      }
+      const active = dtBudgetBlockActive(b.status);
+      const released = dtBudgetBlockReleased(b.status);
+      if (!active && !released) {
+        toast.error('Bu kayıt için işlem yapılamıyor.');
+        return;
+      }
+      if (active) {
+        if (!confirm('Blokaj kaldırılsın mı? Tutar hesapta tekrar kullanılabilir olur.')) return;
+      } else {
+        if (!confirm('Bu geçmiş kaydı listeden silinsin mi? (Ödenek/bloke bakiyesi zaten güncel.)')) return;
+      }
+      setBusy(true);
+      setLoadBanner(null);
+      try {
+        const res = await apiFetch<{ purged?: boolean }>(
+          dtUrl(`/dogrudan-temin/files/${id}/budget/blocks/${b.id}`, me?.role, schoolId),
+          {
+            token,
+            method: 'DELETE',
+          },
+        );
+        toast.success(res?.purged ? 'Kayıt silindi.' : 'Blokaj kaldırıldı.');
+        await fetchAll();
+      } catch (e) {
+        setLoadBanner(dtReadonlyLoadFeedback(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [fetchAll, id, isSuperadmin, me?.role, schoolId, token],
+  );
 
   const releaseBudget = useCallback(
     async (block_id?: string) => {
       if (!token) return;
-      if (isSuperadmin && !schoolId) return;
+      if (isSuperadmin && !schoolId) {
+        toast.error('Okul seçin.');
+        return;
+      }
       setBusy(true);
-      setError(null);
+      setLoadBanner(null);
       try {
         await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/budget/release`, me?.role, schoolId), {
           token,
@@ -500,7 +822,7 @@ export default function DtFileDetailPage() {
         if (block_id) toast.success('Blokaj kaldırıldı.');
         else toast.success('Tüm blokeler kaldırıldı.');
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Hata');
+        setLoadBanner(dtReadonlyLoadFeedback(e));
       } finally {
         setBusy(false);
       }
@@ -513,6 +835,10 @@ export default function DtFileDetailPage() {
   }, [fetchAll]);
 
   useEffect(() => {
+    setSelectedQuoteIds((prev) => prev.filter((qid) => quotes.some((q) => q.id === qid)));
+  }, [quotes]);
+
+  useEffect(() => {
     const w = String(searchParams.get('wizard') ?? '').trim().toLowerCase();
     if (w === '1' || w === 'true' || w === 'yes') setWizardOpen(true);
   }, [searchParams]);
@@ -520,6 +846,17 @@ export default function DtFileDetailPage() {
   useEffect(() => {
     if (file?.id) setProcurementRefDraft(String(file.procurementRef ?? '').trim());
   }, [file?.id, file?.procurementRef]);
+
+  useEffect(() => {
+    if (file?.id) setFileBudgetAccountDraft(file.budgetAccountId ?? '');
+  }, [file?.id, file?.budgetAccountId]);
+
+  useEffect(() => {
+    setDocVendorId((prev) => {
+      if (prev && vendors.some((v) => v.id === prev)) return prev;
+      return '';
+    });
+  }, [vendors]);
 
   useEffect(() => {
     if (!token) return;
@@ -543,7 +880,7 @@ export default function DtFileDetailPage() {
     if (!token) return;
     if (isSuperadmin && !schoolId) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/awards/auto`, me?.role, schoolId), {
         token,
@@ -553,7 +890,7 @@ export default function DtFileDetailPage() {
       await fetchAll();
       toast.success('Otomatik karar uygulandı (kalem bazında en düşük teklif).');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -564,7 +901,7 @@ export default function DtFileDetailPage() {
       if (!token) return;
       if (isSuperadmin && !schoolId) return;
       setBusy(true);
-      setError(null);
+      setLoadBanner(null);
       try {
         const res = await apiFetch<{ download_url: string }>(dtUrl(`/dogrudan-temin/files/${id}/docs/generate`, me?.role, schoolId), {
           token,
@@ -574,7 +911,7 @@ export default function DtFileDetailPage() {
         if (res?.download_url) window.open(res.download_url, '_blank', 'noopener,noreferrer');
         await fetchAll();
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Hata');
+        setLoadBanner(dtReadonlyLoadFeedback(e));
       } finally {
         setBusy(false);
       }
@@ -582,17 +919,306 @@ export default function DtFileDetailPage() {
     [docFormat, fetchAll, id, isSuperadmin, me?.role, schoolId, token],
   );
 
+  const downloadBulkPdfArchive = useCallback(async () => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    const items = DT_BULK_ARCHIVE_UI.filter((x) => bulkArchiveSel[x.doc_type]).map((x) => ({
+      doc_type: x.doc_type,
+      ...(x.needsVendor && docVendorId.trim() ? { vendor_id: docVendorId.trim() } : {}),
+    }));
+    if (!items.length) {
+      toast.error('En az bir belge seçin.');
+      return;
+    }
+    // Firma seçimi opsiyonel: seçilmezse şablonda boş alanlarla üretilir.
+    setBusy(true);
+    setLoadBanner(null);
+    try {
+      const res = await apiFetch<{ download_url: string }>(
+        dtUrl(`/dogrudan-temin/files/${id}/docs/bulk-archive`, me?.role, schoolId),
+        {
+          token,
+          method: 'POST',
+          body: JSON.stringify({
+            items,
+            default_vendor_id: docVendorId.trim() || null,
+            archive_format: 'zip',
+          }),
+        },
+      );
+      if (res?.download_url) window.open(res.download_url, '_blank', 'noopener,noreferrer');
+      setBulkArchiveOpen(false);
+      toast.success('ZIP indirmesi başlatıldı.');
+    } catch (e) {
+      setLoadBanner(dtReadonlyLoadFeedback(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [bulkArchiveSel, docVendorId, id, isSuperadmin, me?.role, schoolId, token]);
+
+  const generateTeknikSartnamePdf = useCallback(
+    async () => {
+      if (!token) return;
+      if (isSuperadmin && !schoolId) return;
+      setBusy(true);
+      setLoadBanner(null);
+      try {
+        const res = await apiFetch<{ download_url: string }>(dtUrl(`/dogrudan-temin/files/${id}/docs/generate`, me?.role, schoolId), {
+          token,
+          method: 'POST',
+          body: JSON.stringify({ doc_type: 'teknik_sartname', file_format: 'pdf' }),
+        });
+        if (res?.download_url) window.open(res.download_url, '_blank', 'noopener,noreferrer');
+        await fetchAll();
+      } catch (e) {
+        setLoadBanner(dtReadonlyLoadFeedback(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [fetchAll, id, isSuperadmin, me?.role, schoolId, token],
+  );
+
+  const saveTeknikSartnameDraft = useCallback(async () => {
+    if (!token || !teknikDraft) return;
+    if (isSuperadmin && !schoolId) return;
+    setTeknikSartnameSaving(true);
+    setLoadBanner(null);
+    try {
+      const res = await apiFetch<{ draft: DtTeknikSartnameDraft }>(
+        dtUrl(`/dogrudan-temin/files/${id}/teknik-sartname-draft`, me?.role, schoolId),
+        { token, method: 'PUT', body: JSON.stringify({ draft: teknikDraft }) },
+      );
+      setTeknikDraft(res.draft);
+      toast.success('Teknik şartname kaydedildi.');
+    } catch (e) {
+      setLoadBanner(dtReadonlyLoadFeedback(e));
+    } finally {
+      setTeknikSartnameSaving(false);
+    }
+  }, [id, isSuperadmin, me?.role, schoolId, teknikDraft, token]);
+
+  const saveSozlesmeDraft = useCallback(async () => {
+    const vid = docVendorId.trim();
+    if (!token || !vid) return;
+    if (isSuperadmin && !schoolId) return;
+    setSozlesmeSaving(true);
+    setLoadBanner(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/sozlesme-draft`, me?.role, schoolId), {
+        token,
+        method: 'PUT',
+        body: JSON.stringify({ vendor_id: vid, body_html: sozlesmeBodyHtml }),
+      });
+      toast.success('Sözleşme taslağı kaydedildi.');
+    } catch (e) {
+      setLoadBanner(dtReadonlyLoadFeedback(e));
+    } finally {
+      setSozlesmeSaving(false);
+    }
+  }, [docVendorId, id, isSuperadmin, me?.role, schoolId, sozlesmeBodyHtml, token]);
+
+  const generateSozlesmeDoc = useCallback(
+    async (file_format: 'docx' | 'pdf') => {
+      const vid = docVendorId.trim();
+      if (!token || !vid) return;
+      if (isSuperadmin && !schoolId) return;
+      setBusy(true);
+      setLoadBanner(null);
+      try {
+        const res = await apiFetch<{ download_url: string }>(
+          dtUrl(`/dogrudan-temin/files/${id}/docs/generate`, me?.role, schoolId),
+          {
+            token,
+            method: 'POST',
+            body: JSON.stringify({ doc_type: 'sozlesme', file_format, vendor_id: vid }),
+          },
+        );
+        if (res?.download_url) window.open(res.download_url, '_blank', 'noopener,noreferrer');
+        await fetchAll();
+      } catch (e) {
+        setLoadBanner(dtReadonlyLoadFeedback(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [docVendorId, fetchAll, id, isSuperadmin, me?.role, schoolId, token],
+  );
+
+  const downloadPiyasaTutanagi = useCallback(
+    async (file_format: 'pdf' | 'docx') => {
+      if (!token) return;
+      if (isSuperadmin && !schoolId) return;
+      setBusy(true);
+      setLoadBanner(null);
+      try {
+        const res = await apiFetch<{ download_url: string }>(dtUrl(`/dogrudan-temin/files/${id}/docs/generate`, me?.role, schoolId), {
+          token,
+          method: 'POST',
+          body: JSON.stringify({ doc_type: 'piyasa_arastirma_tutanagi', file_format }),
+        });
+        if (res?.download_url) window.open(res.download_url, '_blank', 'noopener,noreferrer');
+        await fetchAll();
+      } catch (e) {
+        setLoadBanner(dtReadonlyLoadFeedback(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [fetchAll, id, isSuperadmin, me?.role, schoolId, token],
+  );
+
+  useEffect(() => {
+    if (!piyasaPreviewOpen || !canFetch || !token) return;
+    let cancelled = false;
+    setPiyasaPreview(null);
+    setPiyasaPreviewLoading(true);
+    void (async () => {
+      try {
+        const data = await apiFetch<PiyasaArastirmaPreview>(
+          dtUrl(`/dogrudan-temin/files/${id}/piyasa-arastirma-tutanagi-preview`, me?.role, schoolId),
+          { token },
+        );
+        if (!cancelled) setPiyasaPreview(data);
+      } catch (e) {
+        if (!cancelled && !isAbortError(e)) setLoadBanner(dtReadonlyLoadFeedback(e));
+      } finally {
+        if (!cancelled) setPiyasaPreviewLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [piyasaPreviewOpen, canFetch, id, me?.role, schoolId, token]);
+
+  const downloadYaklasikCetveli = useCallback(
+    async (file_format: 'pdf' | 'docx') => {
+      if (!token) return;
+      if (isSuperadmin && !schoolId) return;
+      setBusy(true);
+      setLoadBanner(null);
+      try {
+        const res = await apiFetch<{ download_url: string }>(dtUrl(`/dogrudan-temin/files/${id}/docs/generate`, me?.role, schoolId), {
+          token,
+          method: 'POST',
+          body: JSON.stringify({ doc_type: 'yaklasik_maliyet_cetveli', file_format }),
+        });
+        if (res?.download_url) window.open(res.download_url, '_blank', 'noopener,noreferrer');
+        await fetchAll();
+      } catch (e) {
+        setLoadBanner(dtReadonlyLoadFeedback(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [fetchAll, id, isSuperadmin, me?.role, schoolId, token],
+  );
+
+  useEffect(() => {
+    if (!yaklasikPreviewOpen || !canFetch || !token) return;
+    let cancelled = false;
+    setYaklasikPreview(null);
+    setYaklasikPreviewLoading(true);
+    void (async () => {
+      try {
+        const data = await apiFetch<YaklasikMaliyetPreview>(
+          dtUrl(`/dogrudan-temin/files/${id}/yaklasik-maliyet-cetveli-preview`, me?.role, schoolId),
+          { token },
+        );
+        if (!cancelled) setYaklasikPreview(data);
+      } catch (e) {
+        if (!cancelled && !isAbortError(e)) setLoadBanner(dtReadonlyLoadFeedback(e));
+      } finally {
+        if (!cancelled) setYaklasikPreviewLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [yaklasikPreviewOpen, canFetch, id, me?.role, schoolId, token]);
+
+  useEffect(() => {
+    if (!teknikSartnameOpen || !canFetch || !token) return;
+    let cancelled = false;
+    setTeknikDraft(null);
+    setTeknikSartnameLoading(true);
+    void (async () => {
+      try {
+        const data = await apiFetch<{ draft: DtTeknikSartnameDraft }>(
+          dtUrl(`/dogrudan-temin/files/${id}/teknik-sartname-draft`, me?.role, schoolId),
+          { token },
+        );
+        if (!cancelled) setTeknikDraft(data.draft);
+      } catch (e) {
+        if (!cancelled && !isAbortError(e)) setLoadBanner(dtReadonlyLoadFeedback(e));
+      } finally {
+        if (!cancelled) setTeknikSartnameLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [teknikSartnameOpen, canFetch, id, me?.role, schoolId, token]);
+
+  useEffect(() => {
+    if (!sozlesmeOpen || !canFetch || !token) return;
+    const vid = docVendorId.trim();
+    if (!vid) {
+      setSozlesmeBodyHtml('');
+      setSozlesmeDefaultHtml('');
+      setSozlesmeLoading(false);
+      setSozlesmeEditorKey((k) => k + 1);
+      return;
+    }
+    let cancelled = false;
+    setSozlesmeBodyHtml('');
+    setSozlesmeDefaultHtml('');
+    setSozlesmeLoading(true);
+    void (async () => {
+      try {
+        const u = new URLSearchParams({ vendor_id: vid });
+        const data = await apiFetch<DtSozlesmeDraftRes>(
+          dtUrl(`/dogrudan-temin/files/${id}/sozlesme-draft?${u.toString()}`, me?.role, schoolId),
+          { token },
+        );
+        if (!cancelled) {
+          setSozlesmeBodyHtml(data.body_html);
+          setSozlesmeDefaultHtml(data.default_html);
+          setSozlesmeEditorKey((k) => k + 1);
+        }
+      } catch (e) {
+        if (!cancelled && !isAbortError(e)) setLoadBanner(dtReadonlyLoadFeedback(e));
+      } finally {
+        if (!cancelled) setSozlesmeLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sozlesmeOpen, canFetch, id, me?.role, schoolId, token, docVendorId]);
+
+  useEffect(() => {
+    if (!yaklasikPreviewOpen && !piyasaPreviewOpen) return;
+    const el = document.createElement('style');
+    el.setAttribute('data-dt-cetvel-rapor-print', '');
+    el.textContent = '@page { size: A4 landscape; margin: 10mm; }';
+    document.head.appendChild(el);
+    return () => {
+      el.remove();
+    };
+  }, [yaklasikPreviewOpen, piyasaPreviewOpen]);
+
   const downloadDoc = useCallback(
     async (docId: string) => {
       if (!token) return;
       if (isSuperadmin && !schoolId) return;
       setBusy(true);
-      setError(null);
+      setLoadBanner(null);
       try {
         const res = await apiFetch<{ download_url: string }>(dtUrl(`/dogrudan-temin/docs/${docId}/download`, me?.role, schoolId), { token });
         if (res?.download_url) window.open(res.download_url, '_blank', 'noopener,noreferrer');
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Hata');
+        setLoadBanner(dtReadonlyLoadFeedback(e));
       } finally {
         setBusy(false);
       }
@@ -600,11 +1226,31 @@ export default function DtFileDetailPage() {
     [isSuperadmin, me?.role, schoolId, token],
   );
 
+  const removeGeneratedDoc = useCallback(
+    async (docId: string) => {
+      if (!token) return;
+      if (isSuperadmin && !schoolId) return;
+      if (!confirm('Bu belge kalıcı olarak silinsin mi?')) return;
+      setBusy(true);
+      setLoadBanner(null);
+      try {
+        await apiFetch(dtUrl(`/dogrudan-temin/docs/${docId}`, me?.role, schoolId), { method: 'DELETE', token });
+        toast.success('Belge silindi.');
+        await fetchAll();
+      } catch (e) {
+        setLoadBanner(dtReadonlyLoadFeedback(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [fetchAll, isSuperadmin, me?.role, schoolId, token],
+  );
+
   const addItem = useCallback(async () => {
     if (!token) return;
     if (isSuperadmin && !schoolId) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/items`, me?.role, schoolId), {
         token,
@@ -615,16 +1261,19 @@ export default function DtFileDetailPage() {
           qty: dtStripNumericTrailingZeros(itemForm.qty.trim()) || itemForm.qty.trim(),
           unit: itemForm.unit || null,
           vat_rate: Number(itemForm.vat_rate || 20),
-          estimated_unit_price: itemForm.estimated_unit_price.trim()
-            ? dtStripNumericTrailingZeros(itemForm.estimated_unit_price.trim())
-            : null,
+          estimated_unit_price: (() => {
+            const raw = itemForm.estimated_unit_price.trim();
+            if (!raw) return null;
+            const n = dtParseAmount(raw);
+            return n == null ? null : dtFormatAmountTr2(n);
+          })(),
         }),
       });
       setAddOpen(false);
       setItemForm({ name: '', spec: '', qty: '1', unit: '', vat_rate: '20', estimated_unit_price: '' });
       await fetchAll();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -674,7 +1323,7 @@ export default function DtFileDetailPage() {
     if (!token || libStaged.length === 0) return;
     if (isSuperadmin && !schoolId) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     const batch = [...libStaged];
     try {
       for (const { row, qty } of batch) {
@@ -696,7 +1345,7 @@ export default function DtFileDetailPage() {
       toast.success(`${batch.length} kalem eklendi.`);
       await fetchAll();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -707,13 +1356,13 @@ export default function DtFileDetailPage() {
       if (!window.confirm('Bu kalemi dosyadan silmek istediğinize emin misiniz?')) return;
       if (!token || (isSuperadmin && !schoolId)) return;
       setBusy(true);
-      setError(null);
+      setLoadBanner(null);
       try {
         await apiFetch(dtUrl(`/dogrudan-temin/items/${itemId}`, me?.role, schoolId), { token, method: 'DELETE' });
         toast.success('Kalem silindi.');
         await fetchAll();
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Hata');
+        setLoadBanner(dtReadonlyLoadFeedback(e));
       } finally {
         setBusy(false);
       }
@@ -731,7 +1380,7 @@ export default function DtFileDetailPage() {
       vat_rate: String(x.vatRate ?? 20),
       estimated_unit_price:
         x.estimatedUnitPrice != null && String(x.estimatedUnitPrice).trim() !== ''
-          ? dtStripNumericTrailingZeros(String(x.estimatedUnitPrice))
+          ? dtFormatAmountTr2(x.estimatedUnitPrice)
           : '',
     });
   }, []);
@@ -740,7 +1389,7 @@ export default function DtFileDetailPage() {
     if (!token || !editItemId || !editItemForm.name.trim()) return;
     if (isSuperadmin && !schoolId) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       await apiFetch(dtUrl(`/dogrudan-temin/items/${editItemId}`, me?.role, schoolId), {
         token,
@@ -751,16 +1400,19 @@ export default function DtFileDetailPage() {
           qty: dtStripNumericTrailingZeros(editItemForm.qty.trim()) || editItemForm.qty.trim(),
           unit: editItemForm.unit.trim() || null,
           vat_rate: Number(editItemForm.vat_rate) || 20,
-          estimated_unit_price: editItemForm.estimated_unit_price.trim()
-            ? dtStripNumericTrailingZeros(editItemForm.estimated_unit_price.trim())
-            : null,
+          estimated_unit_price: (() => {
+            const raw = editItemForm.estimated_unit_price.trim();
+            if (!raw) return null;
+            const n = dtParseAmount(raw);
+            return n == null ? null : dtFormatAmountTr2(n);
+          })(),
         }),
       });
       setEditItemId(null);
       toast.success('Kalem güncellendi.');
       await fetchAll();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -770,13 +1422,13 @@ export default function DtFileDetailPage() {
     if (!token) return;
     if (isSuperadmin && !schoolId) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/archive`, me?.role, schoolId), { token, method: 'POST' });
       await fetchAll();
       toast.success('Dosya arşivlendi.');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -786,13 +1438,13 @@ export default function DtFileDetailPage() {
     if (!token) return;
     if (isSuperadmin && !schoolId) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/unarchive`, me?.role, schoolId), { token, method: 'POST' });
       await fetchAll();
       toast.success('Dosya arşivden çıkarıldı.');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -821,36 +1473,35 @@ export default function DtFileDetailPage() {
     window.open(`mailto:?subject=${subj}&body=${body}`, '_blank');
   }, [file?.subject, sharePageUrl]);
 
+  const fetchArchiveList = useCallback(async () => {
+    if (!canFetch || !token) return;
+    setArchiveListLoading(true);
+    try {
+      const res = await apiFetch<{ items: DtFileItem[] }>(
+        dtUrl('/dogrudan-temin/files?include_archived=1', me?.role, schoolId),
+        { token },
+      );
+      setArchiveList((res.items ?? []).filter((x) => !!x.archivedAt));
+    } catch {
+      setArchiveList([]);
+    } finally {
+      setArchiveListLoading(false);
+    }
+  }, [canFetch, me?.role, schoolId, token]);
+
   useEffect(() => {
     if (activeTab !== 'archive' || !canFetch || !token) return;
-    let cancelled = false;
-    setArchiveListLoading(true);
-    void (async () => {
-      try {
-        const res = await apiFetch<{ items: DtFileItem[] }>(
-          dtUrl('/dogrudan-temin/files?include_archived=1', me?.role, schoolId),
-          { token },
-        );
-        const rows = (res.items ?? []).filter((x) => !!x.archivedAt);
-        if (!cancelled) setArchiveList(rows);
-      } catch {
-        if (!cancelled) setArchiveList([]);
-      } finally {
-        if (!cancelled) setArchiveListLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, canFetch, me?.role, schoolId, token]);
+    void fetchArchiveList();
+  }, [activeTab, canFetch, fetchArchiveList, token]);
 
   const copyFile = useCallback(async () => {
     if (!token) return;
     if (isSuperadmin && !schoolId) return;
+    const sourceId = copySourceId ?? id;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
-      const res = await apiFetch<{ id: string }>(dtUrl(`/dogrudan-temin/files/${id}/copy`, me?.role, schoolId), {
+      const res = await apiFetch<{ id: string }>(dtUrl(`/dogrudan-temin/files/${sourceId}/copy`, me?.role, schoolId), {
         token,
         method: 'POST',
         body: JSON.stringify({
@@ -859,6 +1510,7 @@ export default function DtFileDetailPage() {
         }),
       });
       setCopyOpen(false);
+      setCopySourceId(null);
       setCopyForm({ target_year: '', file_no: '' });
       if (res?.id) {
         router.push(
@@ -868,11 +1520,101 @@ export default function DtFileDetailPage() {
         );
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
-  }, [copyForm.file_no, copyForm.target_year, id, isSuperadmin, me?.role, router, schoolId, token]);
+  }, [copyForm.file_no, copyForm.target_year, copySourceId, id, isSuperadmin, me?.role, router, schoolId, token]);
+
+  const unarchiveFileById = useCallback(
+    async (fileId: string) => {
+      if (!token) return;
+      if (isSuperadmin && !schoolId) return;
+      setBusy(true);
+      setLoadBanner(null);
+      try {
+        await apiFetch(dtUrl(`/dogrudan-temin/files/${fileId}/unarchive`, me?.role, schoolId), { token, method: 'POST' });
+        toast.success('Dosya arşivden çıkarıldı.');
+        await fetchArchiveList();
+        if (fileId === id) await fetchAll();
+      } catch (e) {
+        setLoadBanner(dtReadonlyLoadFeedback(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [fetchAll, fetchArchiveList, id, isSuperadmin, me?.role, schoolId, token],
+  );
+
+  const deleteDtFileById = useCallback(async () => {
+    const targetId = confirmDeleteFileId;
+    if (!token || !targetId) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setLoadBanner(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${targetId}`, me?.role, schoolId), { token, method: 'DELETE' });
+      setConfirmDeleteFileId(null);
+      toast.success('Dosya silindi.');
+      if (targetId === id) {
+        router.push(
+          isSuperadmin && schoolId ? `/dogrudan-temin?school_id=${encodeURIComponent(schoolId)}` : '/dogrudan-temin',
+        );
+      } else {
+        await fetchArchiveList();
+        await fetchAll();
+      }
+    } catch (e) {
+      setLoadBanner(dtReadonlyLoadFeedback(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [confirmDeleteFileId, fetchAll, fetchArchiveList, id, isSuperadmin, me?.role, router, schoolId, token]);
+
+  const copyFilePageLink = useCallback(
+    async (fileId: string) => {
+      try {
+        const href =
+          isSuperadmin && schoolId
+            ? `/dogrudan-temin/${fileId}?school_id=${encodeURIComponent(schoolId)}`
+            : `/dogrudan-temin/${fileId}`;
+        const abs = typeof window !== 'undefined' ? new URL(href, window.location.origin).toString() : href;
+        await navigator.clipboard.writeText(abs);
+        toast.success('Bağlantı panoya kopyalandı.');
+      } catch {
+        toast.error('Panoya kopyalanamadı.');
+      }
+    },
+    [isSuperadmin, schoolId],
+  );
+
+  const openCopyDialog = useCallback((sourceFileId: string | null) => {
+    setCopySourceId(sourceFileId);
+    setCopyOpen(true);
+  }, []);
+
+  const deleteTargetLabel = useMemo(() => {
+    if (!confirmDeleteFileId) return '';
+    if (file && confirmDeleteFileId === file.id) return `${file.year} · #${file.fileNo} — ${file.subject}`;
+    const r = archiveList.find((x) => x.id === confirmDeleteFileId);
+    return r ? `${r.year} · #${r.fileNo} — ${r.subject}` : confirmDeleteFileId.slice(0, 8);
+  }, [archiveList, confirmDeleteFileId, file]);
+
+  const copyDialogSourceLabel = useMemo(() => {
+    const sid = copySourceId ?? id;
+    if (file && sid === file.id) return `${file.year} · #${file.fileNo} — ${file.subject}`;
+    const r = archiveList.find((x) => x.id === sid);
+    return r ? `${r.year} · #${r.fileNo} — ${r.subject}` : sid;
+  }, [archiveList, copySourceId, file, id]);
+
+  const docsListPdf = useMemo(() => {
+    const filtered = docs.filter((d) => String(d.fileFormat || '').toLowerCase() === 'pdf');
+    return [...filtered].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
+  }, [docs]);
+  const docsListWord = useMemo(() => {
+    const filtered = docs.filter((d) => String(d.fileFormat || '').toLowerCase() !== 'pdf');
+    return [...filtered].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
+  }, [docs]);
 
   const createQuote = useCallback(async () => {
     if (!token || !quoteVendorId) return;
@@ -883,7 +1625,7 @@ export default function DtFileDetailPage() {
     }
     const createdPurpose = quotePurpose;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/quotes`, me?.role, schoolId), {
         token,
@@ -898,7 +1640,7 @@ export default function DtFileDetailPage() {
         createdPurpose === 'market_research' ? 'Fiyat araştırması kaydı oluşturuldu.' : 'Teklif kaydı oluşturuldu.',
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -908,16 +1650,20 @@ export default function DtFileDetailPage() {
     if (!token) return;
     if (isSuperadmin && !schoolId) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
-      const res = await apiFetch<{ created: number }>(
+      const res = await apiFetch<{ created: number; merged?: number }>(
         dtUrl(`/dogrudan-temin/files/${id}/quotes/copy-research-to-bid`, me?.role, schoolId),
         { token, method: 'POST', body: '{}' },
       );
-      toast.success(`Kopyalandı: ${res.created ?? 0} teklif`);
+      quoteItemsLoadedRef.current.clear();
+      setQuoteItems({});
+      const c = res.created ?? 0;
+      const m = res.merged ?? 0;
+      toast.success(m ? `Yeni: ${c}, güncellenen firma: ${m}` : `Yeni teklif: ${c}`);
       await fetchAll();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -975,11 +1721,70 @@ export default function DtFileDetailPage() {
     [quotes, vendors],
   );
 
+  /** Aynı firma + aynı amaç (araştırma veya teklif) birden fazlaysa uyarı metinleri. */
+  const duplicateQuoteWarnings = useMemo(() => {
+    const byKey = new Map<string, Quote[]>();
+    for (const q of quotes) {
+      const pur = normalizeQuotePurpose(q.purpose);
+      const k = `${q.vendorId}\t${pur}`;
+      const arr = byKey.get(k) ?? [];
+      arr.push(q);
+      byKey.set(k, arr);
+    }
+    const lines: string[] = [];
+    for (const [, list] of byKey) {
+      if (list.length <= 1) continue;
+      const q0 = list[0];
+      const title = vendors.find((v) => v.id === q0.vendorId)?.title ?? q0.vendorId;
+      const purposeLabel =
+        normalizeQuotePurpose(q0.purpose) === 'market_research' ? 'Fiyat araştırması' : 'Teklif / ihale';
+      lines.push(
+        `${title} — ${purposeLabel}: ${list.length} kayıt var; dosya başına bu amaçta yalnızca bir kayıt olmalı. Fazlaları silin veya birleştirin.`,
+      );
+    }
+    return lines;
+  }, [quotes, vendors]);
+
+  const createQuoteWouldDuplicate = useMemo(() => {
+    if (!quoteVendorId) return false;
+    return quotes.some(
+      (q) => q.vendorId === quoteVendorId && normalizeQuotePurpose(q.purpose) === quotePurpose,
+    );
+  }, [quotes, quoteVendorId, quotePurpose]);
+
+  const duplicateQuoteRowKeys = useMemo(() => {
+    const byKey = new Map<string, number>();
+    for (const q of quotes) {
+      const k = `${q.vendorId}\t${normalizeQuotePurpose(q.purpose)}`;
+      byKey.set(k, (byKey.get(k) ?? 0) + 1);
+    }
+    const dup = new Set<string>();
+    for (const [k, n] of byKey) {
+      if (n > 1) dup.add(k);
+    }
+    return dup;
+  }, [quotes]);
+
+  const allQuotesOverviewSelected =
+    quotesOverviewSorted.length > 0 && quotesOverviewSorted.every((q) => selectedQuoteIds.includes(q.id));
+
+  const toggleQuoteRowSelect = useCallback((qid: string) => {
+    setSelectedQuoteIds((prev) => (prev.includes(qid) ? prev.filter((x) => x !== qid) : [...prev, qid]));
+  }, []);
+
+  const toggleSelectAllQuotesOverview = useCallback(() => {
+    const ids = quotesOverviewSorted.map((q) => q.id);
+    setSelectedQuoteIds((prev) => {
+      if (ids.length && ids.every((i) => prev.includes(i))) return prev.filter((x) => !ids.includes(x));
+      return [...new Set([...prev, ...ids])];
+    });
+  }, [quotesOverviewSorted]);
+
   const syncCommissionFromApprox = useCallback(async () => {
     if (!token) return;
     if (isSuperadmin && !schoolId) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/commissions/sync`, me?.role, schoolId), {
         token,
@@ -989,7 +1794,7 @@ export default function DtFileDetailPage() {
       toast.success('Komisyon üyeleri kopyalandı.');
       await fetchAll();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -999,7 +1804,7 @@ export default function DtFileDetailPage() {
     if (!token) return;
     if (isSuperadmin && !schoolId) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       await apiFetch(dtUrl(`/dogrudan-temin/files/${id}`, me?.role, schoolId), {
         token,
@@ -1009,17 +1814,37 @@ export default function DtFileDetailPage() {
       toast.success('İhale kayıt no güncellendi.');
       await fetchAll();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
   }, [fetchAll, id, isSuperadmin, me?.role, procurementRefDraft, schoolId, token]);
 
+  const saveFileBudgetAccount = useCallback(async () => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setLoadBanner(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}`, me?.role, schoolId), {
+        token,
+        method: 'PATCH',
+        body: JSON.stringify({ budget_account_id: fileBudgetAccountDraft.trim() || null }),
+      });
+      toast.success('Dosya bütçe hesabı güncellendi.');
+      await fetchAll();
+    } catch (e) {
+      setLoadBanner(dtReadonlyLoadFeedback(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [fetchAll, fileBudgetAccountDraft, id, isSuperadmin, me?.role, schoolId, token]);
+
   const saveRegistry = useCallback(async () => {
     if (!token) return;
     if (isSuperadmin && !schoolId) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       const entries = Object.entries(registryDraft).map(([stage, v]) => ({
         stage,
@@ -1036,7 +1861,7 @@ export default function DtFileDetailPage() {
       toast.success('Evrak defteri kaydedildi.');
       await fetchAll();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -1053,9 +1878,9 @@ export default function DtFileDetailPage() {
         setQuoteItems((s) => ({ ...s, [qid]: res.items ?? [] }));
         const map: Record<string, string> = {};
         (res.items ?? []).forEach((x) => {
-          map[x.dtItemId] = dtStripNumericTrailingZeros(String(x.unitPrice ?? ''));
+          map[x.dtItemId] = dtFormatAmountTr2(x.unitPrice ?? '');
         });
-        setPriceDraft((s) => ({ ...s, [qid]: { ...map, ...(s[qid] ?? {}) } }));
+        setPriceDraft((s) => ({ ...s, [qid]: { ...(s[qid] ?? {}), ...map } }));
       } catch (e) {
         quoteItemsLoadedRef.current.delete(qid);
         throw e;
@@ -1117,9 +1942,9 @@ export default function DtFileDetailPage() {
         toast.error('Geçersiz birim fiyatı.');
         return;
       }
-      const unit_price = dtStripNumericTrailingZeros(t) || t;
+      const unit_price = dtFormatAmountTr2(t);
       setBusy(true);
-      setError(null);
+      setLoadBanner(null);
       try {
         await postQuoteItemUnitPrice(qid, dtItemId, unit_price);
         setQuoteItems((s) => {
@@ -1131,7 +1956,7 @@ export default function DtFileDetailPage() {
         await fetchQuoteItems(qid);
         toast.success('Birim fiyat kaydedildi.');
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Hata');
+        setLoadBanner(dtReadonlyLoadFeedback(e));
       } finally {
         setBusy(false);
       }
@@ -1156,11 +1981,11 @@ export default function DtFileDetailPage() {
         }
       }
       setBusy(true);
-      setError(null);
+      setLoadBanner(null);
       try {
         for (const it of targets) {
           const t = (priceDraft[qid]?.[it.id] ?? '').trim();
-          const unit_price = dtStripNumericTrailingZeros(t) || t;
+          const unit_price = dtFormatAmountTr2(t);
           await postQuoteItemUnitPrice(qid, it.id, unit_price);
         }
         setQuoteItems((s) => {
@@ -1172,7 +1997,7 @@ export default function DtFileDetailPage() {
         await fetchQuoteItems(qid);
         toast.success(`${targets.length} kalem kaydedildi.`);
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Hata');
+        setLoadBanner(dtReadonlyLoadFeedback(e));
       } finally {
         setBusy(false);
       }
@@ -1183,9 +2008,104 @@ export default function DtFileDetailPage() {
   const stripPriceDraftCell = useCallback((qid: string, dtItemId: string) => {
     const cur = priceDraft[qid]?.[dtItemId];
     if (cur == null || !String(cur).trim()) return;
-    const t = dtStripNumericTrailingZeros(cur);
-    if (t !== cur) setPriceDraft((s) => ({ ...s, [qid]: { ...(s[qid] ?? {}), [dtItemId]: t } }));
+    const t = dtFormatAmountTr2(cur);
+    if (t && t !== cur) setPriceDraft((s) => ({ ...s, [qid]: { ...(s[qid] ?? {}), [dtItemId]: t } }));
   }, [priceDraft]);
+
+  const updateQuoteStatus = useCallback(
+    async (qid: string, status: string) => {
+      if (!token) return;
+      if (isSuperadmin && !schoolId) return;
+      if (!id) return;
+      setBusy(true);
+      setLoadBanner(null);
+      try {
+        await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/quotes/${qid}`, me?.role, schoolId), {
+          token,
+          method: 'PATCH',
+          body: JSON.stringify({ status }),
+        });
+        setQuotes((s) => s.map((q) => (q.id === qid ? { ...q, status } : q)));
+        toast.success('Teklif durumu güncellendi.');
+      } catch (e) {
+        setLoadBanner(dtReadonlyLoadFeedback(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [token, isSuperadmin, schoolId, id, me?.role],
+  );
+
+  const deleteQuote = useCallback(
+    async (qid: string) => {
+      if (!token) return;
+      if (isSuperadmin && !schoolId) return;
+      if (!id) return;
+      setBusy(true);
+      setLoadBanner(null);
+      try {
+        await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/quotes/${qid}`, me?.role, schoolId), {
+          token,
+          method: 'DELETE',
+        });
+        setQuotes((s) => s.filter((q) => q.id !== qid));
+        setSelectedQuoteIds((prev) => prev.filter((x) => x !== qid));
+        setQuoteItems((s) => {
+          const next = { ...s };
+          delete next[qid];
+          return next;
+        });
+        setPriceDraft((s) => {
+          const next = { ...s };
+          delete next[qid];
+          return next;
+        });
+        quoteItemsLoadedRef.current.delete(qid);
+        setDeleteQuoteId(null);
+        toast.success('Teklif silindi.');
+      } catch (e) {
+        setLoadBanner(dtReadonlyLoadFeedback(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [token, isSuperadmin, schoolId, id, me?.role],
+  );
+
+  const deleteQuotesBulk = useCallback(async () => {
+    if (!token || !selectedQuoteIds.length) return;
+    if (isSuperadmin && !schoolId) return;
+    if (!id) return;
+    setBusy(true);
+    setLoadBanner(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/quotes/bulk-delete`, me?.role, schoolId), {
+        token,
+        method: 'POST',
+        body: JSON.stringify({ quote_ids: selectedQuoteIds }),
+      });
+      const removed = new Set(selectedQuoteIds);
+      setQuotes((s) => s.filter((q) => !removed.has(q.id)));
+      setQuoteItems((s) => {
+        const next = { ...s };
+        for (const qid of removed) delete next[qid];
+        return next;
+      });
+      setPriceDraft((s) => {
+        const next = { ...s };
+        for (const qid of removed) delete next[qid];
+        return next;
+      });
+      for (const qid of removed) quoteItemsLoadedRef.current.delete(qid);
+      setSelectedQuoteIds([]);
+      setBulkDeleteOpen(false);
+      toast.success(`${removed.size} teklif silindi.`);
+    } catch (e) {
+      setLoadBanner(dtReadonlyLoadFeedback(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [token, isSuperadmin, schoolId, id, me?.role, selectedQuoteIds]);
 
   const vendorQuotePanel = useCallback(
     (q: Quote | null, emptyLabel: string) => {
@@ -1219,6 +2139,28 @@ export default function DtFileDetailPage() {
             >
               {dtQuoteStatusLabel(q.status)}
             </span>
+            <select
+              value={q.status}
+              onChange={(e) => void updateQuoteStatus(q.id, e.target.value)}
+              disabled={busy}
+              className="h-7 text-[10px] rounded border border-input bg-background px-1.5"
+            >
+              <option value="requested">İstendi</option>
+              <option value="received">Alındı</option>
+              <option value="accepted">Kabul</option>
+              <option value="rejected">Red</option>
+            </select>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-100 dark:hover:bg-rose-950/30"
+              disabled={busy}
+              onClick={() => setDeleteQuoteId(q.id)}
+              title="Teklifi sil"
+            >
+              <Trash2 className="size-4" />
+            </Button>
             </div>
             {items.length > 0 ? (
               <Button
@@ -1289,7 +2231,7 @@ export default function DtFileDetailPage() {
         </div>
       );
     },
-    [busy, items, priceDraft, saveAllQuotePricesForQuote, saveQuotePrice, stripPriceDraftCell],
+    [busy, items, priceDraft, saveAllQuotePricesForQuote, saveQuotePrice, stripPriceDraftCell, updateQuoteStatus],
   );
 
   const recordPayment = useCallback(async () => {
@@ -1318,13 +2260,13 @@ export default function DtFileDetailPage() {
       return;
     }
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/payments`, me?.role, schoolId), {
         token,
         method: 'POST',
         body: JSON.stringify({
-          amount: paymentForm.amount.trim(),
+          amount: dtFormatAmountTr2(payAmt),
           quote_id: paymentForm.quote_id.trim() || null,
           note: paymentForm.note.trim() || null,
           reference_no: paymentForm.reference_no.trim() || null,
@@ -1335,7 +2277,7 @@ export default function DtFileDetailPage() {
       toast.success('Ödeme kaydı eklendi.');
       await fetchAll();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -1357,11 +2299,60 @@ export default function DtFileDetailPage() {
     token,
   ]);
 
+  const filteredCommissionTeachers = useMemo(() => {
+    const q = commissionTeacherQuery.trim().toLowerCase();
+    if (!q) return commissionTeachers;
+    return commissionTeachers.filter((t) => {
+      const dn = (t.display_name || '').toLowerCase();
+      const em = (t.email || '').toLowerCase();
+      const uv = (t.unvan || '').toLowerCase();
+      return dn.includes(q) || em.includes(q) || uv.includes(q) || t.id.toLowerCase().includes(q);
+    });
+  }, [commissionTeacherQuery, commissionTeachers]);
+
+  const paymentTabSummary = useMemo(() => {
+    if (!file) {
+      return { refTotal: null as number | null, refLabel: '', paidTotal: null as number | null, remaining: null as number | null };
+    }
+    const paidTotal = dtParseAmount(file.paymentTotal);
+    const decision = dtParseAmount(file.decisionTotal);
+    const approx = dtParseAmount(file.approxTotal);
+    const refTotal = decision ?? approx ?? null;
+    const refLabel = decision != null ? 'Karar' : approx != null ? 'Yaklaşık' : '';
+    const p = paidTotal ?? 0;
+    const remaining = refTotal != null ? Math.max(0, refTotal - p) : null;
+    return { refTotal, refLabel, paidTotal, remaining };
+  }, [file]);
+
+  const budgetBlockTabSummary = useMemo(() => {
+    const blockedRows = budgetBlocks.filter((b) => dtBudgetBlockActive(b.status));
+    let totalBlocked = 0;
+    for (const b of blockedRows) {
+      const n = dtParseAmount(b.amount);
+      if (n != null) totalBlocked += n;
+    }
+    return {
+      activeBlocked: blockedRows.length,
+      totalRows: budgetBlocks.length,
+      totalBlocked,
+    };
+  }, [budgetBlocks]);
+
+  const budgetAccountPickMetrics = useMemo(() => {
+    const acc = budgetAccounts.find((a) => a.id === budgetForm.budget_account_id);
+    if (!acc) return null;
+    const alloc = dtParseAmount(acc.allocated) ?? 0;
+    const blocked = dtParseAmount(acc.blocked) ?? 0;
+    const spent = dtParseAmount(acc.spent) ?? 0;
+    const available = Math.max(0, alloc - blocked - spent);
+    return { alloc, blocked, spent, available };
+  }, [budgetAccounts, budgetForm.budget_account_id]);
+
   const createCommission = useCallback(async () => {
     if (!token) return;
     if (isSuperadmin && !schoolId) return;
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/commission`, me?.role, schoolId), {
         token,
@@ -1380,14 +2371,58 @@ export default function DtFileDetailPage() {
         member_title: '',
         apply_all_kinds: true,
       });
-      setCommissionDialogOpen(false);
+      setCommissionCreateDialogOpen(false);
       await fetchAll();
+      toast.success(`${COMMISSION_KIND_LABELS[commissionKind]} komisyonu oluşturuldu.`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
   }, [
+    commissionForm.chairman_manual,
+    commissionForm.chairman_pick,
+    commissionKind,
+    fetchAll,
+    id,
+    isSuperadmin,
+    me?.role,
+    schoolId,
+    token,
+  ]);
+
+  const saveCommissionChairman = useCallback(async () => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    if (!id || !commission) return;
+    setBusy(true);
+    setLoadBanner(null);
+    try {
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/commission`, me?.role, schoolId), {
+        token,
+        method: 'POST',
+        body: JSON.stringify({
+          dt_file_id: id,
+          kind: commissionKind,
+          chairman_user_id: (commissionForm.chairman_manual.trim() || commissionForm.chairman_pick.trim()) || null,
+        }),
+      });
+      setCommissionChairmanDialogOpen(false);
+      setCommissionTeacherQuery('');
+      setCommissionForm((s) => ({
+        ...s,
+        chairman_pick: '',
+        chairman_manual: '',
+      }));
+      await fetchAll();
+      toast.success('Komisyon başkanı güncellendi.');
+    } catch (e) {
+      setLoadBanner(dtReadonlyLoadFeedback(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [
+    commission,
     commissionForm.chairman_manual,
     commissionForm.chairman_pick,
     commissionKind,
@@ -1408,7 +2443,7 @@ export default function DtFileDetailPage() {
       return;
     }
     setBusy(true);
-    setError(null);
+    setLoadBanner(null);
     try {
       if (commissionForm.apply_all_kinds) {
         await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/commission/members-all-kinds`, me?.role, schoolId), {
@@ -1437,11 +2472,11 @@ export default function DtFileDetailPage() {
         member_title: '',
         apply_all_kinds: commissionForm.apply_all_kinds,
       });
-      setCommissionDialogOpen(false);
+      setCommissionMemberDialogOpen(false);
       await fetchAll();
       toast.success(commissionForm.apply_all_kinds ? 'Üye tüm komisyon türlerine eklendi.' : 'Üye eklendi.');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -1464,7 +2499,7 @@ export default function DtFileDetailPage() {
       if (!token) return;
       if (isSuperadmin && !schoolId) return;
       setBusy(true);
-      setError(null);
+      setLoadBanner(null);
       try {
         await apiFetch(dtUrl(`/dogrudan-temin/commission/members/${memberId}`, me?.role, schoolId), {
           token,
@@ -1473,7 +2508,7 @@ export default function DtFileDetailPage() {
         await fetchAll();
         toast.success('Üye kaldırıldı.');
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Hata');
+        setLoadBanner(dtReadonlyLoadFeedback(e));
       } finally {
         setBusy(false);
       }
@@ -1491,19 +2526,125 @@ export default function DtFileDetailPage() {
         {
           token,
           method: 'POST',
-          body: JSON.stringify({}),
-        }
+          body: JSON.stringify({ dt_file_id: id }),
+        },
       );
       if (res?.buffer && res?.filename) {
         const link = document.createElement('a');
-        link.href = `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${res.buffer}`;
-        link.download = res.filename;
+        link.href = `data:application/pdf;base64,${res.buffer}`;
+        link.download = res.filename.endsWith('.pdf') ? res.filename : `odeme-emri-${paymentId.slice(0, 8)}.pdf`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Hata');
+      setLoadBanner(dtReadonlyLoadFeedback(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [id, isSuperadmin, me?.role, schoolId, token]);
+
+  const savePaymentEdit = useCallback(async () => {
+    if (!token || !paymentEditId) return;
+    if (isSuperadmin && !schoolId) {
+      toast.error('Okul seçin.');
+      return;
+    }
+    if (!paymentEditForm.amount.trim()) {
+      toast.error('Ödeme tutarını girin.');
+      return;
+    }
+    const payAmt = dtParseAmount(paymentEditForm.amount);
+    if (payAmt == null || payAmt <= 0) {
+      toast.error('Tutar geçerli pozitif bir sayı olmalı.');
+      return;
+    }
+    if (dtRules?.require_quote_on_payment && !paymentEditForm.quote_id.trim()) {
+      toast.error('Platform kuralı: ödeme için teklif seçimi zorunlu.');
+      return;
+    }
+    const minNote = dtRules?.payment_note_min_length ?? 0;
+    if (minNote > 0 && paymentEditForm.note.trim().length < minNote) {
+      toast.error(`Ödeme notu en az ${minNote} karakter olmalı.`);
+      return;
+    }
+    setBusy(true);
+    setLoadBanner(null);
+    try {
+      const amountSend = dtFormatAmountTr2(payAmt);
+      await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/payments/${paymentEditId}`, me?.role, schoolId), {
+        token,
+        method: 'PATCH',
+        body: JSON.stringify({
+          amount: amountSend,
+          quote_id: paymentEditForm.quote_id.trim() || null,
+          note: paymentEditForm.note.trim() || null,
+          reference_no: paymentEditForm.reference_no.trim() || null,
+          paid_at: paymentEditForm.paid_at.trim() ? `${paymentEditForm.paid_at.trim()}T00:00:00Z` : null,
+        }),
+      });
+      setPaymentEditOpen(false);
+      setPaymentEditId(null);
+      toast.success('Ödeme güncellendi.');
+      await fetchAll();
+    } catch (e) {
+      setLoadBanner(dtReadonlyLoadFeedback(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [
+    dtRules?.payment_note_min_length,
+    dtRules?.require_quote_on_payment,
+    fetchAll,
+    id,
+    isSuperadmin,
+    me?.role,
+    paymentEditForm.amount,
+    paymentEditForm.note,
+    paymentEditForm.paid_at,
+    paymentEditForm.quote_id,
+    paymentEditForm.reference_no,
+    paymentEditId,
+    schoolId,
+    token,
+  ]);
+
+  const deletePaymentRow = useCallback(
+    async (paymentId: string) => {
+      if (!token) return;
+      if (isSuperadmin && !schoolId) return;
+      if (!confirm('Bu ödeme kaydı silinsin mi? Bütçe harcaması varsa geri alınır.')) return;
+      setBusy(true);
+      setLoadBanner(null);
+      try {
+        await apiFetch(dtUrl(`/dogrudan-temin/files/${id}/payments/${paymentId}`, me?.role, schoolId), {
+          token,
+          method: 'DELETE',
+        });
+        toast.success('Ödeme silindi.');
+        await fetchAll();
+      } catch (e) {
+        setLoadBanner(dtReadonlyLoadFeedback(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [fetchAll, id, isSuperadmin, me?.role, schoolId, token],
+  );
+
+  const downloadMysYukleXlsx = useCallback(async () => {
+    if (!token) return;
+    if (isSuperadmin && !schoolId) return;
+    setBusy(true);
+    setLoadBanner(null);
+    try {
+      const res = await apiFetch<{ download_url: string }>(
+        dtUrl(`/dogrudan-temin/files/${id}/mys-yukle.xlsx`, me?.role, schoolId),
+        { token },
+      );
+      if (res?.download_url) window.open(res.download_url, '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      setLoadBanner(dtReadonlyLoadFeedback(e));
     } finally {
       setBusy(false);
     }
@@ -1546,6 +2687,14 @@ export default function DtFileDetailPage() {
         docVendorId={docVendorId}
         onGoTab={(t) => setActiveTab(t as DtDetailTabId)}
         onGenerateDoc={(docType, vendorId) => void generateDoc(docType, vendorId)}
+        onOpenPiyasaPreview={() => {
+          setWizardOpen(false);
+          setPiyasaPreviewOpen(true);
+        }}
+        onOpenYaklasikPreview={() => {
+          setWizardOpen(false);
+          setYaklasikPreviewOpen(true);
+        }}
       />
 
       <div className="flex items-center gap-2 text-[11px]">
@@ -1557,7 +2706,7 @@ export default function DtFileDetailPage() {
         </Link>
       </div>
 
-      {error && <Alert message={error} />}
+      {loadBanner ? <Alert variant={loadBanner.variant} message={loadBanner.message} /> : null}
       {loading ? (
         <LoadingSpinner label="Yükleniyor…" className="py-10 text-xs" />
       ) : file ? (
@@ -1622,13 +2771,27 @@ export default function DtFileDetailPage() {
                 >
                   <Archive className="size-4" />
                 </Button>
-                <Dialog open={copyOpen} onOpenChange={setCopyOpen}>
-                  <DialogTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-8 px-2" title="Dosyayı kopyala" disabled={busy}>
-                      <Copy className="size-4" />
-                    </Button>
-                  </DialogTrigger>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2"
+                  title="Dosyayı kopyala"
+                  disabled={busy}
+                  onClick={() => openCopyDialog(null)}
+                >
+                  <Copy className="size-4" />
+                </Button>
+                <Dialog
+                  open={copyOpen}
+                  onOpenChange={(o) => {
+                    setCopyOpen(o);
+                    if (!o) setCopySourceId(null);
+                  }}
+                >
                   <DialogContent className="max-w-lg" title="Dosyayı kopyala">
+                    <p className="text-[11px] text-muted-foreground">
+                      Kaynak: <span className="font-medium text-foreground">{copyDialogSourceLabel}</span>
+                    </p>
                     <div className="space-y-3">
                       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <div className="space-y-1">
@@ -1649,7 +2812,14 @@ export default function DtFileDetailPage() {
                         </div>
                       </div>
                       <div className="flex justify-end gap-2 pt-2">
-                        <Button variant="outline" onClick={() => setCopyOpen(false)} disabled={busy}>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setCopyOpen(false);
+                            setCopySourceId(null);
+                          }}
+                          disabled={busy}
+                        >
                           Vazgeç
                         </Button>
                         <Button onClick={copyFile} disabled={busy}>
@@ -1672,6 +2842,38 @@ export default function DtFileDetailPage() {
               <Button type="button" variant="outline" size="sm" className="h-8" disabled={busy} onClick={() => void saveProcurementRef()}>
                 Kaydet
               </Button>
+            </div>
+            <div className="mt-2 flex flex-wrap items-end gap-2 border-t border-border/40 pt-2">
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <span className="text-[10px] text-muted-foreground">Dosya bütçe hesabı (onay belgesi / tertip)</span>
+                <select
+                  className="h-9 max-w-[min(100%,420px)] rounded-xl border border-border/70 bg-background px-2 text-xs"
+                  value={fileBudgetAccountDraft}
+                  onChange={(e) => setFileBudgetAccountDraft(e.target.value)}
+                >
+                  <option value="">— Seçilmedi —</option>
+                  {budgetAccounts
+                    .filter((a) => a.year === file.year)
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {(a.code ? `${a.code} · ` : '') + a.label} — {dtFormatNumberTr(a.allocated)} ₺
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" disabled={busy} onClick={() => void saveFileBudgetAccount()}>
+                Kaydet
+              </Button>
+              <Link
+                href={dtUrl(
+                  `/dogrudan-temin/butce-hierarsisi?year=${encodeURIComponent(String(file.year))}`,
+                  me?.role,
+                  schoolId,
+                )}
+                className="text-[10px] font-medium text-primary hover:underline"
+              >
+                Bütçe tertipleri…
+              </Link>
             </div>
           </div>
 
@@ -1868,8 +3070,8 @@ export default function DtFileDetailPage() {
                             value={itemForm.estimated_unit_price}
                             onChange={(e) => setItemForm((s) => ({ ...s, estimated_unit_price: e.target.value }))}
                             onBlur={(e) => {
-                              const t = dtStripNumericTrailingZeros(e.target.value);
-                              if (t !== e.target.value) setItemForm((s) => ({ ...s, estimated_unit_price: t }));
+                              const t = dtFormatAmountTr2(e.target.value);
+                              if (t && t !== e.target.value) setItemForm((s) => ({ ...s, estimated_unit_price: t }));
                             }}
                             className={DT_INPUT_SM}
                           />
@@ -1902,9 +3104,9 @@ export default function DtFileDetailPage() {
                     <FileDown className="size-3.5 mr-1 inline" />
                     İhtiyaç listesi (DOCX)
                   </Button>
-                  <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('karar')}>
+                  <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('harcama_talimati')}>
                     <FileDown className="size-3.5 mr-1 inline" />
-                    Karar (DOCX)
+                    Harcama talimatı (DOCX)
                   </Button>
                 </div>
               </div>
@@ -2021,8 +3223,8 @@ export default function DtFileDetailPage() {
                     value={editItemForm.estimated_unit_price}
                     onChange={(e) => setEditItemForm((s) => ({ ...s, estimated_unit_price: e.target.value }))}
                     onBlur={(e) => {
-                      const t = dtStripNumericTrailingZeros(e.target.value);
-                      if (t !== e.target.value) setEditItemForm((s) => ({ ...s, estimated_unit_price: t }));
+                      const t = dtFormatAmountTr2(e.target.value);
+                      if (t && t !== e.target.value) setEditItemForm((s) => ({ ...s, estimated_unit_price: t }));
                     }}
                     className={DT_INPUT_SM}
                   />
@@ -2051,6 +3253,18 @@ export default function DtFileDetailPage() {
                   <DtInfoHint title={DT_SECTION_HINTS.quotes} />
                 </CardTitle>
                 <div className="flex items-center gap-2 flex-wrap">
+                  {selectedQuoteIds.length > 0 ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="border-rose-300/70 text-rose-800 hover:bg-rose-50 dark:border-rose-700/50 dark:text-rose-200 dark:hover:bg-rose-950/40"
+                      disabled={busy}
+                      onClick={() => setBulkDeleteOpen(true)}
+                    >
+                      Seçilenleri sil ({selectedQuoteIds.length})
+                    </Button>
+                  ) : null}
                   <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void copyResearchQuotesToBid()}>
                     Araştırmayı teklife aktar
                   </Button>
@@ -2091,11 +3305,16 @@ export default function DtFileDetailPage() {
                           ))}
                         </select>
                       </div>
+                      {createQuoteWouldDuplicate ? (
+                        <p className="rounded-md border border-amber-300/70 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-950 dark:border-amber-700/50 dark:bg-amber-950/35 dark:text-amber-50">
+                          Bu firma ve amaç için zaten bir kayıt var. Aynı türde ikinci kayıt eklenemez; fazla satırları listeden silin.
+                        </p>
+                      ) : null}
                       <div className="flex justify-end gap-2 pt-2">
                         <Button variant="outline" onClick={() => setQuoteOpen(false)} disabled={busy}>
                           Vazgeç
                         </Button>
-                        <Button onClick={createQuote} disabled={busy || !quoteVendorId}>
+                        <Button onClick={createQuote} disabled={busy || !quoteVendorId || createQuoteWouldDuplicate}>
                           Kaydet
                         </Button>
                       </div>
@@ -2106,15 +3325,27 @@ export default function DtFileDetailPage() {
               </div>
             </CardHeader>
             <CardContent className="pt-0 space-y-6">
+              {duplicateQuoteWarnings.length ? (
+                <Alert variant="warning" message={duplicateQuoteWarnings.join(' ')} />
+              ) : null}
               {quotes.length ? (
                 <div className="space-y-6">
                   <div className="overflow-x-auto rounded-lg border border-border bg-muted/10">
                     <div className="border-b border-border bg-muted/30 px-3 py-2 text-xs font-semibold text-foreground">
                       Özet — tüm firmalar (amaç ayrımı)
                     </div>
-                    <table className="w-full min-w-[640px] text-left text-xs">
+                    <table className="w-full min-w-[680px] text-left text-xs">
                       <thead>
                         <tr className="border-b border-border bg-muted/25 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          <th className="w-10 px-2 py-2 text-center">
+                            <input
+                              type="checkbox"
+                              className="size-4 cursor-pointer accent-primary"
+                              checked={allQuotesOverviewSelected}
+                              onChange={toggleSelectAllQuotesOverview}
+                              aria-label="Özet tabloda tümünü seç"
+                            />
+                          </th>
                           <th className="px-3 py-2 w-[140px]">Amaç</th>
                           <th className="px-3 py-2">Firma</th>
                           <th className="px-3 py-2 w-[120px]">Durum</th>
@@ -2136,8 +3367,26 @@ export default function DtFileDetailPage() {
                             0,
                           );
                           const priced = Math.max(pricedFromApi, pricedFromDraft);
+                          const dupKey = `${q.vendorId}\t${pur}`;
+                          const isDupRow = duplicateQuoteRowKeys.has(dupKey);
                           return (
-                            <tr key={`ov-${q.id}`} className={cn(rowTint, 'hover:bg-background/40')}>
+                            <tr
+                              key={`ov-${q.id}`}
+                              className={cn(
+                                rowTint,
+                                'hover:bg-background/40',
+                                isDupRow && 'outline outline-2 -outline-offset-2 outline-amber-500/90 dark:outline-amber-400/80',
+                              )}
+                            >
+                              <td className="px-2 py-2 text-center align-middle">
+                                <input
+                                  type="checkbox"
+                                  className="size-4 cursor-pointer accent-primary"
+                                  checked={selectedQuoteIds.includes(q.id)}
+                                  onChange={() => toggleQuoteRowSelect(q.id)}
+                                  aria-label="Satırı seç"
+                                />
+                              </td>
                               <td className="px-3 py-2 align-middle">
                                 {pur === 'market_research' ? (
                                   <span className="inline-flex rounded-md border border-amber-300/70 bg-amber-100/90 px-2 py-0.5 text-[10px] font-semibold text-amber-950 dark:border-amber-700/60 dark:bg-amber-950/50 dark:text-amber-50">
@@ -2149,7 +3398,7 @@ export default function DtFileDetailPage() {
                                   </span>
                                 )}
                               </td>
-                              <td className="px-3 py-2 font-medium text-foreground">{v?.title ?? q.vendorId}</td>
+                              <td className="px-3 py-2 font-bold text-foreground">{v?.title ?? q.vendorId}</td>
                               <td className="px-3 py-2">
                                 <span
                                   className={cn(
@@ -2220,6 +3469,51 @@ export default function DtFileDetailPage() {
               ) : (
                 <p className="py-4 text-center text-[11px] text-muted-foreground">Teklif yok.</p>
               )}
+              <Dialog open={!!deleteQuoteId} onOpenChange={(open) => !open && setDeleteQuoteId(null)}>
+                <DialogContent className="max-w-sm">
+                  <div className="space-y-3">
+                    <div className="flex gap-2 rounded-lg border border-rose-200/50 bg-rose-500/8 p-3 dark:border-rose-500/20 dark:bg-rose-950/25">
+                      <Info className="mt-0.5 size-4 shrink-0 text-rose-600 dark:text-rose-400" aria-hidden />
+                      <p className="text-sm text-rose-950/90 dark:text-rose-100/90">
+                        <strong className="font-semibold">Teklif silinecek!</strong> Bu işlem geri alınamaz.
+                      </p>
+                    </div>
+                    <div className="flex justify-end gap-2 border-t pt-3">
+                      <Button variant="outline" size="sm" onClick={() => setDeleteQuoteId(null)} disabled={busy}>
+                        İptal
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => deleteQuoteId && void deleteQuote(deleteQuoteId)}
+                        disabled={busy}
+                      >
+                        Sil
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+              <Dialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+                <DialogContent className="max-w-sm">
+                  <div className="space-y-3">
+                    <div className="flex gap-2 rounded-lg border border-rose-200/50 bg-rose-500/8 p-3 dark:border-rose-500/20 dark:bg-rose-950/25">
+                      <Info className="mt-0.5 size-4 shrink-0 text-rose-600 dark:text-rose-400" aria-hidden />
+                      <p className="text-sm text-rose-950/90 dark:text-rose-100/90">
+                        <strong className="font-semibold">{selectedQuoteIds.length} teklif silinecek.</strong> İlişkili fiyat satırları ve ödemelerdeki teklif bağlantısı kaldırılır. Geri alınamaz.
+                      </p>
+                    </div>
+                    <div className="flex justify-end gap-2 border-t pt-3">
+                      <Button variant="outline" size="sm" onClick={() => setBulkDeleteOpen(false)} disabled={busy}>
+                        İptal
+                      </Button>
+                      <Button variant="destructive" size="sm" onClick={() => void deleteQuotesBulk()} disabled={busy || !selectedQuoteIds.length}>
+                        Hepsini sil
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </CardContent>
           </Card>
           )}
@@ -2249,10 +3543,10 @@ export default function DtFileDetailPage() {
                   <thead>
                     <tr className="border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                       <th className="px-2 py-1.5">Belge</th>
-                      <th className="px-2 py-1.5 w-[170px]">Tarih</th>
-                      <th className="px-2 py-1.5">Sayı (prefix)</th>
-                      <th className="px-2 py-1.5 w-[120px]">Ek / no</th>
-                      <th className="px-2 py-1.5 w-[140px]">Karar no</th>
+                      <th className="w-[170px] bg-fuchsia-500/[0.07] px-2 py-1.5 dark:bg-fuchsia-950/25">Tarih</th>
+                      <th className="bg-fuchsia-500/[0.07] px-2 py-1.5 dark:bg-fuchsia-950/25">Sayı (prefix)</th>
+                      <th className="w-[120px] bg-fuchsia-500/[0.07] px-2 py-1.5 dark:bg-fuchsia-950/25">Ek / no</th>
+                      <th className="w-[140px] bg-fuchsia-500/[0.07] px-2 py-1.5 dark:bg-fuchsia-950/25">Karar no</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -2278,9 +3572,9 @@ export default function DtFileDetailPage() {
                         muayene_kabul: 'Muayene kabul',
                       };
                       return (
-                        <tr key={r.stage} className="hover:bg-muted/30">
-                          <td className="px-2 py-1.5 font-medium">{label[r.stage] ?? r.stage}</td>
-                          <td className="px-2 py-1.5">
+                        <tr key={r.stage} className="hover:bg-muted/20">
+                          <td className="bg-background px-2 py-1.5 font-medium">{label[r.stage] ?? r.stage}</td>
+                          <td className="bg-fuchsia-500/[0.06] px-2 py-1.5 dark:bg-fuchsia-950/20">
                             <Input
                               type="date"
                               className="h-8 text-xs"
@@ -2293,7 +3587,7 @@ export default function DtFileDetailPage() {
                               }
                             />
                           </td>
-                          <td className="px-2 py-1.5">
+                          <td className="bg-fuchsia-500/[0.06] px-2 py-1.5 dark:bg-fuchsia-950/20">
                             <Input
                               className="h-8 text-xs"
                               placeholder="örn. 123456789-934.01"
@@ -2306,7 +3600,7 @@ export default function DtFileDetailPage() {
                               }
                             />
                           </td>
-                          <td className="px-2 py-1.5">
+                          <td className="bg-fuchsia-500/[0.06] px-2 py-1.5 dark:bg-fuchsia-950/20">
                             <Input
                               className="h-8 text-xs"
                               placeholder="örn. 1"
@@ -2319,7 +3613,7 @@ export default function DtFileDetailPage() {
                               }
                             />
                           </td>
-                          <td className="px-2 py-1.5">
+                          <td className="bg-fuchsia-500/[0.06] px-2 py-1.5 dark:bg-fuchsia-950/20">
                             {r.stage === 'muayene_kabul' ? (
                               <Input
                                 className="h-8 text-xs"
@@ -2347,81 +3641,213 @@ export default function DtFileDetailPage() {
           )}
 
           {activeTab === 'budget' && (
-          <Card>
-            <CardHeader className="py-3">
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle className="flex items-center gap-2 text-sm">
-                  <Landmark className="size-4 text-amber-600" />
-                  Bütçe bloke
-                  <DtInfoHint title={DT_SECTION_HINTS.budget} />
-                </CardTitle>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    value={budgetForm.budget_account_id}
-                    onChange={(e) => setBudgetForm((s) => ({ ...s, budget_account_id: e.target.value }))}
-                    className="h-8 rounded border border-input bg-background px-2 py-1 text-xs"
+          <>
+          <Card className="overflow-hidden border-border/80 shadow-sm">
+            <CardHeader className="space-y-3 border-b border-border/70 bg-gradient-to-br from-amber-500/[0.08] via-muted/15 to-transparent py-4 dark:from-amber-950/25">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="flex size-8 items-center justify-center rounded-lg bg-amber-600/12 text-amber-800 dark:text-amber-200">
+                      <Landmark className="size-4" />
+                    </span>
+                    Bütçe bloke
+                    <DtInfoHint title={DT_SECTION_HINTS.budget} />
+                  </CardTitle>
+                  <p className="max-w-xl text-[11px] leading-relaxed text-muted-foreground">
+                    Hesap seçin; sistem ödenek − bloke − harcamadan{' '}
+                    <span className="font-medium text-foreground">kullanılabilir</span> tutarı gösterir. Bu dosya için ayrılacak tutarı girin; satırları düzenleyebilir veya kaldırabilirsiniz.
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-md border border-border/60 bg-background/80 px-2 py-1 text-[10px] text-muted-foreground">
+                  {budgetBlockTabSummary.totalRows} kayıt · {budgetBlockTabSummary.activeBlocked} aktif bloke
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[10px] text-amber-950 dark:text-amber-100">
+                  <span className="text-amber-900/70 dark:text-amber-200/80">Aktif bloke toplamı</span>
+                  <span className="font-semibold tabular-nums">{dtFormatNumberTr(budgetBlockTabSummary.totalBlocked)} ₺</span>
+                </span>
+                {file?.year != null ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-background/70 px-2.5 py-1 text-[10px]">
+                    <span className="text-muted-foreground">Yıl</span>
+                    <span className="font-semibold tabular-nums text-foreground">{file.year}</span>
+                  </span>
+                ) : null}
+                {file?.budgetAccountId ? (
+                  <span
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-sky-500/25 bg-sky-500/8 px-2.5 py-1 text-[10px] text-sky-950 dark:text-sky-100"
+                    title="Dosyaya atanmış varsayılan bütçe hesabı (üst bölümde değiştirilebilir)."
                   >
-                    <option value="">Hesap seçin</option>
-                    {budgetAccounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {(a.code ? `${a.code} · ` : '') + a.label}
-                      </option>
-                    ))}
-                  </select>
-                  <Input
-                    value={budgetForm.amount}
-                    onChange={(e) => setBudgetForm((s) => ({ ...s, amount: e.target.value }))}
-                    className="h-8 w-[140px] px-2 py-1 text-xs"
-                    placeholder="Bloke tutar"
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || !budgetForm.budget_account_id || !budgetForm.amount.trim()}
-                    onClick={() => void blockBudget()}
-                  >
-                    Bloke et
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || budgetBlocks.length === 0}
-                    onClick={() => setConfirmReleaseAllOpen(true)}
-                  >
-                    Blokeleri kaldır
-                  </Button>
+                    <span className="shrink-0 text-muted-foreground">Dosya hesabı</span>
+                    <span className="truncate font-medium">
+                      {(() => {
+                        const a = budgetAccounts.find((x) => x.id === file.budgetAccountId);
+                        return a ? `${a.code ? `${a.code} · ` : ''}${a.label}` : file.budgetAccountId.slice(0, 8);
+                      })()}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-border/80 px-2.5 py-1 text-[10px] text-muted-foreground">
+                    Dosyada varsayılan bütçe hesabı atanmamış
+                  </span>
+                )}
+              </div>
+              {dtRules?.require_budget_account_on_file ? (
+                <div className="flex flex-wrap gap-1.5">
+                  <span className="rounded-md border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-900 dark:text-amber-100">
+                    Ödeme / işlemlerde dosya bütçe hesabı zorunlu (kurallar)
+                  </span>
+                </div>
+              ) : null}
+            </CardHeader>
+            <CardContent className="space-y-4 p-4 sm:p-5">
+              <div className="rounded-xl border border-border/70 bg-muted/10 p-3 sm:p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <label className="text-[11px] font-medium text-muted-foreground">Bütçe tertip hesabı</label>
+                    <select
+                      value={budgetForm.budget_account_id}
+                      onChange={(e) => setBudgetForm((s) => ({ ...s, budget_account_id: e.target.value }))}
+                      className={cn(DT_SELECT_SM, 'w-full max-w-xl')}
+                    >
+                      <option value="">— Hesap seçin —</option>
+                      {budgetAccounts.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {(a.code ? `${a.code} · ` : '') + a.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {budgetAccountPickMetrics ? (
+                    <div className="grid w-full min-w-0 basis-full shrink-0 grid-cols-2 gap-2 rounded-lg border border-border/60 bg-background/60 px-3 py-2 text-[10px] sm:grid-cols-4">
+                      <div>
+                        <div className="text-muted-foreground">Ödenek</div>
+                        <div className="font-semibold tabular-nums">{dtFormatNumberTr(budgetAccountPickMetrics.alloc)} ₺</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground">Bloke (hesap)</div>
+                        <div className="font-semibold tabular-nums">{dtFormatNumberTr(budgetAccountPickMetrics.blocked)} ₺</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground">Harcama</div>
+                        <div className="font-semibold tabular-nums">{dtFormatNumberTr(budgetAccountPickMetrics.spent)} ₺</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground">Kullanılabilir</div>
+                        <div className="font-semibold tabular-nums text-amber-800 dark:text-amber-200">
+                          {dtFormatNumberTr(budgetAccountPickMetrics.available)} ₺
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-end lg:w-auto">
+                    <div className="space-y-1.5 sm:min-w-[160px]">
+                      <label className="text-[11px] font-medium text-muted-foreground">
+                        Bu dosya için ayrılacak tutar (₺){budgetAccountPickMetrics ? ' *' : ''}
+                      </label>
+                      <Input
+                        value={budgetForm.amount}
+                        onChange={(e) => setBudgetForm((s) => ({ ...s, amount: e.target.value }))}
+                        onBlur={(e) => {
+                          const t = dtFormatAmountTr2(e.target.value);
+                          if (t && t !== e.target.value) setBudgetForm((s) => ({ ...s, amount: t }));
+                        }}
+                        className={cn(DT_INPUT_SM, 'w-full sm:w-[160px]')}
+                        placeholder="0,00"
+                        inputMode="decimal"
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="h-9"
+                        disabled={busy || !budgetForm.budget_account_id || !budgetForm.amount.trim()}
+                        onClick={() => void blockBudget()}
+                      >
+                        Bloke et
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9"
+                        disabled={busy || budgetBlocks.length === 0}
+                        onClick={() => setConfirmReleaseAllOpen(true)}
+                      >
+                        Tümünü kaldır
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </CardHeader>
-            <CardContent className="pt-0">
               {budgetBlocks.length ? (
-                <div className="table-x-scroll rounded-md border border-border text-xs">
-                  <table className="w-full min-w-[720px] text-left">
+                <div className="table-x-scroll overflow-hidden rounded-lg border border-border text-xs">
+                  <table className="w-full min-w-[820px] text-left">
                     <thead>
                       <tr className="border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                         <th className="px-2 py-1.5">Hesap</th>
-                        <th className="px-2 py-1.5">Tutar</th>
+                        <th className="px-2 py-1.5 text-right">Tutar</th>
                         <th className="px-2 py-1.5">Durum</th>
-                        <th className="px-2 py-1.5 w-[1%]"> </th>
+                        <th className="px-2 py-1.5 w-[1%] whitespace-nowrap">İşlem</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
                       {budgetBlocks.map((b) => {
                         const acc = budgetAccounts.find((x) => x.id === b.budgetAccountId);
+                        const accLabel = acc
+                          ? (acc.code ? `${acc.code} · ` : '') + acc.label
+                          : b.budgetAccountId
+                            ? b.budgetAccountId.slice(0, 8)
+                            : '—';
                         return (
                           <tr key={b.id} className="hover:bg-muted/30">
-                            <td className="px-2 py-1">{acc ? (acc.code ? `${acc.code} · ` : '') + acc.label : b.budgetAccountId.slice(0, 8)}</td>
-                            <td className="px-2 py-1">{b.amount}</td>
-                            <td className="px-2 py-1">{dtBudgetBlockStatusLabel(b.status)}</td>
-                            <td className="px-2 py-1 text-right">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={busy || b.status !== 'blocked'}
-                                onClick={() => void releaseBudget(b.id)}
+                            <td className="px-2 py-1.5 font-medium">{accLabel}</td>
+                            <td className="px-2 py-1.5 text-right font-semibold tabular-nums text-amber-800 dark:text-amber-200">
+                              {dtFormatNumberTr(b.amount)} ₺
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <span
+                                className="inline-block max-w-[200px] truncate align-middle text-muted-foreground"
+                                title={dtBudgetBlockStatusHint(b.status)}
                               >
-                                Kaldır
-                              </Button>
+                                {dtBudgetBlockStatusLabel(b.status)}
+                              </span>
+                            </td>
+                            <td className="px-2 py-1.5 text-right">
+                              <div className="flex flex-wrap justify-end gap-1">
+                                {dtBudgetBlockActive(b.status) ? (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 gap-1 px-2"
+                                    disabled={busy}
+                                    title="Düzenle"
+                                    onClick={() => {
+                                      setBudgetBlockEditId(b.id);
+                                      setBudgetBlockEditAmount(dtFormatAmountTr2(b.amount));
+                                      setBudgetBlockEditOpen(true);
+                                    }}
+                                  >
+                                    <Pencil className="size-3.5" />
+                                    <span className="hidden sm:inline">Düzenle</span>
+                                  </Button>
+                                ) : null}
+                                {dtBudgetBlockActive(b.status) || dtBudgetBlockReleased(b.status) ? (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 gap-1 border-rose-200 px-2 text-rose-600 hover:bg-rose-50 dark:border-rose-900 dark:hover:bg-rose-950/30"
+                                    disabled={busy}
+                                    title={dtBudgetBlockReleased(b.status) ? 'Geçmiş kaydını sil' : 'Blokajı kaldır'}
+                                    onClick={() => void deleteBudgetBlockRow(b)}
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                    <span className="hidden sm:inline">Sil</span>
+                                  </Button>
+                                ) : null}
+                              </div>
                             </td>
                           </tr>
                         );
@@ -2430,139 +3856,330 @@ export default function DtFileDetailPage() {
                   </table>
                 </div>
               ) : (
-                <p className="py-4 text-center text-[11px] text-muted-foreground">Bloke yok.</p>
+                <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/80 py-10 text-center">
+                  <Landmark className="size-8 text-muted-foreground/40" />
+                  <p className="text-[11px] text-muted-foreground">Henüz bloke kaydı yok.</p>
+                </div>
               )}
             </CardContent>
           </Card>
+          <Dialog
+            open={budgetBlockEditOpen}
+            onOpenChange={(open) => {
+              setBudgetBlockEditOpen(open);
+              if (!open) {
+                setBudgetBlockEditId(null);
+                setBudgetBlockEditAmount('');
+              }
+            }}
+          >
+            <DialogContent className="max-w-md gap-3">
+              <DialogHeader>
+                <DialogTitle className="text-sm">Blokaj düzenle</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 text-xs">
+                {budgetBlockEditId
+                  ? (() => {
+                      const row = budgetBlocks.find((x) => x.id === budgetBlockEditId);
+                      const a = row ? budgetAccounts.find((x) => x.id === row.budgetAccountId) : null;
+                      const lbl = a ? `${a.code ? `${a.code} · ` : ''}${a.label}` : '—';
+                      const oldAmt = row ? dtParseAmount(row.amount) ?? 0 : 0;
+                      const alloc = a ? dtParseAmount(a.allocated) ?? 0 : 0;
+                      const blocked = a ? dtParseAmount(a.blocked) ?? 0 : 0;
+                      const spent = a ? dtParseAmount(a.spent) ?? 0 : 0;
+                      const room = Math.max(0, alloc - blocked - spent);
+                      const maxAmt = row && dtBudgetBlockActive(row.status) ? oldAmt + room : null;
+                      return (
+                        <p className="text-[11px] text-muted-foreground">
+                          <span className="font-medium text-foreground">{lbl}</span>
+                          {maxAmt != null ? (
+                            <span className="mt-1 block">
+                              Üst sınır (mevcut blok + kullanılabilir): {dtFormatNumberTr(maxAmt)} ₺
+                            </span>
+                          ) : null}
+                        </p>
+                      );
+                    })()
+                  : null}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">Tutar (₺)</label>
+                  <Input
+                    className={DT_INPUT_SM}
+                    value={budgetBlockEditAmount}
+                    onChange={(e) => setBudgetBlockEditAmount(e.target.value)}
+                    onBlur={(e) => {
+                      const t = dtFormatAmountTr2(e.target.value);
+                      if (t && t !== e.target.value) setBudgetBlockEditAmount(t);
+                    }}
+                    inputMode="decimal"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 border-t border-border pt-3">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setBudgetBlockEditOpen(false)}>
+                    Vazgeç
+                  </Button>
+                  <Button type="button" size="sm" disabled={busy} onClick={() => void saveBudgetBlockEdit()}>
+                    Kaydet
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+          </>
           )}
 
           {activeTab === 'payments' && (
-          <Card>
-            <CardHeader className="py-3">
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <CardTitle className="flex items-center gap-2 text-sm">
-                  <Banknote className="size-4 text-lime-700 dark:text-lime-300" />
-                  Ödemeler
-                  <DtInfoHint title={DT_SECTION_HINTS.payments} />
-                </CardTitle>
-                {dtRules ? (
-                  <p className="text-[10px] text-muted-foreground">
-                    {dtRules.require_quote_on_payment ? 'Teklif zorunlu. ' : ''}
-                    {dtRules.require_award_before_payment ? 'Karar zorunlu. ' : ''}
-                    {dtRules.require_budget_account_on_file ? 'Bütçe hesabı zorunlu. ' : ''}
-                    {dtRules.payment_note_min_length > 0 ? `Not min. ${dtRules.payment_note_min_length} karakter. ` : ''}
+            <>
+          <Card className="overflow-hidden border-border/80 shadow-sm">
+            <CardHeader className="space-y-3 border-b border-border/70 bg-gradient-to-br from-emerald-500/[0.07] via-muted/15 to-transparent py-4 dark:from-emerald-950/25">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="flex size-8 items-center justify-center rounded-lg bg-emerald-600/12 text-emerald-700 dark:text-emerald-300">
+                      <Banknote className="size-4" />
+                    </span>
+                    Ödemeler
+                    <DtInfoHint title={DT_SECTION_HINTS.payments} />
+                  </CardTitle>
+                  <p className="max-w-xl text-[11px] leading-relaxed text-muted-foreground">
+                    Ödeme ekleyin; satırları düzenleyebilir veya silebilirsiniz. Ödeme emri resmî üst bilgi ile PDF üretilir. Üst banttaki ödenen toplam dosya özetiyle güncellenir.
                   </p>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-9 gap-1.5 rounded-xl border border-emerald-700/30 bg-gradient-to-br from-emerald-600 via-emerald-600 to-emerald-800 px-3.5 text-[11px] font-semibold tracking-tight text-white shadow-md shadow-emerald-900/20 ring-1 ring-white/15 transition-[transform,box-shadow,filter] hover:-translate-y-0.5 hover:from-emerald-500 hover:via-emerald-600 hover:to-emerald-700 hover:shadow-lg hover:shadow-emerald-900/30 active:translate-y-0 disabled:pointer-events-none disabled:opacity-50 dark:from-emerald-500 dark:via-emerald-600 dark:to-emerald-900 dark:shadow-black/30 dark:ring-white/10"
+                    disabled={busy}
+                    onClick={() => void downloadMysYukleXlsx()}
+                  >
+                    <FileDown className="size-4 shrink-0 opacity-95" />
+                    MYS Excel
+                  </Button>
+                  <span className="rounded-md border border-border/60 bg-background/80 px-2 py-1 text-[10px] text-muted-foreground">
+                    {payments.length} kayıt
+                  </span>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/8 px-2.5 py-1 text-[10px] text-emerald-950 dark:text-emerald-100">
+                  <span className="text-muted-foreground">Ödenen</span>
+                  <span className="font-semibold tabular-nums">{dtFormatNumberTr(file?.paymentTotal)} ₺</span>
+                </span>
+                {paymentTabSummary.refTotal != null && paymentTabSummary.refLabel ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-background/70 px-2.5 py-1 text-[10px]">
+                    <span className="text-muted-foreground">{paymentTabSummary.refLabel}</span>
+                    <span className="font-semibold tabular-nums text-foreground">{dtFormatNumberTr(paymentTabSummary.refTotal)} ₺</span>
+                  </span>
+                ) : null}
+                {paymentTabSummary.remaining != null && paymentTabSummary.refLabel ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[10px] text-amber-950 dark:text-amber-100">
+                    <span className="text-amber-900/70 dark:text-amber-200/80">Kalan</span>
+                    <span className="font-semibold tabular-nums">{dtFormatNumberTr(paymentTabSummary.remaining)} ₺</span>
+                  </span>
                 ) : null}
               </div>
+              {dtRules ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {dtRules.require_quote_on_payment ? (
+                    <span className="rounded-md border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-900 dark:text-emerald-100">
+                      Teklif seçimi zorunlu
+                    </span>
+                  ) : null}
+                  {dtRules.require_award_before_payment ? (
+                    <span className="rounded-md border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-900 dark:text-emerald-100">
+                      Önce karar gerekli
+                    </span>
+                  ) : null}
+                  {dtRules.require_budget_account_on_file ? (
+                    <span className="rounded-md border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-900 dark:text-emerald-100">
+                      Bütçe hesabı zorunlu
+                    </span>
+                  ) : null}
+                  {dtRules.payment_note_min_length > 0 ? (
+                    <span className="rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 text-[10px] text-muted-foreground">
+                      Not en az {dtRules.payment_note_min_length} karakter
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
             </CardHeader>
-            <CardContent className="space-y-3 pt-0">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t pt-3">
-                <div className="space-y-2">
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-muted-foreground uppercase">Tutar *</label>
+            <CardContent className="space-y-4 p-4 sm:p-5">
+              {dtRules?.require_quote_on_payment && quotes.length === 0 ? (
+                <Alert variant="info" message="Ödeme için teklif seçmeniz gerekiyor; önce Teklifler sekmesinde en az bir teklif oluşturun." />
+              ) : null}
+              <div className="rounded-xl border border-border/70 bg-muted/10 p-3 sm:p-4 space-y-3">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-medium text-muted-foreground">Tutar (₺) *</label>
                     <Input
                       value={paymentForm.amount}
                       onChange={(e) => setPaymentForm((s) => ({ ...s, amount: e.target.value }))}
-                      className="text-xs"
-                      placeholder="0.00"
+                      onBlur={(e) => {
+                        const t = dtFormatAmountTr2(e.target.value);
+                        if (t && t !== e.target.value) setPaymentForm((s) => ({ ...s, amount: t }));
+                      }}
+                      className={DT_INPUT_SM}
+                      placeholder="0,00"
+                      inputMode="decimal"
                     />
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-muted-foreground uppercase">Teklif (Firma)</label>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-medium text-muted-foreground">
+                      İlgili teklif (firma){dtRules?.require_quote_on_payment ? ' *' : ''}
+                    </label>
                     <select
                       value={paymentForm.quote_id}
                       onChange={(e) => setPaymentForm((s) => ({ ...s, quote_id: e.target.value }))}
-                      className="w-full h-9 rounded border border-input bg-background px-2 text-xs"
+                      className={cn(DT_SELECT_SM, 'w-full')}
                     >
-                      <option value="">—</option>
+                      <option value="">— Seçin —</option>
                       {quotes.map((q) => {
                         const v = vendors.find((vendor) => vendor.id === q.vendorId);
                         const vn = v?.title ?? q.vendorId.slice(0, 8);
+                        const pur = normalizeQuotePurpose(q.purpose);
+                        const tag = pur === 'market_research' ? 'Araştırma' : 'Teklif';
                         return (
                           <option key={q.id} value={q.id}>
-                            {vn}
+                            {vn} — {tag}
                           </option>
                         );
                       })}
                     </select>
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-muted-foreground uppercase">Ref No</label>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-medium text-muted-foreground">Referans / evrak no</label>
                     <Input
                       value={paymentForm.reference_no}
                       onChange={(e) => setPaymentForm((s) => ({ ...s, reference_no: e.target.value }))}
-                      className="text-xs"
+                      className={DT_INPUT_SM}
+                      placeholder="Opsiyonel"
                     />
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-muted-foreground uppercase">Ödeme Tarihi</label>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-medium text-muted-foreground">Ödeme tarihi</label>
                     <Input
                       type="date"
                       value={paymentForm.paid_at}
                       onChange={(e) => setPaymentForm((s) => ({ ...s, paid_at: e.target.value }))}
-                      className="text-xs"
+                      className={DT_INPUT_SM}
                     />
                   </div>
                 </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-medium text-muted-foreground">
+                    Not{dtRules && dtRules.payment_note_min_length > 0 ? ` (min. ${dtRules.payment_note_min_length} karakter)` : ''}
+                  </label>
+                  <textarea
+                    value={paymentForm.note}
+                    onChange={(e) => setPaymentForm((s) => ({ ...s, note: e.target.value }))}
+                    className={DT_TEXTAREA_SM}
+                    placeholder="Ödeme gerekçesi, onay bilgisi vb."
+                    rows={3}
+                  />
+                </div>
+                <Button
+                  className="w-full"
+                  disabled={
+                    busy ||
+                    !paymentForm.amount.trim() ||
+                    (dtRules?.require_quote_on_payment && (!paymentForm.quote_id.trim() || quotes.length === 0))
+                  }
+                  onClick={() => void recordPayment()}
+                >
+                  Ödeme kaydı ekle
+                </Button>
               </div>
-              <div className="space-y-1 border-t pt-3">
-                <label className="text-[11px] font-medium text-muted-foreground uppercase">Not</label>
-                <Input
-                  value={paymentForm.note}
-                  onChange={(e) => setPaymentForm((s) => ({ ...s, note: e.target.value }))}
-                  className="text-xs"
-                  placeholder="Ödeme hakkında notlar..."
-                />
-              </div>
-              <Button
-                className="w-full mt-3"
-                disabled={
-                  busy ||
-                  !paymentForm.amount.trim() ||
-                  (dtRules?.require_quote_on_payment && !paymentForm.quote_id.trim())
-                }
-                onClick={() => void recordPayment()}
-              >
-                Ödeme Kaydı Ekle
-              </Button>
               {payments.length ? (
-                <div className="table-x-scroll rounded-lg border border-border text-xs overflow-hidden">
-                  <table className="w-full min-w-[640px] text-left">
+                <div className="table-x-scroll overflow-hidden rounded-lg border border-border text-xs">
+                  <table className="w-full min-w-[860px] text-left">
                     <thead>
-                      <tr className="border-b border-border bg-muted/60 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        <th className="px-3 py-2.5">Tarih</th>
-                        <th className="px-3 py-2.5 text-right">Tutar</th>
-                        <th className="px-3 py-2.5">Teklif</th>
-                        <th className="px-3 py-2.5">Ref No</th>
-                        <th className="px-3 py-2.5">Not</th>
-                        <th className="px-3 py-2.5 w-[1%]"> </th>
+                      <tr className="border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <th className="px-2 py-1.5">Tarih</th>
+                        <th className="px-2 py-1.5 text-right">Tutar</th>
+                        <th className="px-2 py-1.5">Teklif</th>
+                        <th className="px-2 py-1.5">Ref.</th>
+                        <th className="px-2 py-1.5">Not</th>
+                        <th className="px-2 py-1.5 w-[1%] whitespace-nowrap text-right">İşlem</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
                       {payments.map((p) => {
                         const q = p.quoteId ? quotes.find((x) => x.id === p.quoteId) : null;
                         const vn = q ? vendors.find((v) => v.id === q.vendorId)?.title : null;
+                        const pur = q ? normalizeQuotePurpose(q.purpose) : null;
+                        const qLabel = (() => {
+                          if (!p.quoteId) return null;
+                          if (!q || !pur) return p.quoteId.slice(0, 8);
+                          const tag = pur === 'market_research' ? 'Araştırma' : 'Teklif';
+                          const base = vn ?? q.vendorId.slice(0, 8);
+                          return `${base} — ${tag}`;
+                        })();
                         return (
-                          <tr key={p.id} className="hover:bg-primary/5 transition-colors">
-                            <td className="px-3 py-2 whitespace-nowrap font-medium">
+                          <tr key={p.id} className="hover:bg-muted/30">
+                            <td className="px-2 py-1.5 whitespace-nowrap font-medium">
                               {p.paidAt ? new Date(p.paidAt).toLocaleDateString('tr-TR') : '—'}
                             </td>
-                            <td className="px-3 py-2 text-right font-semibold text-green-600">{p.amount}</td>
-                            <td className="px-3 py-2 text-muted-foreground">{vn ?? (p.quoteId ? p.quoteId.slice(0, 8) : '—')}</td>
-                            <td className="px-3 py-2 text-muted-foreground">{p.referenceNo ?? '—'}</td>
-                            <td className="px-3 py-2 text-muted-foreground truncate" title={p.note ?? ''}>{p.note ?? '—'}</td>
-                            <td className="px-3 py-2 text-right">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                disabled={busy}
-                                onClick={() => void downloadPaymentOrderPdf(p.id)}
-                                title="Ödeme Emri PDF"
-                              >
-                                <FileDown className="size-4" />
-                              </Button>
+                            <td className="px-2 py-1.5 text-right font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">
+                              {dtFormatNumberTr(p.amount)} ₺
+                            </td>
+                            <td className="px-2 py-1.5 text-muted-foreground">{qLabel ?? '—'}</td>
+                            <td className="px-2 py-1.5 text-muted-foreground">{p.referenceNo ?? '—'}</td>
+                            <td className="max-w-[200px] px-2 py-1.5 text-muted-foreground">
+                              <span className="line-clamp-2" title={p.note ?? ''}>
+                                {p.note ?? '—'}
+                              </span>
+                            </td>
+                            <td className="px-2 py-1.5 text-right">
+                              <div className="flex flex-wrap justify-end gap-1">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  disabled={busy}
+                                  title="Düzenle"
+                                  onClick={() => {
+                                    setPaymentEditId(p.id);
+                                    setPaymentEditForm({
+                                      amount: (() => {
+                                        const raw = String(p.amount ?? '').trim();
+                                        return raw ? dtFormatAmountTr2(raw) : '';
+                                      })(),
+                                      quote_id: p.quoteId ?? '',
+                                      note: p.note ?? '',
+                                      reference_no: p.referenceNo ?? '',
+                                      paid_at: dtPaymentDateInput(p.paidAt),
+                                    });
+                                    setPaymentEditOpen(true);
+                                  }}
+                                >
+                                  <Pencil className="size-3.5" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 w-8 border-rose-200 p-0 text-rose-600 hover:bg-rose-50 dark:border-rose-900 dark:hover:bg-rose-950/30"
+                                  disabled={busy}
+                                  title="Sil"
+                                  onClick={() => void deletePaymentRow(p.id)}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 gap-1 px-2"
+                                  disabled={busy}
+                                  onClick={() => void downloadPaymentOrderPdf(p.id)}
+                                  title="Ödeme emri PDF"
+                                >
+                                  <FileDown className="size-3.5" />
+                                  <span className="hidden sm:inline">PDF</span>
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -2571,137 +4188,403 @@ export default function DtFileDetailPage() {
                   </table>
                 </div>
               ) : (
-                <p className="text-center text-[11px] text-muted-foreground py-4">Henüz ödeme kaydı yok.</p>
+                <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/80 py-10 text-center">
+                  <Banknote className="size-8 text-muted-foreground/40" />
+                  <p className="text-[11px] text-muted-foreground">Henüz ödeme kaydı yok.</p>
+                </div>
               )}
             </CardContent>
           </Card>
+          <Dialog
+            open={paymentEditOpen}
+            onOpenChange={(open) => {
+              setPaymentEditOpen(open);
+              if (!open) setPaymentEditId(null);
+            }}
+          >
+            <DialogContent className="max-w-lg max-h-[90vh] gap-3 overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="text-sm">Ödeme düzenle</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 text-xs">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">Tutar (₺)</label>
+                  <Input
+                    className={DT_INPUT_SM}
+                    value={paymentEditForm.amount}
+                    onChange={(e) => setPaymentEditForm((f) => ({ ...f, amount: e.target.value }))}
+                    onBlur={(e) => {
+                      const t = dtFormatAmountTr2(e.target.value);
+                      if (t && t !== e.target.value) setPaymentEditForm((f) => ({ ...f, amount: t }));
+                    }}
+                    inputMode="decimal"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">
+                    İlgili teklif (firma){dtRules?.require_quote_on_payment ? ' *' : ''}
+                  </label>
+                  <select
+                    className={cn(DT_SELECT_SM, 'w-full')}
+                    value={paymentEditForm.quote_id}
+                    onChange={(e) => setPaymentEditForm((f) => ({ ...f, quote_id: e.target.value }))}
+                  >
+                    <option value="">— Teklif seçin —</option>
+                    {quotes.map((q2) => {
+                      const ve = vendors.find((v) => v.id === q2.vendorId);
+                      const vn2 = ve?.title ?? q2.vendorId.slice(0, 8);
+                      const pur2 = normalizeQuotePurpose(q2.purpose);
+                      const tag2 = pur2 === 'market_research' ? 'Araştırma' : 'Teklif';
+                      return (
+                        <option key={q2.id} value={q2.id}>
+                          {vn2} — {tag2}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">Referans no</label>
+                  <Input
+                    className={DT_INPUT_SM}
+                    value={paymentEditForm.reference_no}
+                    onChange={(e) => setPaymentEditForm((f) => ({ ...f, reference_no: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">Ödeme tarihi</label>
+                  <Input
+                    className={DT_INPUT_SM}
+                    type="date"
+                    value={paymentEditForm.paid_at}
+                    onChange={(e) => setPaymentEditForm((f) => ({ ...f, paid_at: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">
+                    Not{dtRules && dtRules.payment_note_min_length > 0 ? ` (min. ${dtRules.payment_note_min_length} karakter)` : ''}
+                  </label>
+                  <textarea
+                    className={DT_TEXTAREA_SM}
+                    rows={3}
+                    value={paymentEditForm.note}
+                    onChange={(e) => setPaymentEditForm((f) => ({ ...f, note: e.target.value }))}
+                  />
+                </div>
+                <div className="flex justify-end gap-2 border-t border-border pt-3">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setPaymentEditOpen(false)}>
+                    Vazgeç
+                  </Button>
+                  <Button type="button" size="sm" disabled={busy} onClick={() => void savePaymentEdit()}>
+                    Kaydet
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+            </>
           )}
 
           {activeTab === 'commission' && (
-          <Card>
-            <CardHeader className="py-3 space-y-2">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <CardTitle className="flex items-center gap-2 text-sm">
-                  <Users className="size-4 text-violet-600" />
-                  Komisyonlar
-                  <DtInfoHint title={DT_SECTION_HINTS.commission} />
-                </CardTitle>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    value={commissionKind}
-                    onChange={(e) => setCommissionKind(e.target.value as typeof commissionKind)}
-                    className="h-8 rounded border border-input bg-background px-2 text-xs"
-                  >
-                    <option value="yaklasik_maliyet">Yaklaşık maliyet</option>
-                    <option value="piyasa_satinalma">Piyasa / satın alma</option>
-                    <option value="muayene_kabul">Muayene / kabul</option>
-                  </select>
-                  <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void syncCommissionFromApprox()}>
-                    Yaklaşıktan kopyala
-                  </Button>
+          <Card className="overflow-hidden border-border/80 shadow-sm">
+            <CardHeader className="space-y-4 border-b border-border/70 bg-gradient-to-br from-violet-500/[0.06] via-muted/15 to-transparent py-4 dark:from-violet-950/20">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="flex size-8 items-center justify-center rounded-lg bg-violet-600/12 text-violet-700 dark:text-violet-300">
+                      <Users className="size-4" />
+                    </span>
+                    Komisyonlar
+                    <DtInfoHint title={DT_SECTION_HINTS.commission} />
+                  </CardTitle>
+                  <p className="max-w-lg text-[11px] leading-relaxed text-muted-foreground">
+                    Tür seçin; her biri için ayrı başkan ve üye listesi tutulur. Belgeler bu kayıtlardan üretilir.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 gap-1.5 border-violet-200/80 bg-background/80 dark:border-violet-800/50"
+                  disabled={busy}
+                  onClick={() => void syncCommissionFromApprox()}
+                >
+                  Yaklaşıktan kopyala
+                </Button>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-3">
+                {(
+                  [
+                    { id: 'yaklasik_maliyet' as const, hint: 'Fiyat araştırması ve maliyet cetveli' },
+                    { id: 'piyasa_satinalma' as const, hint: 'İhale öncesi piyasa komisyonu' },
+                    { id: 'muayene_kabul' as const, hint: 'Teslim ve muayene / kabul' },
+                  ] as const
+                ).map((k) => {
+                  const active = commissionKind === k.id;
+                  const created = commissionsAll.some((c) => c.kind === k.id);
+                  return (
+                    <button
+                      key={k.id}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setCommissionKind(k.id)}
+                      className={cn(
+                        'rounded-xl border px-3 py-2.5 text-left text-xs transition-all',
+                        active
+                          ? 'border-violet-500/90 bg-violet-500/[0.1] shadow-sm ring-2 ring-violet-500/20 dark:bg-violet-950/40'
+                          : 'border-border/90 bg-background/60 hover:border-violet-300/50 hover:bg-muted/40',
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-[12px] font-semibold leading-tight">{COMMISSION_KIND_LABELS[k.id]}</span>
+                        {created ? (
+                          <CheckCircle2
+                            className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+                            aria-label="Bu türde kayıt var"
+                          />
+                        ) : (
+                          <span
+                            className="mt-0.5 size-3.5 shrink-0 rounded-full border border-dashed border-muted-foreground/30"
+                            aria-hidden
+                          />
+                        )}
+                      </div>
+                      <p className="mt-1 text-[10px] text-muted-foreground leading-snug">{k.hint}</p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
                 {commission ? (
-                  <Dialog open={commissionDialogOpen} onOpenChange={setCommissionDialogOpen}>
+                  <Dialog
+                    open={commissionMemberDialogOpen}
+                    onOpenChange={(o) => {
+                      setCommissionMemberDialogOpen(o);
+                      if (o) setCommissionTeacherQuery('');
+                    }}
+                  >
                     <DialogTrigger asChild>
-                      <Button variant="outline" size="sm" disabled={busy}>
-                        Üye Ekle
+                      <Button type="button" size="sm" className="gap-1.5 shadow-sm" disabled={busy}>
+                        <UserPlus className="size-3.5" />
+                        Üye ekle
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="max-w-lg">
-                      <div className="space-y-3">
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-medium text-muted-foreground uppercase">Okul öğretmeni</label>
-                          <select
-                            className="h-9 w-full rounded border border-input bg-background px-2 text-xs"
-                            value={commissionForm.member_pick}
-                            onChange={(e) => setCommissionForm((s) => ({ ...s, member_pick: e.target.value }))}
-                          >
-                            <option value="">— Listeden seçin —</option>
-                            {commissionTeachers.map((t) => (
-                              <option key={t.id} value={t.id}>
-                                {(t.display_name || t.email || t.id).slice(0, 96)}
-                              </option>
-                            ))}
-                          </select>
+                    <DialogContent title={`Üye ekle — ${COMMISSION_KIND_LABELS[commissionKind]}`} className="max-w-md sm:max-w-lg">
+                      <div className="space-y-4">
+                        <p className="text-[11px] text-muted-foreground leading-relaxed">
+                          Aşağıdan arayıp seçin. İsterseniz aynı kişiyi üç komisyona birden ekleyebilirsiniz.
+                        </p>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            Listeden seç
+                          </label>
+                          <div className="relative">
+                            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                              value={commissionTeacherQuery}
+                              onChange={(e) => setCommissionTeacherQuery(e.target.value)}
+                              placeholder="İsim, ünvan veya e-posta…"
+                              className="h-9 pl-8 text-xs"
+                            />
+                          </div>
+                          <div className="max-h-52 space-y-1 overflow-y-auto rounded-lg border border-border/80 bg-muted/10 p-1">
+                            {filteredCommissionTeachers.length === 0 ? (
+                              <p className="py-6 text-center text-[11px] text-muted-foreground">Eşleşen öğretmen yok.</p>
+                            ) : (
+                              filteredCommissionTeachers.map((t) => {
+                                const picked = commissionForm.member_pick === t.id;
+                                return (
+                                  <button
+                                    key={t.id}
+                                    type="button"
+                                    onClick={() =>
+                                      setCommissionForm((s) => ({
+                                        ...s,
+                                        member_pick: t.id,
+                                        member_manual: '',
+                                        member_title: (t.unvan ?? '').trim(),
+                                      }))
+                                    }
+                                    className={cn(
+                                      'flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors',
+                                      picked
+                                        ? 'bg-violet-600/15 ring-1 ring-violet-500/35 dark:bg-violet-500/15'
+                                        : 'hover:bg-muted/70',
+                                    )}
+                                  >
+                                    <span
+                                      className={cn(
+                                        'flex size-3.5 shrink-0 rounded-full border-2',
+                                        picked ? 'border-violet-600 bg-violet-600' : 'border-muted-foreground/35',
+                                      )}
+                                    />
+                                      <span className="min-w-0 flex-1">
+                                        <span className="block truncate font-medium">
+                                          {(t.display_name || t.email || t.id).slice(0, 88)}
+                                        </span>
+                                        {t.unvan?.trim() ? (
+                                          <span className="block truncate text-[10px] font-medium text-violet-900/80 dark:text-violet-200/90">
+                                            {t.unvan.trim()}
+                                          </span>
+                                        ) : null}
+                                        {t.email ? (
+                                          <span className="block truncate text-[10px] text-muted-foreground">{t.email}</span>
+                                        ) : null}
+                                      </span>
+                                  </button>
+                                );
+                              })
+                            )}
+                          </div>
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-medium text-muted-foreground uppercase">El ile UUID</label>
+                        <details className="rounded-lg border border-border/70 bg-muted/15 px-2 py-1.5 text-[11px]">
+                          <summary className="cursor-pointer select-none font-medium text-foreground">Gelişmiş (UUID)</summary>
                           <Input
                             value={commissionForm.member_manual}
                             onChange={(e) => setCommissionForm((s) => ({ ...s, member_manual: e.target.value }))}
-                            placeholder="Listede yoksa kullanıcı UUID"
-                            className="text-xs"
+                            placeholder="Kullanıcı UUID"
+                            className="mt-2 text-xs"
                           />
-                        </div>
+                        </details>
                         <div className="space-y-1">
-                          <label className="text-[11px] font-medium text-muted-foreground uppercase">Ünvan (opsiyonel)</label>
+                          <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            Ünvan (opsiyonel)
+                          </label>
                           <Input
                             value={commissionForm.member_title}
                             onChange={(e) => setCommissionForm((s) => ({ ...s, member_title: e.target.value }))}
-                            placeholder="Üye ünvanı"
+                            placeholder="Komisyondaki ünvan"
                             className="text-xs"
                           />
                         </div>
-                        <label className="flex cursor-pointer items-start gap-2 text-[11px] leading-snug">
+                        <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-border/60 bg-muted/10 px-2 py-2 text-[11px] leading-snug">
                           <input
                             type="checkbox"
-                            className="mt-0.5 size-3.5 shrink-0"
+                            className="mt-0.5 size-3.5 shrink-0 accent-violet-600"
                             checked={commissionForm.apply_all_kinds}
                             onChange={(e) => setCommissionForm((s) => ({ ...s, apply_all_kinds: e.target.checked }))}
                           />
-                          <span>Tüm komisyon türlerine ekle (yaklaşık maliyet, piyasa/satın alma, muayene/kabul)</span>
+                          <span>Tüm komisyon türlerine aynı üyeyi ekle</span>
                         </label>
-                        <div className="flex justify-end gap-2 pt-2">
-                          <Button variant="outline" onClick={() => setCommissionDialogOpen(false)} disabled={busy}>
+                        <div className="flex justify-end gap-2 border-t border-border/60 pt-3">
+                          <Button variant="outline" size="sm" onClick={() => setCommissionMemberDialogOpen(false)} disabled={busy}>
                             Vazgeç
                           </Button>
                           <Button
+                            size="sm"
                             onClick={() => void addCommissionMember()}
-                            disabled={busy || !(commissionForm.member_manual.trim() || commissionForm.member_pick.trim())}
+                            disabled={
+                              busy || !(commissionForm.member_manual.trim() || commissionForm.member_pick.trim())
+                            }
                           >
-                            Üye Ekle
+                            Ekle
                           </Button>
                         </div>
                       </div>
                     </DialogContent>
                   </Dialog>
                 ) : (
-                  <Dialog open={commissionDialogOpen} onOpenChange={setCommissionDialogOpen}>
+                  <Dialog
+                    open={commissionCreateDialogOpen}
+                    onOpenChange={(o) => {
+                      setCommissionCreateDialogOpen(o);
+                      if (o) setCommissionTeacherQuery('');
+                    }}
+                  >
                     <DialogTrigger asChild>
-                      <Button size="sm" disabled={busy}>
-                        Komisyon Oluştur
+                      <Button type="button" size="sm" className="gap-1.5 shadow-sm" disabled={busy}>
+                        <UserPlus className="size-3.5" />
+                        {COMMISSION_KIND_LABELS[commissionKind]} — oluştur
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="max-w-lg">
-                      <div className="space-y-3">
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-medium text-muted-foreground uppercase">Başkan — okul öğretmeni (opsiyonel)</label>
-                          <select
-                            className="h-9 w-full rounded border border-input bg-background px-2 text-xs"
-                            value={commissionForm.chairman_pick}
-                            onChange={(e) => setCommissionForm((s) => ({ ...s, chairman_pick: e.target.value }))}
-                          >
-                            <option value="">— Yok —</option>
-                            {commissionTeachers.map((t) => (
-                              <option key={t.id} value={t.id}>
-                                {(t.display_name || t.email || t.id).slice(0, 96)}
-                              </option>
-                            ))}
-                          </select>
+                    <DialogContent title={`Komisyon oluştur — ${COMMISSION_KIND_LABELS[commissionKind]}`} className="max-w-md sm:max-w-lg">
+                      <div className="space-y-4">
+                        <p className="text-[11px] text-muted-foreground leading-relaxed">
+                          Başkan seçimi zorunlu değildir; sonradan da atayabilirsiniz. Hızlı kurulum için listeden seçin.
+                        </p>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            Başkan (opsiyonel)
+                          </label>
+                          <div className="relative">
+                            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                              value={commissionTeacherQuery}
+                              onChange={(e) => setCommissionTeacherQuery(e.target.value)}
+                              placeholder="İsim, ünvan veya e-posta…"
+                              className="h-9 pl-8 text-xs"
+                            />
+                          </div>
+                          <div className="max-h-52 space-y-1 overflow-y-auto rounded-lg border border-border/80 bg-muted/10 p-1">
+                            <button
+                              type="button"
+                              onClick={() => setCommissionForm((s) => ({ ...s, chairman_pick: '', chairman_manual: '' }))}
+                              className={cn(
+                                'flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors',
+                                !commissionForm.chairman_pick.trim() && !commissionForm.chairman_manual.trim()
+                                  ? 'bg-muted/80 ring-1 ring-border'
+                                  : 'hover:bg-muted/50',
+                              )}
+                            >
+                              <span className="flex size-3.5 shrink-0 rounded-full border-2 border-muted-foreground/35" />
+                              <span className="font-medium text-muted-foreground">Başkan yok (boş kur)</span>
+                            </button>
+                            {filteredCommissionTeachers.map((t) => {
+                              const picked = commissionForm.chairman_pick === t.id;
+                              return (
+                                <button
+                                  key={t.id}
+                                  type="button"
+                                  onClick={() =>
+                                    setCommissionForm((s) => ({ ...s, chairman_pick: t.id, chairman_manual: '' }))
+                                  }
+                                  className={cn(
+                                    'flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors',
+                                    picked
+                                      ? 'bg-violet-600/15 ring-1 ring-violet-500/35 dark:bg-violet-500/15'
+                                      : 'hover:bg-muted/70',
+                                  )}
+                                >
+                                  <span
+                                    className={cn(
+                                      'flex size-3.5 shrink-0 rounded-full border-2',
+                                      picked ? 'border-violet-600 bg-violet-600' : 'border-muted-foreground/35',
+                                    )}
+                                  />
+                                      <span className="min-w-0 flex-1">
+                                        <span className="block truncate font-medium">
+                                          {(t.display_name || t.email || t.id).slice(0, 88)}
+                                        </span>
+                                        {t.unvan?.trim() ? (
+                                          <span className="block truncate text-[10px] font-medium text-violet-900/80 dark:text-violet-200/90">
+                                            {t.unvan.trim()}
+                                          </span>
+                                        ) : null}
+                                        {t.email ? (
+                                          <span className="block truncate text-[10px] text-muted-foreground">{t.email}</span>
+                                        ) : null}
+                                      </span>
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-medium text-muted-foreground uppercase">Başkan — el ile UUID</label>
+                        <details className="rounded-lg border border-border/70 bg-muted/15 px-2 py-1.5 text-[11px]">
+                          <summary className="cursor-pointer select-none font-medium text-foreground">Gelişmiş (UUID)</summary>
                           <Input
                             value={commissionForm.chairman_manual}
                             onChange={(e) => setCommissionForm((s) => ({ ...s, chairman_manual: e.target.value }))}
-                            placeholder="Listede yoksa UUID"
-                            className="text-xs"
+                            placeholder="Başkan kullanıcı UUID"
+                            className="mt-2 text-xs"
                           />
-                        </div>
-                        <div className="flex justify-end gap-2 pt-2">
-                          <Button variant="outline" onClick={() => setCommissionDialogOpen(false)} disabled={busy}>
+                        </details>
+                        <div className="flex justify-end gap-2 border-t border-border/60 pt-3">
+                          <Button variant="outline" size="sm" onClick={() => setCommissionCreateDialogOpen(false)} disabled={busy}>
                             Vazgeç
                           </Button>
-                          <Button onClick={() => void createCommission()} disabled={busy}>
+                          <Button size="sm" onClick={() => void createCommission()} disabled={busy}>
                             Oluştur
                           </Button>
                         </div>
@@ -2709,277 +4592,1349 @@ export default function DtFileDetailPage() {
                     </DialogContent>
                   </Dialog>
                 )}
-                </div>
               </div>
             </CardHeader>
-            <CardContent className="pt-0 space-y-2">
-              {commission ? (
-                <div className="text-[11px] space-y-2">
-                  <div className="rounded border border-border bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800 p-2">
-                    <div className="font-medium text-[11px] mb-1">Durumu</div>
-                    <p className="text-sm">Komisyon ID: <code className="bg-muted px-1 py-0.5 rounded">{commission.id.slice(0, 12)}...</code></p>
-                    {commission.chairmanUserId ? (
-                      <p className="mt-1">
+            <CardContent className="space-y-4 pt-4">
+              {!commission ? (
+                <div className="rounded-2xl border border-dashed border-violet-300/55 bg-gradient-to-br from-violet-500/[0.07] via-background to-background p-6 text-center dark:border-violet-800/45 dark:from-violet-800/15">
+                  <p className="text-sm font-semibold text-foreground">{COMMISSION_KIND_LABELS[commissionKind]}</p>
+                  <p className="mx-auto mt-1 max-w-sm text-[11px] leading-relaxed text-muted-foreground">
+                    Bu tür için henüz kayıt yok. Öğretmen listesinden başkan seçerek veya boş kurarak devam edin; üyeleri sonradan
+                    ekleyebilirsiniz.
+                  </p>
+                  <Button
+                    type="button"
+                    className="mt-4 gap-2"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => {
+                      setCommissionTeacherQuery('');
+                      setCommissionCreateDialogOpen(true);
+                    }}
+                  >
+                    <UserPlus className="size-4" />
+                    Kurulumu aç
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3 text-xs">
+                  <Dialog open={commissionChairmanDialogOpen} onOpenChange={setCommissionChairmanDialogOpen}>
+                    <DialogContent title={`Başkan — ${COMMISSION_KIND_LABELS[commissionKind]}`} className="max-w-md sm:max-w-lg">
+                      <div className="space-y-4">
+                        <p className="text-[11px] text-muted-foreground leading-relaxed">
+                          Listeden seçin veya başkanı kaldırmak için «Başkan yok» satırını işaretleyin.
+                        </p>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            Başkan
+                          </label>
+                          <div className="relative">
+                            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                              value={commissionTeacherQuery}
+                              onChange={(e) => setCommissionTeacherQuery(e.target.value)}
+                              placeholder="İsim, ünvan veya e-posta…"
+                              className="h-9 pl-8 text-xs"
+                            />
+                          </div>
+                          <div className="max-h-52 space-y-1 overflow-y-auto rounded-lg border border-border/80 bg-muted/10 p-1">
+                            <button
+                              type="button"
+                              onClick={() => setCommissionForm((s) => ({ ...s, chairman_pick: '', chairman_manual: '' }))}
+                              className={cn(
+                                'flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors',
+                                !commissionForm.chairman_pick.trim() && !commissionForm.chairman_manual.trim()
+                                  ? 'bg-muted/80 ring-1 ring-border'
+                                  : 'hover:bg-muted/50',
+                              )}
+                            >
+                              <span className="flex size-3.5 shrink-0 rounded-full border-2 border-muted-foreground/35" />
+                              <span className="font-medium text-muted-foreground">Başkan yok</span>
+                            </button>
+                            {filteredCommissionTeachers.map((t) => {
+                              const picked = commissionForm.chairman_pick === t.id;
+                              return (
+                                <button
+                                  key={t.id}
+                                  type="button"
+                                  onClick={() =>
+                                    setCommissionForm((s) => ({ ...s, chairman_pick: t.id, chairman_manual: '' }))
+                                  }
+                                  className={cn(
+                                    'flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors',
+                                    picked
+                                      ? 'bg-violet-600/15 ring-1 ring-violet-500/35 dark:bg-violet-500/15'
+                                      : 'hover:bg-muted/70',
+                                  )}
+                                >
+                                  <span
+                                    className={cn(
+                                      'flex size-3.5 shrink-0 rounded-full border-2',
+                                      picked ? 'border-violet-600 bg-violet-600' : 'border-muted-foreground/35',
+                                    )}
+                                  />
+                                      <span className="min-w-0 flex-1">
+                                        <span className="block truncate font-medium">
+                                          {(t.display_name || t.email || t.id).slice(0, 88)}
+                                        </span>
+                                        {t.unvan?.trim() ? (
+                                          <span className="block truncate text-[10px] font-medium text-violet-900/80 dark:text-violet-200/90">
+                                            {t.unvan.trim()}
+                                          </span>
+                                        ) : null}
+                                        {t.email ? (
+                                          <span className="block truncate text-[10px] text-muted-foreground">{t.email}</span>
+                                        ) : null}
+                                      </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <details className="rounded-lg border border-border/70 bg-muted/15 px-2 py-1.5 text-[11px]">
+                          <summary className="cursor-pointer select-none font-medium text-foreground">Gelişmiş (UUID)</summary>
+                          <Input
+                            value={commissionForm.chairman_manual}
+                            onChange={(e) => setCommissionForm((s) => ({ ...s, chairman_manual: e.target.value }))}
+                            placeholder="Başkan kullanıcı UUID"
+                            className="mt-2 text-xs"
+                          />
+                        </details>
+                        <div className="flex justify-end gap-2 border-t border-border/60 pt-3">
+                          <Button variant="outline" size="sm" onClick={() => setCommissionChairmanDialogOpen(false)} disabled={busy}>
+                            Vazgeç
+                          </Button>
+                          <Button size="sm" onClick={() => void saveCommissionChairman()} disabled={busy}>
+                            Kaydet
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                  <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-3 dark:border-emerald-700/30 dark:bg-emerald-950/25">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-800 dark:text-emerald-200">
+                        Aktif — {COMMISSION_KIND_LABELS[commissionKind]}
+                      </span>
+                      <span className="rounded-md bg-background/80 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                        {commission.id.slice(0, 10)}…
+                      </span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm text-foreground">
                         Başkan:{' '}
-                        <span className="font-medium">
-                          {commissionTeachers.find((t) => t.id === commission.chairmanUserId)?.display_name?.trim() ||
-                            `${commission.chairmanUserId.slice(0, 8)}…`}
+                        <span className="font-semibold">
+                          {commission.chairmanUserId ? (
+                            (() => {
+                              const t = commissionTeachers.find((x) => x.id === commission.chairmanUserId);
+                              const name =
+                                t?.display_name?.trim() || `${commission.chairmanUserId.slice(0, 8)}…`;
+                              const uv = t?.unvan?.trim();
+                              return (
+                                <span className="inline-flex flex-col items-start gap-0.5">
+                                  <span>{name}</span>
+                                  {uv ? (
+                                    <span className="text-[11px] font-normal text-muted-foreground">{uv}</span>
+                                  ) : null}
+                                </span>
+                              );
+                            })()
+                          ) : (
+                            <span className="font-normal text-muted-foreground">atanmadı</span>
+                          )}
                         </span>
                       </p>
-                    ) : (
-                      <p className="mt-1 text-muted-foreground">Başkan atanmadı</p>
-                    )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 gap-1 text-[10px]"
+                        disabled={busy}
+                        onClick={() => {
+                          setCommissionTeacherQuery('');
+                          setCommissionForm((s) => ({
+                            ...s,
+                            chairman_pick: commission.chairmanUserId || '',
+                            chairman_manual: '',
+                          }));
+                          setCommissionChairmanDialogOpen(true);
+                        }}
+                      >
+                        <Pencil className="size-3" />
+                        Düzenle
+                      </Button>
+                    </div>
                   </div>
-                  {commissionMembers.length > 0 && (
-                    <div className="rounded-md border border-border text-xs overflow-hidden">
-                      <table className="w-full">
+                  {commissionMembers.length > 0 ? (
+                    <div className="overflow-hidden rounded-xl border border-border/80">
+                      <table className="w-full text-xs">
                         <thead>
-                          <tr className="border-b border-border bg-muted/60">
-                            <th className="px-2 py-1.5 text-left text-[10px] font-semibold">Kullanıcı</th>
-                            <th className="px-2 py-1.5 text-left text-[10px] font-semibold">Ünvan</th>
-                            <th className="px-2 py-1.5 w-[1%]"> </th>
+                          <tr className="border-b border-border bg-muted/50 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                            <th className="px-3 py-2 text-left">Üye</th>
+                            <th className="px-3 py-2 text-left">Ünvan</th>
+                            <th className="w-10 px-2 py-2" />
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
-                          {commissionMembers.map((m) => (
-                            <tr key={m.id} className="hover:bg-muted/30">
-                              <td className="px-2 py-1.5">
-                                <span className="font-medium">
-                                  {commissionTeachers.find((t) => t.id === m.userId)?.display_name?.trim() ||
-                                    `${m.userId.slice(0, 8)}…`}
-                                </span>
+                          {commissionMembers.map((m) => {
+                            const t = commissionTeachers.find((x) => x.id === m.userId);
+                            const titleShown = (m.title ?? '').trim() || (t?.unvan ?? '').trim() || '—';
+                            return (
+                            <tr key={m.id} className="hover:bg-muted/25">
+                              <td className="px-3 py-2 font-medium">
+                                {t?.display_name?.trim() || `${m.userId.slice(0, 8)}…`}
                               </td>
-                              <td className="px-2 py-1.5 text-muted-foreground">{m.title || '—'}</td>
-                              <td className="px-2 py-1.5 text-right">
+                              <td className="px-3 py-2 text-muted-foreground">{titleShown}</td>
+                              <td className="px-2 py-2 text-right">
                                 <Button
                                   variant="ghost"
                                   size="sm"
+                                  className="h-8 w-8 p-0 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
                                   disabled={busy}
                                   onClick={() => void removeCommissionMemberRow(m.id)}
+                                  aria-label="Kaldır"
                                 >
-                                  ✕
+                                  <Trash2 className="size-3.5" />
                                 </Button>
                               </td>
                             </tr>
-                          ))}
+                          );
+                          })}
                         </tbody>
                       </table>
                     </div>
+                  ) : (
+                    <p className="rounded-lg border border-dashed border-border py-6 text-center text-[11px] text-muted-foreground">
+                      Henüz üye yok. «Üye ekle» ile listeden seçin.
+                    </p>
                   )}
                 </div>
-              ) : (
-                <p className="text-center text-[11px] text-muted-foreground py-4">Komisyon oluşturulmadı. Oluşturmak için düğmeyi kullanın.</p>
               )}
             </CardContent>
           </Card>
           )}
 
           {activeTab === 'docs' && (
-          <Card>
-            <CardHeader className="py-3 space-y-2">
-              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                <CardTitle className="flex items-center gap-2 text-sm">
-                  <FileStack className="size-4 text-slate-600" />
-                  Belgeler
-                  <DtInfoHint title={DT_SECTION_HINTS.docs} />
-                </CardTitle>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    value={docFormat}
-                    onChange={(e) => setDocFormat(e.target.value as 'docx' | 'pdf')}
-                    className="h-8 rounded border border-input bg-background px-2 py-1 text-xs"
-                  >
-                    <option value="docx">DOCX</option>
-                    <option value="pdf">PDF</option>
-                  </select>
+          <>
+          <Card className="overflow-hidden border-border/80 shadow-sm">
+            <CardHeader className="space-y-3 border-b border-border/70 bg-gradient-to-br from-slate-500/[0.07] via-sky-500/[0.05] to-transparent py-4 dark:from-slate-950/40">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="flex size-8 items-center justify-center rounded-lg bg-slate-600/12 text-slate-800 dark:text-slate-200">
+                      <FileStack className="size-4" />
+                    </span>
+                    Belgeler
+                    <DtInfoHint title={DT_SECTION_HINTS.docs} />
+                  </CardTitle>
+                  <p className="max-w-2xl text-[11px] leading-relaxed text-muted-foreground">
+                    Önce çıktı biçimini seçin. Oluşturulan dosyalar aşağıda Word ve PDF olarak ayrı listelenir; indirirken uzantıya göre ayırt edebilirsiniz.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 shrink-0 gap-1 border-rose-200/80 bg-rose-500/10 text-rose-900 hover:bg-rose-500/15 dark:border-rose-800/50 dark:text-rose-100"
+                  disabled={busy}
+                  onClick={() => {
+                    setBulkArchiveSel(Object.fromEntries(DT_BULK_ARCHIVE_UI.map((x) => [x.doc_type, false])));
+                    setBulkArchiveOpen(true);
+                  }}
+                >
+                  <FileDown className="size-3.5" />
+                  Toplu PDF (ZIP)
+                </Button>
+              </div>
+              <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+                <div className="space-y-1.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Çıktı biçimi</div>
+                  <div className="inline-flex rounded-xl border border-border/80 bg-muted/30 p-1 shadow-inner">
+                    <button
+                      type="button"
+                      className={cn(
+                        'inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-all sm:px-4',
+                        docFormat === 'docx'
+                          ? 'bg-blue-600 text-white shadow-md ring-1 ring-blue-500/30 dark:bg-blue-600 dark:text-white'
+                          : 'text-muted-foreground hover:bg-background/90',
+                      )}
+                      onClick={() => setDocFormat('docx')}
+                    >
+                      <FileText className="size-3.5 shrink-0 opacity-90" />
+                      Word
+                      <span className="hidden font-normal opacity-90 sm:inline">(.docx)</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(
+                        'inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-all sm:px-4',
+                        docFormat === 'pdf'
+                          ? 'bg-rose-600 text-white shadow-md ring-1 ring-rose-500/30 dark:bg-rose-600 dark:text-white'
+                          : 'text-muted-foreground hover:bg-background/90',
+                      )}
+                      onClick={() => setDocFormat('pdf')}
+                    >
+                      <FileDown className="size-3.5 shrink-0 opacity-90" />
+                      PDF
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    Seçili:{' '}
+                    <span className={cn('font-semibold', docFormat === 'pdf' ? 'text-rose-700 dark:text-rose-300' : 'text-blue-700 dark:text-blue-300')}>
+                      {docFormat === 'pdf' ? 'PDF (salt okunur / baskı)' : 'Word (DOCX — düzenlenebilir)'}
+                    </span>
+                  </p>
+                </div>
+                <div className="min-w-0 flex-1 space-y-1.5 lg:max-w-xs">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Firma (şablonda gerekli olanlar)</div>
                   <select
                     value={docVendorId}
                     onChange={(e) => setDocVendorId(e.target.value)}
-                    className="h-8 rounded border border-input bg-background px-2 py-1 text-xs"
+                    className={cn(DT_SELECT_SM, 'w-full')}
                   >
-                    <option value="">Firma (ops.)</option>
+                    <option value="">— Firma seçin (opsiyonel) —</option>
                     {vendors.map((v) => (
                       <option key={v.id} value={v.id}>
                         {v.title}
                       </option>
                     ))}
                   </select>
-                  <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('ihtiyac_listesi')}>
+                </div>
+              </div>
+              <div className="space-y-2 border-t border-border/50 pt-3">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Üret ({docFormat === 'pdf' ? 'PDF' : 'Word'})
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" className="h-9 gap-1" disabled={busy} onClick={() => void generateDoc('ihtiyac_listesi')}>
                     İhtiyaç listesi
+                    <span
+                      className={cn(
+                        'ml-0.5 rounded px-1 py-px text-[9px] font-bold uppercase',
+                        docFormat === 'pdf' ? 'bg-rose-500/15 text-rose-800 dark:text-rose-200' : 'bg-blue-500/15 text-blue-800 dark:text-blue-200',
+                      )}
+                    >
+                      {docFormat === 'pdf' ? 'pdf' : 'docx'}
+                    </span>
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={busy || !docVendorId}
-                    onClick={() => void generateDoc('fiyat_arastirmasi', docVendorId)}
+                    className="h-9 gap-1"
+                    disabled={busy}
+                    onClick={() => void generateDoc('fiyat_arastirmasi', docVendorId || undefined)}
                   >
                     Fiyat araştırması
+                    <span
+                      className={cn(
+                        'ml-0.5 rounded px-1 py-px text-[9px] font-bold uppercase',
+                        docFormat === 'pdf' ? 'bg-rose-500/15 text-rose-800 dark:text-rose-200' : 'bg-blue-500/15 text-blue-800 dark:text-blue-200',
+                      )}
+                    >
+                      {docFormat === 'pdf' ? 'pdf' : 'docx'}
+                    </span>
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={busy || !docVendorId}
-                    onClick={() => void generateDoc('teklif_isteme', docVendorId)}
+                    className="h-9 gap-1"
+                    disabled={busy}
+                    onClick={() => void generateDoc('teklif_isteme', docVendorId || undefined)}
                   >
                     Teklif mektubu
+                    <span
+                      className={cn(
+                        'ml-0.5 rounded px-1 py-px text-[9px] font-bold uppercase',
+                        docFormat === 'pdf' ? 'bg-rose-500/15 text-rose-800 dark:text-rose-200' : 'bg-blue-500/15 text-blue-800 dark:text-blue-200',
+                      )}
+                    >
+                      {docFormat === 'pdf' ? 'pdf' : 'docx'}
+                    </span>
                   </Button>
-                  <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('karar')}>
-                    Karar
+                  <Button variant="outline" size="sm" className="h-9 gap-1" disabled={busy} onClick={() => void generateDoc('harcama_talimati')}>
+                    Harcama talimatı
+                    <span
+                      className={cn(
+                        'ml-0.5 rounded px-1 py-px text-[9px] font-bold uppercase',
+                        docFormat === 'pdf' ? 'bg-rose-500/15 text-rose-800 dark:text-rose-200' : 'bg-blue-500/15 text-blue-800 dark:text-blue-200',
+                      )}
+                    >
+                      {docFormat === 'pdf' ? 'pdf' : 'docx'}
+                    </span>
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={busy || !docVendorId || docFormat === 'pdf'}
-                    onClick={() => void generateDoc('sozlesme', docVendorId)}
+                    className="h-9"
+                    disabled={busy || !docVendorId}
+                    title={!docVendorId ? 'Önce firma seçin.' : undefined}
+                    onClick={() => setSozlesmeOpen(true)}
                   >
                     Sözleşme
+                    <span className="ml-1 text-[9px] font-normal text-muted-foreground">(Word/PDF içeride)</span>
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-9 gap-1" disabled={busy} onClick={() => void generateDoc('komisyon_onay')}>
+                    Komisyon onay
+                    <span
+                      className={cn(
+                        'ml-0.5 rounded px-1 py-px text-[9px] font-bold uppercase',
+                        docFormat === 'pdf' ? 'bg-rose-500/15 text-rose-800 dark:text-rose-200' : 'bg-blue-500/15 text-blue-800 dark:text-blue-200',
+                      )}
+                    >
+                      {docFormat === 'pdf' ? 'pdf' : 'docx'}
+                    </span>
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-9 gap-1" disabled={busy} onClick={() => void generateDoc('onay_belgesi')}>
+                    Onay belgesi
+                    <span
+                      className={cn(
+                        'ml-0.5 rounded px-1 py-px text-[9px] font-bold uppercase',
+                        docFormat === 'pdf' ? 'bg-rose-500/15 text-rose-800 dark:text-rose-200' : 'bg-blue-500/15 text-blue-800 dark:text-blue-200',
+                      )}
+                    >
+                      {docFormat === 'pdf' ? 'pdf' : 'docx'}
+                    </span>
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-9" disabled={busy} onClick={() => setPiyasaPreviewOpen(true)}>
+                    Piyasa tutanağı
+                    <span className="ml-1 text-[9px] font-normal text-muted-foreground">(PDF/DOCX seçenekleri içeride)</span>
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-9" disabled={busy} onClick={() => setYaklasikPreviewOpen(true)}>
+                    Yaklaşık maliyet cetveli
+                    <span className="ml-1 text-[9px] font-normal text-muted-foreground">(PDF/DOCX içeride)</span>
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-9 gap-1" disabled={busy} onClick={() => void generateDoc('muayene_kabul_tutanagi')}>
+                    Muayene kabul
+                    <span
+                      className={cn(
+                        'ml-0.5 rounded px-1 py-px text-[9px] font-bold uppercase',
+                        docFormat === 'pdf' ? 'bg-rose-500/15 text-rose-800 dark:text-rose-200' : 'bg-blue-500/15 text-blue-800 dark:text-blue-200',
+                      )}
+                    >
+                      {docFormat === 'pdf' ? 'pdf' : 'docx'}
+                    </span>
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-9" disabled={busy} onClick={() => setTeknikSartnameOpen(true)}>
+                    Teknik şartname
+                    <span className="ml-1 text-[9px] font-normal text-muted-foreground">(PDF)</span>
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-9 gap-1" disabled={busy} onClick={() => void generateDoc('teslim_tesellum_tutanagi')}>
+                    Teslim/tesellüm
+                    <span
+                      className={cn(
+                        'ml-0.5 rounded px-1 py-px text-[9px] font-bold uppercase',
+                        docFormat === 'pdf' ? 'bg-rose-500/15 text-rose-800 dark:text-rose-200' : 'bg-blue-500/15 text-blue-800 dark:text-blue-200',
+                      )}
+                    >
+                      {docFormat === 'pdf' ? 'pdf' : 'docx'}
+                    </span>
                   </Button>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('komisyon_onay')}>
-                  Komisyon onay
-                </Button>
-                <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('onay_belgesi')}>
-                  Onay belgesi
-                </Button>
-                <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('piyasa_arastirma_tutanagi')}>
-                  Piyasa tutanağı
-                </Button>
-                <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('yaklasik_maliyet_cetveli')}>
-                  Yaklaşık maliyet cetveli
-                </Button>
-                <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('muayene_kabul_tutanagi')}>
-                  Muayene kabul
-                </Button>
-                <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('teknik_sartname')}>
-                  Teknik şartname
-                </Button>
-                <Button variant="outline" size="sm" disabled={busy} onClick={() => void generateDoc('teslim_tesellum_tutanagi')}>
-                  Teslim/tesellüm
-                </Button>
-              </div>
             </CardHeader>
-            <CardContent className="pt-0">
+            <CardContent className="space-y-5 p-4 sm:p-5">
               {docs.length ? (
-                <div className="table-x-scroll rounded-md border border-border text-xs">
-                  <table className="w-full min-w-[720px] text-left">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        <th className="px-2 py-1.5">Tür</th>
-                        <th className="px-2 py-1.5">Dosya</th>
-                        <th className="px-2 py-1.5 w-[1%]"> </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {docs.map((d) => (
-                        <tr key={d.id} className="hover:bg-muted/30">
-                          <td className="px-2 py-1">{dtDocTypeLabel(d.docType)}</td>
-                          <td className="px-2 py-1">{d.filename}</td>
-                          <td className="px-2 py-1 text-right">
-                            <Button variant="outline" size="sm" disabled={busy} onClick={() => void downloadDoc(d.id)}>
-                              İndir
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 border-b border-blue-500/25 pb-1">
+                      <FileText className="size-3.5 text-blue-600 dark:text-blue-400" />
+                      <span className="text-[11px] font-semibold text-blue-900 dark:text-blue-100">Word belgeleri (.docx)</span>
+                      <span className="text-[10px] text-muted-foreground">({docsListWord.length})</span>
+                    </div>
+                    {docsListWord.length ? (
+                      <div className="table-x-scroll overflow-hidden rounded-lg border border-blue-500/20 text-xs">
+                        <table className="w-full min-w-[760px] text-left">
+                          <thead>
+                            <tr className="border-b border-border bg-blue-500/8 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              <th className="px-2 py-1.5">Tür</th>
+                              <th className="px-2 py-1.5">Dosya adı</th>
+                              <th className="px-2 py-1.5 whitespace-nowrap">Oluşturulma</th>
+                              <th className="px-2 py-1.5 w-[1%] whitespace-nowrap">İndir</th>
+                              <th className="px-2 py-1.5 w-[1%] whitespace-nowrap text-right">Sil</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {docsListWord.map((d) => (
+                              <tr key={d.id} className="hover:bg-blue-500/5">
+                                <td className="px-2 py-1.5">{dtDocTypeLabel(d.docType)}</td>
+                                <td className="px-2 py-1.5 font-mono text-[11px] text-muted-foreground">{d.filename}</td>
+                                <td className="px-2 py-1.5 whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">
+                                  {formatDtDocCreatedAt(d.createdAt)}
+                                </td>
+                                <td className="px-2 py-1.5 text-right">
+                                  <Button variant="outline" size="sm" className="h-8 gap-1" disabled={busy} onClick={() => void downloadDoc(d.id)}>
+                                    <FileText className="size-3.5 text-blue-600 dark:text-blue-400" />
+                                    DOCX
+                                  </Button>
+                                </td>
+                                <td className="px-2 py-1.5 text-right">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                                    disabled={busy}
+                                    onClick={() => void removeGeneratedDoc(d.id)}
+                                    aria-label="Belgeyi sil"
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="rounded-lg border border-dashed border-blue-500/20 py-4 text-center text-[11px] text-muted-foreground">
+                        Henüz Word çıktısı yok.
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 border-b border-rose-500/25 pb-1">
+                      <FileDown className="size-3.5 text-rose-600 dark:text-rose-400" />
+                      <span className="text-[11px] font-semibold text-rose-900 dark:text-rose-100">PDF belgeleri</span>
+                      <span className="text-[10px] text-muted-foreground">({docsListPdf.length})</span>
+                    </div>
+                    {docsListPdf.length ? (
+                      <div className="table-x-scroll overflow-hidden rounded-lg border border-rose-500/20 text-xs">
+                        <table className="w-full min-w-[760px] text-left">
+                          <thead>
+                            <tr className="border-b border-border bg-rose-500/8 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              <th className="px-2 py-1.5">Tür</th>
+                              <th className="px-2 py-1.5">Dosya adı</th>
+                              <th className="px-2 py-1.5 whitespace-nowrap">Oluşturulma</th>
+                              <th className="px-2 py-1.5 w-[1%] whitespace-nowrap">İndir</th>
+                              <th className="px-2 py-1.5 w-[1%] whitespace-nowrap text-right">Sil</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {docsListPdf.map((d) => (
+                              <tr key={d.id} className="hover:bg-rose-500/5">
+                                <td className="px-2 py-1.5">{dtDocTypeLabel(d.docType)}</td>
+                                <td className="px-2 py-1.5 font-mono text-[11px] text-muted-foreground">{d.filename}</td>
+                                <td className="px-2 py-1.5 whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">
+                                  {formatDtDocCreatedAt(d.createdAt)}
+                                </td>
+                                <td className="px-2 py-1.5 text-right">
+                                  <Button variant="outline" size="sm" className="h-8 gap-1 border-rose-200/80 dark:border-rose-800/50" disabled={busy} onClick={() => void downloadDoc(d.id)}>
+                                    <FileDown className="size-3.5 text-rose-600 dark:text-rose-400" />
+                                    PDF
+                                  </Button>
+                                </td>
+                                <td className="px-2 py-1.5 text-right">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                                    disabled={busy}
+                                    onClick={() => void removeGeneratedDoc(d.id)}
+                                    aria-label="Belgeyi sil"
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="rounded-lg border border-dashed border-rose-500/20 py-4 text-center text-[11px] text-muted-foreground">
+                        Henüz PDF çıktısı yok.
+                      </p>
+                    )}
+                  </div>
+                </>
               ) : (
-                <p className="py-4 text-center text-[11px] text-muted-foreground">Belge yok.</p>
+                <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/80 py-10 text-center">
+                  <FileStack className="size-8 text-muted-foreground/40" />
+                  <p className="text-[11px] text-muted-foreground">Henüz üretilmiş belge yok. Yukarıdan biçim seçip şablon oluşturun.</p>
+                </div>
               )}
             </CardContent>
           </Card>
-          )}
-
-          {activeTab === 'archive' && (
-            <Card className="overflow-hidden border-rose-200/40 shadow-sm dark:border-rose-900/30">
-              <CardHeader className="border-b border-rose-500/10 bg-gradient-to-r from-rose-500/10 to-amber-500/8 py-3">
-                <CardTitle className="flex items-center gap-2 text-sm text-rose-900 dark:text-rose-100">
-                  <FolderArchive className="size-4 shrink-0" />
-                  Modül arşivi ve paylaşım
-                  <DtInfoHint title={DT_SECTION_HINTS.archive} />
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4 pt-4">
-                {file.archivedAt ? (
-                  <div className="rounded-lg border border-rose-300/50 bg-rose-500/5 px-3 py-2 text-[11px] text-rose-950 dark:border-rose-800/60 dark:bg-rose-950/20 dark:text-rose-50">
-                    Bu kayıt arşivde. Liste görünümünde gizlenir; arşiv filtresiyle erişilir.
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
-                    Dosyayı arşivlediğinizde varsayılan listeden kalkar; buradan geri alabilir veya kopyalayabilirsiniz.
-                  </div>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  {file.archivedAt ? (
-                    <Button type="button" size="sm" variant="default" disabled={busy} onClick={() => void unarchive()}>
-                      Arşivden çıkar
-                    </Button>
-                  ) : (
-                    <Button type="button" size="sm" variant="destructive" disabled={busy} onClick={() => setConfirmArchiveOpen(true)}>
-                      <Archive className="mr-1 size-3.5" /> Arşivle
-                    </Button>
-                  )}
-                  <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => setCopyOpen(true)}>
-                    <Copy className="mr-1 size-3.5" /> Kopyala
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void copyShareLink()}>
-                    <Share2 className="mr-1 size-3.5" /> Bağlantı kopyala
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={mailShareLink}>
-                    <Mail className="mr-1 size-3.5" /> E-posta gönder
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setActiveTab('registry')}>
-                    Evrak düzenle
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setActiveTab('items')}>
-                    Kalemler
-                  </Button>
+          <Dialog open={bulkArchiveOpen} onOpenChange={setBulkArchiveOpen}>
+            <DialogContent className="max-w-lg" title="Toplu PDF (ZIP)">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground">
+                PDF olarak kaydetmek istediğiniz sayfaları seçin
+              </p>
+              <p className="text-[10px] text-muted-foreground">
+                Seçtikleriniz PDF üretilir ve tek ZIP dosyasında indirilir. Fiyat araştırması ve teklif mektubu için üstteki firma seçimi kullanılır.
+              </p>
+              <div className="max-h-[min(52vh,340px)] space-y-1 overflow-y-auto rounded-lg border border-border bg-background p-2">
+                {DT_BULK_ARCHIVE_UI.map((row) => (
+                  <label
+                    key={row.doc_type}
+                    className="flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted/50"
+                  >
+                    <span>{row.label}</span>
+                    <input
+                      type="checkbox"
+                      className="size-4 rounded border-input"
+                      checked={!!bulkArchiveSel[row.doc_type]}
+                      onChange={(e) => setBulkArchiveSel((s) => ({ ...s, [row.doc_type]: e.target.checked }))}
+                    />
+                  </label>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground">RAR arşivi sunucuda üretilmez; yalnızca ZIP kullanılır.</p>
+              <div className="flex justify-end gap-2 border-t border-border/60 pt-3">
+                <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setBulkArchiveOpen(false)}>
+                  Vazgeç
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="bg-rose-600 text-white hover:bg-rose-700"
+                  disabled={busy}
+                  onClick={() => void downloadBulkPdfArchive()}
+                >
+                  ZIP indir
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+          <Dialog open={teknikSartnameOpen} onOpenChange={setTeknikSartnameOpen}>
+            <DialogContent className="max-w-3xl max-h-[92vh] gap-3 overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="text-sm">Teknik şartname</DialogTitle>
+              </DialogHeader>
+              {teknikSartnameLoading || !teknikDraft ? (
+                <div className="flex justify-center py-8">
+                  <LoadingSpinner />
                 </div>
-                <div>
-                  <div className="mb-2 text-[11px] font-semibold text-foreground">Okul arşivindeki diğer dosyalar</div>
-                  {archiveListLoading ? (
-                    <LoadingSpinner label="Arşiv yükleniyor…" className="py-6 text-xs" />
-                  ) : archiveList.length ? (
-                    <div className="max-h-[min(50vh,320px)] overflow-auto rounded-lg border border-border text-[11px]">
-                      <table className="w-full min-w-[280px] text-left">
-                        <thead className="sticky top-0 bg-muted/90 backdrop-blur-sm">
-                          <tr className="border-b border-border text-[10px] font-semibold uppercase text-muted-foreground">
-                            <th className="px-2 py-1.5">Yıl / No</th>
-                            <th className="px-2 py-1.5">Konu</th>
-                            <th className="px-2 py-1.5 w-[1%]" />
+              ) : (
+                <div className="space-y-3 text-xs">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="space-y-1 sm:col-span-2">
+                      <div className="text-[10px] font-medium text-muted-foreground">Okul satırı</div>
+                      <Input
+                        className={DT_INPUT_SM}
+                        value={teknikDraft.schoolLine}
+                        onChange={(e) => setTeknikDraft({ ...teknikDraft, schoolLine: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-medium text-muted-foreground">Belge başlığı</div>
+                      <Input
+                        className={DT_INPUT_SM}
+                        value={teknikDraft.docTitle}
+                        onChange={(e) => setTeknikDraft({ ...teknikDraft, docTitle: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-medium text-muted-foreground">Belge tarihi (PDF)</div>
+                      <Input
+                        className={DT_INPUT_SM}
+                        type="date"
+                        value={teknikDraft.documentDate ?? ''}
+                        onChange={(e) =>
+                          setTeknikDraft({ ...teknikDraft, documentDate: e.target.value.trim() || null })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-medium text-muted-foreground">{teknikDraft.s1_title}</div>
+                    <textarea
+                      className={DT_TEXTAREA_SM}
+                      rows={3}
+                      value={teknikDraft.s1_1}
+                      onChange={(e) => setTeknikDraft({ ...teknikDraft, s1_1: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="space-y-1 sm:col-span-2">
+                      <div className="text-[10px] font-medium text-muted-foreground">{teknikDraft.s2_title}</div>
+                      <textarea
+                        className={DT_TEXTAREA_SM}
+                        rows={2}
+                        value={teknikDraft.s2_idare}
+                        onChange={(e) => setTeknikDraft({ ...teknikDraft, s2_idare: e.target.value })}
+                      />
+                      <textarea
+                        className={DT_TEXTAREA_SM}
+                        rows={2}
+                        value={teknikDraft.s2_firma}
+                        onChange={(e) => setTeknikDraft({ ...teknikDraft, s2_firma: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-medium text-muted-foreground">{teknikDraft.s3_title}</div>
+                    <textarea
+                      className={DT_TEXTAREA_SM}
+                      rows={3}
+                      value={teknikDraft.s3_1}
+                      onChange={(e) => setTeknikDraft({ ...teknikDraft, s3_1: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="space-y-1 sm:col-span-2">
+                      <div className="text-[10px] font-medium text-muted-foreground">{teknikDraft.s4_title}</div>
+                      <Input
+                        className={DT_INPUT_SM}
+                        value={teknikDraft.s4_jobName}
+                        onChange={(e) => setTeknikDraft({ ...teknikDraft, s4_jobName: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-medium text-muted-foreground">{teknikDraft.s5_title} (satır başına bir madde)</div>
+                    <textarea
+                      className={DT_TEXTAREA_SM}
+                      rows={7}
+                      value={teknikDraft.s5_bullets.join('\n')}
+                      onChange={(e) =>
+                        setTeknikDraft({
+                          ...teknikDraft,
+                          s5_bullets: e.target.value
+                            .split(/\n+/)
+                            .map((s) => s.replace(/^\s*[*•-]\s*/, '').trim())
+                            .filter(Boolean),
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-medium text-muted-foreground">Tablo başlığı</div>
+                    <Input
+                      className={DT_INPUT_SM}
+                      value={teknikDraft.tableTitle}
+                      onChange={(e) => setTeknikDraft({ ...teknikDraft, tableTitle: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2 rounded border border-border p-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Kalem tablosu
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[10px]"
+                        onClick={() =>
+                          setTeknikDraft({
+                            ...teknikDraft,
+                            tableRows: [...teknikDraft.tableRows, { id: newDtTeknikRowId(), name: '', spec: '' }],
+                          })
+                        }
+                      >
+                        Satır ekle
+                      </Button>
+                    </div>
+                    <div className="space-y-2">
+                      {teknikDraft.tableRows.map((r, idx) => (
+                        <div key={r.id} className="grid gap-1 sm:grid-cols-[1fr_1.4fr_auto] sm:items-start">
+                          <div className="space-y-0.5">
+                            <div className="text-[9px] text-muted-foreground">Mal ({idx + 1})</div>
+                            <Input
+                              className={DT_INPUT_SM}
+                              value={r.name}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setTeknikDraft({
+                                  ...teknikDraft,
+                                  tableRows: teknikDraft.tableRows.map((x) => (x.id === r.id ? { ...x, name: v } : x)),
+                                });
+                              }}
+                            />
+                          </div>
+                          <div className="space-y-0.5">
+                            <div className="text-[9px] text-muted-foreground">Teknik özellik</div>
+                            <textarea
+                              className={DT_TEXTAREA_SM}
+                              rows={2}
+                              value={r.spec}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setTeknikDraft({
+                                  ...teknikDraft,
+                                  tableRows: teknikDraft.tableRows.map((x) => (x.id === r.id ? { ...x, spec: v } : x)),
+                                });
+                              }}
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 shrink-0 text-[10px] sm:mt-4"
+                            disabled={teknikDraft.tableRows.length <= 1}
+                            onClick={() =>
+                              setTeknikDraft({
+                                ...teknikDraft,
+                                tableRows: teknikDraft.tableRows.filter((x) => x.id !== r.id),
+                              })
+                            }
+                          >
+                            Sil
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-medium text-muted-foreground">{teknikDraft.s6_title}</div>
+                    <textarea
+                      className={DT_TEXTAREA_SM}
+                      rows={3}
+                      value={teknikDraft.s6_body}
+                      onChange={(e) => setTeknikDraft({ ...teknikDraft, s6_body: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-medium text-muted-foreground">{teknikDraft.s7_title}</div>
+                    <textarea
+                      className={DT_TEXTAREA_SM}
+                      rows={2}
+                      value={teknikDraft.s7_1}
+                      onChange={(e) => setTeknikDraft({ ...teknikDraft, s7_1: e.target.value })}
+                    />
+                    <textarea
+                      className={DT_TEXTAREA_SM}
+                      rows={2}
+                      value={teknikDraft.s7_2}
+                      onChange={(e) => setTeknikDraft({ ...teknikDraft, s7_2: e.target.value })}
+                    />
+                    <textarea
+                      className={DT_TEXTAREA_SM}
+                      rows={2}
+                      value={teknikDraft.s7_3}
+                      onChange={(e) => setTeknikDraft({ ...teknikDraft, s7_3: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-medium text-muted-foreground">Firma imza başlığı</div>
+                      <Input
+                        className={DT_INPUT_SM}
+                        value={teknikDraft.firmSignCaption}
+                        onChange={(e) => setTeknikDraft({ ...teknikDraft, firmSignCaption: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-medium text-muted-foreground">Okul damga satırı</div>
+                      <Input
+                        className={DT_INPUT_SM}
+                        value={teknikDraft.schoolStampLine}
+                        onChange={(e) => setTeknikDraft({ ...teknikDraft, schoolStampLine: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-medium text-muted-foreground">Okul unvan satırı</div>
+                      <Input
+                        className={DT_INPUT_SM}
+                        value={teknikDraft.schoolTitleLine}
+                        onChange={(e) => setTeknikDraft({ ...teknikDraft, schoolTitleLine: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-medium text-muted-foreground">Okul rol satırı</div>
+                      <Input
+                        className={DT_INPUT_SM}
+                        value={teknikDraft.schoolRoleLine}
+                        onChange={(e) => setTeknikDraft({ ...teknikDraft, schoolRoleLine: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-3">
+                    <Button type="button" variant="outline" size="sm" onClick={() => setTeknikSartnameOpen(false)}>
+                      Kapat
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={teknikSartnameSaving || busy}
+                      onClick={() => void saveTeknikSartnameDraft()}
+                    >
+                      Kaydet
+                    </Button>
+                    <Button type="button" size="sm" disabled={busy} onClick={() => void generateTeknikSartnamePdf()}>
+                      PDF indir
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+          <Dialog open={sozlesmeOpen} onOpenChange={setSozlesmeOpen}>
+            <DialogContent className="flex max-h-[min(92vh,calc(100dvh-1rem))] max-w-4xl flex-col gap-0 overflow-hidden sm:max-h-[min(90vh,calc(100dvh-2rem))]">
+              <DialogHeader className="shrink-0 space-y-1 border-b border-border/80 bg-muted/20 px-4 py-3 sm:px-5">
+                <DialogTitle className="text-base">Sözleşme taslağı</DialogTitle>
+                <p className="text-[11px] font-medium text-muted-foreground">
+                  Firma:{' '}
+                  <span className="text-foreground">{vendors.find((v) => v.id === docVendorId)?.title ?? docVendorId}</span>
+                </p>
+                <p className="text-[10px] leading-snug text-muted-foreground">
+                  Üst bilgi ve kalem cetveli PDF/Word’da hazırdır. Aşağıda sadece sözleşme maddelerini düzenleyin; önce Kaydet, sonra Word/PDF üretin.
+                </p>
+              </DialogHeader>
+              {!docVendorId.trim() ? (
+                <div className="shrink-0 p-4 sm:p-5">
+                  <Alert variant="warning" message="Belge alanında firma seçin; sözleşme seçili firmaya göre yüklenir." />
+                </div>
+              ) : sozlesmeLoading ? (
+                <div className="flex flex-1 justify-center py-12">
+                  <LoadingSpinner />
+                </div>
+              ) : (
+                <div className="flex min-h-0 flex-1 flex-col gap-3 p-4 sm:p-5">
+                  <div className="flex min-h-0 flex-1 flex-col gap-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Sözleşme metni</div>
+                    <DtSozlesmeBodyEditor
+                      key={sozlesmeEditorKey}
+                      value={sozlesmeBodyHtml}
+                      onChange={setSozlesmeBodyHtml}
+                      disabled={sozlesmeSaving || busy}
+                      className="min-h-0 flex-1"
+                    />
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs"
+                      disabled={!sozlesmeDefaultHtml}
+                      onClick={() => {
+                        setSozlesmeBodyHtml(sozlesmeDefaultHtml);
+                        setSozlesmeEditorKey((k) => k + 1);
+                      }}
+                    >
+                      Şablona dön
+                    </Button>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={() => setSozlesmeOpen(false)}>
+                        Kapat
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={sozlesmeSaving || busy}
+                        onClick={() => void saveSozlesmeDraft()}
+                      >
+                        Kaydet
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void generateSozlesmeDoc('docx')}>
+                        Word
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="bg-rose-600 text-white hover:bg-rose-700"
+                        disabled={busy}
+                        onClick={() => void generateSozlesmeDoc('pdf')}
+                      >
+                        PDF
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+          <Dialog open={piyasaPreviewOpen} onOpenChange={setPiyasaPreviewOpen}>
+            <DialogContent className="dt-piyasa-tutanak-rapor max-w-[min(1400px,99vw)] max-h-[92vh] flex flex-col gap-3 overflow-hidden print:max-h-none print:max-w-none print:overflow-visible print:shadow-none">
+              <DialogHeader>
+                <DialogTitle className="text-sm">Piyasa fiyat araştırma tutanağı — önizleme</DialogTitle>
+              </DialogHeader>
+              {piyasaPreviewLoading ? (
+                <div className="flex justify-center py-8">
+                  <LoadingSpinner />
+                </div>
+              ) : piyasaPreview ? (
+                <>
+                  {piyasaPreview.warnings?.length ? (
+                    <Alert variant="warning">
+                      {piyasaPreview.warnings.map((w) => (
+                        <p key={w} className="text-xs">
+                          {w}
+                        </p>
+                      ))}
+                    </Alert>
+                  ) : null}
+                  <div className="min-h-0 flex-1 overflow-auto rounded border border-border">
+                    {piyasaPreview.firms.length === 0 ? (
+                      <p className="p-3 text-xs text-muted-foreground">Araştırma teklifi yok.</p>
+                    ) : (
+                      <table className="w-full min-w-[640px] border-collapse text-left text-[11px]">
+                        <thead>
+                          <tr className="border-b bg-muted/50 font-semibold">
+                            <th className="border px-1 py-1">#</th>
+                            <th className="border px-1 py-1">Kalem</th>
+                            <th className="border px-1 py-1">Mik.</th>
+                            {piyasaPreview.firms.map((f) => (
+                              <th key={f.quote_id} className="border px-1 py-1 text-center" colSpan={2}>
+                                {f.firm_label} — {f.vendor_title}
+                                {!f.complete ? ' (eksik)' : ''}
+                              </th>
+                            ))}
+                          </tr>
+                          <tr className="border-b bg-muted/30 text-[10px]">
+                            <th className="border px-1 py-0.5" colSpan={3} />
+                            {piyasaPreview.firms.map((f) => (
+                              <Fragment key={f.quote_id}>
+                                <th className="border px-1 py-0.5">Birim</th>
+                                <th className="border px-1 py-0.5">Toplam</th>
+                              </Fragment>
+                            ))}
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-border">
-                          {archiveList.map((a) => (
-                            <tr key={a.id} className={a.id === id ? 'bg-rose-500/10' : 'hover:bg-muted/40'}>
-                              <td className="px-2 py-1.5 whitespace-nowrap">
-                                {a.year} · {a.fileNo}
+                        <tbody>
+                          {piyasaPreview.items.map((it, idx) => (
+                            <tr key={it.id} className="border-b border-border/80">
+                              <td className="border px-1 py-0.5">{idx + 1}</td>
+                              <td className="border px-1 py-0.5">{it.name}</td>
+                              <td className="border px-1 py-0.5 whitespace-nowrap">{it.qty}</td>
+                              {piyasaPreview.firms.map((f) => {
+                                const ln = f.lines.find((l) => l.dt_item_id === it.id);
+                                return (
+                                  <Fragment key={f.quote_id}>
+                                    <td className="border px-1 py-0.5 text-right whitespace-nowrap">
+                                      {ln?.unit_price_formatted ?? '—'}
+                                    </td>
+                                    <td className="border px-1 py-0.5 text-right whitespace-nowrap">
+                                      {ln?.line_total_formatted ?? '—'}
+                                    </td>
+                                  </Fragment>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                          <tr className="bg-muted/40 font-medium">
+                            <td className="border px-1 py-1" colSpan={3}>
+                              TOPLAM TEKLİF (KDV hariç)
+                            </td>
+                            {piyasaPreview.firms.map((f) => (
+                              <Fragment key={f.quote_id}>
+                                <td className="border px-1 py-1" />
+                                <td className="border px-1 py-1 text-right whitespace-nowrap">{f.total_formatted ?? '—'}</td>
+                              </Fragment>
+                            ))}
+                          </tr>
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                  {piyasaPreview.selected ? (
+                    <div className="rounded border bg-muted/20 p-2 text-xs space-y-1">
+                      <p className="font-semibold">
+                        Seçilen: {piyasaPreview.selected.vendor_title} — {piyasaPreview.selected.total_formatted}
+                        {piyasaPreview.selection_basis ? ` (${piyasaPreview.selection_basis})` : ''}
+                      </p>
+                      {piyasaPreview.selected.address ? (
+                        <p className="text-muted-foreground">{piyasaPreview.selected.address}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2 border-t pt-2">
+                    <Button size="sm" disabled={busy} onClick={() => void downloadPiyasaTutanagi('pdf')}>
+                      PDF indir
+                    </Button>
+                    <Button size="sm" disabled={busy} onClick={() => void downloadPiyasaTutanagi('docx')}>
+                      DOCX indir
+                    </Button>
+                  </div>
+                </>
+              ) : null}
+            </DialogContent>
+          </Dialog>
+          <Dialog open={yaklasikPreviewOpen} onOpenChange={setYaklasikPreviewOpen}>
+            <DialogContent className="dt-yaklasik-cetvel-rapor max-w-[min(1400px,99vw)] max-h-[92vh] flex flex-col gap-3 overflow-hidden print:max-h-none print:max-w-none print:overflow-visible print:shadow-none">
+              <DialogHeader>
+                <DialogTitle className="text-sm">Yaklaşık maliyet cetveli — önizleme</DialogTitle>
+              </DialogHeader>
+              {yaklasikPreviewLoading ? (
+                <div className="flex justify-center py-8">
+                  <LoadingSpinner />
+                </div>
+              ) : yaklasikPreview ? (
+                <>
+                  <p className="text-[11px] text-muted-foreground leading-snug">{yaklasikPreview.hesaplama_yöntemi}</p>
+                  {yaklasikPreview.warnings?.length ? (
+                    <Alert variant="warning">
+                      {yaklasikPreview.warnings.map((w) => (
+                        <p key={w} className="text-xs">
+                          {w}
+                        </p>
+                      ))}
+                    </Alert>
+                  ) : null}
+                  <div className="text-xs rounded border bg-muted/20 px-2 py-1.5">
+                    <span className="font-semibold">Düzenleme tarihi: </span>
+                    {yaklasikPreview.düzenleme_tarih}
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-auto rounded border border-border print:max-h-none print:overflow-visible">
+                    {yaklasikPreview.firms.length === 0 ? (
+                      <p className="p-3 text-xs text-muted-foreground">Araştırma teklifi yok.</p>
+                    ) : (
+                      <table className="w-full min-w-[760px] border-collapse text-left text-[11px] print:min-w-0">
+                        <thead>
+                          <tr className="border-b bg-muted/50 font-semibold">
+                            <th className="border px-1 py-1">#</th>
+                            <th className="border px-1 py-1">Kalem</th>
+                            <th className="border px-1 py-1">Özellik</th>
+                            <th className="border px-1 py-1">Mik.</th>
+                            <th className="border px-1 py-1">Birim</th>
+                            {yaklasikPreview.firms.map((f) => (
+                              <th key={f.quote_id} className="border px-1 py-1 text-center" colSpan={2}>
+                                {f.letter}. {f.vendor_title}
+                                {!f.complete ? ' (eksik)' : ''}
+                              </th>
+                            ))}
+                            <th className="border px-1 py-1 text-center" colSpan={2}>
+                              İdare yaklaşık (KDV hariç)
+                            </th>
+                          </tr>
+                          <tr className="border-b bg-muted/30 text-[10px]">
+                            <th className="border px-1 py-0.5" colSpan={5} />
+                            {yaklasikPreview.firms.map((f) => (
+                              <Fragment key={f.quote_id}>
+                                <th className="border px-1 py-0.5">Birim</th>
+                                <th className="border px-1 py-0.5">Toplam</th>
+                              </Fragment>
+                            ))}
+                            <th className="border px-1 py-0.5">Birim ort.</th>
+                            <th className="border px-1 py-0.5">Satır</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {yaklasikPreview.items.map((it) => (
+                            <tr key={it.id} className="border-b border-border/80">
+                              <td className="border px-1 py-0.5">{it.sort}</td>
+                              <td className="border px-1 py-0.5">{it.name}</td>
+                              <td className="border px-1 py-0.5">{it.spec}</td>
+                              <td className="border px-1 py-0.5 whitespace-nowrap">{it.qty}</td>
+                              <td className="border px-1 py-0.5">{it.unit}</td>
+                              {yaklasikPreview.firms.map((f, fi) => {
+                                const ln = it.firm_lines[fi];
+                                return (
+                                  <Fragment key={f.quote_id}>
+                                    <td className="border px-1 py-0.5 text-right whitespace-nowrap">
+                                      {ln?.unit_price_formatted ?? '—'}
+                                    </td>
+                                    <td className="border px-1 py-0.5 text-right whitespace-nowrap">
+                                      {ln?.line_total_formatted ?? '—'}
+                                    </td>
+                                  </Fragment>
+                                );
+                              })}
+                              <td className="border px-1 py-0.5 text-right whitespace-nowrap">
+                                {it.avg_unit_formatted ?? '—'}
                               </td>
-                              <td className="px-2 py-1.5">{a.subject}</td>
-                              <td className="px-2 py-1.5 text-right">
-                                <Link
-                                  href={
-                                    isSuperadmin && schoolId
-                                      ? `/dogrudan-temin/${a.id}?school_id=${encodeURIComponent(schoolId)}`
-                                      : `/dogrudan-temin/${a.id}`
-                                  }
-                                  className="text-primary hover:underline"
-                                >
-                                  Aç
-                                </Link>
+                              <td className="border px-1 py-0.5 text-right whitespace-nowrap">
+                                {it.avg_line_formatted ?? '—'}
                               </td>
                             </tr>
                           ))}
+                          <tr className="bg-muted/40 font-medium">
+                            <td className="border px-1 py-1" colSpan={5}>
+                              TOPLAM (KDV hariç)
+                            </td>
+                            {yaklasikPreview.firms.map((f) => (
+                              <Fragment key={f.quote_id}>
+                                <td className="border px-1 py-1" />
+                                <td className="border px-1 py-1 text-right whitespace-nowrap">{f.total_formatted ?? '—'}</td>
+                              </Fragment>
+                            ))}
+                            <td className="border px-1 py-1" />
+                            <td className="border px-1 py-1 text-right whitespace-nowrap">
+                              {yaklasikPreview.grand_approx_formatted}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2 border-t pt-2">
+                    <Button size="sm" disabled={busy} onClick={() => void downloadYaklasikCetveli('pdf')}>
+                      PDF indir
+                    </Button>
+                    <Button size="sm" disabled={busy} onClick={() => void downloadYaklasikCetveli('docx')}>
+                      DOCX indir
+                    </Button>
+                  </div>
+                </>
+              ) : null}
+            </DialogContent>
+          </Dialog>
+          </>
+          )}
+
+          {activeTab === 'archive' && (
+            <Card className="overflow-hidden border-border/80 shadow-sm">
+              <CardHeader className="space-y-3 border-b border-border/70 bg-gradient-to-br from-rose-500/[0.08] via-muted/15 to-transparent py-4 dark:from-rose-950/25">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="space-y-1">
+                    <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="flex size-8 items-center justify-center rounded-lg bg-rose-600/12 text-rose-800 dark:text-rose-200">
+                        <FolderArchive className="size-4" />
+                      </span>
+                      Arşiv ve paylaşım
+                      <DtInfoHint title={DT_SECTION_HINTS.archive} />
+                    </CardTitle>
+                    <p className="max-w-2xl text-[11px] leading-relaxed text-muted-foreground">
+                      Bu dosyayı arşivleyin veya arşivden çıkarın; bağlantı paylaşın veya kopyalayın. Aşağıdaki tabloda okul arşivindeki dosyalar için açma, kopyalama, bağlantı, arşivden çıkarma ve silme işlemleri yapılabilir.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 shrink-0 gap-1"
+                    disabled={busy || archiveListLoading}
+                    onClick={() => void fetchArchiveList()}
+                  >
+                    Listeyi yenile
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4 p-4 sm:p-5">
+                {file.archivedAt ? (
+                  <Alert
+                    variant="warning"
+                    message="Bu kayıt arşivde. Varsayılan dosya listesinde gizlenir; arşiv filtresiyle erişilir."
+                  />
+                ) : (
+                  <div className="rounded-xl border border-border/70 bg-muted/15 px-3 py-2 text-[11px] text-muted-foreground">
+                    Dosyayı arşivlediğinizde varsayılan listeden kalkar; buradan geri alabilir, kopyalayabilir veya silebilirsiniz.
+                  </div>
+                )}
+                <div className="rounded-xl border border-border/70 bg-muted/10 p-3 sm:p-4">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Bu dosya</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {file.archivedAt ? (
+                      <Button type="button" size="sm" variant="default" disabled={busy} onClick={() => void unarchive()}>
+                        <ArchiveRestore className="mr-1 size-3.5" /> Arşivden çıkar
+                      </Button>
+                    ) : (
+                      <Button type="button" size="sm" variant="destructive" disabled={busy} onClick={() => setConfirmArchiveOpen(true)}>
+                        <Archive className="mr-1 size-3.5" /> Arşivle
+                      </Button>
+                    )}
+                    <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => openCopyDialog(null)}>
+                      <Copy className="mr-1 size-3.5" /> Kopyala
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void copyShareLink()}>
+                      <Share2 className="mr-1 size-3.5" /> Bağlantı kopyala
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" disabled={busy} onClick={mailShareLink}>
+                      <Mail className="mr-1 size-3.5" /> E-posta
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setConfirmDeleteFileId(id)}>
+                      <Trash2 className="mr-1 size-3.5" /> Sil
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setActiveTab('registry')}>
+                      Evrak
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setActiveTab('items')}>
+                      Kalemler
+                    </Button>
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-[11px] font-semibold text-foreground">Okul arşivindeki dosyalar</div>
+                    <span className="text-[10px] text-muted-foreground">{archiveList.length} kayıt</span>
+                  </div>
+                  {archiveListLoading ? (
+                    <LoadingSpinner label="Arşiv yükleniyor…" className="py-8 text-xs" />
+                  ) : archiveList.length ? (
+                    <div className="table-x-scroll max-h-[min(55vh,420px)] overflow-auto rounded-lg border border-border text-xs">
+                      <table className="w-full min-w-[720px] text-left">
+                        <thead className="sticky top-0 z-[1] border-b border-border bg-muted/90 backdrop-blur-sm">
+                          <tr className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            <th className="px-2 py-1.5">Yıl / No</th>
+                            <th className="px-2 py-1.5">Konu</th>
+                            <th className="px-2 py-1.5 whitespace-nowrap">Arşiv</th>
+                            <th className="px-2 py-1.5 text-right">İşlemler</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {archiveList.map((a) => {
+                            const href =
+                              isSuperadmin && schoolId
+                                ? `/dogrudan-temin/${a.id}?school_id=${encodeURIComponent(schoolId)}`
+                                : `/dogrudan-temin/${a.id}`;
+                            const arch = a.archivedAt ? new Date(a.archivedAt).toLocaleDateString('tr-TR') : '—';
+                            return (
+                              <tr key={a.id} className={a.id === id ? 'bg-rose-500/10' : 'hover:bg-muted/30'}>
+                                <td className="px-2 py-1.5 whitespace-nowrap font-medium">
+                                  {a.year} · #{a.fileNo}
+                                </td>
+                                <td className="max-w-[280px] px-2 py-1.5">
+                                  <span className="line-clamp-2" title={a.subject}>
+                                    {a.subject}
+                                  </span>
+                                </td>
+                                <td className="px-2 py-1.5 whitespace-nowrap text-muted-foreground">{arch}</td>
+                                <td className="px-2 py-1.5">
+                                  <div className="flex flex-wrap justify-end gap-1">
+                                    <Button type="button" variant="outline" size="sm" className="h-7 px-2" asChild>
+                                      <Link href={href}>Aç</Link>
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 px-2"
+                                      disabled={busy}
+                                      title="Kopyala"
+                                      onClick={() => openCopyDialog(a.id)}
+                                    >
+                                      <Copy className="size-3.5" />
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 px-2"
+                                      disabled={busy}
+                                      title="Bağlantıyı kopyala"
+                                      onClick={() => void copyFilePageLink(a.id)}
+                                    >
+                                      <Link2 className="size-3.5" />
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 px-2"
+                                      disabled={busy}
+                                      title="Arşivden çıkar"
+                                      onClick={() => void unarchiveFileById(a.id)}
+                                    >
+                                      <ArchiveRestore className="size-3.5" />
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 border-destructive/40 px-2 text-destructive hover:bg-destructive/10"
+                                      disabled={busy}
+                                      title="Dosyayı sil"
+                                      onClick={() => setConfirmDeleteFileId(a.id)}
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
                   ) : (
-                    <p className="rounded-lg border border-dashed border-border/70 py-6 text-center text-[11px] text-muted-foreground">
-                      Arşivde başka dosya yok.
-                    </p>
+                    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/80 py-10 text-center">
+                      <FolderArchive className="size-8 text-muted-foreground/40" />
+                      <p className="text-[11px] text-muted-foreground">Arşivde dosya yok.</p>
+                    </div>
                   )}
                 </div>
               </CardContent>
@@ -3009,6 +5964,23 @@ export default function DtFileDetailPage() {
               }}
             >
               Arşivle
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmDeleteFileId !== null} onOpenChange={(o) => !o && setConfirmDeleteFileId(null)}>
+        <DialogContent title="Dosyayı sil">
+          <p className="text-sm text-muted-foreground">
+            Bu işlem geri alınamaz. İlgili kalemler, teklifler ve kayıtlar kurallara göre silinir veya engellenirse API hata döner.
+          </p>
+          <p className="rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-xs font-medium text-destructive">{deleteTargetLabel}</p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={() => setConfirmDeleteFileId(null)} disabled={busy}>
+              Vazgeç
+            </Button>
+            <Button type="button" variant="destructive" disabled={busy} onClick={() => void deleteDtFileById()}>
+              Sil
             </Button>
           </div>
         </DialogContent>
