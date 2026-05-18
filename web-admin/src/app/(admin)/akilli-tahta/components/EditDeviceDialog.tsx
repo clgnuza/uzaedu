@@ -72,7 +72,7 @@ export function EditDeviceDialog({
               />
             )}
             <p className="mt-1 text-xs text-muted-foreground">
-              Ders Programı ayarlarınızdan otomatik ders/öğretmen bilgisi alınır.
+              Liste, Gruplar ve Dersler kaydı + Ders Programı sınıflarıyla uyumludur.
             </p>
           </div>
           <div>

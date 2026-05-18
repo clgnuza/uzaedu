@@ -244,6 +244,10 @@ export function Header({
   const schoolVerified = me?.role === 'teacher' && !!me?.school_verified;
 
   const loginReturnTo = encodeURIComponent(pathname || '/');
+  const guestLoginHref =
+    pathname === '/hesaplamalar'
+      ? `/login/ogretmen?redirect=${loginReturnTo}`
+      : `/login?redirect=${loginReturnTo}`;
 
   const shellStyle = headerPublicCfg?.header_shell_style ?? WEB_PUBLIC_DEFAULT_HEADER.header_shell_style;
   const logoSubtitleConfigured = headerPublicCfg?.header_brand_subtitle?.trim();
@@ -344,14 +348,16 @@ export function Header({
                 <Moon className="size-4" />
               </button>
             </div>
+            {pathname !== '/hesaplamalar' ? (
+              <Link
+                href="/login?redirect=%2Fdashboard"
+                className="inline-flex min-h-10 items-center justify-center rounded-full border border-border bg-background px-3.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted sm:text-sm"
+              >
+                Panele git
+              </Link>
+            ) : null}
             <Link
-              href="/login?redirect=%2Fdashboard"
-              className="inline-flex min-h-10 items-center justify-center rounded-full border border-border bg-background px-3.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted sm:text-sm"
-            >
-              Panele git
-            </Link>
-            <Link
-              href={`/login?redirect=${loginReturnTo}`}
+              href={guestLoginHref}
               className="inline-flex min-h-10 items-center justify-center rounded-full bg-primary px-4 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 sm:text-sm"
             >
               Giriş yap

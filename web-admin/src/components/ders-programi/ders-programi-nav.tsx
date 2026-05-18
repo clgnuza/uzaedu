@@ -54,9 +54,9 @@ const NAV_ITEMS: NavItem[] = [
   {
     path: '/ders-programi/olustur',
     label: 'Program Oluştur',
-    labelAdmin: 'Excel ile Yükle',
+    labelAdmin: 'Şablon / GPT',
     hint: 'Yeni program veya Excel içe aktarma',
-    hintAdmin: 'XLSX ile toplu program yükleme',
+    hintAdmin: 'Şablon Excel veya e-Okul PDF/GPT',
     icon: FileSpreadsheet,
     theme: {
       active: 'border-emerald-500 text-emerald-800 dark:border-emerald-400 dark:text-emerald-100',

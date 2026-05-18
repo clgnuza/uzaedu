@@ -83,6 +83,15 @@ export class ClassesSubjectsService {
   }
 
   async listClasses(viewer: ClassesSubjectsViewer) {
+    if (viewer.role === UserRole.superadmin) {
+      if (!viewer.schoolId) {
+        throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+      }
+      return this.classRepo.find({
+        where: { schoolId: viewer.schoolId },
+        order: { grade: 'ASC', section: 'ASC', name: 'ASC' },
+      });
+    }
     if (viewer.role === UserRole.school_admin) {
       this.assertSchoolAdmin(viewer);
       return this.classRepo.find({

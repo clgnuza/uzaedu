@@ -6,7 +6,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { getApiUrl } from '@/lib/api';
 import { uuidFromTvShortSchoolId, uuidToTvShortSchoolId } from '@/lib/tv-school-short-id';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { BookOpen, ChevronLeft, ChevronRight, Megaphone, Rss, Smartphone, Users, X } from 'lucide-react';
+import { BookOpen, ChevronLeft, ChevronRight, Megaphone, Rss, Users } from 'lucide-react';
 
 type TvAudience = 'corridor' | 'teachers' | 'classroom';
 
@@ -390,8 +390,106 @@ function ClassroomUsbPinForm({
   onUnlocked: (token: string) => void;
 }) {
   const [pin, setPin] = useState('');
+  const [unlockMode, setUnlockMode] = useState<'pin' | 'otp' | 'auto'>('auto');
+  const [lastUnlockMethod, setLastUnlockMethod] = useState<'pin' | 'otp' | 'qr' | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [qrBusy, setQrBusy] = useState(false);
+  const [qrErr, setQrErr] = useState<string | null>(null);
+  const [qrSession, setQrSession] = useState<{ session_id: string; code: string; expires_in: number } | null>(null);
+  const [qrLeftSec, setQrLeftSec] = useState(0);
+  const qrBootstrapRef = useRef(false);
+  const qrLink = useMemo(() => {
+    if (!qrSession || typeof window === 'undefined') return '';
+    return `${window.location.origin}/akilli-tahta?qr_school=${encodeURIComponent(schoolId)}&qr_device=${encodeURIComponent(deviceId)}&qr_session=${encodeURIComponent(qrSession.session_id)}&qr_code=${encodeURIComponent(qrSession.code)}`;
+  }, [qrSession, schoolId, deviceId]);
+
+  useEffect(() => {
+    if (!qrSession) {
+      setQrLeftSec(0);
+      return;
+    }
+    setQrLeftSec(Math.max(1, qrSession.expires_in || 120));
+    const id = setInterval(() => {
+      setQrLeftSec((prev) => {
+        if (prev <= 1) {
+          setQrSession(null);
+          setQrErr('QR süresi doldu. Yeniden oluşturun.');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [qrSession]);
+
+  function createQrSession() {
+    setQrBusy(true);
+    setQrErr(null);
+    void fetch(getApiUrl('/tv/classroom-qr-session'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ school_id: schoolId, device_id: deviceId }),
+    })
+      .then(async (res) => {
+        const body = (await res.json().catch(() => ({}))) as {
+          session_id?: string;
+          code?: string;
+          expires_in?: number;
+          message?: string;
+        };
+        if (!res.ok || !body.session_id || !body.code) {
+          throw new Error(body.message || 'QR oturumu oluşturulamadı');
+        }
+        setQrSession({
+          session_id: body.session_id,
+          code: body.code,
+          expires_in: body.expires_in ?? 120,
+        });
+      })
+      .catch((e) => setQrErr(e instanceof Error ? e.message : 'QR hatası'))
+      .finally(() => setQrBusy(false));
+  }
+
+  useEffect(() => {
+    if (!qrSession) return;
+    const id = setInterval(() => {
+      void fetch(
+        getApiUrl(
+          `/tv/classroom-qr-session/${encodeURIComponent(qrSession.session_id)}/poll?school_id=${encodeURIComponent(schoolId)}&device_id=${encodeURIComponent(deviceId)}`,
+        ),
+      )
+        .then(async (res) => {
+          if (!res.ok) return null;
+          return (await res.json()) as { approved?: boolean; expired?: boolean; access_token?: string; message?: string };
+        })
+        .then((body) => {
+          if (!body) return;
+          if (body.expired) {
+            setQrSession(null);
+            setQrErr('QR süresi doldu. Yeniden oluşturun.');
+            return;
+          }
+          if (body.approved && body.access_token) {
+            try {
+              sessionStorage.setItem(`tv_usb_${schoolId}_${deviceId}`, body.access_token);
+            } catch {
+              /* ignore */
+            }
+            setLastUnlockMethod('qr');
+            onUnlocked(body.access_token);
+          }
+        })
+        .catch(() => undefined);
+    }, 1200);
+    return () => clearInterval(id);
+  }, [qrSession, schoolId, deviceId, onUnlocked]);
+  useEffect(() => {
+    if (qrBootstrapRef.current) return;
+    qrBootstrapRef.current = true;
+    createQrSession();
+  }, []);
+
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     const p = pin.replace(/\D/g, '').slice(0, 8);
@@ -404,10 +502,10 @@ function ClassroomUsbPinForm({
     void fetch(getApiUrl('/tv/classroom-usb-unlock'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ school_id: schoolId, device_id: deviceId, pin: p }),
+      body: JSON.stringify({ school_id: schoolId, device_id: deviceId, pin: p, mode: unlockMode }),
     })
       .then(async (res) => {
-        const body = (await res.json().catch(() => ({}))) as { message?: string; access_token?: string };
+        const body = (await res.json().catch(() => ({}))) as { message?: string; access_token?: string; unlock_method?: 'pin' | 'otp' };
         if (!res.ok) throw new Error(body.message || 'PIN kabul edilmedi');
         const tok = body.access_token;
         if (!tok) throw new Error('Yanıt geçersiz');
@@ -416,6 +514,7 @@ function ClassroomUsbPinForm({
         } catch {
           /* ignore */
         }
+        setLastUnlockMethod(body.unlock_method ?? (unlockMode === 'otp' ? 'otp' : 'pin'));
         onUnlocked(tok);
       })
       .catch((e) => setErr(e instanceof Error ? e.message : 'Hata'))
@@ -425,28 +524,99 @@ function ClassroomUsbPinForm({
     <div className="flex min-h-screen flex-col items-center justify-center bg-slate-950 px-4 py-10 text-slate-100">
       <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900/90 p-6 shadow-xl">
         <h1 className="text-center text-lg font-semibold text-white">Sınıf tahtası (USB)</h1>
+        {lastUnlockMethod ? (
+          <p className="mt-1 text-center text-xs text-emerald-300">
+            Son başarılı açılış: {lastUnlockMethod === 'qr' ? 'QR' : lastUnlockMethod === 'otp' ? 'OTP' : 'PIN'}
+          </p>
+        ) : null}
         <p className="mt-2 text-center text-sm text-slate-400">
-          Telefonsuz açılış: idarenin atadığı kişisel PIN&apos;inizi girin. Oturum bu tahta için geçerlidir.
+          Öncelikli yöntem: QR ile öğretmen onayı. PIN/OTP yalnızca yedek giriş içindir.
         </p>
         <form className="mt-6 space-y-4" onSubmit={onSubmit}>
-          <input
-            type="password"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={8}
-            value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
-            placeholder="••••"
-            className="w-full rounded-xl border border-slate-600 bg-slate-950 px-4 py-3 text-center font-mono text-2xl tracking-[0.35em] text-slate-100 placeholder:text-slate-600"
-          />
-          {err ? <p className="text-center text-sm text-red-400">{err}</p> : null}
           <button
-            type="submit"
-            disabled={busy}
-            className="w-full rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50"
+            type="button"
+            disabled={qrBusy}
+            className="w-full rounded-xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-slate-700 disabled:opacity-50"
+            onClick={createQrSession}
           >
-            {busy ? 'Doğrulanıyor…' : 'Tahtayı aç'}
+            {qrBusy ? 'QR hazırlanıyor…' : 'QR ile öğretmen girişi'}
           </button>
+          {qrErr ? <p className="text-center text-sm text-red-400">{qrErr}</p> : null}
+          {qrSession ? (
+            <div className="space-y-2 rounded-xl border border-slate-700 bg-slate-950 p-3">
+              <p className="text-center text-xs text-slate-300">
+                Kod: <span className="font-mono text-base tracking-widest text-white">{qrSession.code}</span>
+              </p>
+              <p className="text-center text-[11px] text-slate-400">
+                Kalan süre: <span className="font-mono text-slate-200">{qrLeftSec}s</span>
+              </p>
+              <button
+                type="button"
+                className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
+                onClick={createQrSession}
+                disabled={qrBusy}
+              >
+                QR yenile
+              </button>
+              {qrLink ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`https://quickchart.io/qr?size=220x220&text=${encodeURIComponent(qrLink)}`}
+                    alt=""
+                    className="mx-auto size-40 rounded bg-white p-1"
+                  />
+                  <p className="break-all rounded bg-slate-900 p-2 font-mono text-[10px] text-slate-300">{qrLink}</p>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+          <details className="rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2">
+            <summary className="cursor-pointer text-xs font-semibold text-slate-200">Yedek giriş (PIN / OTP)</summary>
+            <div className="mt-3 space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  className={`rounded-lg border px-2 py-2 text-xs ${unlockMode === 'auto' ? 'border-sky-500 bg-sky-600/20 text-white' : 'border-slate-700 bg-slate-900 text-slate-300'}`}
+                  onClick={() => setUnlockMode('auto')}
+                >
+                  Otomatik
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-lg border px-2 py-2 text-xs ${unlockMode === 'pin' ? 'border-sky-500 bg-sky-600/20 text-white' : 'border-slate-700 bg-slate-900 text-slate-300'}`}
+                  onClick={() => setUnlockMode('pin')}
+                >
+                  PIN
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-lg border px-2 py-2 text-xs ${unlockMode === 'otp' ? 'border-sky-500 bg-sky-600/20 text-white' : 'border-slate-700 bg-slate-900 text-slate-300'}`}
+                  onClick={() => setUnlockMode('otp')}
+                >
+                  OTP
+                </button>
+              </div>
+              <input
+                type="password"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={8}
+                value={pin}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                placeholder="••••"
+                className="w-full rounded-xl border border-slate-600 bg-slate-950 px-4 py-3 text-center font-mono text-2xl tracking-[0.35em] text-slate-100 placeholder:text-slate-600"
+              />
+              {err ? <p className="text-center text-sm text-red-400">{err}</p> : null}
+              <button
+                type="submit"
+                disabled={busy}
+                className="w-full rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50"
+              >
+                {busy ? 'Doğrulanıyor…' : 'PIN / OTP ile aç'}
+              </button>
+            </div>
+          </details>
         </form>
       </div>
     </div>
@@ -1092,7 +1262,7 @@ export default function TvAudienceContent() {
     setActiveIndex((prev) => (prev + 1) % slidesLengthRef.current);
   }, []);
 
-  /** USB sunum kumandası / klavye: PageDown, oklar, Space — odak tarayıcıda ve TV sayfası açıkken. */
+  /** Klavye: PageDown, oklar, Space — odak tarayıcıda ve TV sayfası açıkken. */
   useEffect(() => {
     if (slides.length === 0 || data?.urgent) return;
     const n = slides.length;
@@ -1124,109 +1294,6 @@ export default function TvAudienceContent() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [slides.length, data?.urgent]);
-
-  const [phoneRemoteOpen, setPhoneRemoteOpen] = useState(false);
-  const [phoneRemotePair, setPhoneRemotePair] = useState<{ sessionId: string; secret: string } | null>(null);
-  const [phoneRemoteBusy, setPhoneRemoteBusy] = useState(false);
-  const [phoneRemoteErr, setPhoneRemoteErr] = useState<string | null>(null);
-  const remotePollAfterRef = useRef('0');
-
-  useEffect(() => {
-    remotePollAfterRef.current = '0';
-  }, [phoneRemotePair?.sessionId]);
-
-  useEffect(() => {
-    if (!phoneRemoteOpen || phoneRemotePair || !usbToken || !schoolId || !deviceId || audience !== 'classroom' || !usbMode) return;
-    let cancel = false;
-    setPhoneRemoteBusy(true);
-    setPhoneRemoteErr(null);
-    void (async () => {
-      try {
-        const res = await fetch(getApiUrl('/tv/remote/session'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Tv-Classroom-Usb-Token': usbToken },
-          body: JSON.stringify({ school_id: schoolId, device_id: deviceId }),
-        });
-        const j = (await res.json().catch(() => ({}))) as {
-          sessionId?: string;
-          pairingSecret?: string;
-          message?: string | string[];
-        };
-        if (cancel) return;
-        if (!res.ok) {
-          const msg = Array.isArray(j.message) ? j.message[0] : j.message;
-          setPhoneRemoteErr(typeof msg === 'string' && msg.trim() ? msg : `HTTP ${res.status}`);
-          return;
-        }
-        if (j.sessionId && j.pairingSecret) setPhoneRemotePair({ sessionId: j.sessionId, secret: j.pairingSecret });
-        else setPhoneRemoteErr('Yanıt eksik (migration / API kontrolü).');
-      } finally {
-        if (!cancel) setPhoneRemoteBusy(false);
-      }
-    })();
-    return () => {
-      cancel = true;
-    };
-  }, [phoneRemoteOpen, phoneRemotePair, usbToken, schoolId, deviceId, audience, usbMode]);
-
-  useEffect(() => {
-    if (
-      !usbToken ||
-      !schoolId ||
-      !deviceId ||
-      audience !== 'classroom' ||
-      !usbMode ||
-      !phoneRemotePair ||
-      slides.length === 0 ||
-      data?.urgent
-    )
-      return;
-    const id = setInterval(() => {
-      void (async () => {
-        try {
-          const url = getApiUrl(
-            `/tv/remote/session/${encodeURIComponent(phoneRemotePair.sessionId)}/poll?after=${encodeURIComponent(remotePollAfterRef.current)}&school_id=${encodeURIComponent(schoolId)}&device_id=${encodeURIComponent(deviceId)}`,
-          );
-          const res = await fetch(url, { headers: { 'X-Tv-Classroom-Usb-Token': usbToken } });
-          if (!res.ok) return;
-          const j = (await res.json()) as { commands?: { id: string; action: string }[]; expired?: boolean };
-          if (j.expired) {
-            setPhoneRemotePair(null);
-            return;
-          }
-          const cmds = j.commands ?? [];
-          if (cmds.length === 0) return;
-          setActiveIndex((prev) => {
-            let cur = prev;
-            const n = slidesLengthRef.current;
-            for (const c of cmds) {
-              remotePollAfterRef.current = c.id;
-              switch (c.action) {
-                case 'next':
-                  cur = (cur + 1) % n;
-                  break;
-                case 'prev':
-                  cur = (cur - 1 + n) % n;
-                  break;
-                case 'first':
-                  cur = 0;
-                  break;
-                case 'last':
-                  cur = Math.max(0, n - 1);
-                  break;
-                default:
-                  break;
-              }
-            }
-            return cur;
-          });
-        } catch {
-          /* ignore */
-        }
-      })();
-    }, 400);
-    return () => clearInterval(id);
-  }, [usbToken, schoolId, deviceId, audience, usbMode, phoneRemotePair, slides.length, data?.urgent]);
 
   const mealItems = useMemo(() => {
     const scheduleRaw = data?.school?.tv_meal_schedule?.trim();
@@ -1484,108 +1551,6 @@ export default function TvAudienceContent() {
             </span>
           </button>
         )}
-        {audience === 'classroom' && usbMode && usbToken && schoolId && deviceId && slides.length > 0 && !data?.urgent ? (
-          <>
-            <button
-              type="button"
-              className="fixed bottom-24 right-4 z-[140] flex items-center gap-2 rounded-2xl border-2 border-white/35 bg-violet-600/92 px-4 py-3 text-sm font-bold text-white shadow-xl backdrop-blur-sm transition hover:bg-violet-500 active:scale-[0.98] sm:bottom-28 sm:right-6"
-              onClick={() => setPhoneRemoteOpen(true)}
-            >
-              <Smartphone className="size-5 shrink-0" aria-hidden />
-              Telefon kumandası
-            </button>
-            {phoneRemoteOpen ? (
-              <div
-                className="fixed inset-0 z-[160] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
-                role="dialog"
-                aria-modal="true"
-                aria-label="Telefon sunum kumandası"
-              >
-                <div className="relative flex max-h-[min(92vh,40rem)] w-full max-w-md flex-col gap-4 overflow-y-auto rounded-3xl border border-white/15 bg-zinc-900 p-6 shadow-2xl">
-                  <button
-                    type="button"
-                    className="absolute right-3 top-3 flex size-10 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20"
-                    onClick={() => {
-                      setPhoneRemoteOpen(false);
-                      setPhoneRemoteErr(null);
-                    }}
-                    aria-label="Kapat"
-                  >
-                    <X className="size-5" />
-                  </button>
-                  <h2 className="pr-12 text-xl font-bold tracking-tight text-white">Telefon ile kumanda</h2>
-                  <p className="text-sm leading-relaxed text-zinc-400">
-                    Aşağıdaki QR veya linki telefonda açın. Bağlantıyı paylaşmayın; yalnızca bu sınıf TV oturumu için geçerlidir.
-                  </p>
-                  {phoneRemoteErr ? (
-                    <p className="rounded-xl border border-amber-500/35 bg-amber-950/40 px-3 py-3 text-sm text-amber-100/95">
-                      {phoneRemoteErr}
-                    </p>
-                  ) : null}
-                  {phoneRemoteBusy ? (
-                    <p className="py-6 text-center text-sm text-zinc-400">Oturum oluşturuluyor…</p>
-                  ) : phoneRemotePair && schoolId ? (
-                    <>
-                      {(() => {
-                        const href = `${typeof window !== 'undefined' ? window.location.origin : ''}/sunum-kumandasi?school_id=${encodeURIComponent(schoolId)}&s=${encodeURIComponent(phoneRemotePair.sessionId)}#p=${encodeURIComponent(phoneRemotePair.secret)}`;
-                        return (
-                          <>
-                            <div className="flex justify-center rounded-2xl bg-white p-3">
-                              <img
-                                src={`https://quickchart.io/qr?size=220x220&text=${encodeURIComponent(href)}`}
-                                alt=""
-                                className="size-[220px] max-w-full"
-                                width={220}
-                                height={220}
-                              />
-                            </div>
-                            <p className="wrap-break-word rounded-xl bg-black/40 p-3 font-mono text-[10px] leading-snug text-zinc-300">{href}</p>
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                className="flex-1 rounded-xl bg-violet-600 px-4 py-3 text-sm font-bold text-white hover:bg-violet-500"
-                                onClick={() => void navigator.clipboard.writeText(href).catch(() => undefined)}
-                              >
-                                Linki kopyala
-                              </button>
-                              <button
-                                type="button"
-                                className="rounded-xl border border-white/20 px-4 py-3 text-sm font-semibold text-white hover:bg-white/10"
-                                onClick={() => {
-                                  remotePollAfterRef.current = '0';
-                                  setPhoneRemoteErr(null);
-                                  setPhoneRemotePair(null);
-                                }}
-                              >
-                                Yeni QR
-                              </button>
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </>
-                  ) : !phoneRemoteErr ? (
-                    <p className="py-4 text-center text-sm text-amber-200/90">
-                      Oturum oluşturulamadı; ağı ve PIN oturumunu kontrol edin.
-                    </p>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="rounded-xl border border-red-400/40 py-3 text-sm font-semibold text-red-200 hover:bg-red-950/40"
-                    onClick={() => {
-                      remotePollAfterRef.current = '0';
-                      setPhoneRemotePair(null);
-                      setPhoneRemoteErr(null);
-                      setPhoneRemoteOpen(false);
-                    }}
-                  >
-                    Bağlantıyı kes ve kapat
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </>
-        ) : null}
         {/* Ana alan + Sidebar – overflow sadece main'de, sidebar tam görünsün */}
         <div className="flex min-h-0 min-w-0 flex-1">
           {cardPosition === 'left' && !announcementsOnlyLock && (

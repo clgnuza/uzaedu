@@ -1,7 +1,7 @@
 'use client';
 
 import { Card, CardContent } from '@/components/ui/card';
-import { CheckCircle2, Presentation, XCircle } from 'lucide-react';
+import { CheckCircle2, Keyboard, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SmartBoardIcon } from './SmartBoardIcon';
 import type { Status } from '../types';
@@ -74,15 +74,13 @@ export function TeacherSmartBoardHero({
                       : 'Tahta kaydı yoksa idareye bildirin.'}
                   </p>
                   <div className="flex gap-2 rounded-xl border border-violet-200/50 bg-violet-500/6 p-2.5 dark:border-violet-800/40 dark:bg-violet-950/20">
-                    <Presentation className="mt-0.5 size-4 shrink-0 text-violet-600 dark:text-violet-300" aria-hidden />
+                    <Keyboard className="mt-0.5 size-4 shrink-0 text-violet-600 dark:text-violet-300" aria-hidden />
                     <p className="text-[10px] leading-snug text-muted-foreground sm:text-xs">
-                      <span className="font-semibold text-foreground">Sunum kumandası:</span> Sınıf TV&apos;de (USB oturumu
-                      açıkken) «Telefon kumandası» ile QR oluşturup telefonda{' '}
-                      <span className="font-mono text-[9px] text-foreground">/sunum-kumandasi</span> sayfasını açabilirsiniz.
-                      Ayrıca tahtada USB/klavye <kbd className="rounded border bg-muted px-1 font-mono text-[9px]">PageDown</kbd>/
-                      <kbd className="rounded border bg-muted px-1 font-mono text-[9px]">PageUp</kbd> ve oklar çalışır. Impress
-                      öndeyse kısayollar oraya gider. Üretimde kumanda istekleri için{' '}
-                      <code className="font-mono text-[9px] text-foreground">NEXT_PUBLIC_API_BASE_URL</code> doğru olmalıdır.
+                      <span className="font-semibold text-foreground">TV slaytları:</span> Sınıf TV sayfası odaktayken{' '}
+                      <kbd className="rounded border bg-muted px-1 font-mono text-[9px]">PageDown</kbd> /{' '}
+                      <kbd className="rounded border bg-muted px-1 font-mono text-[9px]">PageUp</kbd>, oklar veya{' '}
+                      <kbd className="rounded border bg-muted px-1 font-mono text-[9px]">Space</kbd> ile geçiş; ekrandaki İleri / Geri düğmeleri de kullanılabilir.
+                      Impress öndeyse kısayollar oraya gider — önce tarayıcı sekmesine odak verin.
                     </p>
                   </div>
                 </>

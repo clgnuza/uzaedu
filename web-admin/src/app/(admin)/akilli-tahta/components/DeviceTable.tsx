@@ -317,6 +317,7 @@ export function DeviceTable({
   onSchedule,
   onDisconnect,
   onClose,
+  onBulkAction,
   onRefresh,
 }: {
   devices: Device[];
@@ -331,6 +332,7 @@ export function DeviceTable({
   onSchedule?: (d: Device) => void;
   onDisconnect?: (sessionId: string) => void;
   onClose?: (device: Device | Device[]) => void;
+  onBulkAction?: (deviceIds: string[], action: 'open' | 'lock' | 'close') => void;
   onRefresh?: () => void;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -385,22 +387,12 @@ export function DeviceTable({
 
   const handleBulkAction = (action: 'open' | 'lock' | 'close') => {
     if (selectedDevices.length === 0) return;
-    if (action === 'lock') {
-      const withSession = selectedDevices.filter((d) => activeDeviceIds.has(d.id));
-      if (withSession.length > 0 && onDisconnect) {
-        const sess = sessions.find((s) => s.is_active && s.device_id === withSession[0].id);
-        if (sess) onDisconnect(sess.id);
-        toast.info('Bağlantı sonlandırıldı. Toplu kilitle tam desteği planlanıyor.');
-      } else {
-        toast.info('Toplu kilitle özelliği planlanıyor.');
-      }
-    } else if (action === 'close' && onClose) {
-      onClose(selectedDevices);
-    } else if (action === 'close') {
-      toast.info('Toplu aç/kapat özelliği planlanıyor.');
-    } else {
-      toast.info('Toplu aç özelliği planlanıyor.');
+    if (onBulkAction) {
+      onBulkAction(selectedDevices.map((d) => d.id), action);
+      return;
     }
+    if (action === 'close' && onClose) onClose(selectedDevices);
+    else toast.info('Toplu işlem henüz etkin değil.');
   };
 
   return (

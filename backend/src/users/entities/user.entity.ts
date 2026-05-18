@@ -168,6 +168,10 @@ export class User {
   @Column({ name: 'smart_board_usb_pin_hash', type: 'varchar', length: 255, nullable: true })
   smartBoardUsbPinHash: string | null;
 
+  /** USB / tahta: çevrimdışı tek kullanımlık OTP kodlarının bcrypt hash listesi */
+  @Column({ name: 'smart_board_otp_code_hashes', type: 'jsonb', nullable: true })
+  smartBoardOtpCodeHashes: string[] | null;
+
   /** Onaylı içerik bildirimi sonrası süper yöneticinin uyguladığı ceza sayacı */
   @Column({ name: 'school_reviews_strike_count', type: 'int', default: 0 })
   schoolReviewsStrikeCount: number;

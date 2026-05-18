@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import Link from 'next/link';
+import { useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Copy, BookOpen, Monitor } from 'lucide-react';
+import { Copy, BookOpen, Monitor, Sparkles, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Device } from '../types';
 
@@ -26,7 +27,17 @@ export function AddDeviceDialog({
 }) {
   const [createdDevice, setCreatedDevice] = useState<Device | null>(null);
   const [adding, setAdding] = useState(false);
+  const [keepOpenForNext, setKeepOpenForNext] = useState(false);
   const [form, setForm] = useState({ name: '', class_section: '', room_or_location: '' });
+
+  const suggestedName = useMemo(() => {
+    const classPart = form.class_section.trim();
+    const roomPart = form.room_or_location.trim();
+    if (!classPart && !roomPart) return 'Akıllı Tahta';
+    if (classPart && roomPart) return `${classPart} - ${roomPart}`;
+    if (classPart) return `${classPart} Akıllı Tahta`;
+    return `Akıllı Tahta - ${roomPart}`;
+  }, [form.class_section, form.room_or_location]);
 
   const handleAdd = async () => {
     setAdding(true);
@@ -37,8 +48,13 @@ export function AddDeviceDialog({
         room_or_location: form.room_or_location.trim(),
       });
       if (device) {
-        setCreatedDevice(device);
         onDeviceCreated?.(device);
+        if (keepOpenForNext) {
+          setForm({ name: '', class_section: '', room_or_location: '' });
+          toast.success('Tahta eklendi. Eşleme kodu: ' + device.pairing_code);
+          return;
+        }
+        setCreatedDevice(device);
       }
     } finally {
       setAdding(false);
@@ -79,9 +95,20 @@ export function AddDeviceDialog({
                 Sınıf <strong>{createdDevice.classSection}</strong> atandı — Ders programından otomatik ders/öğretmen alınacak.
               </p>
             )}
-            <Button className="w-full" onClick={() => handleClose(false)}>
-              Tamam
-            </Button>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setCreatedDevice(null);
+                  setForm({ name: '', class_section: '', room_or_location: '' });
+                }}
+              >
+                Yeni tahta ekle
+              </Button>
+              <Button className="w-full" onClick={() => handleClose(false)}>
+                Tamam
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="space-y-4">
@@ -94,41 +121,69 @@ export function AddDeviceDialog({
                 id="add-name"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Akıllı Tahta"
+                placeholder={suggestedName}
                 className="mt-1"
               />
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1 px-2 text-[10px]"
+                  onClick={() => setForm((f) => ({ ...f, name: suggestedName }))}
+                >
+                  <Sparkles className="size-3" />
+                  Önerilen adı kullan
+                </Button>
+                <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">{suggestedName}</span>
+              </div>
             </div>
             <div className="rounded-xl border border-sky-500/25 bg-linear-to-br from-sky-500/12 via-cyan-500/8 to-indigo-500/10 p-2.5">
               <Label htmlFor="add-class" className="flex items-center gap-1.5 text-primary">
                 <BookOpen className="size-4" />
-                Sınıf (Kayıtlı sınıf listesinden)
+                Sınıf (yaz veya listeden seç)
               </Label>
-              {classSections.length > 0 ? (
+              <Input
+                id="add-class"
+                value={form.class_section}
+                onChange={(e) => setForm((f) => ({ ...f, class_section: e.target.value }))}
+                placeholder="Örn. 9-A"
+                className="mt-1"
+              />
+              <div className="mt-1.5">
                 <select
-                  id="add-class"
-                  value={form.class_section}
+                  value=""
                   onChange={(e) => setForm((f) => ({ ...f, class_section: e.target.value }))}
-                  className="mt-1 w-full rounded-lg border border-input bg-background px-2.5 py-2 text-sm"
+                  disabled={classSections.length === 0}
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-xs disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
                 >
-                  <option value="">Sınıf seçin</option>
+                  <option value="" disabled>
+                    {classSections.length > 0 ? 'Listeden seç' : 'Kayıtlı sınıf bulunamadı'}
+                  </option>
                   {classSections.map((s) => (
                     <option key={s} value={s}>
                       {s}
                     </option>
                   ))}
                 </select>
-              ) : (
-                <Input
-                  id="add-class"
-                  value={form.class_section}
-                  onChange={(e) => setForm((f) => ({ ...f, class_section: e.target.value }))}
-                  placeholder="Örn. 9-A"
-                  className="mt-1"
-                />
-              )}
+              </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                Ders Programı ayarlarınızdan ders ve öğretmen bilgisi otomatik gelir.
+                Liste, Gruplar ve Dersler kaydı + Ders Programı sınıflarıyla uyumludur.
               </p>
+              {classSections.length === 0 ? (
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  <Link href="/classes-subjects">
+                    <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-[10px]">
+                      Gruplar ve Dersler
+                    </Button>
+                  </Link>
+                  <Link href="/ders-programi">
+                    <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-[10px]">
+                      Ders Programı
+                    </Button>
+                  </Link>
+                </div>
+              ) : null}
             </div>
             <div>
               <Label htmlFor="add-room">Lokasyon / Oda</Label>
@@ -140,6 +195,29 @@ export function AddDeviceDialog({
                 className="mt-1"
               />
             </div>
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-2.5">
+              <p className="text-[11px] font-medium text-foreground">Okul tahta ekleme önerisi</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[10px] text-muted-foreground">
+                <li>Sınıf seçin (ders/öğretmen eşleşmesi için).</li>
+                <li>Lokasyon girin (harita ve teknik takip için).</li>
+                <li>Tahta eklendikten sonra kodu cihaza hemen girin.</li>
+              </ul>
+              <Link href="/akilli-tahta?tab=kurulum" className="mt-2 inline-flex">
+                <Button type="button" variant="secondary" size="sm" className="h-7 gap-1 px-2 text-[10px]">
+                  <Wrench className="size-3" />
+                  Kurulum sekmesini aç
+                </Button>
+              </Link>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={keepOpenForNext}
+                onChange={(e) => setKeepOpenForNext(e.target.checked)}
+                className="size-3.5 rounded border-input"
+              />
+              Eklemeden sonra yeni tahta için formu açık tut
+            </label>
             <Button onClick={handleAdd} disabled={adding} className="w-full">
               {adding ? 'Ekleniyor…' : 'Tahta Ekle'}
             </Button>

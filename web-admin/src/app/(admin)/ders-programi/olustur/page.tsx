@@ -14,9 +14,10 @@ import {
   ExternalLink,
   Send,
   Calendar,
+  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
-import { apiFetch, getApiUrl } from '@/lib/api';
+import { apiFetch, getApiUrl, ApiError } from '@/lib/api';
 import { COOKIE_SESSION_TOKEN } from '@/lib/auth-session';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -49,7 +50,9 @@ export default function OlusturPage() {
   const searchParams = useSearchParams();
   const planFromQuery = searchParams.get('plan');
   const { token, me } = useAuth();
-  const [uploading, setUploading] = useState(false);
+  const [uploadingTemplate, setUploadingTemplate] = useState(false);
+  const [uploadingGpt, setUploadingGpt] = useState(false);
+  const uploading = uploadingTemplate || uploadingGpt;
   const [clearing, setClearing] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [lastResult, setLastResult] = useState<{
@@ -62,10 +65,12 @@ export default function OlusturPage() {
   const [validUntil, setValidUntil] = useState(getDefaultValidUntil);
   const [openEnded, setOpenEnded] = useState(false);
   const [planTitle, setPlanTitle] = useState('');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedTemplateFile, setSelectedTemplateFile] = useState<File | null>(null);
+  const [selectedGptFile, setSelectedGptFile] = useState<File | null>(null);
   const [draftEntries, setDraftEntries] = useState<TimetableEntry[]>([]);
   const [teachers, setTeachers] = useState<TeacherInfo[]>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const templateInputRef = useRef<HTMLInputElement>(null);
+  const gptInputRef = useRef<HTMLInputElement>(null);
   /** Okul / MEB Crystal yalnız Pzt–Cum; Cmt–Paz sütunu veri kaydırması yaratıyordu. */
   const DAYS = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum'] as const;
 
@@ -196,27 +201,52 @@ export default function OlusturPage() {
     }
   };
 
-  const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] ?? null;
-    setSelectedFile(file);
+  const handleTemplateFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSelectedTemplateFile(e.target.files?.[0] ?? null);
   };
 
-  const handleUpload = async () => {
-    const file = selectedFile;
-    if (!file || !token) return;
+  const handleGptFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSelectedGptFile(e.target.files?.[0] ?? null);
+  };
 
-    const ext = file.name.toLowerCase().split('.').pop();
-    if (ext !== 'xlsx' && ext !== 'xls') {
-      toast.error('Sadece Excel (.xlsx, .xls) yükleyin.');
-      return;
+  const getUploadErrorMessage = (error: unknown): string => {
+    if (!(error instanceof Error)) return 'Yükleme başarısız.';
+    const apiErr = error as ApiError;
+    switch (apiErr.code) {
+      case 'OPENAI_NOT_CONFIGURED':
+        return 'OpenAI anahtarı yok; Optik ayarlarından veya sunucu .env’den API key girin.';
+      case 'PDF_GPT_DISABLED':
+        return 'GPT yüklemesi kapalı; şablon Excel kullanın veya süperadmin ayarlarını açın.';
+      case 'PDF_LOW_CONFIDENCE':
+        return apiErr.message || 'PDF güven skoru düşük; şablon Excel deneyin.';
+      case 'GPT_TEXT_TOO_SHORT':
+        return 'PDF/Excel metni çok kısa; daha net bir dosya yükleyin.';
+      case 'PDF_PARSE_FAILED':
+        return 'PDF okunamadı; dosyayı yeniden indirip tekrar deneyin.';
+      case 'GPT_TIMETABLE_PARSE_FAILED':
+        return 'GPT çıktısı tabloya dönüştürülemedi; daha iyi formatlı bir dosya kullanın.';
+      case 'OPENAI_TIMETABLE_FAILED':
+        return apiErr.message || 'OpenAI çağrısı başarısız oldu; parametreleri ve kota durumunu kontrol edin.';
+      case 'PDF_USE_GPT_MODE':
+        return 'PDF yüklemek için “e-Okul / GPT ile yükle” bölümünü kullanın.';
+      case 'INVALID_FILE_TYPE':
+        return 'Dosya türü uygun değil; şablon Excel için .xlsx/.xls, GPT için .pdf/.xlsx/.xls seçin.';
+      default:
+        return apiErr.message || 'Yükleme başarısız.';
     }
+  };
 
-    setUploading(true);
+  const runUpload = async (file: File, mode: 'template' | 'gpt') => {
+    if (!token) return;
+    const setBusy = mode === 'template' ? setUploadingTemplate : setUploadingGpt;
+    setBusy(true);
     setLastResult(null);
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await apiFetch<{ imported: number; errors: string[]; plan_id?: string }>('/teacher-timetable/upload', {
+      formData.append('mode', mode);
+      const q = mode === 'gpt' ? '?mode=gpt' : '';
+      const res = await apiFetch<{ imported: number; errors: string[]; plan_id?: string }>(`/teacher-timetable/upload${q}`, {
         token,
         method: 'POST',
         body: formData,
@@ -230,13 +260,40 @@ export default function OlusturPage() {
       setOpenEnded(false);
       showUploadResultToast(res);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Yükleme başarısız.');
+      toast.error(getUploadErrorMessage(err));
       setLastResult(null);
     } finally {
-      setUploading(false);
-      setSelectedFile(null);
-      if (inputRef.current) inputRef.current.value = '';
+      setBusy(false);
+      if (mode === 'template') {
+        setSelectedTemplateFile(null);
+        if (templateInputRef.current) templateInputRef.current.value = '';
+      } else {
+        setSelectedGptFile(null);
+        if (gptInputRef.current) gptInputRef.current.value = '';
+      }
     }
+  };
+
+  const handleUploadTemplate = async () => {
+    const file = selectedTemplateFile;
+    if (!file || !token) return;
+    const ext = file.name.toLowerCase().split('.').pop();
+    if (ext !== 'xlsx' && ext !== 'xls') {
+      toast.error('Şablon yüklemesi yalnızca .xlsx veya .xls kabul eder.');
+      return;
+    }
+    await runUpload(file, 'template');
+  };
+
+  const handleUploadGpt = async () => {
+    const file = selectedGptFile;
+    if (!file || !token) return;
+    const ext = file.name.toLowerCase().split('.').pop();
+    if (ext !== 'xlsx' && ext !== 'xls' && ext !== 'pdf') {
+      toast.error('GPT yüklemesi için .pdf, .xlsx veya .xls seçin.');
+      return;
+    }
+    await runUpload(file, 'gpt');
   };
 
   const handlePublish = async () => {
@@ -283,7 +340,10 @@ export default function OlusturPage() {
       await apiFetch('/teacher-timetable', { token, method: 'DELETE' });
       setLastResult(null);
       setPlanTitle('');
-      setSelectedFile(null);
+      setSelectedTemplateFile(null);
+      setSelectedGptFile(null);
+      if (templateInputRef.current) templateInputRef.current.value = '';
+      if (gptInputRef.current) gptInputRef.current.value = '';
       setDraftEntries([]);
       setEntryCount(0);
       toast.success('Ders programı ve taslaklar temizlendi.');
@@ -326,7 +386,11 @@ export default function OlusturPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 sm:space-y-6">
-      <DersProgramiSubpageIntro title="Excel ile yükle" subtitle="Yükle → Tarih ve yayın → Programlarım" accent="emerald" />
+      <DersProgramiSubpageIntro
+        title="Program yükle"
+        subtitle="Şablon (kurallı Excel) veya e-Okul / GPT (PDF veya serbest Excel) — yükle → yayın → Programlarım"
+        accent="emerald"
+      />
 
       {/* Admin stepper */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200/45 bg-emerald-500/5 px-3 py-2.5 text-xs dark:border-emerald-900/45 dark:bg-emerald-950/20 sm:gap-3 sm:px-4 sm:py-3 sm:text-sm">
@@ -363,102 +427,164 @@ export default function OlusturPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <FileSpreadsheet className="size-5" />
-            Excel ile yükle
+            Şablon ile yükle
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-xl border border-primary/25 bg-linear-to-br from-primary/5 to-card p-4 shadow-sm">
             <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
               <FileSpreadsheet className="size-4 shrink-0 text-primary" />
-              Yalnızca indirilen şablon
+              Kurallı şablon (deterministik)
             </p>
             <ul className="ml-5 list-disc space-y-1 text-xs text-muted-foreground">
               <li>
-                Önce <strong>Örnek Excel İndir</strong>; yalnızca <code className="rounded bg-muted px-1 text-[11px]">DersProgram</code> sayfası işlenir (
-                <code className="rounded bg-muted px-1 text-[11px]">Kılavuz</code> sayfası yok sayılır).
+                <strong>Örnek Excel İndir</strong>; yalnızca <code className="rounded bg-muted px-1 text-[11px]">DersProgram</code> sayfası okunur (
+                <code className="rounded bg-muted px-1 text-[11px]">Kılavuz</code> yok sayılır).
               </li>
               <li>
-                Başlık satırında <strong>Ad_Soyad</strong> ve her gün için aynı sayıda{' '}
+                Başlık satırında <strong>Ad_Soyad</strong> (veya eşdeğeri) ve her gün için aynı sayıda{' '}
                 <code className="rounded bg-muted px-1 text-[11px]">Pazartesi_ders1</code> …{' '}
                 <code className="rounded bg-muted px-1 text-[11px]">Cuma_dersN</code> olmalı.
               </li>
               <li>
-                Ders hücresi: <code className="rounded bg-muted px-1 text-[11px]">7A-MAT</code> veya <code className="rounded bg-muted px-1 text-[11px]">7A - Matematik</code>
+                Hücre örnekleri: <code className="rounded bg-muted px-1 text-[11px]">7A-MAT</code>, <code className="rounded bg-muted px-1 text-[11px]">7A - Matematik</code>
               </li>
+              <li className="font-medium text-foreground">Yalnızca <strong>.xlsx / .xls</strong> — PDF bu alanda kabul edilmez.</li>
             </ul>
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <Button onClick={handleDownloadExample} className="gap-2">
+            <Button onClick={handleDownloadExample} className="gap-2" disabled={uploading}>
               <Download className="size-4" />
               Örnek Excel İndir
             </Button>
             <input
-              ref={inputRef}
+              ref={templateInputRef}
               type="file"
-              accept=".xlsx,.xls"
-              title="Örnek şablondan .xlsx veya .xls; DersProgram sayfası zorunlu"
+              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+              title="Şablon .xlsx veya .xls"
               className="sr-only"
-              onChange={handleFilePick}
+              onChange={handleTemplateFilePick}
               disabled={uploading}
             />
-            <Button variant="outline" onClick={() => inputRef.current?.click()} disabled={uploading}>
+            <Button variant="outline" onClick={() => templateInputRef.current?.click()} disabled={uploading}>
               <Upload className="size-4" />
               Dosya Seç
             </Button>
-            <Button variant="outline" onClick={handleUpload} disabled={uploading || !selectedFile}>
+            <Button variant="outline" onClick={() => void handleUploadTemplate()} disabled={uploading || !selectedTemplateFile}>
               <Send className="size-4" />
-              {uploading ? 'Kaydediliyor…' : 'Taslağa Kaydet'}
+              {uploadingTemplate ? 'Kaydediliyor…' : 'Taslağa Kaydet'}
             </Button>
-            {selectedFile ? (
-              <span className="self-center text-xs text-muted-foreground">{selectedFile.name}</span>
+            {selectedTemplateFile ? (
+              <span className="self-center text-xs text-muted-foreground">{selectedTemplateFile.name}</span>
             ) : null}
             {(entryCount !== null && entryCount > 0) || lastResult?.plan_id ? (
               <Button
                 variant="ghost"
                 className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                 onClick={handleClear}
-                disabled={clearing}
+                disabled={clearing || uploading}
               >
                 <Trash2 className="size-4" />
                 {clearing ? 'Temizleniyor…' : 'Ders Programını ve Taslakları Temizle'}
               </Button>
             ) : null}
           </div>
-
-          {lastResult && (
-            <div
-              className={cn(
-                'rounded-lg border p-3 text-sm',
-                lastResult.errors?.length > 0
-                  ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20'
-                  : 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20',
-              )}
-            >
-              <p
-                className={cn(
-                  'font-semibold flex items-center gap-1.5',
-                  lastResult.errors?.length > 0
-                    ? 'text-amber-800 dark:text-amber-200'
-                    : 'text-emerald-800 dark:text-emerald-200',
-                )}
-              >
-                <CheckCircle2 className="size-4" />
-                {lastResult.imported} ders girdisi taslağa aktarıldı.
-                {lastResult.errors?.length > 0 && ` (${lastResult.errors.length} satır hatalı)`}
-              </p>
-              {lastResult.errors?.length > 0 && (
-                <ul className="mt-2 max-h-80 overflow-auto list-inside list-disc text-amber-700 dark:text-amber-300 text-xs space-y-0.5 pr-1">
-                  {lastResult.errors.map((err, i) => (
-                    <li key={i}>{err}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
         </CardContent>
       </Card>
 
+      <Card className="border-violet-200/50 dark:border-violet-900/40">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Sparkles className="size-5 text-violet-600 dark:text-violet-400" />
+            e-Okul / GPT ile yükle
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-xl border border-violet-200/50 bg-linear-to-br from-violet-500/5 to-card p-4 shadow-sm dark:border-violet-900/35">
+            <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Sparkles className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
+              Serbest tablo (GPT)
+            </p>
+            <ul className="ml-5 list-disc space-y-1 text-xs text-muted-foreground">
+              <li>
+                e-Okul ders programı <strong>PDF</strong> veya dışa aktardığınız <strong>Excel</strong> (.xlsx / .xls); GPT tabloyu yorumlar.
+              </li>
+              <li>OpenAI anahtarı (Optik ayarları veya sunucu <code className="rounded bg-muted px-1 text-[11px]">OPENAI_API_KEY</code>) gerekir.</li>
+              <li>Düşük güven skorunda yükleme durur; o zaman şablon Excel kullanın.</li>
+            </ul>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <input
+              ref={gptInputRef}
+              type="file"
+              accept=".pdf,.xlsx,.xls,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+              title="e-Okul PDF veya Excel"
+              className="sr-only"
+              onChange={handleGptFilePick}
+              disabled={uploading}
+            />
+            <Button variant="outline" onClick={() => gptInputRef.current?.click()} disabled={uploading}>
+              <Upload className="size-4" />
+              Dosya Seç
+            </Button>
+            <Button
+              className="gap-2 bg-violet-600 text-white hover:bg-violet-600/90 dark:bg-violet-700 dark:hover:bg-violet-700/90"
+              onClick={() => void handleUploadGpt()}
+              disabled={uploading || !selectedGptFile}
+            >
+              <Sparkles className="size-4" />
+              {uploadingGpt ? 'GPT ile işleniyor…' : 'GPT ile Taslağa Kaydet'}
+            </Button>
+            {selectedGptFile ? (
+              <span className="self-center text-xs text-muted-foreground">{selectedGptFile.name}</span>
+            ) : null}
+            {(entryCount !== null && entryCount > 0) || lastResult?.plan_id ? (
+              <Button
+                variant="ghost"
+                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={handleClear}
+                disabled={clearing || uploading}
+              >
+                <Trash2 className="size-4" />
+                {clearing ? 'Temizleniyor…' : 'Taslakları / yayını temizle'}
+              </Button>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+
+      {lastResult && (
+        <div
+          className={cn(
+            'rounded-lg border p-3 text-sm',
+            lastResult.errors?.length > 0
+              ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20'
+              : 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20',
+          )}
+        >
+          <p
+            className={cn(
+              'font-semibold flex items-center gap-1.5',
+              lastResult.errors?.length > 0
+                ? 'text-amber-800 dark:text-amber-200'
+                : 'text-emerald-800 dark:text-emerald-200',
+            )}
+          >
+            <CheckCircle2 className="size-4" />
+            {lastResult.imported} ders girdisi taslağa aktarıldı.
+            {lastResult.errors?.length > 0 && ` (${lastResult.errors.length} satır hatalı)`}
+          </p>
+          {lastResult.errors?.length > 0 && (
+            <ul className="mt-2 max-h-80 overflow-auto list-inside list-disc text-amber-700 dark:text-amber-300 text-xs space-y-0.5 pr-1">
+              {lastResult.errors.map((err, i) => (
+                <li key={i}>{err}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       {lastResult?.plan_id && (
         <Card className="border-primary/30 bg-linear-to-br from-primary/5 to-primary/10">
           <CardHeader>

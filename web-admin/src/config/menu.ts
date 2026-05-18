@@ -1260,7 +1260,7 @@ export function getBreadcrumbs(pathname: string, role?: WebAdminRole): Breadcrum
       /* menü etiketi yeterli */
     } else {
       let subLabel = DERS_PROGRAMI_BREADCRUMBS[normalized];
-      if (!subLabel && normalized.startsWith('/ders-programi/olustur')) subLabel = 'Excel ile Yükle';
+      if (!subLabel && normalized.startsWith('/ders-programi/olustur')) subLabel = 'Şablon / GPT';
       if (subLabel) items.push({ label: subLabel });
     }
     return items;

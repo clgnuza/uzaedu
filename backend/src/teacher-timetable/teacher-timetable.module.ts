@@ -7,12 +7,15 @@ import { SchoolTimetablePlan } from './entities/school-timetable-plan.entity';
 import { SchoolTimetablePlanEntry } from './entities/school-timetable-plan-entry.entity';
 import { User } from '../users/entities/user.entity';
 import { School } from '../schools/entities/school.entity';
+import { AppConfig } from '../app-config/entities/app-config.entity';
 import { TeacherTimetableService } from './teacher-timetable.service';
 import { TeacherTimetableController } from './teacher-timetable.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { AppConfigModule } from '../app-config/app-config.module';
 
 @Module({
   imports: [
+    AppConfigModule,
     NotificationsModule,
     TypeOrmModule.forFeature([
       TeacherTimetable,
@@ -22,6 +25,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
       SchoolTimetablePlanEntry,
       User,
       School,
+      AppConfig,
     ]),
   ],
   controllers: [TeacherTimetableController],

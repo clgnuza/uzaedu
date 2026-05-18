@@ -41,7 +41,8 @@ export function RouteGuard({
     if (loading) return;
     if (!role) {
       if (isPublicAdminPath(pathname)) return;
-      router.replace(loginPath);
+      const sep = loginPath.includes('?') ? '&' : '?';
+      router.replace(`${loginPath}${sep}redirect=${encodeURIComponent(pathname || '/')}`);
       return;
     }
     const route = getMatchedRoute(pathname);

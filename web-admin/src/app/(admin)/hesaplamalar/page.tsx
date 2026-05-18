@@ -8,8 +8,15 @@ import { cn } from '@/lib/utils';
 
 type HubTile = {
   href: string;
+  /** Giriş yokken kart tıklanınca (ör. öğretmen yolluk) */
+  guestHref?: string;
+  guestTitle?: string;
+  guestDescription?: string;
+  guestCtaLabel?: string;
   title: string;
   description: string;
+  /** Varsayılan: «Sayfaya git» */
+  ctaLabel?: string;
   icon: typeof Calculator;
   /** dış çerçeve / glow */
   ring: string;
@@ -48,8 +55,12 @@ const BASE_TILES: HubTile[] = [
   },
   {
     href: '/yolluk-hesaplama/okul',
-    title: 'Yolluk hesaplama (okul)',
-    description: 'Kurum için yurt içi yolluk kayıtları, kesinleştirme ve arşiv.',
+    guestHref: '/login/ogretmen?redirect=%2Fyolluk-hesaplama%2Fbenim',
+    guestTitle: 'Yurt içi yolluk',
+    guestDescription: 'Kesinleşen özet ve PDF için öğretmen girişi. Okul yönetimi kayıtları kurum panelinden yürütülür.',
+    guestCtaLabel: 'Öğretmen girişi',
+    title: 'Yolluk · okul yönetimi',
+    description: 'Yurt içi yolluk kayıtları, kesinleştirme ve arşiv.',
     icon: Banknote,
     ring: 'shadow-[0_0_0_1px_rgba(251,191,36,0.35)] hover:shadow-[0_20px_50px_-12px_rgba(245,158,11,0.38)] dark:shadow-[0_0_0_1px_rgba(251,191,36,0.22)]',
     iconShell:
@@ -116,7 +127,7 @@ function MeshBackdrop() {
 }
 
 export default function HesaplamalarHubPage() {
-  const { me } = useAuth();
+  const { me, loading } = useAuth();
   const mods = (me as { moderator_modules?: string[] } | undefined)?.moderator_modules;
   const canAdminParams = useMemo(
     () =>
@@ -128,12 +139,15 @@ export default function HesaplamalarHubPage() {
   const tiles = useMemo(() => {
     const base = BASE_TILES.filter((t) => {
       if (t.href === '/yolluk-hesaplama/benim') return me?.role === 'teacher';
-      if (t.href === '/yolluk-hesaplama/okul') return me?.role === 'school_admin' || me?.role === 'superadmin';
+      if (t.href === '/yolluk-hesaplama/okul')
+        return (
+          me?.role === 'school_admin' || me?.role === 'superadmin' || (!loading && !me)
+        );
       return true;
     });
     if (!canAdminParams) return base;
     return [...base, ...ADMIN_TILES];
-  }, [canAdminParams, me?.role]);
+  }, [canAdminParams, me?.role, loading, me]);
 
   return (
     <div className="relative -mx-4 -mt-2 min-h-0 overflow-hidden rounded-none border-x-0 border-t-0 border-b border-border/40 bg-linear-to-b from-slate-50/90 via-white to-violet-50/30 px-3 pb-6 pt-0 sm:-mx-6 sm:pb-10 sm:pt-0 lg:mx-0 lg:max-w-none lg:rounded-2xl lg:border lg:border-border/30 lg:bg-linear-to-br lg:from-slate-50/80 lg:via-white lg:to-cyan-50/20 dark:from-zinc-950 dark:via-zinc-950 dark:to-violet-950/30 lg:dark:from-zinc-950 lg:dark:via-zinc-950 lg:dark:to-violet-950/40">
@@ -159,10 +173,14 @@ export default function HesaplamalarHubPage() {
           <div className="grid gap-3 sm:grid-cols-2 sm:gap-5">
             {tiles.map((item) => {
               const Icon = item.icon;
+              const guestCard = !loading && !me && !!item.guestHref;
+              const title = guestCard && item.guestTitle ? item.guestTitle : item.title;
+              const description = guestCard && item.guestDescription ? item.guestDescription : item.description;
+              const cta = guestCard && item.guestCtaLabel ? item.guestCtaLabel : item.ctaLabel ?? 'Sayfaya git';
               return (
                 <Link
                   key={item.href}
-                  href={item.href}
+                  href={guestCard && item.guestHref ? item.guestHref : item.href}
                   className={cn(
                     'group relative flex flex-col overflow-hidden rounded-2xl border-2 border-white/90 p-px shadow-[0_12px_40px_-16px_rgba(15,23,42,0.25)] transition-all duration-300 dark:border-zinc-700/80 dark:shadow-[0_12px_40px_-16px_rgba(0,0,0,0.55)]',
                     'hover:-translate-y-1 hover:shadow-[0_20px_50px_-12px_rgba(99,102,241,0.35)] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
@@ -194,18 +212,18 @@ export default function HesaplamalarHubPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
                           <h2 className="text-left text-sm font-bold leading-tight tracking-tight text-foreground sm:text-lg sm:leading-snug">
-                            {item.title}
+                            {title}
                           </h2>
                           <span className="flex size-8 shrink-0 items-center justify-center rounded-full border-2 border-primary/15 bg-white/90 text-primary shadow-sm backdrop-blur-sm transition-all group-hover:border-primary/40 group-hover:bg-primary group-hover:text-primary-foreground dark:border-zinc-600 dark:bg-zinc-800/90 dark:text-zinc-200 dark:group-hover:text-primary-foreground sm:size-9">
                             <ArrowUpRight className="size-3 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 sm:size-3.5" />
                           </span>
                         </div>
                         <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground sm:mt-2 sm:text-sm sm:leading-relaxed">
-                          {item.description}
+                          {description}
                         </p>
                         <div className="mt-2.5 flex items-center sm:mt-3">
                           <span className="inline-flex items-center gap-1 rounded-full bg-zinc-900/5 px-2 py-1 text-[10px] font-semibold text-primary ring-1 ring-inset ring-primary/15 transition-colors group-hover:bg-primary group-hover:text-primary-foreground group-hover:ring-primary dark:bg-white/5 dark:ring-primary/25 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-xs">
-                            Sayfaya git
+                            {cta}
                             <span className="transition-transform group-hover:translate-x-0.5" aria-hidden>
                               →
                             </span>

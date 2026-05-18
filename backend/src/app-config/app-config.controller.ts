@@ -43,6 +43,7 @@ import {
   MarketPolicyConfig,
   DevOpsConfig,
   ExamDutyFeeCatalog,
+  TeacherTimetableGptConfig,
 } from './app-config.service';
 
 class UpdateDevOpsDto {
@@ -253,6 +254,41 @@ class UpdateOptikDto {
   @Type(() => Number)
   @IsNumber()
   key_text_cache_ttl_hours?: number;
+}
+
+class UpdateTeacherTimetableGptDto {
+  @IsOptional()
+  @IsBoolean()
+  gpt_enabled?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  gpt_model?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  gpt_retry_enabled?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  gpt_retry_model?: string | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  gpt_timeout_ms?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  gpt_parallel?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  gpt_max_teachers?: number;
 }
 
 class LegalPageBlockDto {
@@ -1102,6 +1138,23 @@ export class AppConfigController {
   @Roles(UserRole.superadmin)
   async testOptikConnection(): Promise<{ ok: boolean; message: string }> {
     return this.service.testOptikConnection();
+  }
+
+  @Get('teacher-timetable-gpt')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.superadmin)
+  async getTeacherTimetableGptConfig(): Promise<TeacherTimetableGptConfig> {
+    return this.service.getTeacherTimetableGptConfig();
+  }
+
+  @Patch('teacher-timetable-gpt')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.superadmin)
+  async updateTeacherTimetableGptConfig(
+    @Body() dto: UpdateTeacherTimetableGptDto,
+  ): Promise<{ success: boolean }> {
+    await this.service.updateTeacherTimetableGptConfig(dto);
+    return { success: true };
   }
 
   @Get('mail')

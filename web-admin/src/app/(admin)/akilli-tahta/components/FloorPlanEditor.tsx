@@ -176,19 +176,19 @@ export function FloorPlanEditor({
   }, []);
 
   return (
-    <Card className="mb-1 overflow-hidden border-amber-200/45 dark:border-amber-900/35 sm:mb-0">
-      <CardHeader className="border-b border-amber-200/40 bg-amber-500/6 px-3 py-2.5 dark:border-amber-900/40 sm:px-6 sm:py-4">
-        <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
-          <span className="flex size-7 items-center justify-center rounded-lg bg-amber-500/15 sm:size-8">
-            <MapPin className="size-3.5 text-amber-800 dark:text-amber-300 sm:size-4" />
+    <Card className="mb-1 overflow-hidden border-border/60 shadow-sm sm:mb-0 dark:border-border">
+      <CardHeader className="border-b border-border/50 bg-muted/30 px-3 py-3 sm:px-6 sm:py-4">
+        <CardTitle className="flex items-center gap-2.5 text-sm font-semibold tracking-tight sm:text-base">
+          <span className="flex size-8 items-center justify-center rounded-xl bg-amber-500/12 text-amber-800 ring-1 ring-amber-500/20 dark:text-amber-200 dark:ring-amber-400/20">
+            <MapPin className="size-4 shrink-0" aria-hidden />
           </span>
           Kroki ve yerleşim
         </CardTitle>
-        <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground sm:mt-1 sm:line-clamp-none sm:text-sm">
-          Kat planı URL’si ekleyin; tahtaları sürükleyin.
+        <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground sm:text-sm">
+          Kat planı görseli ekleyin; tahta rozetlerini planda sürükleyerek konumlandırın.
         </p>
       </CardHeader>
-      <CardContent className="space-y-3 px-2.5 py-3 sm:space-y-6 sm:px-6 sm:py-6">
+      <CardContent className="space-y-3 px-2.5 py-3 sm:space-y-5 sm:px-6 sm:py-6">
         {canManage && (
           <div className="space-y-2 rounded-lg border border-amber-200/40 bg-amber-50/40 p-2.5 dark:border-amber-900/35 dark:bg-amber-950/20 sm:bg-muted/30 sm:p-4">
             <Label className="text-xs sm:text-sm">Yeni kat planı</Label>
@@ -214,24 +214,24 @@ export function FloorPlanEditor({
         )}
 
         {floorPlans.length === 0 ? (
-          <div className="flex min-h-[180px] flex-col items-center justify-center rounded-xl border-2 border-dashed border-amber-300/50 bg-linear-to-b from-amber-50/80 to-muted/20 p-4 dark:border-amber-800/40 dark:from-amber-950/30 sm:min-h-[240px] sm:p-8">
-            <MapPin className="mb-1.5 size-9 text-amber-600/70 sm:mb-2 sm:size-12 sm:text-muted-foreground" />
-            <p className="px-2 text-center text-[11px] leading-snug text-muted-foreground sm:text-sm">
+          <div className="flex min-h-[200px] flex-col items-center justify-center rounded-xl border border-dashed border-muted-foreground/25 bg-muted/25 p-6 dark:bg-muted/15 sm:min-h-[220px] sm:p-8">
+            <MapPin className="mb-2 size-10 text-muted-foreground/60 sm:size-11" aria-hidden />
+            <p className="max-w-sm px-2 text-center text-[11px] leading-relaxed text-muted-foreground sm:text-sm">
               {canManage
                 ? "Kat planı ekleyin. Etiket ve görsel URL'si girip Ekle'ye basın."
                 : 'Henüz kat planı eklenmemiş.'}
             </p>
           </div>
         ) : (
-          <div className="space-y-4 sm:space-y-6">
+          <div className="space-y-4 sm:space-y-5">
             {floorPlans.map((plan, floorIndex) => (
               <div
                 key={floorIndex}
-                className="rounded-lg border border-amber-200/30 bg-card p-2.5 dark:border-amber-900/25 sm:border-border sm:p-4"
+                className="rounded-xl border border-border/70 bg-card/80 p-2.5 shadow-sm backdrop-blur-[2px] sm:p-4"
                 ref={(el) => { containerRefs.current.set(floorIndex, el); }}
               >
                 <div className="mb-2 flex items-center justify-between gap-2 sm:mb-3">
-                  <h3 className="truncate text-sm font-medium sm:text-base">{plan.label}</h3>
+                  <h3 className="truncate text-sm font-semibold text-foreground sm:text-base">{plan.label}</h3>
                   {canManage && (
                     <Button
                       variant="ghost"
@@ -245,7 +245,7 @@ export function FloorPlanEditor({
                   )}
                 </div>
                 <div
-                  className="relative h-[min(42vh,300px)] w-full max-h-[min(55vh,420px)] overflow-auto rounded-lg border bg-muted/50 sm:h-[min(48vh,380px)]"
+                  className="relative h-[min(38vh,280px)] w-full max-h-[min(52vh,400px)] overflow-auto rounded-xl border border-border/60 bg-zinc-100/90 shadow-inner dark:bg-zinc-950/50 sm:h-[min(44vh,340px)]"
                   onMouseMove={(e) => {
                     if (draggingId && containerRefs.current.get(floorIndex)) {
                       const container = containerRefs.current.get(floorIndex);
@@ -264,7 +264,7 @@ export function FloorPlanEditor({
                   <img
                     src={plan.url}
                     alt={plan.label}
-                    className="absolute inset-0 h-full w-full object-contain"
+                    className="pointer-events-none absolute inset-0 h-full w-full object-contain"
                     draggable={false}
                     onError={() => toast.error(`${plan.label} görseli yüklenemedi.`)}
                   />
@@ -278,8 +278,8 @@ export function FloorPlanEditor({
                     return (
                       <div
                         key={d.id}
-                        className={`absolute flex max-w-[min(26vw,5.25rem)] -translate-x-1/2 -translate-y-1/2 cursor-grab flex-col items-center rounded-md border px-1 py-0.5 text-[0.62rem] font-medium leading-tight shadow-sm transition-shadow [transform-origin:center] active:cursor-grabbing sm:max-w-[6.5rem] sm:rounded-lg sm:border-2 sm:px-1.5 sm:py-1 sm:text-xs sm:shadow-md ${cfg.bg} ${cfg.border} ${cfg.text} ${
-                          isDragging ? 'z-10 scale-110 shadow-lg' : 'hover:shadow-md sm:hover:shadow-lg'
+                        className={`absolute flex w-max min-w-0 max-w-[min(3.25rem,max(2rem,11%))] -translate-x-1/2 -translate-y-1/2 cursor-grab flex-col items-center rounded-md border px-0.5 py-0.5 text-[9px] font-medium leading-tight shadow-md transition-[transform,box-shadow] origin-center active:cursor-grabbing sm:max-w-[min(3.5rem,max(2.125rem,10%))] sm:rounded-md sm:px-1 sm:py-0.5 sm:text-[10px] sm:leading-tight ${cfg.bg} ${cfg.border} ${cfg.text} ${
+                          isDragging ? 'z-20 scale-[1.04] shadow-xl ring-2 ring-white/40' : 'hover:shadow-lg'
                         }`}
                         style={{
                           left: `${isDragging && dropPosition ? dropPosition.x : x}%`,
@@ -288,22 +288,22 @@ export function FloorPlanEditor({
                         onMouseDown={(e) => handleMarkerMouseDown(e, d, floorIndex)}
                         title={`${d.name}${d.classSection ? ` • ${d.classSection}` : ''} – Tahta ${cfg.label}`}
                       >
-                        <span className="flex items-center gap-0.5">
-                          <Monitor className="size-2.5 sm:size-3.5" aria-hidden />
-                          <StatusIcon className="size-2 sm:size-3" aria-hidden />
+                        <span className="flex shrink-0 items-center justify-center gap-0.5">
+                          <Monitor className="size-2 sm:size-2.5" aria-hidden />
+                          <StatusIcon className="size-2 sm:size-2.5" aria-hidden />
                         </span>
-                        <span className="line-clamp-2 max-w-full text-center font-medium">{d.name}</span>
+                        <span className="line-clamp-2 max-w-full text-center font-medium leading-[1.1]">{d.name}</span>
                         {d.classSection && (
-                          <span className="line-clamp-1 max-w-full text-[0.55rem] opacity-90 sm:text-[10px]">{d.classSection}</span>
+                          <span className="line-clamp-1 max-w-full text-[8px] leading-none opacity-90 sm:text-[9px]">{d.classSection}</span>
                         )}
-                        <span className="text-[0.55rem] opacity-80 sm:text-[10px]">{cfg.label}</span>
+                        <span className="text-[8px] leading-none opacity-80 sm:text-[9px]">{cfg.label}</span>
                         {canManage && floorPlans.length > 1 && onAssignDeviceToFloor && (
                           <div className="mt-0.5 w-full min-w-0" onClick={(e) => e.stopPropagation()}>
                             <Select
                               value={String(d.planFloorIndex ?? 0)}
                               onValueChange={(v) => onAssignDeviceToFloor(d.id, Number(v))}
                             >
-                              <SelectTrigger className="h-4 w-full min-w-0 border-0 bg-white/20 px-0.5 text-[0.55rem] sm:h-5 sm:px-1 sm:text-[10px]">
+                              <SelectTrigger className="h-4 w-full min-w-0 max-w-full border-0 bg-white/20 px-0.5 text-[8px] sm:h-4 sm:px-0.5 sm:text-[9px]">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -327,25 +327,25 @@ export function FloorPlanEditor({
                 )}
               </div>
             ))}
-            <div className="flex flex-wrap items-center gap-4 rounded-lg border bg-muted/30 px-4 py-2 text-xs">
-              <span className="font-medium text-muted-foreground">Durum:</span>
-              <span className="flex items-center gap-1.5">
-                <span className="inline-flex h-5 items-center gap-1 rounded border-2 border-emerald-400 bg-emerald-600 px-1.5 text-white">
-                  <LockOpen className="size-3" /> Açık
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border/50 bg-muted/25 px-3 py-2.5 text-[10px] sm:gap-x-4 sm:px-4 sm:text-xs">
+              <span className="font-semibold text-muted-foreground">Durum</span>
+              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <span className="inline-flex h-5 shrink-0 items-center gap-0.5 rounded-md border border-emerald-400/80 bg-emerald-600 px-1.5 text-[10px] text-white">
+                  <LockOpen className="size-2.5" aria-hidden /> Açık
                 </span>
-                <span className="text-muted-foreground">çevrimiçi, kullanılabilir</span>
+                <span className="hidden sm:inline">çevrimiçi</span>
               </span>
-              <span className="flex items-center gap-1.5">
-                <span className="inline-flex h-5 items-center gap-1 rounded border-2 border-amber-400 bg-amber-600 px-1.5 text-white">
-                  <Lock className="size-3" /> Kilitli
+              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <span className="inline-flex h-5 shrink-0 items-center gap-0.5 rounded-md border border-amber-400/80 bg-amber-600 px-1.5 text-[10px] text-white">
+                  <Lock className="size-2.5" aria-hidden /> Kilitli
                 </span>
-                <span className="text-muted-foreground">öğretmen bağlı</span>
+                <span className="hidden sm:inline">bağlı</span>
               </span>
-              <span className="flex items-center gap-1.5">
-                <span className="inline-flex h-5 items-center gap-1 rounded border-2 border-slate-400 bg-slate-500 px-1.5 text-white">
-                  <PowerOff className="size-3" /> Kapalı
+              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <span className="inline-flex h-5 shrink-0 items-center gap-0.5 rounded-md border border-slate-400/80 bg-slate-500 px-1.5 text-[10px] text-white">
+                  <PowerOff className="size-2.5" aria-hidden /> Kapalı
                 </span>
-                <span className="text-muted-foreground">çevrimdışı</span>
+                <span className="hidden sm:inline">çevrimdışı</span>
               </span>
             </div>
           </div>

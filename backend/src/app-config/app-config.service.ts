@@ -1867,6 +1867,56 @@ export class AppConfigService {
     }
   }
 
+  /** Ders programı PDF GPT fallback ayarları (superadmin). */
+  async getTeacherTimetableGptConfig(): Promise<TeacherTimetableGptConfig> {
+    const enabledRaw = (await this.getValue('timetable_pdf_gpt_enabled'))?.toLowerCase();
+    const model = (await this.getValue('timetable_pdf_gpt_model'))?.trim() || 'gpt-4o-mini';
+    const retryEnabledRaw = (await this.getValue('timetable_pdf_gpt_retry_enabled'))?.toLowerCase();
+    const retryModel = (await this.getValue('timetable_pdf_gpt_retry_model'))?.trim() || null;
+    const timeoutRaw = await this.getValue('timetable_pdf_gpt_timeout_ms');
+    const parallelRaw = await this.getValue('timetable_pdf_gpt_parallel');
+    const maxTeachersRaw = await this.getValue('timetable_pdf_gpt_max_teachers');
+    const timeout = parseInt(timeoutRaw || '20000', 10);
+    const parallel = parseInt(parallelRaw || '4', 10);
+    const maxTeachers = parseInt(maxTeachersRaw || '60', 10);
+    return {
+      gpt_enabled: enabledRaw == null ? true : enabledRaw === 'true',
+      gpt_model: model || 'gpt-4o-mini',
+      gpt_retry_enabled: retryEnabledRaw === 'true',
+      gpt_retry_model: retryModel,
+      gpt_timeout_ms: Number.isNaN(timeout) ? 20000 : Math.max(3000, Math.min(60000, timeout)),
+      gpt_parallel: Number.isNaN(parallel) ? 4 : Math.max(1, Math.min(8, parallel)),
+      gpt_max_teachers: Number.isNaN(maxTeachers) ? 60 : Math.max(5, Math.min(120, maxTeachers)),
+    };
+  }
+
+  async updateTeacherTimetableGptConfig(dto: Partial<TeacherTimetableGptConfig>): Promise<void> {
+    if (dto.gpt_enabled !== undefined) {
+      await this.setValue('timetable_pdf_gpt_enabled', dto.gpt_enabled ? 'true' : 'false');
+    }
+    if (dto.gpt_model !== undefined) {
+      await this.setValue('timetable_pdf_gpt_model', dto.gpt_model?.trim() || 'gpt-4o-mini');
+    }
+    if (dto.gpt_retry_enabled !== undefined) {
+      await this.setValue('timetable_pdf_gpt_retry_enabled', dto.gpt_retry_enabled ? 'true' : 'false');
+    }
+    if (dto.gpt_retry_model !== undefined) {
+      await this.setValue('timetable_pdf_gpt_retry_model', dto.gpt_retry_model?.trim() || null);
+    }
+    if (dto.gpt_timeout_ms !== undefined) {
+      const n = Math.max(3000, Math.min(60000, Number(dto.gpt_timeout_ms) || 20000));
+      await this.setValue('timetable_pdf_gpt_timeout_ms', String(n));
+    }
+    if (dto.gpt_parallel !== undefined) {
+      const n = Math.max(1, Math.min(8, Number(dto.gpt_parallel) || 4));
+      await this.setValue('timetable_pdf_gpt_parallel', String(n));
+    }
+    if (dto.gpt_max_teachers !== undefined) {
+      const n = Math.max(5, Math.min(120, Number(dto.gpt_max_teachers) || 60));
+      await this.setValue('timetable_pdf_gpt_max_teachers', String(n));
+    }
+  }
+
   /** Sınav görevi sync ayarları – GPT ile tarih/link çıkarma (Optik tarzı) + sync seçenekleri */
   async getExamDutySyncConfig(): Promise<{
     gpt_enabled: boolean;
@@ -2848,6 +2898,16 @@ export type OptikConfig = {
   grade_modes: string[];
   daily_limit_per_user: number | null;
   key_text_cache_ttl_hours: number;
+};
+
+export type TeacherTimetableGptConfig = {
+  gpt_enabled: boolean;
+  gpt_model: string;
+  gpt_retry_enabled: boolean;
+  gpt_retry_model: string | null;
+  gpt_timeout_ms: number;
+  gpt_parallel: number;
+  gpt_max_teachers: number;
 };
 
 const OPTIK_DEFAULT_MODES = ['CONTENT', 'LANGUAGE', 'CONTENT_LANGUAGE', 'MATH_FINAL', 'MATH_STEPS'];

@@ -149,7 +149,14 @@ export async function apiFetch<T>(
         details?: Record<string, unknown>;
       };
       const msg = body?.message;
-      const fromBody = Array.isArray(msg) ? msg.filter(Boolean).join(' · ') : msg;
+      const fromBody =
+        typeof msg === 'string'
+          ? msg.trim() || undefined
+          : Array.isArray(msg)
+            ? msg.filter((x): x is string => typeof x === 'string').join(' · ') || undefined
+            : msg && typeof msg === 'object' && 'message' in msg && typeof (msg as { message?: unknown }).message === 'string'
+              ? (msg as { message: string }).message.trim() || undefined
+              : undefined;
       const fallback = res.statusText || 'İstek başarısız';
       const userMsg = HTTP_STATUS_USER_MESSAGE[res.status];
       const text = userMsg ?? fromBody ?? fallback;

@@ -84,6 +84,7 @@ export function SmartBoardSettings({
   const [panelOrigin, setPanelOrigin] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [lastDownloadByDevice, setLastDownloadByDevice] = useState<Record<string, { kind: 'html' | 'zip'; at: number }>>({});
 
   useEffect(() => {
     setPanelOrigin(typeof window !== 'undefined' ? window.location.origin : '');
@@ -303,6 +304,40 @@ export function SmartBoardSettings({
         </Card>
       </div>
 
+      <Card className="overflow-hidden border-emerald-300/45 shadow-sm dark:border-emerald-900/40">
+        <CardHeader className="border-b border-emerald-200/40 bg-emerald-500/8 px-4 py-3 sm:px-6 sm:py-4">
+          <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-emerald-500/15">
+              <Shield className="size-4 text-emerald-700 dark:text-emerald-300" />
+            </span>
+            QR-first çalışma politikası
+          </CardTitle>
+          <CardDescription className="text-xs sm:text-sm">
+            Hızlı öğretmen açılışında varsayılan yöntem QR; PIN/OTP yalnızca yedek giriş.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 px-4 py-4 sm:px-6 sm:py-4">
+          <ul className="list-disc space-y-1.5 pl-4 text-[11px] text-muted-foreground sm:text-xs">
+            <li>Tahta unlock ekranı açılır açılmaz QR oturumu otomatik başlatılır.</li>
+            <li>QR kod süresi: <code className="rounded bg-muted px-1 py-0.5 font-mono">120s</code>; süre dolarsa yeniden üretilir.</li>
+            <li>PIN/OTP alanı fallback içindir; OTP kodları tek kullanımlıktır.</li>
+            <li>OTP üretme/yenileme işlemleri <strong className="text-foreground">Yetkiler</strong> sekmesinden yapılır.</li>
+          </ul>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/akilli-tahta?tab=kurulum">
+              <Button size="sm" className="h-8 gap-1 text-[10px] sm:text-xs">
+                <Terminal className="size-3.5" /> Pardus Kurulum Rehberini Aç
+              </Button>
+            </Link>
+            <Link href="/akilli-tahta?tab=yetkiler">
+              <Button variant="outline" size="sm" className="h-8 gap-1 text-[10px] sm:text-xs">
+                <Users className="size-3.5" /> OTP / QR Yetki
+              </Button>
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card className="relative overflow-hidden border-cyan-500/25 shadow-md shadow-cyan-500/5 dark:border-cyan-400/20">
         <div
           aria-hidden
@@ -321,7 +356,7 @@ export function SmartBoardSettings({
               </div>
               <CardTitle className="text-base font-semibold tracking-tight sm:text-lg">Tahta kurulum paketleri</CardTitle>
               <CardDescription className="max-w-2xl text-xs leading-relaxed sm:text-sm">
-                Her cihaz için ayrı indirme: USB’de tek HTML; Pardus’ta ZIP ile kiosk, yönetilen politika ve oturum açılışı — panel + API (+ slayt YouTube) dışı engelli.
+                Her cihaz için ayrı indirme: USB’de tek HTML; Pardus’ta ZIP içinden .deb üretip modern Paket Kurucu ile yükleme + ilk açılış sihirbazı.
               </CardDescription>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2 rounded-xl border border-border/60 bg-background/70 px-3 py-2.5 text-[10px] text-muted-foreground shadow-sm backdrop-blur-sm sm:max-w-xs sm:text-xs">
@@ -343,15 +378,14 @@ export function SmartBoardSettings({
                   <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted font-mono text-[9px] font-bold text-foreground">
                     2
                   </span>
-                  <span>ZIP’i açın, çalıştırılabilir yapın, ardından</span>
+                  <span>ZIP’i açın, <code className="rounded bg-muted/80 px-1 font-mono text-[9px] sm:text-[10px]">bash packages/deb/build-deb.sh 2.1.0</code></span>
                 </li>
                 <li className="flex gap-2">
                   <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-cyan-500/20 font-mono text-[9px] font-bold text-cyan-900 dark:text-cyan-100">
                     3
                   </span>
                   <span>
-                    <code className="rounded bg-muted/80 px-1 font-mono text-[9px] sm:text-[10px]">sudo make install</code> veya{' '}
-                    <code className="rounded bg-muted/80 px-1 font-mono text-[9px] sm:text-[10px]">sudo ./install.sh</code>
+                    <code className="rounded bg-muted/80 px-1 font-mono text-[9px] sm:text-[10px]">xdg-open packages/deb/dist/ogretmenpro-tahta_2.1.0_all.deb</code> ile Paket Kurucu
                   </span>
                 </li>
               </ol>
@@ -390,6 +424,10 @@ export function SmartBoardSettings({
               <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:text-xs">Cihaz başına indir</p>
               <ul className="space-y-2">
                 {devices.map((d) => (
+                  (() => {
+                    const downloadLabel = `${d.name}_${d.id.slice(0, 8)}`;
+                    const lastDownload = lastDownloadByDevice[d.id];
+                    return (
                   <li
                     key={d.id}
                     className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card/40 p-3 transition-colors hover:bg-muted/25 sm:flex-row sm:items-center sm:justify-between sm:p-4"
@@ -410,6 +448,12 @@ export function SmartBoardSettings({
                               </>
                             ) : null}
                           </p>
+                          {lastDownload ? (
+                            <p className="mt-1 inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-800 dark:text-emerald-200">
+                              Son indirilen: {lastDownload.kind === 'html' ? 'USB HTML' : 'Pardus ZIP'} ·{' '}
+                              {new Date(lastDownload.at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          ) : null}
                         </div>
                       </div>
                     </div>
@@ -434,8 +478,12 @@ export function SmartBoardSettings({
                               kiosk: usbKiosk,
                               tahtaKilit,
                             },
-                            `tahta_${d.name}`,
+                            `tahta_${downloadLabel}`,
                           );
+                          setLastDownloadByDevice((prev) => ({
+                            ...prev,
+                            [d.id]: { kind: 'html', at: Date.now() },
+                          }));
                           toast.success('HTML indirildi; USB’ye kopyalayın.');
                         }}
                       >
@@ -463,7 +511,11 @@ export function SmartBoardSettings({
                                 kiosk: usbKiosk,
                                 tahtaKilit,
                               });
-                              downloadPardusTahtaKioskZip(blob, d.name);
+                              downloadPardusTahtaKioskZip(blob, downloadLabel);
+                              setLastDownloadByDevice((prev) => ({
+                                ...prev,
+                                [d.id]: { kind: 'zip', at: Date.now() },
+                              }));
                               toast.success('Pardus paketi indirildi; tahtada ZIP’i açıp kurun.');
                             } catch {
                               toast.error('Pardus paketi oluşturulamadı.');
@@ -476,6 +528,8 @@ export function SmartBoardSettings({
                       </Button>
                     </div>
                   </li>
+                    );
+                  })()
                 ))}
               </ul>
             </div>
@@ -501,9 +555,9 @@ export function SmartBoardSettings({
           <details className="group rounded-xl border border-border/60 bg-card/50 transition-colors open:border-emerald-500/25 open:bg-emerald-500/5">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3.5 text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
               <span className="flex items-center gap-2">
-                Sunum kumandası (TV slaytları)
+                TV slaytları (PIN / OTP / QR / klavye)
                 <span className="rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-200">
-                  USB / dokunmatik
+                  dokunmatik
                 </span>
               </span>
               <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
@@ -524,23 +578,22 @@ export function SmartBoardSettings({
                   ok düğmeleri gösterilir.
                 </li>
                 <li>
-                  <strong className="text-foreground">Telefon:</strong> USB oturumlu sınıf TV&apos;de «Telefon kumandası»
-                  düğmesiyle QR / link üretin; öğretmen{' '}
-                  <code className="rounded bg-muted px-1 font-mono text-[10px]">/sunum-kumandasi</code> sayfasından komut
-                  gönderir (mobil veri OK). Eşleştirme anahtarı URL&apos;nin <code className="rounded bg-muted px-1 font-mono text-[10px]">#</code>{' '}
-                  kısmında kalır (path olarak sunucuya gitmez); komutlar HTTPS ile API&apos;ye gider. Üretimde panel ve telefonun
-                  doğru API&apos;ye vurması için ortamda{' '}
-                  <code className="rounded bg-muted px-1 font-mono text-[9px]">NEXT_PUBLIC_API_BASE_URL</code> (gerçek{' '}
-                  <code className="rounded bg-muted px-1 font-mono text-[9px]">…/api</code> kökü) tanımlı olmalıdır.
+                  <strong className="text-foreground">Açılış yöntemleri:</strong> TV unlock ekranında{' '}
+                  <strong className="text-foreground">Otomatik / PIN / OTP</strong> seçimi vardır. Otomatik modda önce PIN, gerekirse OTP
+                  doğrulaması denenir.
+                </li>
+                <li>
+                  <strong className="text-foreground">QR girişi:</strong> Sınıf TV&apos;de <strong className="text-foreground">QR ile öğretmen girişi</strong>{' '}
+                  ile 2 dakikalık kod üretilir; öğretmen panelde açılan linkten onay verince tahta otomatik açılır. Ekran QR-first çalışır,
+                  PIN/OTP yedek yöntemdir.
+                </li>
+                <li>
+                  <strong className="text-foreground">OTP yönetimi:</strong> Yetkiler sekmesinde öğretmen satırından OTP kodları üretilir /
+                  yenilenir. Kodlar tek kullanımlıktır; kullanılınca sistemden düşer.
                 </li>
                 <li>
                   Impress veya başka bir uygulama önde ise kısayollar o pencereye gider — sınıf içi sunumda TV sekmesine tıklayıp
                   odağı tarayıcıya alın.
-                </li>
-                <li>
-                  <strong className="text-foreground">Kurulum:</strong> Sunucuda{' '}
-                  <code className="rounded bg-muted px-1 font-mono text-[9px]">add-tv-remote-session.sql</code> migration
-                  çalıştırılmadan «Telefon kumandası» oturumu oluşturulamaz (veritabanı hatası).
                 </li>
               </ul>
             </div>
@@ -553,7 +606,7 @@ export function SmartBoardSettings({
             <div className="border-t border-border/50 px-4 pb-4 pt-0 text-[10px] leading-relaxed text-muted-foreground sm:text-xs sm:leading-relaxed">
               <ul className="mt-3 list-disc space-y-1.5 pl-4">
                 <li>
-                  Ayrı profil; sınıf TV adresi (PIN ile USB) örn.{' '}
+                  Ayrı profil; sınıf TV adresi (PIN/OTP/QR ile USB) örn.{' '}
                   <code className="wrap-break-word rounded-md bg-muted px-1.5 py-0.5 font-mono text-[9px] sm:text-[10px]">
                     /tv/classroom?school_id=…&amp;device_id=…&amp;usb=1
                   </code>{' '}
@@ -578,10 +631,10 @@ export function SmartBoardSettings({
             <div className="border-t border-border/50 px-4 pb-4 pt-0 text-[10px] leading-relaxed text-muted-foreground sm:text-xs sm:leading-relaxed">
               <ul className="mt-3 list-disc space-y-1.5 pl-4">
                 <li>
-                  <strong className="text-foreground">ZIP</strong> indirip tahtada{' '}
-                  <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px]">sudo make install</code> veya{' '}
-                  <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px]">sudo ./install.sh</code> — yalnız panel + API (+ YouTube slayt).
+                  <strong className="text-foreground">Modern kurulum:</strong> ZIP içinden{' '}
+                  <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px]">bash packages/deb/build-deb.sh 2.1.0</code> ile .deb üretip Paket Kurucu ile yükleyin.
                 </li>
+                <li>İlk açılışta sihirbaz gelir: lisans onayı + sınıf adı + başlat.</li>
                 <li>
                   Elle:{' '}
                   <code className="break-all rounded-md bg-muted px-1.5 py-0.5 font-mono text-[9px] sm:text-[10px]">
@@ -625,6 +678,11 @@ export function SmartBoardSettings({
           <Link href="/akilli-tahta?tab=yerlesim">
             <Button variant="outline" size="sm" className="h-8 gap-1 text-[10px] sm:text-xs">
               <MapPin className="size-3.5" /> Yerleşim
+            </Button>
+          </Link>
+          <Link href="/akilli-tahta?tab=kurulum">
+            <Button variant="outline" size="sm" className="h-8 gap-1 text-[10px] sm:text-xs">
+              <Terminal className="size-3.5" /> Kurulum
             </Button>
           </Link>
           <Link href="/ders-programi">

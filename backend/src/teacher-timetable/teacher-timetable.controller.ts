@@ -7,6 +7,7 @@ import {
   Body,
   Param,
   Query,
+  Req,
   UseGuards,
   UseInterceptors,
   UploadedFile,
@@ -16,6 +17,7 @@ import {
   Header,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { Request } from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -28,10 +30,16 @@ import { TeacherTimetableService } from './teacher-timetable.service';
 
 function timetableUploadExt(file: Express.Multer.File): string {
   const fromName = (path.extname(file.originalname ?? '') || '').toLowerCase();
-  if (['.xlsx', '.xls'].includes(fromName)) return fromName;
+  if (['.xlsx', '.xls', '.pdf'].includes(fromName)) return fromName;
   const mime = String(file.mimetype ?? '').toLowerCase();
   if (mime.includes('openxmlformats-officedocument.spreadsheetml')) return '.xlsx';
   if (mime === 'application/vnd.ms-excel') return '.xls';
+  if (mime === 'application/pdf') return '.pdf';
+  const buf = file.buffer;
+  if (buf?.length >= 5 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return '.pdf';
+  if (buf?.length >= 8 && buf[0] === 0xd0 && buf[1] === 0xcf && buf[2] === 0x11 && buf[3] === 0xe0) return '.xls';
+  if (buf?.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b && (buf[2] === 0x03 || buf[2] === 0x05 || buf[2] === 0x07) && (buf[3] === 0x04 || buf[3] === 0x06 || buf[3] === 0x08))
+    return '.xlsx';
   return '.xlsx';
 }
 
@@ -298,10 +306,11 @@ export class TeacherTimetableController {
         const ext = (path.extname(file.originalname ?? '') || '').toLowerCase();
         const mime = String(file.mimetype ?? '').toLowerCase();
         const ok =
-          ext === '.xlsx' || ext === '.xls' ||
+          ext === '.xlsx' || ext === '.xls' || ext === '.pdf' ||
           mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
           mime === 'application/vnd.ms-excel' ||
-          (mime === 'application/octet-stream' && (ext === '.xlsx' || ext === '.xls'));
+          mime === 'application/pdf' ||
+          (mime === 'application/octet-stream' && (ext === '.xlsx' || ext === '.xls' || ext === '.pdf'));
         cb(null, !!ok);
       },
     }),
@@ -309,20 +318,39 @@ export class TeacherTimetableController {
   async upload(
     @UploadedFile() file: Express.Multer.File | undefined,
     @CurrentUser() payload: CurrentUserPayload,
+    @Query('mode') modeRaw: string | undefined,
+    @Req() req: Request,
   ) {
     if (!file?.buffer) {
       throw new BadRequestException({
         code: 'FILE_REQUIRED',
-        message: 'Excel (.xlsx/.xls) yükleyin.',
+        message: 'Dosya yükleyin (.xlsx/.xls veya GPT için .pdf).',
       });
     }
     const schoolId = payload.schoolId ?? null;
     if (!schoolId) throw new BadRequestException({ code: 'FORBIDDEN', message: 'Okul bilgisi bulunamadı.' });
+    const bodyMode =
+      typeof req.body === 'object' && req.body !== null && 'mode' in req.body
+        ? String((req.body as { mode?: unknown }).mode ?? '').trim()
+        : '';
+    const mode = String(bodyMode || modeRaw || 'template').toLowerCase() === 'gpt' ? 'gpt' : 'template';
     const ext = timetableUploadExt(file);
+    if (mode === 'template' && ext === '.pdf') {
+      throw new BadRequestException({
+        code: 'PDF_USE_GPT_MODE',
+        message: 'PDF’yi «e-Okul / GPT ile yükle» bölümünden yükleyin; şablon yüklemesi yalnızca Excel kabul eder.',
+      });
+    }
+    if (mode === 'gpt' && ext !== '.pdf' && ext !== '.xlsx' && ext !== '.xls') {
+      throw new BadRequestException({
+        code: 'INVALID_FILE_TYPE',
+        message: 'GPT yüklemesi için .pdf, .xlsx veya .xls seçin.',
+      });
+    }
     const tempPath = path.join(os.tmpdir(), `tt-${Date.now()}${ext}`);
     try {
       fs.writeFileSync(tempPath, file.buffer);
-      return await this.service.uploadFromExcel(schoolId, tempPath);
+      return await this.service.uploadFromExcel(schoolId, tempPath, mode);
     } finally {
       try {
         if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);

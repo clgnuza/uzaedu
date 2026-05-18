@@ -25,6 +25,8 @@ export type AuthorizedTeacher = {
   display_name: string | null;
   email: string;
   has_usb_pin?: boolean;
+  has_otp_codes?: boolean;
+  otp_code_count?: number;
 };
 
 export type Session = {
@@ -81,4 +83,12 @@ export type SmartBoardHealthAlerts = {
     device_id?: string;
     session_id?: string;
   }[];
+};
+
+export type SmartBoardAuditLog = {
+  id: string;
+  action: string;
+  created_at: string;
+  user: { display_name: string | null; email: string } | null;
+  meta: Record<string, unknown> | null;
 };

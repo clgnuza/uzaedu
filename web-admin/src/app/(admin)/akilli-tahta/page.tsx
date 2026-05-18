@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
@@ -31,12 +31,14 @@ import {
   Table2,
   BarChart3,
   KeyRound,
+  ClipboardList,
+  Wrench,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import type { Device, AuthorizedTeacher, Session, Status } from './types';
+import type { Device, AuthorizedTeacher, Session, Status, SmartBoardAuditLog } from './types';
 import { TeacherDeviceCard } from './components/TeacherDeviceCard';
 import { DeviceTable } from './components/DeviceTable';
 import { SessionTable } from './components/SessionTable';
@@ -47,6 +49,7 @@ import { FloorPlanEditor } from './components/FloorPlanEditor';
 import { SmartBoardUsagePanel } from './components/SmartBoardUsagePanel';
 import { SmartBoardSettings } from './components/SmartBoardSettings';
 import { TeacherSmartBoardHero } from './components/TeacherSmartBoardHero';
+import { SmartBoardInstallGuide } from './components/SmartBoardInstallGuide';
 import { TURKEY_CITIES, getDistrictsForCity } from '@/lib/turkey-addresses';
 import { cn } from '@/lib/utils';
 
@@ -67,6 +70,8 @@ const ADMIN_TABS = [
   { id: 'yetkiler', label: 'Yetkili Öğretmenler', shortLabel: 'Yetki', icon: Users, accent: 'violet' },
   { id: 'oturumlar', label: 'Oturumlar', shortLabel: 'Oturum', icon: Activity, accent: 'emerald' },
   { id: 'istatistikler', label: 'İstatistikler', shortLabel: 'İstat.', icon: BarChart3, accent: 'rose' },
+  { id: 'kurulum', label: 'Kurulum', shortLabel: 'Kurulum', icon: Wrench, accent: 'teal' },
+  { id: 'denetim', label: 'Denetim', shortLabel: 'Log', icon: ClipboardList, accent: 'slate' },
   { id: 'ayarlar', label: 'Ayarlar', shortLabel: 'Ayar', icon: Settings, accent: 'slate' },
 ] as const;
 
@@ -88,14 +93,102 @@ function getTabActiveStyles(accent: string): string {
   return map[accent] ?? map.primary;
 }
 
+function getAuditActionLabel(action: string): string {
+  const map: Record<string, string> = {
+    SMARTBOARD_BULK_OPEN: 'Toplu aç',
+    SMARTBOARD_BULK_LOCK: 'Toplu kilitle',
+    SMARTBOARD_BULK_CLOSE: 'Toplu kapat',
+    SMARTBOARD_DEVICE_CREATED: 'Cihaz eklendi',
+    SMARTBOARD_DEVICE_UPDATED: 'Cihaz güncellendi',
+    SMARTBOARD_DEVICE_REMOVED: 'Cihaz silindi',
+    SMARTBOARD_QR_SESSION_CREATED: 'QR oturumu oluşturuldu',
+    SMARTBOARD_QR_SESSION_CLAIMED: 'QR oturumu onaylandı',
+    SMARTBOARD_USB_PIN_UNLOCK_SUCCESS: 'PIN ile açılış',
+    SMARTBOARD_OTP_UNLOCK_SUCCESS: 'OTP ile açılış',
+    SMARTBOARD_OTP_CODES_REGENERATED: 'OTP kodları yenilendi',
+  };
+  return map[action] ?? action;
+}
+
+function shortAuditId(v: string): string {
+  return v.length > 8 ? v.slice(0, 8) : v;
+}
+
+function getAuditMetaText(log: SmartBoardAuditLog, deviceNameById: Map<string, string>): string {
+  const meta = log.meta ?? {};
+  const get = (k: string): string | null => {
+    const v = meta[k];
+    return typeof v === 'string' && v.trim() ? v.trim() : null;
+  };
+  const deviceId = get('deviceId') ?? get('device_id');
+  const deviceNameFromMeta = get('deviceName') ?? get('device_name');
+  const classFromMeta = get('classSection') ?? get('class_section');
+  const sessionId = get('sessionId') ?? get('session_id');
+  const unlockMethod = get('unlockMethod') ?? get('unlock_method');
+  const teacherId = get('teacherId') ?? get('user_id');
+
+  const deviceLabel =
+    (deviceNameFromMeta
+      ? `${deviceNameFromMeta}${classFromMeta ? ` (${classFromMeta})` : ''}`
+      : null) ??
+    (deviceId ? (deviceNameById.get(deviceId) ?? `Cihaz #${shortAuditId(deviceId)}`) : null);
+
+  if (log.action === 'SMARTBOARD_DEVICE_REMOVED') {
+    return deviceLabel ? `${deviceLabel} silindi.` : 'Cihaz kaydı silindi.';
+  }
+  if (log.action === 'SMARTBOARD_DEVICE_CREATED') {
+    return deviceLabel ? `${deviceLabel} eklendi.` : 'Yeni cihaz eklendi.';
+  }
+  if (log.action === 'SMARTBOARD_QR_SESSION_CREATED') {
+    return `QR oturumu açıldı${deviceLabel ? ` (${deviceLabel})` : ''}${sessionId ? ` · Oturum #${shortAuditId(sessionId)}` : ''}.`;
+  }
+  if (log.action === 'SMARTBOARD_QR_SESSION_CLAIMED') {
+    return `QR onayı alındı${deviceLabel ? ` (${deviceLabel})` : ''}${sessionId ? ` · Oturum #${shortAuditId(sessionId)}` : ''}.`;
+  }
+  if (log.action === 'SMARTBOARD_USB_PIN_UNLOCK_SUCCESS' || log.action === 'SMARTBOARD_OTP_UNLOCK_SUCCESS') {
+    return `Tahta açıldı${deviceLabel ? ` (${deviceLabel})` : ''}${unlockMethod ? ` · Yöntem: ${unlockMethod.toUpperCase()}` : ''}.`;
+  }
+  if (log.action === 'SMARTBOARD_OTP_CODES_REGENERATED') {
+    return `OTP kodları yenilendi${teacherId ? ` · Kullanıcı #${shortAuditId(teacherId)}` : ''}.`;
+  }
+
+  const lines: string[] = [];
+  if (deviceLabel) lines.push(`Cihaz: ${deviceLabel}`);
+  if (sessionId) lines.push(`Oturum: #${shortAuditId(sessionId)}`);
+  if (unlockMethod) lines.push(`Yöntem: ${unlockMethod.toUpperCase()}`);
+
+  for (const [k, v] of Object.entries(meta)) {
+    if (v == null) continue;
+    if (['deviceId', 'device_id', 'sessionId', 'session_id', 'unlockMethod', 'unlock_method'].includes(k)) continue;
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+      lines.push(`${k}: ${String(v)}`);
+      continue;
+    }
+    if (Array.isArray(v) && v.length > 0) {
+      lines.push(`${k}: ${v.length} kayıt`);
+      continue;
+    }
+    if (!Array.isArray(v) && typeof v === 'object') {
+      lines.push(`${k}: var`);
+    }
+  }
+  return lines.length > 0 ? lines.join(' · ') : '—';
+}
+
 const DEFAULT_ADMIN_TAB = 'genel-bakis';
 
 export default function AkilliTahtaPage() {
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
   const { token, me } = useAuth();
   const isTeacher = me?.role === 'teacher';
   const isSuperadmin = me?.role === 'superadmin';
   const adminTab = (searchParams.get('tab') as (typeof ADMIN_TABS)[number]['id']) || DEFAULT_ADMIN_TAB;
+  const qrSchoolId = searchParams.get('qr_school')?.trim() ?? '';
+  const qrDeviceId = searchParams.get('qr_device')?.trim() ?? '';
+  const qrSessionId = searchParams.get('qr_session')?.trim() ?? '';
+  const qrCode = searchParams.get('qr_code')?.trim() ?? '';
 
   const [schoolId, setSchoolId] = useState<string | null>(me?.school_id ?? null);
   const [schools, setSchools] = useState<{ id: string; name: string }[]>([]);
@@ -116,6 +209,11 @@ export default function AkilliTahtaPage() {
   const [usbPinFor, setUsbPinFor] = useState<AuthorizedTeacher | null>(null);
   const [usbPinInput, setUsbPinInput] = useState('');
   const [usbPinSaving, setUsbPinSaving] = useState(false);
+  const [otpCodesFor, setOtpCodesFor] = useState<AuthorizedTeacher | null>(null);
+  const [otpCodes, setOtpCodes] = useState<string[]>([]);
+  const [otpSaving, setOtpSaving] = useState(false);
+  const [auditLogs, setAuditLogs] = useState<SmartBoardAuditLog[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
   const [teacherDeviceSort, setTeacherDeviceSort] = useState<'recent' | 'name' | 'online'>('recent');
   const [schoolFilters, setSchoolFilters] = useState({ city: '', district: '' });
   const schoolFiltersRef = useRef(schoolFilters);
@@ -123,11 +221,25 @@ export default function AkilliTahtaPage() {
   const [filterCities, setFilterCities] = useState<string[]>([]);
   const [filterDistricts, setFilterDistricts] = useState<string[]>([]);
   const [schoolsError, setSchoolsError] = useState<string | null>(null);
+  const qrClaimAttemptedRef = useRef(false);
+  const [qrClaimStatus, setQrClaimStatus] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
+  const [qrClaimMessage, setQrClaimMessage] = useState<string>('');
+  const [bulkActionReport, setBulkActionReport] = useState<{
+    action: 'open' | 'lock' | 'close';
+    results: Array<{ device_id: string; device_name: string | null; status: 'ok' | 'skipped'; message: string }>;
+  } | null>(null);
 
   const effectiveSchoolId = schoolId || me?.school_id;
   const isSchoolAdmin = me?.role === 'school_admin';
   const canView = !isTeacher && effectiveSchoolId; // school_admin + superadmin
   const canManage = isSchoolAdmin && !!effectiveSchoolId; // sadece okul yöneticisi tahta ekler, yetki verir, sonlandırır
+  const deviceNameById = useMemo(
+    () =>
+      new Map(
+        devices.map((d) => [d.id, `${d.name}${d.classSection ? ` (${d.classSection})` : ''}`]),
+      ),
+    [devices],
+  );
 
   const fetchStatus = useCallback(async () => {
     if (!token) return;
@@ -207,6 +319,22 @@ export default function AkilliTahtaPage() {
     }
   }, [token, effectiveSchoolId, isTeacher]);
 
+  const fetchAuditLogs = useCallback(async () => {
+    if (!token || !effectiveSchoolId || isTeacher) return;
+    setAuditLoading(true);
+    try {
+      const res = await apiFetch<{ items?: SmartBoardAuditLog[] }>(
+        `/smart-board/schools/${effectiveSchoolId}/audit-logs?page=1&limit=40`,
+        { token }
+      );
+      setAuditLogs(Array.isArray(res?.items) ? res.items : []);
+    } catch {
+      setAuditLogs([]);
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [token, effectiveSchoolId, isTeacher]);
+
   const fetchSchoolForFloorPlan = useCallback(async () => {
     if (!token || !effectiveSchoolId || isTeacher) return;
     try {
@@ -229,15 +357,37 @@ export default function AkilliTahtaPage() {
 
   const fetchClassSections = useCallback(async () => {
     if (!token || !effectiveSchoolId || isTeacher) return;
+    let fromClassesSubjects: string[] = [];
+    let fromTimetable: string[] = [];
+
+    try {
+      const classesPath = isSuperadmin
+        ? `/classes-subjects/classes?school_id=${encodeURIComponent(effectiveSchoolId)}`
+        : '/classes-subjects/classes';
+      const classes = await apiFetch<Array<{ name?: string | null }>>(classesPath, { token });
+      fromClassesSubjects = Array.isArray(classes)
+        ? classes.map((c) => String(c?.name ?? '').trim()).filter((s) => !!s)
+        : [];
+    } catch {
+      fromClassesSubjects = [];
+    }
+
     try {
       const path = isSuperadmin
         ? `/teacher-timetable/distinct-class-sections?school_id=${effectiveSchoolId}`
         : '/teacher-timetable/distinct-class-sections';
       const res = await apiFetch<string[]>(path, { token });
-      setClassSections(Array.isArray(res) ? res : []);
+      fromTimetable = Array.isArray(res)
+        ? res.map((s) => String(s ?? '').trim()).filter((s) => !!s)
+        : [];
     } catch {
-      setClassSections([]);
+      fromTimetable = [];
     }
+
+    const merged = Array.from(new Set([...fromClassesSubjects, ...fromTimetable])).sort((a, b) =>
+      a.localeCompare(b, 'tr', { numeric: true }),
+    );
+    setClassSections(merged);
   }, [token, effectiveSchoolId, isTeacher, isSuperadmin]);
 
   useEffect(() => {
@@ -281,9 +431,57 @@ export default function AkilliTahtaPage() {
     fetchDevices();
     fetchAuthorizedTeachers();
     fetchSessionsToday();
+    fetchAuditLogs();
     fetchClassSections();
     fetchSchoolForFloorPlan();
-  }, [token, effectiveSchoolId, fetchDevices, fetchAuthorizedTeachers, fetchSessionsToday, fetchClassSections, fetchSchoolForFloorPlan]);
+  }, [token, effectiveSchoolId, fetchDevices, fetchAuthorizedTeachers, fetchSessionsToday, fetchAuditLogs, fetchClassSections, fetchSchoolForFloorPlan]);
+
+  useEffect(() => {
+    if (!isTeacher || !token) return;
+    if (!qrSchoolId || !qrDeviceId || !qrSessionId || !qrCode) return;
+    if (qrClaimAttemptedRef.current) return;
+    qrClaimAttemptedRef.current = true;
+    setQrClaimStatus('pending');
+    setQrClaimMessage('QR doğrulaması gönderiliyor...');
+    apiFetch('/smart-board/qr/claim', {
+      method: 'POST',
+      body: JSON.stringify({
+        school_id: qrSchoolId,
+        device_id: qrDeviceId,
+        session_id: qrSessionId,
+        code: qrCode,
+      }),
+      token,
+    })
+      .then(() => {
+        setQrClaimStatus('success');
+        setQrClaimMessage('QR onayı gönderildi. Tahta açılıyor...');
+        toast.success('QR onayı gönderildi. Tahta açılıyor...');
+        const params = new URLSearchParams(searchParams.toString());
+        params.delete('qr_school');
+        params.delete('qr_device');
+        params.delete('qr_session');
+        params.delete('qr_code');
+        const next = params.toString();
+        router.replace(next ? `${pathname}?${next}` : pathname);
+      })
+      .catch((e: unknown) => {
+        const anyErr = e as { code?: string; message?: string };
+        const msg =
+          anyErr?.code === 'QR_SESSION_INVALID'
+            ? 'QR oturumu süresi dolmuş veya geçersiz.'
+            : anyErr?.code === 'QR_CODE_INVALID'
+              ? 'QR kodu hatalı.'
+              : anyErr?.code === 'SCOPE_VIOLATION'
+                ? 'Bu okul için QR onayı yetkiniz yok.'
+                : e instanceof Error
+                  ? e.message
+                  : 'QR onayı başarısız.';
+        setQrClaimStatus('error');
+        setQrClaimMessage(msg);
+        toast.error(msg);
+      });
+  }, [isTeacher, token, qrSchoolId, qrDeviceId, qrSessionId, qrCode, searchParams, router, pathname]);
 
   // Teacher: heartbeat ile bağlı kalma (2 dk timeout için ~45 sn aralık)
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -423,6 +621,30 @@ export default function AkilliTahtaPage() {
       toast.error(e instanceof Error ? e.message : 'İşlem başarısız.');
     } finally {
       setUsbPinSaving(false);
+    }
+  };
+
+  const handleRegenerateOtpCodes = async (teacher: AuthorizedTeacher) => {
+    if (!token || !effectiveSchoolId) return;
+    if (!confirm(`${teacher.display_name || teacher.email} için OTP kodları yenilensin mi?`)) return;
+    setOtpSaving(true);
+    try {
+      const res = await apiFetch<{ ok: true; codes: string[] }>(
+        `/smart-board/schools/${effectiveSchoolId}/teachers/${teacher.user_id}/otp-codes/regenerate`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ count: 8 }),
+          token,
+        }
+      );
+      setOtpCodesFor(teacher);
+      setOtpCodes(Array.isArray(res?.codes) ? res.codes : []);
+      fetchAuthorizedTeachers();
+      toast.success('OTP kodları üretildi.');
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'OTP üretilemedi.');
+    } finally {
+      setOtpSaving(false);
     }
   };
 
@@ -589,6 +811,36 @@ export default function AkilliTahtaPage() {
       toast.success(list.length === 1 ? 'Tahta kapatıldı.' : `${list.length} tahta kapatıldı.`);
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Kapatılamadı.');
+    }
+  };
+
+  const handleBulkDeviceAction = async (
+    deviceIds: string[],
+    action: 'open' | 'lock' | 'close',
+  ) => {
+    if (!token || deviceIds.length === 0) return;
+    const msgMap = {
+      open: `${deviceIds.length} tahta için aç işlemi uygulansın mı?`,
+      lock: `${deviceIds.length} tahta için kilitle işlemi uygulansın mı?`,
+      close: `${deviceIds.length} tahta için kapat işlemi uygulansın mı?`,
+    } as const;
+    if (!confirm(msgMap[action])) return;
+    try {
+      const res = await apiFetch<{ updated?: number; results?: Array<{ device_id: string; device_name: string | null; status: 'ok' | 'skipped'; message: string }> }>('/smart-board/devices/bulk-action', {
+        method: 'POST',
+        body: JSON.stringify({ device_ids: deviceIds, action }),
+        token,
+      });
+      setBulkActionReport({
+        action,
+        results: Array.isArray(res?.results) ? res.results : [],
+      });
+      fetchDevices();
+      fetchSessionsToday();
+      fetchAuditLogs();
+      toast.success(`Toplu işlem tamamlandı (${res?.updated ?? 0}).`);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Toplu işlem başarısız.');
     }
   };
 
@@ -767,6 +1019,17 @@ export default function AkilliTahtaPage() {
           deviceCount={devices.length}
           schoolName={me?.school?.name}
         />
+      )}
+
+      {isTeacher && (qrClaimStatus !== 'idle' || (qrSchoolId && qrSessionId)) && (
+        <Alert
+          variant={qrClaimStatus === 'error' ? 'error' : 'info'}
+          className="mb-3 sm:mb-5"
+        >
+          {qrClaimStatus === 'pending'
+            ? 'QR doğrulaması işleniyor...'
+            : qrClaimMessage || 'QR doğrulama durumu güncelleniyor.'}
+        </Alert>
       )}
 
       {isTeacher && status?.mySession && (
@@ -1131,6 +1394,37 @@ export default function AkilliTahtaPage() {
                 )}
               </CardHeader>
               <CardContent className="space-y-3 px-2.5 sm:space-y-4 sm:px-6">
+                {bulkActionReport && (
+                  <Alert variant="info" className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold sm:text-sm">
+                        Toplu işlem sonucu: {bulkActionReport.action === 'open' ? 'Aç' : bulkActionReport.action === 'lock' ? 'Kilitle' : 'Kapat'}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setBulkActionReport(null)}
+                        className="h-7 px-2 text-[10px] sm:text-xs"
+                      >
+                        Kapat
+                      </Button>
+                    </div>
+                    <div className="max-h-40 overflow-auto rounded-md border bg-background/70">
+                      <table className="w-full text-[11px] sm:text-xs">
+                        <tbody>
+                          {bulkActionReport.results.map((r) => (
+                            <tr key={r.device_id} className="border-b last:border-0">
+                              <td className="px-2 py-1.5 font-medium">{r.device_name || r.device_id}</td>
+                              <td className={cn('px-2 py-1.5', r.status === 'ok' ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300')}>
+                                {r.message}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </Alert>
+                )}
                 <div className="flex gap-1.5 rounded-lg border border-sky-200/80 bg-sky-50/70 px-2 py-1.5 text-sky-950 dark:border-sky-800/60 dark:bg-sky-950/35 dark:text-sky-100 sm:gap-3 sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm">
                   <Tv className="mt-0.5 size-3.5 shrink-0 text-sky-600 dark:text-sky-400 sm:size-5" aria-hidden />
                   <div className="max-h-38 min-w-0 space-y-0.5 overflow-y-auto pr-0.5 sm:max-h-none sm:space-y-1 sm:overflow-visible">
@@ -1179,9 +1473,11 @@ export default function AkilliTahtaPage() {
                     onSchedule={canManage ? (d) => setScheduleDevice(d) : undefined}
                     onDisconnect={canManage ? handleAdminDisconnect : undefined}
                     onClose={canManage ? handleCloseDevice : undefined}
+                    onBulkAction={canManage ? handleBulkDeviceAction : undefined}
                     onRefresh={() => {
                       fetchDevices();
                       fetchSessionsToday();
+                      fetchAuditLogs();
                     }}
                   />
                 )}
@@ -1285,6 +1581,9 @@ export default function AkilliTahtaPage() {
                                 <th className="w-28 px-4 py-3 text-right font-medium">USB PIN</th>
                               )}
                               {canManage && (
+                                <th className="w-24 px-4 py-3 text-right font-medium">OTP</th>
+                              )}
+                              {canManage && (
                                 <th className="w-24 px-4 py-3 text-right font-medium">İşlem</th>
                               )}
                             </tr>
@@ -1338,6 +1637,25 @@ export default function AkilliTahtaPage() {
                                 )}
                                 {canManage && (
                                   <td className="px-4 py-3 text-right">
+                                    <div className="flex items-center justify-end gap-2">
+                                      <span className="text-[11px] text-muted-foreground">
+                                        {t.otp_code_count ?? 0}
+                                      </span>
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8 gap-1 text-xs"
+                                        disabled={otpSaving}
+                                        onClick={() => handleRegenerateOtpCodes(t)}
+                                      >
+                                        {t.has_otp_codes ? 'Yenile' : 'Üret'}
+                                      </Button>
+                                    </div>
+                                  </td>
+                                )}
+                                {canManage && (
+                                  <td className="px-4 py-3 text-right">
                                     <Button
                                       variant="ghost"
                                       size="sm"
@@ -1370,8 +1688,79 @@ export default function AkilliTahtaPage() {
             />
           )}
 
+          {adminTab === 'denetim' && (
+            <Card className="mb-3 overflow-hidden border-slate-300/45 dark:border-slate-700/40 sm:mb-6">
+              <CardHeader className="flex flex-row items-center justify-between gap-2 border-b bg-slate-500/6 px-2.5 py-2 sm:px-6 sm:py-4">
+                <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
+                  <span className="flex size-7 items-center justify-center rounded-lg bg-slate-500/15 sm:size-8">
+                    <ClipboardList className="size-3.5 text-slate-700 dark:text-slate-300 sm:size-4" />
+                  </span>
+                  Son denetim kayıtları
+                </CardTitle>
+                <Button variant="ghost" size="sm" onClick={fetchAuditLogs}>
+                  Yenile
+                </Button>
+              </CardHeader>
+              <CardContent className="px-2.5 py-3 sm:px-6 sm:py-4">
+                {auditLoading ? (
+                  <div className="flex min-h-[120px] items-center justify-center">
+                    <LoadingSpinner />
+                  </div>
+                ) : auditLogs.length === 0 ? (
+                  <EmptyState
+                    icon={<ClipboardList className="size-10 text-muted-foreground" />}
+                    title="Kayıt yok"
+                    description="Henüz smart board denetim kaydı yok."
+                  />
+                ) : (
+                  <div className="table-x-scroll rounded-lg border">
+                    <table className="w-full text-xs sm:text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/40">
+                          <th className="px-3 py-2 text-left font-semibold">Zaman</th>
+                          <th className="px-3 py-2 text-left font-semibold">Aksiyon</th>
+                          <th className="px-3 py-2 text-left font-semibold">Kullanıcı</th>
+                          <th className="px-3 py-2 text-left font-semibold">Detay</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {auditLogs.map((a) => {
+                          const label = getAuditActionLabel(a.action);
+                          return (
+                            <tr key={a.id} className="border-b last:border-0">
+                              <td className="whitespace-nowrap px-3 py-2">
+                                {new Date(a.created_at).toLocaleString('tr-TR')}
+                              </td>
+                              <td className="px-3 py-2">
+                                <p className="text-[11px] font-medium sm:text-xs">{label}</p>
+                                {label === a.action ? (
+                                  <p className="font-mono text-[10px] text-muted-foreground">{a.action}</p>
+                                ) : null}
+                              </td>
+                              <td className="px-3 py-2">{a.user?.display_name || a.user?.email || 'Sistem'}</td>
+                              <td className="px-3 py-2 text-muted-foreground">
+                                {getAuditMetaText(a, deviceNameById)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {adminTab === 'istatistikler' && effectiveSchoolId && (
             <SmartBoardUsagePanel token={token} schoolId={effectiveSchoolId} />
+          )}
+
+          {adminTab === 'kurulum' && (
+            <SmartBoardInstallGuide
+              schoolId={effectiveSchoolId ?? null}
+              hasDevice={devices.length > 0}
+            />
           )}
 
           {adminTab === 'ayarlar' && (
@@ -1436,6 +1825,55 @@ export default function AkilliTahtaPage() {
             </Button>
             <Button type="button" disabled={usbPinSaving} onClick={() => void handleSaveUsbPin()}>
               Kaydet
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!otpCodesFor}
+        onOpenChange={(open) => {
+          if (!open) {
+            setOtpCodesFor(null);
+            setOtpCodes([]);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Tek kullanımlık OTP kodları</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              {otpCodesFor?.display_name || otpCodesFor?.email} için üretildi. Bir kez gösterilir, güvenli paylaşın.
+            </p>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>Kodlar</Label>
+            <div className="rounded-md border bg-muted/20 p-3 font-mono text-sm leading-7">
+              {otpCodes.length > 0 ? otpCodes.join('\n') : 'Kod yok'}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                if (otpCodes.length > 0) {
+                  void navigator.clipboard.writeText(otpCodes.join('\n')).then(() => {
+                    toast.success('OTP kodları kopyalandı.');
+                  });
+                }
+              }}
+            >
+              Kopyala
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setOtpCodesFor(null);
+                setOtpCodes([]);
+              }}
+            >
+              Kapat
             </Button>
           </DialogFooter>
         </DialogContent>

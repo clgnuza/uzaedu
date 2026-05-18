@@ -41,6 +41,12 @@ export function SmartBoardUsagePanel({ token, schoolId }: { token: string | null
   const [filterClass, setFilterClass] = useState<string>('__all__');
   const [filterTeacher, setFilterTeacher] = useState<string>('__all__');
 
+  const setRange = (days: number) => {
+    const end = new Date();
+    setTo(ymd(end));
+    setFrom(ymd(subDays(end, Math.max(0, days - 1))));
+  };
+
   const load = useCallback(async () => {
     if (!token || !schoolId) return;
     setLoading(true);
@@ -99,6 +105,13 @@ export function SmartBoardUsagePanel({ token, schoolId }: { token: string | null
     });
   }, [stats, filterClass, filterTeacher]);
 
+  const filteredSummary = useMemo(() => {
+    const sessions = filteredItems.length;
+    const minutes = filteredItems.reduce((sum, it) => sum + (it.minutes_in_range ?? 0), 0);
+    const active = filteredItems.filter((it) => it.is_active).length;
+    return { sessions, minutes, active };
+  }, [filteredItems]);
+
   const hourChart = useMemo(
     () =>
       (stats?.by_hour_tr ?? []).map((x) => ({
@@ -155,6 +168,18 @@ export function SmartBoardUsagePanel({ token, schoolId }: { token: string | null
           </div>
         </CardHeader>
         <CardContent className="space-y-3 px-2.5 py-3 sm:space-y-4 sm:px-6 sm:py-4">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button type="button" variant="outline" size="sm" className="h-8 text-[11px] sm:text-xs" onClick={() => setRange(7)}>
+              Son 7 gün
+            </Button>
+            <Button type="button" variant="outline" size="sm" className="h-8 text-[11px] sm:text-xs" onClick={() => setRange(14)}>
+              Son 14 gün
+            </Button>
+            <Button type="button" variant="outline" size="sm" className="h-8 text-[11px] sm:text-xs" onClick={() => setRange(30)}>
+              Son 30 gün
+            </Button>
+          </div>
+
           {err && <Alert variant="error">{err}</Alert>}
 
           {health && health.alerts.length > 0 && (
@@ -271,6 +296,35 @@ export function SmartBoardUsagePanel({ token, schoolId }: { token: string | null
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-9"
+                    onClick={() => {
+                      setFilterClass('__all__');
+                      setFilterTeacher('__all__');
+                    }}
+                  >
+                    Filtreyi sıfırla
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-lg border bg-card p-2.5">
+                  <p className="text-[10px] uppercase text-muted-foreground">Filtreli oturum</p>
+                  <p className="text-base font-semibold">{filteredSummary.sessions}</p>
+                </div>
+                <div className="rounded-lg border bg-card p-2.5">
+                  <p className="text-[10px] uppercase text-muted-foreground">Filtreli dakika</p>
+                  <p className="text-base font-semibold">{filteredSummary.minutes}</p>
+                </div>
+                <div className="rounded-lg border bg-card p-2.5">
+                  <p className="text-[10px] uppercase text-muted-foreground">Aktif</p>
+                  <p className="text-base font-semibold text-emerald-700 dark:text-emerald-300">{filteredSummary.active}</p>
                 </div>
               </div>
 

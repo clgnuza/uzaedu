@@ -376,12 +376,12 @@ export class TvPublicController {
 
   /**
    * USB ile açılan sınıf tahtası: öğretmen PIN → kısa ömürlü TV oturum belirteci.
-   * POST /api/tv/classroom-usb-unlock body: { school_id, device_id, pin }
+   * POST /api/tv/classroom-usb-unlock body: { school_id, device_id, pin, mode?: 'pin'|'otp'|'auto' }
    */
   @Post('classroom-usb-unlock')
   async classroomUsbUnlock(
     @Req() req: Request,
-    @Body() body: { school_id?: string; device_id?: string; pin?: string },
+    @Body() body: { school_id?: string; device_id?: string; pin?: string; mode?: 'pin' | 'otp' | 'auto' },
   ) {
     const schoolId = body?.school_id?.trim();
     const deviceId = body?.device_id?.trim();
@@ -390,7 +390,51 @@ export class TvPublicController {
       throw new BadRequestException({ code: 'INVALID_BODY', message: 'school_id, device_id ve pin gerekli.' });
     }
     await this.assertTvSchoolIp(req, schoolId);
-    return this.smartBoardService.unlockClassroomWithUsbPin(schoolId, deviceId, pin, getClientIp(req));
+    return this.smartBoardService.unlockClassroomWithUsbPin(
+      schoolId,
+      deviceId,
+      pin,
+      getClientIp(req),
+      body?.mode ?? 'auto',
+    );
+  }
+
+  /**
+   * Sınıf TV QR oturumu başlatır. Tahta ekranı bu kodu gösterir, öğretmen panelden onaylar.
+   * POST /api/tv/classroom-qr-session body: { school_id, device_id }
+   */
+  @Post('classroom-qr-session')
+  async createClassroomQrSession(
+    @Req() req: Request,
+    @Body() body: { school_id?: string; device_id?: string },
+  ) {
+    const schoolId = body?.school_id?.trim();
+    const deviceId = body?.device_id?.trim();
+    if (!schoolId || !deviceId) {
+      throw new BadRequestException({ code: 'INVALID_BODY', message: 'school_id ve device_id gerekli.' });
+    }
+    await this.assertTvSchoolIp(req, schoolId);
+    return this.smartBoardService.createQrLoginSession(schoolId, deviceId);
+  }
+
+  /**
+   * Sınıf TV QR oturumu poll.
+   * GET /api/tv/classroom-qr-session/:sessionId/poll?school_id=&device_id=
+   */
+  @Get('classroom-qr-session/:sessionId/poll')
+  async pollClassroomQrSession(
+    @Req() req: Request,
+    @Param('sessionId') sessionId: string,
+    @Query('school_id') schoolId?: string,
+    @Query('device_id') deviceId?: string,
+  ) {
+    const sid = schoolId?.trim();
+    const did = deviceId?.trim();
+    if (!sid || !did) {
+      throw new BadRequestException({ code: 'INVALID_BODY', message: 'school_id ve device_id gerekli.' });
+    }
+    await this.assertTvSchoolIp(req, sid);
+    return this.smartBoardService.pollQrLoginSession(sid, did, sessionId);
   }
 
   /**
@@ -658,76 +702,6 @@ export class TvPublicController {
     const id = body?.device_id?.trim();
     if (!id) return { ok: false };
     return this.tvDevicesService.heartbeat(id);
-  }
-
-  /**
-   * USB sınıf TV + okul ağı: telefon kumandası oturumu (gizli anahtar yalnızca yanıtta).
-   * POST /api/tv/remote/session body: { school_id, device_id }
-   */
-  @Post('remote/session')
-  async createTvRemoteSession(
-    @Req() req: Request,
-    @Body() body: { school_id?: string; device_id?: string },
-  ) {
-    const schoolId = body?.school_id?.trim();
-    const deviceId = body?.device_id?.trim();
-    if (!schoolId || !deviceId) {
-      throw new BadRequestException({ code: 'INVALID_BODY', message: 'school_id ve device_id gerekli.' });
-    }
-    await this.assertTvSchoolIp(req, schoolId);
-    await this.requireClassroomUsbUnlockToken(req, schoolId, deviceId);
-    return this.smartBoardService.createTvRemoteSession(getTvClassroomUsbTokenHeader(req), schoolId, deviceId);
-  }
-
-  /**
-   * TV ekranı: kuyruktaki komutları okur (USB + okul ağı).
-   * GET /api/tv/remote/session/:sessionId/poll?school_id=&device_id=&after=
-   */
-  @Get('remote/session/:sessionId/poll')
-  async pollTvRemoteSession(
-    @Req() req: Request,
-    @Param('sessionId') sessionId: string,
-    @Query('after') after?: string,
-    @Query('school_id') schoolId?: string,
-    @Query('device_id') deviceId?: string,
-  ) {
-    const sid = schoolId?.trim();
-    const did = deviceId?.trim();
-    if (!sid || !did) {
-      throw new BadRequestException({ code: 'INVALID_BODY', message: 'school_id ve device_id gerekli.' });
-    }
-    await this.assertTvSchoolIp(req, sid);
-    await this.requireClassroomUsbUnlockToken(req, sid, did);
-    return this.smartBoardService.pollTvRemoteCommands(
-      getTvClassroomUsbTokenHeader(req),
-      sid,
-      did,
-      sessionId,
-      after ?? '0',
-    );
-  }
-
-  /**
-   * Telefon kumandası (gizli anahtar). Okul IP şartı yok (öğretmen mobil veriden kullanabilir).
-   * POST /api/tv/remote/command body: { school_id, session_id, secret, action }
-   */
-  @Post('remote/command')
-  async tvRemoteCommand(
-    @Req() req: Request,
-    @Body() body: { school_id?: string; session_id?: string; secret?: string; action?: string },
-  ) {
-    const schoolId = body?.school_id?.trim();
-    const sessionId = body?.session_id?.trim();
-    if (!schoolId || !sessionId) {
-      throw new BadRequestException({ code: 'INVALID_BODY', message: 'school_id ve session_id gerekli.' });
-    }
-    return this.smartBoardService.appendTvRemoteCommand(
-      getClientIp(req),
-      schoolId,
-      sessionId,
-      body?.secret,
-      body?.action ?? '',
-    );
   }
 }
 

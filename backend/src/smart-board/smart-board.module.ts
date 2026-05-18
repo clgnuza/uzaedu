@@ -5,8 +5,7 @@ import { SmartBoardDeviceSchedule } from './entities/smart-board-device-schedule
 import { SmartBoardAuthorizedTeacher } from './entities/smart-board-authorized-teacher.entity';
 import { SmartBoardSession } from './entities/smart-board-session.entity';
 import { TvClassroomUsbToken } from './entities/tv-classroom-usb-token.entity';
-import { TvRemoteSession } from './entities/tv-remote-session.entity';
-import { TvRemoteCommand } from './entities/tv-remote-command.entity';
+import { SmartBoardQrSession } from './entities/smart-board-qr-session.entity';
 import { User } from '../users/entities/user.entity';
 import { SmartBoardService } from './smart-board.service';
 import { SmartBoardController } from './smart-board.controller';
@@ -23,8 +22,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
       SmartBoardAuthorizedTeacher,
       SmartBoardSession,
       TvClassroomUsbToken,
-      TvRemoteSession,
-      TvRemoteCommand,
+      SmartBoardQrSession,
       User,
     ]),
     SchoolsModule,

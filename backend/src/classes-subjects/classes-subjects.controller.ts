@@ -11,6 +11,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  Query,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { SkipThrottle } from '@nestjs/throttler';
@@ -34,12 +35,25 @@ export class ClassesSubjectsController {
   }
 
   @Get('classes')
-  async listClasses(@CurrentUser() payload: CurrentUserPayload) {
-    if (payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher) {
+  async listClasses(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Query('school_id') querySchoolId?: string,
+  ) {
+    if (payload.role !== UserRole.school_admin && payload.role !== UserRole.teacher && payload.role !== UserRole.superadmin) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
     if (payload.role === UserRole.school_admin && !payload.schoolId) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
+    if (payload.role === UserRole.superadmin) {
+      if (!querySchoolId?.trim()) {
+        throw new BadRequestException({ code: 'SCHOOL_ID_REQUIRED', message: 'superadmin için school_id gereklidir.' });
+      }
+      return this.service.listClasses({
+        userId: payload.userId,
+        role: UserRole.superadmin,
+        schoolId: querySchoolId.trim(),
+      });
     }
     return this.service.listClasses(this.csViewer(payload));
   }

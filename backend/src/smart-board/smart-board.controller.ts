@@ -103,6 +103,22 @@ export class SmartBoardController {
     return this.service.updateDevice(id, dto, scope);
   }
 
+  @Post('devices/bulk-action')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.school_admin)
+  async bulkDeviceAction(
+    @Body() body: { device_ids?: string[]; action?: 'open' | 'lock' | 'close' },
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    const scope = { schoolId: payload.schoolId, role: payload.user.role as UserRole };
+    return this.service.bulkDeviceAction(
+      body?.device_ids ?? [],
+      body?.action ?? 'close',
+      scope,
+      payload.userId,
+    );
+  }
+
   @Delete('devices/:id')
   @UseGuards(RolesGuard)
   @Roles(UserRole.school_admin)
@@ -212,6 +228,25 @@ export class SmartBoardController {
     return this.service.setTeacherUsbPin(schoolId, userId, scope, payload.userId, body?.pin ?? null);
   }
 
+  @Post('schools/:schoolId/teachers/:userId/otp-codes/regenerate')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.school_admin, UserRole.superadmin)
+  async regenerateTeacherOtpCodes(
+    @Param('schoolId') schoolId: string,
+    @Param('userId') userId: string,
+    @Body() body: { count?: number },
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    const scope = { schoolId: payload.schoolId, role: payload.user.role as UserRole };
+    return this.service.regenerateTeacherOtpCodes(
+      schoolId,
+      userId,
+      scope,
+      payload.userId,
+      body?.count ?? 8,
+    );
+  }
+
   @Get('schools/:schoolId/sessions/today')
   @UseGuards(RolesGuard)
   @Roles(UserRole.school_admin, UserRole.superadmin)
@@ -245,6 +280,24 @@ export class SmartBoardController {
   ) {
     const scope = { schoolId: payload.schoolId, role: payload.user.role as UserRole };
     return this.service.getBoardHealthAlerts(schoolId, scope);
+  }
+
+  @Get('schools/:schoolId/audit-logs')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.school_admin, UserRole.superadmin)
+  async getSmartBoardAuditLogs(
+    @Param('schoolId') schoolId: string,
+    @Query('page') page = '1',
+    @Query('limit') limit = '30',
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    const scope = { schoolId: payload.schoolId, role: payload.user.role as UserRole };
+    return this.service.getSmartBoardAuditLogs(
+      schoolId,
+      scope,
+      Math.max(1, parseInt(page, 10) || 1),
+      Math.min(100, Math.max(1, parseInt(limit, 10) || 30)),
+    );
   }
 
   @Post('connect')
@@ -286,5 +339,27 @@ export class SmartBoardController {
     @CurrentUser() payload: CurrentUserPayload,
   ) {
     return this.service.heartbeat(body.session_id, payload.userId);
+  }
+
+  @Post('qr/claim')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.teacher)
+  async claimQrSession(
+    @Body() body: { school_id?: string; device_id?: string; session_id?: string; code?: string },
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    const schoolId = body?.school_id?.trim();
+    const deviceId = body?.device_id?.trim();
+    const sessionId = body?.session_id?.trim();
+    const code = body?.code?.trim();
+    if (!schoolId || !deviceId || !sessionId || !code) {
+      const { BadRequestException } = await import('@nestjs/common');
+      throw new BadRequestException({ code: 'INVALID_BODY', message: 'school_id, device_id, session_id, code gerekli.' });
+    }
+    if (!payload.schoolId || payload.schoolId !== schoolId) {
+      const { ForbiddenException } = await import('@nestjs/common');
+      throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu işlem için yetkiniz yok.' });
+    }
+    return this.service.claimQrLoginSession(schoolId, deviceId, sessionId, code, payload.userId);
   }
 }

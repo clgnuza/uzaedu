@@ -1,6 +1,8 @@
 import { Injectable, ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
+import OpenAI from 'openai';
+import { PDFParse } from 'pdf-parse';
 import * as XLSX from 'xlsx';
 import * as path from 'path';
 import * as os from 'os';
@@ -13,6 +15,7 @@ import { SchoolTimetablePlanEntry } from './entities/school-timetable-plan-entry
 import { User } from '../users/entities/user.entity';
 import { School } from '../schools/entities/school.entity';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AppConfigService } from '../app-config/app-config.service';
 
 const DAY_ALIASES: Record<string, number> = {
   '1': 1,
@@ -92,6 +95,7 @@ export class TeacherTimetableService {
     @InjectRepository(School)
     private readonly schoolRepo: Repository<School>,
     private readonly notificationsService: NotificationsService,
+    private readonly appConfig: AppConfigService,
   ) {}
 
   private async resolvePendingTeacherAssignments(schoolId: string): Promise<number> {
@@ -771,9 +775,331 @@ export class TeacherTimetableService {
     return null;
   }
 
-  async uploadFromExcel(schoolId: string | null, filePath: string): Promise<UploadResult> {
+  private static readonly PDF_TIMETABLE_MIN_CONFIDENCE = 0.42;
+
+  private extractChatCompletionJsonText(completion: OpenAI.Chat.Completions.ChatCompletion): string | null {
+    const msg = completion.choices?.[0]?.message;
+    const refusal = typeof msg?.refusal === 'string' ? msg.refusal.trim() : '';
+    if (refusal) return null;
+    const c = msg?.content as string | OpenAI.Chat.ChatCompletionContentPart[] | null | undefined;
+    if (typeof c === 'string') {
+      const t = c.trim();
+      return t || null;
+    }
+    if (Array.isArray(c)) {
+      const t = c
+        .map((p: OpenAI.Chat.ChatCompletionContentPart) =>
+          p.type === 'text' && typeof p.text === 'string' ? p.text : '',
+        )
+        .join('')
+        .trim();
+      return t || null;
+    }
+    return null;
+  }
+
+  private async resolveTimetableOpenAiKey(): Promise<string | null> {
+    const optik = await this.appConfig.getOptikOpenAiKey();
+    if (optik?.trim()) return optik.trim();
+    return process.env.OPENAI_API_KEY?.trim() || null;
+  }
+
+  private parseGptTimetableJson(raw: string): { confidence: number; rows: Array<Record<string, unknown>> } | null {
+    let s = raw.trim();
+    const fence = /^```(?:json)?\s*([\s\S]*?)```$/im.exec(s);
+    if (fence?.[1]) s = fence[1].trim();
+    try {
+      const obj = JSON.parse(s) as Record<string, unknown>;
+      const confidence = typeof obj.confidence === 'number' ? obj.confidence : parseFloat(String(obj.confidence ?? '0'));
+      const rowsRaw = obj.rows;
+      if (!Array.isArray(rowsRaw)) return null;
+      return { confidence: Number.isFinite(confidence) ? confidence : 0, rows: rowsRaw as Array<Record<string, unknown>> };
+    } catch {
+      return null;
+    }
+  }
+
+  private async callOpenAiTimetableExtract(
+    openai: OpenAI,
+    model: string,
+    pdfText: string,
+    maxTeachers: number,
+  ): Promise<{ confidence: number; rows: Array<Record<string, unknown>> } | null> {
+    const cap = Math.max(20000, Math.min(120000, pdfText.length));
+    const body = pdfText.length > cap ? `${pdfText.slice(0, cap)}\n\n[...metin kısaltıldı]` : pdfText;
+    const system = [
+      'Görevin: Türkçe okul haftalık ders programı metninden (e-Okul PDF, Excel dışa aktarımı veya tablo metni) yapılandırılmış veri çıkarmak.',
+      'Yalnızca tek bir JSON nesnesi döndür (markdown yok). Şema:',
+      '{"confidence":0 ile 1 arası sayı,"rows":[{"teacher_name":"string","day":1-5,"lesson_num":1-12,"class_section":"örn 9-A","subject":"ders adı"}]}',
+      'day: 1=Pazartesi … 5=Cuma. lesson_num: günlük ders sırası (1. ders=1).',
+      'Boş hücre, "—", "-", "TÖ", "Öğle", "Etüt", sadece tire veya anlamsız tek karakterleri ATLA.',
+      `En fazla ${maxTeachers} farklı öğretmen için satır üret; fazlaysa en çok ders satırı olanları seç.`,
+      'confidence: metnin gerçekten tablo olduğundan ve alanların doğru ayrıştığından ne kadar eminsin (düşükse 0.2-0.4 ver).',
+    ].join(' ');
+    let completion: OpenAI.Chat.Completions.ChatCompletion;
+    try {
+      completion = await openai.chat.completions.create({
+        model,
+        max_completion_tokens: 8192,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: `Metin:\n\n${body}` },
+        ],
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new BadRequestException({
+        code: 'OPENAI_TIMETABLE_FAILED',
+        message: `OpenAI ders programı çıkarımı başarısız: ${msg}`,
+      });
+    }
+    const text = this.extractChatCompletionJsonText(completion);
+    if (!text) return null;
+    return this.parseGptTimetableJson(text);
+  }
+
+  private async saveDraftTimetablePlan(schoolId: string, toInsert: TimetableEntry[], errors: string[]): Promise<UploadResult> {
+    if (toInsert.length === 0) {
+      throw new BadRequestException({
+        code: 'NO_VALID_ROWS',
+        message: errors.length ? errors.slice(0, 5).join('; ') : 'Geçerli satır bulunamadı. Öğretmen adı/email sistemdeki ile eşleşmeli.',
+      });
+    }
+
+    const today = new Date();
+    const dateStr = today.toISOString().slice(0, 10);
+    const timeStr = today.toTimeString().slice(0, 8).replace(/:/g, '');
+    const year = today.getFullYear();
+    const nextYear = year + 1;
+    const academicYear = `${year}-${String(nextYear).slice(-2)}`;
+
+    const plan = this.planRepo.create({
+      school_id: schoolId,
+      name: `Taslak ${dateStr} ${timeStr}`,
+      valid_from: dateStr,
+      valid_until: `${year + 1}-06-30`,
+      status: 'draft',
+      academic_year: academicYear,
+      published_at: null,
+      created_by: null,
+    });
+    await this.planRepo.save(plan);
+
+    const entries = toInsert.map((e) =>
+      this.planEntryRepo.create({
+        plan_id: plan.id,
+        user_id: e.user_id,
+        teacher_name_raw: e.teacher_name_raw ? String(e.teacher_name_raw).trim().slice(0, 160) : null,
+        day_of_week: e.day_of_week,
+        lesson_num: e.lesson_num,
+        class_section: String(e.class_section ?? '').trim().slice(0, 32),
+        subject: String(e.subject ?? '').trim().slice(0, 128),
+      }),
+    );
+    await this.planEntryRepo.save(entries);
+
+    return { imported: entries.length, errors, plan_id: plan.id };
+  }
+
+  /** e-Okul / dışa aktarılmış Excel: tüm sayfaları GPT için düz metne çevirir. */
+  private workbookPlainTextForGpt(filePath: string): string {
+    const wb = XLSX.readFile(filePath, { cellDates: false });
+    const parts: string[] = [];
+    for (const sheetName of wb.SheetNames) {
+      const sheet = wb.Sheets[sheetName];
+      if (!sheet) continue;
+      let block = '';
+      try {
+        block = XLSX.utils.sheet_to_csv(sheet, { FS: '\t', RS: '\n' }).trim();
+      } catch {
+        block = '';
+      }
+      if (block.replace(/[\s\t\n\r]+/g, '').length < 8) {
+        try {
+          const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as unknown[][];
+          block = rows
+            .map((r) => (Array.isArray(r) ? r.map((c) => String(c ?? '').trim()).join('\t') : ''))
+            .filter((line) => line.replace(/\t/g, '').trim().length > 0)
+            .join('\n');
+        } catch {
+          block = '';
+        }
+      }
+      if (block.trim()) parts.push(`=== ${sheetName} ===\n${block.trim()}`);
+    }
+    const joined = parts.join('\n\n').trim();
+    const max = 120_000;
+    return joined.length > max ? `${joined.slice(0, max)}\n\n[...kısaltıldı]` : joined;
+  }
+
+  /** PDF veya Excel’den üretilmiş tablo metni → GPT → taslak. */
+  private async uploadFromPlainTextWithGpt(schoolId: string, plainText: string): Promise<UploadResult> {
+    const trimmed = plainText.trim();
+    const normalizedText = trimmed.replace(/\s+/g, ' ').trim();
+    if (normalizedText.length < 40) {
+      throw new BadRequestException({
+        code: 'GPT_TEXT_TOO_SHORT',
+        message: 'Kaynak metin çok kısa. Taranmış PDF veya boş dosya olabilir.',
+      });
+    }
+
+    const gptCfg = await this.appConfig.getTeacherTimetableGptConfig();
+    if (!gptCfg.gpt_enabled) {
+      throw new BadRequestException({
+        code: 'PDF_GPT_DISABLED',
+        message: 'GPT ile yükleme kapalı. Süperadmin → Ders programı PDF GPT ayarlarından açın veya şablon Excel kullanın.',
+      });
+    }
+    const apiKey = await this.resolveTimetableOpenAiKey();
+    if (!apiKey) {
+      throw new BadRequestException({
+        code: 'OPENAI_NOT_CONFIGURED',
+        message: 'GPT ayrıştırma için OpenAI anahtarı gerekli. Optik ayarlarına API anahtarı ekleyin veya sunucuda OPENAI_API_KEY tanımlayın.',
+      });
+    }
+
+    const openai = new OpenAI({ apiKey, timeout: gptCfg.gpt_timeout_ms });
+    let parsedGpt = await this.callOpenAiTimetableExtract(openai, gptCfg.gpt_model, normalizedText, gptCfg.gpt_max_teachers);
+    if (
+      !parsedGpt ||
+      parsedGpt.rows.length === 0 ||
+      parsedGpt.confidence < TeacherTimetableService.PDF_TIMETABLE_MIN_CONFIDENCE
+    ) {
+      if (gptCfg.gpt_retry_enabled && gptCfg.gpt_retry_model?.trim()) {
+        parsedGpt = await this.callOpenAiTimetableExtract(
+          openai,
+          gptCfg.gpt_retry_model.trim(),
+          normalizedText,
+          gptCfg.gpt_max_teachers,
+        );
+      }
+    }
+
+    if (!parsedGpt || parsedGpt.rows.length === 0) {
+      throw new BadRequestException({
+        code: 'GPT_TIMETABLE_PARSE_FAILED',
+        message: 'Dosyadan ders programı çıkarılamadı. Şablon Excel veya daha net bir dışa aktarım deneyin.',
+      });
+    }
+
+    if (parsedGpt.confidence < TeacherTimetableService.PDF_TIMETABLE_MIN_CONFIDENCE) {
+      throw new BadRequestException({
+        code: 'PDF_LOW_CONFIDENCE',
+        message: `Ayrıştırma güven skoru düşük (${parsedGpt.confidence.toFixed(2)}). Yanlış veri riski için yükleme durduruldu; şablon Excel ile deneyin.`,
+      });
+    }
+
+    const errors: string[] = [];
+    const toInsert: TimetableEntry[] = [];
+    const dedupe = new Set<string>();
+
+    for (const r of parsedGpt.rows) {
+      const teacherStr = String(r.teacher_name ?? r['teacher'] ?? '').trim();
+      const day = this.parseDay(r.day ?? r['day_of_week']);
+      const lesson = this.parseLessonNum(r.lesson_num ?? r.lesson ?? r['ders']);
+      let classSection = String(r.class_section ?? r['sinif'] ?? '').trim();
+      let subject = String(r.subject ?? r['ders_adi'] ?? '').trim();
+      if (!teacherStr || day == null || lesson == null) continue;
+      if (!classSection || !subject) {
+        const combined = String(r.cell ?? r['hucre'] ?? '').trim();
+        if (combined) {
+          const parsedList = this.parseCellToClassSubject(combined);
+          if (parsedList.length === 1) {
+            classSection = parsedList[0]!.class_section;
+            subject = parsedList[0]!.subject;
+          }
+        }
+      }
+      if (!classSection || !subject) continue;
+
+      const userId = await this.matchTeacher(schoolId, teacherStr);
+      if (!userId) errors.push(`GPT: Öğretmen eşleşmedi (${teacherStr})`);
+
+      const key = `${userId ?? teacherStr}|${day}|${lesson}|${classSection}|${subject}`;
+      if (dedupe.has(key)) continue;
+      dedupe.add(key);
+      toInsert.push({
+        day_of_week: day,
+        lesson_num: lesson,
+        user_id: userId ?? null,
+        class_section: classSection,
+        subject,
+        teacher_name_raw: userId ? null : teacherStr,
+      });
+    }
+
+    return this.saveDraftTimetablePlan(schoolId, toInsert, errors);
+  }
+
+  private async uploadFromPdfWithGpt(schoolId: string, filePath: string): Promise<UploadResult> {
+    let pdfText = '';
+    let parser: InstanceType<typeof PDFParse> | null = null;
+    try {
+      const buf = fs.readFileSync(filePath);
+      parser = new PDFParse({ data: buf });
+      const parsed = await parser.getText();
+      pdfText = parsed?.text?.trim() ?? '';
+    } catch {
+      throw new BadRequestException({
+        code: 'PDF_PARSE_FAILED',
+        message: 'PDF okunamadı. Dosyayı yeniden indirip veya Excel ile deneyin.',
+      });
+    } finally {
+      try {
+        await (parser as { destroy?: () => Promise<void> } | null)?.destroy?.();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (pdfText.length < 80) {
+      throw new BadRequestException({
+        code: 'PDF_TEXT_TOO_SHORT',
+        message: 'PDF içinde yeterli metin yok (taranmış görüntü olabilir). GPT için Excel dışa aktarımı veya şablon deneyin.',
+      });
+    }
+    return this.uploadFromPlainTextWithGpt(schoolId, pdfText);
+  }
+
+  async uploadFromExcel(
+    schoolId: string | null,
+    filePath: string,
+    mode: 'template' | 'gpt' = 'template',
+  ): Promise<UploadResult> {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     const ext = path.extname(filePath).toLowerCase();
+
+    if (mode === 'gpt') {
+      if (ext === '.pdf') return this.uploadFromPdfWithGpt(schoolId, filePath);
+      if (ext === '.xlsx' || ext === '.xls') {
+        let text: string;
+        try {
+          text = this.workbookPlainTextForGpt(filePath);
+        } catch {
+          throw new BadRequestException({ code: 'INVALID_FILE', message: 'Excel dosyası okunamadı.' });
+        }
+        const t = text.trim();
+        if (t.length < 40) {
+          throw new BadRequestException({
+            code: 'GPT_TEXT_TOO_SHORT',
+            message: 'Excel’de yeterli tablo metni yok. Sayfaların dolu olduğundan emin olun veya PDF kullanın.',
+          });
+        }
+        return this.uploadFromPlainTextWithGpt(schoolId, t);
+      }
+      throw new BadRequestException({
+        code: 'INVALID_FILE_TYPE',
+        message: 'GPT yüklemesi için .pdf, .xlsx veya .xls seçin.',
+      });
+    }
+
+    if (ext === '.pdf') {
+      throw new BadRequestException({
+        code: 'PDF_USE_GPT_MODE',
+        message: 'PDF’yi «e-Okul / GPT ile yükle» bölümünden yükleyin; şablon alanı yalnızca .xlsx / .xls kabul eder.',
+      });
+    }
+
     const errors: string[] = [];
     const toInsert: TimetableEntry[] = [];
 
@@ -866,46 +1192,7 @@ export class TeacherTimetableService {
       }
     }
 
-    if (toInsert.length === 0) {
-      throw new BadRequestException({
-        code: 'NO_VALID_ROWS',
-        message: errors.length ? errors.slice(0, 5).join('; ') : 'Geçerli satır bulunamadı. Öğretmen adı/email sistemdeki ile eşleşmeli.',
-      });
-    }
-
-    const today = new Date();
-    const dateStr = today.toISOString().slice(0, 10);
-    const timeStr = today.toTimeString().slice(0, 8).replace(/:/g, '');
-    const year = today.getFullYear();
-    const nextYear = year + 1;
-    const academicYear = `${year}-${String(nextYear).slice(-2)}`;
-
-    const plan = this.planRepo.create({
-      school_id: schoolId,
-      name: `Taslak ${dateStr} ${timeStr}`,
-      valid_from: dateStr,
-      valid_until: `${year + 1}-06-30`,
-      status: 'draft',
-      academic_year: academicYear,
-      published_at: null,
-      created_by: null,
-    });
-    await this.planRepo.save(plan);
-
-    const entries = toInsert.map((e) =>
-      this.planEntryRepo.create({
-        plan_id: plan.id,
-        user_id: e.user_id,
-        teacher_name_raw: e.teacher_name_raw ?? null,
-        day_of_week: e.day_of_week,
-        lesson_num: e.lesson_num,
-        class_section: e.class_section,
-        subject: e.subject,
-      }),
-    );
-    await this.planEntryRepo.save(entries);
-
-    return { imported: entries.length, errors, plan_id: plan.id };
+    return this.saveDraftTimetablePlan(schoolId, toInsert, errors);
   }
 
   /** Taslak plan listesi (school_admin); son taslaklar önce. */

@@ -44,7 +44,7 @@ const TABS: { id: TabId; label: string; hint: string; icon: React.ElementType }[
   {
     id: 'kaynak',
     label: 'Kaynak & dağıtım',
-    hint: 'Repo ve URL’ler',
+    hint: 'Repo, URL’ler, ders programı PDF GPT',
     icon: GitBranch,
   },
 ];
@@ -149,7 +149,7 @@ export function SuperadminAccountTabs() {
                   ? 'Profil, şifre, KVKK.'
                   : tab === 'platform'
                     ? 'Kısayollar ve sistem durumu.'
-                    : 'Repo, API ve web URL’leri (referans).'}
+                    : 'DevOps URL’leri ve ders programı PDF için GPT ayarları.'}
               </p>
             </div>
           </div>
