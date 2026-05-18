@@ -44,4 +44,17 @@ PM2 (cluster opsiyonel)
 DB (plan submission sorgu hizi)
 - backend/migrations/add-plan-submission-author-indexes.sql -> canli psql ile (tablolar varsa).
 
+HETZNER (Windows / Cursor ortamı)
+- Bakim + deploy: PROD_SUPERADMIN_TOKEN + cd backend + .\tools\hetzner-deploy-maintained.ps1
+- cd backend
+- .\tools\hetzner-deploy.ps1
+- Ortam: DEPLOY_SSH_HOST (yoksa api.uzaedu.com A), DEPLOY_SSH_USER, DEPLOY_SSH_KEY, DEPLOY_REMOTE_ROOT=/opt/uzaedu
+- SQL (yalniz yeni dosyalar): SSH ile
+  cd /opt/uzaedu/backend && node tools/run-single-migration.js migrations/<dosya>.sql
+- migrate:sql butun migrations/*.sql dosyalarini alfabetik kosar; canlida genelde tek tek run-single-migration kullan.
+
+BAKIM (kullaniciya "guncelleniyor")
+- Web: Superadmin -> Web ayarlari -> Web genis ayarlari -> Bakim modu + mesaj HTML -> ziyaretciler /bakim
+- Uzun deploy oncesi bakim ac, islem bitince kapat. Detay: docs/GUNCELLEME_VE_BAKIM_POLITIKASI.md
+
 Dosya: DEPLOY-LOCAL-TO-PROD.txt

@@ -1,0 +1,32 @@
+---
+description: Canlı (Hetzner) kod deploy, SQL ve bakım — ogretmenpro
+alwaysApply: false
+---
+
+# Canlı güncelleme (Hetzner)
+
+## Kod
+
+- **Push:** `main` → GitHub.
+- **Bakım + deploy (tercih):** `Set-Location c:\UzaMobil\ogretmenpro\backend` → `$env:PROD_SUPERADMIN_TOKEN = "<süperadmin JWT>"` → `.\tools\hetzner-deploy-maintained.ps1` — önce canlıda `maintenance_enabled=true`, ~15 sn bekleme, `hetzner-deploy.ps1`, **yalnız deploy başarılıysa** bakımı kapatır. İsteğe bağlı: `PROD_API_BASE`, `DEPLOY_MAINTENANCE_WAIT_SEC`, `PROD_MAINTENANCE_MESSAGE_HTML`. Bakımsız: `-SkipMaintenance`.
+- **Yalnız SSH deploy:** `.\tools\hetzner-deploy.ps1`
+- **Python:** `cd backend` → `python tools/hetzner_ssh_deploy.py` (aynı env; `--dry-run`, `--playwright-only`).
+- **Ortam:** `DEPLOY_SSH_HOST` yoksa `api.uzaedu.com` A kaydı; `DEPLOY_SSH_USER` varsayılan `root`; `DEPLOY_SSH_KEY` varsayılan `%USERPROFILE%\.ssh\id_rsa_uzaedu` (Linux: `~/.ssh/id_rsa_uzaedu`); `DEPLOY_REMOTE_ROOT` varsayılan `/opt/uzaedu`.
+- Uzakta: `/opt/uzaedu/scripts/deploy/server-deploy.sh` (git pull, `npm ci`, build, pm2 reload) + Playwright betiği.
+
+## SQL (PostgreSQL, tek dosya — prod güvenli)
+
+- Sunucuda: `cd /opt/uzaedu/backend && node tools/run-single-migration.js migrations/<dosya>.sql`
+- Birden fazla dosya: sırayla ayrı komutlar. **`npm run migrate:sql`** tüm `migrations/*.sql` dosyalarını alfabetik koşturur; canlıda genelde **kullanma** (tekrar/çakışma riski).
+- TypeORM `migration:run` ile karıştırma: repo kökündeki `.sql` dosyaları bu Node betiği ile.
+
+## Kullanıcıya “hata değil, güncelleme” (bakım sayfası)
+
+- Zaten var: **Web ayarları → Web geniş ayarları → Bakım modu** (`maintenance_enabled`). Açıkken ziyaretçiler **`/bakim`** sayfasına yönlendirilir; mesaj: `maintenance_message_html` (ör. “Sistem güncelleniyor, kısa süre içinde tekrar deneyin.”).
+- Edge middleware: `web-admin/src/middleware.ts` — `GET /content/web-extras` ile okur; izinli path’ler `maintenance_allowed_*` (süperadmin paneli vb. açık kalabilir).
+- **Önerilen sıra (uzun deploy):** bakımı aç → deploy → SQL gerekirse → bakımı kapat. Kısa pm2 reload’da çoğu zaman atlanır.
+
+## Diğer
+
+- Panel: `POST /api/deploy` (canlıda `DEPLOY_ENABLED`, `DEPLOY_SECRET`, `DEPLOY_SCRIPT_PATH`).
+- `sync-deploy-env-to-remote.ps1` için `DEPLOY_SSH_HOST` **zorunlu** (Hetzner betiklerinden fark).

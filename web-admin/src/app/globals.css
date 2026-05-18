@@ -1160,6 +1160,20 @@ body {
   from { opacity: 0; transform: translateY(14px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+@keyframes bakim-refresh-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: rotate(0deg);
+  }
+  50% {
+    opacity: 0.82;
+    transform: rotate(180deg);
+  }
+}
+.bakim-refresh-icon {
+  animation: bakim-refresh-pulse 2.4s ease-in-out infinite;
+}
 @keyframes landing-auth-overlay {
   from {
     opacity: 0;

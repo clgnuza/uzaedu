@@ -1,0 +1,26 @@
+---
+description: Yerel backend/web-admin başlatma ve tarayıcı açma (ogretmenpro)
+alwaysApply: true
+---
+
+# Yerel sunucular (hızlı başlat)
+
+- **PowerShell:** `&&` kullanma; `Set-Location <path>; <komut>` veya ayrı satırlar.
+- **Backend (Nest):** `Set-Location c:\UzaMobil\ogretmenpro\backend; npm run start:dev` — varsayılan **http://localhost:4000/api** (prefix `api`). Sağlık: **http://localhost:4000/api/health**. Port: `APP_PORT` / `.env` (yoksa 4000). SQLite yerel deneme: `npm run start:dev:sqlite`.
+- **Web admin (Next):** `Set-Location c:\UzaMobil\ogretmenpro\web-admin; npm run dev` — **http://localhost:3000/** (0.0.0.0:3000).
+- **PostgreSQL:** Repo kökü `docker compose up -d` (`docker-compose.yml`); `.env` ile `127.0.0.1:5432`.
+- **Arka plan:** Uzun süren komutlar `block_until_ms: 0`; hazır olunca `AwaitShell` veya terminal çıktısında `Nest application successfully started` / Next `Local:`.
+- **Tarayıcı (Windows):** `cmd /c start "" "http://..."` — `Start-Process` yerine bunu tercih et.
+- **Ön kontrol:** `Invoke-WebRequest -Uri http://127.0.0.1:<port>/... -UseBasicParsing -TimeoutSec 5` ile port cevap veriyor mu bak; sonra `cmd /c start` ile URL aç.
+
+## Kullanıcı tetikleyicisi: backend localhost + aç
+
+Kullanıcı **"bankded/banked/banced/backend localhost başlat ve aç"** (yazım hatalarıyla) derse:
+
+1. **Backend** ve **web-admin** ikisini de başlat (3000 çalışsın diye Next gerekli).
+2. Tarayıcıda **iki URL** aç: `http://localhost:4000/api/health` ve `http://localhost:3000/`.
+
+## Canlı güncelleme (bakım + Hetzner)
+
+- `backend` içinde `$env:PROD_SUPERADMIN_TOKEN` (süperadmin JWT) tanımlı iken: `.\tools\hetzner-deploy-maintained.ps1` — önce bakım açar, deploy sonrası yalnız başarılıysa kapatır. Ayrıntı: `.cursor/rules/canli-guncelleme-hetzner.mdc`.
+

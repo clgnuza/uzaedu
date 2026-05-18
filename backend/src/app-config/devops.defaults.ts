@@ -20,6 +20,9 @@ const DEFAULT_DEPLOY_NOTES = [
   'Demo parola girişi (seed/demo-credentials): sunucu backend .env içinde ALLOW_DEMO_LOGIN=true; DB’de ilgili kullanıcı kaydı olmalı. Üretimde güvenlik riski — geçiş sonrası false yapın veya şifreleri tools/set-user-password.cjs ile değiştirin.',
   'Manuel SSH: ssh -i ~/.ssh/id_rsa_uzaedu root@SUNUCU_IP',
   'Yerel geliştirme: backend npm run start:dev, web-admin npm run dev, DB docker compose up (docker-compose.yml).',
+  'Yerel Windows canlı kod: .\\tools\\hetzner-deploy-maintained.ps1 (PROD_SUPERADMIN_TOKEN ile önce bakım aç, deploy bitince kapat) veya yalnız .\\tools\\hetzner-deploy.ps1 / python tools/hetzner_ssh_deploy.py. Ortam: DEPLOY_SSH_HOST isteğe bağlı (yoksa api.uzaedu.com A kaydı), anahtar varsayılan ~/.ssh/id_rsa_uzaedu.',
+  'Yeni SQL şema dosyaları: sunucuda cd /opt/uzaedu/backend && node tools/run-single-migration.js migrations/<dosya>.sql — tek tek; migrate:sql tüm klasörü alfabetik koşturur (prod’da dikkat).',
+  'Bakım / “güncelleniyor”: Web ayarları → Web geniş ayarları → Bakım modu; ziyaretçiler /bakim. Uzun deploy öncesi açıp bitince kapatın. Politika: docs/GUNCELLEME_VE_BAKIM_POLITIKASI.md',
 ].join('\n');
 
 export const DEFAULT_DEVOPS: DevOpsConfig = {
