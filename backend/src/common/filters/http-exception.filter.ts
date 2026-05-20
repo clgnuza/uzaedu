@@ -63,6 +63,8 @@ const CODE_MESSAGES: Record<string, string> = {
   PDF_LOW_CONFIDENCE: 'PDF güven skoru düşük; yanlış veri riski. Excel ile devam edin.',
   PDF_USE_GPT_MODE: 'PDF için aşağıdaki «e-Okul / GPT ile yükle» bölümünü kullanın.',
   GPT_TEXT_TOO_SHORT: 'Dosyada GPT için yeterli tablo metni yok. Taranmış PDF veya boş sayfa olabilir.',
+  GPT_RECONCILE_FILES_REQUIRED: 'GPT uzlaştırma için e-Okul PDF (öğretmen) ve Excel (kurumsal program) birlikte gerekli.',
+  GPT_RECONCILE_REQUIRES_PAIR: 'Tek PDF yerine PDF + Excel çiftini «e-Okul / GPT ile yükle» alanından gönderin.',
 };
 
 export interface ErrorResponseBody {

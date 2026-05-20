@@ -1294,7 +1294,7 @@ export default function SchoolDetailPage() {
             {placementV3 ? (
               <div className="space-y-1.5">
                 <p className="text-xs text-muted-foreground">
-                  {`{ "v": 3, "tracks": [ { "id", "title", "program?", "language?", "years": [ { "year", "with_exam", "without_exam", "contingent", "tbs", "min_taban" } ] } ] }`}
+                  {`{ "v": 3, "tracks": [ { "id", "title", "programı", "language?", "years": [ { "year", "with_exam", "without_exam", "contingent", "tbs", "min_taban" } ] } ] }`}
                 </p>
                 <textarea
                   className="min-h-[200px] w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-[11px] leading-relaxed sm:text-xs"

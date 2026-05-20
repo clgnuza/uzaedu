@@ -26,32 +26,37 @@ function fmtDate(s: string): string {
 }
 
 type Props = {
+  /** Üst sayfa zaten yüklüyorsa tekrar GET yapma */
+  plans?: SchoolTimetablePlanRow[];
   /** Okul programı kartı içinde: dış Card sarmalayıcı kullanılmaz */
   embedded?: boolean;
   onChanged?: () => void;
 };
 
-export function SchoolTimetableDraftsPanel({ embedded, onChanged }: Props) {
+export function SchoolTimetableDraftsPanel({ plans: plansProp, embedded, onChanged }: Props) {
   const { token, me } = useAuth();
-  const [plans, setPlans] = useState<SchoolTimetablePlanRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [localPlans, setLocalPlans] = useState<SchoolTimetablePlanRow[]>([]);
+  const [localLoading, setLocalLoading] = useState(!plansProp);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const isAdmin = me?.role === 'school_admin';
+  const useExternalPlans = plansProp !== undefined;
+  const plans = useExternalPlans ? plansProp : localPlans;
+  const loading = useExternalPlans ? false : localLoading;
   const drafts = useMemo(() => plans.filter((p) => p.status === 'draft'), [plans]);
 
   const load = useCallback(async () => {
-    if (!token || !isAdmin) return;
-    setLoading(true);
+    if (useExternalPlans || !token || !isAdmin) return;
+    setLocalLoading(true);
     try {
       const list = await apiFetch<SchoolTimetablePlanRow[]>('/teacher-timetable/plans', { token });
-      setPlans(Array.isArray(list) ? list : []);
+      setLocalPlans(Array.isArray(list) ? list : []);
     } catch {
-      setPlans([]);
+      setLocalPlans([]);
     } finally {
-      setLoading(false);
+      setLocalLoading(false);
     }
-  }, [token, isAdmin]);
+  }, [token, isAdmin, useExternalPlans]);
 
   useEffect(() => {
     void load();
@@ -114,7 +119,7 @@ export function SchoolTimetableDraftsPanel({ embedded, onChanged }: Props) {
                   <Button size="sm" variant="outline" className="h-8 gap-1 px-2" asChild>
                     <Link href={`/ders-programi/olustur?plan=${encodeURIComponent(p.id)}`}>
                       <ExternalLink className="size-3.5" />
-                      Yayınla
+                      Aç
                     </Link>
                   </Button>
                   <Button

@@ -13,7 +13,12 @@ Paket içeriği (örnek `i-kilit-pardus-etap.zip` ile benzer **klasör düzeni**
 - `chromium-policy-managed.json` — URL allowlist + kiosk sıkılaştırma  
 - `install.sh` / `uninstall.sh` — doğrudan veya Make ile  
 - Başlatıcı: `xset` varsa DPMS kapatır; `CHROME_EXTRA_FLAGS` (`ogretmenpro-tahta.conf`)
+- URL: `kiosk=1` + `kilit=1` (duyuru varsayılan); `usb=1` kullanılmaz.
 
-**Tahta kilidi:** `kilit=1` ile arayüzde yalnızca okul duyuru slaytları döner; öğretmen/idare PIN’i olmadan USB akışında veri zaten sunucuda kapalıdır. Tam cihaz güvenliği için BIOS, ayrı kullanıcı ve VLAN şarttır.
+**Tahta kilidi:** `kilit=1` → duyuru slaytı; öğretmen QR onayı → kullanım modu.
 
-Sunucu tarafında **TV izinli IP listesi** ve **kayıtlı cihaz** doğrulaması kullanılmalıdır; bu klasör şablon dokümantasyonudur — gerçek conf ZIP panelden iner.
+**İki kurulum yolu:** (1) Panelden cihaza özel .deb/ZIP (`school_id` + `device_id` conf içinde). (2) Tarayıcıda `setup=1&school_code=…` ile web kurulum ekranı (yeni sınıf kaydı).
+
+**Zorunlu:** Panel → Duyuru TV → **izinli IP listesi** dolu olmalı; yoksa tahta QR/duyuru istekleri reddedilir (kurulum ekranı hariç).
+
+Gerçek conf paketleri panelden indirilir.

@@ -318,6 +318,23 @@ export class School {
   @Column({ name: 'smart_board_auto_disconnect_lesson_end', type: 'boolean', default: false })
   smartBoardAutoDisconnectLessonEnd: boolean;
 
+  /** Akıllı Tahta: Saha kurulum / ilk açılış eşleme kodu (6–8 karakter, okul başına tekil). */
+  @Column({ name: 'smart_board_setup_code', type: 'varchar', length: 8, nullable: true })
+  smartBoardSetupCode: string | null;
+
+  /** QR onayında aynı tahtadaki önceki öğretmen oturumunu otomatik sonlandır. */
+  @Column({ name: 'smart_board_release_previous_on_qr', type: 'boolean', default: true })
+  smartBoardReleasePreviousOnQr: boolean;
+
+  @Column({ name: 'smart_board_default_kiosk', type: 'boolean', default: true })
+  smartBoardDefaultKiosk: boolean;
+
+  @Column({ name: 'smart_board_default_kilit', type: 'boolean', default: true })
+  smartBoardDefaultKilit: boolean;
+
+  @Column({ name: 'smart_board_notify_on_qr_takeover', type: 'boolean', default: true })
+  smartBoardNotifyOnQrTakeover: boolean;
+
   /** Nöbet modülü: Varsayılan nöbet başlangıç saati (HH:mm). Örn: 08:00 – ilk ders -30 dk. */
   @Column({ name: 'duty_start_time', type: 'varchar', length: 5, nullable: true })
   duty_start_time: string | null;

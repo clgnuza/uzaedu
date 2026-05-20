@@ -32,6 +32,10 @@ export class SorumlulukSession {
   @Column({ name: 'session_type', type: 'varchar', length: 20, default: 'yazili' })
   sessionType: 'yazili' | 'uygulama' | 'mixed';
 
+  /** mixed (yazılı) oturumunun ertesi gün uygulama oturumu */
+  @Column({ name: 'paired_session_id', type: 'uuid', nullable: true })
+  pairedSessionId: string | null;
+
   @Column({ type: 'varchar', length: 20, default: 'planned' })
   status: 'planned' | 'active' | 'completed' | 'cancelled';
 

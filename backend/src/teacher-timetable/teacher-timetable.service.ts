@@ -12,10 +12,23 @@ import { TeacherPersonalProgram } from './entities/teacher-personal-program.enti
 import { TeacherPersonalProgramEntry } from './entities/teacher-personal-program-entry.entity';
 import { SchoolTimetablePlan } from './entities/school-timetable-plan.entity';
 import { SchoolTimetablePlanEntry } from './entities/school-timetable-plan-entry.entity';
+import { SchoolClassTimetableEntry } from './entities/school-class-timetable-entry.entity';
+import {
+  coalesceEntryClassSubject,
+  deriveClassScheduleFromTeacherRows,
+  normalizeClassSectionForStorage,
+  type TeacherRowForClassSync,
+} from './class-timetable';
 import { User } from '../users/entities/user.entity';
 import { School } from '../schools/entities/school.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AppConfigService } from '../app-config/app-config.service';
+import {
+  parseEokulInstitutionalXls,
+  parseEokulTeacherPdf,
+  reconcileDeterministic,
+  type ReconcileDeterministicStats,
+} from './timetable-reconcile';
 
 const DAY_ALIASES: Record<string, number> = {
   '1': 1,
@@ -49,6 +62,9 @@ export interface UploadResult {
   imported: number;
   errors: string[];
   plan_id?: string;
+  preview?: boolean;
+  entries?: TimetableEntry[];
+  reconcile_stats?: ReconcileDeterministicStats;
 }
 
 export interface TimetablePlanDto {
@@ -90,6 +106,8 @@ export class TeacherTimetableService {
     private readonly planRepo: Repository<SchoolTimetablePlan>,
     @InjectRepository(SchoolTimetablePlanEntry)
     private readonly planEntryRepo: Repository<SchoolTimetablePlanEntry>,
+    @InjectRepository(SchoolClassTimetableEntry)
+    private readonly classEntryRepo: Repository<SchoolClassTimetableEntry>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     @InjectRepository(School)
@@ -124,6 +142,43 @@ export class TeacherTimetableService {
     }
     if (resolved > 0) await this.planEntryRepo.save(pending);
     return resolved;
+  }
+
+  private normalizeTimetableEntryForStorage(e: TimetableEntry): TimetableEntry {
+    const { class_section, subject } = coalesceEntryClassSubject(
+      String(e.class_section ?? ''),
+      String(e.subject ?? ''),
+    );
+    return {
+      ...e,
+      class_section,
+      subject,
+    };
+  }
+
+  private async syncClassScheduleForPlan(
+    schoolId: string,
+    planId: string,
+    teacherRows: TeacherRowForClassSync[],
+  ): Promise<string[]> {
+    const { entries, warnings } = deriveClassScheduleFromTeacherRows(teacherRows);
+    await this.classEntryRepo.delete({ plan_id: planId });
+    if (entries.length === 0) return warnings;
+    await this.classEntryRepo.save(
+      entries.map((e) =>
+        this.classEntryRepo.create({
+          plan_id: planId,
+          school_id: schoolId,
+          day_of_week: e.day_of_week,
+          lesson_num: e.lesson_num,
+          class_section: e.class_section,
+          subject: e.subject,
+          user_id: e.user_id,
+          teacher_name: e.teacher_name,
+        }),
+      ),
+    );
+    return warnings;
   }
 
   private async autoArchiveExpiredPlans(schoolId: string, date: string): Promise<void> {
@@ -211,23 +266,25 @@ export class TeacherTimetableService {
     const dateStr = (date ?? new Date().toISOString().slice(0, 10)).slice(0, 10);
     const planId = await this.getActivePlanIdForDate(schoolId, dateStr);
     if (!planId) return [];
-    const where: Record<string, unknown> = { school_id: schoolId, plan_id: planId };
+    const planEntries = await this.getPlanEntriesAsTimetableEntries(planId);
+    if (planEntries.length > 0) {
+      return planEntries.map((e) => this.normalizeTimetableEntryForStorage(e));
+    }
     const rows = await this.repo.find({
-      where,
+      where: { school_id: schoolId, plan_id: planId },
       select: ['day_of_week', 'lesson_num', 'user_id', 'class_section', 'subject', 'teacher_name_raw'],
       order: { day_of_week: 'ASC', lesson_num: 'ASC', class_section: 'ASC' },
     });
-    if (rows.length === 0 && planId) {
-      return this.getPlanEntriesAsTimetableEntries(planId);
-    }
-    return rows.map((r) => ({
-      day_of_week: r.day_of_week,
-      lesson_num: r.lesson_num,
-      user_id: r.user_id,
-      class_section: r.class_section,
-      subject: r.subject,
-      teacher_name_raw: r.teacher_name_raw ?? null,
-    }));
+    return rows.map((r) =>
+      this.normalizeTimetableEntryForStorage({
+        day_of_week: r.day_of_week,
+        lesson_num: r.lesson_num,
+        user_id: r.user_id,
+        class_section: r.class_section,
+        subject: r.subject,
+        teacher_name_raw: r.teacher_name_raw ?? null,
+      }),
+    );
   }
 
   /**
@@ -379,8 +436,34 @@ export class TeacherTimetableService {
     if (dayOfWeek < 1 || dayOfWeek > 5) return null;
     const planId = await this.getActivePlanIdForDate(schoolId, dateStr);
     if (!planId && (await this.hasAnyPlanHistory(schoolId))) return null;
-    const cs = (classSection || '').trim();
+    const cs = normalizeClassSectionForStorage(classSection);
     if (!cs) return null;
+
+    if (planId) {
+      const classRows = await this.classEntryRepo
+        .createQueryBuilder('c')
+        .leftJoinAndSelect('c.user', 'u')
+        .where('c.school_id = :schoolId', { schoolId })
+        .andWhere('c.plan_id = :planId', { planId })
+        .andWhere('c.day_of_week = :dayOfWeek', { dayOfWeek })
+        .andWhere('c.lesson_num = :lessonNum', { lessonNum })
+        .andWhere('LOWER(TRIM(c.class_section)) = LOWER(:cs)', { cs })
+        .getMany();
+      const classRow = classRows.find((r) => r.user_id) ?? classRows[0];
+      if (classRow) {
+        const teacher_name =
+          classRow.user?.display_name?.trim() ||
+          classRow.user?.email ||
+          classRow.teacher_name ||
+          '—';
+        return {
+          user_id: classRow.user_id ? String(classRow.user_id) : '',
+          subject: classRow.subject ?? '',
+          teacher_name,
+        };
+      }
+    }
+
     const qb = this.repo
       .createQueryBuilder('t')
       .innerJoinAndSelect('t.user', 'u')
@@ -408,12 +491,36 @@ export class TeacherTimetableService {
     schoolId: string,
     classSection: string,
   ): Promise<{ day_of_week: number; lesson_num: number; user_id: string; subject: string; teacher_name: string }[]> {
-    const cs = (classSection || '').trim();
+    const cs = normalizeClassSectionForStorage(classSection);
     if (!cs) return [];
     const today = new Date().toISOString().slice(0, 10);
     const planId = await this.getActivePlanIdForDate(schoolId, today);
     if (!planId && (await this.hasAnyPlanHistory(schoolId))) return [];
     const maxLessons = await this.getMaxLessons(schoolId);
+
+    if (planId) {
+      const classRows = await this.classEntryRepo
+        .createQueryBuilder('c')
+        .leftJoinAndSelect('c.user', 'u')
+        .where('c.school_id = :schoolId', { schoolId })
+        .andWhere('c.plan_id = :planId', { planId })
+        .andWhere('c.day_of_week BETWEEN 1 AND 5')
+        .andWhere('c.lesson_num BETWEEN 1 AND :max', { max: maxLessons })
+        .andWhere('LOWER(TRIM(c.class_section)) = LOWER(:cs)', { cs })
+        .orderBy('c.day_of_week')
+        .addOrderBy('c.lesson_num')
+        .getMany();
+      if (classRows.length > 0) {
+        return classRows.map((r) => ({
+          day_of_week: r.day_of_week,
+          lesson_num: r.lesson_num,
+          user_id: r.user_id ? String(r.user_id) : '',
+          subject: r.subject ?? '',
+          teacher_name: r.user?.display_name?.trim() || r.user?.email || r.teacher_name || '—',
+        }));
+      }
+    }
+
     const qb = this.repo
       .createQueryBuilder('t')
       .innerJoinAndSelect('t.user', 'u')
@@ -431,6 +538,23 @@ export class TeacherTimetableService {
       subject: r.subject ?? '',
       teacher_name: r.user?.display_name?.trim() || r.user?.email || '—',
     }));
+  }
+
+  /** Sınıfta ders veren öğretmen user_id listesi (QR bildirimi için). */
+  async getTeacherUserIdsForClassSection(schoolId: string, classSection: string): Promise<string[]> {
+    const cs = classSection?.trim();
+    if (!schoolId || !cs) return [];
+    const today = new Date().toISOString().slice(0, 10);
+    const planId = await this.getActivePlanIdForDate(schoolId, today);
+    const qb = this.repo
+      .createQueryBuilder('t')
+      .select('DISTINCT t.user_id', 'user_id')
+      .where('t.school_id = :schoolId', { schoolId })
+      .andWhere('LOWER(TRIM(t.class_section)) = LOWER(:cs)', { cs });
+    if (planId) qb.andWhere('t.plan_id = :planId', { planId });
+    else qb.andWhere('t.plan_id IS NULL');
+    const rows = await qb.getRawMany<{ user_id: string }>();
+    return [...new Set(rows.map((r) => String(r.user_id)).filter(Boolean))];
   }
 
   /** Öğretmenin ders verdiği sınıflar (Akıllı Tahta restrict için). */
@@ -458,6 +582,20 @@ export class TeacherTimetableService {
     const today = new Date().toISOString().slice(0, 10);
     const planId = await this.getActivePlanIdForDate(schoolId, today);
     if (!planId && (await this.hasAnyPlanHistory(schoolId))) return [];
+    if (planId) {
+      const classRows = await this.classEntryRepo
+        .createQueryBuilder('c')
+        .select('DISTINCT TRIM(c.class_section)', 'class_section')
+        .where('c.school_id = :schoolId', { schoolId })
+        .andWhere('c.plan_id = :planId', { planId })
+        .getRawMany<{ class_section: string }>();
+      if (classRows.length > 0) {
+        return classRows
+          .map((r) => r.class_section?.trim() ?? '')
+          .filter(Boolean)
+          .sort((a, b) => a.localeCompare(b, 'tr'));
+      }
+    }
     const qb = this.repo
       .createQueryBuilder('t')
       .select('DISTINCT TRIM(t.class_section)', 'class_section')
@@ -467,7 +605,7 @@ export class TeacherTimetableService {
     if (planId) qb.andWhere('t.plan_id = :planId', { planId });
     else qb.andWhere('t.plan_id IS NULL');
     const rows = await qb.getRawMany<{ class_section: string }>();
-    return rows.map((r) => r.class_section?.trim() ?? '').filter(Boolean).sort();
+    return rows.map((r) => r.class_section?.trim() ?? '').filter(Boolean).sort((a, b) => a.localeCompare(b, 'tr'));
   }
 
   /** Okuldaki maksimum ders saati (6–12). Veri yoksa 8. Bugün geçerli plana göre. */
@@ -661,18 +799,26 @@ export class TeacherTimetableService {
   }
 
   /** Okul öğretmenlerini email veya display_name ile eşleştir */
-  private async matchTeacher(schoolId: string, raw: string): Promise<string | null> {
-    const trim = String(raw ?? '').trim();
-    if (!trim) return null;
-    const normalized = this.normalizeForMatch(trim);
-    const compact = normalized.replace(/\s+/g, '');
-    const normalizedTokens = normalized.split(' ').filter(Boolean);
-    const users = await this.userRepo
+  private async loadTeachersForMatch(
+    schoolId: string,
+  ): Promise<Array<Pick<User, 'id' | 'email' | 'display_name'>>> {
+    return this.userRepo
       .createQueryBuilder('u')
       .select(['u.id', 'u.email', 'u.display_name'])
       .where('(u.school_id = :schoolId OR u.teacher_assignment_school_id = :schoolId)', { schoolId })
       .andWhere('u.role IN (:...roles)', { roles: ['teacher', 'school_admin'] })
       .getMany();
+  }
+
+  private matchTeacherFromList(
+    users: Array<Pick<User, 'id' | 'email' | 'display_name'>>,
+    raw: string,
+  ): string | null {
+    const trim = String(raw ?? '').trim();
+    if (!trim) return null;
+    const normalized = this.normalizeForMatch(trim);
+    const compact = normalized.replace(/\s+/g, '');
+    const normalizedTokens = normalized.split(' ').filter(Boolean);
 
     let best: { id: string; score: number } | null = null;
     for (const u of users) {
@@ -697,6 +843,11 @@ export class TeacherTimetableService {
     }
     if (best && best.score >= 0.6) return best.id;
     return null;
+  }
+
+  private async matchTeacher(schoolId: string, raw: string): Promise<string | null> {
+    const users = await this.loadTeachersForMatch(schoolId);
+    return this.matchTeacherFromList(users, raw);
   }
 
   private parseDay(val: unknown): number | null {
@@ -859,6 +1010,17 @@ export class TeacherTimetableService {
     return this.parseGptTimetableJson(text);
   }
 
+  /** Önizleme sonrası kullanıcı onayıyla taslak oluşturur (dosya yeniden yüklenmez). */
+  async saveDraftFromPreviewEntries(
+    schoolId: string | null,
+    entries: TimetableEntry[],
+    errors: string[] = [],
+  ): Promise<UploadResult> {
+    if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    const normalized = (entries ?? []).map((e) => this.normalizeTimetableEntryForStorage(e));
+    return this.saveDraftTimetablePlan(schoolId, normalized, errors);
+  }
+
   private async saveDraftTimetablePlan(schoolId: string, toInsert: TimetableEntry[], errors: string[]): Promise<UploadResult> {
     if (toInsert.length === 0) {
       throw new BadRequestException({
@@ -886,18 +1048,22 @@ export class TeacherTimetableService {
     });
     await this.planRepo.save(plan);
 
-    const entries = toInsert.map((e) =>
+    const normalized = toInsert.map((e) => this.normalizeTimetableEntryForStorage(e));
+    const entries = normalized.map((e) =>
       this.planEntryRepo.create({
         plan_id: plan.id,
         user_id: e.user_id,
         teacher_name_raw: e.teacher_name_raw ? String(e.teacher_name_raw).trim().slice(0, 160) : null,
         day_of_week: e.day_of_week,
         lesson_num: e.lesson_num,
-        class_section: String(e.class_section ?? '').trim().slice(0, 32),
-        subject: String(e.subject ?? '').trim().slice(0, 128),
+        class_section: e.class_section,
+        subject: e.subject,
       }),
     );
     await this.planEntryRepo.save(entries);
+
+    const classWarnings = await this.syncClassScheduleForPlan(schoolId, plan.id, normalized);
+    for (const w of classWarnings.slice(0, 20)) errors.push(w);
 
     return { imported: entries.length, errors, plan_id: plan.id };
   }
@@ -933,8 +1099,12 @@ export class TeacherTimetableService {
     return joined.length > max ? `${joined.slice(0, max)}\n\n[...kısaltıldı]` : joined;
   }
 
-  /** PDF veya Excel’den üretilmiş tablo metni → GPT → taslak. */
-  private async uploadFromPlainTextWithGpt(schoolId: string, plainText: string): Promise<UploadResult> {
+  /** PDF veya Excel’den üretilmiş tablo metni → GPT → önizleme veya taslak. */
+  private async uploadFromPlainTextWithGpt(
+    schoolId: string,
+    plainText: string,
+    options?: { preview?: boolean },
+  ): Promise<UploadResult> {
     const trimmed = plainText.trim();
     const normalizedText = trimmed.replace(/\s+/g, ' ').trim();
     if (normalizedText.length < 40) {
@@ -1019,20 +1189,127 @@ export class TeacherTimetableService {
       const key = `${userId ?? teacherStr}|${day}|${lesson}|${classSection}|${subject}`;
       if (dedupe.has(key)) continue;
       dedupe.add(key);
-      toInsert.push({
-        day_of_week: day,
-        lesson_num: lesson,
-        user_id: userId ?? null,
-        class_section: classSection,
-        subject,
-        teacher_name_raw: userId ? null : teacherStr,
-      });
+      toInsert.push(
+        this.normalizeTimetableEntryForStorage({
+          day_of_week: day,
+          lesson_num: lesson,
+          user_id: userId ?? null,
+          class_section: classSection,
+          subject,
+          teacher_name_raw: userId ? null : teacherStr,
+        }),
+      );
+    }
+
+    if (options?.preview) {
+      return {
+        preview: true,
+        imported: toInsert.length,
+        errors,
+        entries: toInsert.map((e) => this.normalizeTimetableEntryForStorage(e)),
+      };
     }
 
     return this.saveDraftTimetablePlan(schoolId, toInsert, errors);
   }
 
-  private async uploadFromPdfWithGpt(schoolId: string, filePath: string): Promise<UploadResult> {
+  /**
+   * e-Okul: PDF (öğretmen) + XLS (kurumsal) → deterministik uzlaştırma → önizleme veya taslak.
+   */
+  async uploadFromGptReconcile(
+    schoolId: string,
+    pdfPath: string,
+    xlsPath: string,
+    options?: { preview?: boolean },
+  ): Promise<UploadResult> {
+    const { records: xlsRecords } = parseEokulInstitutionalXls(xlsPath);
+    if (xlsRecords.length < 5) {
+      throw new BadRequestException({
+        code: 'GPT_TEXT_TOO_SHORT',
+        message: 'Excel kurumsal tablosunda yeterli dolu hücre yok.',
+      });
+    }
+
+    let pdfParsed: Awaited<ReturnType<typeof parseEokulTeacherPdf>>;
+    try {
+      pdfParsed = await parseEokulTeacherPdf(pdfPath);
+    } catch {
+      throw new BadRequestException({
+        code: 'PDF_PARSE_FAILED',
+        message: 'PDF okunamadı.',
+      });
+    }
+    if (pdfParsed.teachers.length === 0) {
+      throw new BadRequestException({
+        code: 'PDF_TEXT_TOO_SHORT',
+        message: 'PDF’te öğretmen sayfası bulunamadı (Öğretmen Adı Soyadı satırı).',
+      });
+    }
+
+    const { flat, stats, warnings } = reconcileDeterministic(pdfParsed.teachers, xlsRecords);
+    if (flat.length === 0) {
+      throw new BadRequestException({
+        code: 'NO_VALID_ROWS',
+        message: warnings[0] ?? 'PDF ve Excel birleştirildikten sonra ders satırı çıkmadı.',
+      });
+    }
+
+    const schoolTeachers = await this.loadTeachersForMatch(schoolId);
+    const teacherCache = new Map<string, string | null>();
+    const matchCached = (name: string) => {
+      const key = name.trim();
+      if (!teacherCache.has(key)) {
+        teacherCache.set(key, this.matchTeacherFromList(schoolTeachers, key));
+      }
+      return teacherCache.get(key) ?? null;
+    };
+
+    const errors: string[] = warnings.map((w) => `Uyarı: ${w}`);
+    const unmatchedTeachers = new Set<string>();
+    const toInsert: TimetableEntry[] = [];
+    const dedupe = new Set<string>();
+
+    for (const r of flat) {
+      const userId = matchCached(r.teacher_name);
+      if (!userId) unmatchedTeachers.add(r.teacher_name);
+      const key = `${userId ?? r.teacher_name}|${r.day}|${r.lesson_num}|${r.class_section}|${r.subject}`;
+      if (dedupe.has(key)) continue;
+      dedupe.add(key);
+      toInsert.push(
+        this.normalizeTimetableEntryForStorage({
+          day_of_week: r.day,
+          lesson_num: r.lesson_num,
+          user_id: userId ?? null,
+          class_section: r.class_section,
+          subject: r.subject,
+          teacher_name_raw: userId ? null : r.teacher_name,
+        }),
+      );
+    }
+
+    const unmatchedList = [...unmatchedTeachers];
+    for (const name of unmatchedList.slice(0, 40)) {
+      errors.push(`Öğretmen eşleşmedi (${name})`);
+    }
+    if (unmatchedList.length > 40) {
+      errors.push(`… ve ${unmatchedList.length - 40} öğretmen daha sistemde bulunamadı`);
+    }
+
+    if (options?.preview) {
+      return {
+        preview: true,
+        imported: toInsert.length,
+        errors,
+        entries: toInsert,
+        reconcile_stats: stats,
+      };
+    }
+
+    const saved = await this.saveDraftTimetablePlan(schoolId, toInsert, errors);
+    return { ...saved, reconcile_stats: stats };
+  }
+
+  private async uploadFromPdfWithGpt(schoolId: string, filePath: string, options?: { preview?: boolean }): Promise<UploadResult> {
     let pdfText = '';
     let parser: InstanceType<typeof PDFParse> | null = null;
     try {
@@ -1058,19 +1335,22 @@ export class TeacherTimetableService {
         message: 'PDF içinde yeterli metin yok (taranmış görüntü olabilir). GPT için Excel dışa aktarımı veya şablon deneyin.',
       });
     }
-    return this.uploadFromPlainTextWithGpt(schoolId, pdfText);
+    return this.uploadFromPlainTextWithGpt(schoolId, pdfText, options);
   }
 
   async uploadFromExcel(
     schoolId: string | null,
     filePath: string,
     mode: 'template' | 'gpt' = 'template',
+    options?: { preview?: boolean },
   ): Promise<UploadResult> {
     if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     const ext = path.extname(filePath).toLowerCase();
 
     if (mode === 'gpt') {
-      if (ext === '.pdf') return this.uploadFromPdfWithGpt(schoolId, filePath);
+      if (ext === '.pdf') {
+        return this.uploadFromPdfWithGpt(schoolId, filePath, options);
+      }
       if (ext === '.xlsx' || ext === '.xls') {
         let text: string;
         try {
@@ -1085,7 +1365,7 @@ export class TeacherTimetableService {
             message: 'Excel’de yeterli tablo metni yok. Sayfaların dolu olduğundan emin olun veya PDF kullanın.',
           });
         }
-        return this.uploadFromPlainTextWithGpt(schoolId, t);
+        return this.uploadFromPlainTextWithGpt(schoolId, t, options);
       }
       throw new BadRequestException({
         code: 'INVALID_FILE_TYPE',
@@ -1192,7 +1472,12 @@ export class TeacherTimetableService {
       }
     }
 
-    return this.saveDraftTimetablePlan(schoolId, toInsert, errors);
+    const normalized = toInsert.map((e) => this.normalizeTimetableEntryForStorage(e));
+    if (options?.preview) {
+      return { preview: true, imported: normalized.length, errors, entries: normalized };
+    }
+
+    return this.saveDraftTimetablePlan(schoolId, normalized, errors);
   }
 
   /** Taslak plan listesi (school_admin); son taslaklar önce. */
@@ -1236,14 +1521,16 @@ export class TeacherTimetableService {
       relations: ['entries'],
     });
     if (!plan) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Plan bulunamadı.' });
-    const entries: TimetableEntry[] = (plan.entries ?? []).map((e) => ({
-      day_of_week: e.day_of_week,
-      lesson_num: e.lesson_num,
-      user_id: e.user_id,
-      class_section: e.class_section,
-      subject: e.subject,
-      teacher_name_raw: e.teacher_name_raw,
-    }));
+    const entries: TimetableEntry[] = (plan.entries ?? []).map((e) =>
+      this.normalizeTimetableEntryForStorage({
+        day_of_week: e.day_of_week,
+        lesson_num: e.lesson_num,
+        user_id: e.user_id,
+        class_section: e.class_section,
+        subject: e.subject,
+        teacher_name_raw: e.teacher_name_raw,
+      }),
+    );
     return {
       id: plan.id,
       name: plan.name,
@@ -1324,7 +1611,18 @@ export class TeacherTimetableService {
     }
     if (toArchive.length) await this.planRepo.save(toArchive);
 
-    const entries = plan.entries ?? [];
+    await this.repo.delete({ school_id: schoolId, plan_id: planId });
+
+    const entries = (plan.entries ?? []).map((e) =>
+      this.normalizeTimetableEntryForStorage({
+        day_of_week: e.day_of_week,
+        lesson_num: e.lesson_num,
+        user_id: e.user_id,
+        class_section: e.class_section,
+        subject: e.subject,
+        teacher_name_raw: e.teacher_name_raw,
+      }),
+    );
     const ttEntities = entries.map((e) =>
       this.repo.create({
         school_id: schoolId,
@@ -1338,6 +1636,24 @@ export class TeacherTimetableService {
       }),
     );
     await this.repo.save(ttEntities);
+    await this.syncClassScheduleForPlan(
+      schoolId,
+      planId,
+      entries.map((e) => ({
+        day_of_week: e.day_of_week,
+        lesson_num: e.lesson_num,
+        class_section: e.class_section,
+        subject: e.subject,
+        user_id: e.user_id,
+        teacher_name_raw: e.teacher_name_raw,
+      })),
+    );
+    for (let i = 0; i < (plan.entries ?? []).length && i < entries.length; i++) {
+      const pe = plan.entries![i]!;
+      pe.class_section = entries[i]!.class_section;
+      pe.subject = entries[i]!.subject;
+    }
+    await this.planEntryRepo.save(plan.entries ?? []);
 
     plan.valid_from = vFrom;
     plan.valid_until = vUntil;
@@ -1875,7 +2191,24 @@ export class TeacherTimetableService {
       ],
     });
     if (!school) return null;
-    const rows = await this.getBySchool(schoolId);
+    const today = new Date().toISOString().slice(0, 10);
+    const planId = await this.getActivePlanIdForDate(schoolId, today);
+    const classRows =
+      planId != null
+        ? await this.classEntryRepo.find({
+            where: { school_id: schoolId, plan_id: planId },
+            order: { day_of_week: 'ASC', lesson_num: 'ASC', class_section: 'ASC' },
+          })
+        : [];
+    const rows =
+      classRows.length > 0
+        ? classRows.map((r) => ({
+            day_of_week: r.day_of_week,
+            lesson_num: r.lesson_num,
+            class_section: r.class_section,
+            subject: r.subject,
+          }))
+        : await this.getBySchool(schoolId);
     const toHHMM = (t: string) => {
       const s = String(t || '').trim();
       const m = s.match(/^(\d{1,2}):(\d{2})/);
@@ -1902,7 +2235,7 @@ export class TeacherTimetableService {
       const day = r.day_of_week;
       if (day < 1 || day > 7) continue;
       const lesson = r.lesson_num;
-      const cls = (r.class_section || '').trim();
+      const cls = normalizeClassSectionForStorage(r.class_section) || (r.class_section || '').trim();
       const subj = (r.subject || '').trim();
       if (!cls || !subj) continue;
       const k = `${day}|${lesson}|${cls}`;

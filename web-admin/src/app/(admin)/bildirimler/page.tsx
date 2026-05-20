@@ -33,6 +33,7 @@ import {
 import { ToolbarIconHints, type ToolbarHintItem } from '@/components/layout/toolbar-icon-hints';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
+import { smartBoardNotificationHref } from '@/lib/smart-board-notification-link';
 import { emitNotificationsUpdated } from '@/hooks/use-duty-notifications-unread';
 import { Toolbar, ToolbarHeading, ToolbarPageTitle } from '@/components/layout/toolbar';
 import { Card, CardContent } from '@/components/ui/card';
@@ -81,6 +82,7 @@ const EVENT_LABELS: Record<string, string> = {
   'announcement.created': 'Duyuru',
   'smart_board.disconnected_by_admin': 'Tahta bağlantısı kesildi',
   'smart_board.session_ended_by_admin': 'Tahta oturumu sonlandı',
+  'smart_board.qr_pending': 'Tahta QR onayı bekliyor',
   'exam_duty.open': 'Sınav görevi açıldı',
   'exam_duty.lastday': 'Sınav görevi son başvuru',
   'exam_duty.approval_day': 'Sınav görevi onay günü',
@@ -121,7 +123,11 @@ const DUTY_DAILY_EVENT_TYPES = ['duty.reassigned', 'duty.coverage_assigned', 'du
 const BELIRLI_GUN_EVENT_TYPES = ['belirli_gun_hafta.assigned', 'belirli_gun_hafta.reminder', 'belirli_gun_hafta.notification_sent'];
 const BILSEM_CALENDAR_EVENT_TYPES = ['bilsem_calendar.assigned', 'bilsem_calendar.notification_sent'];
 const AGENDA_EVENT_TYPES = ['agenda.school_event_added', 'agenda.reminder'];
-const SMART_BOARD_EVENT_TYPES = ['smart_board.disconnected_by_admin', 'smart_board.session_ended_by_admin'];
+const SMART_BOARD_EVENT_TYPES = [
+  'smart_board.disconnected_by_admin',
+  'smart_board.session_ended_by_admin',
+  'smart_board.qr_pending',
+];
 const MARKET_EVENT_TYPES = ['market.school_credit_added', 'market.user_credit_added'];
 const YOLLUK_EVENT_TYPES = ['yolluk.calculation_finalized'];
 
@@ -231,7 +237,7 @@ function getNotificationLink(item: NotificationItem): string {
     return '/ogretmen-ajandasi';
   }
   if (SMART_BOARD_EVENT_TYPES.includes(item.event_type) || item.target_screen === 'akilli-tahta') {
-    return '/akilli-tahta';
+    return smartBoardNotificationHref(item);
   }
   if (TIMETABLE_EVENT_TYPES.includes(item.event_type) || item.target_screen === 'ders-programi') {
     return '/ders-programi/programlarim';

@@ -67,7 +67,7 @@ export function buildChromiumManagedPolicyJson(args: {
   )}\n`;
 }
 
-function buildConf(args: {
+export function buildConf(args: {
   panelOrigin: string;
   schoolId: string;
   deviceId: string;
@@ -82,7 +82,6 @@ SCHOOL_ID=${args.schoolId}
 DEVICE_ID=${args.deviceId}
 KIOSK_MODE=${args.kiosk ? '1' : '0'}
 KILIT_MODE=${args.tahtaKilit ? '1' : '0'}
-USB_PIN_FLOW=1
 API_BASE_URL=${args.apiBaseUrl.replace(/\/$/, '')}
 # İsteğe bağlı: ek Chromium bayrakları (boşlukla ayrılmış, tırnak kullanmayın)
 CHROME_EXTRA_FLAGS=
@@ -124,8 +123,7 @@ if [[ "\${API_BASE_URL:-}" != "" && "\${API_BASE_URL}" != http://* && "\${API_BA
   echo "ogretmenpro-tahta: API_BASE_URL http/https olmalı." >&2
   exit 1
 fi
-QS="school_id=\${SCHOOL_ID}&device_id=\${DEVICE_ID}&usb=1"
-[[ "\${USB_PIN_FLOW:-1}" == "1" ]] || QS="school_id=\${SCHOOL_ID}&device_id=\${DEVICE_ID}"
+QS="school_id=\${SCHOOL_ID}&device_id=\${DEVICE_ID}"
 [[ "\${KIOSK_MODE:-1}" == "1" ]] && QS="\${QS}&kiosk=1"
 [[ "\${KILIT_MODE:-1}" == "1" ]] && QS="\${QS}&kilit=1"
 TARGET="\${PO}/tv/classroom?\${QS}"
@@ -196,7 +194,7 @@ extra_flags=""
 if [[ "\$has_zenity" = "1" ]]; then
   zenity --info --title="\$TITLE" --width=520 --height=260 --text="Hos geldiniz.\\n\\nBu sihirbaz 3 adimda kurulum tamamlar:\\n1) Lisans onayi\\n2) Sinif bilgisi\\n3) Ozet ve baslatma" || exit 1
   zenity --text-info --title="\$TITLE - Lisans" --width=620 --height=360 --checkbox="Lisans kosullarini kabul ediyorum" --filename=/dev/stdin <<< "\$LICENSE_TEXT" >/dev/null || exit 1
-  form_out="$(zenity --forms --title="\$TITLE - Sinif Bilgisi" --width=560 --height=280 --add-entry="Sinif Adi" --add-entry="Ek Chromium Bayraklari (ops.)" --text="Sinif adini girin.\\nEk bayrak zorunlu degil.")" || exit 1
+  form_out="$(zenity --forms --title="\$TITLE - Sinif Bilgisi" --width=560 --height=300 --add-entry="Sinif Adi (yerel not)" --add-entry="Ek Chromium Bayraklari (ops.)" --text="Sinif panelde zaten tanimli; burasi yalnizca yerel not.\\nCihaz eslesmesi panelden indirilen .deb/conf ile gelir.")" || exit 1
   class_name="\${form_out%%|*}"
   extra_flags="\${form_out#*|}"
 else
@@ -221,10 +219,13 @@ EOF
 chmod 600 "\$ENV_FILE" || true
 touch "\$DONE_FILE"
 
+if [[ "\${1:-}" == "--from-launcher" ]]; then
+  exec /usr/local/bin/ogretmenpro-tahta-launch
+fi
 if [[ "\$has_zenity" = "1" ]]; then
-  zenity --question --title="\$TITLE - Tamamlandi" --width=520 --text="Kurulum tamamlandi.\\n\\nSinif: \$class_name\\n\\nSimdi tahtayi baslatmak ister misiniz?" && exec /usr/local/bin/ogretmenpro-tahta-launch || exit 0
+  zenity --info --title="\$TITLE - Tamamlandi" --width=520 --text="Kurulum tamamlandi.\\n\\nSinif (yerel not): \$class_name\\n\\nTahtayi menuden veya oturum acilisinda baslatin." || true
 else
-  echo "Kurulum tamamlandi. Sinif: \$class_name"
+  echo "Kurulum tamamlandi. Sinif (yerel not): \$class_name"
 fi
 `;
 
@@ -358,10 +359,13 @@ const ICON_SVG = `<?xml version="1.0" encoding="UTF-8"?>
 `;
 
 const PACKAGES_README = `Bu klasörde .deb üretimi için hazır dosyalar bulunur.
-Hızlı akış:
+Hızlı akış (önerilen):
+1) packages/deb/dist/*.deb dosyasını çift tıklayıp "Pardus Paket Kurucu" ile kurun.
+
+Alternatif (terminal):
 1) cd packages/deb
 2) bash ./build-deb.sh 2.1.0
-3) dist/ogretmenpro-tahta_2.1.0_all.deb dosyasını çift tıklayıp "Pardus Paket Kurucu" ile kurun.
+3) dist/ogretmenpro-tahta_2.1.0_all.deb dosyasını kurun.
 
 Notlar:
 - Tahtada yine Chromium gereklidir: sudo apt install -y chromium x11-xserver-utils
@@ -505,9 +509,9 @@ function buildReadme(deviceLabel: string): string {
 
 ## Ne işe yarar?
 - Chromium yalnızca **okul paneli**, **API** ve (duyuru slaytları için) **YouTube** adreslerine izin verir; diğer siteler politika ile engellenir (tabela / KioWare sınıfı kısıtlama).
-- İlk açılışta modern kurulum sihirbazı çıkar (lisans onayı, sınıf adı, başlatma adımı).
-- \`KILIT_MODE=1\` iken adresde \`kilit=1\`: ekranda **yalnızca okul duyuru slaytları**; yan panel, RSS, hava, alt şeritler ve slayt tıklaması kapalı. PIN ile açılış öğretmen/idare onayıdır.
-- Başlangıç adresi bu tahtaya özel \`/tv/classroom\` + \`school_id\` + \`device_id\` + USB PIN akışıdır.
+- İlk açılışta kurulum sihirbazı (lisans + yerel not); ardından doğrudan Duyuru TV açılır. Yeni cihaz için panelde **Kurulum** sekmesi + \`setup=1&school_code=\` veya panelden cihaza özel .deb kullanın.
+- \`KILIT_MODE=1\` iken adresde \`kilit=1\`: varsayılan **Duyuru TV** (yalnız slayt). Öğretmen panelden QR onayı ile tam TV düzeni açılır; oturum bitince duyuruya döner.
+- Başlangıç: \`/tv/classroom?school_id=…&device_id=…&kiosk=1&kilit=1\` (usb=1 gerekmez).
 - **Tam güvenlik** için ayrıca: TV sayfasında **izinli IP listesi**, ağ VLAN’ı, BIOS/UEFI parolası ve tahta için **ayrı kullanıcı** kullanın.
 
 ## Kurulum (Pardus 23 Etap)
@@ -541,6 +545,19 @@ function buildReadme(deviceLabel: string): string {
 - Paket güncellemesi sonrası \`sudo make install\` yeniden çalıştırın ve policy dosyasını doğrulayın.
 `;
 }
+
+/** .deb paketlemesi için kabuk betikleri */
+export const pardusKioskDebScripts = {
+  LAUNCH_SH,
+  INSTALL_SH,
+  UNINSTALL_SH,
+  DESKTOP,
+  ICON_SVG,
+  SETUP_WIZARD_SH,
+  DIAGNOSTICS_SH,
+  DEB_POSTINST,
+  DEB_PRERM,
+} as const;
 
 export async function buildPardusTahtaKioskZip(args: {
   panelOrigin: string;
@@ -587,6 +604,14 @@ export async function buildPardusTahtaKioskZip(args: {
   root.file('install.sh', INSTALL_SH);
   root.file('uninstall.sh', UNINSTALL_SH);
   root.file('chromium-policy-managed.json', policy);
+  try {
+    const { buildPardusTahtaDebBlob } = await import('@/lib/pardus-tahta-deb-pack');
+    const deb = await buildPardusTahtaDebBlob(args);
+    const debBase = sanitizeFileBase(label);
+    root.file(`packages/deb/dist/ogretmenpro-tahta_2.1.0_${debBase}.deb`, deb);
+  } catch {
+    /* tarayıcı gzip yoksa ZIP yine scriptlerle kullanılabilir */
+  }
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
 }
 

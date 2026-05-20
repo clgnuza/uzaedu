@@ -15,9 +15,13 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
 import { UserRole } from '../types/enums';
+import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
+import { RequireSchoolModule } from '../common/decorators/require-school-module.decorator';
+import { RequireModuleActivationGuard } from '../market/guards/require-module-activation.guard';
 
 @Controller('smart-board')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
+@RequireSchoolModule('smart_board')
 export class SmartBoardController {
   constructor(private readonly service: SmartBoardService) {}
 
@@ -65,6 +69,26 @@ export class SmartBoardController {
     return this.service.getDeviceById(id, scope);
   }
 
+  @Post('devices/bulk')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.school_admin)
+  async bulkCreateDevices(
+    @Body() body: { items?: Array<{ class_section: string; name?: string; room_or_location?: string }> },
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    const schoolId = payload.schoolId ?? payload.user?.school_id;
+    if (!schoolId) {
+      const { ForbiddenException } = await import('@nestjs/common');
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Okul bilgisi gerekli.' });
+    }
+    return this.service.bulkCreateDevices(
+      schoolId,
+      payload.user.role as UserRole,
+      payload.userId,
+      body?.items ?? [],
+    );
+  }
+
   @Post('devices')
   @UseGuards(RolesGuard)
   @Roles(UserRole.school_admin)
@@ -101,6 +125,18 @@ export class SmartBoardController {
   ) {
     const scope = { schoolId: payload.schoolId, role: payload.user.role as UserRole };
     return this.service.updateDevice(id, dto, scope);
+  }
+
+  @Post('sessions/disconnect-all')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.school_admin)
+  async disconnectAllActiveSessions(@CurrentUser() payload: CurrentUserPayload) {
+    const schoolId = payload.schoolId ?? payload.user?.school_id;
+    if (!schoolId) {
+      const { ForbiddenException } = await import('@nestjs/common');
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Okul bilgisi gerekli.' });
+    }
+    return this.service.disconnectAllActiveSessionsForSchool(schoolId, payload.userId);
   }
 
   @Post('devices/bulk-action')
@@ -339,6 +375,28 @@ export class SmartBoardController {
     @CurrentUser() payload: CurrentUserPayload,
   ) {
     return this.service.heartbeat(body.session_id, payload.userId);
+  }
+
+  @Get('schools/:schoolId/setup-status')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.school_admin, UserRole.superadmin)
+  async getSetupStatus(
+    @Param('schoolId') schoolId: string,
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    const scope = { schoolId: payload.schoolId, role: payload.user.role as UserRole };
+    return this.service.getSetupStatus(schoolId, scope);
+  }
+
+  @Post('schools/:schoolId/setup-code/regenerate')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.school_admin, UserRole.superadmin)
+  async regenerateSetupCode(
+    @Param('schoolId') schoolId: string,
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    const scope = { schoolId: payload.schoolId, role: payload.user.role as UserRole };
+    return this.service.regenerateSchoolSetupCode(schoolId, scope, payload.userId);
   }
 
   @Post('qr/claim')

@@ -6,7 +6,8 @@ import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Copy, BookOpen, Monitor, Sparkles, Wrench } from 'lucide-react';
+import { Copy, BookOpen, Monitor, Sparkles, Wrench, Link2 } from 'lucide-react';
+import { buildClassroomTvUrl } from '@/lib/smart-board-classroom-url';
 import { toast } from 'sonner';
 import type { Device } from '../types';
 
@@ -88,8 +89,36 @@ export function AddDeviceDialog({
               </Button>
             </div>
             <p className="text-center text-sm text-muted-foreground">
-              Tahta uygulamasında bu kodu kullanarak eşleştirme yapın.
+              Tahtada Chromium bu sınıf URL’si ile açılmalı. Kurulum sekmesinden QR etiketi yazdırın.
             </p>
+            {typeof window !== 'undefined' ? (
+              <div className="space-y-1">
+                <code className="block break-all rounded bg-muted px-2 py-1 text-[10px]">
+                  {buildClassroomTvUrl({
+                    origin: window.location.origin,
+                    schoolId: createdDevice.school_id,
+                    deviceId: createdDevice.id,
+                  })}
+                </code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => {
+                    const url = buildClassroomTvUrl({
+                      origin: window.location.origin,
+                      schoolId: createdDevice.school_id,
+                      deviceId: createdDevice.id,
+                    });
+                    void navigator.clipboard?.writeText(url);
+                    toast.success('Classroom URL kopyalandı');
+                  }}
+                >
+                  <Link2 className="mr-1 size-4" />
+                  Classroom URL kopyala
+                </Button>
+              </div>
+            ) : null}
             {createdDevice.classSection && (
               <p className="rounded-lg bg-primary/10 px-3 py-2 text-center text-sm text-primary">
                 Sınıf <strong>{createdDevice.classSection}</strong> atandı — Ders programından otomatik ders/öğretmen alınacak.

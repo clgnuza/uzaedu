@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiUrl } from '@/lib/api';
+import { COOKIE_SESSION_TOKEN } from '@/lib/auth-session';
 import { sorumlulukExamApiQuery } from '@/lib/sorumluluk-exam-school-q';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { toast } from 'sonner';
@@ -21,7 +22,7 @@ type SessionStudent = {
 type Session = { id: string; subjectName: string; sessionDate: string; startTime: string; endTime: string; roomName: string | null };
 
 const STATUS_OPTIONS: Array<{ value: 'present' | 'absent' | 'excused' | null; label: string; icon: React.ElementType; color: string; bg: string }> = [
-  { value: 'present', label: 'Kat?ld?',   icon: Check, color: 'text-green-700 dark:text-green-300', bg: 'bg-green-100 border-green-300 dark:bg-green-950/40 dark:border-green-700' },
+  { value: 'present', label: 'Katıldı',   icon: Check, color: 'text-green-700 dark:text-green-300', bg: 'bg-green-100 border-green-300 dark:bg-green-950/40 dark:border-green-700' },
   { value: 'absent',  label: 'Gelmedi',   icon: X,     color: 'text-red-700 dark:text-red-300',     bg: 'bg-red-100 border-red-300 dark:bg-red-950/40 dark:border-red-700' },
   { value: 'excused', label: 'Mazeretli', icon: Minus,  color: 'text-amber-700 dark:text-amber-300', bg: 'bg-amber-100 border-amber-300 dark:bg-amber-950/40 dark:border-amber-700' },
   { value: null,      label: 'Belirsiz',  icon: Minus,  color: 'text-slate-400',                    bg: 'bg-slate-50 border-slate-200 dark:bg-zinc-900/40 dark:border-zinc-700' },
@@ -37,7 +38,7 @@ const NO_GROUP = (
       <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
     </svg>
     <p className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">Önce bir grup seçin</p>
-    <p className="text-xs text-muted-foreground">Gruplar sekmesinden bir s?nav grubu seçin veya olu?turun.</p>
+    <p className="text-xs text-muted-foreground">Gruplar sekmesinden bir sınav grubu seçin veya oluşturun.</p>
   </div>
 );
 
@@ -86,17 +87,28 @@ export default function YoklamaPage() {
       await updateStatus(r.studentId, status);
       await new Promise((res) => setTimeout(res, 80));
     }
-    toast.success('Tümü i?aretlendi');
+    toast.success('Tümü işaretlendi');
   };
 
   const downloadPdf = async () => {
+    if (!token) return;
     try {
-      const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api';
-      const res = await fetch(`${BASE}/sorumluluk-exam/sessions/${sessionId}/pdf/yoklama${schoolQ}`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) throw new Error(await res.text());
+      const headers: Record<string, string> = {};
+      if (token !== COOKIE_SESSION_TOKEN) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(getApiUrl(`/sorumluluk-exam/sessions/${sessionId}/pdf/yoklama${schoolQ}`), {
+        credentials: 'include',
+        ...(Object.keys(headers).length > 0 && { headers }),
+      });
+      if (!res.ok) throw new Error(res.status === 401 ? 'Oturum süresi doldu' : 'İndirme başarısız');
       const blob = await res.blob();
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-      a.download = `yoklama-${session?.subjectName ?? sessionId}.pdf`; a.click();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `yoklama-${session?.subjectName ?? sessionId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
       toast.success('PDF indirildi');
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Hata'); }
   };
@@ -137,7 +149,7 @@ export default function YoklamaPage() {
 
       <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 sm:gap-2">
         {[
-          { label: 'Kat?ld?',   value: presentCount, color: 'text-green-600 dark:text-green-400' },
+          { label: 'Katıldı',   value: presentCount, color: 'text-green-600 dark:text-green-400' },
           { label: 'Gelmedi',   value: absentCount,  color: 'text-red-600 dark:text-red-400' },
           { label: 'Mazeretli', value: excusedCount,  color: 'text-amber-600 dark:text-amber-400' },
           { label: 'Belirsiz',  value: unknownCount,  color: 'text-slate-400' },
@@ -151,9 +163,9 @@ export default function YoklamaPage() {
 
       {rows.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          <span className="text-xs text-muted-foreground self-center">Toplu i?aret:</span>
+          <span className="text-xs text-muted-foreground self-center">Toplu işaret:</span>
           <button onClick={() => markAll('present')} className="rounded-lg border border-green-300 bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 hover:bg-green-100 dark:border-green-800 dark:bg-green-950/30 dark:text-green-300">
-            <Check className="inline size-3 mr-1" /> Tümü Kat?ld?
+            <Check className="inline size-3 mr-1" /> Tümü Katıldı
           </button>
           <button onClick={() => markAll('absent')} className="rounded-lg border border-red-300 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
             <X className="inline size-3 mr-1" /> Tümü Gelmedi
@@ -164,7 +176,7 @@ export default function YoklamaPage() {
       {rows.length === 0 && (
         <div className="rounded-xl border bg-white/60 p-6 text-center text-muted-foreground dark:bg-zinc-900/40 sm:rounded-2xl sm:p-10">
           <Users className="mx-auto mb-2 size-7 opacity-30 sm:size-8" />
-          <p className="text-xs sm:text-sm">Bu oturuma atanm?? ö?renci yok.</p>
+          <p className="text-xs sm:text-sm">Bu oturuma atanmış öğrenci yok.</p>
         </div>
       )}
 

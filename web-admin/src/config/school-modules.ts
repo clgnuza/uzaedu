@@ -47,7 +47,8 @@ export const SCHOOL_MODULE_MARKET_HINTS: Record<SchoolModuleKey, string> = {
   document: 'Evrak şablonları, plan ve belge üretimi.',
   outcome: 'Kazanım takip ve yıllık plan içerikleri.',
   optical: 'Optik formlar ve optik okuma.',
-  smart_board: 'Akıllı tahta oturumları ve cihaz yönetimi.',
+  smart_board:
+    'Kurulum sihirbazı (okul kodu, QR etiket), tarayıcı/USB/.deb saha paketi, öğretmen QR onayı ve sınıf duyuruları.',
   teacher_agenda: 'Öğretmen ajandası ve değerlendirme.',
   bilsem: 'Bilsem takvim ve yıllık plan.',
   school_reviews: 'Veli/öğrenci okul değerlendirmeleri ve raporlar.',

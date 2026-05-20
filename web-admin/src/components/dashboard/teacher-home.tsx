@@ -249,7 +249,7 @@ function buildTeacherQuickSections(enabledModules: string[] | null | undefined):
         {
           href: '/akilli-tahta',
           title: 'Akıllı tahta',
-          desc: 'İçerik ve oturum',
+          desc: 'QR onay, oturum ve sınıf tahtası',
           icon: Monitor,
           accent: 'from-violet-500/20 to-purple-500/10 text-violet-700 dark:text-violet-300',
           schoolModule: 'smart_board',

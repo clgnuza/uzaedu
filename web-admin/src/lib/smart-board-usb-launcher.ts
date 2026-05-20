@@ -13,7 +13,6 @@ export function buildSmartBoardUsbLauncherHtml(args: {
 }): string {
   const origin = args.panelOrigin.replace(/\/$/, '');
   const q = new URLSearchParams({ school_id: args.schoolId, device_id: args.deviceId });
-  q.set('usb', '1');
   if (args.kiosk) q.set('kiosk', '1');
   if (args.tahtaKilit !== false) q.set('kilit', '1');
   const target = `${origin}/tv/classroom?${q.toString()}`;

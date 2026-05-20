@@ -33,6 +33,8 @@ export interface EvrakDefaults {
   onay_tarihi?: string;
   /** Öğretmen unvanı / branş – imza alanında isim altında (örn. "Coğrafya Öğretmeni"); boşsa ders adı veya user.teacherBranch kullanılır */
   ogretmen_unvani?: string;
+  /** Raporlarda «Düzenleyen» imza adı */
+  duzenleyen_adi?: string;
   yolluk_teacher?: YollukTeacherProfile;
 }
 

@@ -1708,20 +1708,27 @@ export class SchoolReviewsService implements OnModuleInit {
   }
 
   async onModuleInit(): Promise<void> {
-    const count = await this.criteriaRepo.count();
-    if (count === 0) {
-      for (const item of DEFAULT_CRITERIA) {
-        await this.criteriaRepo.save(
-          this.criteriaRepo.create({
-            slug: item.slug,
-            label: item.label,
-            hint: item.hint,
-            sort_order: item.sort_order,
-            min_score: CRITERIA_SCORE_MIN,
-            max_score: CRITERIA_SCORE_MAX,
-          }),
-        );
+    try {
+      const count = await this.criteriaRepo.count();
+      if (count === 0) {
+        for (const item of DEFAULT_CRITERIA) {
+          await this.criteriaRepo.save(
+            this.criteriaRepo.create({
+              slug: item.slug,
+              label: item.label,
+              hint: item.hint,
+              sort_order: item.sort_order,
+              min_score: CRITERIA_SCORE_MIN,
+              max_score: CRITERIA_SCORE_MAX,
+            }),
+          );
+        }
       }
+    } catch (e) {
+      this.logger.warn(
+        `Değerlendirme kriterleri seed atlandı (TypeORM henüz hazır değil veya hot-reload): ${e instanceof Error ? e.message : e}`,
+      );
+      return;
     }
     try {
       const { updated } = await this.normalizeCriteriaScoreRange();

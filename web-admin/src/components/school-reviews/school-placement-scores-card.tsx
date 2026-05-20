@@ -31,7 +31,7 @@ export type PlacementScoreRow = {
 export type ReviewPlacementTrackClient = {
   id: string;
   title: string;
-  program?: string;
+  programı: string;
   language?: string;
   years: PlacementScoreRow[];
 };
@@ -701,7 +701,7 @@ function V3SummaryFlatTable({ bundle }: { bundle: ReviewPlacementBundleV3 }) {
   };
   const flat: Flat[] = [];
   for (const tr of bundle.tracks) {
-    const alan = [tr.title?.trim(), tr.program?.trim()].filter(Boolean).join(' · ') || '—';
+    const alan = [tr.title?.trim(), tr.programı.trim()].filter(Boolean).join(' · ') || '—';
     const dil = tr.language?.trim() || '—';
     for (const y of tr.years || []) {
       flat.push({

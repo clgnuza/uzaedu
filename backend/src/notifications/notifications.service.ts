@@ -66,6 +66,25 @@ export class NotificationsService {
     return this.notificationRepo.save(n);
   }
 
+  /** Tahta QR onaylandığında ilgili bekleyen bildirimleri tüm öğretmenlerde okundu işaretle */
+  async markReadSmartBoardQrPendingForSession(
+    schoolId: string,
+    deviceId: string,
+    sessionId: string,
+  ): Promise<{ count: number }> {
+    const result = await this.notificationRepo
+      .createQueryBuilder()
+      .update(Notification)
+      .set({ read_at: () => 'CURRENT_TIMESTAMP' })
+      .where('event_type = :et', { et: 'smart_board.qr_pending' })
+      .andWhere('entity_id = :sessionId', { sessionId })
+      .andWhere('read_at IS NULL')
+      .andWhere("metadata->>'device_id' = :deviceId", { deviceId })
+      .andWhere("metadata->>'school_id' = :schoolId", { schoolId })
+      .execute();
+    return { count: result.affected ?? 0 };
+  }
+
   async markAllRead(userId: string): Promise<{ count: number }> {
     const result = await this.notificationRepo
       .createQueryBuilder()

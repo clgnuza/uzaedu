@@ -9,6 +9,7 @@ import { SorumlulukStudent } from './entities/sorumluluk-student.entity';
 import { SorumlulukSession } from './entities/sorumluluk-session.entity';
 import { SorumlulukSessionStudent } from './entities/sorumluluk-session-student.entity';
 import { SorumlulukSessionProctor } from './entities/sorumluluk-session-proctor.entity';
+import { SorumlulukExamSlot } from './entities/sorumluluk-exam-slot.entity';
 import { SorumlulukExamService } from './sorumluluk-exam.service';
 import { SorumlulukExamPdfService } from './sorumluluk-exam-pdf.service';
 import { SorumlulukExamController } from './sorumluluk-exam.controller';
@@ -24,6 +25,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
       SorumlulukSession,
       SorumlulukSessionStudent,
       SorumlulukSessionProctor,
+      SorumlulukExamSlot,
       User,
       School,
       TeacherTimetable,

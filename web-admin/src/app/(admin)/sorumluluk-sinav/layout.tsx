@@ -5,7 +5,7 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
 import { sorumlulukExamApiQuery } from '@/lib/sorumluluk-exam-school-q';
-import { LayoutGrid, Users, CalendarRange, Shuffle, UserCheck, FileDown, Bell } from 'lucide-react';
+import { LayoutGrid, Users, CalendarDays, CalendarRange, Shuffle, UserCheck, FileDown, Bell } from 'lucide-react';
 
 const TEACHER_TABS = [
   {
@@ -36,11 +36,23 @@ const TABS = [
     dot:      'bg-indigo-400',
   },
   {
+    path:     '/sorumluluk-sinav/takvim',
+    label:    'Takvim',
+    icon:     CalendarDays,
+    adminOnly: true,
+    step:     '2',
+    hint:     'Müsait gün & saat',
+    match:    (p: string) => p.startsWith('/sorumluluk-sinav/takvim'),
+    idle:     'bg-rose-50    text-rose-700    border-rose-200    hover:bg-rose-100    dark:bg-rose-950/30    dark:text-rose-300    dark:border-rose-800/40',
+    active:   'bg-rose-600   text-white       border-rose-600    shadow-rose-500/35   shadow-md',
+    dot:      'bg-rose-400',
+  },
+  {
     path:     '/sorumluluk-sinav/ogrenciler',
     label:    'Öğrenciler',
     icon:     Users,
     adminOnly: false,
-    step:     '2',
+    step:     '3',
     hint:     'Öğrenci & ders ekle',
     match:    (p: string) => p.startsWith('/sorumluluk-sinav/ogrenciler'),
     idle:     'bg-sky-50     text-sky-700     border-sky-200     hover:bg-sky-100     dark:bg-sky-950/30     dark:text-sky-300     dark:border-sky-800/40',
@@ -52,8 +64,8 @@ const TABS = [
     label:    'Oturumlar',
     icon:     CalendarRange,
     adminOnly: true,
-    step:     '3',
-    hint:     'Tarih / saat / salon',
+    step:     '4',
+    hint:     'Ders oturumları',
     match:    (p: string) => p.startsWith('/sorumluluk-sinav/oturumlar'),
     idle:     'bg-amber-50   text-amber-700   border-amber-200   hover:bg-amber-100   dark:bg-amber-950/30   dark:text-amber-300   dark:border-amber-800/40',
     active:   'bg-amber-500  text-white       border-amber-500   shadow-amber-500/35  shadow-md',
@@ -64,7 +76,7 @@ const TABS = [
     label:    'Programlama',
     icon:     Shuffle,
     adminOnly: true,
-    step:     '4',
+    step:     '5',
     hint:     'Otomatik / manuel ata',
     match:    (p: string) => p.startsWith('/sorumluluk-sinav/programlama'),
     idle:     'bg-violet-50  text-violet-700  border-violet-200  hover:bg-violet-100  dark:bg-violet-950/30  dark:text-violet-300  dark:border-violet-800/40',
@@ -76,7 +88,7 @@ const TABS = [
     label:    'Görevlendirme',
     icon:     UserCheck,
     adminOnly: true,
-    step:     '5',
+    step:     '6',
     hint:     'Komisyon & gözcü',
     match:    (p: string) => p.startsWith('/sorumluluk-sinav/gorevlendirme'),
     idle:     'bg-teal-50    text-teal-700    border-teal-200    hover:bg-teal-100    dark:bg-teal-950/30    dark:text-teal-300    dark:border-teal-800/40',
@@ -88,7 +100,7 @@ const TABS = [
     label:    'Raporlar',
     icon:     FileDown,
     adminOnly: false,
-    step:     '6',
+    step:     '7',
     hint:     'PDF & yoklama',
     match:    (p: string) => p.startsWith('/sorumluluk-sinav/raporlar'),
     idle:     'bg-emerald-50  text-emerald-700  border-emerald-200  hover:bg-emerald-100  dark:bg-emerald-950/30  dark:text-emerald-300  dark:border-emerald-800/40',

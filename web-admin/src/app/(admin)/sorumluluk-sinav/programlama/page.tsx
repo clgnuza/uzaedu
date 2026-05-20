@@ -11,15 +11,28 @@ import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Shuffle, AlertTriangle, Check, Users, Plus, Trash2, Search, ListChecks, LayoutGrid, List, CheckCircle2, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { toastScheduleResult, type ScheduleResult } from '@/lib/sorumluluk-schedule-toasts';
 
 type SessionType = 'yazili' | 'uygulama' | 'mixed';
-type Session = { id: string; subjectName: string; sessionDate: string; startTime: string; endTime: string; roomName: string | null; capacity: number; sessionType?: SessionType; studentCount?: number };
+type Session = {
+  id: string; subjectName: string; sessionDate: string; startTime: string; endTime: string;
+  roomName: string | null; capacity: number; sessionType?: SessionType; studentCount?: number;
+  pairedSessionId?: string | null;
+  uygulamaCompanion?: { sessionDate: string; startTime: string; endTime: string } | null;
+};
+
+function effectiveSessionType(s: Session): SessionType {
+  if (s.sessionType === 'mixed' || s.pairedSessionId) return 'mixed';
+  if (s.sessionType === 'uygulama') return 'uygulama';
+  return s.sessionType ?? 'yazili';
+}
 
 const SESSION_TYPE_BADGE: Record<string, string> = {
+  yazili:   'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300',
   uygulama: 'bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300',
   mixed:    'bg-teal-100 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300',
 };
-const SESSION_TYPE_LABEL: Record<string, string> = { yazili: 'Yaz?l?', uygulama: 'Uygulama', mixed: 'Yaz?l? + Uygulama' };
+const SESSION_TYPE_LABEL: Record<string, string> = { yazili: 'Yazılı', uygulama: 'Uygulama', mixed: 'Yazılı + Uygulama' };
 type Student = { id: string; studentName: string; studentNumber: string | null; className: string | null; subjects: Array<{ subjectName: string; sessionId?: string | null }> };
 type Conflict = { studentName: string; studentNumber: string | null; conflictingSubjects: string[] };
 type SessionStudent = { id: string; studentId: string; attendanceStatus: string | null; student: Student };
@@ -31,7 +44,7 @@ const NO_GROUP = (
       <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
     </svg>
     <p className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">Önce bir grup seçin</p>
-    <p className="text-xs text-muted-foreground">Gruplar sekmesinden bir s?nav grubu seçin veya olu?turun.</p>
+    <p className="text-xs text-muted-foreground">Gruplar sekmesinden bir sınav grubu seçin veya oluşturun.</p>
   </div>
 );
 
@@ -70,7 +83,7 @@ export default function ProgramlamaPage() {
     try {
       const data = await apiFetch<SessionStudent[]>(`/sorumluluk-exam/sessions/${sId}/students${schoolQ}`, { token });
       setSessionStudents(data);
-    } catch { toast.error('Ö?renciler yüklenemedi'); }
+    } catch { toast.error('Öğrenciler yüklenemedi'); }
   };
 
   useEffect(() => { void load(); }, [token, groupId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -79,9 +92,9 @@ export default function ProgramlamaPage() {
   const autoSchedule = async () => {
     setScheduling(true);
     try {
-      const res = await apiFetch<{ assigned: number; conflicts: number; total: number }>(
+      const res = await apiFetch<ScheduleResult>(
         `/sorumluluk-exam/groups/${groupId}/auto-schedule${schoolQ}`, { method: 'POST', token });
-      toast.success(`${res.assigned}/${res.total} atand?${res.conflicts > 0 ? `, ${res.conflicts} çak??ma kald?` : ' ? çak??ma yok ?'}`);
+      toastScheduleResult(res);
       void load();
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Hata'); }
     finally { setScheduling(false); }
@@ -99,7 +112,7 @@ export default function ProgramlamaPage() {
     if (!selectedSession) return;
     try {
       await apiFetch(`/sorumluluk-exam/sessions/${selectedSession}/students/${studentId}${schoolQ}`, { method: 'DELETE', token });
-      toast.success('Ç?kar?ld?'); void loadSessionStudents(selectedSession); void load();
+      toast.success('Çıkarıldı'); void loadSessionStudents(selectedSession); void load();
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Hata'); }
   };
 
@@ -110,7 +123,10 @@ export default function ProgramlamaPage() {
   const assignedSubjects = students.reduce((a, s) => a + s.subjects.filter((x) => x.sessionId).length, 0);
   const assignPct        = totalSubjects > 0 ? Math.round((assignedSubjects / totalSubjects) * 100) : 0;
   const assignedStudentIds = new Set(sessionStudents.map((r) => r.studentId));
-  const selectedSes      = sessions.find((s) => s.id === selectedSession);
+  const companionChildIds = new Set(sessions.map((s) => s.pairedSessionId).filter((id): id is string => !!id));
+  const planSessions = sessions.filter((s) => !companionChildIds.has(s.id));
+  const sessionById = new Map(sessions.map((s) => [s.id, s]));
+  const selectedSes      = planSessions.find((s) => s.id === selectedSession);
 
   const filteredStudents = students.filter((s) => {
     const q = search.toLowerCase();
@@ -126,8 +142,8 @@ export default function ProgramlamaPage() {
       <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
         {[
           { label: 'Oturum',   value: sessions.length,  color: 'text-amber-600' },
-          { label: 'Ö?renci',  value: students.length,  color: 'text-sky-600' },
-          { label: 'Çak??ma',  value: conflicts.length, color: conflicts.length ? 'text-red-600' : 'text-green-600' },
+          { label: 'Öğrenci',  value: students.length,  color: 'text-sky-600' },
+          { label: 'Çakışma',  value: conflicts.length, color: conflicts.length ? 'text-red-600' : 'text-green-600' },
         ].map((s) => (
           <div key={s.label} className="rounded-xl border border-white/50 bg-white/80 p-2 text-center shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 sm:rounded-2xl sm:p-3">
             <p className={cn('text-lg font-bold tabular-nums sm:text-2xl', s.color)}>{s.value}</p>
@@ -139,7 +155,7 @@ export default function ProgramlamaPage() {
       {/* Progress */}
       <div className="rounded-lg border border-white/50 bg-white/80 px-3 py-2 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 sm:rounded-xl sm:px-4 sm:py-3">
         <div className="mb-1 flex justify-between gap-2 text-[10px] text-muted-foreground sm:text-xs">
-          <span>Atama ?lerlemesi</span>
+          <span>Atama İlerlemesi</span>
           <span className="font-semibold">{assignedSubjects}/{totalSubjects} ders ({assignPct}%)</span>
         </div>
         <div className="h-2.5 rounded-full bg-slate-100 dark:bg-zinc-800">
@@ -152,15 +168,15 @@ export default function ProgramlamaPage() {
       {conflicts.length > 0 && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-800/40 dark:bg-amber-950/20">
           <p className="font-semibold text-amber-800 text-sm flex items-center gap-1.5 dark:text-amber-300">
-            <AlertTriangle className="size-4" /> {conflicts.length} ö?rencide zaman çak??mas?
+            <AlertTriangle className="size-4" /> {conflicts.length} öğrencide zaman çakışması
           </p>
           <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5 mb-1.5">
-            Ayn? ö?renci ayn? zaman diliminde birden fazla s?nava atanm??. Otomatik programlama veya manuel düzenleme ile çözün.
+            Aynı öğrenci aynı zaman diliminde birden fazla sınava atanmış. Otomatik programlama veya manuel düzenleme ile çözün.
           </p>
           <ul className="space-y-0.5">
             {conflicts.slice(0, 5).map((c, i) => (
               <li key={i} className="text-xs text-amber-700 dark:text-amber-400">
-                ? {c.studentName}{c.studentNumber ? ` (${c.studentNumber})` : ''} ? {c.conflictingSubjects.join(', ')}
+                • {c.studentName}{c.studentNumber ? ` (${c.studentNumber})` : ''} ? {c.conflictingSubjects.join(', ')}
               </li>
             ))}
             {conflicts.length > 5 && <li className="text-xs text-amber-600">+{conflicts.length - 5} daha...</li>}
@@ -175,15 +191,15 @@ export default function ProgramlamaPage() {
           Otomatik Programla
         </Button>
         <span className="text-xs text-muted-foreground">
-          Ders ad?na göre e?le?tirir, çak??ma varsa uyar?r
+          Tüm sorumlu derslere atar; gerekirse ek oturum açar, zaman çakışmasından kaçınır
         </span>
       </div>
 
       {/* View tabs */}
       <div className="flex flex-col gap-1 rounded-lg border bg-slate-50 p-1 dark:border-zinc-800 dark:bg-zinc-900/40 sm:flex-row sm:gap-1.5 sm:rounded-xl">
         {([
-          { key: 'atama',  label: 'Oturum Bazl? Atama', icon: ListChecks, idle: 'text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-sky-950/30',     active: 'bg-sky-600 text-white shadow dark:bg-sky-700' },
-          { key: 'matris', label: 'Ö?renci Matris',     icon: LayoutGrid, idle: 'text-violet-700 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-950/30', active: 'bg-violet-600 text-white shadow dark:bg-violet-700' },
+          { key: 'atama',  label: 'Oturum Bazlı Atama', icon: ListChecks, idle: 'text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-sky-950/30',     active: 'bg-sky-600 text-white shadow dark:bg-sky-700' },
+          { key: 'matris', label: 'Öğrenci Matris',     icon: LayoutGrid, idle: 'text-violet-700 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-950/30', active: 'bg-violet-600 text-white shadow dark:bg-violet-700' },
         ] as const).map((t) => {
           const Icon = t.icon;
           return (
@@ -202,9 +218,10 @@ export default function ProgramlamaPage() {
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="space-y-2">
             <p className="text-sm font-semibold text-muted-foreground">Oturum Seç</p>
-            {sessions.length === 0 && <p className="text-xs text-muted-foreground">Önce Oturumlar sekmesinden oturum olu?turun.</p>}
-            {sessions.map((s) => {
+            {planSessions.length === 0 && <p className="text-xs text-muted-foreground">Önce Oturumlar sekmesinden oturum oluşturun.</p>}
+            {planSessions.map((s) => {
               const pct = Math.min(100, Math.round(((s.studentCount ?? 0) / Math.max(s.capacity, 1)) * 100));
+              const st = effectiveSessionType(s);
               return (
                 <button key={s.id} onClick={() => setSelectedSession(s.id === selectedSession ? null : s.id)}
                   className={cn('w-full text-left rounded-lg border px-3 py-2 transition-colors sm:rounded-xl sm:px-4 sm:py-3',
@@ -213,13 +230,18 @@ export default function ProgramlamaPage() {
                       : 'border-white/50 bg-white/70 hover:bg-white/90 dark:border-zinc-800/40 dark:bg-zinc-900/50')}>
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <p className="font-semibold text-sm">{s.subjectName}</p>
-                    {s.sessionType && s.sessionType !== 'yazili' && (
-                      <span className={cn('rounded-full px-1.5 py-0.5 text-[9px] font-semibold', SESSION_TYPE_BADGE[s.sessionType])}>
-                        {SESSION_TYPE_LABEL[s.sessionType]}
-                      </span>
-                    )}
+                    <span className={cn('rounded-full px-1.5 py-0.5 text-[9px] font-semibold', SESSION_TYPE_BADGE[st])}>
+                      {SESSION_TYPE_LABEL[st]}
+                    </span>
                   </div>
-                  <p className="text-xs text-muted-foreground">{s.sessionDate} · {s.startTime}?{s.endTime}{s.roomName ? ` · ${s.roomName}` : ''}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Yazılı: {s.sessionDate} · {s.startTime}–{s.endTime}{s.roomName ? ` · ${s.roomName}` : ''}
+                  </p>
+                  {st === 'mixed' && s.uygulamaCompanion && (
+                    <p className="text-[10px] text-teal-700 dark:text-teal-300">
+                      Uygulama: {s.uygulamaCompanion.sessionDate} · {s.uygulamaCompanion.startTime}–{s.uygulamaCompanion.endTime}
+                    </p>
+                  )}
                   <div className="mt-1.5 flex items-center gap-2">
                     <div className="flex-1 h-1 rounded-full bg-slate-100 dark:bg-zinc-800">
                       <div className={cn('h-1 rounded-full', pct >= 100 ? 'bg-red-400' : pct > 75 ? 'bg-amber-400' : 'bg-green-400')} style={{ width: `${pct}%` }} />
@@ -233,12 +255,12 @@ export default function ProgramlamaPage() {
 
           {selectedSession && selectedSes ? (
             <div className="space-y-2">
-              <p className="text-sm font-semibold">{selectedSes.subjectName} ? Atamalar</p>
+              <p className="text-sm font-semibold">{selectedSes.subjectName} — Atamalar</p>
 
               {sessionStudents.length > 0 && (
                 <div className="rounded-xl border bg-white/70 dark:bg-zinc-900/50 overflow-hidden">
                   <div className="px-3 py-2 bg-green-50 dark:bg-green-950/20 border-b text-xs font-semibold text-green-700 dark:text-green-400">
-                    {sessionStudents.length} ö?renci atand?
+                    {sessionStudents.length} öğrenci atandı
                   </div>
                   <div className="max-h-56 overflow-y-auto divide-y dark:divide-zinc-800/50">
                     {sessionStudents.map((r) => (
@@ -253,10 +275,10 @@ export default function ProgramlamaPage() {
                 </div>
               )}
 
-              <p className="text-xs text-muted-foreground">Atanmam?? ö?renciler (manuel ekle):</p>
+              <p className="text-xs text-muted-foreground">Atanmamış öğrenciler (manuel ekle):</p>
               <div className="rounded-xl border bg-white/70 dark:bg-zinc-900/50 max-h-52 overflow-y-auto divide-y dark:divide-zinc-800/50">
                 {students.filter((s) => !assignedStudentIds.has(s.id)).length === 0 && (
-                  <p className="text-xs text-muted-foreground text-center p-4">Tüm ö?renciler bu oturuma atanm??</p>
+                  <p className="text-xs text-muted-foreground text-center p-4">Tüm öğrenciler bu oturuma atanmış</p>
                 )}
                 {students.filter((s) => !assignedStudentIds.has(s.id)).map((s) => (
                   <div key={s.id} className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 dark:hover:bg-zinc-800/60">
@@ -270,7 +292,7 @@ export default function ProgramlamaPage() {
           ) : (
             <div className="rounded-2xl border bg-white/60 p-8 text-center text-muted-foreground dark:bg-zinc-900/40">
               <Shuffle className="mx-auto mb-2 size-8 opacity-30" />
-              <p className="text-sm">Bir oturum seçerek ö?renci atamalar?n? yönetin.</p>
+              <p className="text-sm">Bir oturum seçerek öğrenci atamalarını yönetin.</p>
             </div>
           )}
         </div>
@@ -282,7 +304,7 @@ export default function ProgramlamaPage() {
           <div className="flex gap-2 flex-wrap">
             <div className="relative flex-1 min-w-[180px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-              <Input placeholder="Ö?renci ara..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-8 text-sm" />
+              <Input placeholder="Öğrenci ara..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-8 text-sm" />
             </div>
             <div className="flex gap-1 rounded-lg border bg-slate-50 p-0.5 dark:border-zinc-800 dark:bg-zinc-900/40">
               {([
@@ -303,14 +325,14 @@ export default function ProgramlamaPage() {
             </div>
           </div>
 
-          <div className="text-xs text-muted-foreground">{filteredStudents.length} ö?renci</div>
+          <div className="text-xs text-muted-foreground">{filteredStudents.length} öğrenci</div>
 
           <div className="overflow-x-auto rounded-xl border bg-white/80 dark:border-zinc-800/40 dark:bg-zinc-900/60">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b dark:border-zinc-800">
-                  <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Ö?renci</th>
-                  <th className="px-2 py-2.5 text-left font-semibold text-muted-foreground">S?n?f</th>
+                  <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Öğrenci</th>
+                  <th className="px-2 py-2.5 text-left font-semibold text-muted-foreground">Sınıf</th>
                   <th className="px-2 py-2.5 text-left font-semibold text-muted-foreground">Sorumlu Dersler</th>
                   <th className="px-2 py-2.5 text-center font-semibold text-muted-foreground">Durum</th>
                 </tr>
@@ -325,17 +347,22 @@ export default function ProgramlamaPage() {
                     <tr key={s.id} className={cn('hover:bg-slate-50 dark:hover:bg-zinc-800/40', hasConflict && 'bg-amber-50/60 dark:bg-amber-950/10')}>
                       <td className="px-3 py-2 font-medium">
                         {s.studentName}
-                        {hasConflict && <span className="ml-1 text-amber-500" title="Zaman çak??mas?">?</span>}
+                        {hasConflict && <span className="ml-1 text-amber-500" title="Zaman çakışması">?</span>}
                       </td>
                       <td className="px-2 py-2 text-muted-foreground">{s.className ?? '?'}</td>
                       <td className="px-2 py-2">
                         <div className="flex flex-wrap gap-1">
-                          {s.subjects.map((sub, i) => (
+                          {s.subjects.map((sub, i) => {
+                            const ses = sub.sessionId ? sessionById.get(sub.sessionId) : undefined;
+                            const st = ses ? effectiveSessionType(ses) : null;
+                            const typeShort = st === 'mixed' ? ' Y+U' : st === 'uygulama' ? ' U' : st === 'yazili' ? ' Y' : '';
+                            return (
                             <span key={i} className={cn('rounded-full px-1.5 py-0.5 text-[10px] font-medium',
                               sub.sessionId ? 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300')}>
-                              {sub.subjectName}{sub.sessionId ? ' ?' : ''}
+                              {sub.subjectName}{typeShort}{sub.sessionId ? ' ✓' : ''}
                             </span>
-                          ))}
+                            );
+                          })}
                         </div>
                       </td>
                       <td className="px-2 py-2 text-center">

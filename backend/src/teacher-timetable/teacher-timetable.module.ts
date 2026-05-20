@@ -5,6 +5,7 @@ import { TeacherPersonalProgram } from './entities/teacher-personal-program.enti
 import { TeacherPersonalProgramEntry } from './entities/teacher-personal-program-entry.entity';
 import { SchoolTimetablePlan } from './entities/school-timetable-plan.entity';
 import { SchoolTimetablePlanEntry } from './entities/school-timetable-plan-entry.entity';
+import { SchoolClassTimetableEntry } from './entities/school-class-timetable-entry.entity';
 import { User } from '../users/entities/user.entity';
 import { School } from '../schools/entities/school.entity';
 import { AppConfig } from '../app-config/entities/app-config.entity';
@@ -23,6 +24,7 @@ import { AppConfigModule } from '../app-config/app-config.module';
       TeacherPersonalProgramEntry,
       SchoolTimetablePlan,
       SchoolTimetablePlanEntry,
+      SchoolClassTimetableEntry,
       User,
       School,
       AppConfig,

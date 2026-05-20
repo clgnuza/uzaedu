@@ -80,7 +80,7 @@ export function TeacherDeviceCard({
                 {isOn ? 'Çevrimiçi' : 'Çevrimdışı'}
               </span>
               {isConnected ? (
-                <span className="text-emerald-700 dark:text-emerald-300">· Bu tahtaya bağlısınız</span>
+                <span className="text-emerald-700 dark:text-emerald-300">· Aktif oturum</span>
               ) : null}
             </p>
             <p className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground sm:text-xs">
@@ -93,7 +93,6 @@ export function TeacherDeviceCard({
               {device.classSection && (
                 <span className="rounded bg-primary/10 px-1 py-px text-[10px] font-medium text-primary">{device.classSection}</span>
               )}
-              <span className="font-mono text-[10px]">· {device.pairing_code}</span>
             </p>
           </div>
         </button>
@@ -106,7 +105,7 @@ export function TeacherDeviceCard({
           ) : (
             <Button variant="default" size="sm" disabled={isConnecting} onClick={onConnect} className="h-8 px-2 text-[10px] sm:h-9 sm:px-3 sm:text-xs">
               {isConnecting ? <LoadingSpinner className="size-3.5 sm:mr-1 sm:size-4" /> : <Power className="mr-0.5 size-3.5 sm:mr-1 sm:size-4" />}
-              Bağlan
+              Oturum bağla
             </Button>
           )}
         </div>
@@ -123,7 +122,9 @@ export function TeacherDeviceCard({
           )}
           <p>
             <span className="font-medium text-foreground">Durum:</span>{' '}
-            {isOn ? 'Tahta sunucuya bağlı; bağlanabilirsiniz.' : 'Tahta kapalı veya ağda değil; sınıfta cihazı kontrol edin.'}
+            {isOn
+              ? 'Tahta ağda. QR onayından sonra slaytlar açılır; bu düğme yalnız panel oturumu kaydeder.'
+              : 'Tahta kapalı veya ağda değil — idareye bildirin.'}
           </p>
         </div>
       )}

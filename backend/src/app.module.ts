@@ -57,6 +57,7 @@ import { Utf8JsonCharsetInterceptor } from './common/interceptors/utf8-json-char
 function getTypeOrmConfig(): TypeOrmModuleOptions {
   const common = {
     entities: [__dirname + '/**/*.entity{.ts,.js}'],
+    autoLoadEntities: true,
     synchronize: env.nodeEnv === 'local' && env.typeormSync,
     logging: env.debug,
   };

@@ -9,11 +9,19 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { Plus, Trash2, Pencil, Upload, X, Check, Users, Search, Info, BookOpen, Download, FileSpreadsheet, Zap, AlertCircle, List, LayoutList } from 'lucide-react';
+import { toastScheduleResult } from '@/lib/sorumluluk-schedule-toasts';
+import { Plus, Trash2, Pencil, Upload, X, Check, Users, Search, Info, BookOpen, Download, FileSpreadsheet, Zap, AlertCircle, List, LayoutList, Trash } from 'lucide-react';
 import { resolveDefaultApiBase } from '@/lib/resolve-api-base';
 import { cn } from '@/lib/utils';
 
-type SubjectEntry = { subjectName: string; sessionId?: string | null };
+type SubjectEntry = { subjectName: string; gradeLevel?: number | null; sessionId?: string | null };
+
+function subjectLabel(sub: SubjectEntry): string {
+  const n = sub.subjectName.trim();
+  if (/^\d{1,2}\s+/.test(n)) return n;
+  if (sub.gradeLevel != null) return `${sub.gradeLevel}. Sınıf ${n}`;
+  return n;
+}
 type Student = {
   id: string; studentName: string; studentNumber: string | null;
   className: string | null; subjects: SubjectEntry[]; notes?: string | null;
@@ -35,7 +43,7 @@ const NO_GROUP = (
       <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
     </svg>
     <p className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">Önce bir grup seçin</p>
-    <p className="text-xs text-muted-foreground">Gruplar sekmesinden bir s?nav grubu seçin veya olu?turun.</p>
+    <p className="text-xs text-muted-foreground">Gruplar sekmesinden bir sınav grubu seçin veya oluşturun.</p>
   </div>
 );
 
@@ -58,9 +66,55 @@ export default function OgrencilerPage() {
   const [mebDialog, setMebDialog]   = useState(false);
   const [mebFile, setMebFile]       = useState<File | null>(null);
   const [mebOpts, setMebOpts]       = useState({ createSessions: true, autoSchedule: true });
-  const [mebResult, setMebResult]   = useState<{ imported: number; sessionsCreated: number; assigned: number; conflicts: number; total: number } | null>(null);
+  const [mebPreview, setMebPreview] = useState<{ subjects: string[]; studentCount: number } | null>(null);
+  const [mebMixed, setMebMixed]     = useState<Set<string>>(() => new Set());
+  const [mebPreviewing, setMebPreviewing] = useState(false);
+  const [mebResult, setMebResult]   = useState<{
+    imported: number; created?: number; updated?: number;
+    sessionsCreated: number; sessionsTotal?: number; sessionsSkipped?: string[];
+    assigned: number; conflicts: number; unassigned?: number; timeConflicts?: number;
+    total: number; slotsMissing?: boolean;
+  } | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [mebLoading, setMebLoading] = useState(false);
   const mebFileRef = useRef<HTMLInputElement>(null);
+
+  const resetMebDialog = () => {
+    setMebFile(null);
+    setMebPreview(null);
+    setMebMixed(new Set());
+    setMebResult(null);
+  };
+
+  const previewMebFile = async (file: File) => {
+    if (!token || !groupId) return;
+    setMebPreviewing(true);
+    setMebPreview(null);
+    setMebMixed(new Set());
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await apiFetch<{ subjects: string[]; studentCount: number }>(
+        `/sorumluluk-exam/groups/${groupId}/preview-meb${schoolQ}`,
+        { method: 'POST', token, body: fd },
+      );
+      setMebPreview(res);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Dosya okunamadı');
+      setMebFile(null);
+    } finally {
+      setMebPreviewing(false);
+    }
+  };
+
+  const toggleMebMixed = (subject: string) => {
+    setMebMixed((prev) => {
+      const next = new Set(prev);
+      if (next.has(subject)) next.delete(subject);
+      else next.add(subject);
+      return next;
+    });
+  };
 
   const load = async () => {
     if (!token || !groupId) { setLoading(false); return; }
@@ -68,7 +122,7 @@ export default function OgrencilerPage() {
     try {
       const data = await apiFetch<Student[]>(`/sorumluluk-exam/groups/${groupId}/students${schoolQ}`, { token });
       setStudents(data);
-    } catch { toast.error('Ö?renciler yüklenemedi'); }
+    } catch { toast.error('Öğrenciler yüklenemedi'); }
     finally { setLoading(false); }
   };
 
@@ -97,6 +151,21 @@ export default function OgrencilerPage() {
     catch (e) { toast.error(e instanceof Error ? e.message : 'Hata'); }
   };
 
+  const deleteAll = async () => {
+    if (!students.length) return;
+    if (!confirm(`${students.length} öğrencinin tamamını silmek istiyor musunuz? Oturum atamaları da kaldırılır.`)) return;
+    setBulkDeleting(true);
+    try {
+      const res = await apiFetch<{ deleted: number }>(`/sorumluluk-exam/groups/${groupId}/students${schoolQ}`, { method: 'DELETE', token });
+      toast.success(`${res.deleted} öğrenci silindi`);
+      void load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Toplu silme başarısız');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   const startEdit = (s: Student) => {
     setEditId(s.id);
     setForm({ studentName: s.studentName, studentNumber: s.studentNumber ?? '', className: s.className ?? '', subjects: s.subjects.map((x) => x.subjectName).join('\n') });
@@ -107,9 +176,13 @@ export default function OgrencilerPage() {
   const onExcelUpload = async (file: File) => {
     const fd = new FormData(); fd.append('file', file);
     try {
-      const res = await apiFetch<{ imported: number }>(`/sorumluluk-exam/groups/${groupId}/import-excel${schoolQ}`, { method: 'POST', token, body: fd });
-      toast.success(`${res.imported} ö?renci içe aktar?ld?`); void load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : '?çe aktarma hatas?'); }
+      const res = await apiFetch<{ imported: number; created?: number; updated?: number }>(`/sorumluluk-exam/groups/${groupId}/import-excel${schoolQ}`, { method: 'POST', token, body: fd });
+      const msg = res.updated != null && res.created != null
+        ? `${res.created} yeni, ${res.updated} güncellendi`
+        : `${res.imported} kayıt işlendi`;
+      toast.success(msg);
+      void load();
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'İçe aktarma hatası'); }
   };
 
   const onMebImport = async () => {
@@ -117,16 +190,47 @@ export default function OgrencilerPage() {
     setMebLoading(true);
     setMebResult(null);
     try {
-      const fd = new FormData(); fd.append('file', mebFile);
+      const fd = new FormData();
+      fd.append('file', mebFile);
+      if (mebMixed.size > 0) {
+        fd.append('mixed_subjects', JSON.stringify([...mebMixed]));
+      }
       const sep = schoolQ ? schoolQ + '&' : '?';
       const qs = `${sep}create_sessions=${mebOpts.createSessions ? '1' : '0'}&auto_schedule=${mebOpts.autoSchedule ? '1' : '0'}`;
-      const res = await apiFetch<{ imported: number; sessionsCreated: number; assigned: number; conflicts: number; total: number }>(
+      const res = await apiFetch<{
+        imported: number; created?: number; updated?: number;
+        sessionsCreated: number; sessionsTotal?: number; sessionsSkipped?: string[];
+        mixedPairsOk?: boolean; mixedPairIssues?: string[];
+        assigned: number; conflicts: number; unassigned?: number; timeConflicts?: number;
+        total: number; slotsMissing?: boolean;
+      }>(
         `/sorumluluk-exam/groups/${groupId}/import-meb${qs}`,
         { method: 'POST', token, body: fd },
       );
       setMebResult(res);
       void load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : '?çe aktarma hatas?'); }
+      const importMsg = res.updated != null && res.created != null
+        ? `${res.created} yeni, ${res.updated} güncellendi`
+        : `${res.imported} kayıt işlendi`;
+      if (res.slotsMissing) {
+        toast.warning(`Liste güncellendi (${importMsg}). Oturum için önce Sınav Takvimi slotları tanımlayın.`);
+      } else {
+        toast.success(importMsg);
+        if (mebOpts.autoSchedule && (res.total ?? 0) > 0) {
+          toastScheduleResult(res, 'Otomatik programlama');
+        } else if (mebOpts.createSessions && (res.sessionsCreated ?? 0) > 0) {
+          toast.info(`${res.sessionsCreated} oturum oluşturuldu. Programlama sekmesinden atayın.`);
+        }
+      }
+    } catch (e) {
+      const err = e as Error & { code?: string };
+      if (err.code === 'NO_SLOTS') {
+        toast.warning(err.message || 'Önce Sınav Takvimi slotlarını tanımlayın.');
+        void load();
+      } else {
+        toast.error(err.message || 'İçe aktarma hatası');
+      }
+    }
     finally { setMebLoading(false); }
   };
 
@@ -142,124 +246,247 @@ export default function OgrencilerPage() {
   const totalSubjects = students.reduce((a, s) => a + s.subjects.length, 0);
   const uniqueSubjects = [...new Set(students.flatMap((s) => s.subjects.map((x) => x.subjectName)))];
 
+  const mebDone = mebResult != null;
+  const scheduleOk =
+    !mebOpts.autoSchedule ||
+    ((mebResult?.total ?? 0) > 0
+      ? (mebResult!.assigned >= mebResult!.total &&
+          (mebResult!.unassigned ?? mebResult!.conflicts ?? 0) === 0 &&
+          (mebResult!.timeConflicts ?? 0) === 0)
+      : true);
+  const mebImportOk =
+    mebDone &&
+    (mebResult!.imported ?? 0) > 0 &&
+    !mebResult!.slotsMissing &&
+    (mebResult!.sessionsSkipped?.length ?? 0) === 0 &&
+    scheduleOk;
+
   return (
     <div className="space-y-4">
       {/* MEB Import Dialog */}
       {mebDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setMebDialog(false)}>
-          <div className="w-full max-w-lg rounded-xl border bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900 sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b px-3 py-3 dark:border-zinc-800 sm:px-5 sm:py-4">
-              <div className="flex items-center gap-2.5">
-                <FileSpreadsheet className="size-5 text-indigo-600" />
-                <div>
-                  <p className="font-semibold text-sm">MEB e-okul Sorumluluk Listesi</p>
-                  <p className="text-[11px] text-muted-foreground">Önceki y?llar listesini yükle ve otomatik planla</p>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-2 sm:p-4" onClick={() => { setMebDialog(false); resetMebDialog(); }}>
+          <div
+            className="flex w-full max-w-lg max-h-[min(92dvh,640px)] flex-col rounded-xl border bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900 sm:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="flex shrink-0 items-center justify-between border-b px-3 py-2.5 dark:border-zinc-800 sm:px-5 sm:py-3">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <FileSpreadsheet className="size-5 shrink-0 text-indigo-600" />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">MEB e-okul Sorumluluk Listesi</p>
+                  <p className="truncate text-[11px] text-muted-foreground">
+                    {mebDone
+                      ? (mebImportOk ? 'İşlem başarıyla tamamlandı' : 'Sonuç özeti')
+                      : 'Liste yükle ve otomatik planla'}
+                  </p>
                 </div>
               </div>
-              <button onClick={() => setMebDialog(false)} className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800">
+              <button onClick={() => { setMebDialog(false); resetMebDialog(); }} className="shrink-0 rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800">
                 <X className="size-4" />
               </button>
             </div>
 
-            <div className="space-y-3 p-3 sm:space-y-4 sm:p-5">
-              <div className="rounded-xl border border-indigo-200/60 bg-indigo-50/60 p-3 dark:border-indigo-900/40 dark:bg-indigo-950/20">
-                <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 mb-1">Desteklenen MEB e-okul sütunlar?</p>
-                <p className="font-mono text-[10px] bg-white/70 dark:bg-zinc-900/60 rounded px-2 py-1 text-indigo-800 dark:text-indigo-200">
-                  Ad? Soyad? | Ö?renci No | S?n?f | Sorumlu Ders 1 | Ders 2 | Ders 3
-                </p>
-                <p className="text-[10px] text-indigo-700/70 dark:text-indigo-300/70 mt-1.5">
-                  Sütun adlar? otomatik alg?lan?r. MEB e-okul &quot;Sorumluluk Ö?renci Listesi&quot; Excel ç?kt?s?n? direkt yükleyebilirsiniz.
-                </p>
-              </div>
-
+            <div className="min-h-0 flex-1 overflow-y-auto space-y-3 p-3 sm:p-4">
+              {!mebDone && (
+              <>
               <div
-                className={cn('rounded-xl border-2 border-dashed p-4 text-center transition-colors cursor-pointer sm:p-6',
+                className={cn('rounded-xl border-2 border-dashed p-3 text-center transition-colors cursor-pointer sm:p-4',
                   mebFile ? 'border-green-400 bg-green-50/50 dark:border-green-700 dark:bg-green-950/10' : 'border-slate-300 hover:border-indigo-400 dark:border-zinc-700 dark:hover:border-indigo-600')}
                 onClick={() => mebFileRef.current?.click()}>
                 {mebFile ? (
                   <div className="flex items-center justify-center gap-2">
                     <Check className="size-5 text-green-600" />
                     <span className="text-sm font-medium text-green-700 dark:text-green-400">{mebFile.name}</span>
-                    <button onClick={(e) => { e.stopPropagation(); setMebFile(null); }} className="text-muted-foreground hover:text-red-500">
+                    <button onClick={(e) => { e.stopPropagation(); resetMebDialog(); }} className="text-muted-foreground hover:text-red-500">
                       <X className="size-4" />
                     </button>
                   </div>
                 ) : (
                   <>
                     <Upload className="mx-auto mb-2 size-8 text-muted-foreground opacity-50" />
-                    <p className="text-sm font-medium">Dosya seçmek için t?klay?n</p>
+                    <p className="text-sm font-medium">Dosya seçmek için tıklayın</p>
                     <p className="text-xs text-muted-foreground mt-0.5">.xlsx veya .xls</p>
                   </>
                 )}
                 <input ref={mebFileRef} type="file" accept=".xlsx,.xls" className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) setMebFile(f); e.target.value = ''; }} />
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) {
+                      setMebFile(f);
+                      void previewMebFile(f);
+                    }
+                    e.target.value = '';
+                  }} />
               </div>
 
+              {mebPreviewing && (
+                <p className="text-xs text-muted-foreground text-center animate-pulse">Ders listesi okunuyor…</p>
+              )}
+
+              {mebPreview && mebOpts.createSessions && mebPreview.subjects.length > 0 && (
+                <div className="rounded-xl border border-teal-200/70 bg-teal-50/40 p-3 dark:border-teal-900/50 dark:bg-teal-950/20 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-teal-800 dark:text-teal-200">
+                      Yazılı + Uygulama sınavı ({mebPreview.studentCount} öğrenci · {mebPreview.subjects.length} ders)
+                    </p>
+                    <button
+                      type="button"
+                      className="text-[10px] text-teal-700 underline dark:text-teal-300"
+                      onClick={() => setMebMixed(mebMixed.size === mebPreview.subjects.length ? new Set() : new Set(mebPreview.subjects))}>
+                      {mebMixed.size === mebPreview.subjects.length ? 'Tümünü kaldır' : 'Tümünü seç'}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-teal-700/80 dark:text-teal-300/80">
+                    İşaretlenen derslerde yazılı oturum + ertesi gün uygulama açılır; planlama her iki günü de dikkate alır.
+                  </p>
+                  <div className="max-h-28 sm:max-h-32 overflow-y-auto space-y-1 pr-1">
+                    {mebPreview.subjects.map((subj) => (
+                      <label
+                        key={subj}
+                        className={cn(
+                          'flex items-center gap-2 rounded-lg border px-2.5 py-1.5 cursor-pointer text-xs transition-colors',
+                          mebMixed.has(subj)
+                            ? 'border-teal-400 bg-teal-100/80 dark:border-teal-700 dark:bg-teal-950/40'
+                            : 'border-slate-200/80 bg-white/60 dark:border-zinc-700 dark:bg-zinc-900/40',
+                        )}
+                        onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          className="size-3.5 accent-teal-600"
+                          checked={mebMixed.has(subj)}
+                          onChange={() => toggleMebMixed(subj)}
+                        />
+                        <span className="font-medium flex-1">{subj}</span>
+                        {mebMixed.has(subj) && (
+                          <span className="text-[10px] font-semibold text-teal-700 dark:text-teal-300 shrink-0">Y+U</span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-2.5">
-                <label className="flex items-start gap-3 rounded-xl border p-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors"
+                <label className="flex items-start gap-2.5 rounded-lg border p-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors"
                   onClick={() => setMebOpts((o) => ({ ...o, createSessions: !o.createSessions }))}>
-                  <div className={cn('mt-0.5 size-5 rounded flex items-center justify-center shrink-0 border-2 transition-colors',
+                  <div className={cn('mt-0.5 size-4 rounded flex items-center justify-center shrink-0 border-2 transition-colors',
                     mebOpts.createSessions ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 dark:border-zinc-600')}>
-                    {mebOpts.createSessions && <Check className="size-3 text-white" />}
+                    {mebOpts.createSessions && <Check className="size-2.5 text-white" />}
                   </div>
                   <div>
-                    <p className="text-sm font-medium">Oturumlar? otomatik olu?tur</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Listede bulunan her ders için oturum olu?turur. Tarih/saat bilgisini sonradan düzenleyebilirsiniz.
-                    </p>
+                    <p className="text-sm font-medium">Oturumları otomatik oluştur</p>
+                    <p className="text-[11px] text-muted-foreground">Takvim slotlarına göre</p>
                   </div>
                 </label>
-                <label className={cn('flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition-colors',
+                <label className={cn('flex items-start gap-2.5 rounded-lg border p-2.5 cursor-pointer transition-colors',
                   mebOpts.createSessions ? 'hover:bg-slate-50 dark:hover:bg-zinc-800/50' : 'opacity-40 pointer-events-none')}
                   onClick={() => mebOpts.createSessions && setMebOpts((o) => ({ ...o, autoSchedule: !o.autoSchedule }))}>
-                  <div className={cn('mt-0.5 size-5 rounded flex items-center justify-center shrink-0 border-2 transition-colors',
+                  <div className={cn('mt-0.5 size-4 rounded flex items-center justify-center shrink-0 border-2 transition-colors',
                     mebOpts.autoSchedule && mebOpts.createSessions ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 dark:border-zinc-600')}>
-                    {mebOpts.autoSchedule && mebOpts.createSessions && <Check className="size-3 text-white" />}
+                    {mebOpts.autoSchedule && mebOpts.createSessions && <Check className="size-2.5 text-white" />}
                   </div>
                   <div>
                     <p className="text-sm font-medium flex items-center gap-1.5">
-                      <Zap className="size-3.5 text-amber-500" /> Otomatik da??t
+                      <Zap className="size-3.5 text-amber-500" /> Otomatik dağıt
                     </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Ö?rencileri çak??ma olmadan oturumlara otomatik atar.
-                    </p>
+                    <p className="text-[11px] text-muted-foreground">Çakışmasız atama</p>
                   </div>
                 </label>
               </div>
+              </>
+              )}
 
-              {mebResult && (
-                <div className="rounded-xl border border-green-200 bg-green-50/60 p-3 dark:border-green-800/40 dark:bg-green-950/20 space-y-2">
-                  <p className="text-xs font-semibold text-green-700 dark:text-green-300">??lem tamamland?</p>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    {[
-                      { label: 'Ö?renci',  value: mebResult.imported,        color: 'text-sky-600' },
-                      { label: 'Oturum',   value: mebResult.sessionsCreated,  color: 'text-indigo-600' },
-                      { label: 'Atama',    value: mebResult.assigned,         color: 'text-green-600' },
-                      { label: 'Çak??ma',  value: mebResult.conflicts,        color: mebResult.conflicts > 0 ? 'text-red-600' : 'text-slate-400' },
-                    ].map((item) => (
-                      <div key={item.label} className="text-center rounded-lg bg-white/70 dark:bg-zinc-900/60 py-1.5">
-                        <p className={cn('text-base font-bold tabular-nums sm:text-lg', item.color)}>{item.value}</p>
-                        <p className="text-[10px] text-muted-foreground">{item.label}</p>
-                      </div>
-                    ))}
+              {mebDone && mebResult && (
+                <div className={cn(
+                  'rounded-xl border p-3 space-y-2.5',
+                  mebImportOk
+                    ? 'border-green-200 bg-green-50/60 dark:border-green-800/40 dark:bg-green-950/20'
+                    : 'border-amber-200 bg-amber-50/50 dark:border-amber-800/40 dark:bg-amber-950/20',
+                )}>
+                  <p className={cn('text-xs font-semibold', mebImportOk ? 'text-green-700 dark:text-green-300' : 'text-amber-800 dark:text-amber-200')}>
+                    {mebImportOk ? 'İşlem başarıyla tamamlandı' : 'İşlem tamamlandı — eksik veya uyarı var'}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {(mebResult.created ?? 0) > 0 || (mebResult.updated ?? 0) > 0
+                      ? `${mebResult.created ?? 0} yeni · ${mebResult.updated ?? 0} güncellenen öğrenci`
+                      : `${mebResult.imported} kayıt işlendi`}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-lg bg-white/70 dark:bg-zinc-900/60 px-2 py-1.5 text-center">
+                      <p className="text-base font-bold tabular-nums text-indigo-600">{mebResult.sessionsTotal ?? mebResult.sessionsCreated}</p>
+                      <p className="text-[10px] text-muted-foreground">Oturum (grupta)</p>
+                      {mebResult.sessionsCreated > 0 ? (
+                        <p className="text-[9px] text-indigo-600/80">+{mebResult.sessionsCreated} yeni</p>
+                      ) : mebOpts.createSessions ? (
+                        <p className="text-[9px] text-muted-foreground">bu yüklemede yeni açılmadı</p>
+                      ) : null}
+                    </div>
+                    <div className="rounded-lg bg-white/70 dark:bg-zinc-900/60 px-2 py-1.5 text-center">
+                      <p className={cn('text-base font-bold tabular-nums',
+                        mebOpts.autoSchedule && (mebResult.total ?? 0) > 0 && mebResult.assigned < mebResult.total
+                          ? 'text-amber-600' : 'text-green-600')}>
+                        {mebOpts.autoSchedule && (mebResult.total ?? 0) > 0
+                          ? `${mebResult.assigned}/${mebResult.total}`
+                          : '—'}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">Ders ataması</p>
+                    </div>
+                    <div className="rounded-lg bg-white/70 dark:bg-zinc-900/60 px-2 py-1.5 text-center">
+                      <p className={cn('text-base font-bold tabular-nums',
+                        (mebResult.unassigned ?? mebResult.conflicts ?? 0) > 0 ? 'text-red-600' : 'text-slate-500')}>
+                        {mebResult.unassigned ?? mebResult.conflicts ?? 0}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">Atanamayan ders</p>
+                    </div>
+                    <div className="rounded-lg bg-white/70 dark:bg-zinc-900/60 px-2 py-1.5 text-center">
+                      <p className={cn('text-base font-bold tabular-nums',
+                        (mebResult.timeConflicts ?? 0) > 0 ? 'text-red-600' : 'text-slate-500')}>
+                        {mebResult.timeConflicts ?? 0}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">Zaman çakışması</p>
+                    </div>
                   </div>
-                  {mebResult.sessionsCreated > 0 && (
+                  {mebResult.slotsMissing && (
                     <div className="flex items-start gap-1.5">
                       <AlertCircle className="size-3.5 text-amber-500 shrink-0 mt-0.5" />
                       <p className="text-[11px] text-amber-700 dark:text-amber-400">
-                        {mebResult.sessionsCreated} yeni oturum olu?turuldu. Lütfen <strong>Oturumlar</strong> sekmesinden tarih ve saat bilgilerini güncelleyin.
+                        Takvimde slot yok — öğrenciler kaydedildi, oturum açılmadı. <strong>Sınav Takvimi</strong> sekmesinden gün/saat ekleyin.
+                      </p>
+                    </div>
+                  )}
+                  {!mebResult.slotsMissing && (mebResult.sessionsSkipped?.length ?? 0) > 0 && (
+                    <div className="flex items-start gap-1.5">
+                      <AlertCircle className="size-3.5 text-amber-500 shrink-0 mt-0.5" />
+                      <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                        Slot yetersiz: {mebResult.sessionsSkipped!.length} ders oturumsuz kaldı. <strong>Takvim</strong>e slot ekleyip Oturumlara uygulayın.
+                      </p>
+                    </div>
+                  )}
+                  {mebResult.mixedPairsOk === false && (mebResult.mixedPairIssues?.length ?? 0) > 0 && (
+                    <div className="flex items-start gap-1.5">
+                      <AlertCircle className="size-3.5 text-red-500 shrink-0 mt-0.5" />
+                      <p className="text-[11px] text-red-700 dark:text-red-400">
+                        Y+U tarih hatası: {mebResult.mixedPairIssues!.join(' · ')}
                       </p>
                     </div>
                   )}
                 </div>
               )}
+            </div>
 
-              <div className="flex gap-2 pt-1">
-                <Button className="flex-1 gap-1.5" onClick={onMebImport} disabled={!mebFile || mebLoading}>
-                  {mebLoading ? <><span className="animate-spin">?</span> Yükleniyor...</> : <><FileSpreadsheet className="size-4" /> Yükle ve Planla</>}
+            <div className="shrink-0 border-t px-3 py-2.5 dark:border-zinc-800 sm:px-4 sm:py-3">
+              {mebDone ? (
+                <Button className="w-full" onClick={() => { setMebDialog(false); resetMebDialog(); }}>
+                  Kapat
                 </Button>
-                <Button variant="outline" onClick={() => setMebDialog(false)}>?ptal</Button>
-              </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Button className="flex-1 gap-1.5" onClick={onMebImport} disabled={!mebFile || mebLoading || mebPreviewing}>
+                    {mebLoading ? <><span className="animate-spin">⟳</span> Yükleniyor...</> : <><FileSpreadsheet className="size-4" /> Yükle ve Planla</>}
+                  </Button>
+                  <Button variant="outline" onClick={() => { setMebDialog(false); resetMebDialog(); }}>İptal</Button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -269,8 +496,8 @@ export default function OgrencilerPage() {
       {students.length > 0 && (
         <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
           {[
-            { label: 'Ö?renci',   value: students.length,  color: 'text-sky-600 dark:text-sky-400' },
-            { label: 'Ders Kayd?', value: totalSubjects,   color: 'text-indigo-600 dark:text-indigo-400' },
+            { label: 'Öğrenci',   value: students.length,  color: 'text-sky-600 dark:text-sky-400' },
+            { label: 'Ders Kaydı', value: totalSubjects,   color: 'text-indigo-600 dark:text-indigo-400' },
             { label: 'Atanan',     value: assigned,         color: assigned === students.length && students.length > 0 ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400' },
           ].map((s) => (
             <div key={s.label} className="rounded-xl border border-white/50 bg-white/80 p-2 text-center shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 sm:rounded-2xl sm:p-3">
@@ -302,23 +529,23 @@ export default function OgrencilerPage() {
               ? 'border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100 dark:border-teal-800/40 dark:bg-teal-950/30 dark:text-teal-300'
               : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-slate-300')}>
           {groupView ? <LayoutList className="size-3.5" /> : <List className="size-3.5" />}
-          {groupView ? 'S?n?fa Göre' : 'Liste'}
+          {groupView ? 'Sınıfa Göre' : 'Liste'}
         </button>
-        <span className="text-xs text-muted-foreground">{filtered.length} ö?renci</span>
+        <span className="text-xs text-muted-foreground">{filtered.length} öğrenci</span>
         {isAdmin && (
           <div className="ml-auto flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" className="gap-1.5" title="Örnek Excel ?ablonu indir"
+            <Button size="sm" variant="outline" className="gap-1.5" title="Örnek Excel Şablonu indir"
               onClick={async () => {
                 try {
                   const base = resolveDefaultApiBase();
                   const res = await fetch(`${base}/sorumluluk-exam/students/excel-template${schoolQ ?? ''}`, { headers: { Authorization: `Bearer ${token}` } });
-                  if (!res.ok) throw new Error('?ndirme ba?ar?s?z');
+                  if (!res.ok) throw new Error('İndirme başarısız');
                   const blob = await res.blob();
                   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'ogrenci-sablon.xlsx'; a.click();
-                  toast.success('?ablon indirildi');
-                } catch { toast.error('?ablon indirilemedi'); }
+                  toast.success('Şablon indirildi');
+                } catch { toast.error('Şablon indirilemedi'); }
               }}>
-              <Download className="size-4" /> ?ablon
+              <Download className="size-4" /> Şablon
             </Button>
             <Button size="sm" variant="outline" className="gap-1.5" onClick={() => fileRef.current?.click()}>
               <Upload className="size-4" /> Excel
@@ -326,34 +553,40 @@ export default function OgrencilerPage() {
             <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) void onExcelUpload(f); e.target.value = ''; }} />
             <Button size="sm" variant="outline" className="gap-1.5 border-indigo-300 text-indigo-700 hover:bg-indigo-50 dark:border-indigo-700 dark:text-indigo-300"
-              onClick={() => { setMebDialog(true); setMebFile(null); setMebResult(null); }}>
+              onClick={() => { resetMebDialog(); setMebDialog(true); }}>
               <FileSpreadsheet className="size-4" /> MEB Listesi
             </Button>
             <Button size="sm" className="gap-1.5" onClick={() => { setEditId(null); setForm({ studentName: '', studentNumber: '', className: '', subjects: '' }); setShowForm(true); }}>
               <Plus className="size-4" /> Ekle
             </Button>
+            {students.length > 0 && (
+              <Button size="sm" variant="outline" className="gap-1.5 border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900/50 dark:text-red-400" onClick={deleteAll} disabled={bulkDeleting}>
+                {bulkDeleting ? <span className="animate-spin">⟳</span> : <Trash className="size-4" />}
+                Tümünü sil
+              </Button>
+            )}
           </div>
         )}
       </div>
 
       {showForm && isAdmin && (
         <div className="rounded-2xl border bg-white/80 p-4 shadow-sm dark:bg-zinc-900/60 space-y-3">
-          <p className="font-semibold text-sm">{editId ? 'Ö?renci Düzenle' : 'Yeni Ö?renci'}</p>
+          <p className="font-semibold text-sm">{editId ? 'Öğrenci Düzenle' : 'Yeni Öğrenci'}</p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Input placeholder="Ad? Soyad? *" value={form.studentName} onChange={(e) => setForm((f) => ({ ...f, studentName: e.target.value }))} />
-            <Input placeholder="Ö?renci No" value={form.studentNumber} onChange={(e) => setForm((f) => ({ ...f, studentNumber: e.target.value }))} />
-            <Input placeholder="S?n?f (örn: 11-A)" value={form.className} onChange={(e) => setForm((f) => ({ ...f, className: e.target.value }))} />
+            <Input placeholder="Adı Soyadı *" value={form.studentName} onChange={(e) => setForm((f) => ({ ...f, studentName: e.target.value }))} />
+            <Input placeholder="Öğrenci No" value={form.studentNumber} onChange={(e) => setForm((f) => ({ ...f, studentNumber: e.target.value }))} />
+            <Input placeholder="Sınıf (örn: 11-A)" value={form.className} onChange={(e) => setForm((f) => ({ ...f, className: e.target.value }))} />
           </div>
           <div>
             <textarea
-              placeholder={'Sorumlu dersler (her sat?ra bir ders veya virgülle ay?r?n)\nÖrn: Matematik\nFizik\nKimya'}
+              placeholder={'Sorumlu dersler (her satıra bir ders veya virgülle ayırın)\nÖrn: Matematik\nFizik\nKimya'}
               value={form.subjects} onChange={(e) => setForm((f) => ({ ...f, subjects: e.target.value }))}
               rows={4} className="w-full rounded-lg border border-input bg-white px-3 py-2 text-sm dark:bg-zinc-900 resize-y" />
-            <p className="text-[10px] text-muted-foreground mt-1">Her sat?ra bir ders ad? girin. Programlama a?amas?nda ders ad?yla oturumlar e?le?tirilir.</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Her satıra bir ders adı girin. Programlama aşamasında ders adıyla oturumlar eşleştirilir.</p>
           </div>
           <div className="flex gap-2">
             <Button size="sm" onClick={save}><Check className="size-4 mr-1" /> Kaydet</Button>
-            <Button size="sm" variant="outline" onClick={() => { setShowForm(false); setEditId(null); }}><X className="size-4 mr-1" /> ?ptal</Button>
+            <Button size="sm" variant="outline" onClick={() => { setShowForm(false); setEditId(null); }}><X className="size-4 mr-1" /> İptal</Button>
           </div>
         </div>
       )}
@@ -365,17 +598,17 @@ export default function OgrencilerPage() {
               <Info className="size-4 text-sky-600 shrink-0 mt-0.5" />
               <div className="text-xs text-sky-800 dark:text-sky-300 space-y-1">
                 <p className="font-semibold">Excel ile toplu içe aktarma</p>
-                <p>Excel dosyan?zda ?u sütunlar? bulundurun:</p>
-                <p className="font-mono bg-sky-100 dark:bg-sky-950/40 rounded px-2 py-1 text-[11px]">Ad? Soyad? | No | S?n?f | Ders1 | Ders2 | Ders3...</p>
-                <p className="opacity-80">Sistem ders sütunlar?n? otomatik alg?lar. Say?sal ba?l?k sat?r? varsa atlar.</p>
-                <p className="opacity-80 mt-1">Yukar?daki <strong>?ablon</strong> dü?mesiyle haz?r Excel ?ablonunu indirebilirsiniz.</p>
+                <p>Excel dosyanızda şu sütunları bulundurun:</p>
+                <p className="font-mono bg-sky-100 dark:bg-sky-950/40 rounded px-2 py-1 text-[11px]">Adı Soyadı | No | Sınıf | Ders1 | Ders2 | Ders3...</p>
+                <p className="opacity-80">Sistem ders sütunlarını otomatik algılar. Sayısal başlık satırı varsa atlar.</p>
+                <p className="opacity-80 mt-1">Yukarıdaki <strong>Şablon</strong> düğmesiyle hazır Excel şablonunu indirebilirsiniz.</p>
               </div>
             </div>
           </div>
           <div className="rounded-2xl border bg-white/60 p-10 text-center text-muted-foreground dark:bg-zinc-900/40">
             <Users className="mx-auto mb-2 size-8 opacity-30" />
-            <p className="text-sm font-medium">Henüz ö?renci yok</p>
-            <p className="text-xs mt-1 opacity-70">Excel ile içe aktar?n veya tek tek ekleyin.</p>
+            <p className="text-sm font-medium">Henüz öğrenci yok</p>
+            <p className="text-xs mt-1 opacity-70">Excel ile içe aktarın veya tek tek ekleyin.</p>
           </div>
         </div>
       )}
@@ -386,7 +619,7 @@ export default function OgrencilerPage() {
             <div key={cls}>
               <div className="flex items-center gap-2 mb-2">
                 <span className="rounded-lg bg-sky-100 px-2.5 py-1 text-xs font-bold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">{cls}</span>
-                <span className="text-xs text-muted-foreground">{classStudents.length} ö?renci</span>
+                <span className="text-xs text-muted-foreground">{classStudents.length} öğrenci</span>
               </div>
               <div className="space-y-1.5">
                 {classStudents.map((s) => (
@@ -429,7 +662,7 @@ function StudentRow({ s, isAdmin, onEdit, onDelete }: {
             <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">{s.className}</span>
           )}
           {allAssigned && s.subjects.length > 0 && (
-            <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700 dark:bg-green-950/40 dark:text-green-300">? Atand?</span>
+            <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700 dark:bg-green-950/40 dark:text-green-300">✓ Atandı</span>
           )}
         </div>
         {s.subjects.length > 0 && (
@@ -439,7 +672,7 @@ function StudentRow({ s, isAdmin, onEdit, onDelete }: {
                 sub.sessionId
                   ? 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-300'
                   : 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300')}>
-                {sub.subjectName}{sub.sessionId ? ' ?' : ''}
+                {subjectLabel(sub)}{sub.sessionId ? ' ✓' : ''}
               </span>
             ))}
           </div>

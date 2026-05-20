@@ -370,6 +370,23 @@ export class UpdateSchoolDto {
   @IsBoolean()
   smart_board_auto_disconnect_lesson_end?: boolean;
 
+  /** Akıllı Tahta: QR onayında aynı tahtadaki önceki öğretmen oturumunu sonlandır. */
+  @IsOptional()
+  @IsBoolean()
+  smart_board_release_previous_on_qr?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  smart_board_default_kiosk?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  smart_board_default_kilit?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  smart_board_notify_on_qr_takeover?: boolean;
+
   /** Nöbet modülü: Varsayılan nöbet başlangıç saati (HH:mm). Örn: 08:00 */
   @IsOptional()
   @IsString()

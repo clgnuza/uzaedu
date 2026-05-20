@@ -1616,7 +1616,11 @@ export default function DersProgramiAnaPage() {
                 </div>
               )}
               {adminViewTab === 'drafts' && (
-                <SchoolTimetableDraftsPanel embedded onChanged={() => setAdminReloadTick((x) => x + 1)} />
+                <SchoolTimetableDraftsPanel
+                  embedded
+                  plans={adminPlans}
+                  onChanged={() => setAdminReloadTick((x) => x + 1)}
+                />
               )}
               </div>
           ) : loading ? (

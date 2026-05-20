@@ -51,7 +51,7 @@ export function TeacherSmartBoardHero({
         </div>
         <div className="min-w-0 flex-1 space-y-1 sm:space-y-2">
           <div>
-            <h2 className="text-[13px] font-bold leading-tight tracking-tight text-foreground sm:text-lg">Sınıf tahtasına bağlan</h2>
+            <h2 className="text-[13px] font-bold leading-tight tracking-tight text-foreground sm:text-lg">Akıllı tahta</h2>
             {schoolName ? <p className="truncate text-[10px] text-muted-foreground sm:text-xs">{schoolName}</p> : null}
           </div>
           {!status ? (
@@ -70,17 +70,16 @@ export function TeacherSmartBoardHero({
                 <>
                   <p className="text-[11px] leading-snug text-muted-foreground sm:text-xs">
                     {deviceCount > 0
-                      ? `${deviceCount} tahta · Son kullandığınız üstte listelenir.`
-                      : 'Tahta kaydı yoksa idareye bildirin.'}
+                      ? `${deviceCount} tahta kayıtlı. Tahta varsayılan Duyuru TV; ders için QR onayı verin.`
+                      : 'Kayıtlı tahta yok — idare kurulum sihirbazını tamamlamalı.'}
                   </p>
                   <div className="flex gap-2 rounded-xl border border-violet-200/50 bg-violet-500/6 p-2.5 dark:border-violet-800/40 dark:bg-violet-950/20">
                     <Keyboard className="mt-0.5 size-4 shrink-0 text-violet-600 dark:text-violet-300" aria-hidden />
                     <p className="text-[10px] leading-snug text-muted-foreground sm:text-xs">
-                      <span className="font-semibold text-foreground">TV slaytları:</span> Sınıf TV sayfası odaktayken{' '}
-                      <kbd className="rounded border bg-muted px-1 font-mono text-[9px]">PageDown</kbd> /{' '}
-                      <kbd className="rounded border bg-muted px-1 font-mono text-[9px]">PageUp</kbd>, oklar veya{' '}
-                      <kbd className="rounded border bg-muted px-1 font-mono text-[9px]">Space</kbd> ile geçiş; ekrandaki İleri / Geri düğmeleri de kullanılabilir.
-                      Impress öndeyse kısayollar oraya gider — önce tarayıcı sekmesine odak verin.
+                      <span className="font-semibold text-foreground">Slayt geçişi (tahta TV):</span> Tarayıcı sekmesi odaktayken{' '}
+                      <kbd className="rounded border bg-muted px-1 font-mono text-[9px]">←</kbd>{' '}
+                      <kbd className="rounded border bg-muted px-1 font-mono text-[9px]">→</kbd> /{' '}
+                      <kbd className="rounded border bg-muted px-1 font-mono text-[9px]">Space</kbd> — Impress öndeyse önce sekmeye tıklayın.
                     </p>
                   </div>
                 </>

@@ -14,7 +14,7 @@ export class SmartBoardQrSession {
   @Column({ type: 'uuid' })
   device_id: string;
 
-  @Column({ type: 'varchar', length: 12 })
+  @Column({ type: 'varchar', length: 16 })
   code: string;
 
   @Column({ type: 'timestamptz' })
@@ -29,8 +29,18 @@ export class SmartBoardQrSession {
   @Column({ type: 'varchar', length: 64, nullable: true })
   issued_usb_token_hash: string | null;
 
+  /** @deprecated Poll üzerinden token sızmaz; yalnızca exchange endpoint token verir. */
   @Column({ type: 'varchar', length: 255, nullable: true })
   issued_usb_token_plain: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  exchange_nonce: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  exchange_expires_at: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  exchanged_at: Date | null;
 
   @CreateDateColumn()
   created_at: Date;

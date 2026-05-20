@@ -215,6 +215,26 @@ export class SchoolsService {
     if (dto.smart_board_restrict_to_own_classes !== undefined) school.smartBoardRestrictToOwnClasses = dto.smart_board_restrict_to_own_classes;
     if (dto.smart_board_notify_on_disconnect !== undefined) school.smartBoardNotifyOnDisconnect = dto.smart_board_notify_on_disconnect;
     if (dto.smart_board_auto_disconnect_lesson_end !== undefined) school.smartBoardAutoDisconnectLessonEnd = dto.smart_board_auto_disconnect_lesson_end;
+    if (dto.smart_board_release_previous_on_qr !== undefined) {
+      school.smartBoardReleasePreviousOnQr = dto.smart_board_release_previous_on_qr;
+    }
+    if (dto.smart_board_default_kiosk !== undefined) school.smartBoardDefaultKiosk = dto.smart_board_default_kiosk;
+    if (dto.smart_board_default_kilit !== undefined) school.smartBoardDefaultKilit = dto.smart_board_default_kilit;
+    if (dto.smart_board_notify_on_qr_takeover !== undefined) {
+      school.smartBoardNotifyOnQrTakeover = dto.smart_board_notify_on_qr_takeover;
+    }
+    const smartBoardFields = [
+      'smart_board_auto_authorize',
+      'smart_board_session_timeout_minutes',
+      'smart_board_restrict_to_own_classes',
+      'smart_board_notify_on_disconnect',
+      'smart_board_auto_disconnect_lesson_end',
+      'smart_board_release_previous_on_qr',
+      'smart_board_default_kiosk',
+      'smart_board_default_kilit',
+      'smart_board_notify_on_qr_takeover',
+    ] as const;
+    const smartBoardTouched = smartBoardFields.filter((f) => (dto as Record<string, unknown>)[f] !== undefined);
     if (dto.duty_start_time !== undefined) school.duty_start_time = dto.duty_start_time?.trim() || null;
     if (dto.duty_end_time !== undefined) school.duty_end_time = dto.duty_end_time?.trim() || null;
     if (dto.duty_teblig_duty_template !== undefined) school.duty_teblig_duty_template = dto.duty_teblig_duty_template?.trim() || null;
@@ -264,10 +284,10 @@ export class SchoolsService {
     }
     const saved = await this.schoolRepo.save(school);
     await this.auditService.log({
-      action: 'school_updated',
+      action: smartBoardTouched.length > 0 ? 'SMARTBOARD_SETTINGS_UPDATED' : 'school_updated',
       userId: scope.userId ?? null,
       schoolId: id,
-      meta: { fields: Object.keys(dto) },
+      meta: { fields: Object.keys(dto), smart_board: smartBoardTouched },
     });
     return saved;
   }

@@ -347,7 +347,7 @@ export default function ProgramEditPage() {
   }, [loadProgram]);
 
   const getCellEntry = (day: number, lesson: number) => {
-    if (!program?.entries) return null;
+    if (!programı.entries) return null;
     return program.entries.find((e) => e.day_of_week === day && e.lesson_num === lesson);
   };
 

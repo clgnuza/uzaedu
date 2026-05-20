@@ -3,40 +3,24 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
+import {
+  DEFAULT_MAX_LESSONS,
+  DEFAULT_SCHEDULE,
+  effectiveScheduleForDay,
+  type LessonSlot,
+  type SchoolTimetableSettings,
+} from '@/lib/school-timetable-schedule';
 
-export type LessonSlot = {
-  lesson_num: number;
-  start_time: string;
-  end_time: string;
-};
-
-export type SchoolTimetableSettings = {
-  duty_max_lessons: number | null;
-  duty_education_mode: 'single' | 'double';
-  lesson_schedule: LessonSlot[];
-  lesson_schedule_pm: LessonSlot[];
-  lesson_schedule_weekend: LessonSlot[];
-  lesson_schedule_weekend_pm: LessonSlot[];
-};
-
-const DEFAULT_MAX_LESSONS = 10;
-const DEFAULT_SCHEDULE: LessonSlot[] = [
-  { lesson_num: 1, start_time: '08:30', end_time: '09:10' },
-  { lesson_num: 2, start_time: '09:20', end_time: '10:00' },
-  { lesson_num: 3, start_time: '10:10', end_time: '10:50' },
-  { lesson_num: 4, start_time: '11:00', end_time: '11:40' },
-  { lesson_num: 5, start_time: '13:40', end_time: '14:20' },
-  { lesson_num: 6, start_time: '14:30', end_time: '15:10' },
-  { lesson_num: 7, start_time: '15:20', end_time: '16:00' },
-  { lesson_num: 8, start_time: '16:10', end_time: '16:50' },
-  { lesson_num: 9, start_time: '17:00', end_time: '17:40' },
-  { lesson_num: 10, start_time: '17:50', end_time: '18:30' },
-];
-
-/** 1=Mon … 7=Sun */
-export function isWeekendDow(dayOfWeek: number) {
-  return dayOfWeek === 6 || dayOfWeek === 7;
-}
+export type { LessonSlot, SchoolTimetableSettings };
+export {
+  jsGetDayToTurkish,
+  isWeekendDow,
+  effectiveScheduleForDay,
+  lessonSlotForDay,
+  clockRangesOverlap,
+  turkishDowFromYmd,
+  teacherLessonNumsOverlappingExam,
+} from '@/lib/school-timetable-schedule';
 
 const LUNCH_SLOT = {
   label: 'Öğle',
@@ -50,36 +34,6 @@ export type TimeSlotDisplay = {
   lessonNum?: number;
   isLunch?: boolean;
 };
-
-function sortSchedule(s: LessonSlot[]) {
-  return [...s].sort((a, b) => a.lesson_num - b.lesson_num);
-}
-
-/** Hafta içi / hafta sonu; ikili eğitimde öğle vardiyası aynı ders no ile üst yazar (TV ile uyumlu). */
-function effectiveScheduleForDay(settings: SchoolTimetableSettings | null, dayOfWeek: number): LessonSlot[] {
-  const mode = settings?.duty_education_mode ?? 'single';
-  const isWknd = isWeekendDow(dayOfWeek);
-  const wdAm = settings?.lesson_schedule?.length ? sortSchedule(settings.lesson_schedule) : DEFAULT_SCHEDULE;
-  const am = isWknd
-    ? settings?.lesson_schedule_weekend?.length
-      ? sortSchedule(settings.lesson_schedule_weekend)
-      : wdAm
-    : wdAm;
-
-  if (mode !== 'double') return am;
-
-  const wdPm = settings?.lesson_schedule_pm?.length ? sortSchedule(settings.lesson_schedule_pm) : [];
-  const pm = isWknd
-    ? settings?.lesson_schedule_weekend_pm?.length
-      ? sortSchedule(settings.lesson_schedule_weekend_pm)
-      : wdPm
-    : wdPm;
-
-  const byNum = new Map<number, LessonSlot>();
-  for (const s of am) byNum.set(s.lesson_num, { ...s });
-  for (const s of pm) byNum.set(s.lesson_num, { ...s });
-  return [...byNum.values()].sort((a, b) => a.lesson_num - b.lesson_num);
-}
 
 function buildTimeSlotsDisplay(
   schedule: LessonSlot[],

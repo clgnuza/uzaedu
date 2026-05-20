@@ -7,6 +7,13 @@ import { getApiUrl } from '@/lib/api';
 import { uuidFromTvShortSchoolId, uuidToTvShortSchoolId } from '@/lib/tv-school-short-id';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { BookOpen, ChevronLeft, ChevronRight, Megaphone, Rss, Users } from 'lucide-react';
+import {
+  ClassroomBoardNotice,
+  ClassroomTeacherControls,
+  clearClassroomTeacherToken,
+  persistClassroomTeacherToken,
+} from './classroom-teacher-unlock';
+import { subscribeClassroomBoardSync } from '@/lib/smart-board-classroom-sync';
 
 type TvAudience = 'corridor' | 'teachers' | 'classroom';
 
@@ -380,244 +387,148 @@ function TvPairingGate({
   );
 }
 
-function ClassroomUsbPinForm({
-  schoolId,
-  deviceId,
-  onUnlocked,
-}: {
-  schoolId: string;
-  deviceId: string;
-  onUnlocked: (token: string) => void;
-}) {
-  const [pin, setPin] = useState('');
-  const [unlockMode, setUnlockMode] = useState<'pin' | 'otp' | 'auto'>('auto');
-  const [lastUnlockMethod, setLastUnlockMethod] = useState<'pin' | 'otp' | 'qr' | null>(null);
-  const [busy, setBusy] = useState(false);
+function ClassroomSetupScreen({ setupCode }: { setupCode: string }) {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [qrBusy, setQrBusy] = useState(false);
-  const [qrErr, setQrErr] = useState<string | null>(null);
-  const [qrSession, setQrSession] = useState<{ session_id: string; code: string; expires_in: number } | null>(null);
-  const [qrLeftSec, setQrLeftSec] = useState(0);
-  const qrBootstrapRef = useRef(false);
-  const qrLink = useMemo(() => {
-    if (!qrSession || typeof window === 'undefined') return '';
-    return `${window.location.origin}/akilli-tahta?qr_school=${encodeURIComponent(schoolId)}&qr_device=${encodeURIComponent(deviceId)}&qr_session=${encodeURIComponent(qrSession.session_id)}&qr_code=${encodeURIComponent(qrSession.code)}`;
-  }, [qrSession, schoolId, deviceId]);
+  const [schoolName, setSchoolName] = useState('');
+  const [schoolId, setSchoolId] = useState('');
+  const [devices, setDevices] = useState<Array<{ id: string; name: string; class_section: string | null }>>([]);
+  const [suggested, setSuggested] = useState<string[]>([]);
+  const [pickDeviceId, setPickDeviceId] = useState('');
+  const [customClass, setCustomClass] = useState('');
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!qrSession) {
-      setQrLeftSec(0);
-      return;
-    }
-    setQrLeftSec(Math.max(1, qrSession.expires_in || 120));
-    const id = setInterval(() => {
-      setQrLeftSec((prev) => {
-        if (prev <= 1) {
-          setQrSession(null);
-          setQrErr('QR süresi doldu. Yeniden oluşturun.');
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(id);
-  }, [qrSession]);
+    setLoading(true);
+    setErr(null);
+    void fetch(getApiUrl(`/tv/classroom-setup/info?setup_code=${encodeURIComponent(setupCode)}`))
+      .then(async (res) => {
+        const body = (await res.json().catch(() => ({}))) as {
+          school_id?: string;
+          school_name?: string;
+          devices?: Array<{ id: string; name: string; class_section: string | null }>;
+          suggested_classes?: string[];
+          message?: string;
+        };
+        if (!res.ok) throw new Error(body.message || 'Kurulum kodu geçersiz');
+        setSchoolId(body.school_id ?? '');
+        setSchoolName(body.school_name ?? '');
+        setDevices(body.devices ?? []);
+        setSuggested(body.suggested_classes ?? []);
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : 'Bağlantı hatası'))
+      .finally(() => setLoading(false));
+  }, [setupCode]);
 
-  function createQrSession() {
-    setQrBusy(true);
-    setQrErr(null);
-    void fetch(getApiUrl('/tv/classroom-qr-session'), {
+  const register = (payload: { device_id?: string; class_section?: string }) => {
+    setBusy(true);
+    setErr(null);
+    void fetch(getApiUrl('/tv/classroom-setup/register'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ school_id: schoolId, device_id: deviceId }),
+      body: JSON.stringify({
+        setup_code: setupCode,
+        device_id: payload.device_id,
+        class_section: payload.class_section,
+      }),
     })
       .then(async (res) => {
         const body = (await res.json().catch(() => ({}))) as {
-          session_id?: string;
-          code?: string;
-          expires_in?: number;
+          school_id?: string;
+          device_id?: string;
           message?: string;
         };
-        if (!res.ok || !body.session_id || !body.code) {
-          throw new Error(body.message || 'QR oturumu oluşturulamadı');
+        if (!res.ok || !body.school_id || !body.device_id) {
+          throw new Error(body.message || 'Kayıt başarısız');
         }
-        setQrSession({
-          session_id: body.session_id,
-          code: body.code,
-          expires_in: body.expires_in ?? 120,
+        const q = new URLSearchParams({
+          school_id: body.school_id,
+          device_id: body.device_id,
+          kiosk: '1',
+          kilit: '1',
         });
-      })
-      .catch((e) => setQrErr(e instanceof Error ? e.message : 'QR hatası'))
-      .finally(() => setQrBusy(false));
-  }
-
-  useEffect(() => {
-    if (!qrSession) return;
-    const id = setInterval(() => {
-      void fetch(
-        getApiUrl(
-          `/tv/classroom-qr-session/${encodeURIComponent(qrSession.session_id)}/poll?school_id=${encodeURIComponent(schoolId)}&device_id=${encodeURIComponent(deviceId)}`,
-        ),
-      )
-        .then(async (res) => {
-          if (!res.ok) return null;
-          return (await res.json()) as { approved?: boolean; expired?: boolean; access_token?: string; message?: string };
-        })
-        .then((body) => {
-          if (!body) return;
-          if (body.expired) {
-            setQrSession(null);
-            setQrErr('QR süresi doldu. Yeniden oluşturun.');
-            return;
-          }
-          if (body.approved && body.access_token) {
-            try {
-              sessionStorage.setItem(`tv_usb_${schoolId}_${deviceId}`, body.access_token);
-            } catch {
-              /* ignore */
-            }
-            setLastUnlockMethod('qr');
-            onUnlocked(body.access_token);
-          }
-        })
-        .catch(() => undefined);
-    }, 1200);
-    return () => clearInterval(id);
-  }, [qrSession, schoolId, deviceId, onUnlocked]);
-  useEffect(() => {
-    if (qrBootstrapRef.current) return;
-    qrBootstrapRef.current = true;
-    createQrSession();
-  }, []);
-
-  const onSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    const p = pin.replace(/\D/g, '').slice(0, 8);
-    if (p.length < 4) {
-      setErr('PIN en az 4 hane olmalıdır.');
-      return;
-    }
-    setBusy(true);
-    setErr(null);
-    void fetch(getApiUrl('/tv/classroom-usb-unlock'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ school_id: schoolId, device_id: deviceId, pin: p, mode: unlockMode }),
-    })
-      .then(async (res) => {
-        const body = (await res.json().catch(() => ({}))) as { message?: string; access_token?: string; unlock_method?: 'pin' | 'otp' };
-        if (!res.ok) throw new Error(body.message || 'PIN kabul edilmedi');
-        const tok = body.access_token;
-        if (!tok) throw new Error('Yanıt geçersiz');
-        try {
-          sessionStorage.setItem(`tv_usb_${schoolId}_${deviceId}`, tok);
-        } catch {
-          /* ignore */
-        }
-        setLastUnlockMethod(body.unlock_method ?? (unlockMode === 'otp' ? 'otp' : 'pin'));
-        onUnlocked(tok);
+        router.replace(`/tv/classroom?${q.toString()}`);
       })
       .catch((e) => setErr(e instanceof Error ? e.message : 'Hata'))
       .finally(() => setBusy(false));
   };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-100">
+        <LoadingSpinner label="Okul doğrulanıyor…" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-slate-950 px-4 py-10 text-slate-100">
-      <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900/90 p-6 shadow-xl">
-        <h1 className="text-center text-lg font-semibold text-white">Sınıf tahtası (USB)</h1>
-        {lastUnlockMethod ? (
-          <p className="mt-1 text-center text-xs text-emerald-300">
-            Son başarılı açılış: {lastUnlockMethod === 'qr' ? 'QR' : lastUnlockMethod === 'otp' ? 'OTP' : 'PIN'}
-          </p>
+      <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900/90 p-6 shadow-xl">
+        <h1 className="text-center text-lg font-semibold">Tahta kurulumu</h1>
+        <p className="mt-1 text-center text-sm text-slate-400">{schoolName || 'Okul'}</p>
+        <p className="mt-2 text-center font-mono text-xs tracking-widest text-teal-300">KOD: {setupCode}</p>
+        {err ? <p className="mt-4 text-center text-sm text-red-400">{err}</p> : null}
+
+        {devices.length > 0 ? (
+          <div className="mt-4 space-y-2">
+            <p className="text-xs font-medium text-slate-300">Kayıtlı tahta seçin</p>
+            <select
+              className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm"
+              value={pickDeviceId}
+              onChange={(e) => setPickDeviceId(e.target.value)}
+            >
+              <option value="">— Seçin —</option>
+              {devices.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                  {d.class_section ? ` (${d.class_section})` : ''}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!pickDeviceId || busy}
+              className="w-full rounded-xl bg-teal-600 py-3 text-sm font-semibold disabled:opacity-50"
+              onClick={() => register({ device_id: pickDeviceId })}
+            >
+              Bu tahtayı aç
+            </button>
+          </div>
         ) : null}
-        <p className="mt-2 text-center text-sm text-slate-400">
-          Öncelikli yöntem: QR ile öğretmen onayı. PIN/OTP yalnızca yedek giriş içindir.
-        </p>
-        <form className="mt-6 space-y-4" onSubmit={onSubmit}>
-          <button
-            type="button"
-            disabled={qrBusy}
-            className="w-full rounded-xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-slate-700 disabled:opacity-50"
-            onClick={createQrSession}
-          >
-            {qrBusy ? 'QR hazırlanıyor…' : 'QR ile öğretmen girişi'}
-          </button>
-          {qrErr ? <p className="text-center text-sm text-red-400">{qrErr}</p> : null}
-          {qrSession ? (
-            <div className="space-y-2 rounded-xl border border-slate-700 bg-slate-950 p-3">
-              <p className="text-center text-xs text-slate-300">
-                Kod: <span className="font-mono text-base tracking-widest text-white">{qrSession.code}</span>
-              </p>
-              <p className="text-center text-[11px] text-slate-400">
-                Kalan süre: <span className="font-mono text-slate-200">{qrLeftSec}s</span>
-              </p>
-              <button
-                type="button"
-                className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
-                onClick={createQrSession}
-                disabled={qrBusy}
-              >
-                QR yenile
-              </button>
-              {qrLink ? (
-                <>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={`https://quickchart.io/qr?size=220x220&text=${encodeURIComponent(qrLink)}`}
-                    alt=""
-                    className="mx-auto size-40 rounded bg-white p-1"
-                  />
-                  <p className="break-all rounded bg-slate-900 p-2 font-mono text-[10px] text-slate-300">{qrLink}</p>
-                </>
-              ) : null}
+
+        <div className="mt-6 space-y-2 border-t border-slate-700 pt-4">
+          <p className="text-xs font-medium text-slate-300">Yeni sınıf / tahta</p>
+          {suggested.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {suggested.slice(0, 12).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  disabled={busy}
+                  className="rounded-full border border-slate-600 px-3 py-1 text-xs hover:bg-slate-800"
+                  onClick={() => register({ class_section: c })}
+                >
+                  {c}
+                </button>
+              ))}
             </div>
           ) : null}
-          <details className="rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2">
-            <summary className="cursor-pointer text-xs font-semibold text-slate-200">Yedek giriş (PIN / OTP)</summary>
-            <div className="mt-3 space-y-3">
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  className={`rounded-lg border px-2 py-2 text-xs ${unlockMode === 'auto' ? 'border-sky-500 bg-sky-600/20 text-white' : 'border-slate-700 bg-slate-900 text-slate-300'}`}
-                  onClick={() => setUnlockMode('auto')}
-                >
-                  Otomatik
-                </button>
-                <button
-                  type="button"
-                  className={`rounded-lg border px-2 py-2 text-xs ${unlockMode === 'pin' ? 'border-sky-500 bg-sky-600/20 text-white' : 'border-slate-700 bg-slate-900 text-slate-300'}`}
-                  onClick={() => setUnlockMode('pin')}
-                >
-                  PIN
-                </button>
-                <button
-                  type="button"
-                  className={`rounded-lg border px-2 py-2 text-xs ${unlockMode === 'otp' ? 'border-sky-500 bg-sky-600/20 text-white' : 'border-slate-700 bg-slate-900 text-slate-300'}`}
-                  onClick={() => setUnlockMode('otp')}
-                >
-                  OTP
-                </button>
-              </div>
-              <input
-                type="password"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                maxLength={8}
-                value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                placeholder="••••"
-                className="w-full rounded-xl border border-slate-600 bg-slate-950 px-4 py-3 text-center font-mono text-2xl tracking-[0.35em] text-slate-100 placeholder:text-slate-600"
-              />
-              {err ? <p className="text-center text-sm text-red-400">{err}</p> : null}
-              <button
-                type="submit"
-                disabled={busy}
-                className="w-full rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50"
-              >
-                {busy ? 'Doğrulanıyor…' : 'PIN / OTP ile aç'}
-              </button>
-            </div>
-          </details>
-        </form>
+          <input
+            className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm"
+            placeholder="Sınıf adı (örn. 9-A)"
+            value={customClass}
+            onChange={(e) => setCustomClass(e.target.value)}
+          />
+          <button
+            type="button"
+            disabled={!customClass.trim() || busy}
+            className="w-full rounded-xl border border-teal-500/50 bg-teal-950 py-3 text-sm font-semibold text-teal-100 disabled:opacity-50"
+            onClick={() => register({ class_section: customClass.trim() })}
+          >
+            Sınıfı kaydet ve başlat
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -640,22 +551,101 @@ export default function TvAudienceContent() {
     return u ?? undefined;
   }, [schoolIdParam, shortSchoolParam]);
   const deviceId = searchParams?.get('device_id') ?? undefined;
-  const usbMode = searchParams?.get('usb') === '1';
+  const setupMode = searchParams?.get('setup') === '1';
+  const schoolSetupCode = (searchParams?.get('school_code') ?? '').trim().toUpperCase();
   const [usbToken, setUsbToken] = useState<string | null>(null);
+  const [sessionActive, setSessionActive] = useState(false);
+  const [pendingTeacherConnect, setPendingTeacherConnect] = useState(false);
+  const [activeTeacherName, setActiveTeacherName] = useState<string | null>(null);
+  const [sessionEndsAt, setSessionEndsAt] = useState<number | null>(null);
+  const [boardNotice, setBoardNotice] = useState<{ text: string; tone: 'info' | 'success' | 'warn' } | null>(null);
   const isKiosk = searchParams?.get('kiosk') === '1';
   const isPreview = searchParams?.get('preview') === '1';
-  /** Dijital tabela kilidi (KioWare / signage): yalnızca slayt alanı; yan panel, RSS, hava, alt şeritler ve sürükleyici etkileşim yok. */
-  const announcementsOnlyLock = searchParams?.get('kilit') === '1';
+  const classroomBoard = audience === 'classroom' && !!schoolId && !!deviceId && !setupMode;
+  const urlSignageKilit = searchParams?.get('kilit') !== '0';
+  const teacherMode = classroomBoard && sessionActive;
+  /** Duyuru TV (signage) veya öğretmen modu (tam TV düzeni) */
+  const announcementsOnlyLock = classroomBoard ? urlSignageKilit && !teacherMode : searchParams?.get('kilit') === '1';
+  const hadActiveSessionRef = useRef(false);
+  const pendingSinceRef = useRef(0);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showBoardNotice = useCallback((text: string, tone: 'info' | 'success' | 'warn', ms = 5000) => {
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    setBoardNotice({ text, tone });
+    noticeTimerRef.current = setTimeout(() => setBoardNotice(null), ms);
+  }, []);
+
+  const exitTeacherSignageMode = useCallback(() => {
+    if (!schoolId || !deviceId) return;
+    clearClassroomTeacherToken(schoolId, deviceId);
+    setUsbToken(null);
+    setSessionActive(false);
+    setPendingTeacherConnect(false);
+    setActiveTeacherName(null);
+    setSessionEndsAt(null);
+    hadActiveSessionRef.current = false;
+  }, [schoolId, deviceId]);
+
+  const pollClassroomSession = useCallback(async (): Promise<boolean> => {
+    if (!schoolId || !deviceId) return false;
+    try {
+      const res = await fetch(
+        getApiUrl(
+          `/tv/classroom-session-status?school_id=${encodeURIComponent(schoolId)}&device_id=${encodeURIComponent(deviceId)}`,
+        ),
+      );
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => ({}))) as { code?: string; message?: string };
+        if (errBody.code === 'TV_IP_NOT_CONFIGURED' || errBody.code === 'TV_ACCESS_RESTRICTED') {
+          showBoardNotice(
+            errBody.message || 'Okul ağı / IP kısıtı. Panelden izinli IP listesini kontrol edin.',
+            'warn',
+            15_000,
+          );
+        }
+        return false;
+      }
+      const body = (await res.json()) as {
+        active?: boolean;
+        teacher_name?: string | null;
+        last_heartbeat_at?: string | null;
+        session_timeout_minutes?: number;
+      };
+      if (body.active) {
+        setSessionActive(true);
+        setPendingTeacherConnect(false);
+        hadActiveSessionRef.current = true;
+        if (body.teacher_name) setActiveTeacherName(body.teacher_name);
+        const timeoutMin = body.session_timeout_minutes ?? 2;
+        const hbMs = body.last_heartbeat_at ? new Date(body.last_heartbeat_at).getTime() : Date.now();
+        setSessionEndsAt(hbMs + timeoutMin * 60 * 1000);
+        return true;
+      }
+      setSessionEndsAt(null);
+      return false;
+    } catch {
+      return false;
+    }
+  }, [schoolId, deviceId, showBoardNotice]);
 
   const [pairStorageReady, setPairStorageReady] = useState(false);
   const [storedTvDeviceId, setStoredTvDeviceId] = useState<string | null>(null);
 
   useLayoutEffect(() => {
     if (typeof window === 'undefined') return;
-    if (audience === 'classroom' && usbMode && schoolId && deviceId) {
+    if (classroomBoard && schoolId && deviceId) {
       try {
         const t = sessionStorage.getItem(`tv_usb_${schoolId}_${deviceId}`);
-        if (t) setUsbToken(t);
+        if (t) {
+          setUsbToken(t);
+          void pollClassroomSession().then((active) => {
+            if (!active) {
+              clearClassroomTeacherToken(schoolId, deviceId);
+              setUsbToken(null);
+            }
+          });
+        }
       } catch {
         /* ignore */
       }
@@ -680,7 +670,7 @@ export default function TvAudienceContent() {
       }
     }
     setPairStorageReady(true);
-  }, [audience, schoolId, isPreview, usbMode, deviceId]);
+  }, [audience, schoolId, isPreview, classroomBoard, deviceId, pollClassroomSession]);
 
   const pairedForCache =
     audience === 'corridor' || audience === 'teachers' ? storedTvDeviceId ?? '' : '';
@@ -714,14 +704,14 @@ export default function TvAudienceContent() {
       setError(null);
       return;
     }
-    if (audience === 'classroom' && usbMode && (!schoolId || !deviceId)) {
-      setLoading(false);
-      setError('USB açılışı için URL\'de okul ve tahta kimliği gerekir.');
-      return;
-    }
-    if (audience === 'classroom' && usbMode && !usbToken) {
+    if (audience === 'classroom' && setupMode && schoolSetupCode) {
       setLoading(false);
       setError(null);
+      return;
+    }
+    if (audience === 'classroom' && !setupMode && (!schoolId || !deviceId)) {
+      setLoading(false);
+      setError('Sınıf tahtası için URL\'de okul ve tahta kimliği gerekir.');
       return;
     }
     setError(null);
@@ -732,7 +722,7 @@ export default function TvAudienceContent() {
     else if ((audience === 'corridor' || audience === 'teachers') && storedTvDeviceId) {
       params.set('device_id', storedTvDeviceId);
     }
-    if (audience === 'classroom' && usbMode && schoolId && deviceId) params.set('usb_unlock', '1');
+    if (classroomBoard && usbToken && sessionActive) params.set('usb_unlock', '1');
     const qs = params.toString();
     const url = qs ? `/tv/announcements/${audience}?${qs}` : `/tv/announcements/${audience}`;
 
@@ -740,20 +730,15 @@ export default function TvAudienceContent() {
     const timeoutId = setTimeout(() => controller.abort(), 8000);
 
     const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (audience === 'classroom' && usbMode && usbToken) hdrs['X-Tv-Classroom-Usb-Token'] = usbToken;
+    if (classroomBoard && usbToken && sessionActive) hdrs['X-Tv-Classroom-Usb-Token'] = usbToken;
 
     fetch(getApiUrl(url), {
       signal: controller.signal,
       headers: hdrs,
     })
       .then((res) => {
-        if (res.status === 401 && audience === 'classroom' && usbMode && schoolId && deviceId) {
-          try {
-            sessionStorage.removeItem(`tv_usb_${schoolId}_${deviceId}`);
-          } catch {
-            /* ignore */
-          }
-          setUsbToken(null);
+        if (res.status === 401 && classroomBoard && schoolId && deviceId) {
+          exitTeacherSignageMode();
         }
         if (!res.ok) return res.json().then((b) => { throw new Error((b as { message?: string }).message || res.statusText); });
         return res.json();
@@ -800,8 +785,10 @@ export default function TvAudienceContent() {
     pairStorageReady,
     storedTvDeviceId,
     isPreview,
-    usbMode,
+    classroomBoard,
     usbToken,
+    sessionActive,
+    exitTeacherSignageMode,
   ]);
 
   useEffect(() => {
@@ -835,18 +822,17 @@ export default function TvAudienceContent() {
     const blockForPair =
       (audience === 'corridor' || audience === 'teachers') && !isPreview && !storedTvDeviceId;
     if (!pairStorageReady || blockForPair) return;
-    if (audience === 'classroom' && usbMode && !usbToken) return;
     const params = new URLSearchParams();
     if (schoolId) params.set('school_id', schoolId);
     if (audience === 'classroom' && deviceId) params.set('device_id', deviceId);
     else if ((audience === 'corridor' || audience === 'teachers') && storedTvDeviceId) {
       params.set('device_id', storedTvDeviceId);
     }
-    if (audience === 'classroom' && usbMode && schoolId && deviceId) params.set('usb_unlock', '1');
+    if (classroomBoard && usbToken && sessionActive) params.set('usb_unlock', '1');
     const qs = params.toString();
     const url = qs ? `/tv/announcements/${audience}?${qs}` : `/tv/announcements/${audience}`;
     const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (audience === 'classroom' && usbMode && usbToken) hdrs['X-Tv-Classroom-Usb-Token'] = usbToken;
+    if (classroomBoard && usbToken && sessionActive) hdrs['X-Tv-Classroom-Usb-Token'] = usbToken;
     const interval = setInterval(() => {
       fetch(getApiUrl(url), { headers: hdrs })
         .then((r) => r.ok ? r.json() : null)
@@ -861,7 +847,7 @@ export default function TvAudienceContent() {
         .catch(() => {});
     }, 60_000);
     return () => clearInterval(interval);
-  }, [audience, schoolId, deviceId, cacheKey, pairStorageReady, storedTvDeviceId, isPreview, usbMode, usbToken]);
+  }, [audience, schoolId, deviceId, cacheKey, pairStorageReady, storedTvDeviceId, isPreview, classroomBoard, usbToken, sessionActive]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -875,6 +861,80 @@ export default function TvAudienceContent() {
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
   }, []);
+
+  /** Oturum durumu: hızlı poll + panelden anlık senkron */
+  useEffect(() => {
+    if (!classroomBoard || !schoolId || !deviceId) return;
+
+    const tick = async () => {
+      const active = await pollClassroomSession();
+      if (active) {
+        if (pendingTeacherConnect) {
+          showBoardNotice('Tahta kullanım modu açıldı', 'success');
+          setRefreshTrigger((x) => x + 1);
+        }
+        return;
+      }
+      if (hadActiveSessionRef.current) {
+        exitTeacherSignageMode();
+        showBoardNotice('Duyuru TV moduna dönüldü', 'info');
+        setRefreshTrigger((x) => x + 1);
+      } else if (
+        pendingTeacherConnect &&
+        usbToken &&
+        pendingSinceRef.current > 0 &&
+        Date.now() - pendingSinceRef.current > 90_000
+      ) {
+        exitTeacherSignageMode();
+        showBoardNotice('Tahtaya bağlanılamadı. Telefondan QR onayını tekrarlayın.', 'warn', 12_000);
+      }
+    };
+
+    void tick();
+    const pendingAge =
+      pendingSinceRef.current > 0 ? Date.now() - pendingSinceRef.current : Number.POSITIVE_INFINITY;
+    const burst = pendingTeacherConnect && pendingAge < 30_000;
+    const id = setInterval(() => void tick(), burst ? 500 : pendingTeacherConnect || usbToken ? 2000 : 8000);
+    return () => clearInterval(id);
+  }, [
+    classroomBoard,
+    schoolId,
+    deviceId,
+    usbToken,
+    pendingTeacherConnect,
+    pollClassroomSession,
+    exitTeacherSignageMode,
+    showBoardNotice,
+  ]);
+
+  useEffect(() => {
+    if (!classroomBoard || !schoolId || !deviceId) return;
+    return subscribeClassroomBoardSync(schoolId, deviceId, (ev) => {
+      if (ev.type === 'session_ended') {
+        exitTeacherSignageMode();
+        showBoardNotice('Duyuru TV moduna dönüldü', 'info');
+        setRefreshTrigger((x) => x + 1);
+        return;
+      }
+      if (ev.type === 'session_started' || ev.type === 'qr_unlocked') {
+        setPendingTeacherConnect(true);
+        pendingSinceRef.current = Date.now();
+        void pollClassroomSession().then((ok) => {
+          if (ok) {
+            showBoardNotice('Tahta kullanım modu açıldı', 'success');
+            setRefreshTrigger((x) => x + 1);
+          }
+        });
+      }
+    });
+  }, [classroomBoard, schoolId, deviceId, exitTeacherSignageMode, pollClassroomSession, showBoardNotice]);
+
+  useEffect(
+    () => () => {
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    },
+    [],
+  );
 
   const [showKioskPrompt, setShowKioskPrompt] = useState(false);
   useEffect(() => {
@@ -930,11 +990,11 @@ export default function TvAudienceContent() {
     }
     let cancelled = false;
     const usbQ =
-      audience === 'classroom' && usbMode && deviceId && usbToken
+      classroomBoard && deviceId && usbToken && sessionActive
         ? `&device_id=${encodeURIComponent(deviceId)}&usb_unlock=1`
         : '';
     const hdrs: Record<string, string> = {};
-    if (audience === 'classroom' && usbMode && usbToken) hdrs['X-Tv-Classroom-Usb-Token'] = usbToken;
+    if (classroomBoard && usbToken && sessionActive) hdrs['X-Tv-Classroom-Usb-Token'] = usbToken;
     fetch(getApiUrl(`/tv/rss-feed?school_id=${encodeURIComponent(rssSchoolId)}${usbQ}`), { headers: hdrs })
       .then((r) => r.json())
       .then((w: { items?: Array<{ title: string }> }) => {
@@ -942,7 +1002,7 @@ export default function TvAudienceContent() {
       })
       .catch(() => setRssItems([]));
     return () => { cancelled = true; };
-  }, [tvRssUrl, rssSchoolId, audience, usbMode, deviceId, usbToken, announcementsOnlyLock]);
+  }, [tvRssUrl, rssSchoolId, audience, classroomBoard, deviceId, usbToken, sessionActive, announcementsOnlyLock]);
   useEffect(() => {
     if (announcementsOnlyLock) {
       setQuoteItems([]);
@@ -954,11 +1014,11 @@ export default function TvAudienceContent() {
     }
     let cancelled = false;
     const usbQ =
-      audience === 'classroom' && usbMode && deviceId && usbToken
+      classroomBoard && deviceId && usbToken && sessionActive
         ? `&device_id=${encodeURIComponent(deviceId)}&usb_unlock=1`
         : '';
     const hdrs: Record<string, string> = {};
-    if (audience === 'classroom' && usbMode && usbToken) hdrs['X-Tv-Classroom-Usb-Token'] = usbToken;
+    if (classroomBoard && usbToken && sessionActive) hdrs['X-Tv-Classroom-Usb-Token'] = usbToken;
     fetch(getApiUrl(`/tv/quote-feed?school_id=${encodeURIComponent(rssSchoolId)}${usbQ}`), { headers: hdrs })
       .then((r) => r.json())
       .then((w: { items?: Array<{ quote: string; author?: string }> }) => {
@@ -966,7 +1026,7 @@ export default function TvAudienceContent() {
       })
       .catch(() => setQuoteItems([]));
     return () => { cancelled = true; };
-  }, [tvGununSozuRssUrl, rssSchoolId, audience, usbMode, deviceId, usbToken, announcementsOnlyLock]);
+  }, [tvGununSozuRssUrl, rssSchoolId, audience, classroomBoard, deviceId, usbToken, sessionActive, announcementsOnlyLock]);
 
   /* Backend zaten show_on_tv=true olanları döndürüyor; yanıtta show_on_tv eksikse tüm items kullanılır. */
   const tvItems = useMemo(
@@ -1418,14 +1478,8 @@ export default function TvAudienceContent() {
     );
   }
 
-  if (audience === 'classroom' && usbMode && schoolId && deviceId && !usbToken) {
-    return (
-      <ClassroomUsbPinForm
-        schoolId={schoolId}
-        deviceId={deviceId}
-        onUnlocked={(t) => setUsbToken(t)}
-      />
-    );
+  if (audience === 'classroom' && setupMode && schoolSetupCode) {
+    return <ClassroomSetupScreen setupCode={schoolSetupCode} />;
   }
 
   if (loading) {
@@ -1539,6 +1593,36 @@ export default function TvAudienceContent() {
       data-tahta-kilit={announcementsOnlyLock ? '1' : undefined}
       style={rootStyle}
     >
+        <ClassroomBoardNotice message={boardNotice?.text ?? null} tone={boardNotice?.tone} />
+        {classroomBoard && schoolId && deviceId ? (
+          <ClassroomTeacherControls
+            schoolId={schoolId}
+            deviceId={deviceId}
+            teacherMode={teacherMode}
+            teacherName={activeTeacherName}
+            pendingConnect={pendingTeacherConnect}
+            sessionEndsAt={sessionEndsAt}
+            onTvError={(msg) => showBoardNotice(msg, 'warn', 12_000)}
+            onUnlocked={(t) => {
+              persistClassroomTeacherToken(schoolId, deviceId, t);
+              setUsbToken(t);
+              setPendingTeacherConnect(true);
+              pendingSinceRef.current = Date.now();
+              showBoardNotice('Öğretmen onayı alındı, bağlanıyor…', 'info', 8000);
+              void pollClassroomSession().then((ok) => {
+                if (ok) {
+                  showBoardNotice('Tahta kullanım modu açıldı', 'success');
+                  setRefreshTrigger((x) => x + 1);
+                }
+              });
+            }}
+            onExitSignage={() => {
+              exitTeacherSignageMode();
+              showBoardNotice('Duyuru TV moduna dönüldü', 'info');
+              setRefreshTrigger((x) => x + 1);
+            }}
+          />
+        ) : null}
         {showKioskPrompt && (
           <button
             type="button"

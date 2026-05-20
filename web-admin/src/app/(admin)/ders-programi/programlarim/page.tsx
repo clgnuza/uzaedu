@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Table2,
   PlusCircle,
@@ -9,12 +10,14 @@ import {
   Trash2,
   Building2,
   Users,
+  GraduationCap,
   CalendarDays,
   Upload,
   Calendar,
   Minus,
   Search,
   Archive,
+  Files,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
@@ -31,6 +34,8 @@ import { displayNameForTimetableRowKey, timetableTeacherRowKey } from '@/lib/tim
 import { resolveSchoolSubjectDisplay } from '@/lib/school-subject-display';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LessonCellCard } from '@/components/ders-programi/lesson-cell-card';
+import { SchoolTimetableDraftsPanel } from '@/components/ders-programi/school-timetable-drafts-panel';
+import { TimetableProgramlarimGrid } from '@/components/ders-programi/timetable-programlarim-grid';
 import { TEACHER_WEEK_THEME } from '@/components/ders-programi/timetable-pastel-theme';
 import { DersProgramiSubpageIntro } from '@/components/ders-programi/ders-programi-subpage-intro';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -82,18 +87,6 @@ type TimetablePlan = {
 const DAYS = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
 const DAY_SHORT = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
 
-/** Öğretmen blokları için sol kenar vurgu rengi (border-l) */
-const TEACHER_ACCENT = [
-  'border-l-primary',
-  'border-l-emerald-500',
-  'border-l-amber-500',
-  'border-l-sky-500',
-  'border-l-violet-500',
-  'border-l-rose-500',
-  'border-l-teal-500',
-  'border-l-blue-500',
-] as const;
-
 function fmtDate(s: string): string {
   return new Date(s + 'T12:00:00').toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
@@ -103,6 +96,8 @@ function fmtUntil(validUntil: string | null): string {
 }
 
 export default function ProgramlarimPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { token, me } = useAuth();
   const { maxLessons: schoolMaxLessons, getTimeRangeForDay } = useSchoolTimetableSettings();
   const { subjects: schoolSubjects } = useSchoolClassesSubjects();
@@ -111,7 +106,8 @@ export default function ProgramlarimPage() {
   const [teachers, setTeachers] = useState<TeacherInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState(1);
-  const [viewMode, setViewMode] = useState<'teacher' | 'day'>('teacher');
+  const [viewMode, setViewMode] = useState<'teacher' | 'day' | 'class'>('teacher');
+  const [classQuery, setClassQuery] = useState('');
   const [planInfo, setPlanInfo] = useState<PlanInfo | null>(null);
   const [plans, setPlans] = useState<TimetablePlan[]>([]);
   const today = new Date().toISOString().slice(0, 10);
@@ -126,14 +122,31 @@ export default function ProgramlarimPage() {
   const [editSaving, setEditSaving] = useState(false);
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const [adminSectionTab, setAdminSectionTab] = useState<'programs' | 'archive'>('programs');
+  const [adminSectionTab, setAdminSectionTab] = useState<'programs' | 'drafts' | 'archive'>('programs');
   const [teacherQuery, setTeacherQuery] = useState('');
   const [teacherSort, setTeacherSort] = useState<'name_asc' | 'name_desc' | 'lessons_desc' | 'lessons_asc'>('name_asc');
   const [exemptFilter, setExemptFilter] = useState<'all' | 'exempt' | 'not_exempt'>('all');
+  const [focusTeacherKey, setFocusTeacherKey] = useState<string>('all');
+  const [hideEmptyLessonRows, setHideEmptyLessonRows] = useState(true);
 
   const isAdmin = me?.role === 'school_admin';
   const isTeacher = me?.role === 'teacher';
   const { getKazanimHref } = useKazanimPlanMap(token, !!isTeacher);
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'programs' || tab === 'drafts' || tab === 'archive') {
+      setAdminSectionTab(tab);
+    }
+  }, [searchParams]);
+
+  const setAdminSectionTabWithUrl = useCallback(
+    (tab: 'programs' | 'drafts' | 'archive') => {
+      setAdminSectionTab(tab);
+      router.replace(`/ders-programi/programlarim?tab=${tab}`, { scroll: false });
+    },
+    [router],
+  );
 
   const publishedPlans = plans.filter((p) => p.status === 'published');
   const draftPlans = useMemo(() => plans.filter((p) => p.status === 'draft'), [plans]);
@@ -152,39 +165,67 @@ export default function ProgramlarimPage() {
   }, []);
 
   useEffect(() => {
+    if (!token || !isAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [teacherList, plansList] = await Promise.all([
+          apiFetch<TeacherInfo[]>('/duty/teachers?includeExempt=true', { token }),
+          apiFetch<TimetablePlan[]>('/teacher-timetable/plans', { token }).catch(() => []),
+        ]);
+        if (cancelled) return;
+        setTeachers(Array.isArray(teacherList) ? teacherList : []);
+        setPlans(Array.isArray(plansList) ? plansList : []);
+      } catch {
+        if (!cancelled) {
+          setTeachers([]);
+          setPlans([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, isAdmin, refreshTrigger]);
+
+  useEffect(() => {
     if (!token) return;
+    let cancelled = false;
     const load = async () => {
       setLoading(true);
       try {
         const dateParam = selectedDate ? `?date=${selectedDate}` : '';
-        const path = isAdmin ? `/teacher-timetable${dateParam}` : `/teacher-timetable/me${dateParam}`;
-        const data = await apiFetch<TimetableEntry[]>(path, { token });
-        setEntries(Array.isArray(data) ? data : []);
-
         if (isAdmin) {
-          const [teacherList, info, plansList] = await Promise.all([
-            apiFetch<TeacherInfo[]>('/duty/teachers?includeExempt=true', { token }),
+          const [data, info] = await Promise.all([
+            apiFetch<TimetableEntry[]>(`/teacher-timetable${dateParam}`, { token }),
             apiFetch<PlanInfo | null>(`/teacher-timetable/plan-info${dateParam}`, { token }).catch(() => null),
-            apiFetch<TimetablePlan[]>('/teacher-timetable/plans', { token }).catch(() => []),
           ]);
-          setTeachers(Array.isArray(teacherList) ? teacherList : []);
+          if (cancelled) return;
+          setEntries(Array.isArray(data) ? data : []);
           setPlanInfo(info ?? null);
-          setPlans(Array.isArray(plansList) ? plansList : []);
         } else {
-          const myPrograms = await apiFetch<PersonalProgram[]>('/teacher-timetable/my-programs', { token });
+          const [data, myPrograms] = await Promise.all([
+            apiFetch<TimetableEntry[]>(`/teacher-timetable/me${dateParam}`, { token }),
+            apiFetch<PersonalProgram[]>('/teacher-timetable/my-programs', { token }),
+          ]);
+          if (cancelled) return;
+          setEntries(Array.isArray(data) ? data : []);
           setPersonalPrograms(Array.isArray(myPrograms) ? myPrograms : []);
         }
       } catch {
-        setEntries([]);
-        setPersonalPrograms([]);
-        setTeachers([]);
-        setPlanInfo(null);
-        setPlans([]);
+        if (!cancelled) {
+          setEntries([]);
+          setPersonalPrograms([]);
+          setPlanInfo(null);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
-    load();
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, [token, isAdmin, selectedDate, refreshTrigger]);
 
   useEffect(() => {
@@ -332,7 +373,10 @@ export default function ProgramlarimPage() {
       const rk = timetableTeacherRowKey(e);
       const key = `${rk}-${e.day_of_week}`;
       if (!map.has(key)) map.set(key, new Map());
-      map.get(key)!.set(String(e.lesson_num), { class_section: e.class_section, subject: e.subject });
+      map.get(key)!.set(String(e.lesson_num), {
+        class_section: e.class_section,
+        subject: e.subject,
+      });
       if (e.lesson_num > maxLesson) maxLesson = e.lesson_num;
     }
     return { map, maxLesson: Math.max(maxLesson, 6) };
@@ -393,8 +437,35 @@ export default function ProgramlarimPage() {
     });
     return list;
   }, [teacherRowKeysWithEntries, teacherMap, teacherQuery, exemptFilter, teacherSort, lessonCountByTeacher, resolveRowLabel]);
+
+  const displayTeacherIds = useMemo(() => {
+    if (focusTeacherKey === 'all') return visibleTeacherIds;
+    return visibleTeacherIds.filter((k) => k === focusTeacherKey);
+  }, [visibleTeacherIds, focusTeacherKey]);
+
   const { map, maxLesson } = buildTimetableMap();
   const lessonNums = Array.from({ length: Math.max(schoolMaxLessons, maxLesson) }, (_, i) => i + 1);
+
+  const classSections = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of entries ?? []) {
+      const cls = (e.class_section || '').trim();
+      if (cls) s.add(cls);
+    }
+    return [...s].sort((a, b) => a.localeCompare(b, 'tr', { numeric: true }));
+  }, [entries]);
+
+  const visibleClassSections = useMemo(() => {
+    const q = classQuery.trim().toLowerCase();
+    if (!q) return classSections;
+    return classSections.filter((c) => c.toLowerCase().includes(q));
+  }, [classSections, classQuery]);
+
+  const classGridEntries = useMemo(() => {
+    if (visibleClassSections.length === 0) return [];
+    const allowed = new Set(visibleClassSections);
+    return (entries ?? []).filter((e) => allowed.has((e.class_section || '').trim()));
+  }, [entries, visibleClassSections]);
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-2 sm:space-y-4">
@@ -470,14 +541,14 @@ export default function ProgramlarimPage() {
           {isAdmin && (
             <div
               role="tablist"
-              aria-label="Program arşiv"
-              className="flex gap-1 rounded-xl border-2 border-primary/35 bg-primary/8 p-1 shadow-sm dark:border-primary/45 dark:bg-primary/15"
+              aria-label="Program, taslak ve arşiv"
+              className="flex flex-wrap gap-1 rounded-xl border-2 border-primary/35 bg-primary/8 p-1 shadow-sm dark:border-primary/45 dark:bg-primary/15"
             >
               <button
                 type="button"
                 role="tab"
                 aria-selected={adminSectionTab === 'programs'}
-                onClick={() => setAdminSectionTab('programs')}
+                onClick={() => setAdminSectionTabWithUrl('programs')}
                 className={cn(
                   'flex-1 rounded-lg px-3 py-2 text-sm font-bold transition-all sm:flex-none sm:px-4',
                   adminSectionTab === 'programs'
@@ -490,8 +561,35 @@ export default function ProgramlarimPage() {
               <button
                 type="button"
                 role="tab"
+                aria-selected={adminSectionTab === 'drafts'}
+                onClick={() => setAdminSectionTabWithUrl('drafts')}
+                className={cn(
+                  'inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-bold transition-all sm:flex-none sm:px-4',
+                  adminSectionTab === 'drafts'
+                    ? 'bg-slate-600 text-white shadow-md ring-2 ring-slate-500/40 dark:bg-slate-500 dark:ring-slate-300/30'
+                    : 'border border-transparent bg-background/80 text-slate-800/85 hover:border-slate-300/70 hover:bg-slate-50 dark:text-slate-100/85 dark:hover:border-slate-700 dark:hover:bg-slate-950/40',
+                )}
+              >
+                <Files className="size-3.5 shrink-0" />
+                Taslaklar
+                {draftPlans.length > 0 ? (
+                  <span
+                    className={cn(
+                      'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+                      adminSectionTab === 'drafts'
+                        ? 'bg-white/25 text-white'
+                        : 'bg-slate-200/90 text-slate-800 dark:bg-slate-800 dark:text-slate-100',
+                    )}
+                  >
+                    {draftPlans.length}
+                  </span>
+                ) : null}
+              </button>
+              <button
+                type="button"
+                role="tab"
                 aria-selected={adminSectionTab === 'archive'}
-                onClick={() => setAdminSectionTab('archive')}
+                onClick={() => setAdminSectionTabWithUrl('archive')}
                 className={cn(
                   'inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-bold transition-all sm:flex-none sm:px-4',
                   adminSectionTab === 'archive'
@@ -514,6 +612,26 @@ export default function ProgramlarimPage() {
                   </span>
                 ) : null}
               </button>
+            </div>
+          )}
+
+          {isAdmin && adminSectionTab === 'drafts' && (
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Excel veya e-Okul ile yüklenen, henüz yayınlanmamış planlar.
+              </p>
+              <SchoolTimetableDraftsPanel
+                plans={plans}
+                onChanged={() => setRefreshTrigger((t) => t + 1)}
+              />
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button asChild size="sm" className="gap-1.5">
+                  <Link href="/ders-programi/olustur">
+                    <Upload className="size-4" />
+                    Yeni program yükle
+                  </Link>
+                </Button>
+              </div>
             </div>
           )}
 
@@ -575,18 +693,9 @@ export default function ProgramlarimPage() {
           )}
 
           {/* Admin: Geçerlilik tarihleri + Plan seçici */}
-          {isAdmin && adminSectionTab === 'programs' && (selectablePlans.length > 0 || draftPlans.length > 0 || planInfo) && (
+          {isAdmin && adminSectionTab === 'programs' && (selectablePlans.length > 0 || planInfo) && (
             <Card className="border-primary/20 bg-linear-to-br from-primary/5 to-transparent">
               <CardContent className="px-3 py-3 sm:px-6 sm:py-4">
-                {draftPlans.length > 0 && (
-                  <p className="mb-2 line-clamp-3 text-[11px] leading-snug text-amber-800 dark:text-amber-200/90 sm:mb-3 sm:line-clamp-none sm:text-xs">
-                    {draftPlans.length} taslak plan var. Yayınlamak için{' '}
-                    <Link href="/ders-programi/olustur" className="font-medium underline underline-offset-2">
-                      Excel ile yükle
-                    </Link>{' '}
-                    adımından devam edin.
-                  </p>
-                )}
                 <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
                   <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
                     <Calendar className="size-4 shrink-0 text-primary sm:size-5" />
@@ -992,301 +1101,151 @@ export default function ProgramlarimPage() {
           {/* Admin: Tüm öğretmenler tablosu (veri varken) */}
           {isAdmin && adminSectionTab === 'programs' && entries && entries.length > 0 && (
             <Card className="border-border shadow-md overflow-hidden rounded-xl">
-              <CardHeader className="border-b border-border bg-muted/30 px-3 pb-3 pt-3 sm:px-5 sm:pb-4 sm:pt-5">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                  <div className="flex min-w-0 items-start gap-2 sm:gap-3">
-                    <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 shadow-inner sm:size-11 sm:rounded-xl">
-                      <Table2 className="size-5 text-primary sm:size-6" />
-                    </div>
+              <CardHeader className="border-b border-border/80 bg-muted/25 px-2 py-2 sm:px-3 sm:py-2.5">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Table2 className="size-4 shrink-0 text-primary" />
                     <div className="min-w-0">
-                      <CardTitle className="text-base font-semibold sm:text-lg">Tüm Öğretmenler</CardTitle>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs sm:mt-1.5 sm:gap-x-3 sm:text-sm">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 font-medium text-primary">
-                          <Users className="size-3.5" />
-                          {visibleTeacherIds.length}
-                          {visibleTeacherIds.length !== teacherRowKeysWithEntries.length
-                            ? ` / ${teacherRowKeysWithEntries.length}`
-                            : ''}{' '}
-                          öğretmen
-                        </span>
-                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-1 font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-                          <CalendarDays className="size-3.5" />
-                          {entries?.length ?? 0} ders
-                        </span>
-                        {planInfo && (
-                          <span className="text-muted-foreground">
-                            Geçerlilik: <span className="font-medium text-foreground">{fmtDate(planInfo.valid_from)} – {fmtUntil(planInfo.valid_until)}</span>
+                      <CardTitle className="text-sm font-semibold leading-tight">
+                        {viewMode === 'class' ? 'Sınıflar' : 'Öğretmen programı'}
+                      </CardTitle>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                        {viewMode === 'class' ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/12 px-2.5 py-1 font-medium text-orange-800 dark:text-orange-200">
+                            <GraduationCap className="size-3.5" />
+                            {visibleClassSections.length}
+                            {visibleClassSections.length !== classSections.length ? ` / ${classSections.length}` : ''} sınıf
+                          </span>
+                        ) : (
+                          <span>
+                            {displayTeacherIds.length}
+                            {displayTeacherIds.length !== teacherRowKeysWithEntries.length
+                              ? `/${teacherRowKeysWithEntries.length}`
+                              : ''}{' '}
+                            öğr.
                           </span>
                         )}
+                        <span>{entries?.length ?? 0} ders</span>
+                        {planInfo ? (
+                          <span>
+                            {fmtDate(planInfo.valid_from)}–{fmtUntil(planInfo.valid_until)}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   </div>
                   <div
                     role="tablist"
-                    aria-label="Görünüm modu"
-                    className="flex gap-1 rounded-xl border-2 border-blue-200/90 bg-blue-50/85 p-1 shadow-sm dark:border-blue-900/55 dark:bg-blue-950/35"
+                    aria-label="Görünüm"
+                    className="flex shrink-0 gap-0.5 rounded-lg border border-border/80 bg-muted/40 p-0.5"
                   >
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={viewMode === 'teacher'}
-                      onClick={() => setViewMode('teacher')}
-                      className={cn(
-                        'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold transition-all',
-                        viewMode === 'teacher'
-                          ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-500/40 dark:bg-blue-500 dark:ring-blue-300/30'
-                          : 'border border-transparent bg-white/75 text-blue-900/75 hover:border-blue-300/80 hover:bg-white dark:bg-blue-950/45 dark:text-blue-100/80 dark:hover:border-blue-800',
-                      )}
-                    >
-                      <Users className="size-4" />
-                      Öğretmen Bazlı
-                    </button>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={viewMode === 'day'}
-                      onClick={() => setViewMode('day')}
-                      className={cn(
-                        'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold transition-all',
-                        viewMode === 'day'
-                          ? 'bg-teal-600 text-white shadow-md ring-2 ring-teal-500/40 dark:bg-teal-500 dark:ring-teal-300/30'
-                          : 'border border-transparent bg-white/75 text-teal-900/75 hover:border-teal-300/80 hover:bg-white dark:bg-teal-950/45 dark:text-teal-100/80 dark:hover:border-teal-800',
-                      )}
-                    >
-                      <CalendarDays className="size-4" />
-                      Gün Bazlı
-                    </button>
+                    {(
+                      [
+                        { id: 'teacher' as const, icon: Users, label: 'Öğretmen' },
+                        { id: 'day' as const, icon: CalendarDays, label: 'Gün' },
+                        { id: 'class' as const, icon: GraduationCap, label: 'Sınıf' },
+                      ] as const
+                    ).map(({ id, icon: Icon, label }) => (
+                      <button
+                        key={id}
+                        type="button"
+                        role="tab"
+                        aria-selected={viewMode === id}
+                        onClick={() => setViewMode(id)}
+                        className={cn(
+                          'inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors',
+                          viewMode === id
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:bg-background',
+                        )}
+                      >
+                        <Icon className="size-3" />
+                        {label}
+                      </button>
+                    ))}
                   </div>
                 </div>
-                <div className="mt-3 flex flex-col gap-2 border-t border-border/60 pt-3 sm:mt-4 sm:flex-row sm:flex-wrap sm:items-center sm:pt-4">
-                  <div className="relative min-w-0 flex-1 sm:max-w-xs">
-                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <div className="relative min-w-0 flex-1 basis-[140px] sm:max-w-[200px]">
+                    <Search className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
                     <Input
-                      value={teacherQuery}
-                      onChange={(e) => setTeacherQuery(e.target.value)}
-                      placeholder="Öğretmen ara (ad veya e-posta)…"
-                      className="h-9 pl-8 text-sm"
-                      aria-label="Öğretmen ara"
+                      value={viewMode === 'class' ? classQuery : teacherQuery}
+                      onChange={(e) =>
+                        viewMode === 'class' ? setClassQuery(e.target.value) : setTeacherQuery(e.target.value)
+                      }
+                      placeholder={viewMode === 'class' ? 'Sınıf…' : 'Öğretmen ara…'}
+                      className="h-7 pl-7 text-xs"
+                      aria-label={viewMode === 'class' ? 'Sınıf ara' : 'Öğretmen ara'}
                     />
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Label htmlFor="teacher-sort" className="sr-only">
-                      Sıralama
-                    </Label>
-                    <select
-                      id="teacher-sort"
-                      className="h-9 rounded-md border border-border bg-background px-2.5 text-sm"
-                      value={teacherSort}
-                      onChange={(e) => setTeacherSort(e.target.value as typeof teacherSort)}
-                    >
-                      <option value="name_asc">Ad (A → Z)</option>
-                      <option value="name_desc">Ad (Z → A)</option>
-                      <option value="lessons_desc">Ders sayısı (çoğa)</option>
-                      <option value="lessons_asc">Ders sayısı (aza)</option>
-                    </select>
-                    <Label htmlFor="exempt-filter" className="sr-only">
-                      Muafiyet
-                    </Label>
-                    <select
-                      id="exempt-filter"
-                      className="h-9 rounded-md border border-border bg-background px-2.5 text-sm"
-                      value={exemptFilter}
-                      onChange={(e) => setExemptFilter(e.target.value as typeof exemptFilter)}
-                    >
-                      <option value="all">Tümü</option>
-                      <option value="exempt">Muaf</option>
-                      <option value="not_exempt">Muaf değil</option>
-                    </select>
-                  </div>
+                  {viewMode !== 'class' && (
+                    <>
+                      <select
+                        id="focus-teacher"
+                        className="h-7 max-w-[140px] rounded-md border border-border bg-background px-1.5 text-xs"
+                        value={focusTeacherKey}
+                        onChange={(e) => setFocusTeacherKey(e.target.value)}
+                        title="Tek öğretmen"
+                      >
+                        <option value="all">Tüm öğretmenler</option>
+                        {visibleTeacherIds.map((rk) => (
+                          <option key={rk} value={rk}>
+                            {resolveRowLabel(rk)}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        id="teacher-sort"
+                        className="h-7 rounded-md border border-border bg-background px-1.5 text-xs"
+                        value={teacherSort}
+                        onChange={(e) => setTeacherSort(e.target.value as typeof teacherSort)}
+                      >
+                        <option value="name_asc">A→Z</option>
+                        <option value="name_desc">Z→A</option>
+                        <option value="lessons_desc">Ders ↓</option>
+                        <option value="lessons_asc">Ders ↑</option>
+                      </select>
+                      <select
+                        id="exempt-filter"
+                        className="h-7 rounded-md border border-border bg-background px-1.5 text-xs"
+                        value={exemptFilter}
+                        onChange={(e) => setExemptFilter(e.target.value as typeof exemptFilter)}
+                      >
+                        <option value="all">Tümü</option>
+                        <option value="exempt">Muaf</option>
+                        <option value="not_exempt">Aktif</option>
+                      </select>
+                      <label className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-md border border-border/80 px-1.5 text-[10px] text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          className="size-3 rounded"
+                          checked={hideEmptyLessonRows}
+                          onChange={(e) => setHideEmptyLessonRows(e.target.checked)}
+                        />
+                        Boş saatleri gizle
+                      </label>
+                    </>
+                  )}
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                {visibleTeacherIds.length === 0 ? (
-                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-                    Filtreye uyan öğretmen yok. Aramayı veya muafiyet seçimini değiştirin.
-                  </div>
-                ) : viewMode === 'teacher' ? (
-                  <div className="table-x-scroll bg-zinc-100/60 dark:bg-zinc-900/40">
-                    <table className="w-full min-w-[900px] text-xs">
-                      <thead>
-                        <tr className="bg-zinc-200/80 dark:bg-zinc-800/80">
-                          <th className="sticky left-0 z-10 bg-zinc-200/80 dark:bg-zinc-800/80 px-3 py-2 text-left font-semibold text-zinc-600 dark:text-zinc-400 border-b border-r border-zinc-300 dark:border-zinc-700 min-w-[100px]">
-                            Öğretmen
-                          </th>
-                          <th className="w-8 px-1 py-2 text-center font-semibold text-zinc-600 dark:text-zinc-400 border-b border-r border-zinc-300 dark:border-zinc-700">
-                            #
-                          </th>
-                          {DAY_SHORT.map((d, i) => (
-                            <th
-                              key={d}
-                              className={cn(
-                                'px-2 py-2 text-center font-semibold text-zinc-600 dark:text-zinc-400 border-b border-r border-zinc-300 dark:border-zinc-700 min-w-[88px]',
-                                i % 2 === 1 && 'bg-zinc-300/50 dark:bg-zinc-700/50',
-                                i === 6 && 'border-r-0',
-                              )}
-                            >
-                              {d}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {visibleTeacherIds.flatMap((rowKey, teacherIdx) => {
-                          const t = rowKey.startsWith('raw:') ? undefined : teacherMap.get(rowKey);
-                          const name = resolveRowLabel(rowKey);
-                          const isExempt = t?.duty_exempt;
-                          const accent = TEACHER_ACCENT[teacherIdx % TEACHER_ACCENT.length];
-                          const rowBg = teacherIdx % 2 === 0 ? 'bg-white dark:bg-zinc-900/60' : 'bg-zinc-50 dark:bg-zinc-800/40';
-                          return lessonNums.map((ln, lessonIdx) => (
-                            <tr
-                              key={`${rowKey}-${ln}`}
-                              className={cn(
-                                lessonIdx === 0 && teacherIdx > 0 && 'border-t-2 border-t-zinc-300 dark:border-t-zinc-600',
-                                rowBg,
-                              )}
-                            >
-                              <td
-                                className={cn(
-                                  'sticky left-0 z-10 px-3 py-1.5 border-b border-r border-zinc-200 dark:border-zinc-700 border-l-4',
-                                  accent,
-                                  lessonIdx === 0 ? 'font-medium bg-inherit' : 'pl-4 text-zinc-500 dark:text-zinc-400 bg-inherit',
-                                  rowBg,
-                                )}
-                              >
-                                {lessonIdx === 0 ? (
-                                  <span className="flex items-center gap-1.5 min-w-0">
-                                    <span className="truncate max-w-[88px]" title={name}>{name}</span>
-                                    {isExempt && (
-                                      <span className="shrink-0 rounded px-1 py-0.5 text-[9px] font-medium bg-amber-200/80 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
-                                        Muaf
-                                      </span>
-                                    )}
-                                  </span>
-                                ) : null}
-                              </td>
-                              <td className="px-1 py-1.5 text-center border-b border-r border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400">
-                                {ln}
-                              </td>
-                              {[1, 2, 3, 4, 5, 6, 7].map((dayNum, dayIdx) => {
-                                const key = `${rowKey}-${dayNum}`;
-                                const dayLessons = map.get(key);
-                                const entry = dayLessons?.get(String(ln));
-                                return (
-                                  <td
-                                    key={dayNum}
-                                    className={cn(
-                                      'px-1.5 py-1.5 border-b border-r border-zinc-200 dark:border-zinc-700 align-top min-w-[88px]',
-                                      dayIdx === 6 && 'border-r-0',
-                                    )}
-                                  >
-                                    {entry ? (
-                                      <div className="rounded bg-primary/15 dark:bg-primary/20 px-1.5 py-1 text-[11px] border border-primary/20">
-                                        {entry.class_section} · {resolveSchoolSubjectDisplay(entry.subject, schoolSubjects)}
-                                      </div>
-                                    ) : (
-                                      <div className="h-7 rounded border border-dashed border-zinc-300 dark:border-zinc-600 flex items-center justify-center bg-zinc-50/50 dark:bg-zinc-800/30">
-                                        <span className="text-[10px] text-zinc-400">—</span>
-                                      </div>
-                                    )}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ));
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                {viewMode === 'class' && visibleClassSections.length === 0 ? (
+                  <div className="px-3 py-8 text-center text-xs text-muted-foreground">Filtreye uyan sınıf yok.</div>
+                ) : viewMode !== 'class' && displayTeacherIds.length === 0 ? (
+                  <div className="px-3 py-8 text-center text-xs text-muted-foreground">Filtreye uyan öğretmen yok.</div>
                 ) : (
-                  <div>
-                    <div className="flex border-b border-zinc-200 dark:border-zinc-700 bg-zinc-100/60 dark:bg-zinc-800/60">
-                      {DAYS.map((day, i) => (
-                        <button
-                          key={day}
-                          type="button"
-                          onClick={() => setSelectedDay(i + 1)}
-                          className={cn(
-                            'flex-1 px-3 py-2 text-xs font-medium whitespace-nowrap',
-                            selectedDay === i + 1
-                              ? 'border-b-2 border-primary text-primary bg-white dark:bg-zinc-900'
-                              : 'text-zinc-500 hover:bg-zinc-200/60 dark:hover:bg-zinc-700/60',
-                          )}
-                          title={day}
-                        >
-                          {DAY_SHORT[i]}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="table-x-scroll bg-zinc-100/60 dark:bg-zinc-900/40">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="bg-zinc-200/80 dark:bg-zinc-800/80">
-                            <th className="sticky left-0 z-10 bg-zinc-200/80 dark:bg-zinc-800/80 w-8 px-2 py-2 text-center font-semibold text-zinc-600 dark:text-zinc-400 border-b border-r border-zinc-300 dark:border-zinc-700">
-                              #
-                            </th>
-                            {visibleTeacherIds.map((rowKey, colIdx) => {
-                              const t = rowKey.startsWith('raw:') ? undefined : teacherMap.get(rowKey);
-                              const name = resolveRowLabel(rowKey);
-                              const isExempt = t?.duty_exempt;
-                              const accent = TEACHER_ACCENT[colIdx % TEACHER_ACCENT.length];
-                              return (
-                                <th
-                                  key={rowKey}
-                                  className={cn(
-                                    'px-2 py-2 text-center border-b border-r border-zinc-300 dark:border-zinc-700 min-w-[88px]',
-                                    colIdx > 0 && 'border-l-2',
-                                    colIdx > 0 && accent,
-                                    colIdx === visibleTeacherIds.length - 1 && 'border-r-0',
-                                    colIdx % 2 === 1 ? 'bg-zinc-300/50 dark:bg-zinc-700/50' : 'bg-zinc-200/80 dark:bg-zinc-800/80',
-                                  )}
-                                >
-                                  <span className="block truncate max-w-[76px] mx-auto font-medium text-zinc-700 dark:text-zinc-300" title={name}>{name}</span>
-                                  {isExempt && (
-                                    <span className="block text-[9px] text-amber-600 dark:text-amber-400 mt-0.5">Muaf</span>
-                                  )}
-                                </th>
-                              );
-                            })}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {lessonNums.map((ln, rowIdx) => (
-                            <tr key={ln} className={rowIdx % 2 === 0 ? 'bg-white dark:bg-zinc-900/60' : 'bg-zinc-50 dark:bg-zinc-800/40'}>
-                              <td className="sticky left-0 z-10 px-2 py-1.5 border-b border-r border-zinc-200 dark:border-zinc-700 text-center text-zinc-500 dark:text-zinc-400 bg-inherit">
-                                {ln}
-                              </td>
-                              {visibleTeacherIds.map((rowKey, colIdx) => {
-                                const key = `${rowKey}-${selectedDay}`;
-                                const entry = map.get(key)?.get(String(ln));
-                                const accent = TEACHER_ACCENT[colIdx % TEACHER_ACCENT.length];
-                                return (
-                                  <td
-                                    key={rowKey}
-                                    className={cn(
-                                      'px-1.5 py-1.5 border-b border-r border-zinc-200 dark:border-zinc-700 align-top min-w-[88px] bg-inherit',
-                                      colIdx > 0 && 'border-l-2',
-                                      colIdx > 0 && accent,
-                                      colIdx === visibleTeacherIds.length - 1 && 'border-r-0',
-                                    )}
-                                  >
-                                    {entry ? (
-                                      <div className="rounded bg-primary/15 dark:bg-primary/20 px-1.5 py-1 text-[11px] border border-primary/20">
-                                        {entry.class_section} · {resolveSchoolSubjectDisplay(entry.subject, schoolSubjects)}
-                                      </div>
-                                    ) : (
-                                      <div className="h-7 rounded border border-dashed border-zinc-300 dark:border-zinc-600 flex items-center justify-center bg-zinc-50/50 dark:bg-zinc-800/30">
-                                        <span className="text-[10px] text-zinc-400">—</span>
-                                      </div>
-                                    )}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+                  <TimetableProgramlarimGrid
+                    viewMode={viewMode}
+                    map={map}
+                    lessonNums={lessonNums}
+                    teacherRowKeys={viewMode === 'class' ? [] : displayTeacherIds}
+                    teachers={teachers}
+                    selectedDay={selectedDay}
+                    onSelectDay={setSelectedDay}
+                    classGridEntries={classGridEntries}
+                    schoolSubjects={schoolSubjects}
+                    hideEmptyLessonRows={hideEmptyLessonRows}
+                  />
                 )}
               </CardContent>
             </Card>

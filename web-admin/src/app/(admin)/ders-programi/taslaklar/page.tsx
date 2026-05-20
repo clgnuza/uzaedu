@@ -1,25 +1,20 @@
 'use client';
 
-import { DersProgramiSubpageIntro } from '@/components/ders-programi/ders-programi-subpage-intro';
-import { SchoolTimetableDraftsPanel } from '@/components/ders-programi/school-timetable-drafts-panel';
-import { useAuth } from '@/hooks/use-auth';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 
+/** Eski URL; Programlarım → Taslaklar sekmesine yönlendirir. */
 export default function TaslaklarPage() {
-  const { me } = useAuth();
-  const isAdmin = me?.role === 'school_admin';
+  const router = useRouter();
 
-  if (!isAdmin) {
-    return (
-      <div className="mx-auto max-w-lg py-12 text-center text-sm text-muted-foreground">
-        Bu sayfa yalnızca okul yöneticilerine açıktır.
-      </div>
-    );
-  }
+  useEffect(() => {
+    router.replace('/ders-programi/programlarim?tab=drafts');
+  }, [router]);
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-4">
-      <DersProgramiSubpageIntro title="Program taslakları" subtitle="Okul programı sayfasındaki Taslaklar sekmesinden de erişebilirsiniz." accent="violet" />
-      <SchoolTimetableDraftsPanel />
+    <div className="flex justify-center py-16">
+      <LoadingSpinner className="size-8" />
     </div>
   );
 }

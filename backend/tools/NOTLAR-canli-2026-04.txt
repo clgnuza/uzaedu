@@ -36,6 +36,22 @@ SUNUCU DEPLOY (Hetzner 178.104.124.176):
 - NOT: git pull "cannot lock ref" hatası → git remote prune origin && git fetch --all && git reset --hard origin/main
 - NOT: Turbopack cache bozulursa → rm -rf .next && next build
 
+Akıllı tahta kurulum kodu (2026-05, canlı):
+  backend/migrations/rollout-smart-board-setup-code-202605.sql
+  (veya add-smart-board-setup-code.sql + backfill-smart-board-setup-code.sql)
+  node tools/run-single-migration.js migrations/rollout-smart-board-setup-code-202605.sql
+
+Akıllı tahta TV güvenlik (2026-05, canlı — deploy öncesi SQL):
+  backend/migrations/add-smart-board-tv-security-202605.sql
+  node tools/run-single-migration.js migrations/add-smart-board-tv-security-202605.sql
+  Özet: QR poll’da token yok → POST /tv/classroom-unlock-exchange; 8 karakter QR; issued_usb_token_plain temiz;
+  schools.smart_board_release_previous_on_qr; sınıf tahtası için tv_allowed_ips zorunlu (boş = TV_IP_NOT_CONFIGURED).
+  Canlıda Duyuru TV → IP listesini doldurun; backend+web build + pm2 restart.
+
+Akıllı tahta ayar genişletme (2026-05):
+  backend/migrations/add-smart-board-settings-extended-202605.sql
+  (default_kiosk, default_kilit, notify_on_qr_takeover; PIN→connect; stale session cron)
+
 SQL MİGRASYONLAR UYGULANDI (16 Nisan):
   backend/tools/sql/add-login-otp-required.sql
   backend/migrations/20260415-school-teacher-name-merge-mode.sql

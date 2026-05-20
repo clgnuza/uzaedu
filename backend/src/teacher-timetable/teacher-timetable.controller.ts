@@ -16,17 +16,18 @@ import {
   StreamableFile,
   Header,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import { SkipThrottle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
 import { UserRole } from '../types/enums';
-import { TeacherTimetableService } from './teacher-timetable.service';
+import { TeacherTimetableService, type TimetableEntry } from './teacher-timetable.service';
 
 function timetableUploadExt(file: Express.Multer.File): string {
   const fromName = (path.extname(file.originalname ?? '') || '').toLowerCase();
@@ -43,7 +44,9 @@ function timetableUploadExt(file: Express.Multer.File): string {
   return '.xlsx';
 }
 
+/** Admin program sayfası çoklu GET + React Strict Mode; global throttle 429 üretmesin. */
 @Controller('teacher-timetable')
+@SkipThrottle({ default: true, auth: true, public: true })
 @UseGuards(JwtAuthGuard)
 export class TeacherTimetableController {
   constructor(private readonly service: TeacherTimetableService) {}
@@ -296,12 +299,67 @@ export class TeacherTimetableController {
     return this.service.archivePublishedPlan(id, payload.schoolId ?? null);
   }
 
+  @Post('upload-gpt-reconcile')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.school_admin)
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'file_pdf', maxCount: 1 },
+        { name: 'file_xls', maxCount: 1 },
+      ],
+      {
+        limits: { fileSize: 8 * 1024 * 1024 },
+        fileFilter: (_req, file, cb) => {
+          const ext = (path.extname(file.originalname ?? '') || '').toLowerCase();
+          const field = file.fieldname;
+          if (field === 'file_pdf') cb(null, ext === '.pdf');
+          else if (field === 'file_xls') cb(null, ext === '.xlsx' || ext === '.xls');
+          else cb(null, false);
+        },
+      },
+    ),
+  )
+  async uploadGptReconcile(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Req() req: Request,
+    @Query('preview') preview?: string,
+  ) {
+    const files = (req as Request & { files?: Record<string, Express.Multer.File[]> }).files;
+    const pdf = files?.file_pdf?.[0];
+    const xls = files?.file_xls?.[0];
+    if (!pdf?.buffer || !xls?.buffer) {
+      throw new BadRequestException({
+        code: 'GPT_RECONCILE_FILES_REQUIRED',
+        message: 'GPT uzlaştırma için hem PDF (öğretmen) hem Excel (kurumsal program) yükleyin.',
+      });
+    }
+    const schoolId = payload.schoolId ?? null;
+    if (!schoolId) throw new BadRequestException({ code: 'FORBIDDEN', message: 'Okul bilgisi bulunamadı.' });
+    const pdfPath = path.join(os.tmpdir(), `tt-pdf-${Date.now()}.pdf`);
+    const xlsPath = path.join(os.tmpdir(), `tt-xls-${Date.now()}${timetableUploadExt(xls)}`);
+    try {
+      fs.writeFileSync(pdfPath, pdf.buffer);
+      fs.writeFileSync(xlsPath, xls.buffer);
+      const isPreview = preview === '1' || preview === 'true';
+      return await this.service.uploadFromGptReconcile(schoolId, pdfPath, xlsPath, { preview: isPreview });
+    } finally {
+      for (const p of [pdfPath, xlsPath]) {
+        try {
+          if (fs.existsSync(p)) fs.unlinkSync(p);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+
   @Post('upload')
   @UseGuards(RolesGuard)
   @Roles(UserRole.school_admin)
   @UseInterceptors(
     FileInterceptor('file', {
-      limits: { fileSize: 5 * 1024 * 1024 },
+      limits: { fileSize: 8 * 1024 * 1024 },
       fileFilter: (_req, file, cb) => {
         const ext = (path.extname(file.originalname ?? '') || '').toLowerCase();
         const mime = String(file.mimetype ?? '').toLowerCase();
@@ -318,8 +376,9 @@ export class TeacherTimetableController {
   async upload(
     @UploadedFile() file: Express.Multer.File | undefined,
     @CurrentUser() payload: CurrentUserPayload,
-    @Query('mode') modeRaw: string | undefined,
     @Req() req: Request,
+    @Query('mode') modeRaw: string | undefined,
+    @Query('preview') preview?: string,
   ) {
     if (!file?.buffer) {
       throw new BadRequestException({
@@ -350,7 +409,8 @@ export class TeacherTimetableController {
     const tempPath = path.join(os.tmpdir(), `tt-${Date.now()}${ext}`);
     try {
       fs.writeFileSync(tempPath, file.buffer);
-      return await this.service.uploadFromExcel(schoolId, tempPath, mode);
+      const isPreview = preview === '1' || preview === 'true';
+      return await this.service.uploadFromExcel(schoolId, tempPath, mode, { preview: isPreview });
     } finally {
       try {
         if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
@@ -358,6 +418,19 @@ export class TeacherTimetableController {
         /* ignore */
       }
     }
+  }
+
+  @Post('plans/draft-from-entries')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.school_admin)
+  async saveDraftFromEntries(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Body() body: { entries?: TimetableEntry[]; errors?: string[] },
+  ) {
+    const schoolId = payload.schoolId ?? null;
+    const entries = Array.isArray(body?.entries) ? body.entries : [];
+    const errors = Array.isArray(body?.errors) ? body.errors.map(String) : [];
+    return this.service.saveDraftFromPreviewEntries(schoolId, entries, errors);
   }
 
   @Delete()

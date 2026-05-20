@@ -23,9 +23,10 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getApiUrl } from '@/lib/api';
 import { resolveDefaultApiBase } from '@/lib/resolve-api-base';
 import { buildPardusTahtaKioskZip, downloadPardusTahtaKioskZip } from '@/lib/pardus-tahta-kiosk-pack';
+import { downloadPardusTahtaDeb } from '@/lib/pardus-tahta-deb-pack';
 import { downloadSmartBoardUsbLauncher } from '@/lib/smart-board-usb-launcher';
 import { cn } from '@/lib/utils';
 
@@ -78,13 +79,20 @@ export function SmartBoardSettings({
   const [sessionTimeout, setSessionTimeout] = useState(2);
   const [notifyOnDisconnect, setNotifyOnDisconnect] = useState(true);
   const [autoDisconnectLessonEnd, setAutoDisconnectLessonEnd] = useState(false);
+  const [releasePreviousOnQr, setReleasePreviousOnQr] = useState(true);
+  const [notifyOnQrTakeover, setNotifyOnQrTakeover] = useState(true);
   const [tvAllowedIps, setTvAllowedIps] = useState<string | null>(null);
   const [usbKiosk, setUsbKiosk] = useState(true);
   const [tahtaKilit, setTahtaKilit] = useState(true);
+  const [ipProbe, setIpProbe] = useState<{ client_ip: string; ip_allowed: boolean | null } | null>(null);
+  const [ipProbeBusy, setIpProbeBusy] = useState(false);
+  const [disconnectAllBusy, setDisconnectAllBusy] = useState(false);
   const [panelOrigin, setPanelOrigin] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [lastDownloadByDevice, setLastDownloadByDevice] = useState<Record<string, { kind: 'html' | 'zip'; at: number }>>({});
+  const [lastDownloadByDevice, setLastDownloadByDevice] = useState<
+    Record<string, { kind: 'html' | 'zip' | 'deb'; at: number }>
+  >({});
 
   useEffect(() => {
     setPanelOrigin(typeof window !== 'undefined' ? window.location.origin : '');
@@ -99,6 +107,10 @@ export function SmartBoardSettings({
       smartBoardSessionTimeoutMinutes?: number;
       smartBoardNotifyOnDisconnect?: boolean;
       smartBoardAutoDisconnectLessonEnd?: boolean;
+      smartBoardReleasePreviousOnQr?: boolean;
+      smartBoardNotifyOnQrTakeover?: boolean;
+      smartBoardDefaultKiosk?: boolean;
+      smartBoardDefaultKilit?: boolean;
       tv_allowed_ips?: string | null;
     }>(`/schools/${schoolId}`, { token })
       .then((s) => {
@@ -107,6 +119,10 @@ export function SmartBoardSettings({
         setSessionTimeout(s?.smartBoardSessionTimeoutMinutes ?? 2);
         setNotifyOnDisconnect(s?.smartBoardNotifyOnDisconnect ?? true);
         setAutoDisconnectLessonEnd(s?.smartBoardAutoDisconnectLessonEnd ?? false);
+        setReleasePreviousOnQr(s?.smartBoardReleasePreviousOnQr ?? true);
+        setNotifyOnQrTakeover(s?.smartBoardNotifyOnQrTakeover ?? true);
+        setUsbKiosk(s?.smartBoardDefaultKiosk ?? true);
+        setTahtaKilit(s?.smartBoardDefaultKilit ?? true);
         setTvAllowedIps(s?.tv_allowed_ips ?? null);
       })
       .catch(() => {})
@@ -125,6 +141,10 @@ export function SmartBoardSettings({
           smart_board_session_timeout_minutes: sessionTimeout,
           smart_board_notify_on_disconnect: notifyOnDisconnect,
           smart_board_auto_disconnect_lesson_end: autoDisconnectLessonEnd,
+          smart_board_release_previous_on_qr: releasePreviousOnQr,
+          smart_board_notify_on_qr_takeover: notifyOnQrTakeover,
+          smart_board_default_kiosk: usbKiosk,
+          smart_board_default_kilit: tahtaKilit,
         }),
         token,
       });
@@ -140,27 +160,45 @@ export function SmartBoardSettings({
   const settingRows = [
     {
       label: 'Otomatik yetki',
-      hint: 'Açık: Tüm öğretmenler bağlanabilir. Kapalı: Sadece Yetkiler listesindekiler.',
+      hint: 'Panel bağlantısı, QR onayı ve PIN/OTP: okuldaki tüm öğretmenler. Kapalıyken yalnızca Yetkiler listesi.',
+      applies: 'connect · claimQr · listDevices · PIN/OTP',
       value: autoAuthorize,
       set: setAutoAuthorize,
     },
     {
       label: 'Sadece dersi olan sınıflara',
-      hint: 'Öğretmen yalnızca ders verdiği sınıfların tahtalarına bağlanır (Ders Programına göre).',
+      hint: 'Ders programında sınıfı olan öğretmenler bağlanır. Yeni tahta kaydında sınıf etiketi zorunludur.',
+      applies: 'connect · claimQr · tahta listesi · PIN/OTP',
       value: restrictToOwnClasses,
       set: setRestrictToOwnClasses,
     },
     {
       label: 'Bağlantı kesildiğinde bildir',
-      hint: 'İdare bağlantıyı sonlandırdığında öğretmene Inbox bildirimi gider.',
+      hint: 'Yalnız idare panelden oturumu sonlandırdığında öğretmene Inbox gider.',
+      applies: 'disconnect (idare)',
       value: notifyOnDisconnect,
       set: setNotifyOnDisconnect,
     },
     {
+      label: 'QR ile değişimde bildir',
+      hint: 'Aynı tahtada yeni öğretmen bağlandığında önceki öğretmene Inbox (idare kesmedi uyarısı).',
+      applies: 'connect (releaseOther)',
+      value: notifyOnQrTakeover,
+      set: setNotifyOnQrTakeover,
+    },
+    {
       label: 'Ders saati bitince otomatik kes',
-      hint: 'Son ders saati geçtiğinde bağlantı otomatik sonlanır (Okul Ayarları → Ders saatleri gerekli).',
+      hint: 'Her heartbeat’te kontrol: okul ders saatleri tablosundaki son ders bitişinden sonra oturum kapanır.',
+      applies: 'heartbeat',
       value: autoDisconnectLessonEnd,
       set: setAutoDisconnectLessonEnd,
+    },
+    {
+      label: 'QR’da önceki öğretmeni sonlandır',
+      hint: 'Yeni QR onayında aynı tahtadaki aktif oturum kapatılır; kapalıyken “tahta meşgul” hatası alınır.',
+      applies: 'claimQr → connect',
+      value: releasePreviousOnQr,
+      set: setReleasePreviousOnQr,
     },
   ];
 
@@ -178,9 +216,12 @@ export function SmartBoardSettings({
               Akıllı tahta ayarları
             </h2>
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground sm:text-sm">
-              Oturum politikası, kapalı devre erişim (TV ile aynı IP kuralı), USB’den sınıf tahtası açılışı ve Pardus 23 Etap
-              için öneriler tek sayfada toplandı.
+              Günlük kurulum: <strong className="text-foreground">Kurulum</strong> sekmesi (okul kodu, toplu sınıf, QR etiket, USB/.deb ZIP).
+              Bu sayfa oturum, IP ve cihaz başına <strong className="text-foreground">Hazır .deb</strong> / Pardus ZIP’idir.
             </p>
+            <Link href="/akilli-tahta?tab=kurulum" className="mt-2 inline-flex text-xs font-medium text-primary hover:underline">
+              Kurulum sihirbazına git →
+            </Link>
           </div>
           {panelOrigin && (
             <div className="shrink-0 rounded-lg border bg-card/80 px-3 py-2 text-[10px] text-muted-foreground backdrop-blur sm:text-xs">
@@ -204,7 +245,9 @@ export function SmartBoardSettings({
               </span>
               Bağlantı ve oturum
             </CardTitle>
-            <CardDescription className="text-xs sm:text-sm">Öğretmen–tahta oturumu ve yetki davranışı.</CardDescription>
+            <CardDescription className="text-xs sm:text-sm">
+              Kayıt sonrası backend’de anında uygulanır. Öğretmen paneli ~45 sn heartbeat gönderir.
+            </CardDescription>
           </CardHeader>
           <CardContent className="px-4 py-4 sm:px-6 sm:py-5">
             {loading ? (
@@ -218,11 +261,14 @@ export function SmartBoardSettings({
                       <Toggle checked={r.value} onChange={r.set} disabled={!canManage} />
                     </div>
                     <p className="mt-1 text-[10px] leading-snug text-muted-foreground sm:text-xs">{r.hint}</p>
+                    {'applies' in r && r.applies ? (
+                      <p className="mt-1 font-mono text-[9px] text-muted-foreground/80">Uygulama: {r.applies}</p>
+                    ) : null}
                   </div>
                 ))}
                 <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 sm:px-4 sm:py-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-xs font-medium sm:text-sm">Bağlantı süresi (heartbeat)</span>
+                    <span className="text-xs font-medium sm:text-sm">Heartbeat zaman aşımı</span>
                     <Select value={String(sessionTimeout)} onValueChange={(v) => setSessionTimeout(Number(v))} disabled={!canManage}>
                       <SelectTrigger className="h-8 w-24 text-xs sm:text-sm">
                         <SelectValue />
@@ -236,12 +282,51 @@ export function SmartBoardSettings({
                       </SelectContent>
                     </Select>
                   </div>
-                  <p className="mt-1 text-[10px] text-muted-foreground sm:text-xs">Sinyal gelmezse oturum bu sürede sonlanır; kapalı devrede ağ gecikmelerine göre 5–10 dk deneyin.</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground sm:text-xs">
+                    Son sinyalden bu süre geçince oturum kapanır (heartbeat + tahta oturum poll). Öneri: sürenin en az 2× heartbeat aralığı (≈90 sn) olması.
+                  </p>
+                  <p className="mt-0.5 font-mono text-[9px] text-muted-foreground/80">Uygulama: heartbeat · classroom-session-status</p>
+                </div>
+                <div className="rounded-lg border border-sky-500/25 bg-sky-500/5 px-3 py-2.5 text-[10px] text-muted-foreground sm:text-xs">
+                  <p className="font-medium text-foreground">Kurallar özeti</p>
+                  <ul className="mt-1.5 list-disc space-y-1 pl-4">
+                    <li>Tahta varsayılan <strong className="text-foreground">duyuru TV</strong>; öğretmen QR onayı → kullanım modu → oturum bitince tekrar duyuru.</li>
+                    <li>QR token tahtada tek seferlik <code className="rounded bg-muted px-1 font-mono text-[9px]">exchange</code> ile alınır; poll yanıtında token yok.</li>
+                    <li>
+                      <strong className="text-foreground">İzinli IP</strong> (Duyuru TV): sınıf tahtası QR, duyuru ve oturum sorgusu için zorunlu; kurulum (setup) hariç.
+                    </li>
+                    <li>Kiosk / kilit URL parametreleri ({' '}
+                      <code className="rounded bg-muted px-1 font-mono text-[9px]">kiosk=1</code>,{' '}
+                      <code className="rounded bg-muted px-1 font-mono text-[9px]">kilit=1</code>) paket indirmede seçilir; bu sayfada kaydedilmez.</li>
+                  </ul>
                 </div>
                 {canManage && (
-                  <Button onClick={handleSave} disabled={saving} size="sm" className="h-9 w-full sm:w-auto">
-                    {saving ? 'Kaydediliyor…' : 'Değişiklikleri kaydet'}
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button onClick={handleSave} disabled={saving} size="sm" className="h-9">
+                      {saving ? 'Kaydediliyor…' : 'Değişiklikleri kaydet'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-9"
+                      disabled={disconnectAllBusy}
+                      onClick={() => {
+                        if (!token || !schoolId) return;
+                        if (!window.confirm('Tüm aktif tahta oturumları sonlandırılsın mı? Tahtalar duyuru moduna döner.')) return;
+                        setDisconnectAllBusy(true);
+                        apiFetch<{ disconnected?: number }>('/smart-board/sessions/disconnect-all', {
+                          method: 'POST',
+                          token,
+                        })
+                          .then((r) => toast.success(`${r?.disconnected ?? 0} oturum sonlandırıldı.`))
+                          .catch(() => toast.error('Toplu sonlandırma başarısız.'))
+                          .finally(() => setDisconnectAllBusy(false));
+                      }}
+                    >
+                      {disconnectAllBusy ? 'Sonlandırılıyor…' : 'Tüm tahtaları duyuruya al'}
+                    </Button>
+                  </div>
                 )}
               </div>
             )}
@@ -278,7 +363,8 @@ export function SmartBoardSettings({
                   </>
                 ) : (
                   <>
-                    Şu an <strong className="text-foreground">tüm IP’ler</strong> kabul ediliyor. Kapalı devrede mutlaka okul subnet’lerinizi girin.
+                    <strong className="text-amber-800 dark:text-amber-200">Sınıf tahtası (QR / duyuru)</strong> için IP listesi
+                    zorunlu; liste boşken tahta QR ve duyuru istekleri reddedilir. Duyuru TV sayfasından subnet girin.
                   </>
                 )}
               </p>
@@ -293,13 +379,50 @@ export function SmartBoardSettings({
               <li>Tahta tarayıcılarında yalnızca okul paneli ve gerekli adreslere izin verin; şüpheli eklentileri kapatın.</li>
               <li>HTTPS ve kurum içi sertifika: Pardus’ta CA’yı sistem ve tarayıcı (NSS) deposuna ekleyin.</li>
             </ul>
-            <Button variant="outline" size="sm" className="h-9 w-full gap-1.5 sm:w-fit" asChild>
-              <Link href="/tv">
-                <Tv className="size-4 shrink-0" />
-                Duyuru TV’de IP listesini düzenle
-                <ExternalLink className="size-3.5 opacity-60" />
-              </Link>
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" className="h-9 gap-1.5" asChild>
+                <Link href="/tv">
+                  <Tv className="size-4 shrink-0" />
+                  IP listesini düzenle
+                  <ExternalLink className="size-3.5 opacity-60" />
+                </Link>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9"
+                disabled={ipProbeBusy || !schoolId}
+                onClick={() => {
+                  setIpProbeBusy(true);
+                  fetch(getApiUrl(`/tv/classroom-client-ip?school_id=${encodeURIComponent(schoolId)}`))
+                    .then(async (res) => {
+                      const body = (await res.json()) as {
+                        client_ip?: string;
+                        ip_allowed?: boolean | null;
+                      };
+                      setIpProbe({
+                        client_ip: body.client_ip ?? '—',
+                        ip_allowed: body.ip_allowed ?? null,
+                      });
+                    })
+                    .catch(() => toast.error('IP testi yapılamadı.'))
+                    .finally(() => setIpProbeBusy(false));
+                }}
+              >
+                {ipProbeBusy ? 'Test…' : 'Bu istekten görünen IP'}
+              </Button>
+            </div>
+            {ipProbe ? (
+              <p className="rounded-md border bg-muted/30 px-2 py-1.5 font-mono text-[10px] sm:text-xs">
+                IP: {ipProbe.client_ip}
+                {ipProbe.ip_allowed === null
+                  ? ' · Liste boş'
+                  : ipProbe.ip_allowed
+                    ? ' · Listede ✓'
+                    : ' · Listede değil ✗'}
+              </p>
+            ) : null}
           </CardContent>
         </Card>
       </div>
@@ -310,23 +433,23 @@ export function SmartBoardSettings({
             <span className="flex size-8 items-center justify-center rounded-lg bg-emerald-500/15">
               <Shield className="size-4 text-emerald-700 dark:text-emerald-300" />
             </span>
-            QR-first çalışma politikası
+            Duyuru TV varsayılan · QR ile kullanım modu
           </CardTitle>
           <CardDescription className="text-xs sm:text-sm">
-            Hızlı öğretmen açılışında varsayılan yöntem QR; PIN/OTP yalnızca yedek giriş.
+            Tahta duyuru modundayken sol altta sürekli QR; öğretmen telefondan okutur.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 px-4 py-4 sm:px-6 sm:py-4">
           <ul className="list-disc space-y-1.5 pl-4 text-[11px] text-muted-foreground sm:text-xs">
-            <li>Tahta unlock ekranı açılır açılmaz QR oturumu otomatik başlatılır.</li>
-            <li>QR kod süresi: <code className="rounded bg-muted px-1 py-0.5 font-mono">120s</code>; süre dolarsa yeniden üretilir.</li>
-            <li>PIN/OTP alanı fallback içindir; OTP kodları tek kullanımlıktır.</li>
-            <li>OTP üretme/yenileme işlemleri <strong className="text-foreground">Yetkiler</strong> sekmesinden yapılır.</li>
+            <li>Duyuru modunda QR chip otomatik yenilenir; onay sonrası tahta exchange ile token alır.</li>
+            <li>QR oturum süresi <code className="rounded bg-muted px-1 py-0.5 font-mono">120s</code>; exchange penceresi <code className="rounded bg-muted px-1 py-0.5 font-mono">90s</code>.</li>
+            <li>PIN/OTP yedek giriş; yetki kuralları (otomatik yetki / sınıf kısıtı) burada da geçerli.</li>
+            <li>OTP üretme <strong className="text-foreground">Yetkiler</strong> sekmesinden.</li>
           </ul>
           <div className="flex flex-wrap gap-2">
             <Link href="/akilli-tahta?tab=kurulum">
               <Button size="sm" className="h-8 gap-1 text-[10px] sm:text-xs">
-                <Terminal className="size-3.5" /> Pardus Kurulum Rehberini Aç
+                <Terminal className="size-3.5" /> Kurulum rehberi
               </Button>
             </Link>
             <Link href="/akilli-tahta?tab=yetkiler">
@@ -338,7 +461,14 @@ export function SmartBoardSettings({
         </CardContent>
       </Card>
 
-      <Card className="relative overflow-hidden border-cyan-500/25 shadow-md shadow-cyan-500/5 dark:border-cyan-400/20">
+      <details className="group rounded-2xl border border-cyan-500/25 bg-card shadow-sm open:shadow-md">
+        <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold sm:px-6 sm:py-4">
+          <span className="inline-flex items-center gap-2">
+            <ChevronDown className="size-4 transition group-open:rotate-180" />
+            Gelişmiş: Pardus paketleri (isteğe bağlı)
+          </span>
+        </summary>
+      <Card className="relative overflow-hidden border-0 shadow-none">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 bg-[radial-gradient(900px_circle_at_100%_0%,rgba(6,182,212,0.12),transparent_55%),radial-gradient(700px_circle_at_0%_100%,rgba(59,130,246,0.08),transparent_50%)] dark:bg-[radial-gradient(900px_circle_at_100%_0%,rgba(34,211,238,0.08),transparent_55%)]"
@@ -356,7 +486,7 @@ export function SmartBoardSettings({
               </div>
               <CardTitle className="text-base font-semibold tracking-tight sm:text-lg">Tahta kurulum paketleri</CardTitle>
               <CardDescription className="max-w-2xl text-xs leading-relaxed sm:text-sm">
-                Her cihaz için ayrı indirme: USB’de tek HTML; Pardus’ta ZIP içinden .deb üretip modern Paket Kurucu ile yükleme + ilk açılış sihirbazı.
+                Cihaz başına: USB HTML, panelden <strong className="text-foreground">Hazır .deb</strong> veya Pardus ZIP (içinde hazır .deb). Kurulum sihirbazı önce önerilir.
               </CardDescription>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2 rounded-xl border border-border/60 bg-background/70 px-3 py-2.5 text-[10px] text-muted-foreground shadow-sm backdrop-blur-sm sm:max-w-xs sm:text-xs">
@@ -366,8 +496,16 @@ export function SmartBoardSettings({
               </div>
               <ol className="mt-1 w-full space-y-1.5">
                 <li className="flex gap-2">
-                  <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted font-mono text-[9px] font-bold text-foreground">
+                  <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-cyan-500/20 font-mono text-[9px] font-bold text-cyan-900 dark:text-cyan-100">
                     1
+                  </span>
+                  <span>
+                    Panelden <strong className="text-foreground">Hazır .deb</strong> indir → Pardus Paket Kurucu ile kur (önerilen).
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted font-mono text-[9px] font-bold text-foreground">
+                    2
                   </span>
                   <span>
                     <code className="rounded bg-muted/80 px-1 font-mono text-[9px] sm:text-[10px]">apt install chromium</code> (+ isteğe bağlı{' '}
@@ -376,16 +514,11 @@ export function SmartBoardSettings({
                 </li>
                 <li className="flex gap-2">
                   <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted font-mono text-[9px] font-bold text-foreground">
-                    2
-                  </span>
-                  <span>ZIP’i açın, <code className="rounded bg-muted/80 px-1 font-mono text-[9px] sm:text-[10px]">bash packages/deb/build-deb.sh 2.1.0</code></span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-cyan-500/20 font-mono text-[9px] font-bold text-cyan-900 dark:text-cyan-100">
                     3
                   </span>
                   <span>
-                    <code className="rounded bg-muted/80 px-1 font-mono text-[9px] sm:text-[10px]">xdg-open packages/deb/dist/ogretmenpro-tahta_2.1.0_all.deb</code> ile Paket Kurucu
+                    Alternatif: Pardus ZIP → <code className="rounded bg-muted/80 px-1 font-mono text-[9px] sm:text-[10px]">packages/deb/dist/*.deb</code> veya{' '}
+                    <code className="rounded bg-muted/80 px-1 font-mono text-[9px] sm:text-[10px]">build-deb.sh</code>
                   </span>
                 </li>
               </ol>
@@ -396,28 +529,30 @@ export function SmartBoardSettings({
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex items-center justify-between gap-3 rounded-xl border border-border/50 bg-background/60 px-4 py-3 shadow-sm backdrop-blur-sm">
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-foreground sm:text-sm">Tam ekran kiosk</p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground sm:text-xs">URL’de kiosk=1</p>
+                <p className="text-xs font-semibold text-foreground sm:text-sm">Tam ekran kiosk (varsayılan)</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground sm:text-xs">Kayıtlı · yeni paket/URL’de kiosk=1</p>
               </div>
               <Toggle checked={usbKiosk} onChange={setUsbKiosk} />
             </div>
             <div className="flex items-center justify-between gap-3 rounded-xl border border-border/50 bg-background/60 px-4 py-3 shadow-sm backdrop-blur-sm">
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-foreground sm:text-sm">Tahta kilidi</p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground sm:text-xs">Yalnız duyuru slaytı · kilit=1</p>
+                <p className="text-xs font-semibold text-foreground sm:text-sm">Duyuru kilidi (varsayılan)</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground sm:text-xs">Kayıtlı · yeni paket/URL’de kilit=1</p>
               </div>
               <Toggle checked={tahtaKilit} onChange={setTahtaKilit} />
             </div>
           </div>
           <p className="rounded-xl border border-dashed border-cyan-500/25 bg-cyan-500/4 px-3 py-2.5 text-[10px] leading-relaxed text-muted-foreground sm:px-4 sm:text-xs">
-            Kilit açıkken yan panel, RSS, hava ve alt şeritler kapanır; PIN sonrası yalnız okul duyuruları döner. Tarayıcı dışına çıkış Chromium politikasıyla engellenir.
+            <strong className="text-foreground">kilit=1</strong> (varsayılan): duyuru slaytı; öğretmen oturumu açılınca tam TV düzeni. Üstteki anahtarlar kaydedilir; paket indirirken uygulanır.
           </p>
 
           {devices.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-muted-foreground/25 bg-muted/20 px-6 py-10 text-center">
               <Package className="size-10 text-muted-foreground/50" />
               <p className="text-sm font-medium text-foreground">Henüz tahta yok</p>
-              <p className="max-w-sm text-xs text-muted-foreground">Cihazlar sekmesinden tahta ekleyin; ardından bu listeden indirin.</p>
+              <p className="max-w-sm text-xs text-muted-foreground">
+                Önce <Link href="/akilli-tahta?tab=kurulum" className="text-primary underline">Kurulum</Link> sihirbazı ile sınıf ekleyin; ardından buradan indirin.
+              </p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -450,7 +585,13 @@ export function SmartBoardSettings({
                           </p>
                           {lastDownload ? (
                             <p className="mt-1 inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-800 dark:text-emerald-200">
-                              Son indirilen: {lastDownload.kind === 'html' ? 'USB HTML' : 'Pardus ZIP'} ·{' '}
+                              Son indirilen:{' '}
+                              {lastDownload.kind === 'html'
+                                ? 'USB HTML'
+                                : lastDownload.kind === 'deb'
+                                  ? 'Hazır .deb'
+                                  : 'Pardus ZIP'}{' '}
+                              ·{' '}
                               {new Date(lastDownload.at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
                             </p>
                           ) : null}
@@ -489,6 +630,39 @@ export function SmartBoardSettings({
                       >
                         <Download className="size-3.5" />
                         USB HTML
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-9 flex-1 gap-1.5 rounded-xl text-xs sm:flex-initial"
+                        disabled={!panelOrigin}
+                        onClick={() => {
+                          if (!panelOrigin) {
+                            toast.error('Panel adresi hazır değil; sayfayı yenileyin.');
+                            return;
+                          }
+                          void downloadPardusTahtaDeb({
+                            panelOrigin,
+                            apiBaseUrl: resolveDefaultApiBase(),
+                            schoolId,
+                            deviceId: d.id,
+                            deviceLabel: d.name,
+                            kiosk: usbKiosk,
+                            tahtaKilit,
+                          })
+                            .then(() => {
+                              setLastDownloadByDevice((prev) => ({
+                                ...prev,
+                                [d.id]: { kind: 'deb', at: Date.now() },
+                              }));
+                              toast.success('Hazır .deb indirildi; Pardus Paket Kurucu ile kurun.');
+                            })
+                            .catch(() => toast.error('.deb oluşturulamadı; ZIP veya install.sh deneyin.'));
+                        }}
+                      >
+                        <Package className="size-3.5" />
+                        Hazır .deb
                       </Button>
                       <Button
                         type="button"
@@ -584,8 +758,8 @@ export function SmartBoardSettings({
                 </li>
                 <li>
                   <strong className="text-foreground">QR girişi:</strong> Sınıf TV&apos;de <strong className="text-foreground">QR ile öğretmen girişi</strong>{' '}
-                  ile 2 dakikalık kod üretilir; öğretmen panelde açılan linkten onay verince tahta otomatik açılır. Ekran QR-first çalışır,
-                  PIN/OTP yedek yöntemdir.
+                  ile 2 dakikalık kod üretilir; öğretmen panelden onay verince tahta duyuru modundan çıkar (tam TV düzeni).
+                  Varsayılan ekran Duyuru TV; PIN/OTP yedektir.
                 </li>
                 <li>
                   <strong className="text-foreground">OTP yönetimi:</strong> Yetkiler sekmesinde öğretmen satırından OTP kodları üretilir /
@@ -608,7 +782,7 @@ export function SmartBoardSettings({
                 <li>
                   Ayrı profil; sınıf TV adresi (PIN/OTP/QR ile USB) örn.{' '}
                   <code className="wrap-break-word rounded-md bg-muted px-1.5 py-0.5 font-mono text-[9px] sm:text-[10px]">
-                    /tv/classroom?school_id=…&amp;device_id=…&amp;usb=1
+                    /tv/classroom?school_id=…&amp;device_id=…&amp;kiosk=1&amp;kilit=1
                   </code>{' '}
                   — Chromium örneğiyle aynı parametreler; yalnızca <code className="rounded bg-muted px-1 font-mono text-[10px]">device_id</code>{' '}
                   yetersizdir.
@@ -631,14 +805,14 @@ export function SmartBoardSettings({
             <div className="border-t border-border/50 px-4 pb-4 pt-0 text-[10px] leading-relaxed text-muted-foreground sm:text-xs sm:leading-relaxed">
               <ul className="mt-3 list-disc space-y-1.5 pl-4">
                 <li>
-                  <strong className="text-foreground">Modern kurulum:</strong> ZIP içinden{' '}
-                  <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px]">bash packages/deb/build-deb.sh 2.1.0</code> ile .deb üretip Paket Kurucu ile yükleyin.
+                  <strong className="text-foreground">Pardus:</strong> panelden <strong className="text-foreground">Hazır .deb</strong> veya ZIP içindeki{' '}
+                  <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px]">packages/deb/dist/*.deb</code> — Paket Kurucu ile kurun.
                 </li>
                 <li>İlk açılışta sihirbaz gelir: lisans onayı + sınıf adı + başlat.</li>
                 <li>
                   Elle:{' '}
                   <code className="break-all rounded-md bg-muted px-1.5 py-0.5 font-mono text-[9px] sm:text-[10px]">
-                    chromium --kiosk --app=&quot;https://…/tv/classroom?school_id=…&amp;device_id=…&amp;usb=1&amp;kiosk=1&amp;kilit=1&quot;
+                    chromium --kiosk --app=&quot;https://…/tv/classroom?school_id=…&amp;device_id=…&amp;kiosk=1&amp;kilit=1&quot;
                   </code>
                 </li>
                 <li>USB’den file:// HTML önce HTTPS’e yönlenir; karma içerik uyarısında hedefi yer imlerine sabitleyin.</li>
@@ -659,6 +833,7 @@ export function SmartBoardSettings({
           </details>
         </CardContent>
       </Card>
+      </details>
 
       <Card className="overflow-hidden border-slate-200/70 dark:border-slate-800">
         <CardHeader className="border-b border-border/60 px-4 py-3 sm:px-6 sm:py-3">

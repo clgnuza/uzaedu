@@ -21,15 +21,23 @@ import { SchoolsService } from '../schools/schools.service';
 import { AuditService } from '../audit/audit.service';
 import { TeacherTimetableService } from '../teacher-timetable/teacher-timetable.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { School } from '../schools/entities/school.entity';
+import { env } from '../config/env';
 
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 dakika
+const SETUP_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const TV_USB_TOKEN_TTL_MS = 10 * 60 * 60 * 1000; // 10 saat (okul günü)
 const SMART_BOARD_QR_TTL_MS = 2 * 60 * 1000; // 2 dakika
+const QR_EXCHANGE_TTL_MS = 90 * 1000; // tahta token alışı
+const QR_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const USB_PIN_PATTERN = /^\d{4,8}$/;
+
+type TvRateBucket = 'qr_create' | 'qr_poll' | 'qr_exchange' | 'usb_unlock' | 'session_status';
 
 @Injectable()
 export class SmartBoardService {
   private readonly usbUnlockFailTs = new Map<string, number[]>();
+  private readonly tvEndpointHits = new Map<string, number[]>();
 
   constructor(
     @InjectRepository(SmartBoardDevice)
@@ -46,6 +54,8 @@ export class SmartBoardService {
     private readonly qrSessionRepo: Repository<SmartBoardQrSession>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    @InjectRepository(School)
+    private readonly schoolRepo: Repository<School>,
     private readonly schoolsService: SchoolsService,
     private readonly auditService: AuditService,
     private readonly timetableService: TeacherTimetableService,
@@ -61,7 +71,13 @@ export class SmartBoardService {
     userId: string,
     schoolId: string | null,
     role: UserRole,
-  ): Promise<{ enabled: boolean; authorized: boolean; mySession?: { session_id: string; device_id: string; device_name: string }; myClassSections?: string[] }> {
+  ): Promise<{
+    enabled: boolean;
+    authorized: boolean;
+    session_timeout_minutes?: number;
+    mySession?: { session_id: string; device_id: string; device_name: string };
+    myClassSections?: string[];
+  }> {
     if (role !== UserRole.teacher) {
       return { enabled: true, authorized: true };
     }
@@ -79,9 +95,16 @@ export class SmartBoardService {
       });
       authorized = !!auth;
     }
-    const result: { enabled: boolean; authorized: boolean; mySession?: { session_id: string; device_id: string; device_name: string }; myClassSections?: string[] } = {
+    const result: {
+      enabled: boolean;
+      authorized: boolean;
+      session_timeout_minutes?: number;
+      mySession?: { session_id: string; device_id: string; device_name: string };
+      myClassSections?: string[];
+    } = {
       enabled: true,
       authorized,
+      session_timeout_minutes: school.smartBoardSessionTimeoutMinutes ?? 2,
     };
     if (authorized) {
       const activeSession = await this.sessionRepo.findOne({
@@ -261,13 +284,20 @@ export class SmartBoardService {
     if (!schoolId) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
+    const classSection = opts?.class_section?.trim();
+    if (!classSection) {
+      throw new BadRequestException({
+        code: 'CLASS_SECTION_REQUIRED',
+        message: 'Sınıf / şube etiketi zorunludur (yetki kısıtı ve ders programı eşlemesi için).',
+      });
+    }
     const pairingCode = randomBytes(4).toString('hex').toUpperCase();
     const device = this.deviceRepo.create({
       school_id: schoolId,
       pairing_code: pairingCode,
       name: opts?.name?.trim() || 'Akıllı Tahta',
       roomOrLocation: opts?.room_or_location?.trim() || null,
-      classSection: opts?.class_section?.trim() || null,
+      classSection,
       status: 'offline',
     });
     const saved = await this.deviceRepo.save(device);
@@ -459,6 +489,30 @@ export class SmartBoardService {
     this.usbUnlockFailTs.delete(clientIp);
   }
 
+  private generateQrCode(): string {
+    const bytes = randomBytes(8);
+    let code = '';
+    for (let i = 0; i < 8; i++) {
+      code += QR_CODE_CHARS[bytes[i]! % QR_CODE_CHARS.length];
+    }
+    return code;
+  }
+
+  /** TV public uçları: IP başına pencere (çoklu instance’da en iyi çaba). */
+  assertTvEndpointRate(clientIp: string, bucket: TvRateBucket, max: number, windowMs = 15 * 60 * 1000): void {
+    const key = `${bucket}:${clientIp || 'unknown'}`;
+    const now = Date.now();
+    const arr = (this.tvEndpointHits.get(key) ?? []).filter((t) => now - t < windowMs);
+    if (arr.length >= max) {
+      throw new ForbiddenException({
+        code: 'TV_RATE_LIMIT',
+        message: 'Çok fazla istek. Lütfen kısa süre sonra tekrar deneyin.',
+      });
+    }
+    arr.push(now);
+    this.tvEndpointHits.set(key, arr);
+  }
+
   private async teacherCanUnlockBoard(
     schoolId: string,
     userId: string,
@@ -553,6 +607,16 @@ export class SmartBoardService {
       this.recordUsbUnlockFail(clientIp);
       throw new UnauthorizedException({ code: 'USB_PIN_INVALID', message: 'PIN geçersiz veya yetki yok.' });
     }
+    const restrict = school.smartBoardRestrictToOwnClasses ?? false;
+    if (restrict && device.classSection?.trim()) {
+      const teacherClasses = await this.timetableService.getClassSectionsForTeacher(schoolId, matched.id);
+      const cs = device.classSection.trim().toUpperCase();
+      const allowed = teacherClasses.some((c) => c.trim().toUpperCase() === cs);
+      if (!allowed) {
+        this.recordUsbUnlockFail(clientIp);
+        throw new UnauthorizedException({ code: 'USB_PIN_INVALID', message: 'PIN geçersiz veya yetki yok.' });
+      }
+    }
     if (usedOtp && matched.smartBoardOtpCodeHashes?.length) {
       const nextHashes: string[] = [];
       let consumed = false;
@@ -566,6 +630,8 @@ export class SmartBoardService {
       matched.smartBoardOtpCodeHashes = nextHashes;
       await this.userRepo.save(matched);
     }
+    const releasePrevious = school.smartBoardReleasePreviousOnQr ?? true;
+    await this.connect(deviceId, matched.id, schoolId, { releaseOtherOnDevice: releasePrevious });
     const issued = await this.issueTvUsbToken(schoolId, deviceId, matched.id);
     this.clearUsbUnlockFails(clientIp);
     await this.auditService.log({
@@ -599,14 +665,16 @@ export class SmartBoardService {
   async createQrLoginSession(
     schoolId: string,
     deviceId: string,
+    clientIp: string,
   ): Promise<{ session_id: string; code: string; expires_in: number }> {
+    this.assertTvEndpointRate(clientIp, 'qr_create', 40);
     const device = await this.deviceRepo.findOne({ where: { id: deviceId, school_id: schoolId } });
     if (!device) {
       throw new NotFoundException({ code: 'NOT_FOUND', message: 'Cihaz bulunamadı.' });
     }
     const now = Date.now();
     await this.qrSessionRepo.delete({ school_id: schoolId, device_id: deviceId });
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const code = this.generateQrCode();
     const row = await this.qrSessionRepo.save(
       this.qrSessionRepo.create({
         school_id: schoolId,
@@ -620,7 +688,75 @@ export class SmartBoardService {
       schoolId,
       meta: { deviceId, sessionId: row.id },
     });
+    void this.notifyTeachersQrSessionPending(schoolId, device, row.id);
     return { session_id: row.id, code, expires_in: Math.floor(SMART_BOARD_QR_TTL_MS / 1000) };
+  }
+
+  /** Tahta QR oluşturduğunda yetkili öğretmenlere Inbox bildirimi (PWA / panel). */
+  private async notifyTeachersQrSessionPending(
+    schoolId: string,
+    device: SmartBoardDevice,
+    sessionId: string,
+  ): Promise<void> {
+    try {
+      const school = await this.schoolsService.findById(schoolId);
+      const autoAuth = school.smartBoardAutoAuthorize ?? false;
+      const restrict = school.smartBoardRestrictToOwnClasses ?? false;
+      let userIds: string[] = [];
+
+      if (autoAuth) {
+        const teachers = await this.userRepo.find({
+          where: { school_id: schoolId, role: UserRole.teacher, status: UserStatus.active },
+          select: ['id'],
+        });
+        userIds = teachers.map((t) => t.id);
+      } else {
+        const authRows = await this.authRepo.find({
+          where: { school_id: schoolId },
+          select: ['user_id'],
+        });
+        userIds = authRows.map((a) => a.user_id);
+      }
+
+      if (restrict && device.classSection?.trim()) {
+        const classTeachers = await this.timetableService.getTeacherUserIdsForClassSection(
+          schoolId,
+          device.classSection.trim(),
+        );
+        if (classTeachers.length > 0) {
+          const allowed = new Set(classTeachers);
+          userIds = userIds.filter((id) => allowed.has(id));
+        }
+      }
+
+      if (userIds.length === 0) return;
+
+      const label = device.classSection
+        ? `${device.name} (${device.classSection})`
+        : device.name;
+      const panelBase = env.frontendUrl.replace(/\/$/, '');
+
+      for (const userId of userIds.slice(0, 60)) {
+        await this.notificationsService.createInboxEntry({
+          user_id: userId,
+          event_type: 'smart_board.qr_pending',
+          entity_id: sessionId,
+          target_screen: 'akilli-tahta',
+          title: 'Tahta QR onayı bekliyor',
+          body: `${label} — sınıftaki QR kodu okutun veya Akıllı Tahta sayfasında kamerayı kullanın.`,
+          metadata: {
+            school_id: schoolId,
+            device_id: device.id,
+            session_id: sessionId,
+            device_name: device.name,
+            class_section: device.classSection ?? null,
+            panel_url: `${panelBase}/akilli-tahta`,
+          },
+        });
+      }
+    } catch {
+      /* Bildirim hataları sessiz */
+    }
   }
 
   async claimQrLoginSession(
@@ -629,7 +765,7 @@ export class SmartBoardService {
     sessionId: string,
     code: string,
     teacherUserId: string,
-  ): Promise<{ ok: true }> {
+  ): Promise<{ ok: true; session_id: string }> {
     const school = await this.schoolsService.findById(schoolId);
     if (!this.isModuleEnabled(school)) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Akıllı Tahta modülü bu okulda kapalı.' });
@@ -651,46 +787,159 @@ export class SmartBoardService {
     if (!canUnlock) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Tahta açma yetkiniz yok.' });
     }
-    const issued = await this.issueTvUsbToken(schoolId, deviceId, teacherUserId);
+    const releasePrevious = school.smartBoardReleasePreviousOnQr ?? true;
+    const { session_id: boardSessionId } = await this.connect(deviceId, teacherUserId, schoolId, {
+      releaseOtherOnDevice: releasePrevious,
+    });
+    const exchangeNonce = randomBytes(24).toString('base64url');
     sess.claimed_at = new Date();
     sess.claimed_user_id = teacherUserId;
-    sess.issued_usb_token_hash = issued.token_hash;
-    sess.issued_usb_token_plain = issued.access_token;
+    sess.exchange_nonce = exchangeNonce;
+    sess.exchange_expires_at = new Date(Date.now() + QR_EXCHANGE_TTL_MS);
+    sess.exchanged_at = null;
+    sess.issued_usb_token_hash = null;
+    sess.issued_usb_token_plain = null;
     await this.qrSessionRepo.save(sess);
+    await this.notificationsService
+      .markReadSmartBoardQrPendingForSession(schoolId, deviceId, sessionId)
+      .catch(() => undefined);
     await this.auditService.log({
       action: 'SMARTBOARD_QR_SESSION_CLAIMED',
       userId: teacherUserId,
       schoolId,
-      meta: { deviceId, sessionId, qrCode: code },
+      meta: { deviceId, sessionId, qrCode: code, boardSessionId },
     });
-    return { ok: true };
+    return { ok: true, session_id: boardSessionId };
+  }
+
+  /** Sınıf tahtasında aktif öğretmen oturumu var mı (TV duyuru ↔ kullanım modu geçişi). */
+  async getClassroomActiveSessionPublic(
+    schoolId: string,
+    deviceId: string,
+  ): Promise<{
+    active: boolean;
+    teacher_name: string | null;
+    last_heartbeat_at?: string | null;
+    session_timeout_minutes?: number;
+  }> {
+    const device = await this.deviceRepo.findOne({ where: { id: deviceId, school_id: schoolId } });
+    if (!device) return { active: false, teacher_name: null };
+    const school = await this.schoolsService.findById(schoolId);
+    const timeoutMin = school?.smartBoardSessionTimeoutMinutes ?? 2;
+    const session = await this.sessionRepo.findOne({
+      where: { device_id: deviceId, disconnected_at: IsNull() },
+      relations: ['user'],
+    });
+    if (!session) {
+      return { active: false, teacher_name: null, session_timeout_minutes: timeoutMin };
+    }
+    const hb = session.last_heartbeat_at ?? session.connected_at;
+    if (Date.now() - hb.getTime() > timeoutMin * 60 * 1000) {
+      session.disconnected_at = new Date();
+      await this.sessionRepo.save(session);
+      const hasOther = await this.sessionRepo.findOne({
+        where: { device_id: deviceId, disconnected_at: IsNull() },
+      });
+      if (!hasOther) {
+        device.status = 'offline';
+        await this.deviceRepo.save(device);
+      }
+      return { active: false, teacher_name: null, session_timeout_minutes: timeoutMin };
+    }
+    const u = session.user;
+    return {
+      active: true,
+      teacher_name: u?.display_name ?? u?.email ?? null,
+      last_heartbeat_at: hb.toISOString(),
+      session_timeout_minutes: timeoutMin,
+    };
   }
 
   async pollQrLoginSession(
     schoolId: string,
     deviceId: string,
     sessionId: string,
-  ): Promise<{ approved: boolean; expired: boolean; access_token?: string; teacher_name?: string | null; expires_in?: number }> {
+    clientIp: string,
+  ): Promise<{
+    approved: boolean;
+    expired: boolean;
+    exchange_nonce?: string;
+    exchange_expires_in?: number;
+    exchanged?: boolean;
+    teacher_name?: string | null;
+  }> {
+    this.assertTvEndpointRate(clientIp, 'qr_poll', 180);
     const sess = await this.qrSessionRepo.findOne({
       where: { id: sessionId, school_id: schoolId, device_id: deviceId },
       relations: ['claimed_user'],
     });
-    if (!sess || sess.expires_at.getTime() < Date.now()) {
+    const now = Date.now();
+    if (!sess || sess.expires_at.getTime() < now) {
       return { approved: false, expired: true };
     }
-    if (!sess.claimed_at || !sess.issued_usb_token_hash) {
+    if (!sess.claimed_at) {
       return { approved: false, expired: false };
     }
-    const tokenRow = await this.tvUsbTokenRepo.findOne({ where: { token_hash: sess.issued_usb_token_hash } });
-    if (!tokenRow || tokenRow.expires_at.getTime() < Date.now()) {
+    const teacherName = sess.claimed_user?.display_name ?? sess.claimed_user?.email ?? null;
+    if (sess.exchanged_at) {
+      return { approved: true, expired: false, exchanged: true, teacher_name: teacherName };
+    }
+    if (!sess.exchange_nonce || !sess.exchange_expires_at || sess.exchange_expires_at.getTime() < now) {
       return { approved: false, expired: true };
     }
     return {
       approved: true,
       expired: false,
-      access_token: sess.issued_usb_token_plain ?? undefined,
-      teacher_name: sess.claimed_user?.display_name ?? null,
-      expires_in: Math.floor((tokenRow.expires_at.getTime() - Date.now()) / 1000),
+      exchange_nonce: sess.exchange_nonce,
+      exchange_expires_in: Math.max(0, Math.floor((sess.exchange_expires_at.getTime() - now) / 1000)),
+      teacher_name: teacherName,
+    };
+  }
+
+  /** Tahta (okul IP): tek kullanımlık exchange ile USB token — poll’da token dönülmez. */
+  async exchangeQrUnlockToken(
+    schoolId: string,
+    deviceId: string,
+    sessionId: string,
+    exchangeNonce: string,
+    clientIp: string,
+  ): Promise<{ access_token: string; expires_in: number; teacher_name: string | null }> {
+    this.assertTvEndpointRate(clientIp, 'qr_exchange', 30);
+    const sess = await this.qrSessionRepo.findOne({
+      where: { id: sessionId, school_id: schoolId, device_id: deviceId },
+      relations: ['claimed_user'],
+    });
+    const now = Date.now();
+    if (!sess || sess.expires_at.getTime() < now) {
+      throw new UnauthorizedException({ code: 'QR_SESSION_INVALID', message: 'QR oturumu geçersiz veya süresi doldu.' });
+    }
+    if (!sess.claimed_at || !sess.claimed_user_id) {
+      throw new UnauthorizedException({ code: 'QR_NOT_CLAIMED', message: 'Öğretmen onayı henüz yok.' });
+    }
+    if (sess.exchanged_at) {
+      throw new BadRequestException({ code: 'QR_ALREADY_EXCHANGED', message: 'Token zaten alındı.' });
+    }
+    const nonce = (exchangeNonce || '').trim();
+    if (!nonce || nonce !== sess.exchange_nonce) {
+      throw new UnauthorizedException({ code: 'QR_EXCHANGE_INVALID', message: 'Geçersiz exchange kodu.' });
+    }
+    if (!sess.exchange_expires_at || sess.exchange_expires_at.getTime() < now) {
+      throw new UnauthorizedException({ code: 'QR_EXCHANGE_EXPIRED', message: 'Exchange süresi doldu. Yeni QR oluşturun.' });
+    }
+    sess.exchanged_at = new Date();
+    sess.exchange_nonce = null;
+    sess.issued_usb_token_plain = null;
+    await this.qrSessionRepo.save(sess);
+
+    const issued = await this.issueTvUsbToken(schoolId, deviceId, sess.claimed_user_id);
+    sess.issued_usb_token_hash = issued.token_hash;
+    await this.qrSessionRepo.save(sess);
+
+    const u = sess.claimed_user;
+    return {
+      access_token: issued.access_token,
+      expires_in: issued.expires_in,
+      teacher_name: u?.display_name ?? u?.email ?? null,
     };
   }
 
@@ -974,7 +1223,7 @@ export class SmartBoardService {
     }
     const school = await this.schoolsService.findById(schoolId);
     const timeoutMin = school?.smartBoardSessionTimeoutMinutes ?? 2;
-    const staleHeartbeatMs = Math.max(timeoutMin + 1, 3) * 60 * 1000;
+    const staleHeartbeatMs = timeoutMin * 60 * 1000;
     const now = new Date();
     const alerts: {
       severity: 'warning' | 'info';
@@ -1041,6 +1290,7 @@ export class SmartBoardService {
     deviceId: string,
     userId: string,
     schoolId: string,
+    options?: { releaseOtherOnDevice?: boolean },
   ): Promise<{ session_id: string }> {
     const school = await this.schoolsService.findById(schoolId);
     if (!this.isModuleEnabled(school)) {
@@ -1061,9 +1311,9 @@ export class SmartBoardService {
     const restrict = school.smartBoardRestrictToOwnClasses ?? false;
     if (restrict && device.classSection?.trim()) {
       const teacherClasses = await this.timetableService.getClassSectionsForTeacher(schoolId, userId);
+      const teacherClassesSet = new Set(teacherClasses.map((c) => c.trim().toUpperCase()));
       const cs = device.classSection.trim().toUpperCase();
-      const allowed = teacherClasses.includes(cs);
-      if (!allowed) {
+      if (!teacherClassesSet.has(cs)) {
         throw new ForbiddenException({
           code: 'FORBIDDEN',
           message: 'Bu sınıfın tahtasına bağlanma yetkiniz yok. Sadece ders verdiğiniz sınıfların tahtalarına bağlanabilirsiniz.',
@@ -1099,15 +1349,30 @@ export class SmartBoardService {
 
         const activeOnDevice = await txSessionRepo.findOne({
           where: { device_id: deviceId, disconnected_at: IsNull() },
+          relations: ['user'],
         });
         if (activeOnDevice) {
           if (activeOnDevice.user_id === userId) {
             return { session_id: activeOnDevice.id };
           }
-          throw new BadRequestException({
-            code: 'DEVICE_BUSY',
-            message: 'Bu tahta şu an başka bir öğretmen tarafından kullanılıyor.',
-          });
+          if (options?.releaseOtherOnDevice) {
+            const prevTeacherId = activeOnDevice.user_id;
+            const prevSessionId = activeOnDevice.id;
+            activeOnDevice.disconnected_at = new Date();
+            await txSessionRepo.save(activeOnDevice);
+            const devForNotify = lockedDevice;
+            const newTeacherId = userId;
+            setImmediate(() => {
+              void this.notifySessionReplacedOnDevice(schoolId, devForNotify, prevTeacherId, newTeacherId, prevSessionId).catch(
+                () => undefined,
+              );
+            });
+          } else {
+            throw new BadRequestException({
+              code: 'DEVICE_BUSY',
+              message: 'Bu tahta şu an başka bir öğretmen tarafından kullanılıyor.',
+            });
+          }
         }
 
         const activeForTeacher = await txSessionRepo.findOne({
@@ -1223,6 +1488,110 @@ export class SmartBoardService {
     }
   }
 
+  /** QR veya PIN ile aynı tahtada yeni öğretmen bağlandığında önceki öğretmene bildirim. */
+  private async notifySessionReplacedOnDevice(
+    schoolId: string,
+    device: SmartBoardDevice,
+    previousTeacherId: string,
+    newTeacherId: string,
+    previousSessionId: string,
+  ): Promise<void> {
+    if (previousTeacherId === newTeacherId) return;
+    try {
+      const school = await this.schoolsService.findById(schoolId);
+      if (school?.smartBoardNotifyOnQrTakeover === false) return;
+      const newTeacher = await this.userRepo.findOne({
+        where: { id: newTeacherId },
+        select: ['display_name', 'email'],
+      });
+      const label = newTeacher?.display_name || newTeacher?.email || 'Başka bir öğretmen';
+      await this.notificationsService.createInboxEntry({
+        user_id: previousTeacherId,
+        event_type: 'smart_board.replaced_on_device',
+        entity_id: previousSessionId,
+        target_screen: 'akilli-tahta',
+        title: 'Tahta oturumunuz sonlandı',
+        body: `${device.name} tahtasında ${label} bağlandı; ekran duyuru moduna döndü.`,
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Heartbeat gelmeyen aktif oturumları kapat (dakikalık cron). */
+  async disconnectStaleSessionsJob(): Promise<{ closed: number }> {
+    const active = await this.sessionRepo.find({
+      where: { disconnected_at: IsNull() },
+      relations: ['device'],
+    });
+    const now = Date.now();
+    let closed = 0;
+    const schoolTimeout = new Map<string, number>();
+    for (const s of active) {
+      const sid = s.device?.school_id;
+      if (!sid) continue;
+      let timeoutMin = schoolTimeout.get(sid);
+      if (timeoutMin === undefined) {
+        const school = await this.schoolsService.findById(sid);
+        timeoutMin = school?.smartBoardSessionTimeoutMinutes ?? 2;
+        schoolTimeout.set(sid, timeoutMin);
+      }
+      const hb = s.last_heartbeat_at ?? s.connected_at;
+      if (now - hb.getTime() <= timeoutMin * 60 * 1000) continue;
+      s.disconnected_at = new Date();
+      await this.sessionRepo.save(s);
+      closed++;
+      const device = s.device;
+      if (device) {
+        const hasOther = await this.sessionRepo.findOne({
+          where: { device_id: device.id, disconnected_at: IsNull() },
+        });
+        if (!hasOther) {
+          device.status = 'offline';
+          await this.deviceRepo.save(device);
+        }
+      }
+    }
+    return { closed };
+  }
+
+  /** Tüm aktif tahta oturumlarını sonlandır (duyuru moduna dönüş). */
+  async disconnectAllActiveSessionsForSchool(
+    schoolId: string,
+    actorUserId: string,
+  ): Promise<{ ok: true; disconnected: number }> {
+    const sessions = await this.sessionRepo
+      .createQueryBuilder('s')
+      .innerJoin('s.device', 'd')
+      .where('d.school_id = :schoolId', { schoolId })
+      .andWhere('s.disconnected_at IS NULL')
+      .getMany();
+    const now = new Date();
+    for (const s of sessions) {
+      s.disconnected_at = now;
+      await this.sessionRepo.save(s);
+    }
+    const deviceIds = [...new Set(sessions.map((s) => s.device_id))];
+    for (const deviceId of deviceIds) {
+      const device = await this.deviceRepo.findOne({ where: { id: deviceId } });
+      if (!device) continue;
+      const hasOther = await this.sessionRepo.findOne({
+        where: { device_id: deviceId, disconnected_at: IsNull() },
+      });
+      if (!hasOther) {
+        device.status = 'offline';
+        await this.deviceRepo.save(device);
+      }
+    }
+    await this.auditService.log({
+      action: 'SMARTBOARD_DISCONNECT_ALL_ACTIVE',
+      userId: actorUserId,
+      schoolId,
+      meta: { count: sessions.length },
+    });
+    return { ok: true, disconnected: sessions.length };
+  }
+
   async heartbeat(sessionId: string, userId: string): Promise<{ ok: boolean }> {
     const session = await this.sessionRepo.findOne({
       where: { id: sessionId },
@@ -1235,6 +1604,20 @@ export class SmartBoardService {
     if (device?.school_id) {
       try {
         const school = await this.schoolsService.findById(device.school_id);
+        const timeoutMin = school?.smartBoardSessionTimeoutMinutes ?? 2;
+        const hb = session.last_heartbeat_at ?? session.connected_at;
+        if (now.getTime() - hb.getTime() > timeoutMin * 60 * 1000) {
+          session.disconnected_at = now;
+          await this.sessionRepo.save(session);
+          const hasOther = await this.sessionRepo.findOne({
+            where: { device_id: device.id, disconnected_at: IsNull() },
+          });
+          if (!hasOther) {
+            device.status = 'offline';
+            await this.deviceRepo.save(device);
+          }
+          return { ok: false };
+        }
         const dow = this.getDayOfWeekTR(now);
         const sched = this.getEffectiveLessonSchedule(school, dow);
         if (school?.smartBoardAutoDisconnectLessonEnd && sched?.length) {
@@ -1566,5 +1949,343 @@ export class SmartBoardService {
       day_of_week: dayOfWeek,
       lesson_num: lessonNum,
     });
+  }
+
+  private normalizeSetupCode(raw: string): string {
+    return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+
+  private async generateUniqueSetupCode(): Promise<string> {
+    for (let attempt = 0; attempt < 24; attempt++) {
+      let code = '';
+      const bytes = randomBytes(6);
+      for (let i = 0; i < 6; i++) {
+        code += SETUP_CODE_CHARS[bytes[i]! % SETUP_CODE_CHARS.length];
+      }
+      const exists = await this.schoolRepo.findOne({
+        where: { smartBoardSetupCode: code },
+        select: ['id'],
+      });
+      if (!exists) return code;
+    }
+    throw new BadRequestException({ code: 'SETUP_CODE_BUSY', message: 'Kurulum kodu üretilemedi, tekrar deneyin.' });
+  }
+
+  async ensureSchoolSetupCode(schoolId: string): Promise<string> {
+    const school = await this.schoolRepo.findOne({
+      where: { id: schoolId },
+      select: ['id', 'smartBoardSetupCode'],
+    });
+    if (!school) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Okul bulunamadı.' });
+    if (school.smartBoardSetupCode?.trim()) return school.smartBoardSetupCode.trim();
+    const code = await this.generateUniqueSetupCode();
+    school.smartBoardSetupCode = code;
+    await this.schoolRepo.save(school);
+    return code;
+  }
+
+  async regenerateSchoolSetupCode(
+    schoolId: string,
+    scope: { schoolId: string | null; role: UserRole },
+    actorUserId: string,
+  ): Promise<{ setup_code: string }> {
+    if (scope.role !== UserRole.school_admin && scope.role !== UserRole.superadmin) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
+    if (scope.role === UserRole.school_admin && scope.schoolId !== schoolId) {
+      throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu veriye erişim yetkiniz yok.' });
+    }
+    const code = await this.generateUniqueSetupCode();
+    await this.schoolRepo.update({ id: schoolId }, { smartBoardSetupCode: code });
+    await this.auditService.log({
+      action: 'SMARTBOARD_SETUP_CODE_REGENERATED',
+      userId: actorUserId,
+      schoolId,
+      meta: { setupCode: code },
+    });
+    return { setup_code: code };
+  }
+
+  private async schoolFromSetupCode(setupCode: string): Promise<School> {
+    const code = this.normalizeSetupCode(setupCode);
+    if (code.length < 4) {
+      throw new BadRequestException({ code: 'INVALID_SETUP_CODE', message: 'Kurulum kodu geçersiz.' });
+    }
+    const school = await this.schoolRepo.findOne({ where: { smartBoardSetupCode: code } });
+    if (!school) {
+      throw new NotFoundException({ code: 'SETUP_CODE_NOT_FOUND', message: 'Kurulum kodu bulunamadı.' });
+    }
+    if (!this.isModuleEnabled(school)) {
+      throw new ForbiddenException({ code: 'MODULE_DISABLED', message: 'Bu okulda Akıllı Tahta modülü kapalı.' });
+    }
+    return school;
+  }
+
+  async resolveSchoolBySetupCode(setupCode: string): Promise<{ school_id: string; school_name: string; setup_code: string }> {
+    const school = await this.schoolFromSetupCode(setupCode);
+    return {
+      school_id: school.id,
+      school_name: school.name,
+      setup_code: school.smartBoardSetupCode!.trim(),
+    };
+  }
+
+  async getSetupPublicInfo(setupCode: string): Promise<{
+    school_id: string;
+    school_name: string;
+    setup_code: string;
+    devices: Array<{ id: string; name: string; class_section: string | null; pairing_code: string }>;
+    suggested_classes: string[];
+  }> {
+    const school = await this.schoolFromSetupCode(setupCode);
+    const devices = await this.deviceRepo.find({
+      where: { school_id: school.id },
+      order: { classSection: 'ASC', name: 'ASC' },
+    });
+    let suggested_classes: string[] = [];
+    try {
+      suggested_classes = await this.timetableService.getDistinctClassSections(school.id);
+    } catch {
+      suggested_classes = [];
+    }
+    return {
+      school_id: school.id,
+      school_name: school.name,
+      setup_code: school.smartBoardSetupCode!.trim(),
+      devices: devices.map((d) => ({
+        id: d.id,
+        name: d.name,
+        class_section: d.classSection,
+        pairing_code: d.pairing_code,
+      })),
+      suggested_classes,
+    };
+  }
+
+  private async createDeviceInternal(
+    schoolId: string,
+    opts: { name?: string; class_section?: string; room_or_location?: string },
+    actorUserId?: string | null,
+  ): Promise<SmartBoardDevice> {
+    const pairingCode = randomBytes(4).toString('hex').toUpperCase();
+    const device = this.deviceRepo.create({
+      school_id: schoolId,
+      pairing_code: pairingCode,
+      name: opts.name?.trim() || 'Akıllı Tahta',
+      roomOrLocation: opts.room_or_location?.trim() || null,
+      classSection: opts.class_section?.trim() || null,
+      status: 'offline',
+    });
+    const saved = await this.deviceRepo.save(device);
+    await this.auditService.log({
+      action: 'SMARTBOARD_DEVICE_CREATED',
+      userId: actorUserId ?? null,
+      schoolId,
+      meta: {
+        deviceId: saved.id,
+        deviceName: saved.name,
+        classSection: saved.classSection ?? null,
+        via: 'setup',
+      },
+    });
+    return saved;
+  }
+
+  async registerDeviceViaSetup(
+    setupCode: string,
+    body: { class_section: string; room_or_location?: string; name?: string; device_id?: string },
+  ): Promise<{
+    school_id: string;
+    device_id: string;
+    device_name: string;
+    class_section: string | null;
+    pairing_code: string;
+    created: boolean;
+  }> {
+    const school = await this.schoolFromSetupCode(setupCode);
+    const classNorm = body.class_section?.trim();
+    if (!classNorm) {
+      throw new BadRequestException({ code: 'INVALID_BODY', message: 'class_section gerekli.' });
+    }
+    const classKey = classNorm.toUpperCase();
+
+    if (body.device_id?.trim()) {
+      const existing = await this.deviceRepo.findOne({
+        where: { id: body.device_id.trim(), school_id: school.id },
+      });
+      if (!existing) {
+        throw new NotFoundException({ code: 'NOT_FOUND', message: 'Cihaz bulunamadı.' });
+      }
+      return {
+        school_id: school.id,
+        device_id: existing.id,
+        device_name: existing.name,
+        class_section: existing.classSection,
+        pairing_code: existing.pairing_code,
+        created: false,
+      };
+    }
+
+    const all = await this.deviceRepo.find({ where: { school_id: school.id } });
+    const match = all.find((d) => (d.classSection ?? '').trim().toUpperCase() === classKey);
+    if (match) {
+      return {
+        school_id: school.id,
+        device_id: match.id,
+        device_name: match.name,
+        class_section: match.classSection,
+        pairing_code: match.pairing_code,
+        created: false,
+      };
+    }
+
+    const name = body.name?.trim() || `${classNorm} Akıllı Tahta`;
+    const saved = await this.createDeviceInternal(
+      school.id,
+      {
+        name,
+        class_section: classNorm,
+        room_or_location: body.room_or_location,
+      },
+      null,
+    );
+    return {
+      school_id: school.id,
+      device_id: saved.id,
+      device_name: saved.name,
+      class_section: saved.classSection,
+      pairing_code: saved.pairing_code,
+      created: true,
+    };
+  }
+
+  async bulkCreateDevices(
+    schoolId: string,
+    role: UserRole,
+    actorUserId: string,
+    items: Array<{ class_section: string; name?: string; room_or_location?: string }>,
+  ): Promise<{ created: SmartBoardDevice[]; skipped: string[] }> {
+    if (role !== UserRole.school_admin) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    }
+    const school = await this.schoolsService.findById(schoolId);
+    if (!this.isModuleEnabled(school)) {
+      throw new ForbiddenException({ code: 'MODULE_DISABLED', message: 'Akıllı Tahta modülü kapalı.' });
+    }
+    const existing = await this.deviceRepo.find({ where: { school_id: schoolId } });
+    const byClass = new Set(existing.map((d) => (d.classSection ?? '').trim().toUpperCase()).filter(Boolean));
+    const created: SmartBoardDevice[] = [];
+    const skipped: string[] = [];
+    for (const item of items ?? []) {
+      const cs = item.class_section?.trim();
+      if (!cs) continue;
+      const key = cs.toUpperCase();
+      if (byClass.has(key)) {
+        skipped.push(cs);
+        continue;
+      }
+      const saved = await this.createDeviceInternal(
+        schoolId,
+        {
+          class_section: cs,
+          name: item.name?.trim() || `${cs} Akıllı Tahta`,
+          room_or_location: item.room_or_location,
+        },
+        actorUserId,
+      );
+      byClass.add(key);
+      created.push(saved);
+    }
+    return { created, skipped };
+  }
+
+  async getSetupStatus(
+    schoolId: string,
+    scope: { schoolId: string | null; role: UserRole },
+  ): Promise<{
+    module_enabled: boolean;
+    setup_code: string;
+    device_count: number;
+    online_count: number;
+    never_seen_count: number;
+    has_tv_ip: boolean;
+    auto_authorize: boolean;
+    authorized_teacher_count: number;
+    qr_claimed_last_7d: boolean;
+    checklist: Array<{ id: string; label: string; done: boolean; hint?: string }>;
+  }> {
+    if (scope.role === UserRole.school_admin && scope.schoolId !== schoolId) {
+      throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu veriye erişim yetkiniz yok.' });
+    }
+    const school = await this.schoolsService.findById(schoolId);
+    const module_enabled = this.isModuleEnabled(school);
+    const setup_code = await this.ensureSchoolSetupCode(schoolId);
+    const devices = await this.deviceRepo.find({ where: { school_id: schoolId } });
+    const now = Date.now();
+    let online_count = 0;
+    let never_seen_count = 0;
+    for (const d of devices) {
+      if (!d.last_seen_at) never_seen_count++;
+      else if (now - d.last_seen_at.getTime() <= ONLINE_THRESHOLD_MS) online_count++;
+      else if (d.status === 'online') online_count++;
+    }
+    const authCount = await this.authRepo.count({ where: { school_id: schoolId } });
+    const logs = await this.auditService.list({ schoolId, page: 1, limit: 50 });
+    const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+    const qr_claimed_last_7d = logs.items.some(
+      (x) => x.action === 'SMARTBOARD_QR_SESSION_CLAIMED' && x.created_at >= weekAgo,
+    );
+    const has_tv_ip = !!(school.tv_allowed_ips?.trim());
+    const auto_authorize = school.smartBoardAutoAuthorize ?? false;
+    const checklist = [
+      {
+        id: 'module',
+        label: 'Akıllı Tahta modülü açık',
+        done: module_enabled,
+        hint: module_enabled ? undefined : 'Okul modüllerinden smart_board etkinleştirin.',
+      },
+      {
+        id: 'devices',
+        label: 'En az bir tahta kayıtlı',
+        done: devices.length > 0,
+        hint: devices.length ? undefined : 'Kurulum sihirbazından sınıfları ekleyin.',
+      },
+      {
+        id: 'online',
+        label: 'En az bir tahta son 2 dk içinde görüldü',
+        done: online_count > 0,
+        hint: 'Tahtada classroom URL açık ve ağ bağlı olmalı.',
+      },
+      {
+        id: 'teachers',
+        label: 'Öğretmen yetkisi tanımlı',
+        done: auto_authorize || authCount > 0,
+        hint: 'Otomatik yetki veya yetkili öğretmen listesi.',
+      },
+      {
+        id: 'qr_test',
+        label: 'Son 7 günde QR ile açılış testi',
+        done: qr_claimed_last_7d,
+        hint: 'Öğretmen hesabından QR onayı ile tahta kullanım modunu test edin.',
+      },
+      {
+        id: 'tv_ip',
+        label: 'TV IP kısıtı (önerilen)',
+        done: has_tv_ip,
+        hint: 'Ayarlar → TV izinli IP — boş bırakılabilir.',
+      },
+    ];
+    return {
+      module_enabled,
+      setup_code,
+      device_count: devices.length,
+      online_count,
+      never_seen_count,
+      has_tv_ip,
+      auto_authorize,
+      authorized_teacher_count: authCount,
+      qr_claimed_last_7d,
+      checklist,
+    };
   }
 }

@@ -19,3 +19,24 @@ export function displayNameForTimetableRowKey(
   const name = resolveUser(key)?.trim();
   return name || '—';
 }
+
+/** Gün görünümü sütun başlığı: soyad veya ham ad (eşleşmedi sonekine düşme) */
+export function shortTeacherColumnLabel(
+  key: string,
+  resolveUser: (userId: string) => string | undefined | null,
+): string {
+  if (key.startsWith('raw:')) {
+    try {
+      const raw = decodeURIComponent(key.slice(4)).trim();
+      if (!raw) return '—';
+      const parts = raw.split(/\s+/).filter(Boolean);
+      return parts[parts.length - 1] ?? raw;
+    } catch {
+      return '—';
+    }
+  }
+  const name = resolveUser(key)?.trim();
+  if (!name) return '—';
+  const parts = name.split(/\s+/).filter(Boolean);
+  return parts[parts.length - 1] ?? name;
+}

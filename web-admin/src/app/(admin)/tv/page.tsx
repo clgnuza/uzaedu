@@ -57,6 +57,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { CreateAnnouncementForm } from '@/components/announcement-create-form';
 import { AnnouncementListSection } from '@/components/announcement-list';
 import { ImageUrlInput } from '@/components/image-url-input';
+import { DisplayModuleShell } from '@/components/display-modules/display-module-shell';
 
 /** Okul yöneticisi Duyuru TV ana sekmeleri (?tab=) */
 export type TvMainTab = 'genel' | 'ayarlar' | 'cihazlar' | 'icerik' | 'duyurular' | 'yardim';
@@ -660,17 +661,17 @@ export default function TvPage() {
   }, []);
   const [previewTab, setPreviewTab] = useState<'corridor' | 'teachers' | 'classroom'>('corridor');
 
+  const schoolLabel =
+    schoolId && schools.length > 0 ? schools.find((s) => s.id === schoolId)?.name ?? null : me?.school?.name ?? null;
+
   return (
-    <div className="space-y-3 sm:space-y-6 max-sm:-mx-2 max-sm:rounded-2xl max-sm:bg-gradient-to-b max-sm:from-cyan-500/[0.07] max-sm:via-background max-sm:to-indigo-500/10 max-sm:px-2 max-sm:pb-2 max-sm:pt-0.5 dark:max-sm:from-cyan-950/50 dark:max-sm:via-background dark:max-sm:to-indigo-950/40">
-      <header className="-mt-4 max-sm:-mt-2 rounded-lg border border-border/70 bg-card/90 shadow-sm ring-1 ring-cyan-500/10 backdrop-blur-md supports-backdrop-filter:bg-card/85 sm:rounded-xl dark:ring-cyan-400/10">
-        <div className="flex flex-col gap-2 border-b border-border/60 px-2 py-2 sm:gap-4 sm:px-6 sm:py-5">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-            <div className="min-w-0 flex-1">
-              <h1 className="text-lg font-semibold tracking-tight text-foreground sm:text-2xl md:text-3xl">Duyuru TV</h1>
-              <p className="mt-1 line-clamp-2 max-w-2xl text-[11px] leading-snug text-muted-foreground sm:mt-2 sm:line-clamp-none sm:text-sm sm:leading-relaxed">
-                Koridor, öğretmenler odası ve akıllı tahta için görünüm ve içerik. Her sekme yalnızca o konuyla ilgili alanı gösterir.
-              </p>
-            </div>
+    <DisplayModuleShell
+      variant="tv"
+      title="Duyuru TV"
+      subtitle="Koridor ve öğretmenler odası yayını, duyurular ve TV cihaz eşleştirmesi. Sınıf tahtası kilidi ve QR işlemleri Akıllı Tahta modülündedir."
+      schoolBadge={schoolLabel}
+      headerActions={
+        <>
             <div className="flex w-full shrink-0 flex-wrap items-stretch justify-stretch gap-1 sm:w-auto sm:items-center sm:justify-end sm:gap-2">
               <Dialog open={createAnnouncementOpen} onOpenChange={setCreateAnnouncementOpen}>
                 <DialogContent title="Yeni duyuru" className="max-w-2xl">
@@ -729,20 +730,30 @@ export default function TvPage() {
                 <ExternalLink className="size-3.5 sm:size-4" />
                 Öğretmenler
               </Link>
+              <Link
+                href="/akilli-tahta"
+                className="inline-flex min-h-8 flex-[1_1_calc(50%-0.2rem)] items-center justify-center gap-0.5 rounded-md border border-teal-500/35 bg-teal-500/10 px-2 py-1.5 text-[10px] font-medium text-teal-900 shadow-sm transition-colors hover:bg-teal-500/15 dark:text-teal-100 sm:min-h-9 sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm"
+              >
+                <Monitor className="size-3.5 sm:size-4" />
+                Akıllı Tahta
+              </Link>
               {previewUrlClassroom ? (
                 <Link
                   href={previewUrlClassroom}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex min-h-8 w-full flex-[1_1_100%] items-center justify-center gap-0.5 rounded-md border border-border/80 bg-background/80 px-2 py-1.5 text-[10px] font-medium text-foreground shadow-sm backdrop-blur-sm transition-colors hover:border-amber-500/40 hover:bg-amber-500/5 sm:min-h-9 sm:w-auto sm:flex-initial sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm"
+                  className="inline-flex min-h-8 flex-[1_1_calc(50%-0.2rem)] items-center justify-center gap-0.5 rounded-md border border-border/80 bg-background/80 px-2 py-1.5 text-[10px] font-medium text-foreground shadow-sm backdrop-blur-sm transition-colors hover:border-amber-500/40 hover:bg-amber-500/5 sm:min-h-9 sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5 sm:text-sm"
+                  title="Yalnızca sınıf ekranı önizlemesi — QR ve kurulum Akıllı Tahta sayfasında"
                 >
-                  <Monitor className="size-3.5 sm:size-4" />
-                  Akıllı Tahta
+                  <ExternalLink className="size-3.5 sm:size-4" />
+                  Sınıf TV önizleme
                 </Link>
               ) : null}
             </div>
-          </div>
-          {isSuperadmin && (
+        </>
+      }
+      filterBar={
+        isSuperadmin ? (
             <div className="space-y-1.5 sm:space-y-3">
               <div className="grid gap-1.5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
                 <div className="grid gap-0.5 sm:gap-1">
@@ -869,12 +880,13 @@ export default function TvPage() {
                 )}
               </div>
             </div>
-          )}
-        </div>
+        ) : undefined
+      }
+      tabNav={
         <div
           role="tablist"
           aria-label="Duyuru TV bölümleri"
-          className="-mx-0.5 flex snap-x snap-mandatory gap-0.5 overflow-x-auto px-1.5 py-1.5 sm:flex-wrap sm:gap-1.5 sm:px-4 sm:py-3.5"
+          className="flex snap-x snap-mandatory gap-1 overflow-x-auto overscroll-x-contain sm:flex-wrap sm:gap-2"
         >
           {(
             [
@@ -907,11 +919,11 @@ export default function TvPage() {
             </button>
           ))}
         </div>
-      </header>
-
+      }
+    >
       {error && <Alert message={error} />}
 
-      <div className="min-w-0 max-w-full rounded-xl border border-border/70 bg-card/90 shadow-sm ring-1 ring-indigo-500/5 backdrop-blur-sm dark:bg-card/80 dark:ring-indigo-400/10 sm:rounded-2xl">
+      <div className="min-w-0 p-2 sm:p-6">
         {mainTab === 'genel' && (
           <div className="space-y-3 p-2 sm:space-y-6 sm:p-6">
             <div>
@@ -1460,7 +1472,7 @@ export default function TvPage() {
           </div>
         )}
       </div>
-    </div>
+    </DisplayModuleShell>
   );
 }
 

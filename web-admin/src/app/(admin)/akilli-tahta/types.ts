@@ -43,6 +43,7 @@ export type Session = {
 export type Status = {
   enabled: boolean;
   authorized: boolean;
+  session_timeout_minutes?: number;
   mySession?: { session_id: string; device_id: string; device_name: string };
   myClassSections?: string[];
 };
@@ -83,6 +84,19 @@ export type SmartBoardHealthAlerts = {
     device_id?: string;
     session_id?: string;
   }[];
+};
+
+export type SmartBoardSetupStatus = {
+  module_enabled: boolean;
+  setup_code: string;
+  device_count: number;
+  online_count: number;
+  never_seen_count: number;
+  has_tv_ip: boolean;
+  auto_authorize: boolean;
+  authorized_teacher_count: number;
+  qr_claimed_last_7d: boolean;
+  checklist: Array<{ id: string; label: string; done: boolean; hint?: string }>;
 };
 
 export type SmartBoardAuditLog = {

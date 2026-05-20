@@ -1,6 +1,6 @@
 import {
   BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param,
-  Patch, Post, Query, Res, UploadedFile, UseGuards, UseInterceptors,
+  Patch, Post, Put, Query, Res, UploadedFile, UseGuards, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
@@ -16,6 +16,10 @@ import { SorumlulukExamService } from './sorumluluk-exam.service';
 import { CreateSorumlulukGroupDto } from './dto/create-group.dto';
 import { CreateSorumlulukStudentDto } from './dto/create-student.dto';
 import { CreateSorumlulukSessionDto, SetSessionProctorsDto } from './dto/create-session.dto';
+import { ReplaceExamSlotsDto } from './dto/exam-slot.dto';
+import { parseSorumlulukMebExcel } from './parse-meb-excel';
+import { parseMixedSubjectKeys, uniqueSubjectDisplayNames } from './sorumluluk-subject.util';
+import { parseTutanakPdfOptions } from './sorumluluk-tutanak-options';
 
 @Controller('sorumluluk-exam')
 @UseGuards(JwtAuthGuard, RolesGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
@@ -74,6 +78,36 @@ export class SorumlulukExamController {
     return this.service.deleteGroup(sid, id);
   }
 
+  // ── Sınav takvimi (slotlar) ───────────────────────────────────────────────
+
+  @Get('groups/:groupId/slots')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  listSlots(@CurrentUser() p: CurrentUserPayload, @Param('groupId') groupId: string, @Query('school_id') q?: string) {
+    const sid = this.sid(p, q);
+    return this.service.listExamSlots(sid, groupId);
+  }
+
+  @Put('groups/:groupId/slots')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  replaceSlots(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('groupId') groupId: string,
+    @Query('school_id') q: string | undefined,
+    @Body() dto: ReplaceExamSlotsDto,
+  ) {
+    const sid = this.sid(p, q);
+    this.service.assertAccess(p.role, p.schoolId, sid);
+    return this.service.replaceExamSlots(sid, groupId, dto.slots ?? []);
+  }
+
+  @Post('groups/:groupId/sessions-from-slots')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  sessionsFromSlots(@CurrentUser() p: CurrentUserPayload, @Param('groupId') groupId: string, @Query('school_id') q?: string) {
+    const sid = this.sid(p, q);
+    this.service.assertAccess(p.role, p.schoolId, sid);
+    return this.service.createSessionsFromSlots(sid, groupId);
+  }
+
   // ── Öğrenciler ────────────────────────────────────────────────────────────
 
   @Get('groups/:groupId/students')
@@ -104,6 +138,18 @@ export class SorumlulukExamController {
     return this.service.deleteStudent(sid, id);
   }
 
+  @Delete('groups/:groupId/students')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  deleteAllStudents(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('groupId') groupId: string,
+    @Query('school_id') q?: string,
+  ) {
+    const sid = this.sid(p, q);
+    this.service.assertAccess(p.role, p.schoolId, sid);
+    return this.service.deleteAllStudentsInGroup(sid, groupId);
+  }
+
   @Post('groups/:groupId/import-excel')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
@@ -115,7 +161,24 @@ export class SorumlulukExamController {
   ) {
     if (!file?.buffer?.length) throw new BadRequestException('Excel dosyası gerekli');
     const sid = this.sid(p, q);
-    return this.service.importStudents(sid, groupId, this._parseExcelRows(file.buffer));
+    return this.service.importStudents(sid, groupId, parseSorumlulukMebExcel(file.buffer));
+  }
+
+  @Post('groups/:groupId/preview-meb')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  previewMeb(
+    @UploadedFile() file: Express.Multer.File | undefined,
+  ) {
+    if (!file?.buffer?.length) throw new BadRequestException('Excel dosyası gerekli');
+    const rows = parseSorumlulukMebExcel(file.buffer);
+    const subjects = uniqueSubjectDisplayNames(
+      rows.flatMap((r) => r.subjects ?? []).filter(Boolean).map((s) => s.trim()),
+    );
+    return {
+      studentCount: rows.length,
+      subjects: uniqueSubjectDisplayNames(subjects),
+    };
   }
 
   @Post('groups/:groupId/import-meb')
@@ -127,45 +190,16 @@ export class SorumlulukExamController {
     @Query('school_id') q: string | undefined,
     @Query('create_sessions') createSessions: string | undefined,
     @Query('auto_schedule') autoSchedule: string | undefined,
+    @Body('mixed_subjects') mixedSubjects: string | undefined,
     @UploadedFile() file: Express.Multer.File | undefined,
   ) {
     if (!file?.buffer?.length) throw new BadRequestException('Excel dosyası gerekli');
     const sid = this.sid(p, q);
-    const rows = this._parseExcelRows(file.buffer);
+    const rows = parseSorumlulukMebExcel(file.buffer);
     return this.service.importMebAndPlan(sid, groupId, rows, {
       createSessions: createSessions === '1' || createSessions === 'true',
       autoSchedule:   autoSchedule   === '1' || autoSchedule   === 'true',
-    });
-  }
-
-  private _parseExcelRows(buffer: Buffer) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const XLSX = require('xlsx') as typeof import('xlsx');
-    const wb = XLSX.read(buffer, { type: 'buffer' });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const raw: Record<string, string>[] = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-    return raw.map((r) => {
-      const keys = Object.keys(r);
-      // Geniş regex: MEB e-okul sütun adlarını kapsıyor
-      const nameKey = keys.find((k) => /öğrenci.*ad|ad.*soyad|adı.*soyadı|isim|name/i.test(k)) ?? keys.find((k) => /ad/i.test(k)) ?? keys[0];
-      const noKey   = keys.find((k) => /öğrenci.*no|okul.*no|numara|^no$/i.test(k));
-      const clsKey  = keys.find((k) => /sınıf|şube|sinif|sube|class/i.test(k));
-      // Hem "Ders1/Ders 1" hem "Sorumlu Ders" hem "1\. Ders" hem sadece sıralı sayılar (e-okul bazen sütun adı yerine sıra no yazar)
-      const subjKeys = keys.filter((k) => /^ders\s*\d|^\d+\.\s*ders|sorumlu.*ders|ders.*\d|lesson|subject/i.test(k));
-      // e-okul bazen "Sorumlu Dersler" sütununu virgülle liste olarak verir
-      const multiKey = keys.find((k) => /sorumlu\s+dersler?$/i.test(k));
-      let subjects: string[] = [];
-      if (multiKey && String(r[multiKey] ?? '').trim()) {
-        subjects = String(r[multiKey]).split(/[,;/\n]+/).map((s) => s.trim()).filter(Boolean);
-      } else {
-        subjects = subjKeys.map((k) => String(r[k] ?? '').trim()).filter(Boolean);
-      }
-      return {
-        studentName:   String(r[nameKey] ?? '').trim(),
-        studentNumber: noKey  ? String(r[noKey]  ?? '').trim() || undefined : undefined,
-        className:     clsKey ? String(r[clsKey] ?? '').trim() || undefined : undefined,
-        subjects,
-      };
+      mixedSubjectKeys: parseMixedSubjectKeys(mixedSubjects),
     });
   }
 
@@ -176,6 +210,14 @@ export class SorumlulukExamController {
   listSessions(@CurrentUser() p: CurrentUserPayload, @Param('groupId') groupId: string, @Query('school_id') q?: string) {
     const sid = this.sid(p, q);
     return this.service.listSessions(sid, groupId);
+  }
+
+  @Get('groups/:groupId/verify-mixed-pairs')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  verifyMixedPairs(@CurrentUser() p: CurrentUserPayload, @Param('groupId') groupId: string, @Query('school_id') q?: string) {
+    const sid = this.sid(p, q);
+    this.service.assertAccess(p.role, p.schoolId, sid);
+    return this.service.verifyMixedSessionPairs(sid, groupId);
   }
 
   @Post('groups/:groupId/sessions')
@@ -358,9 +400,21 @@ export class SorumlulukExamController {
 
   @Get('groups/:groupId/pdf/tutanak')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
-  async pdfTutanak(@CurrentUser() p: CurrentUserPayload, @Param('groupId') groupId: string, @Query('school_id') q: string | undefined, @Res() res: Response) {
+  async pdfTutanak(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('groupId') groupId: string,
+    @Query('school_id') q: string | undefined,
+    @Query('oturum') oturum: string | undefined,
+    @Query('evrak') evrak: string | undefined,
+    @Query('session_ids') sessionIds: string | undefined,
+    @Res() res: Response,
+  ) {
     const sid = this.sid(p, q);
-    const bytes = await this.service.buildTutanakPdf(sid, groupId);
+    const bytes = await this.service.buildTutanakPdf(
+      sid,
+      groupId,
+      parseTutanakPdfOptions({ oturum, evrak, session_ids: sessionIds }),
+    );
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="tutanak.pdf"' });
     res.send(Buffer.from(bytes));
   }

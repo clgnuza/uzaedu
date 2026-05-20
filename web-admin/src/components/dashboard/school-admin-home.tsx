@@ -148,6 +148,14 @@ function SchoolSuggestedActionsCard({
       icon: MessageSquare,
     });
   }
+  if (isModuleEnabled(enabledModules, 'smart_board')) {
+    pool.push({
+      href: '/akilli-tahta?tab=kurulum',
+      title: 'Akıllı tahta kurulumu',
+      hint: 'Okul kodu, QR etiket, USB / .deb',
+      icon: Monitor,
+    });
+  }
 
   const seen = new Set<string>();
   const merged: SuggestedAction[] = [];

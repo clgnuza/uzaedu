@@ -1,6 +1,6 @@
 import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
-export type SubjectEntry = { subjectName: string; sessionId?: string | null };
+export type SubjectEntry = { subjectName: string; gradeLevel?: number | null; sessionId?: string | null };
 
 @Entity('sorumluluk_students')
 export class SorumlulukStudent {
@@ -19,7 +19,7 @@ export class SorumlulukStudent {
   @Column({ name: 'student_number', type: 'varchar', length: 50, nullable: true })
   studentNumber: string | null;
 
-  @Column({ name: 'class_name', type: 'varchar', length: 50, nullable: true })
+  @Column({ name: 'class_name', type: 'varchar', length: 255, nullable: true })
   className: string | null;
 
   @Column({ type: 'jsonb', default: '[]' })
