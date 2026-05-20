@@ -132,7 +132,7 @@ export default function TakvimPage() {
       });
       setDrafts(
         saved.map((s, i) => ({
-          _key: s.id,
+          _key: s.id ?? `saved-${i}`,
           id: s.id,
           sessionDate: s.sessionDate?.slice(0, 10) ?? '',
           startTime: trimTime(s.startTime),

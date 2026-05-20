@@ -74,6 +74,7 @@ export default function OgrencilerPage() {
     sessionsCreated: number; sessionsTotal?: number; sessionsSkipped?: string[];
     assigned: number; conflicts: number; unassigned?: number; timeConflicts?: number;
     total: number; slotsMissing?: boolean;
+    mixedPairsOk?: boolean; mixedPairIssues?: string[];
   } | null>(null);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [mebLoading, setMebLoading] = useState(false);

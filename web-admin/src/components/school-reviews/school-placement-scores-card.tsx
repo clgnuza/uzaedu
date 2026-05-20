@@ -31,7 +31,7 @@ export type PlacementScoreRow = {
 export type ReviewPlacementTrackClient = {
   id: string;
   title: string;
-  programı: string;
+  programı?: string;
   language?: string;
   years: PlacementScoreRow[];
 };
@@ -90,7 +90,7 @@ function programLegendSuffix(title: string): string {
 
 /** İki SBL / aynı okul adı farklı program: grafik `dataKey` ve lejant `program` ile ayrılır. */
 function chartTrackLegendSuffix(tr: ReviewPlacementTrackClient): string {
-  const prog = (tr.program || '').trim().replace(/\s+/g, ' ');
+  const prog = (tr.programı || '').trim().replace(/\s+/g, ' ');
   if (prog.length >= 6) {
     return prog.length > 56 ? `${prog.slice(0, 54)}…` : prog;
   }
@@ -701,7 +701,7 @@ function V3SummaryFlatTable({ bundle }: { bundle: ReviewPlacementBundleV3 }) {
   };
   const flat: Flat[] = [];
   for (const tr of bundle.tracks) {
-    const alan = [tr.title?.trim(), tr.programı.trim()].filter(Boolean).join(' · ') || '—';
+    const alan = [tr.title?.trim(), tr.programı?.trim()].filter(Boolean).join(' · ') || '—';
     const dil = tr.language?.trim() || '—';
     for (const y of tr.years || []) {
       flat.push({
@@ -811,7 +811,7 @@ function V3DetailTables({ bundle }: { bundle: ReviewPlacementBundleV3 }) {
           >
             <p className="border-b border-white/10 px-1.5 py-1 font-semibold text-sky-100/95 sm:px-2">
               {tr.title?.trim() || (bundle.tracks.length > 1 ? 'Program / alan' : 'Yerleştirme')}
-              {tr.program ? <span className="ml-1 font-normal text-white/70">· {tr.program}</span> : null}
+              {tr.programı ? <span className="ml-1 font-normal text-white/70">· {tr.programı}</span> : null}
               {tr.language ? <span className="ml-1 font-normal text-white/70">· Dil: {tr.language}</span> : null}
             </p>
             {hasSinavliBlock && (

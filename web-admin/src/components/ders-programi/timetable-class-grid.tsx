@@ -5,6 +5,7 @@ import { GraduationCap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { displayNameForTimetableRowKey, timetableTeacherRowKey } from '@/lib/timetable-teacher-key';
 import { resolveSchoolSubjectDisplay } from '@/lib/school-subject-display';
+import type { SchoolSubject } from '@/hooks/use-school-classes-subjects';
 
 export type ClassGridEntry = {
   user_id: string | null;
@@ -35,7 +36,7 @@ type Props = {
   entries: ClassGridEntry[];
   teachers: TeacherLookup[];
   lessonNums: number[];
-  schoolSubjects?: { name: string; display_name?: string | null }[];
+  schoolSubjects?: SchoolSubject[];
   compact?: boolean;
 };
 
@@ -61,7 +62,7 @@ export function TimetableClassGrid({ entries, teachers, lessonNums, schoolSubjec
       });
       m.set(key, {
         teacher,
-        subject: resolveSchoolSubjectDisplay(e.subject, schoolSubjects),
+        subject: resolveSchoolSubjectDisplay(e.subject, schoolSubjects ?? []),
       });
     }
     return m;

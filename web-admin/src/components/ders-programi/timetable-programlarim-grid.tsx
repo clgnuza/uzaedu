@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { displayNameForTimetableRowKey, shortTeacherColumnLabel } from '@/lib/timetable-teacher-key';
 import { resolveSchoolSubjectDisplay } from '@/lib/school-subject-display';
+import type { SchoolSubject } from '@/hooks/use-school-classes-subjects';
 import { displayTimetableClass } from '@/lib/timetable-class-display';
 import { TimetableClassGrid } from '@/components/ders-programi/timetable-class-grid';
 
@@ -68,7 +69,7 @@ type Props = {
   selectedDay: number;
   onSelectDay: (day: number) => void;
   classGridEntries: Parameters<typeof TimetableClassGrid>[0]['entries'];
-  schoolSubjects?: { name: string; display_name?: string | null }[];
+  schoolSubjects?: SchoolSubject[];
   hideEmptyLessonRows?: boolean;
 };
 
@@ -222,7 +223,7 @@ export function TimetableProgramlarimGrid({
                         {entry ? (
                           <CompactCell
                             class_section={entry.class_section}
-                            subject={resolveSchoolSubjectDisplay(entry.subject, schoolSubjects)}
+                            subject={resolveSchoolSubjectDisplay(entry.subject, schoolSubjects ?? [])}
                             toneIdx={teacherIdx}
                           />
                         ) : (
@@ -319,7 +320,7 @@ export function TimetableProgramlarimGrid({
                       {entry ? (
                         <CompactCell
                           class_section={entry.class_section}
-                          subject={resolveSchoolSubjectDisplay(entry.subject, schoolSubjects)}
+                          subject={resolveSchoolSubjectDisplay(entry.subject, schoolSubjects ?? [])}
                           toneIdx={colIdx}
                         />
                       ) : (

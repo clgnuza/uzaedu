@@ -69,7 +69,7 @@ async function gzipBytes(data: Uint8Array): Promise<Uint8Array> {
   }
   const cs = new CompressionStream('gzip');
   const writer = cs.writable.getWriter();
-  await writer.write(data);
+  await writer.write(new Uint8Array(data));
   await writer.close();
   const reader = cs.readable.getReader();
   const parts: Uint8Array[] = [];
@@ -85,7 +85,7 @@ async function gzipBytes(data: Uint8Array): Promise<Uint8Array> {
     out.set(p, o);
     o += p.length;
   }
-  return out;
+  return new Uint8Array(out);
 }
 
 function arEntry(name: string, data: Uint8Array): Uint8Array {
@@ -104,13 +104,13 @@ function arEntry(name: string, data: Uint8Array): Uint8Array {
   const out = new Uint8Array(header.length + data.length + padByte);
   out.set(header, 0);
   out.set(data, header.length);
-  return out;
+  return new Uint8Array(out);
 }
 
 function buildAr(files: Array<{ name: string; data: Uint8Array }>): Uint8Array {
   const enc = new TextEncoder();
-  const parts = [enc.encode('!<arch>\n')];
-  for (const f of files) parts.push(arEntry(f.name, f.data));
+  const parts: Uint8Array[] = [new Uint8Array(enc.encode('!<arch>\n'))];
+  for (const f of files) parts.push(arEntry(f.name, new Uint8Array(f.data)));
   const total = parts.reduce((s, p) => s + p.length, 0);
   const out = new Uint8Array(total);
   let o = 0;
@@ -118,7 +118,7 @@ function buildAr(files: Array<{ name: string; data: Uint8Array }>): Uint8Array {
     out.set(p, o);
     o += p.length;
   }
-  return out;
+  return new Uint8Array(out);
 }
 
 export async function buildPardusTahtaDebBlob(args: {
@@ -175,7 +175,7 @@ export async function buildPardusTahtaDebBlob(args: {
     { name: 'control.tar.gz', data: controlGz },
     { name: 'data.tar.gz', data: dataGz },
   ]);
-  return new Blob([deb], { type: 'application/vnd.debian.binary-package' });
+  return new Blob([Uint8Array.from(deb)], { type: 'application/vnd.debian.binary-package' });
 }
 
 export async function downloadPardusTahtaDeb(args: Parameters<typeof buildPardusTahtaDebBlob>[0]): Promise<void> {
