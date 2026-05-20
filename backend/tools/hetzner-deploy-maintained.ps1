@@ -61,7 +61,7 @@ try {
   Write-Host "[maint] Bakim aciliyor..."
   Set-ProdMaintenance -Enabled $true
   $maintWasEnabled = $true
-  Write-Host "[maint] $waitSec sn bekleniyor (edge onbellek)..."
+  Write-Host ('[maint] ' + $waitSec + ' sn bekleniyor, edge onbellek...')
   Start-Sleep -Seconds $waitSec
 
   & $deployScript
