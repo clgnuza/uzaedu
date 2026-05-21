@@ -7,6 +7,7 @@ import type { OptikFormTemplate } from '@/lib/optik-form-templates';
 import { downloadOptikFormPdf } from '@/lib/optik-form-templates';
 import { compressImageBase64ForOcr } from '@/lib/optik-image-prep';
 import {
+  clearAllOptikLayoutCache,
   getCachedScanLayout,
   loadCachedScanLayout,
   setCachedScanLayout,
@@ -23,7 +24,11 @@ import {
   type OptikRubricTemplate,
   type OptikStatus,
 } from '@/lib/optik-api';
-import { decodeOmrBurst, decodeOmrFromBase64 } from '@/lib/optik-omr-decode';
+import { preloadOptikOpenCv } from '@/lib/optik-omr-decode';
+import { answerKeyToNumberMap } from '@/lib/optik-omr-overlay';
+import { parseAnswerKeyText } from '@/lib/optik-answer-key-parse';
+import { buildMcScanReview, type McScanReviewPayload } from '@/lib/optik-mc-scan-review';
+import type { OptikCameraOverlayConfig } from '../components/OptikCameraCapture';
 import { postOptikScanResult } from '@/lib/optik-reports-api';
 import {
   deleteOptikScanSession,
@@ -63,6 +68,7 @@ export function useOptikOkuma() {
   const [mcAmbiguous, setMcAmbiguous] = useState<number[]>([]);
   const [mcConfidence, setMcConfidence] = useState<number | null>(null);
   const [mcAnchorScore, setMcAnchorScore] = useState<number | null>(null);
+  const [mcReview, setMcReview] = useState<McScanReviewPayload | null>(null);
   const [keyText, setKeyText] = useState('');
   const [studentText, setStudentText] = useState('');
   const [gradeMode, setGradeMode] = useState<GradeMode>('CONTENT');
@@ -119,6 +125,7 @@ export function useOptikOkuma() {
   }, [token, templateId]);
 
   useEffect(() => {
+    clearAllOptikLayoutCache();
     void load();
     refreshSessions();
   }, [load, refreshSessions]);
@@ -174,25 +181,20 @@ export function useOptikOkuma() {
           optikToast.warn('Form düzeni', getOptikErrorMessage(e, 'Şablon yüklenemedi')),
         );
       }
+      if (kind === 'mc') void preloadOptikOpenCv();
       setCameraOpen(true);
     },
     [token, selected, layoutCache],
   );
 
-  const runMcDecode = useCallback(
-    async (input: string | string[]) => {
+  const commitMcReview = useCallback(
+    async (review: McScanReviewPayload) => {
       if (!token || !selected) return;
+      const decoded = review.decoded;
       setBusy(true);
-      setMcScanning(true);
       try {
-        const layout = await ensureOptikScanLayout(token, selected.id, layoutCache);
-        const frames = Array.isArray(input) ? input : [input];
-        const decoded =
-          frames.length > 1
-            ? await decodeOmrBurst(frames, layout)
-            : await decodeOmrFromBase64(frames[0]!, layout);
         setMcAnswers(decoded.answers);
-        setMcAmbiguous(decoded.perQuestion.filter((p) => p.ambiguous).map((p) => p.question));
+        setMcAmbiguous(review.ambiguous);
         setMcConfidence(decoded.confidence);
         setMcAnchorScore(decoded.anchor_score ?? null);
         const answerRows = Object.entries(decoded.answers).map(([q, label]) => ({
@@ -210,19 +212,49 @@ export function useOptikOkuma() {
           kind: 'mc',
           answers: answerRows,
           mcConfidence: decoded.confidence,
-          mcAmbiguous: decoded.perQuestion.filter((p) => p.ambiguous).map((p) => p.question),
+          mcAmbiguous: review.ambiguous,
           anchorScore: decoded.anchor_score,
         });
         refreshSessions();
-        setCameraOpen(false);
+        setMcReview(null);
         void persistScan('mc', {
           answers: answerRows,
-          ambiguous_count: decoded.perQuestion.filter((p) => p.ambiguous).length,
+          ambiguous_count: review.ambiguous.length,
           confidence: decoded.confidence,
           anchor_score: decoded.anchor_score,
         });
         if (decoded.needs_rescan) optikToast.rescan('mc');
-        else optikToast.success('Tarama tamam', `${Object.keys(decoded.answers).length} soru`);
+        else optikToast.success('Tarama kaydedildi', `${Object.keys(decoded.answers).length} soru`);
+      } catch (e) {
+        optikToast.error(e, 'save');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [token, selected, refreshSessions, persistScan],
+  );
+
+  const runMcDecode = useCallback(
+    async (input: string | string[]) => {
+      if (!token || !selected) return;
+      setBusy(true);
+      setMcScanning(true);
+      try {
+        const layout = await ensureOptikScanLayout(token, selected.id, layoutCache);
+        const frames = Array.isArray(input) ? input : [input];
+        const keyParsed = parseAnswerKeyText(keyText, selected.questionCount);
+        const review = await buildMcScanReview(
+          frames,
+          layout,
+          {
+            maxQuestion: selected.questionCount,
+            choiceCount: selected.choiceCount,
+            mode: 'student',
+          },
+          Object.keys(keyParsed).length > 0 ? keyParsed : undefined,
+        );
+        setCameraOpen(false);
+        setMcReview(review);
       } catch (e) {
         optikToast.error(e, 'scan');
       } finally {
@@ -230,8 +262,13 @@ export function useOptikOkuma() {
         setMcScanning(false);
       }
     },
-    [token, selected, layoutCache, refreshSessions, persistScan],
+    [token, selected, layoutCache, keyText],
   );
+
+  const retryMcScan = useCallback(() => {
+    setMcReview(null);
+    setCameraOpen(true);
+  }, []);
 
   const setMcAnswer = useCallback((question: number, label: string) => {
     setMcAnswers((prev) => {
@@ -398,6 +435,19 @@ export function useOptikOkuma() {
     return 3;
   }, [keyText, studentText]);
 
+  const omrCameraOverlay = useMemo((): OptikCameraOverlayConfig | null => {
+    if (!selected || cameraKind !== 'mc') return null;
+    const layout = layoutCache.get(selected.id);
+    if (!layout) return null;
+    const parsed = answerKeyToNumberMap(parseAnswerKeyText(keyText, selected.questionCount));
+    return {
+      layout,
+      maxQuestion: selected.questionCount,
+      mode: 'student',
+      answerKey: Object.keys(parsed).length > 0 ? parsed : undefined,
+    };
+  }, [selected, cameraKind, layoutCache, keyText]);
+
   return {
     token,
     role,
@@ -454,5 +504,10 @@ export function useOptikOkuma() {
     openStep,
     scanMeta,
     setScanMeta,
+    omrCameraOverlay,
+    mcReview,
+    setMcReview,
+    commitMcReview,
+    retryMcScan,
   };
 }

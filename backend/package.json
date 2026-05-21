@@ -17,6 +17,8 @@
     "test:optik-summary": "npm run build && node tools/optik-session-summary.test.cjs",
     "test:optik-pdf": "npm run build && node tools/optik-pdf-belge.test.cjs",
     "test:optik-scan": "node tools/optik-session-scan-validation.test.cjs",
+    "test:optik-layout": "npx --yes tsx tools/optik-omr-layout-v4.test.ts",
+    "test:optik-golden": "cd ../web-admin && npm run test:optik-golden",
     "typeorm": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js",
     "migration:generate": "npm run typeorm -- migration:generate -d src/config/typeorm-data-source.ts",
     "migration:run": "npm run typeorm -- migration:run -d src/config/typeorm-data-source.ts",

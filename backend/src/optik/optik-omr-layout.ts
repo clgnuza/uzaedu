@@ -1,8 +1,23 @@
-/** PWA/kamera OMR — PDF (omr-v3) ile aynı balon geometrisi, normalize 0–1 (sol-üst köşe). */
+/** PWA/kamera OMR — PDF (omr-v4) ile aynı balon geometrisi */
 
-export const OMR_LAYOUT_VERSION = 'omr-v3';
-export const OMR_PAGE_WIDTH = 595.28;
-export const OMR_PAGE_HEIGHT = 841.89;
+import {
+  OMR_ANCHOR_INSET,
+  OMR_ANCHOR_SIZE,
+  OMR_COL_GAP,
+  OMR_INNER_PAD,
+  OMR_LAYOUT_VERSION,
+  OMR_NUMBER_COL_W,
+  OMR_PAGE_HEIGHT,
+  OMR_PAGE_WIDTH,
+  computeAnswerBubbleSize,
+  computeAnswerRowHeight,
+  computeMinChoiceSpacing,
+  fitAnswerColumnCount,
+  resolveAnswerColumnCount,
+} from './optik-omr-geometry';
+
+export { OMR_LAYOUT_VERSION, OMR_PAGE_WIDTH, OMR_PAGE_HEIGHT };
+
 const MARGIN = 40;
 const FOOTER_H = 28;
 const ALIGN_STRIP_W = 8;
@@ -68,7 +83,6 @@ export function resolveTestBlocks(template: {
   return [{ label: 'CEVAPLAR', questionCount: q, choiceCount: c }];
 }
 
-/** pdf-lib Y (alttan) → görüntü Y (üstten), normalize */
 function pdfYToNorm(py: number): number {
   return (OMR_PAGE_HEIGHT - py) / OMR_PAGE_HEIGHT;
 }
@@ -94,9 +108,9 @@ export type OmrScanLayout = {
   bubbles: OmrScanBubble[];
   question_count: number;
   blocks: TestBlock[];
+  answers_region: { y_min: number; y_max: number };
 };
 
-/** PDF buildSinglePageFormDocument ile uyumlu cevap balonları */
 export function computeOmrScanLayout(template: {
   questionCount?: number;
   choiceCount?: number;
@@ -110,8 +124,8 @@ export function computeOmrScanLayout(template: {
   const pageHeight = OMR_PAGE_HEIGHT;
   const margin = MARGIN;
 
-  const inset = 10;
-  const marker = 7;
+  const marker = OMR_ANCHOR_SIZE;
+  const inset = OMR_ANCHOR_INSET;
   const anchors = [
     { x: normX(inset), y: pdfYToNorm(pageHeight - inset), size: marker / pageWidth },
     { x: normX(pageWidth - inset - marker), y: pdfYToNorm(pageHeight - inset), size: marker / pageWidth },
@@ -126,17 +140,12 @@ export function computeOmrScanLayout(template: {
   const contentX = margin + ALIGN_STRIP_W + 12;
   const contentW = pageWidth - margin - contentX;
   const cardPad = 16;
-  const cardInnerX = contentX + cardPad;
   const cardInnerW = contentW - 2 * cardPad;
   const idRowHeight = 11;
-  const idBubbleSize = 4;
-  const idMinChoiceSpacing = 2 * idBubbleSize + 3.5;
   const idOptionHeaderH = 10;
   const idDigitRows = 5;
-  const idLabelColW = 20;
   const idColGap = 12;
   const idColW = (cardInnerW - idColGap) / 2;
-  const idFieldLabelW = 72;
   const cardHeaderH = 22;
   const kitapcikBlockH = idOptionHeaderH + idRowHeight;
   const sinifBlockH = 2 * (idOptionHeaderH + idRowHeight);
@@ -151,32 +160,29 @@ export function computeOmrScanLayout(template: {
   const sectionHeight = 20;
   const blockHeaderH = 14;
   const optionHeaderH = 10;
-  const colGap = 8;
 
-  let numCols = questionCount >= 100 ? 5 : questionCount >= 70 ? 4 : questionCount >= 35 ? 3 : 2;
   const maxChoiceCount = Math.max(1, ...blocks.map((b) => Math.max(1, Math.min(6, b.choiceCount))));
-  const minBubbleSize = 3.8;
-  const minChoiceSpacing = 2 * minBubbleSize + 3;
-  while (numCols > 2) {
-    const qw = (cevaplarWidth - (numCols - 1) * colGap) / numCols;
-    const minCellW = 18 + maxChoiceCount * minChoiceSpacing + 8;
-    if (qw >= minCellW) break;
-    numCols -= 1;
-  }
+  const minChoiceSpacing = computeMinChoiceSpacing();
+  let numCols = fitAnswerColumnCount(
+    resolveAnswerColumnCount(questionCount),
+    cevaplarWidth,
+    maxChoiceCount,
+  );
 
   const totalRows = blocks.reduce((s, b) => s + Math.ceil(b.questionCount / numCols), 0);
   const fixedH = sectionHeight + blocks.length * (blockHeaderH + optionHeaderH + 8) + 10;
   const availableH = Math.max(140, y - margin - FOOTER_H - 8);
-  const rowHeight = Math.max(9, Math.min(12, Math.floor((availableH - fixedH) / Math.max(1, totalRows))));
-  const answerBubble = Math.max(3.6, Math.min(4.8, rowHeight * 0.36));
-  const questionWidth = (cevaplarWidth - (numCols - 1) * colGap) / numCols;
-  const numberW = 18;
-  const innerPad = 8;
+  const rowHeight = computeAnswerRowHeight(availableH, fixedH, totalRows);
+  const answerBubble = computeAnswerBubbleSize(rowHeight);
+  const questionWidth = (cevaplarWidth - (numCols - 1) * OMR_COL_GAP) / numCols;
+  const numberW = OMR_NUMBER_COL_W;
+  const innerPad = OMR_INNER_PAD;
 
   y -= sectionHeight + 10;
 
   const bubbles: OmrScanBubble[] = [];
   let globalQ = 0;
+  let answersYMin = 1;
 
   for (const blk of blocks) {
     const blkChoiceCount = Math.max(1, Math.min(blk.choiceCount, 6));
@@ -193,18 +199,20 @@ export function computeOmrScanLayout(template: {
       globalQ += 1;
       const col = Math.floor(q / rowsPerCol);
       const row = q % rowsPerCol;
-      const xColLeft = cevaplarX + col * (questionWidth + colGap);
+      const xColLeft = cevaplarX + col * (questionWidth + OMR_COL_GAP);
       const rowCenterY = rowsTop - row * rowHeight - rowHeight / 2;
       const choiceW = Math.max(minChoiceSpacing, (questionWidth - numberW - innerPad) / blkChoiceCount);
 
       for (let c = 0; c < blkChoiceCount; c++) {
         const cx = xColLeft + numberW + c * choiceW + choiceW / 2;
+        const ny = pdfYToNorm(rowCenterY);
+        answersYMin = Math.min(answersYMin, ny);
         bubbles.push({
           question: globalQ,
           choice: c,
           label: CHOICE_LABELS[c] ?? String(c + 1),
           x: normX(cx),
-          y: pdfYToNorm(rowCenterY),
+          y: ny,
           r: answerBubble / pageWidth,
         });
       }
@@ -220,5 +228,6 @@ export function computeOmrScanLayout(template: {
     bubbles,
     question_count: questionCount,
     blocks,
+    answers_region: { y_min: Math.max(0, answersYMin - 0.035), y_max: 1 },
   };
 }

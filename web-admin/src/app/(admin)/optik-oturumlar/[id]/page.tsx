@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { OptikCameraCapture } from '@/app/(admin)/optik-okuma/components/OptikCameraCapture';
+import { OptikMcScanReviewDialog } from '@/app/(admin)/optik-okuma/components/OptikMcScanReviewDialog';
 import { OptikCameraSettingsPanel } from '@/app/(admin)/optik-okuma/components/OptikCameraSettingsPanel';
 import { OptikMcPanel } from '@/app/(admin)/optik-okuma/components/OptikMcPanel';
 import { McAnswerKeyPanel } from './components/McAnswerKeyPanel';
@@ -491,12 +492,23 @@ export default function OptikOturumDetayPage() {
             ? 'mc'
             : 'student'
         }
+        omrOverlay={d.omrCameraOverlay}
         onCapture={async (b64) => {
           if (d.cameraPurpose === 'mc_student') await d.runMcDecode(b64);
           else if (d.cameraPurpose === 'mc_key') await d.runMcKeyScan(b64);
           else if (d.cameraPurpose === 'mc_key_ocr') await d.runMcKeyOcr(b64);
           else if (d.cameraPurpose === 'open_key') await d.runOpenKeyOcrCapture(b64);
           else await d.runOpenOcr(b64);
+        }}
+      />
+      <OptikMcScanReviewDialog
+        open={!!d.mcReview}
+        review={d.mcReview}
+        onClose={() => d.setMcReview(null)}
+        onRetry={d.retryMcScan}
+        onConfirm={(r) => {
+          if (d.mcReviewPurpose === 'key') d.commitMcKeyReview(r);
+          else void d.commitMcStudentReview(r);
         }}
       />
     </OptikPageShell>

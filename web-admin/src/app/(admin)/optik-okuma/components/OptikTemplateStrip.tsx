@@ -34,7 +34,8 @@ export function OptikTemplateStrip({
         </h2>
         {selected ? (
           <span className="text-[10px] text-muted-foreground">
-            {selected.questionCount} soru · {selected.choiceCount} şık
+            {selected.questionCount} soru · {selected.choiceCount} şık ·{' '}
+            <span className="font-medium text-emerald-700 dark:text-emerald-400">omr-v4</span>
           </span>
         ) : null}
       </div>

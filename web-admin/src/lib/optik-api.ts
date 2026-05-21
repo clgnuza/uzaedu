@@ -1,5 +1,7 @@
 import { apiFetch } from '@/lib/api';
 import type { OptikFormTemplate } from '@/lib/optik-form-templates';
+import { isCurrentOmrLayout } from '@/lib/optik-omr-layout-constants';
+import { clearCachedScanLayout, loadCachedScanLayout } from '@/lib/optik-layout-cache';
 
 export type OptikStatus = {
   enabled: boolean;
@@ -61,6 +63,7 @@ export type OmrScanLayout = {
   bubbles: OmrScanBubble[];
   question_count: number;
   blocks: Array<{ label: string; questionCount: number; choiceCount: number }>;
+  answers_region?: { y_min: number; y_max: number };
 };
 
 export function fetchOptikStatus(token: string) {
@@ -84,8 +87,20 @@ export async function ensureOptikScanLayout(
   },
 ): Promise<OmrScanLayout> {
   const hit = cache.get(templateId);
-  if (hit) return hit;
+  if (hit && isCurrentOmrLayout(hit)) return hit;
+
+  const stored = loadCachedScanLayout(templateId);
+  if (stored && isCurrentOmrLayout(stored)) {
+    cache.set(templateId, stored);
+    return stored;
+  }
+
+  if (hit && !isCurrentOmrLayout(hit)) clearCachedScanLayout(templateId);
+
   const layout = await fetchOptikScanLayout(token, templateId);
+  if (!isCurrentOmrLayout(layout)) {
+    throw new Error(`Form düzeni güncel değil (${layout.version ?? '?'}). Backend yenileyin.`);
+  }
   cache.set(templateId, layout);
   return layout;
 }

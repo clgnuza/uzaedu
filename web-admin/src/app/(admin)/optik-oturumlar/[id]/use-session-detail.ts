@@ -13,17 +13,21 @@ import {
 } from '@/lib/optik-api';
 import { compressImageBase64ForOcr } from '@/lib/optik-image-prep';
 import {
+  clearAllOptikLayoutCache,
   getCachedScanLayout,
   loadCachedScanLayout,
   setCachedScanLayout,
 } from '@/lib/optik-layout-cache';
-import { decodeOmrBurst } from '@/lib/optik-omr-decode';
+import { preloadOptikOpenCv } from '@/lib/optik-omr-decode';
+import { buildMcScanReview, type McScanReviewPayload } from '@/lib/optik-mc-scan-review';
 import {
   answerKeyFilledCount,
   mergeAnswerKeys,
   omrRecordToAnswerKey,
   parseAnswerKeyText,
 } from '@/lib/optik-answer-key-parse';
+import { answerKeyToNumberMap } from '@/lib/optik-omr-overlay';
+import type { OptikCameraOverlayConfig } from '@/app/(admin)/optik-okuma/components/OptikCameraCapture';
 import {
   enqueueOfflineScan,
   flushOfflineQueue,
@@ -89,6 +93,8 @@ export function useSessionDetail() {
   const [currentStudentId, setCurrentStudentId] = useState('');
   const [mcAnswers, setMcAnswers] = useState<Record<number, string>>({});
   const [mcAmbiguous, setMcAmbiguous] = useState<number[]>([]);
+  const [mcReview, setMcReview] = useState<McScanReviewPayload | null>(null);
+  const [mcReviewPurpose, setMcReviewPurpose] = useState<'student' | 'key'>('student');
   const [lastScore, setLastScore] = useState<{ correct: number; wrong: number; blank: number; net: number } | null>(
     null,
   );
@@ -211,6 +217,7 @@ export function useSessionDetail() {
   }, [token, sessionId, loadReport, loadInsights, refreshOffline, searchParams]);
 
   useEffect(() => {
+    clearAllOptikLayoutCache();
     void load();
   }, [load]);
 
@@ -335,6 +342,70 @@ export function useSessionDetail() {
     setAnswerKey((prev) => (replace ? patch : mergeAnswerKeys(prev, patch)));
   }, []);
 
+  const commitMcKeyReview = useCallback(
+    (review: McScanReviewPayload) => {
+      if (!session) return;
+      const patch = omrRecordToAnswerKey(review.decoded.answers, session.questionCount);
+      const n = Object.keys(patch).length;
+      if (n === 0) {
+        optikToast.warn('Anahtar boş', 'En az bir şık seçin');
+        return;
+      }
+      applyAnswerKey(patch, false);
+      setMcReview(null);
+      if (review.decoded.needs_rescan) optikToast.rescan('mc', `${review.ambiguous.length} belirsiz`);
+      else optikToast.success('Anahtar kaydedildi', `${n} şık`);
+    },
+    [session, applyAnswerKey],
+  );
+
+  const commitMcStudentReview = useCallback(
+    async (review: McScanReviewPayload) => {
+      if (!token || !session) return;
+      if (students.length > 0 && !currentStudentId) {
+        optikToast.validation('Öğrenci seçin');
+        return;
+      }
+      setBusy(true);
+      try {
+        const map = review.decoded.answers;
+        setMcAnswers(map);
+        setMcAmbiguous(review.ambiguous);
+        setMcReview(null);
+
+        const student = students.find((s) => s.id === currentStudentId);
+        const answerRows = Object.entries(map)
+          .sort(([a], [b]) => Number(a) - Number(b))
+          .map(([q, label]) => ({ question: Number(q), label }));
+
+        const payload: SessionScanPayload = {
+          template_id: session.templateId,
+          template_name: session.templateName,
+          kind: 'mc',
+          student_id: currentStudentId || undefined,
+          student_label: student?.name ?? undefined,
+          answers: answerRows,
+          ambiguous_count: review.ambiguous.length,
+          confidence: review.decoded.confidence,
+          anchor_score: review.decoded.anchor_score,
+        };
+
+        if (navigator.onLine) await submitScan(payload);
+        else {
+          enqueueOfflineScan(sessionId, payload);
+          refreshOffline();
+          optikToast.offlineQueued();
+        }
+        optikToast.success('Tarama kaydedildi', `${answerRows.length} soru`);
+      } catch (e) {
+        optikToast.error(e, 'save');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [token, session, students, currentStudentId, submitScan, sessionId, refreshOffline],
+  );
+
   const runMcKeyScan = useCallback(
     async (frames: string | string[]) => {
       if (!token || !session) return;
@@ -342,22 +413,25 @@ export function useSessionDetail() {
       setBusy(true);
       try {
         const layout = await ensureOptikScanLayout(token, session.templateId, layoutCache);
-        const decoded = await decodeOmrBurst(arr, layout);
-        const patch = omrRecordToAnswerKey(decoded.answers, session.questionCount);
-        const n = Object.keys(patch).length;
-        if (n === 0) throw new Error('Şık okunamadı — grid ile girin.');
-        applyAnswerKey(patch, false);
+        const review = await buildMcScanReview(
+          arr,
+          layout,
+          {
+            maxQuestion: session.questionCount,
+            choiceCount: session.choiceCount,
+            mode: 'key',
+          },
+        );
         setCameraOpen(false);
-        const amb = decoded.perQuestion.filter((p) => p.ambiguous).length;
-        if (amb) optikToast.rescan('mc', `${amb} belirsiz şık`);
-        else optikToast.success('Anahtar tarandı', `${n} şık`);
+        setMcReviewPurpose('key');
+        setMcReview(review);
       } catch (e) {
         optikToast.error(e, 'scan');
       } finally {
         setBusy(false);
       }
     },
-    [token, session, layoutCache, applyAnswerKey],
+    [token, session, layoutCache],
   );
 
   const runMcKeyOcr = useCallback(
@@ -397,43 +471,32 @@ export function useSessionDetail() {
       setBusy(true);
       try {
         const layout = await ensureOptikScanLayout(token, session.templateId, layoutCache);
-        const decoded = await decodeOmrBurst(arr, layout);
-        const map = decoded.answers;
-        setMcAnswers(map);
-        setMcAmbiguous(decoded.perQuestion.filter((p) => p.ambiguous).map((p) => p.question));
+        const review = await buildMcScanReview(
+          arr,
+          layout,
+          {
+            maxQuestion: session.questionCount,
+            choiceCount: session.choiceCount,
+            mode: 'student',
+          },
+          answerKey,
+        );
         setCameraOpen(false);
-
-        const student = students.find((s) => s.id === currentStudentId);
-        const answerRows = Object.entries(map)
-          .sort(([a], [b]) => Number(a) - Number(b))
-          .map(([q, label]) => ({ question: Number(q), label }));
-
-        const payload: SessionScanPayload = {
-          template_id: session.templateId,
-          template_name: session.templateName,
-          kind: 'mc',
-          student_id: currentStudentId || undefined,
-          student_label: student?.name ?? undefined,
-          answers: answerRows,
-          ambiguous_count: decoded.perQuestion.filter((p) => p.ambiguous).length,
-          confidence: decoded.confidence,
-          anchor_score: decoded.anchor_score,
-        };
-
-        if (navigator.onLine) await submitScan(payload);
-        else {
-          enqueueOfflineScan(sessionId, payload);
-          refreshOffline();
-          optikToast.offlineQueued();
-        }
+        setMcReviewPurpose('student');
+        setMcReview(review);
       } catch (e) {
         optikToast.error(e, 'scan');
       } finally {
         setBusy(false);
       }
     },
-    [token, session, layoutCache, students, currentStudentId, submitScan, sessionId, refreshOffline],
+    [token, session, layoutCache, students, currentStudentId, answerKey],
   );
+
+  const retryMcScan = useCallback(() => {
+    setMcReview(null);
+    setCameraOpen(true);
+  }, []);
 
   const syncOffline = useCallback(async () => {
     if (!token) return;
@@ -670,6 +733,21 @@ export function useSessionDetail() {
     [token, sessionId],
   );
 
+  const omrCameraOverlay = useMemo((): OptikCameraOverlayConfig | null => {
+    if (!session || !cameraOpen) return null;
+    if (cameraPurpose !== 'mc_student' && cameraPurpose !== 'mc_key') return null;
+    const layout = layoutCache.get(session.templateId);
+    if (!layout) return null;
+    const keyNum =
+      cameraPurpose === 'mc_student' ? answerKeyToNumberMap(answerKey) : undefined;
+    return {
+      layout,
+      maxQuestion: session.questionCount,
+      mode: cameraPurpose === 'mc_key' ? 'key' : 'student',
+      answerKey: keyNum && Object.keys(keyNum).length > 0 ? keyNum : undefined,
+    };
+  }, [session, cameraOpen, cameraPurpose, layoutCache, answerKey]);
+
   return {
     token,
     role,
@@ -728,10 +806,12 @@ export function useSessionDetail() {
     runMcKeyScan,
     runMcKeyOcr,
     openMcScan: () => {
+      void preloadOptikOpenCv();
       setCameraPurpose('mc_student');
       setCameraOpen(true);
     },
     openMcKeyScan: () => {
+      void preloadOptikOpenCv();
       setCameraPurpose('mc_key');
       setCameraOpen(true);
     },
@@ -751,6 +831,13 @@ export function useSessionDetail() {
     startBatchMissing,
     mcScannedCount,
     batchProgressPct,
+    omrCameraOverlay,
+    mcReview,
+    setMcReview,
+    mcReviewPurpose,
+    commitMcStudentReview,
+    commitMcKeyReview,
+    retryMcScan,
     removeSession,
     closeSession,
   };

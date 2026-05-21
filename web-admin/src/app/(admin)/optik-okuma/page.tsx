@@ -7,6 +7,7 @@ import { OptikQuickNav, OPTIK_OKUMA_QUICK_NAV } from '@/components/optik/OptikQu
 import { OptikStatusBanner } from '@/components/optik/OptikStatusBanner';
 import { OptikFreeScanNotice } from '@/components/optik/OptikTeacherGuide';
 import { OptikCameraCapture } from './components/OptikCameraCapture';
+import { OptikMcScanReviewDialog } from './components/OptikMcScanReviewDialog';
 import { OptikMcPanel } from './components/OptikMcPanel';
 import { OptikOkumaHero } from './components/OptikOkumaHero';
 import { OptikOpenPanel } from './components/OptikOpenPanel';
@@ -130,10 +131,18 @@ export default function OptikOkumaPage() {
         burstFrames={o.cameraKind === 'mc' ? undefined : 1}
         cameraSettings={o.cameraSettings}
         mode={o.cameraKind}
+        omrOverlay={o.omrCameraOverlay}
         onCapture={async (b64) => {
           if (o.cameraKind === 'mc') await o.runMcDecode(b64);
           else await o.runOcr(o.cameraKind === 'key' ? 'KEY' : 'STUDENT', Array.isArray(b64) ? b64[0]! : b64);
         }}
+      />
+      <OptikMcScanReviewDialog
+        open={!!o.mcReview}
+        review={o.mcReview}
+        onClose={() => o.setMcReview(null)}
+        onRetry={o.retryMcScan}
+        onConfirm={(r) => void o.commitMcReview(r)}
       />
     </OptikPageShell>
   );

@@ -5,10 +5,10 @@ import { cn } from '@/lib/utils';
 import { ChevronDown, Focus, Lightbulb, Pencil, ScanLine } from 'lucide-react';
 
 const TIPS = [
-  { icon: Focus, title: 'Dört köşe kare + sol şerit kadrajda' },
-  { icon: Lightbulb, title: 'Gölge ve flaş yansımasına dikkat' },
-  { icon: Pencil, title: 'Tek şık, silgi izi bırakmayın' },
-  { icon: ScanLine, title: 'MC: ayarlardan 1–3 kare; formu sabit tutun' },
+  { icon: Focus, title: 'omr-v4 PDF — dört köşe kare + sol şerit' },
+  { icon: Lightbulb, title: 'Düz ışık, gölgesiz; bulanık kare reddedilir' },
+  { icon: Pencil, title: 'Yuvarlak balonu koyu ve tam doldurun' },
+  { icon: ScanLine, title: 'Tara → ön izleme → belirsiz şıkları seç → kaydet' },
 ] as const;
 
 export function OptikScanTips() {

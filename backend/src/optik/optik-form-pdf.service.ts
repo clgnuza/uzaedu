@@ -7,6 +7,20 @@ const fontkitRaw = require('@pdf-lib/fontkit');
 const fontkit = fontkitRaw?.default ?? fontkitRaw;
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { OptikFormTemplate } from './entities/optik-form-template.entity';
+import {
+  OMR_ANCHOR_INSET,
+  OMR_ANCHOR_SIZE,
+  OMR_COL_GAP,
+  OMR_ID_BUBBLE_SIZE,
+  OMR_INNER_PAD,
+  OMR_LAYOUT_VERSION,
+  OMR_NUMBER_COL_W,
+  computeAnswerBubbleSize,
+  computeAnswerRowHeight,
+  computeMinChoiceSpacing,
+  fitAnswerColumnCount,
+  resolveAnswerColumnCount,
+} from './optik-omr-geometry';
 
 function getDejaVuFontPaths(): { sans: string; bold: string } {
   try {
@@ -257,13 +271,7 @@ function drawLetterGrid(
   }
 }
 
-/**
- * PWA OMR perspektif düzeltme — köşe konumları/ölçüleri değiştirmeyin.
- * Beyaz halo: baskı/gölgede siyah kare daha net bulunur.
- */
-const OMR_ANCHOR_SIZE = 7;
-const OMR_ANCHOR_INSET = 10;
-
+/** PWA OMR perspektif — köşe kareleri + beyaz halo */
 function drawAnchorMarkers(
   page: { drawRectangle: (o: object) => void },
   pageWidth: number,
@@ -374,7 +382,7 @@ export class OptikFormPdfService {
   private readonly FOOTER_H = 28;
   private readonly ALIGN_STRIP_W = 8;
   private readonly CHOICE_LABELS = ['A', 'B', 'C', 'D', 'E', 'F'];
-  private readonly OMR_LAYOUT_VERSION = 'omr-v3';
+  private readonly OMR_LAYOUT_VERSION = OMR_LAYOUT_VERSION;
 
   /** Baskı + kamera: OMR alanı beyaz/siyah; renk üst bant ve başlıklarda */
   private readonly PAGE_BG = rgb(1, 1, 1);
@@ -567,7 +575,7 @@ export class OptikFormPdfService {
     const cardInnerW = contentW - 2 * cardPad;
     // CEVAPLAR ile ayni satir yuksekligi ve bubble boyutu
     const idRowHeight = 11;
-    const idBubbleSize = 4;
+    const idBubbleSize = OMR_ID_BUBBLE_SIZE;
     const idMinChoiceSpacing = 2 * idBubbleSize + 3.5;
     const idOptionHeaderH = 10;
     const idDigitRows = 5;
@@ -735,40 +743,40 @@ export class OptikFormPdfService {
     const sectionHeight = 20;
     const blockHeaderH = 14;
     const optionHeaderH = 10;
-    const colGap = 8;
-
-    // Soru yoğunluğuna göre sütun sayısı
-    let numCols = questionCount >= 100 ? 5 : questionCount >= 70 ? 4 : questionCount >= 35 ? 3 : 2;
     const maxChoiceCount = Math.max(1, ...blocks.map((b) => Math.max(1, Math.min(6, b.choiceCount))));
-    const minBubbleSize = 3.8;
-    const minChoiceSpacing = 2 * minBubbleSize + 3;
-    while (numCols > 2) {
-      const qw = (cevaplarWidth - (numCols - 1) * colGap) / numCols;
-      const minCellW = 18 + maxChoiceCount * minChoiceSpacing + 8;
-      if (qw >= minCellW) break;
-      numCols -= 1;
-    }
+    const minChoiceSpacing = computeMinChoiceSpacing();
+    const numCols = fitAnswerColumnCount(
+      resolveAnswerColumnCount(questionCount),
+      cevaplarWidth,
+      maxChoiceCount,
+    );
 
     const totalRows = blocks.reduce((s, b) => s + Math.ceil(b.questionCount / numCols), 0);
     const fixedH = sectionHeight + blocks.length * (blockHeaderH + optionHeaderH + 8) + 10;
     const availableH = Math.max(140, y - margin - this.FOOTER_H - 8);
-    const rowHeight = Math.max(9, Math.min(12, Math.floor((availableH - fixedH) / Math.max(1, totalRows))));
-    const answerBubble = Math.max(3.6, Math.min(4.8, rowHeight * 0.36));
+    const rowHeight = computeAnswerRowHeight(availableH, fixedH, totalRows);
+    const answerBubble = computeAnswerBubbleSize(rowHeight);
     const answerAreaTopY = y;
-    const questionWidth = (cevaplarWidth - (numCols - 1) * colGap) / numCols;
-    const numberW = 18;
-    const innerPad = 8;
+    const questionWidth = (cevaplarWidth - (numCols - 1) * OMR_COL_GAP) / numCols;
+    const numberW = OMR_NUMBER_COL_W;
+    const innerPad = OMR_INNER_PAD;
+    const black = rgb(0, 0, 0);
+    const white = rgb(1, 1, 1);
 
     page.drawRectangle({
-      x: cevaplarX, y: y - sectionHeight, width: cevaplarWidth, height: sectionHeight, color: this.SECTION_BG,
+      x: cevaplarX,
+      y: y - sectionHeight,
+      width: cevaplarWidth,
+      height: sectionHeight,
+      color: black,
     });
-    page.drawLine({
-      start: { x: cevaplarX, y: y - sectionHeight },
-      end: { x: cevaplarX + 3, y: y - sectionHeight },
-      thickness: 2,
-      color: this.ACCENT_LINE,
+    page.drawText(txt('CEVAPLAR'), {
+      x: cevaplarX + 12,
+      y: y - 14,
+      size: 11,
+      font: fontBold,
+      color: white,
     });
-    page.drawText(txt('CEVAPLAR'), { x: cevaplarX + 12, y: y - 14, size: 10, font: fontBold, color: this.TEXT_PRIMARY });
     y -= sectionHeight + 10;
 
     for (const blk of blocks) {
@@ -790,7 +798,7 @@ export class OptikFormPdfService {
       // ABCD satırı (her sütunda bir kez)
       const optionY = y - optionHeaderH + 2;
       for (let col = 0; col < numCols; col++) {
-        const xColLeft = cevaplarX + col * (questionWidth + colGap);
+        const xColLeft = cevaplarX + col * (questionWidth + OMR_COL_GAP);
         const choiceW = Math.max(minChoiceSpacing, (questionWidth - numberW - innerPad) / blkChoiceCount);
         for (let c = 0; c < blkChoiceCount; c++) {
           const cx = xColLeft + numberW + c * choiceW + choiceW / 2;
@@ -825,7 +833,7 @@ export class OptikFormPdfService {
         const qInBlock = q + 1;
         const col = Math.floor(q / rowsPerCol);
         const row = q % rowsPerCol;
-        const xColLeft = cevaplarX + col * (questionWidth + colGap);
+        const xColLeft = cevaplarX + col * (questionWidth + OMR_COL_GAP);
         const rowCenterY = rowsTop - row * rowHeight - rowHeight / 2;
         const choiceW = Math.max(minChoiceSpacing, (questionWidth - numberW - innerPad) / blkChoiceCount);
 
@@ -841,7 +849,7 @@ export class OptikFormPdfService {
         // İşaretleme kutucukları (ABCD hizalı)
         for (let c = 0; c < blkChoiceCount; c++) {
           const cx = xColLeft + numberW + c * choiceW + choiceW / 2;
-          drawBubble(page, cx, rowCenterY, answerBubble, this.BUBBLE_BORDER, 1);
+          drawBubble(page, cx, rowCenterY, answerBubble, this.BUBBLE_BORDER, 1.25);
         }
       }
 
@@ -854,8 +862,8 @@ export class OptikFormPdfService {
       y: answerAreaBottomY - 4,
       width: cevaplarWidth + 12,
       height: answerAreaTopY - answerAreaBottomY + 10,
-      borderColor: this.BUBBLE_BORDER,
-      borderWidth: 1,
+      borderColor: black,
+      borderWidth: 1.5,
     });
 
     page.drawRectangle({
@@ -874,7 +882,7 @@ export class OptikFormPdfService {
       font,
       color: this.TEXT_MUTED,
     });
-    page.drawText(txt('Koyu kurşun kalem ile doldurun; her soruda yalnızca bir şık.'), {
+    page.drawText(txt('Koyu kurşun kalem ile yuvarlak balonu tam doldurun; her soruda tek şık (omr-v4).'), {
       x: contentX + 8,
       y: margin + 8,
       size: 7,

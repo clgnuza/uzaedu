@@ -9,7 +9,9 @@
     "start": "next start",
     "lint": "eslint",
     "test:e2e": "playwright test",
-    "test:optik": "npx --yes tsx src/lib/optik-session-summary.test.ts && npx --yes tsx src/lib/optik-blob-download.test.ts && npx --yes tsx src/lib/optik-session-report-load.test.ts"
+    "test:optik": "npx --yes tsx src/lib/optik-session-summary.test.ts && npx --yes tsx src/lib/optik-blob-download.test.ts && npx --yes tsx src/lib/optik-session-report-load.test.ts && npx --yes tsx src/lib/optik-omr-decode.test.ts && npm run test:optik-golden",
+    "test:optik-golden": "npx --yes tsx src/lib/optik-omr-golden.test.ts",
+    "optik:golden:ppm": "npx --yes tsx scripts/generate-optik-golden-ppm.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

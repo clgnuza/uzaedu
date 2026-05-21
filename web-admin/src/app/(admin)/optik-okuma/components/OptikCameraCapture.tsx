@@ -13,8 +13,29 @@ import {
 } from '@/lib/optik-camera-settings';
 import { optikToast } from '@/lib/optik-toast';
 import { toggleCameraTorch } from '@/lib/smart-board-qr-scanner';
-import { captureVideoFrameJpeg } from '@/lib/optik-omr-decode';
+import {
+  captureVideoFrameJpeg,
+  decodeOmrLivePreviewFromVideo,
+  preloadOptikOpenCv,
+  type OmrDecodeMode,
+  type OmrLivePreview,
+} from '@/lib/optik-omr-decode';
+import type { OmrScanLayout } from '@/lib/optik-api';
+import {
+  OptikOmrCameraOverlay,
+  OptikOmrOverlayLegend,
+  buildOverlayStats,
+} from './OptikOmrCameraOverlay';
+import { answerKeyToNumberMap } from '@/lib/optik-omr-overlay';
 import { Camera, Flashlight, FlashlightOff, ScanLine, X } from 'lucide-react';
+
+export type OptikCameraOverlayConfig = {
+  layout: OmrScanLayout;
+  maxQuestion: number;
+  mode?: OmrDecodeMode;
+  /** Doluysa yeşil/kırmızı karşılaştırma */
+  answerKey?: Record<string, string> | Record<number, string>;
+};
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -28,6 +49,7 @@ export function OptikCameraCapture({
   burstFrames,
   cameraSettings,
   mode = 'mc',
+  omrOverlay = null,
 }: {
   open: boolean;
   onClose: () => void;
@@ -37,6 +59,7 @@ export function OptikCameraCapture({
   burstFrames?: number;
   cameraSettings?: OptikCameraSettings;
   mode?: 'mc' | 'key' | 'student';
+  omrOverlay?: OptikCameraOverlayConfig | null;
 }) {
   const settings = cameraSettings ?? loadOptikCameraSettings();
   const frameCount =
@@ -50,7 +73,10 @@ export function OptikCameraCapture({
   const [torchAvail, setTorchAvail] = useState(false);
   const [progress, setProgress] = useState(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const videoWrapRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const liveBusyRef = useRef(false);
+  const [livePreview, setLivePreview] = useState<OmrLivePreview | null>(null);
 
   const title =
     mode === 'mc' ? 'Optik form' : mode === 'key' ? 'Anahtar metni' : 'Öğrenci cevabı';
@@ -67,6 +93,7 @@ export function OptikCameraCapture({
     setTorchOn(false);
     setTorchAvail(false);
     setProgress(0);
+    setLivePreview(null);
   }, []);
 
   useEffect(() => {
@@ -115,6 +142,54 @@ export function OptikCameraCapture({
     };
   }, [open, stopAll, settings]);
 
+  useEffect(() => {
+    if (open && mode === 'mc') void preloadOptikOpenCv();
+  }, [open, mode]);
+
+  const overlayKey = omrOverlay?.answerKey
+    ? answerKeyToNumberMap(omrOverlay.answerKey)
+    : undefined;
+  const showGrade = !!overlayKey && Object.keys(overlayKey).length > 0;
+  const overlayStats = buildOverlayStats(
+    livePreview,
+    overlayKey,
+    omrOverlay?.maxQuestion ?? 0,
+  );
+
+  useEffect(() => {
+    if (!open || !ready || mode !== 'mc' || !omrOverlay?.layout) {
+      setLivePreview(null);
+      return;
+    }
+    let raf = 0;
+    let last = 0;
+    const tick = (t: number) => {
+      if (t - last >= 520 && !liveBusyRef.current) {
+        last = t;
+        const video = videoRef.current;
+        if (video?.videoWidth) {
+          liveBusyRef.current = true;
+          void decodeOmrLivePreviewFromVideo(video, omrOverlay.layout, {
+            maxQuestion: omrOverlay.maxQuestion,
+            mode: omrOverlay.mode ?? 'student',
+          })
+            .then((p) => {
+              if (p) setLivePreview(p);
+            })
+            .catch(() => {
+              /* kamera / OpenCV hazır değil */
+            })
+            .finally(() => {
+              liveBusyRef.current = false;
+            });
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [open, ready, mode, omrOverlay]);
+
   const handleShot = async () => {
     const video = videoRef.current;
     if (!video?.videoWidth) return;
@@ -153,8 +228,21 @@ export function OptikCameraCapture({
         </Button>
       </div>
 
-      <div className="relative flex-1 overflow-hidden">
+      <div ref={videoWrapRef} className="relative flex-1 overflow-hidden">
         <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
+        {mode === 'mc' && omrOverlay?.layout && livePreview ? (
+          <OptikOmrCameraOverlay
+            videoRef={videoRef}
+            containerRef={videoWrapRef}
+            preview={livePreview}
+            answerKey={overlayKey}
+            maxQuestion={omrOverlay.maxQuestion}
+            showGrade={showGrade}
+          />
+        ) : null}
+        {mode === 'mc' && omrOverlay?.layout ? (
+          <OptikOmrOverlayLegend showGrade={showGrade} stats={overlayStats} />
+        ) : null}
         {mode === 'mc' ? (
           <>
             <div className="pointer-events-none absolute inset-5 rounded-2xl border-2 border-fuchsia-400/70 shadow-[inset_0_0_40px_rgba(192,38,211,0.15)]" />
@@ -162,8 +250,22 @@ export function OptikCameraCapture({
             <div className="pointer-events-none absolute right-5 top-5 size-5 rounded-sm border-2 border-white bg-black/80" />
             <div className="pointer-events-none absolute bottom-5 left-5 size-5 rounded-sm border-2 border-white bg-black/80" />
             <div className="pointer-events-none absolute bottom-5 right-5 size-5 rounded-sm border-2 border-white bg-black/80" />
-            <div className="pointer-events-none absolute bottom-24 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-[10px] text-white/90">
-              A4 optik · omr-v3
+            <div className="pointer-events-none absolute bottom-24 left-1/2 flex -translate-x-1/2 flex-col items-center gap-1">
+              <span className="rounded-full bg-black/50 px-3 py-1 text-[10px] text-white/90">
+                A4 optik · omr-v4
+              </span>
+              {livePreview?.result.warp_engine ? (
+                <span className="rounded-full bg-black/55 px-2 py-0.5 text-[9px] text-emerald-200">
+                  {livePreview.result.warp_engine === 'opencv'
+                    ? 'OpenCV hizalı'
+                    : livePreview.result.warp_engine === 'legacy'
+                      ? 'Yerel hizalı'
+                      : 'Hiza zayıf'}
+                  {livePreview.anchorScore > 0
+                    ? ` · %${Math.round(livePreview.anchorScore * 100)}`
+                    : ''}
+                </span>
+              ) : null}
             </div>
           </>
         ) : (
