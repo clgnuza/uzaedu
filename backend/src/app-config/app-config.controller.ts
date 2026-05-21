@@ -620,7 +620,7 @@ class UpdateGdprDto {
 
   @IsOptional()
   @IsIn(['gradient', 'minimal', 'brand'])
-  cookie_banner_visual?: 'gradient' | 'minimal' | 'brand';
+  cookie_banner_visual?: 'landing' | 'gradient' | 'minimal' | 'brand';
 
   @IsOptional()
   @Type(() => Number)

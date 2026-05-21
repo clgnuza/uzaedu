@@ -19,8 +19,8 @@ export const DEFAULT_GDPR = {
   /** Çerez politikası sayfası path (site köküne göre) */
   cookie_policy_path: '/cerez',
   reject_button_visible: true,
-  /** Kamu çerez şeridi: gradient | brand (primary) | minimal */
-  cookie_banner_visual: 'gradient' as 'gradient' | 'minimal' | 'brand',
+  /** Kamu çerez şeridi: landing | brand | minimal | gradient */
+  cookie_banner_visual: 'landing' as 'landing' | 'gradient' | 'minimal' | 'brand',
   /** GET /content/gdpr Cache-Control max-age (sn) */
   cache_ttl_gdpr: 120,
 } as const;

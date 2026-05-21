@@ -14,7 +14,7 @@ export type GdprPublic = {
   cookie_policy_path: string;
   reject_button_visible: boolean;
   /** Kamu çerez şeridi görünümü */
-  cookie_banner_visual: 'gradient' | 'minimal' | 'brand';
+  cookie_banner_visual: 'landing' | 'gradient' | 'minimal' | 'brand';
   cache_ttl_gdpr: number;
 };
 

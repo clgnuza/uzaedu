@@ -268,7 +268,7 @@ export type GdprConfig = {
   cookie_policy_path: string;
   reject_button_visible: boolean;
   /** Kamu çerez şeridi görsel şablonu */
-  cookie_banner_visual: 'gradient' | 'minimal' | 'brand';
+  cookie_banner_visual: 'landing' | 'gradient' | 'minimal' | 'brand';
   cache_ttl_gdpr: number;
 };
 
@@ -320,10 +320,8 @@ function normalizeGoogleSiteVerificationToken(raw: unknown): string | null {
   return s;
 }
 
-function normalizeCookieBannerVisual(v: unknown): 'gradient' | 'minimal' | 'brand' {
-  const s = String(v ?? '').trim().toLowerCase();
-  if (s === 'minimal' || s === 'brand') return s;
-  return 'gradient';
+function normalizeCookieBannerVisual(_v: unknown): 'landing' {
+  return 'landing';
 }
 
 const GUEST_SHELL_MAX_ITEMS = 8;
@@ -545,10 +543,7 @@ function mergeGdprFromStored(stored: Partial<GdprConfig> | null): GdprConfig {
         : d.cookie_policy_path,
     reject_button_visible:
       typeof stored.reject_button_visible === 'boolean' ? stored.reject_button_visible : d.reject_button_visible,
-    cookie_banner_visual:
-      stored.cookie_banner_visual !== undefined
-        ? normalizeCookieBannerVisual(stored.cookie_banner_visual)
-        : d.cookie_banner_visual,
+    cookie_banner_visual: 'landing',
     cache_ttl_gdpr: clampCacheTtl(stored.cache_ttl_gdpr, d.cache_ttl_gdpr),
   };
 }

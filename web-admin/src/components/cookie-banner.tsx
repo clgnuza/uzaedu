@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Cookie, Mail } from 'lucide-react';
+import { Cookie } from 'lucide-react';
 import type { GdprPublic } from '@/lib/gdpr-public';
 import {
   COOKIE_CONSENT_RESET_EVENT,
@@ -12,20 +12,14 @@ import {
 import { cn } from '@/lib/utils';
 import { getApiUrl } from '@/lib/api';
 import {
-  gdprAccentStripCn,
-  gdprGradientFrameCn,
-  gdprMobileIconShellCn,
-  normalizeGdprBannerVisual,
+  GDPR_BANNER_ACCENT_CN,
+  GDPR_BANNER_BODY_PROSE_CN,
+  GDPR_BANNER_CARD_CN,
+  GDPR_BANNER_FRAME_CN,
+  GDPR_BANNER_ICON_CN,
 } from '@/lib/gdpr-banner-visual';
 
 type Consent = 'accepted' | 'rejected' | null;
-
-const bannerBodyProse = cn(
-  'text-[11px] leading-snug text-muted-foreground sm:text-xs sm:leading-relaxed',
-  '[&_p]:mb-1.5 [&_p:last-child]:mb-0',
-  '[&_a]:font-medium [&_a]:text-primary [&_a]:underline-offset-2 [&_a]:hover:underline',
-  '[&_strong]:font-medium [&_strong]:text-foreground/85',
-);
 
 let gdprInflight: Promise<GdprPublic> | null = null;
 
@@ -40,9 +34,21 @@ const defaultCfg: GdprPublic = {
   dpo_email: null,
   cookie_policy_path: '/cerez',
   reject_button_visible: true,
-  cookie_banner_visual: 'gradient',
+  cookie_banner_visual: 'landing',
   cache_ttl_gdpr: 120,
 };
+
+function BannerBody({ policyPath }: { policyPath: string }) {
+  return (
+    <p>
+      <strong>Zorunlu çerezler</strong> siteyi çalıştırır; <strong>analitik ve pazarlama</strong> yalnızca
+      rızanızla (KVKK/GDPR).{' '}
+      <Link href="/gizlilik">Aydınlatma</Link>
+      {' · '}
+      <Link href={policyPath}>Çerez</Link>
+    </p>
+  );
+}
 
 export function CookieBanner() {
   const [cfg, setCfg] = useState<GdprPublic | null>(null);
@@ -55,16 +61,10 @@ export function CookieBanner() {
       gdprInflight ??
       (gdprInflight = (async (): Promise<GdprPublic> => {
         try {
-          const res = await fetch(getApiUrl('/content/gdpr'), {
-            cache: 'no-store',
-          });
+          const res = await fetch(getApiUrl('/content/gdpr'), { cache: 'no-store' });
           if (!res.ok) throw new Error('gdpr');
           const j = (await res.json()) as GdprPublic;
-          return {
-            ...defaultCfg,
-            ...j,
-            cookie_banner_visual: normalizeGdprBannerVisual(j.cookie_banner_visual),
-          };
+          return { ...defaultCfg, ...j, cookie_banner_visual: 'landing' };
         } catch {
           return defaultCfg;
         }
@@ -90,9 +90,7 @@ export function CookieBanner() {
   }, [cfg]);
 
   useEffect(() => {
-    const onReset = () => {
-      setConsent(null);
-    };
+    const onReset = () => setConsent(null);
     window.addEventListener(COOKIE_CONSENT_RESET_EVENT, onReset);
     return () => window.removeEventListener(COOKIE_CONSENT_RESET_EVENT, onReset);
   }, []);
@@ -100,10 +98,9 @@ export function CookieBanner() {
   if (!mounted || !cfg || !cfg.cookie_banner_enabled || consent !== null) return null;
 
   const policyPath = cfg.cookie_policy_path.startsWith('/') ? cfg.cookie_policy_path : `/${cfg.cookie_policy_path}`;
-  const bannerTitle = (cfg.cookie_banner_title?.trim() || 'Çerez tercihleri').slice(0, 120);
-  const acceptLabel = (cfg.accept_button_label?.trim() || 'Kabul et').slice(0, 64);
-  const rejectLabel = (cfg.reject_button_label?.trim() || 'Reddet').slice(0, 64);
-  const visual = normalizeGdprBannerVisual(cfg.cookie_banner_visual);
+  const bannerTitle = (cfg.cookie_banner_title?.trim() || 'Çerezler').slice(0, 80);
+  const acceptLabel = (cfg.accept_button_label?.trim() || 'Kabul').slice(0, 32);
+  const rejectLabel = (cfg.reject_button_label?.trim() || 'Reddet').slice(0, 32);
 
   const saveConsent = (value: 'accepted' | 'rejected') => {
     writeStoredConsent(cfg.consent_version, value);
@@ -112,124 +109,55 @@ export function CookieBanner() {
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-3 pb-3 pt-2 sm:px-4 sm:pb-4 sm:pt-3 md:p-5"
-      style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-2 pb-2 pt-1 sm:px-4 sm:pb-3"
+      style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0px))' }}
     >
-      <div className={cn(gdprGradientFrameCn(visual))}>
-        <div
-          role="dialog"
-          aria-live="polite"
-          aria-label={bannerTitle}
-          className={cn(
-            'w-full overflow-hidden rounded-xl border border-border/70 bg-card/98 shadow-lg shadow-black/10 backdrop-blur-xl',
-            'ring-1 ring-black/5 dark:border-white/10 dark:bg-zinc-950/98 dark:ring-white/8 dark:shadow-black/40',
-            'max-sm:rounded-[14px] max-sm:border-white/12 max-sm:bg-card/90 max-sm:backdrop-blur-xl dark:max-sm:bg-zinc-950/88',
-            'sm:rounded-2xl md:shadow-[0_-8px_40px_-12px_rgba(0,0,0,0.2)]',
-          )}
-        >
+      <div className={GDPR_BANNER_FRAME_CN}>
+        <div role="dialog" aria-live="polite" aria-label={bannerTitle} className={GDPR_BANNER_CARD_CN}>
           <div className="relative overflow-hidden rounded-[inherit]">
-            <div className={gdprAccentStripCn(visual)} aria-hidden />
-            <div className="flex max-h-[min(72dvh,560px)] flex-col md:max-h-none md:flex-row md:items-stretch md:gap-6 md:p-6">
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-2 pt-3 sm:px-5 sm:pb-3 sm:pt-4 md:min-h-0 md:overflow-visible md:p-0">
-                <div className="flex min-w-0 gap-2.5 sm:gap-4">
-                  <div
-                    className="hidden shrink-0 sm:flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/12 dark:bg-primary/15 md:h-11 md:w-11 md:rounded-2xl"
-                    aria-hidden
-                  >
-                    <Cookie className="size-[18px] md:size-5" strokeWidth={1.75} />
+            <div className={GDPR_BANNER_ACCENT_CN} aria-hidden />
+            <div className="flex flex-col gap-2 px-2.5 py-2 sm:gap-2.5 sm:px-3.5 sm:py-2.5">
+              <div className="flex min-w-0 gap-2">
+                <div className={cn(GDPR_BANNER_ICON_CN, 'mt-0.5')} aria-hidden>
+                  <Cookie className="size-3" strokeWidth={1.75} />
+                </div>
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <p className="text-[10px] font-semibold leading-tight text-zinc-200 sm:text-[11px]">{bannerTitle}</p>
+                  <div className={GDPR_BANNER_BODY_PROSE_CN}>
+                    <BannerBody policyPath={policyPath} />
                   </div>
-                  <div className="min-w-0 flex-1 space-y-1.5 sm:space-y-2">
-                    <div className="flex items-center gap-2 sm:hidden">
-                      <div className={gdprMobileIconShellCn(visual)}>
-                        <Cookie className="size-4" strokeWidth={1.75} />
-                      </div>
-                      <p className="text-[11px] font-semibold leading-tight text-foreground">{bannerTitle}</p>
-                    </div>
-                    {cfg.data_controller_name ? (
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-xs">
-                        Veri sorumlusu:{' '}
-                        <span className="font-semibold text-foreground/90">{cfg.data_controller_name}</span>
-                      </p>
-                    ) : null}
-                    {cfg.cookie_banner_body_html ? (
-                      <div className={bannerBodyProse} dangerouslySetInnerHTML={{ __html: cfg.cookie_banner_body_html }} />
-                    ) : (
-                      <div className={cn(bannerBodyProse, 'space-y-1.5 sm:space-y-2')}>
-                        <p>
-                          <strong>Zorunlu çerezler</strong> ile güvenli çalışma ve temel tercihler sağlanır.{' '}
-                          <strong>Analitik ve pazarlama</strong> için işlem, yalnızca açık rızanızla yapılır (KVKK m.5/2-ç;
-                          GDPR m.6(1)(a)).
-                        </p>
-                        <p>
-                          Haklar ve amaçlar{' '}
-                          <Link
-                            href="/gizlilik"
-                            className="font-medium text-primary underline-offset-2 transition-colors hover:text-primary/90 hover:underline"
-                          >
-                            Aydınlatma Metni
-                          </Link>
-                          ’nde; çerez türleri{' '}
-                          <Link
-                            href={policyPath}
-                            className="font-medium text-primary underline-offset-2 transition-colors hover:text-primary/90 hover:underline"
-                          >
-                            Çerez Politikası
-                          </Link>
-                          ’ndadır. Rızanızı geri çekebilir veya tarayıcıdan yönetebilirsiniz.
-                        </p>
-                      </div>
-                    )}
-                  {cfg.dpo_email ? (
-                    <a
-                      href={`mailto:${cfg.dpo_email}`}
-                      className="inline-flex max-w-full items-center gap-1.5 truncate text-[10px] text-muted-foreground transition-colors hover:text-primary sm:text-xs"
-                    >
-                      <Mail className="size-3 shrink-0 opacity-80" strokeWidth={2} />
-                      <span className="truncate">{cfg.dpo_email}</span>
-                    </a>
-                  ) : null}
                 </div>
               </div>
-            </div>
-
-            <div
-              className={cn(
-                'flex shrink-0 flex-row gap-2 border-t border-border/50 bg-muted/20 px-3 py-2.5 dark:bg-zinc-900/50 sm:px-5 sm:py-3',
-                'md:w-44 md:min-w-44 md:flex-col md:justify-center md:gap-2 md:border-l md:border-t-0 md:bg-transparent md:px-0 md:py-0',
-              )}
-            >
-              <button
-                type="button"
-                onClick={() => saveConsent('accepted')}
-                className={cn(
-                  'inline-flex h-9 min-h-9 flex-1 items-center justify-center rounded-lg px-3 text-xs font-semibold shadow-sm transition-all sm:h-11 sm:min-h-11 sm:flex-initial sm:rounded-xl sm:px-5 sm:text-sm',
-                  'bg-primary text-primary-foreground hover:bg-primary/92 active:scale-[0.98]',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                  'md:w-full',
-                )}
-              >
-                {acceptLabel}
-              </button>
-              {cfg.reject_button_visible ? (
+              <div className="flex w-full shrink-0 gap-1.5">
+                {cfg.reject_button_visible ? (
+                  <button
+                    type="button"
+                    onClick={() => saveConsent('rejected')}
+                    className={cn(
+                      'inline-flex h-7 min-h-7 flex-1 items-center justify-center rounded-lg border border-zinc-700/80',
+                      'bg-zinc-950/80 px-2 text-[10px] font-semibold text-zinc-300 transition hover:border-zinc-600 hover:bg-zinc-900',
+                      'active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 sm:h-8 sm:text-[11px]',
+                    )}
+                  >
+                    {rejectLabel}
+                  </button>
+                ) : null}
                 <button
                   type="button"
-                  onClick={() => saveConsent('rejected')}
+                  onClick={() => saveConsent('accepted')}
                   className={cn(
-                    'inline-flex h-9 min-h-9 flex-1 items-center justify-center rounded-lg border border-border bg-background/90 px-3 text-xs font-semibold sm:h-11 sm:min-h-11 sm:flex-initial sm:rounded-xl sm:px-5 sm:text-sm',
-                    'text-foreground transition-all hover:bg-muted active:scale-[0.98]',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                    'dark:bg-zinc-900/70 dark:hover:bg-zinc-800',
-                    'md:w-full',
+                    'inline-flex h-7 min-h-7 flex-1 items-center justify-center rounded-lg px-2 text-[10px] font-semibold text-white transition',
+                    'bg-linear-to-r from-red-700 to-red-800 shadow-md shadow-red-950/40 hover:from-red-600 hover:to-red-700',
+                    'active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50 sm:h-8 sm:text-[11px]',
                   )}
                 >
-                  {rejectLabel}
+                  {acceptLabel}
                 </button>
-              ) : null}
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
     </div>
   );
 }
