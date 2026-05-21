@@ -190,6 +190,20 @@ export function OptikCameraCapture({
     return () => cancelAnimationFrame(raf);
   }, [open, ready, mode, omrOverlay]);
 
+  const handleClose = useCallback(() => {
+    stopAll();
+    onClose();
+  }, [stopAll, onClose]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, handleClose]);
+
   const handleShot = async () => {
     const video = videoRef.current;
     if (!video?.videoWidth) return;
@@ -211,8 +225,8 @@ export function OptikCameraCapture({
   if (!mounted || !open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[200] flex flex-col bg-black">
-      <div className="flex items-center justify-between gap-2 bg-linear-to-r from-fuchsia-900/90 to-violet-900/90 px-3 py-2.5 text-white backdrop-blur-sm">
+    <div className="fixed inset-0 z-[250] flex min-h-0 flex-col bg-black">
+      <div className="relative z-50 flex shrink-0 items-center justify-between gap-2 bg-linear-to-r from-fuchsia-900/90 to-violet-900/90 px-3 pb-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] text-white backdrop-blur-sm">
         <div className="min-w-0">
           <p className="truncate text-sm font-bold">{title}</p>
           <p className="truncate text-[11px] text-white/75">{hint}</p>
@@ -221,14 +235,19 @@ export function OptikCameraCapture({
           type="button"
           variant="ghost"
           size="icon"
-          className="size-9 shrink-0 rounded-full bg-white/10 text-white"
-          onClick={onClose}
+          aria-label="Kamerayı kapat"
+          className="size-11 shrink-0 touch-manipulation rounded-full bg-white/15 text-white hover:bg-white/25"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleClose();
+          }}
         >
-          <X className="size-5" />
+          <X className="size-6" />
         </Button>
       </div>
 
-      <div ref={videoWrapRef} className="relative flex-1 overflow-hidden">
+      <div ref={videoWrapRef} className="relative min-h-0 flex-1 overflow-hidden">
         <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
         {mode === 'mc' && omrOverlay?.layout && livePreview ? (
           <OptikOmrCameraOverlay
