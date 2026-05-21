@@ -3064,6 +3064,13 @@ function TvSettingsForm({
                   ? { lesson_times: timetableLessonTimes, class_sections: timetableClassSections, entries: timetableEntries }
                   : null,
                 tv_countdown_targets: countdownTargets.length > 0 ? countdownTargets : null,
+                tv_now_in_class_bar_title: nowInClassBarTitle.trim() || null,
+                tv_now_in_class_bar_font_size: nowInClassBarFontSize
+                  ? parseInt(nowInClassBarFontSize, 10)
+                  : null,
+                tv_now_in_class_bar_marquee_duration: nowInClassBarMarqueeDuration
+                  ? parseInt(nowInClassBarMarqueeDuration, 10)
+                  : null,
               };
               const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
               const a = document.createElement('a');
@@ -3126,6 +3133,9 @@ function TvSettingsForm({
                     const cd = data.tv_countdown_targets as Array<{ label?: string; target_date?: string }> | null;
                     if (Array.isArray(cd) && cd.length > 0) setCountdownTargets(cd.filter((x) => x && x.target_date).map((x) => ({ label: String(x.label ?? '').trim() || 'Hedef', target_date: String(x.target_date ?? '').includes('T') ? String(x.target_date).slice(0, 16) : (String(x.target_date).slice(0, 10) || '') + 'T09:00' })));
                     else setCountdownTargets([]);
+                    if (data.tv_now_in_class_bar_title != null) setNowInClassBarTitle(String(data.tv_now_in_class_bar_title));
+                    if (data.tv_now_in_class_bar_font_size != null) setNowInClassBarFontSize(String(data.tv_now_in_class_bar_font_size));
+                    if (data.tv_now_in_class_bar_marquee_duration != null) setNowInClassBarMarqueeDuration(String(data.tv_now_in_class_bar_marquee_duration));
                     toast.success('Yedek yüklendi. Değişiklikleri kaydetmek için formu gönderin.');
                   } catch (err) {
                     toast.error(err instanceof Error ? err.message : 'Yedek dosyası okunamadı');

@@ -21,6 +21,19 @@ import {
 import { subscribeClassroomBoardSync } from '@/lib/smart-board-classroom-sync';
 import { buildPardusKurulumPageUrl } from '@/lib/smart-board-setup-link-parse';
 import { SMART_BOARD_QR_FLOW_SUMMARY } from '@/lib/smart-board-teacher-qr-flow';
+import {
+  getActiveLessonNumsAt,
+  getTvNowInClassIdleMessage,
+  normalizeTvLessonSlots,
+  pickTvLessonSlotsForDay,
+  normTvClassSection,
+  TV_TIMETABLE_DAY_NAMES,
+  abbreviateTvSubject,
+  chunkTvTimetableClassSections,
+  getTodayClassSectionsForTv,
+  parseTimetableGridChunkIndex,
+  tvTurkishDowFromDate,
+} from '@/lib/tv-timetable-active-lessons';
 
 type TvAudience = 'corridor' | 'teachers' | 'classroom';
 
@@ -185,6 +198,11 @@ type TvResponse = {
     teacher_name: string;
     class_section: string | null;
   } | null;
+  now_in_class_lines?: Array<{
+    class_section: string;
+    subject: string;
+    teacher_name?: string | null;
+  }>;
 };
 
 /** tv_visible_cards içindeki slide_* anahtarlarına eşler (orta alan slayt filtresi). */
@@ -1222,8 +1240,11 @@ export default function TvAudienceContent() {
       };
       const entries = Array.isArray(o.entries) ? o.entries : [];
       const sections = Array.isArray(o.class_sections) ? o.class_sections : [];
-      const times = Array.isArray(o.lesson_times) ? o.lesson_times : [];
-      const timesWeekend = Array.isArray(o.lesson_times_weekend) ? o.lesson_times_weekend : undefined;
+      const times = normalizeTvLessonSlots(o.lesson_times);
+      const timesWeekend =
+        Array.isArray(o.lesson_times_weekend) && o.lesson_times_weekend.length > 0
+          ? normalizeTvLessonSlots(o.lesson_times_weekend)
+          : undefined;
       if (entries.length === 0) return null;
       return { entries, sections, times, timesWeekend };
     } catch {
@@ -1231,34 +1252,40 @@ export default function TvAudienceContent() {
     }
   }, [data?.school?.tv_timetable_schedule]);
 
-  const currentLessonNum = useMemo(() => {
-    const js = now.getDay();
-    const turkishDow = js === 0 ? 7 : js;
-    const isWeekend = turkishDow === 6 || turkishDow === 7;
-    const slotList =
-      isWeekend && timetableData?.timesWeekend && timetableData.timesWeekend.length > 0
-        ? timetableData.timesWeekend
-        : timetableData?.times;
-    if (!slotList?.length) return 0;
+  const activeLessonNums = useMemo(() => {
+    const turkishDow = tvTurkishDowFromDate(now);
+    const slotList = pickTvLessonSlotsForDay(
+      timetableData?.times,
+      timetableData?.timesWeekend,
+      turkishDow,
+    );
     const nowMins = now.getHours() * 60 + now.getMinutes();
-    const parseTime = (s: string) => {
-      const [h, m] = String(s).split(':').map(Number);
-      return (h || 0) * 60 + (m || 0);
-    };
-    for (let i = slotList.length - 1; i >= 0; i--) {
-      const lt = slotList[i]!;
-      const start = parseTime(lt.start);
-      const end = parseTime(lt.end);
-      if (nowMins >= start && nowMins <= end) return lt.num;
-    }
-    return 0;
+    return getActiveLessonNumsAt(slotList, nowMins);
   }, [timetableData?.times, timetableData?.timesWeekend, now]);
 
-  const timetableItems = useMemo(() => {
-    const announcementTimetable = byCategory.timetable ?? [];
-    if (!timetableData?.entries?.length) return announcementTimetable;
-    return [{ id: '_timetable-grid', title: 'Ders Programı', summary: null, body: null } as TvAnnouncement];
-  }, [timetableData, byCategory.timetable]);
+  const currentLessonNum = activeLessonNums[0] ?? 0;
+
+  const nowInClassIdleMessage = useMemo(() => {
+    const turkishDow = tvTurkishDowFromDate(now);
+    const slotList = pickTvLessonSlotsForDay(
+      timetableData?.times,
+      timetableData?.timesWeekend,
+      turkishDow,
+    );
+    const nowMins = now.getHours() * 60 + now.getMinutes();
+    return getTvNowInClassIdleMessage(slotList, nowMins);
+  }, [timetableData?.times, timetableData?.timesWeekend, now]);
+
+  const timetableClassChunks = useMemo(() => {
+    if (!timetableData?.entries?.length) return [] as string[][];
+    const turkishToday = tvTurkishDowFromDate(now);
+    const sections = getTodayClassSectionsForTv(timetableData, turkishToday);
+    return chunkTvTimetableClassSections(sections);
+  }, [timetableData, now]);
+
+  const timetableImageItems = useMemo(() => {
+    return (byCategory.timetable ?? []).filter((a) => a.attachment_url?.trim());
+  }, [byCategory.timetable]);
 
   const birthdayItems = useMemo(() => {
     const announcementBirthday = byCategory.birthday ?? [];
@@ -1320,15 +1347,32 @@ export default function TvAudienceContent() {
         } as TvAnnouncement,
       ];
     }
+    const apiLines = data?.now_in_class_lines ?? [];
+    if (apiLines.length > 0) {
+      return apiLines.map((line, i) => {
+        const teacher = line.teacher_name?.trim();
+        const text = teacher
+          ? `${line.class_section}: ${line.subject} – ${teacher}`
+          : `${line.class_section}: ${line.subject}`;
+        return {
+          id: `now-api-${i}`,
+          title: '',
+          summary: text,
+          body: text,
+        } as TvAnnouncement;
+      });
+    }
     const announcementNowInClass = byCategory.now_in_class ?? [];
-    /* entries.day: 1=Pzt … 7=Paz — JS getDay: 0=Paz, 1=Pzt … 6=Cmt */
-    const jsDow = now.getDay();
-    const turkishDow = jsDow === 0 ? 7 : jsDow;
+    const turkishDow = tvTurkishDowFromDate(now);
     const timetableEntries: Array<{ id: string; summary: string; body: string; title: string }> = [];
-    if (timetableData && currentLessonNum > 0) {
-      const filteredEntries = timetableData.entries.filter(
-        (e) => e.day === turkishDow && e.lesson === currentLessonNum,
+    if (timetableData && activeLessonNums.length > 0) {
+      const numsWithRows = activeLessonNums.filter((n) =>
+        timetableData.entries.some((e) => e.day === turkishDow && e.lesson === n),
       );
+      const activeSet = new Set(numsWithRows.length > 0 ? numsWithRows : activeLessonNums);
+      const filteredEntries = timetableData.entries
+        .filter((e) => e.day === turkishDow && activeSet.has(e.lesson))
+        .sort((a, b) => a.class.localeCompare(b.class, 'tr', { numeric: true }));
       filteredEntries.forEach((e, i) => {
         timetableEntries.push({
           id: `now-t-${i}`,
@@ -1345,7 +1389,7 @@ export default function TvAudienceContent() {
       body: a.body || a.summary || a.title || '',
     }));
     return [...timetableEntries, ...fromAnnouncements] as TvAnnouncement[];
-  }, [audience, data?.current_slot, timetableData, currentLessonNum, now, byCategory.now_in_class]);
+  }, [audience, data?.current_slot, data?.now_in_class_lines, timetableData, activeLessonNums, now, byCategory.now_in_class]);
 
   const videoItems = useMemo(() => {
     return (filtered ?? []).filter((a) => (a as TvAnnouncement).youtube_url?.trim());
@@ -1402,7 +1446,29 @@ export default function TvAudienceContent() {
       { key: 'staff', type: 'staff', items: stripYoutubeForVideoOnly(byCategory.staff ?? []) },
       { key: 'birthday', type: 'birthday', items: stripYoutubeForVideoOnly(birthdayItems) },
       { key: 'success', type: 'success', items: stripYoutubeForVideoOnly(byCategory.success ?? []) },
-      { key: 'timetable', type: 'timetable', items: stripYoutubeForVideoOnly(timetableItems) },
+      ...timetableClassChunks.map((_, chunkIndex) => ({
+        key: `timetable-grid-${chunkIndex}`,
+        type: 'timetable' as const,
+        timetableChunkIndex: chunkIndex,
+        timetableChunkTotal: timetableClassChunks.length,
+        items: [
+          {
+            id: `_timetable-grid-${chunkIndex}`,
+            title: 'Ders Programı',
+            summary: null,
+            body: null,
+          } as TvAnnouncement,
+        ],
+      })),
+      ...(timetableImageItems.length > 0
+        ? [
+            {
+              key: 'timetable-images',
+              type: 'timetable' as const,
+              items: stripYoutubeForVideoOnly(timetableImageItems),
+            },
+          ]
+        : []),
       ...newsSlides,
       ...videoItems.map((item, i) => ({
         key: `video-${item.id}-${i}`,
@@ -1414,7 +1480,7 @@ export default function TvAudienceContent() {
       (s) =>
         isSlideTypeVisible(s.type) && (s.type === 'welcome' || (s.items && s.items.length > 0)),
     );
-  }, [byCategory, specialDayItems, birthdayItems, timetableItems, videoItems, isSlideTypeVisible]);
+  }, [byCategory, specialDayItems, birthdayItems, timetableClassChunks, timetableImageItems, videoItems, isSlideTypeVisible]);
 
   const [activeIndex, setActiveIndex] = useState(0);
   const slideDuration = (data?.school?.tv_default_slide_duration ?? 10) * 1000;
@@ -1888,6 +1954,7 @@ export default function TvAudienceContent() {
                       welcomeImageUrl={data?.school?.tv_welcome_image_url ?? undefined}
                       timetableData={timetableData}
                       currentLessonNum={currentLessonNum}
+                      activeLessonNums={activeLessonNums}
                       currentDay={now.getDay()}
                       birthdayCardTitle={data?.school?.tv_birthday_card_title ?? undefined}
                       birthdayFontSize={data?.school?.tv_birthday_font_size ?? undefined}
@@ -1999,29 +2066,34 @@ export default function TvAudienceContent() {
             </div>
             <div className="h-5 w-px shrink-0 bg-white/20" aria-hidden />
             <div className="min-w-0 flex-1 overflow-hidden py-0.5">
-              <div
-                className="tv-marquee tv-now-in-class-marquee inline-flex shrink-0 items-center gap-0 whitespace-nowrap text-white/95"
-                style={{
-                  animation: `tv-marquee ${data?.school?.tv_now_in_class_bar_marquee_duration ?? 30}s linear infinite`,
-                  WebkitAnimation: `tv-marquee ${data?.school?.tv_now_in_class_bar_marquee_duration ?? 30}s linear infinite`,
-                  fontSize: `${data?.school?.tv_now_in_class_bar_font_size ?? 18}px`,
-                  fontFamily: "'Segoe UI', 'Helvetica Neue', system-ui, sans-serif",
-                  lineHeight: 1.6,
-                }}
-              >
-                {(() => {
-                  const parts = (nowInClassItems.length ? nowInClassItems : [])
-                    .map((i) => i.summary || i.body || i.title)
-                    .filter(Boolean);
-                  const text = parts.length ? parts.join('   •   ') : 'Ders bilgisi yok';
-                  return (
-                    <>
-                      <span className="inline-flex shrink-0 items-center gap-0 whitespace-nowrap" style={{ minWidth: '100vw' }}>{text}</span>
-                      <span className="inline-flex shrink-0 items-center gap-0 whitespace-nowrap" style={{ minWidth: '100vw' }} aria-hidden>{text}</span>
-                    </>
-                  );
-                })()}
-              </div>
+              {nowInClassItems.length > 0 ? (
+                <div
+                  className="tv-marquee tv-now-in-class-marquee inline-flex shrink-0 items-center gap-0 whitespace-nowrap text-white/95"
+                  style={{
+                    animation: `tv-marquee ${data?.school?.tv_now_in_class_bar_marquee_duration ?? 30}s linear infinite`,
+                    WebkitAnimation: `tv-marquee ${data?.school?.tv_now_in_class_bar_marquee_duration ?? 30}s linear infinite`,
+                    fontSize: `${data?.school?.tv_now_in_class_bar_font_size ?? 18}px`,
+                    fontFamily: "'Segoe UI', 'Helvetica Neue', system-ui, sans-serif",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <NowInClassMarqueeTrack items={nowInClassItems} />
+                </div>
+              ) : (
+                <span
+                  className={
+                    nowInClassIdleMessage.includes('Teneffüs') || nowInClassIdleMessage.includes('Öğle')
+                      ? 'text-amber-200/95'
+                      : 'text-white/70'
+                  }
+                  style={{
+                    fontSize: `${data?.school?.tv_now_in_class_bar_font_size ?? 18}px`,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {nowInClassIdleMessage}
+                </span>
+              )}
             </div>
           </div>
           )}
@@ -2563,6 +2635,7 @@ function SlideView({
   welcomeImageUrl,
   timetableData,
   currentLessonNum,
+  activeLessonNums = [],
   currentDay,
   birthdayCardTitle,
   birthdayFontSize,
@@ -2574,6 +2647,7 @@ function SlideView({
   welcomeImageUrl?: string;
   timetableData?: TimetableData;
   currentLessonNum?: number;
+  activeLessonNums?: number[];
   currentDay?: number;
   birthdayCardTitle?: string;
   birthdayFontSize?: number;
@@ -3048,7 +3122,11 @@ function SlideView({
     case 'timetable': {
       const items = slide.items ?? [];
       const withImages = items.filter((i) => i.attachment_url);
-      const hasGrid = timetableData && items.some((i) => i.id === '_timetable-grid');
+      const gridItem = items.find((i) => i.id.startsWith('_timetable-grid'));
+      const hasGrid = !!(timetableData && gridItem);
+      const chunkIndex =
+        slide.timetableChunkIndex ?? (gridItem ? parseTimetableGridChunkIndex(gridItem.id) : 0);
+      const chunkTotal = slide.timetableChunkTotal ?? 1;
       content = (
         <div className="relative h-full w-full overflow-hidden">
           <div className="absolute inset-0 flex flex-col bg-[var(--tv-bg-dark)]">
@@ -3056,7 +3134,10 @@ function SlideView({
               <TimetableGrid
                 data={timetableData}
                 currentLessonNum={currentLessonNum ?? 0}
+                highlightLessonNums={activeLessonNums}
                 currentDay={currentDay ?? 1}
+                classChunkIndex={chunkIndex}
+                classChunkTotal={chunkTotal}
               />
             ) : withImages.length > 0 ? (
               <div className="flex h-full w-full min-h-0 min-w-0 items-center justify-center">
@@ -3075,9 +3156,6 @@ function SlideView({
                 />
               </div>
             )}
-          </div>
-          <div className="absolute bottom-6 left-6 right-6 rounded-lg border border-white/25 bg-transparent px-4 py-2">
-            <span className="tv-slide-label text-white/90">Ders Programı</span>
           </div>
         </div>
       );
@@ -3137,7 +3215,59 @@ type SlideConfig = {
   key: string;
   type: SlideType;
   items?: TvAnnouncement[];
+  /** Bugünün programı: sınıf sütunları parçalı slaytlar */
+  timetableChunkIndex?: number;
+  timetableChunkTotal?: number;
 };
+
+/** "5A: Matematik" veya serbest metin → sınıf + detay */
+function parseNowInClassLine(text: string): { classLabel: string | null; detail: string } {
+  const t = text.trim();
+  const m = t.match(/^([^:–—]+):\s*(.+)$/u);
+  if (m) return { classLabel: m[1].trim(), detail: m[2].trim() };
+  return { classLabel: null, detail: t };
+}
+
+function NowInClassMarqueeTrack({
+  items,
+}: {
+  items: Array<{ id: string; summary: string | null; body: string | null; title: string | null }>;
+}) {
+  const rows = items
+    .map((i) => ({
+      id: i.id,
+      line: (i.summary || i.body || i.title || '').trim(),
+    }))
+    .filter((r) => r.line.length > 0);
+  if (rows.length === 0) return null;
+  const chunks = rows.map((row, idx) => {
+    const { classLabel, detail } = parseNowInClassLine(row.line);
+    return (
+      <span key={row.id || `n-${idx}`} className="tv-now-in-class-item inline-flex shrink-0 items-center">
+        {idx > 0 ? <span className="tv-now-in-class-sep" aria-hidden /> : null}
+        {classLabel ? (
+          <>
+            <span className="tv-now-in-class-class">{classLabel}</span>
+            <span className="tv-now-in-class-detail">{detail}</span>
+          </>
+        ) : (
+          <span className="tv-now-in-class-detail">{detail}</span>
+        )}
+      </span>
+    );
+  });
+  const row = (
+    <span className="inline-flex shrink-0 items-center gap-0 whitespace-nowrap">{chunks}</span>
+  );
+  return (
+    <>
+      <span className="inline-flex shrink-0 items-center whitespace-nowrap">{row}</span>
+      <span className="inline-flex shrink-0 items-center whitespace-nowrap" aria-hidden>
+        {row}
+      </span>
+    </>
+  );
+}
 
 /** Metinde **kalın** kısımları turuncu vurguya çevirir */
 function renderHighlightedText(text: string | null | undefined): ReactNode {
@@ -3154,55 +3284,166 @@ function renderHighlightedText(text: string | null | undefined): ReactNode {
 function TimetableGrid({
   data,
   currentLessonNum,
+  highlightLessonNums = [],
   currentDay = 1,
+  classChunkIndex = 0,
+  classChunkTotal = 1,
 }: {
   data: TimetableData;
   currentLessonNum: number;
+  highlightLessonNums?: number[];
   /** JS getDay(): 0–6 */
   currentDay?: number;
+  classChunkIndex?: number;
+  classChunkTotal?: number;
 }) {
-  if (!data) return null;
-  const turkishFromJs = currentDay === 0 ? 7 : (currentDay ?? 1);
-  const day = turkishFromJs >= 1 && turkishFromJs <= 7 ? turkishFromJs : 1;
-  const lessons = [...new Set(data.entries.filter((e) => e.day === day).map((e) => e.lesson))].sort((a, b) => a - b);
-  const sections = data.sections.length > 0 ? data.sections : [...new Set(data.entries.map((e) => e.class))].sort();
-  const getCell = (lesson: number, cls: string) =>
-    data.entries.find((e) => e.day === day && e.lesson === lesson && e.class === cls)?.subject ?? '—';
+  const turkishToday = currentDay === 0 ? 7 : (currentDay ?? 1);
+  const dayLabel = TV_TIMETABLE_DAY_NAMES[turkishToday] ?? 'Bugün';
+  const chunkTotal = Math.max(1, classChunkTotal ?? 1);
+  const chunkIndex = Math.min(Math.max(0, classChunkIndex ?? 0), chunkTotal - 1);
+  const activeSet = new Set(
+    highlightLessonNums.length > 0
+      ? highlightLessonNums
+      : currentLessonNum > 0
+        ? [currentLessonNum]
+        : [],
+  );
+
+  const allClassSections = useMemo(() => {
+    if (!data) return [];
+    return getTodayClassSectionsForTv(data, turkishToday);
+  }, [data, turkishToday]);
+
+  const classSections = useMemo(() => {
+    const chunks = chunkTvTimetableClassSections(allClassSections);
+    return chunks[chunkIndex] ?? chunks[0] ?? [];
+  }, [allClassSections, chunkIndex]);
+
+  const lessonSlotsToday = useMemo(
+    () => pickTvLessonSlotsForDay(data?.times, data?.timesWeekend, turkishToday) ?? [],
+    [data?.times, data?.timesWeekend, turkishToday],
+  );
+
+  const lessonNums = useMemo(() => {
+    if (!data) return [];
+    const nums = new Set<number>();
+    for (const t of lessonSlotsToday) {
+      if (t.num >= 1) nums.add(t.num);
+    }
+    for (const e of data.entries) {
+      if (e.day === turkishToday && e.lesson >= 1) nums.add(e.lesson);
+    }
+    return [...nums].sort((a, b) => a - b);
+  }, [data, turkishToday, lessonSlotsToday]);
+
+  const cellMap = useMemo(() => {
+    if (!data) return new Map<string, string>();
+    const m = new Map<string, string>();
+    for (const e of data.entries) {
+      if (e.day !== turkishToday) continue;
+      const cls = e.class.trim();
+      const subj = (e.subject || '').trim();
+      if (!cls || !subj) continue;
+      m.set(`${normTvClassSection(cls)}|${e.lesson}`, subj);
+    }
+    return m;
+  }, [data, turkishToday]);
+
+  const timeByLesson = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const t of lessonSlotsToday) {
+      if (t.start && t.end) m.set(t.num, `${t.start}–${t.end}`);
+    }
+    return m;
+  }, [lessonSlotsToday]);
+
+  const todayHasEntries = useMemo(
+    () => (data?.entries ?? []).some((e) => e.day === turkishToday),
+    [data, turkishToday],
+  );
+
+  if (!data || classSections.length === 0 || lessonNums.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center p-6 text-center text-white/80">
+        {!todayHasEntries && turkishToday >= 1 && turkishToday <= 7
+          ? `${dayLabel} için ders programı kaydı yok.`
+          : 'Ders programı verisi yok veya henüz yüklenmedi.'}
+      </div>
+    );
+  }
 
   return (
-    <div className="flex h-full w-full flex-col overflow-auto p-4 md:p-6">
-      <h2 className="mb-3 text-center text-lg font-bold text-white md:text-xl">Ders Programı</h2>
-      <div className="flex-1 overflow-auto">
-        <table className="w-full min-w-max border-collapse text-sm md:text-base">
-          <thead>
-            <tr className="border-b border-white/30">
-              <th className="bg-white/10 px-2 py-2 text-left font-semibold text-white">Ders</th>
-              {sections.map((s) => (
-                <th key={s} className="border-l border-white/20 bg-white/10 px-2 py-2 text-center font-semibold text-white">
-                  {s}
+    <div className="tv-timetable-grid-root flex h-full min-h-0 w-full flex-col">
+      <h2 className="tv-timetable-grid-title shrink-0 border-b border-white/15 px-2 py-1 text-center font-bold text-white">
+        {dayLabel} — Ders Programı
+        {chunkTotal > 1 ? (
+          <span className="mt-0.5 block text-[10px] font-medium text-white/75">
+            Sınıflar {chunkIndex + 1} / {chunkTotal}
+          </span>
+        ) : null}
+      </h2>
+      <div
+        className="tv-timetable-fit min-h-0 min-w-0 flex-1"
+        style={{ '--tv-timetable-rows': lessonNums.length } as React.CSSProperties}
+      >
+        <table className="tv-timetable-grid-table h-full w-full border-collapse">
+          <colgroup>
+            <col className="tv-timetable-col-lesson" />
+            {classSections.map((s) => (
+              <col key={s} />
+            ))}
+          </colgroup>
+          <thead className="tv-timetable-thead">
+            <tr>
+              <th className="tv-timetable-th-lesson border-r border-white/20 bg-slate-900/95 px-1 py-1 text-left font-semibold text-white/90">
+                Ders
+              </th>
+              {classSections.map((s, i) => (
+                <th
+                  key={s}
+                  className={`tv-timetable-th-class border-l border-white/15${i % 2 === 1 ? ' tv-timetable-th-class--alt' : ''}`}
+                  title={s}
+                >
+                  <span className="tv-timetable-class-label">{s}</span>
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody>
-            {lessons.map((lesson) => {
-              const isCurrent = lesson === currentLessonNum;
+          <tbody className="tv-timetable-tbody">
+            {lessonNums.map((lesson) => {
+              const isCurrent = activeSet.has(lesson);
+              const timeRange = timeByLesson.get(lesson);
               return (
-                <tr
-                  key={lesson}
-                  className={`border-b border-white/15 ${isCurrent ? 'bg-[var(--tv-red)]/40' : 'bg-white/5'}`}
-                >
-                  <td className={`px-2 py-2 font-semibold ${isCurrent ? 'text-white' : 'text-white/90'}`}>
-                    {lesson}. Ders
+                <tr key={lesson} className={isCurrent ? 'tv-timetable-row--current' : undefined}>
+                  <td className="border-r border-white/15 bg-slate-900/90 px-1 align-middle">
+                    <div className="tv-timetable-lesson-num font-semibold text-white">{lesson}. Ders</div>
+                    {timeRange ? (
+                      <div className="tv-timetable-lesson-time tabular-nums text-white/65">{timeRange}</div>
+                    ) : null}
                   </td>
-                  {sections.map((cls) => (
-                    <td
-                      key={cls}
-                      className={`border-l border-white/20 px-2 py-2 text-center ${isCurrent ? 'font-semibold text-white' : 'text-white/85'}`}
-                    >
-                      {getCell(lesson, cls)}
-                    </td>
-                  ))}
+                  {classSections.map((cls) => {
+                    const subj = cellMap.get(`${normTvClassSection(cls)}|${lesson}`);
+                    const short = subj ? abbreviateTvSubject(subj, 22) : null;
+                    return (
+                      <td
+                        key={cls}
+                        className={`border-l border-white/20 px-1 align-middle ${
+                          isCurrent ? 'tv-timetable-cell--current' : ''
+                        }`}
+                      >
+                        {subj ? (
+                          <span
+                            className="tv-timetable-cell-subj block text-center text-white/90"
+                            title={subj}
+                          >
+                            {short}
+                          </span>
+                        ) : (
+                          <span className="block text-center text-white/25">—</span>
+                        )}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}

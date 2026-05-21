@@ -238,11 +238,48 @@
   box-shadow: 0 -1px 0 rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.04);
 }
 .tv-now-in-class-marquee {
-  font-weight: 600;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
   text-shadow: 0 1px 2px rgba(0,0,0,0.4);
   -webkit-font-smoothing: antialiased;
 }
+
+.tv-now-in-class-item {
+  padding-right: 0.15rem;
+}
+
+.tv-now-in-class-sep {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 4px;
+  height: 1.35em;
+  margin: 0 1.1rem 0 0.65rem;
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.15) 0%, var(--tv-red) 45%, rgba(255,255,255,0.15) 100%);
+  box-shadow: 0 0 8px rgba(220, 38, 38, 0.55);
+  vertical-align: middle;
+}
+
+.tv-now-in-class-class {
+  margin-right: 0.55rem;
+  padding: 0.12em 0.55em 0.1em;
+  border-radius: 0.35rem;
+  border: 2px solid color-mix(in srgb, var(--tv-red) 75%, white);
+  background: color-mix(in srgb, var(--tv-red) 32%, black);
+  color: #fff;
+  font-weight: 800;
+  font-size: 1.12em;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.65);
+  white-space: nowrap;
+}
+
+.tv-now-in-class-detail {
+  color: rgba(255, 255, 255, 0.96);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .tv-now-in-class-label {
   font-family: 'Segoe UI', 'Helvetica Neue', system-ui, sans-serif;
   letter-spacing: 0.04em;
@@ -1228,5 +1265,127 @@
 .tv-root .tv-theme-light .tv-staff-card2__detail { color: #64748b; }
 @media (min-width: 1920px) {
   .tv-root { --tv-safe: 18px; }
+}
+
+/* Ders programı tablosu — slayt alanını doldurur */
+.tv-timetable-grid-root {
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+}
+
+.tv-timetable-grid-title {
+  font-size: clamp(12px, 1.4vh, 18px);
+  line-height: 1.2;
+}
+
+.tv-timetable-fit {
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.tv-timetable-grid-table {
+  table-layout: fixed;
+  font-variant-numeric: tabular-nums;
+  height: 100%;
+  width: 100%;
+}
+
+.tv-timetable-col-lesson {
+  width: 9%;
+}
+
+.tv-timetable-thead {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: clamp(40px, 6.5vh, 64px);
+}
+
+.tv-timetable-thead th {
+  vertical-align: middle;
+}
+
+.tv-timetable-th-lesson {
+  font-size: clamp(10px, 1.2vh, 14px);
+}
+
+.tv-timetable-tbody {
+  height: calc(100% - clamp(40px, 6.5vh, 64px));
+}
+
+.tv-timetable-tbody tr {
+  height: calc(100% / var(--tv-timetable-rows, 8));
+}
+
+.tv-timetable-row--current {
+  background: color-mix(in srgb, var(--tv-red) 38%, transparent);
+}
+
+.tv-timetable-row--current .tv-timetable-lesson-num,
+.tv-timetable-row--current .tv-timetable-cell-subj {
+  font-weight: 700;
+  color: #fff;
+}
+
+.tv-timetable-cell--current {
+  background: color-mix(in srgb, var(--tv-red) 22%, transparent);
+}
+
+.tv-timetable-lesson-num {
+  font-size: clamp(10px, 1.25vh, 16px);
+  line-height: 1.15;
+}
+
+.tv-timetable-lesson-time {
+  font-size: clamp(8px, 1vh, 13px);
+  line-height: 1.1;
+}
+
+.tv-timetable-th-class {
+  padding: clamp(6px, 0.9vh, 12px) clamp(5px, 0.45vw, 10px);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--tv-accent) 28%, rgba(15, 23, 42, 0.92)) 0%,
+    rgba(15, 23, 42, 0.88) 100%
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  border-top: 3px solid var(--tv-accent);
+}
+
+.tv-timetable-th-class--alt {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--tv-accent) 18%, rgba(30, 41, 59, 0.92)) 0%,
+    rgba(30, 41, 59, 0.88) 100%
+  );
+}
+
+.tv-timetable-class-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(14px, 2vh, 26px);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+.tv-timetable-cell-subj {
+  font-size: clamp(9px, 1.15vh, 15px);
+  line-height: 1.15;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  word-break: break-word;
+  hyphens: auto;
 }
 

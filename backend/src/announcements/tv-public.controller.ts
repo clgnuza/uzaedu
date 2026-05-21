@@ -360,7 +360,16 @@ export class TvPublicController {
       if (hit && hit.expires > Date.now()) {
         if (schoolId?.trim()) {
           const freshSchool = await this.buildTvSchoolPayload(schoolId.trim());
-          return { ...hit.payload, school: freshSchool } as Record<string, unknown>;
+          const now_in_class_lines =
+            audience !== 'classroom'
+              ? await this.teacherTimetableService.buildNowInClassLinesForTv(schoolId.trim())
+              : [];
+          let current_slot = (hit.payload as { current_slot?: unknown }).current_slot;
+          if (audience === 'classroom' && deviceId?.trim()) {
+            current_slot =
+              (await this.smartBoardService.getDisplaySlotForDevice(schoolId.trim(), deviceId.trim())) ?? null;
+          }
+          return { ...hit.payload, school: freshSchool, now_in_class_lines, current_slot } as Record<string, unknown>;
         }
         return hit.payload;
       }
@@ -387,11 +396,17 @@ export class TvPublicController {
         (await this.smartBoardService.getDisplaySlotForDevice(schoolId.trim(), deviceId.trim())) ?? null;
     }
 
+    const now_in_class_lines =
+      schoolId?.trim() && audience !== 'classroom'
+        ? await this.teacherTimetableService.buildNowInClassLinesForTv(schoolId.trim())
+        : [];
+
     const payload = {
       items,
       school,
       urgent: urgent ? toTvItem(urgent) : null,
       current_slot,
+      now_in_class_lines,
     };
     if (!skipTvCache) {
       tvAnnouncementsCacheSet(cacheKey, payload as Record<string, unknown>);

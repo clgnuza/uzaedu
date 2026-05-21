@@ -9,6 +9,8 @@ import { MessagingUserPreference } from '../messaging/entities/messaging-user-pr
 import { DocumentGeneration } from '../document-templates/entities/document-generation.entity';
 import { OptikFormTemplate } from '../optik/entities/optik-form-template.entity';
 import { OptikUsageLog } from '../optik/entities/optik-usage-log.entity';
+import { OptikExamSession } from '../optik/entities/optik-exam-session.entity';
+import { OptikScanResult } from '../optik/entities/optik-scan-result.entity';
 import { SmartBoardDeviceSchedule } from '../smart-board/entities/smart-board-device-schedule.entity';
 import { BilsemCalendarAssignment } from '../bilsem/entities/bilsem-calendar-assignment.entity';
 import { BilsemGeneratedPlan } from '../bilsem/entities/bilsem-generated-plan.entity';
@@ -32,6 +34,8 @@ export class MeUserModuleSnapshotsService {
     @InjectRepository(DocumentGeneration) private readonly docGenRepo: Repository<DocumentGeneration>,
     @InjectRepository(OptikFormTemplate) private readonly optikTplRepo: Repository<OptikFormTemplate>,
     @InjectRepository(OptikUsageLog) private readonly optikLogRepo: Repository<OptikUsageLog>,
+    @InjectRepository(OptikExamSession) private readonly optikSessionRepo: Repository<OptikExamSession>,
+    @InjectRepository(OptikScanResult) private readonly optikScanRepo: Repository<OptikScanResult>,
     @InjectRepository(SmartBoardDeviceSchedule) private readonly sbSchedRepo: Repository<SmartBoardDeviceSchedule>,
     @InjectRepository(BilsemCalendarAssignment) private readonly bilsemAssignRepo: Repository<BilsemCalendarAssignment>,
     @InjectRepository(BilsemGeneratedPlan) private readonly bilsemPlanRepo: Repository<BilsemGeneratedPlan>,
@@ -80,11 +84,20 @@ export class MeUserModuleSnapshotsService {
         return { ...base, document_generations: jsonSafe(document_generations) };
       }
       case 'optical': {
-        const [optik_form_templates, optik_usage_logs] = await Promise.all([
-          this.optikTplRepo.find({ where: { createdByUserId: userId }, order: { name: 'ASC' } }),
-          this.optikLogRepo.find({ where: { userId }, order: { createdAt: 'DESC' } }),
-        ]);
-        return { ...base, optik_form_templates: jsonSafe(optik_form_templates), optik_usage_logs: jsonSafe(optik_usage_logs) };
+        const [optik_form_templates, optik_usage_logs, optik_exam_sessions, optik_scan_results] =
+          await Promise.all([
+            this.optikTplRepo.find({ where: { createdByUserId: userId }, order: { name: 'ASC' } }),
+            this.optikLogRepo.find({ where: { userId }, order: { createdAt: 'DESC' }, take: 500 }),
+            this.optikSessionRepo.find({ where: { userId }, order: { createdAt: 'DESC' }, take: 200 }),
+            this.optikScanRepo.find({ where: { userId }, order: { scannedAt: 'DESC' }, take: 500 }),
+          ]);
+        return {
+          ...base,
+          optik_form_templates: jsonSafe(optik_form_templates),
+          optik_usage_logs: jsonSafe(optik_usage_logs),
+          optik_exam_sessions: jsonSafe(optik_exam_sessions),
+          optik_scan_results: jsonSafe(optik_scan_results),
+        };
       }
       case 'smart_board': {
         const smart_board_device_schedules = await this.sbSchedRepo.find({

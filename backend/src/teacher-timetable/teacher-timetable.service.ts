@@ -2145,35 +2145,35 @@ export class TeacherTimetableService {
     return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
   }
 
-  /** TV JSON: sabah + (ikili ise) öğle vardiyası aynı ders numarasında birleştirilir. */
+  /** TV JSON: ikili öğretimde sabah + öğle saatleri ayrı satır (üst üste yazılmaz — Şu An Derste için). */
   private buildLessonTimesForTv(
     am: { lesson_num: number; start_time: string; end_time: string }[],
     pm: { lesson_num: number; start_time: string; end_time: string }[],
     mode: 'single' | 'double',
     toHHMM: (t: string) => string,
   ): { num: number; start: string; end: string }[] {
-    const byNum = new Map<number, { num: number; start: string; end: string }>();
-    for (const slot of am) {
+    const push = (
+      out: { num: number; start: string; end: string }[],
+      slot: { lesson_num: number; start_time: string; end_time: string },
+    ) => {
       if (slot && typeof slot.lesson_num === 'number' && slot.start_time && slot.end_time) {
-        byNum.set(slot.lesson_num, {
+        out.push({
           num: slot.lesson_num,
           start: toHHMM(slot.start_time),
           end: toHHMM(slot.end_time),
         });
       }
+    };
+    const slots: { num: number; start: string; end: string }[] = [];
+    for (const slot of am) push(slots, slot);
+    if (mode === 'double') {
+      for (const slot of pm) push(slots, slot);
     }
-    if (mode === 'double' && pm.length > 0) {
-      for (const slot of pm) {
-        if (slot && typeof slot.lesson_num === 'number' && slot.start_time && slot.end_time) {
-          byNum.set(slot.lesson_num, {
-            num: slot.lesson_num,
-            start: toHHMM(slot.start_time),
-            end: toHHMM(slot.end_time),
-          });
-        }
-      }
-    }
-    return [...byNum.values()].sort((a, b) => a.num - b.num);
+    const toMin = (t: string) => {
+      const m = String(t).match(/^(\d{1,2}):(\d{2})/);
+      return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : 0;
+    };
+    return slots.sort((a, b) => toMin(a.start) - toMin(b.start) || a.num - b.num);
   }
 
   /**
@@ -2255,5 +2255,113 @@ export class TeacherTimetableService {
       payload.lesson_times_weekend = lesson_times_weekend;
     }
     return JSON.stringify(payload);
+  }
+
+  /** Duyuru TV alt şerit: şu an derste olan sınıflar (plan + ders saatleri). */
+  async buildNowInClassLinesForTv(
+    schoolId: string,
+  ): Promise<{ class_section: string; subject: string; teacher_name: string | null }[]> {
+    const school = await this.schoolRepo.findOne({
+      where: { id: schoolId },
+      select: ['tv_timetable_schedule', 'tv_timetable_use_school_plan'],
+    });
+    if (!school) return [];
+    let jsonStr: string | null = null;
+    if (school.tv_timetable_use_school_plan !== false) {
+      jsonStr = await this.buildTvTimetableScheduleJsonForTv(schoolId);
+    } else {
+      jsonStr = school.tv_timetable_schedule?.trim() || null;
+    }
+    if (!jsonStr?.trim()) return [];
+
+    let parsed: {
+      lesson_times?: { num?: number; lesson_num?: number; start?: string; start_time?: string; end?: string; end_time?: string }[];
+      lesson_times_weekend?: { num?: number; lesson_num?: number; start?: string; start_time?: string; end?: string; end_time?: string }[];
+      entries?: { day: number; lesson: number; class: string; subject: string }[];
+    };
+    try {
+      parsed = JSON.parse(jsonStr) as typeof parsed;
+    } catch {
+      return [];
+    }
+
+    const toHHMM = (t: string) => {
+      const s = String(t || '').trim();
+      const m = s.match(/^(\d{1,2}):(\d{2})/);
+      if (m) return `${String(Math.min(23, Math.max(0, parseInt(m[1], 10)))).padStart(2, '0')}:${m[2]}`;
+      return s.slice(0, 5);
+    };
+    const normSlots = (
+      raw: { num?: number; lesson_num?: number; start?: string; start_time?: string; end?: string; end_time?: string }[] | undefined,
+    ): { num: number; start: string; end: string }[] => {
+      if (!Array.isArray(raw)) return [];
+      const out: { num: number; start: string; end: string }[] = [];
+      for (const s of raw) {
+        const num = Number(s.num ?? s.lesson_num);
+        const start = toHHMM(String(s.start ?? s.start_time ?? ''));
+        const end = toHHMM(String(s.end ?? s.end_time ?? ''));
+        if (Number.isFinite(num) && num >= 1 && start && end) out.push({ num, start, end });
+      }
+      return out;
+    };
+
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+    const turkishDay = this.getDayOfWeekFromDate(today);
+    const isWeekend = turkishDay === 6 || turkishDay === 7;
+    const slotList = isWeekend
+      ? normSlots(parsed.lesson_times_weekend)?.length
+        ? normSlots(parsed.lesson_times_weekend)
+        : normSlots(parsed.lesson_times)
+      : normSlots(parsed.lesson_times);
+    if (slotList.length === 0) return [];
+
+    const toMin = (t: string) => {
+      const m = String(t).match(/^(\d{1,2}):(\d{2})/);
+      return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : 0;
+    };
+    const nowMins = now.getHours() * 60 + now.getMinutes();
+    const activeNums = new Set<number>();
+    for (const lt of slotList) {
+      const start = toMin(lt.start);
+      const end = toMin(lt.end);
+      if (nowMins >= start && nowMins < end) activeNums.add(lt.num);
+    }
+    if (activeNums.size === 0) return [];
+
+    const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
+    const fromJson = entries
+      .filter((e) => e.day === turkishDay && activeNums.has(e.lesson) && (e.class ?? '').trim() && (e.subject ?? '').trim())
+      .map((e) => ({
+        class_section: (e.class ?? '').trim(),
+        subject: (e.subject ?? '').trim(),
+        teacher_name: null as string | null,
+      }))
+      .sort((a, b) => a.class_section.localeCompare(b.class_section, 'tr', { numeric: true }));
+
+    if (fromJson.length > 0) return fromJson;
+
+    const planId = await this.getActivePlanIdForDate(schoolId, today);
+    if (!planId) return [];
+    const rows = await this.classEntryRepo.find({
+      where: {
+        school_id: schoolId,
+        plan_id: planId,
+        day_of_week: turkishDay,
+      },
+      relations: ['user'],
+      order: { class_section: 'ASC' },
+    });
+    const lines: { class_section: string; subject: string; teacher_name: string | null }[] = [];
+    for (const r of rows) {
+      if (!activeNums.has(r.lesson_num)) continue;
+      const cs = normalizeClassSectionForStorage(r.class_section) || (r.class_section ?? '').trim();
+      const subj = (r.subject ?? '').trim();
+      if (!cs || !subj) continue;
+      const teacher_name =
+        r.user?.display_name?.trim() || r.user?.email?.trim() || r.teacher_name?.trim() || null;
+      lines.push({ class_section: cs, subject: subj, teacher_name });
+    }
+    return lines;
   }
 }

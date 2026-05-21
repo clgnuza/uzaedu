@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { butterflyViolationSummary, butterflyViolationTotal, type ButterflyViolations } from '@/lib/butterfly-violations';
+import { fetchSessionsByButterflyPlan } from '@/lib/optik-sessions-api';
+import { ScanLine } from 'lucide-react';
 
 type PlanRules = {
   subjectLabel?: string;
@@ -90,6 +92,7 @@ export function PlanSessionPanel() {
   const [uploadFiles, setUploadFiles] = useState<Record<string, File>>({});
   const [uploadKey, setUploadKey] = useState<'all' | string>('all');
   const [uploading, setUploading] = useState(false);
+  const [optikSessions, setOptikSessions] = useState<Array<{ id: string; title: string }>>([]);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -194,9 +197,14 @@ export function PlanSessionPanel() {
     setMenuOpenId(null);
     setDetailLoading(true);
     setDetailPlan(null);
+    setOptikSessions([]);
     try {
-      const d = await apiFetch<PlanDetail>(`/butterfly-exam/plans/${id}/detail${schoolQ}`, { token: token! });
+      const [d, optik] = await Promise.all([
+        apiFetch<PlanDetail>(`/butterfly-exam/plans/${id}/detail${schoolQ}`, { token: token! }),
+        fetchSessionsByButterflyPlan(token!, id).catch(() => []),
+      ]);
       setDetailPlan(d);
+      setOptikSessions(optik.map((s) => ({ id: s.id, title: s.title })));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Detay alınamadı');
     } finally {
@@ -874,6 +882,30 @@ export function PlanSessionPanel() {
                     label="Salon Sayısı" value={String(detailPlan.roomCount)} />
                   <StatCard icon={<Users className="size-4" />} color="indigo"
                     label="Toplam Kapasite" value={String(detailPlan.totalCapacity)} />
+                </div>
+                <div className="rounded-xl border border-fuchsia-500/20 bg-fuchsia-500/5 p-2.5">
+                  <p className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold text-fuchsia-800 dark:text-fuchsia-200">
+                    <ScanLine className="size-3.5" />
+                    Optik okuma oturumu
+                  </p>
+                  {optikSessions.length > 0 ? (
+                    <ul className="space-y-1">
+                      {optikSessions.map((s) => (
+                        <li key={s.id}>
+                          <Link
+                            href={`/optik-oturumlar/${s.id}`}
+                            className="text-xs font-medium text-primary hover:underline"
+                          >
+                            {s.title}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <Link href="/optik-oturumlar" className="text-xs text-primary hover:underline">
+                      Oturum oluştur → Bağlantı sekmesinden Kelebek planını seçin
+                    </Link>
+                  )}
                 </div>
                 <div className="flex justify-end pt-2">
                   <Button variant="outline" size="sm" onClick={() => setDetailPlan(null)}>Kapat</Button>

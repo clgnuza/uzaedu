@@ -18,7 +18,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../types/enums';
 import { OptikAdminService } from './optik-admin.service';
-import { OptikFormPdfService } from './optik-form-pdf.service';
+import { OptikFormPdfService, parsePrependBlankQuery } from './optik-form-pdf.service';
 import { SchoolsService } from '../schools/schools.service';
 import { MARKET_MODULE_KEYS } from '../app-config/market-policy.defaults';
 
@@ -146,7 +146,7 @@ export class OptikAdminController {
     @Res() res: Response,
   ) {
     const template = await this.admin.getFormTemplateById(id);
-    const prependBlank = prependBlankStr ? Math.min(5, Math.max(0, parseInt(prependBlankStr, 10) || 0)) : 0;
+    const prependBlank = parsePrependBlankQuery(prependBlankStr);
     const pdf = await this.formPdf.generatePdf(template, prependBlank > 0 ? { prependBlank } : undefined);
     const filename = `${(template.slug || template.id).replace(/[^a-z0-9-]/gi, '-')}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');

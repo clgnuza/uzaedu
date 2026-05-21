@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import OpenAI from 'openai';
 import { AppConfigService } from '../app-config/app-config.service';
 import { User } from '../users/entities/user.entity';
@@ -8,6 +8,8 @@ import { OptikFormTemplate } from './entities/optik-form-template.entity';
 import type { OcrResponseDto } from './dto/ocr-response.dto';
 import type { GradeRequestDto } from './dto/grade-request.dto';
 import type { GradeResultDto } from './dto/grade-response.dto';
+import { computeOmrScanLayout } from './optik-omr-layout';
+import type { OmrScanLayout } from './optik-omr-layout';
 
 const GRADE_RESULT_SCHEMA = `{
   "question_id": "string",
@@ -54,6 +56,57 @@ export class OptikService {
     return { pdf, template };
   }
 
+  createCustomFormTemplate(
+    dto: {
+      name: string;
+      slug: string;
+      formType?: string;
+      questionCount?: number;
+      choiceCount?: number;
+      pageSize?: string;
+      examType?: string;
+      gradeLevel?: string | null;
+      subjectHint?: string | null;
+      description?: string;
+    },
+    userId: string,
+    schoolId: string | null,
+    role: string,
+  ): Promise<OptikFormTemplate> {
+    return this.optikAdmin.createCustomFormTemplate(dto, userId, schoolId, role);
+  }
+
+  updateCustomFormTemplate(
+    id: string,
+    dto: Partial<{
+      name: string;
+      slug: string;
+      formType: string;
+      questionCount: number;
+      choiceCount: number;
+      pageSize: string;
+      examType: string;
+      gradeLevel: string | null;
+      subjectHint: string | null;
+      description: string;
+      isActive: boolean;
+    }>,
+    userId: string,
+    schoolId: string | null,
+    role: string,
+  ): Promise<OptikFormTemplate> {
+    return this.optikAdmin.updateCustomFormTemplate(id, dto, userId, schoolId, role);
+  }
+
+  deleteCustomFormTemplate(
+    id: string,
+    userId: string,
+    schoolId: string | null,
+    role: string,
+  ): Promise<void> {
+    return this.optikAdmin.deleteCustomFormTemplate(id, userId, schoolId, role);
+  }
+
   private async getOpenAiClient(): Promise<OpenAI> {
     const apiKey = await this.appConfig.getOptikOpenAiKey();
     if (!apiKey?.trim()) {
@@ -65,17 +118,51 @@ export class OptikService {
     return new OpenAI({ apiKey: apiKey.trim() });
   }
 
-  /** Modül durumu – Flutter için */
-  async getStatus(): Promise<{ enabled: boolean; configured: boolean; ready: boolean }> {
+  /** Modül durumu – PWA / web istemci */
+  async getStatus(userId?: string | null): Promise<{
+    enabled: boolean;
+    configured: boolean;
+    ready: boolean;
+    daily_limit_per_user: number | null;
+    usage_today: number | null;
+    remaining_today: number | null;
+  }> {
     const config = await this.appConfig.getOptikConfig();
     const apiKey = await this.appConfig.getOptikOpenAiKey();
     const enabled = config.module_enabled;
     const configured = !!apiKey?.trim();
+    const limit = config.daily_limit_per_user;
+    let usageToday: number | null = null;
+    let remaining: number | null = null;
+    if (userId && limit != null && limit > 0) {
+      const u = await this.optikAdmin.countUserUsageToday(userId);
+      usageToday = u.total;
+      remaining = Math.max(0, limit - u.total);
+    }
     return {
       enabled,
       configured,
       ready: enabled && configured,
+      daily_limit_per_user: limit,
+      usage_today: usageToday,
+      remaining_today: remaining,
     };
+  }
+
+  private async assertDailyLimit(userId: string): Promise<void> {
+    const config = await this.appConfig.getOptikConfig();
+    const limit = config.daily_limit_per_user;
+    if (limit == null || limit <= 0) return;
+    const { total } = await this.optikAdmin.countUserUsageToday(userId);
+    if (total >= limit) {
+      throw new HttpException(
+        {
+          code: 'OPTIK_DAILY_LIMIT',
+          message: `Günlük optik işlem limitine (${limit}) ulaştınız. Yarın tekrar deneyin.`,
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
   }
 
   /** Modül açık mı ve config hazır mı? */
@@ -108,37 +195,59 @@ export class OptikService {
    * OCR – OpenAI Vision ile görüntüden metin çıkar.
    * Başarısız veya düşük güvende needs_rescan önerilir.
    */
+  getScanLayout(
+    templateId: string,
+    userId: string,
+    schoolId: string | null,
+    role: string,
+  ): Promise<OmrScanLayout> {
+    return this.optikAdmin
+      .findFormTemplateForUser(templateId, userId, schoolId, role)
+      .then((t) => computeOmrScanLayout(t));
+  }
+
+  listRubricsForTeacher() {
+    return this.optikAdmin.listActiveRubricTemplates();
+  }
+
   async ocr(
     imageBase64: string,
     languageHint: 'tr' | 'en' = 'tr',
     user?: User,
     schoolId?: string | null,
+    kind: 'KEY' | 'STUDENT' = 'STUDENT',
   ): Promise<OcrResponseDto> {
     await this.ensureModuleReady();
+    if (user?.id) await this.assertDailyLimit(user.id);
     const client = await this.getOpenAiClient();
     const config = await this.appConfig.getOptikConfig();
 
     const imageUrl = this.normalizeImageBase64(imageBase64);
+    const kindHint =
+      kind === 'KEY'
+        ? 'Bu görsel bir SINAV ANAHTARI veya puanlama rubriğidir.'
+        : 'Bu görsel bir ÖĞRENCİ CEVAP KAĞIDI veya öğrenci yanıtıdır.';
 
     try {
+      const ocrModel = config.openai_model?.trim() || 'gpt-4o-mini';
       const completion = await client.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: ocrModel,
         messages: [
           {
             role: 'user',
             content: [
               {
                 type: 'text',
-                text: `Bu görselde el yazısı veya basılı metin var. Tüm metni olduğu gibi çıkar. Dil: ${languageHint === 'tr' ? 'Türkçe' : 'İngilizce'}. Sadece çıkarılan metni döndür, başka açıklama yazma. Okunamayan bölümler için [...] koy.`,
+                text: `${kindHint} Yalnızca görünen metni satır satır çıkar; tablo/başlık ekleme. Dil: ${languageHint === 'tr' ? 'Türkçe' : 'İngilizce'}. Okunamayan parça: [...].`,
               },
               {
                 type: 'image_url',
-                image_url: { url: imageUrl },
+                image_url: { url: imageUrl, detail: 'low' },
               },
             ],
           },
         ],
-        max_tokens: 1024,
+        max_tokens: 768,
         temperature: 0,
       });
 
@@ -152,8 +261,12 @@ export class OptikService {
         };
       }
 
-      const hasUnreadable = /\[\.\.\.\]/.test(text) || text.length < 2;
-      const confidence = hasUnreadable ? 0.5 : 0.95;
+      const unreadableParts = (text.match(/\[\.\.\.\]/g) ?? []).length;
+      const len = text.replace(/\[\.\.\.\]/g, '').trim().length;
+      const hasUnreadable = unreadableParts > 0 || len < 3;
+      const confidence = hasUnreadable
+        ? Math.max(0.2, 0.7 - unreadableParts * 0.15)
+        : Math.min(0.98, 0.82 + Math.min(len, 400) / 2000);
       const needsRescan = confidence < config.confidence_threshold;
 
       if (user?.id) {
@@ -181,8 +294,10 @@ export class OptikService {
     req: GradeRequestDto,
     user?: User,
     schoolId?: string | null,
+    access?: { userId: string; schoolId: string | null; role: string },
   ): Promise<GradeResultDto> {
     await this.ensureModuleReady();
+    if (user?.id) await this.assertDailyLimit(user.id);
 
     const config = await this.appConfig.getOptikConfig();
 
@@ -203,6 +318,30 @@ export class OptikService {
     const lang = req.language ?? config.default_language;
     const langLabel = lang === 'tr' ? 'Türkçe' : 'İngilizce';
 
+    let rubricBlock = '';
+    if (access?.userId && req.template_id) {
+      try {
+        const template = await this.optikAdmin.findFormTemplateForUser(
+          req.template_id,
+          access.userId,
+          access.schoolId,
+          access.role,
+        );
+        const rubric = await this.optikAdmin.findRubricForGrade(
+          req.mode,
+          req.subject ?? template.subjectHint,
+        );
+        if (rubric?.criteria?.length) {
+          const lines = rubric.criteria
+            .map((c) => `- ${c.criterion}: max ${c.max_points} puan${c.weight != null ? ` (ağırlık ${c.weight})` : ''}`)
+            .join('\n');
+          rubricBlock = `\nRubrik (${rubric.name}):\n${lines}\n`;
+        }
+      } catch {
+        /* şablon/rubrik yoksa genel mod talimatı */
+      }
+    }
+
     const modeInstructions: Record<string, string> = {
       CONTENT: 'Sadece içerik doğruluğuna göre puanla. Dilbilgisi önemsiz.',
       LANGUAGE: 'Sadece dilbilgisi, imla ve açıklığa göre puanla.',
@@ -215,7 +354,7 @@ export class OptikService {
 Kurallar:
 - Dil: ${langLabel}
 - Mod: ${req.mode}. ${modeInstructions[req.mode] ?? 'İçeriğe göre puanla.'}
-- Maksimum puan: ${req.max_score}
+- Maksimum puan: ${req.max_score}${rubricBlock}
 - Yanıtın SADECE geçerli JSON olsun, başka metin yazma.
 - Schema: ${GRADE_RESULT_SCHEMA}
 - needs_rescan: OCR güveni zaten yeterli (çağıran kontrol etti). Sadece cevap okunamazsa true yap.`;
@@ -300,13 +439,15 @@ Kurallar:
     requests: GradeRequestDto[],
     user?: User,
     schoolId?: string | null,
+    access?: { userId: string; schoolId: string | null; role: string },
   ): Promise<{ results: GradeResultDto[] }> {
     await this.ensureModuleReady();
+    if (user?.id) await this.assertDailyLimit(user.id);
 
     const results: GradeResultDto[] = [];
     for (const req of requests) {
       try {
-        const r = await this.grade(req, user, schoolId);
+        const r = await this.grade(req, user, schoolId, access);
         results.push(r);
       } catch (e) {
         results.push({

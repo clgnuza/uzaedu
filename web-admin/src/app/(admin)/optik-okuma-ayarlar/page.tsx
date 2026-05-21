@@ -254,7 +254,10 @@ function FormSablonlariTab({ token }: { token: string }) {
   const handleDownloadPdf = async (item: FormTemplate, prependBlank = 0) => {
     setDownloadingId(item.id);
     try {
-      const qs = prependBlank > 0 ? `?prepend_blank=${prependBlank}` : '';
+      const qs =
+        prependBlank > 0
+          ? `?prepend_blank=${prependBlank}&_=${Date.now()}`
+          : `?_=${Date.now()}`;
       const headers: Record<string, string> = {};
       if (token !== COOKIE_SESSION_TOKEN) headers.Authorization = `Bearer ${token}`;
       const fetchOpts =
@@ -407,15 +410,17 @@ function FormSablonlariTab({ token }: { token: string }) {
                         {downloadingId === item.id ? <LoadingSpinner className="size-4" /> : <Download className="size-4" />}
                         <span className="ml-1">PDF</span>
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={!!downloadingId}
-                        onClick={() => handleDownloadPdf(item, 1)}
-                        title="Yazılı + Form (boş sayfa + optik form)"
-                      >
-                        Yazılı+Form
-                      </Button>
+                      {(item.examType ?? 'genel') === 'yazili' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={!!downloadingId}
+                          onClick={() => handleDownloadPdf(item, 1)}
+                          title="Yazılı sorular için önce boş sayfa"
+                        >
+                          +Boş sayfa
+                        </Button>
+                      )}
                       <Button variant="ghost" size="sm" onClick={() => openEdit(item)}>Düzenle</Button>
                       <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDelete(item.id)}>Sil</Button>
                     </div>

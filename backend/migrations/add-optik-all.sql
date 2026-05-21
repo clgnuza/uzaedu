@@ -1,0 +1,6 @@
+-- Optik: sırayla çalıştırın (psql -f her dosya):
+-- 1) add-optik-scan-results.sql
+-- 2) add-optik-exam-sessions.sql
+-- 3) add-optik-session-integrations.sql
+--
+-- Yerel/canlı tek komut: cd backend && npm run migrate:optik

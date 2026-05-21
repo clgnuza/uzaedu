@@ -1,141 +1,78 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
-import { apiFetch, getApiUrl } from '@/lib/api';
-import { COOKIE_SESSION_TOKEN } from '@/lib/auth-session';
+import { apiFetch } from '@/lib/api';
+import { Alert } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { EmptyState } from '@/components/ui/empty-state';
-import { ChevronRight, Download, FileText, Home, ScanLine } from 'lucide-react';
+import { ChevronRight, Home, Plus, RefreshCw, ScanLine, Search, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-type FormTemplate = {
-  id: string;
-  name: string;
-  slug: string;
-  formType: string;
-  questionCount: number;
-  choiceCount: number;
-  pageSize?: string;
-  examType?: string;
-  gradeLevel?: string | null;
-  subjectHint?: string | null;
-  scope?: string;
-};
-
-const EXAM_LABELS: Record<string, string> = {
-  genel: 'Genel',
-  yazili: 'Yazılı',
-  deneme: 'Deneme',
-  quiz: 'Quiz',
-  karma: 'Karma',
-};
-
-const EXAM_FILTER_ORDER = ['', 'genel', 'yazili', 'deneme', 'quiz', 'karma'] as const;
-
-const EXAM_TAB_STYLES: Record<string, { active: string; idle: string }> = {
-  '': {
-    active:
-      'border-slate-400/40 bg-slate-500/15 font-semibold text-foreground shadow-sm ring-1 ring-slate-400/25 dark:bg-slate-400/20',
-    idle: 'border-transparent bg-slate-500/8 text-muted-foreground hover:bg-slate-500/14 dark:bg-slate-500/15',
-  },
-  genel: {
-    active:
-      'border-violet-400/45 bg-violet-500/18 font-semibold text-violet-950 shadow-sm ring-1 ring-violet-400/30 dark:text-violet-100',
-    idle: 'border-transparent bg-violet-500/10 text-violet-900/85 hover:bg-violet-500/16 dark:bg-violet-950/40 dark:text-violet-200',
-  },
-  yazili: {
-    active:
-      'border-sky-400/45 bg-sky-500/18 font-semibold text-sky-950 shadow-sm ring-1 ring-sky-400/30 dark:text-sky-100',
-    idle: 'border-transparent bg-sky-500/10 text-sky-900/85 hover:bg-sky-500/16 dark:bg-sky-950/40 dark:text-sky-200',
-  },
-  deneme: {
-    active:
-      'border-amber-400/45 bg-amber-500/18 font-semibold text-amber-950 shadow-sm ring-1 ring-amber-400/30 dark:text-amber-100',
-    idle: 'border-transparent bg-amber-500/10 text-amber-950/80 hover:bg-amber-500/16 dark:bg-amber-950/35 dark:text-amber-100',
-  },
-  quiz: {
-    active:
-      'border-emerald-400/45 bg-emerald-500/18 font-semibold text-emerald-950 shadow-sm ring-1 ring-emerald-400/30 dark:text-emerald-100',
-    idle: 'border-transparent bg-emerald-500/10 text-emerald-900/85 hover:bg-emerald-500/16 dark:bg-emerald-950/40 dark:text-emerald-200',
-  },
-  karma: {
-    active:
-      'border-fuchsia-400/45 bg-fuchsia-500/18 font-semibold text-fuchsia-950 shadow-sm ring-1 ring-fuchsia-400/30 dark:text-fuchsia-100',
-    idle: 'border-transparent bg-fuchsia-500/10 text-fuchsia-900/85 hover:bg-fuchsia-500/16 dark:bg-fuchsia-950/40 dark:text-fuchsia-200',
-  },
-};
-
-const EXAM_CARD_STYLES: Record<string, string> = {
-  genel:
-    'border-l-violet-500/70 bg-violet-500/[0.08] dark:border-l-violet-400/55 dark:bg-violet-950/30',
-  yazili: 'border-l-sky-500/70 bg-sky-500/[0.08] dark:border-l-sky-400/55 dark:bg-sky-950/30',
-  deneme: 'border-l-amber-500/70 bg-amber-500/[0.08] dark:border-l-amber-400/55 dark:bg-amber-950/28',
-  quiz: 'border-l-emerald-500/70 bg-emerald-500/[0.08] dark:border-l-emerald-400/55 dark:bg-emerald-950/30',
-  karma: 'border-l-fuchsia-500/70 bg-fuchsia-500/[0.08] dark:border-l-fuchsia-400/55 dark:bg-fuchsia-950/30',
-};
-
-const EXAM_ROW_STYLES: Record<string, string> = {
-  genel: 'bg-violet-500/[0.04] hover:bg-violet-500/[0.09] dark:bg-violet-950/18 dark:hover:bg-violet-950/28',
-  yazili: 'bg-sky-500/[0.04] hover:bg-sky-500/[0.09] dark:bg-sky-950/18 dark:hover:bg-sky-950/28',
-  deneme: 'bg-amber-500/[0.04] hover:bg-amber-500/[0.09] dark:bg-amber-950/18 dark:hover:bg-amber-950/26',
-  quiz: 'bg-emerald-500/[0.04] hover:bg-emerald-500/[0.09] dark:bg-emerald-950/18 dark:hover:bg-emerald-950/28',
-  karma: 'bg-fuchsia-500/[0.04] hover:bg-fuchsia-500/[0.09] dark:bg-fuchsia-950/18 dark:hover:bg-fuchsia-950/28',
-};
-
-function examPaletteKey(examType?: string | null) {
-  const k = examType ?? 'genel';
-  return k in EXAM_CARD_STYLES ? k : 'genel';
-}
+import {
+  OPTIK_EXAM_FILTER_ORDER,
+  OPTIK_EXAM_LABELS,
+  OPTIK_EXAM_TAB_STYLES,
+  OPTIK_SCOPE_OPTIONS,
+  canModifyOptikFormTemplate,
+  downloadOptikFormPdf,
+  filterOptikFormTemplates,
+  type OptikFormTemplate,
+} from '@/lib/optik-form-templates';
+import { OptikFormsNotice } from '@/components/optik/OptikTeacherGuide';
+import { OptikFormTemplateList } from './components/OptikFormTemplateList';
+import {
+  OptikFormTemplateEditorDialog,
+  type OptikFormEditorPayload,
+} from './components/OptikFormTemplateEditorDialog';
 
 export default function OptikFormlarPage() {
-  const { token } = useAuth();
-  const [items, setItems] = useState<FormTemplate[]>([]);
+  const { token, role, me } = useAuth();
+  const [items, setItems] = useState<OptikFormTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [examFilter, setExamFilter] = useState<string>('');
+  const [examFilter, setExamFilter] = useState('');
+  const [scopeFilter, setScopeFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorItem, setEditorItem] = useState<OptikFormTemplate | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const fetchItems = useCallback(async () => {
     if (!token) return;
+    setLoading(true);
     try {
-      const data = await apiFetch<FormTemplate[]>('/optik/form-templates', { token });
+      const data = await apiFetch<OptikFormTemplate[]>('/optik/form-templates', { token });
       setItems(data);
-    } catch {
+    } catch (e) {
       setItems([]);
+      toast.error(e instanceof Error ? e.message : 'Şablonlar yüklenemedi');
     } finally {
       setLoading(false);
     }
   }, [token]);
 
   useEffect(() => {
-    fetchItems();
+    void fetchItems();
   }, [fetchItems]);
 
-  const handleDownloadPdf = async (item: FormTemplate, prependBlank = 0) => {
-    if (!token) return;
+  const filteredItems = useMemo(
+    () => filterOptikFormTemplates(items, { examFilter, scopeFilter, search }),
+    [items, examFilter, scopeFilter, search],
+  );
+
+  const canModify = useCallback(
+    (item: OptikFormTemplate) => canModifyOptikFormTemplate(item, role, me?.id ?? null),
+    [role, me?.id],
+  );
+
+  const handleDownload = async (item: OptikFormTemplate, prependBlank = 0) => {
     setDownloadingId(item.id);
     try {
-      const qs = prependBlank > 0 ? `?prepend_blank=${prependBlank}` : '';
-      const headers: Record<string, string> = {};
-      if (token !== COOKIE_SESSION_TOKEN) headers.Authorization = `Bearer ${token}`;
-      const res = await fetch(getApiUrl(`/optik/form-templates/${item.id}/pdf${qs}`), {
-        credentials: 'include',
-        ...(Object.keys(headers).length > 0 && { headers }),
-      });
-      if (!res.ok) throw new Error('İndirme başarısız');
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = prependBlank > 0 ? `${item.slug || item.id}-yazili-form.pdf` : `${item.slug || item.id}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      await downloadOptikFormPdf(token, item, prependBlank);
       toast.success(prependBlank > 0 ? 'Yazılı + Form PDF indirildi' : 'PDF indirildi');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'PDF indirilemedi');
@@ -144,19 +81,65 @@ export default function OptikFormlarPage() {
     }
   };
 
-  const scopeLabel = (s?: string) => (s === 'system' ? 'Sistem' : s === 'school' ? 'Okul' : s === 'teacher' ? 'Özel' : '-');
-  const filteredItems = examFilter ? items.filter((i) => (i.examType ?? 'genel') === examFilter) : items;
+  const openCreate = () => {
+    setEditorItem(null);
+    setEditorOpen(true);
+  };
+
+  const openEdit = (item: OptikFormTemplate) => {
+    setEditorItem(item);
+    setEditorOpen(true);
+  };
+
+  const handleSave = async (payload: OptikFormEditorPayload) => {
+    if (!token) return;
+    setSaving(true);
+    try {
+      if (editorItem) {
+        await apiFetch(`/optik/form-templates/${editorItem.id}`, {
+          token,
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        });
+        toast.success('Şablon güncellendi');
+      } else {
+        await apiFetch('/optik/form-templates', {
+          token,
+          method: 'POST',
+          body: JSON.stringify({ ...payload, formType: 'multiple_choice', pageSize: 'A4' }),
+        });
+        toast.success('Şablon oluşturuldu');
+      }
+      setEditorOpen(false);
+      await fetchItems();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Kayıt başarısız');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (item: OptikFormTemplate) => {
+    if (!token || !confirm(`"${item.name}" silinsin mi?`)) return;
+    try {
+      await apiFetch(`/optik/form-templates/${item.id}`, { token, method: 'DELETE' });
+      toast.success('Şablon silindi');
+      await fetchItems();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Silinemedi');
+    }
+  };
 
   if (loading) return <LoadingSpinner className="mx-auto my-8 size-8" />;
 
   return (
     <div className="optik-formlar space-y-2 px-1.5 py-1 sm:space-y-5 sm:px-4 sm:py-4 md:px-0 md:py-0">
+      {role === 'teacher' ? <OptikFormsNotice /> : null}
       <div className="flex items-center gap-1.5 rounded-lg border border-border/80 bg-linear-to-r from-cyan-500/12 via-sky-500/8 to-violet-500/10 px-1.5 py-1 shadow-sm dark:from-cyan-950/30 dark:via-sky-950/20 dark:to-violet-950/25 sm:gap-3 sm:rounded-xl sm:px-3 sm:py-2.5">
         <Link
           href="/dashboard"
           className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-background/80 hover:text-primary sm:size-8 sm:rounded-lg"
           aria-label="Anasayfa"
-          title="Anasayfa"
         >
           <Home className="size-4 sm:size-[18px]" />
         </Link>
@@ -165,29 +148,76 @@ export default function OptikFormlarPage() {
           <ScanLine className="size-3.5 sm:size-4" aria-hidden />
         </div>
         <div className="min-w-0 flex-1">
-          <h1
-            className="text-xs font-bold leading-tight text-foreground sm:text-base"
-            title="Okul tarafından tanımlı optik şablonları PDF olarak indirin. Yeni şablon süper admin tarafından eklenir."
-          >
-            Optik formlar
-          </h1>
-          <p className="truncate text-[10px] text-muted-foreground sm:text-xs" title={`${items.length} şablon · Filtre: ${examFilter ? (EXAM_LABELS[examFilter] ?? examFilter) : 'Tümü'}`}>
-            {items.length} şablon · {examFilter ? EXAM_LABELS[examFilter] ?? examFilter : 'Tüm sınav türleri'}
+          <h1 className="text-xs font-bold leading-tight text-foreground sm:text-base">Optik formlar</h1>
+          <p className="truncate text-[10px] text-muted-foreground sm:text-xs">
+            {filteredItems.length}/{items.length} şablon
+            {examFilter ? ` · ${OPTIK_EXAM_LABELS[examFilter] ?? examFilter}` : ''}
           </p>
+        </div>
+        <div className="flex shrink-0 gap-1">
+          <Button variant="ghost" size="icon" className="size-7 sm:size-8" onClick={() => void fetchItems()} title="Yenile">
+            <RefreshCw className="size-3.5 sm:size-4" />
+          </Button>
+          {role === 'superadmin' && (
+            <Link
+              href="/optik-okuma-ayarlar"
+              className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-background/80 hover:text-primary sm:size-8"
+              title="Optik ayarları"
+            >
+              <Settings className="size-3.5 sm:size-4" />
+            </Link>
+          )}
+          {role === 'teacher' && (
+            <>
+              <Link
+                href="/optik-oturumlar"
+                className="flex h-7 items-center gap-1 rounded-md border border-violet-500/40 px-2 text-[11px] font-medium text-violet-800 hover:bg-violet-500/10 sm:h-8 sm:text-xs dark:text-violet-200"
+              >
+                Oturum
+              </Link>
+              <Link
+                href="/optik-okuma"
+                className="flex h-7 items-center gap-1 rounded-md bg-fuchsia-600/90 px-2 text-[11px] font-medium text-white hover:bg-fuchsia-600 sm:h-8 sm:text-xs"
+              >
+                Serbest
+              </Link>
+            </>
+          )}
+          {(role === 'school_admin' || role === 'teacher') && (
+            <Button size="sm" className="h-7 gap-1 px-2 text-[11px] sm:h-8 sm:text-xs" onClick={openCreate}>
+              <Plus className="size-3.5" />
+              Özel
+            </Button>
+          )}
         </div>
       </div>
 
+      <Alert variant="info" className="text-xs">
+        <strong>PDF</strong> tek sayfa optik form. <strong>Yazılı+Form</strong> yalnızca yazılı sorular için önce boş sayfa ekler.
+        Yazdırma %100; okuturken dört köşe karesi ve sol şerit kadrajda olsun.
+      </Alert>
+
       <Card className="overflow-hidden border-border/80 shadow-sm">
         <CardContent className="space-y-2 p-2 sm:space-y-4 sm:p-5">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="h-8 pl-8 text-xs sm:h-9 sm:text-sm"
+              placeholder="Ad, slug, sınıf, ders…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
           <div
             className="grid grid-cols-3 gap-0.5 rounded-lg border border-border/50 bg-muted/20 p-0.5 dark:bg-muted/10 sm:flex sm:flex-wrap sm:gap-1.5 sm:rounded-lg sm:border-0 sm:bg-transparent sm:p-0"
             role="tablist"
             aria-label="Sınav türü"
           >
-            {EXAM_FILTER_ORDER.map((key) => {
-              const label = key === '' ? 'Tümü' : EXAM_LABELS[key] ?? key;
+            {OPTIK_EXAM_FILTER_ORDER.map((key) => {
+              const label = key === '' ? 'Tümü' : OPTIK_EXAM_LABELS[key] ?? key;
               const active = examFilter === key;
-              const st = EXAM_TAB_STYLES[key] ?? EXAM_TAB_STYLES['']!;
+              const st = OPTIK_EXAM_TAB_STYLES[key] ?? OPTIK_EXAM_TAB_STYLES['']!;
               return (
                 <button
                   key={key || 'all'}
@@ -206,137 +236,43 @@ export default function OptikFormlarPage() {
             })}
           </div>
 
-          <div className="space-y-1.5 sm:hidden">
-            {filteredItems.map((item) => {
-              const busy = downloadingId === item.id;
-              const pk = examPaletteKey(item.examType);
-              return (
-                <div
-                  key={item.id}
-                  className={cn(
-                    'rounded-lg border border-y border-r border-border/60 border-l-[3px] p-2 shadow-sm ring-1 ring-black/2 dark:ring-white/4',
-                    EXAM_CARD_STYLES[pk],
-                  )}
-                >
-                  <p className="text-xs font-semibold leading-snug text-foreground">{item.name}</p>
-                  <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
-                    <span>{EXAM_LABELS[item.examType ?? 'genel'] ?? item.examType}</span>
-                    <span>
-                      {item.questionCount} soru · {item.choiceCount} şık
-                    </span>
-                    <span>{scopeLabel(item.scope)}</span>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="h-8 min-w-0 flex-1 px-2 text-[11px]"
-                      disabled={!!downloadingId}
-                      onClick={() => handleDownloadPdf(item)}
-                      title="Sadece optik form"
-                    >
-                      {busy ? <LoadingSpinner className="size-3.5" /> : <Download className="size-3" />}
-                      <span className="ml-1">PDF</span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 min-w-0 flex-1 px-2 text-[11px]"
-                      disabled={!!downloadingId}
-                      onClick={() => handleDownloadPdf(item, 1)}
-                      title="Önce boş sayfa, sonra optik"
-                    >
-                      Yazılı+Form
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-            {filteredItems.length === 0 && (
-              <EmptyState
-                icon={<FileText className="size-10 text-muted-foreground" />}
-                title={items.length === 0 ? 'Henüz form şablonu yok' : 'Bu sınav türünde form yok'}
-                description={
-                  items.length === 0
-                    ? 'Şablonlar süper admin tarafından eklenir.'
-                    : 'Başka bir sınav türü seçin.'
-                }
-              />
-            )}
+          <div className="flex flex-wrap gap-1">
+            {OPTIK_SCOPE_OPTIONS.map((o) => (
+              <button
+                key={o.value || 'all-scope'}
+                type="button"
+                onClick={() => setScopeFilter(o.value)}
+                className={cn(
+                  'rounded-md border px-2 py-1 text-[10px] font-medium transition-colors sm:text-xs',
+                  scopeFilter === o.value
+                    ? 'border-primary/40 bg-primary/10 text-foreground'
+                    : 'border-transparent bg-muted/50 text-muted-foreground hover:bg-muted',
+                )}
+              >
+                {o.label}
+              </button>
+            ))}
           </div>
 
-          {/* Masaüstü: tablo */}
-          <div className="table-x-scroll hidden sm:block">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/40">
-                  <th className="p-2.5 text-left font-semibold">Ad</th>
-                  <th className="p-2.5 text-left font-semibold">Tür</th>
-                  <th className="p-2.5 text-right font-semibold">Soru</th>
-                  <th className="p-2.5 text-right font-semibold">Şık</th>
-                  <th className="p-2.5 text-left font-semibold">Kaynak</th>
-                  <th className="p-2.5" />
-                </tr>
-              </thead>
-              <tbody>
-                {filteredItems.map((item) => {
-                  const pk = examPaletteKey(item.examType);
-                  return (
-                  <tr
-                    key={item.id}
-                    className={cn('border-b border-border/50 transition-colors', EXAM_ROW_STYLES[pk])}
-                  >
-                    <td className="p-2.5 font-medium">{item.name}</td>
-                    <td className="p-2.5">{EXAM_LABELS[item.examType ?? 'genel'] ?? item.examType}</td>
-                    <td className="p-2.5 text-right tabular-nums">{item.questionCount}</td>
-                    <td className="p-2.5 text-right tabular-nums">{item.choiceCount}</td>
-                    <td className="p-2.5 text-muted-foreground">{scopeLabel(item.scope)}</td>
-                    <td className="p-2.5">
-                      <div className="flex flex-wrap items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={!!downloadingId}
-                          onClick={() => handleDownloadPdf(item)}
-                          title="Sadece optik form"
-                        >
-                          {downloadingId === item.id ? (
-                            <LoadingSpinner className="size-4" />
-                          ) : (
-                            <Download className="size-4" />
-                          )}
-                          <span className="ml-1">PDF</span>
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={!!downloadingId}
-                          onClick={() => handleDownloadPdf(item, 1)}
-                          title="Önce boş sayfa (yazılı sorular için), sonra optik form"
-                        >
-                          Yazılı + Form
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {filteredItems.length === 0 && (
-              <EmptyState
-                icon={<FileText className="size-10 text-muted-foreground" />}
-                title={items.length === 0 ? 'Henüz form şablonu yok' : 'Bu sınav türünde form yok'}
-                description={
-                  items.length === 0
-                    ? 'Süper admin optik form şablonlarını Optik okuma ayarları üzerinden tanımlar.'
-                    : 'Filtreyi değiştirin.'
-                }
-              />
-            )}
-          </div>
+          <OptikFormTemplateList
+            items={filteredItems}
+            totalCount={items.length}
+            downloadingId={downloadingId}
+            canModify={canModify}
+            onDownload={(item, pb) => void handleDownload(item, pb)}
+            onEdit={openEdit}
+            onDelete={(item) => void handleDelete(item)}
+          />
         </CardContent>
       </Card>
+
+      <OptikFormTemplateEditorDialog
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        initial={editorItem}
+        saving={saving}
+        onSave={handleSave}
+      />
     </div>
   );
 }

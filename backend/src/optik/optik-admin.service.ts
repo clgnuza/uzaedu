@@ -1,6 +1,6 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, Between, MoreThanOrEqual } from 'typeorm';
 import { OptikFormTemplate } from './entities/optik-form-template.entity';
 import { OptikRubricTemplate } from './entities/optik-rubric-template.entity';
 import { OptikUsageLog } from './entities/optik-usage-log.entity';
@@ -246,6 +246,38 @@ export class OptikAdminService {
     return this.rubricRepo.find({
       order: { sortOrder: 'ASC', name: 'ASC' },
     });
+  }
+
+  /** Öğretmen PWA: aktif rubrik listesi */
+  async listActiveRubricTemplates(): Promise<OptikRubricTemplate[]> {
+    return this.rubricRepo.find({
+      where: { isActive: true },
+      order: { sortOrder: 'ASC', name: 'ASC' },
+    });
+  }
+
+  async findRubricForGrade(mode: string, subject?: string | null): Promise<OptikRubricTemplate | null> {
+    const active = await this.listActiveRubricTemplates();
+    const sub = subject?.trim().toLowerCase();
+    const byMode = active.filter((r) => r.mode === mode);
+    if (byMode.length === 0) return null;
+    if (sub) {
+      const exact = byMode.find((r) => r.subject?.trim().toLowerCase() === sub);
+      if (exact) return exact;
+    }
+    return byMode[0] ?? null;
+  }
+
+  async countUserUsageToday(userId: string): Promise<{ ocr: number; grade: number; total: number }> {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const logs = await this.usageRepo.find({
+      where: { userId, createdAt: MoreThanOrEqual(start) },
+      select: ['usageType'],
+    });
+    const ocr = logs.filter((l) => l.usageType === 'ocr').length;
+    const grade = logs.filter((l) => l.usageType === 'grade').length;
+    return { ocr, grade, total: ocr + grade };
   }
 
   async createRubricTemplate(dto: {

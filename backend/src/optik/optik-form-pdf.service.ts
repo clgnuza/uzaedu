@@ -42,71 +42,196 @@ function toAsciiSafe(s: string): string {
 
 const round10 = (n: number) => Math.round(n * 10) / 10;
 
-/** Ogrenci No satir gorunumu – CEVAPLAR gibi: 0-9 ustte, her satir bir hane, bubble'lar yatay. */
-function drawStudentNoRows(
-  page: { drawCircle: (o: object) => void; drawText: (text: string, options?: object) => void; drawRectangle: (o: object) => void; drawLine: (o: object) => void },
+/** ?prepend_blank=1 yalnizca acikca 1..5 ise bos sayfa ekler */
+export function parsePrependBlankQuery(raw: string | undefined): number {
+  if (raw == null || raw.trim() === '') return 0;
+  const n = Number.parseInt(raw.trim(), 10);
+  if (!Number.isFinite(n) || n < 1) return 0;
+  return Math.min(5, n);
+}
+
+type PdfDrawPage = {
+  drawCircle: (o: object) => void;
+  drawText: (text: string, options?: object) => void;
+  drawRectangle: (o: object) => void;
+  drawLine: (o: object) => void;
+};
+
+type PdfFont = import('pdf-lib').PDFFont;
+
+interface CodeBubbleStyle {
+  bubbleSize: number;
+  rowHeight: number;
+  headerH: number;
+  labelColW: number;
+  choiceSpacing: number;
+  lineColor: ReturnType<typeof rgb>;
+  headerBg: ReturnType<typeof rgb>;
+  rowAlt: ReturnType<typeof rgb>;
+  rowLine: ReturnType<typeof rgb>;
+  font: PdfFont;
+  fontBold: PdfFont;
+  textColor: ReturnType<typeof rgb>;
+  labelColor: ReturnType<typeof rgb>;
+}
+
+/** Secenek adlari balonun ustunde, CEVAPLAR ile ayni hiza */
+function drawChoiceHeaderRow(
+  page: PdfDrawPage,
+  xGrid: number,
+  yHeaderBottom: number,
+  choiceLabels: string[],
+  spacing: number,
+  st: CodeBubbleStyle,
+) {
+  const gridW = choiceLabels.length * spacing;
+  page.drawRectangle({
+    x: xGrid,
+    y: yHeaderBottom - st.headerH,
+    width: gridW,
+    height: st.headerH,
+    color: st.headerBg,
+  });
+  for (let i = 0; i < choiceLabels.length; i++) {
+    const cx = round10(xGrid + i * spacing + spacing / 2);
+    const lbl = choiceLabels[i]!;
+    const lw = st.fontBold.widthOfTextAtSize(lbl, 7);
+    page.drawText(lbl, {
+      x: cx - lw / 2,
+      y: yHeaderBottom - st.headerH + 3,
+      size: 7,
+      font: st.fontBold,
+      color: st.labelColor,
+    });
+  }
+}
+
+function drawChoiceBubbleRow(
+  page: PdfDrawPage,
+  xGrid: number,
+  yRowCenter: number,
+  colCount: number,
+  spacing: number,
+  st: CodeBubbleStyle,
+  rowLabel: string | null,
+  zebra: boolean,
+) {
+  const gridW = colCount * spacing;
+  if (zebra) {
+    page.drawRectangle({
+      x: xGrid - 2,
+      y: yRowCenter - st.rowHeight / 2,
+      width: gridW + 4,
+      height: st.rowHeight,
+      color: st.rowAlt,
+    });
+  }
+  if (rowLabel) {
+    page.drawText(rowLabel, {
+      x: xGrid - st.labelColW + 2,
+      y: yRowCenter - 3,
+      size: 8,
+      font: st.font,
+      color: st.textColor,
+    });
+  }
+  for (let c = 0; c < colCount; c++) {
+    const cx = round10(xGrid + c * spacing + spacing / 2);
+    drawBubble(page, cx, yRowCenter, st.bubbleSize, st.lineColor, 1);
+  }
+}
+
+/** Ogrenici no: 0-9 ust baslik, H1-H5 satir etiketi */
+function drawStudentNoGrid(
+  page: PdfDrawPage,
   xLeft: number,
   yTop: number,
   numDigits: number,
-  rowHeight: number,
-  optionHeaderH: number,
-  bubbleSize: number,
-  numberW: number,
-  choiceSpacing: number,
-  lineColor: ReturnType<typeof rgb>,
-  font: unknown,
-  fontBold: unknown,
-  textColor: ReturnType<typeof rgb>,
+  st: CodeBubbleStyle,
 ) {
-  const innerPad = 6;
-  const optionY = yTop - optionHeaderH + 2;
-  for (let d = 0; d <= 9; d++) {
-    const cx = round10(xLeft + numberW + innerPad + d * choiceSpacing + choiceSpacing / 2);
-    page.drawText(String(d), { x: cx - 2, y: optionY, size: 6, font: fontBold as import('pdf-lib').PDFFont, color: textColor });
-  }
-  const rowsTop = yTop - optionHeaderH;
+  const digitLabels = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+  const xGrid = xLeft + st.labelColW;
+  const gridW = 10 * st.choiceSpacing;
+  let y = yTop;
+
+  drawChoiceHeaderRow(page, xGrid, y, digitLabels, st.choiceSpacing, st);
+  y -= st.headerH;
+
+  const rowsTop = y;
   for (let r = 0; r < numDigits; r++) {
-    const rowBottom = rowsTop - (r + 1) * rowHeight;
-    if (r % 2 === 1) {
-      page.drawRectangle({
-        x: xLeft,
-        y: rowBottom,
-        width: numberW + 10 * choiceSpacing + innerPad * 2,
-        height: rowHeight,
-        color: rgb(0.992, 0.992, 0.992),
+    const rowCenterY = rowsTop - r * st.rowHeight - st.rowHeight / 2;
+    if (r > 0) {
+      page.drawLine({
+        start: { x: xLeft, y: rowsTop - r * st.rowHeight },
+        end: { x: xLeft + st.labelColW + gridW + 4, y: rowsTop - r * st.rowHeight },
+        thickness: 0.2,
+        color: st.rowLine,
       });
     }
-    page.drawLine({
-      start: { x: xLeft, y: rowsTop - r * rowHeight },
-      end: { x: xLeft + numberW + 10 * choiceSpacing + innerPad * 2, y: rowsTop - r * rowHeight },
-      thickness: 0.2,
-      color: rgb(0.92, 0.92, 0.92),
-    });
-    const rowCenterY = rowsTop - r * rowHeight - rowHeight / 2;
-    page.drawText(`${r + 1}.`, {
-      x: xLeft + 1,
-      y: rowCenterY - 3,
-      size: 8,
-      font: font as import('pdf-lib').PDFFont,
-      color: textColor,
-    });
-    for (let d = 0; d <= 9; d++) {
-      const cx = round10(xLeft + numberW + innerPad + d * choiceSpacing + choiceSpacing / 2);
-      page.drawCircle({
-        x: cx,
-        y: round10(rowCenterY),
-        size: bubbleSize,
-        borderColor: lineColor,
-        borderWidth: 0.7,
-      });
-    }
+    drawChoiceBubbleRow(page, xGrid, rowCenterY, 10, st.choiceSpacing, st, `H${r + 1}`, r % 2 === 1);
   }
   page.drawLine({
-    start: { x: xLeft, y: rowsTop - numDigits * rowHeight },
-    end: { x: xLeft + numberW + 10 * choiceSpacing + innerPad * 2, y: rowsTop - numDigits * rowHeight },
+    start: { x: xLeft, y: rowsTop - numDigits * st.rowHeight },
+    end: { x: xLeft + st.labelColW + gridW + 4, y: rowsTop - numDigits * st.rowHeight },
     thickness: 0.2,
-    color: rgb(0.92, 0.92, 0.92),
+    color: st.rowLine,
   });
+}
+
+/** Kitapcik / sinif: sol etiket + secenek adlari ustte, balon altta */
+function drawCodeBubbleField(
+  page: PdfDrawPage,
+  x0: number,
+  yTop: number,
+  fieldWidth: number,
+  fieldLabelColW: number,
+  fieldLabel: string,
+  choiceLabels: string[],
+  cols: number,
+  st: CodeBubbleStyle,
+) {
+  const rows = Math.ceil(choiceLabels.length / cols);
+  const xGrid = x0 + fieldLabelColW;
+  const gridW = fieldWidth - fieldLabelColW - 4;
+  const spacing = Math.max(st.choiceSpacing, gridW / cols);
+  const blockH = rows * (st.headerH + st.rowHeight);
+  const yBottom = yTop - blockH;
+
+  page.drawRectangle({
+    x: x0,
+    y: yBottom,
+    width: fieldLabelColW - 2,
+    height: blockH,
+    color: rgb(1, 1, 1),
+  });
+
+  for (let row = 0; row < rows; row++) {
+    const slice = choiceLabels.slice(row * cols, row * cols + cols);
+    const rowTop = yTop - row * (st.headerH + st.rowHeight);
+    drawChoiceHeaderRow(page, xGrid, rowTop, slice, spacing, st);
+    const rowCenterY = rowTop - st.headerH - st.rowHeight / 2;
+    drawChoiceBubbleRow(page, xGrid, rowCenterY, slice.length, spacing, st, null, row % 2 === 1);
+    if (row < rows - 1) {
+      page.drawLine({
+        start: { x: xGrid, y: rowTop - st.headerH - st.rowHeight },
+        end: { x: x0 + fieldWidth, y: rowTop - st.headerH - st.rowHeight },
+        thickness: 0.2,
+        color: st.rowLine,
+      });
+    }
+  }
+
+  const labelY =
+    rows > 1 ? yTop - blockH / 2 - 3 : yTop - st.headerH / 2 - 3;
+  page.drawText(fieldLabel, {
+    x: x0 + 2,
+    y: labelY,
+    size: 8,
+    font: st.fontBold,
+    color: st.textColor,
+  });
+
+  return yBottom - 4;
 }
 
 /** A-Z harf grid – her sutun bir karakter, satirlar A..Z. Yuvarlama ile kayma onlenir. */
@@ -127,28 +252,73 @@ function drawLetterGrid(
     for (let i = 0; i < letters.length; i++) {
       const cx = baseX + col * colSpacing;
       const cy = baseY - i * rowSpacing;
-      page.drawCircle({ x: Math.round(cx * 10) / 10, y: Math.round(cy * 10) / 10, size: bubbleSize, borderColor: lineColor, borderWidth: 0.5 });
+      drawBubble(page, cx, cy, bubbleSize, lineColor, 1);
     }
   }
 }
 
-/** Flutter tarafinda perspektif duzeltme icin koselere sabit markerlar */
+/**
+ * PWA OMR perspektif düzeltme — köşe konumları/ölçüleri değiştirmeyin.
+ * Beyaz halo: baskı/gölgede siyah kare daha net bulunur.
+ */
+const OMR_ANCHOR_SIZE = 7;
+const OMR_ANCHOR_INSET = 10;
+
 function drawAnchorMarkers(
-  page: {
-    drawRectangle: (o: object) => void;
-  },
+  page: { drawRectangle: (o: object) => void },
   pageWidth: number,
   pageHeight: number,
   margin: number,
 ) {
-  const marker = 7;
-  const inset = 10;
-  const color = rgb(0, 0, 0);
+  const marker = OMR_ANCHOR_SIZE;
+  const inset = OMR_ANCHOR_INSET;
+  const black = rgb(0, 0, 0);
+  const halo = rgb(1, 1, 1);
+  const corners: Array<{ x: number; y: number }> = [
+    { x: margin - inset, y: pageHeight - margin + inset - marker },
+    { x: pageWidth - margin + inset - marker, y: pageHeight - margin + inset - marker },
+    { x: margin - inset, y: margin - inset },
+    { x: pageWidth - margin + inset - marker, y: margin - inset },
+  ];
+  for (const c of corners) {
+    page.drawRectangle({ x: c.x - 1, y: c.y - 1, width: marker + 2, height: marker + 2, color: halo });
+    page.drawRectangle({ x: c.x, y: c.y, width: marker, height: marker, color: black });
+  }
+}
 
-  page.drawRectangle({ x: margin - inset, y: pageHeight - margin + inset - marker, width: marker, height: marker, color });
-  page.drawRectangle({ x: pageWidth - margin + inset - marker, y: pageHeight - margin + inset - marker, width: marker, height: marker, color });
-  page.drawRectangle({ x: margin - inset, y: margin - inset, width: marker, height: marker, color });
-  page.drawRectangle({ x: pageWidth - margin + inset - marker, y: margin - inset, width: marker, height: marker, color });
+/** Sol hizalama şeridi — OMR satır senkronu (PWA; yalnızca sol) */
+function drawAlignmentStrip(
+  page: { drawRectangle: (o: object) => void },
+  pageHeight: number,
+  margin: number,
+  stripWidth: number,
+  stripColor: ReturnType<typeof rgb>,
+  tickColor: ReturnType<typeof rgb>,
+) {
+  const stripH = pageHeight - 2 * margin;
+  page.drawRectangle({ x: 0, y: margin, width: stripWidth, height: stripH, color: stripColor });
+  const tickCount = Math.floor(stripH / 28);
+  for (let i = 0; i < tickCount; i++) {
+    const sy = margin + 12 + i * 28;
+    page.drawRectangle({ x: 2, y: sy, width: stripWidth - 4, height: 2, color: tickColor });
+  }
+}
+
+function drawBubble(
+  page: { drawCircle: (o: object) => void },
+  cx: number,
+  cy: number,
+  size: number,
+  borderColor: ReturnType<typeof rgb>,
+  borderWidth = 1,
+) {
+  page.drawCircle({
+    x: round10(cx),
+    y: round10(cy),
+    size,
+    borderColor,
+    borderWidth,
+  });
 }
 
 /** Test blogu – LGS/YKS coklu ders */
@@ -194,49 +364,95 @@ const YKS_TYT_BLOCKS: TestBlock[] = [
   { label: 'Fen Bilimleri', questionCount: 20, choiceCount: 4 },
 ];
 
-/** Modern optik form PDF – Cozum Optik referansi; pembe OMR, net bolumler */
+/** Modern optik form PDF — OMR alanı tarayıcı/PWA kamera ile uyumlu */
 @Injectable()
 export class OptikFormPdfService {
   private readonly A4_WIDTH = 595.28;
   private readonly A4_HEIGHT = 841.89;
+  /** PWA OMR ile paylaşılan sayfa kenarı */
   private readonly MARGIN = 40;
-  private readonly BUBBLE_SIZE = 5;       // CEVAPLAR icin – ust uste gelmemesi icin
-  private readonly ID_BUBBLE_SIZE = 4.5;
+  private readonly FOOTER_H = 28;
+  private readonly ALIGN_STRIP_W = 8;
   private readonly CHOICE_LABELS = ['A', 'B', 'C', 'D', 'E', 'F'];
+  private readonly OMR_LAYOUT_VERSION = 'omr-v3';
 
-  // Modern tasarim – minimal, net, okunakli (Remark/Carbon referans)
-  private readonly ACCENT = rgb(0.45, 0.55, 0.95);            // mavi accent – guven, profesyonellik
-  private readonly ACCENT_SOFT = rgb(0.93, 0.95, 1);          // cok acik mavi arka plan
-  private readonly BUBBLE_BORDER = rgb(0, 0, 0);              // Scanner-safe: maksimum kontrast
-  private readonly BLOCK_BG = rgb(1, 1, 1);                   // OMR alaninda beyaz arka plan
-  private readonly HEADER_COLOR = rgb(0.12, 0.14, 0.2);       // koyu header
-  private readonly ALIGN_STRIP = rgb(0.08, 0.1, 0.14);
-  private readonly BORDER_COLOR = rgb(0.9, 0.91, 0.93);
-  private readonly TEXT_PRIMARY = rgb(0.12, 0.14, 0.18);
-  private readonly TEXT_MUTED = rgb(0.5, 0.53, 0.58);
-  private readonly WARN_BG = rgb(0.99, 0.97, 0.93);
-  private readonly WARN_BORDER = rgb(0.92, 0.85, 0.7);
+  /** Baskı + kamera: OMR alanı beyaz/siyah; renk üst bant ve başlıklarda */
+  private readonly PAGE_BG = rgb(1, 1, 1);
+  private readonly ACCENT = rgb(0.0, 0.42, 0.5);
+  private readonly ACCENT_LINE = rgb(0.95, 0.55, 0.12);
+  private readonly SECTION_BG = rgb(0.9, 0.96, 0.97);
+  private readonly BUBBLE_BORDER = rgb(0, 0, 0);
+  private readonly HEADER_COLOR = rgb(0.08, 0.11, 0.15);
+  private readonly ALIGN_STRIP = rgb(0.07, 0.09, 0.12);
+  private readonly ALIGN_TICK = rgb(0.78, 0.8, 0.84);
+  private readonly BORDER_COLOR = rgb(0.82, 0.84, 0.87);
+  private readonly TEXT_PRIMARY = rgb(0.1, 0.11, 0.14);
+  private readonly TEXT_MUTED = rgb(0.4, 0.43, 0.48);
+  private readonly ROW_ALT = rgb(0.975, 0.978, 0.982);
+  private readonly SCAN_TIP_BG = rgb(0.94, 0.95, 0.96);
+  private readonly ROW_LINE = rgb(0.9, 0.91, 0.93);
 
   async generatePdf(
     template: OptikFormTemplate | Record<string, unknown>,
     options?: { prependBlank?: number },
   ): Promise<Buffer> {
     const prependBlank = Math.min(5, Math.max(0, options?.prependBlank ?? 0));
+    const expectedPages = prependBlank + 1;
     const formDoc = await this.buildSinglePageFormDocument(template);
+    this.assertSinglePage(formDoc, 'form');
+
+    const contentPageIndex = this.getContentPageIndex(formDoc);
+
     if (prependBlank === 0) {
-      const bytes = await formDoc.save({ addDefaultPage: false });
-      return Buffer.from(bytes);
+      return this.rebuildPdfWithPages(formDoc, [contentPageIndex]);
     }
+
     const merged = await PDFDocument.create();
+    this.clearAllPages(merged);
     const w = this.A4_WIDTH;
     const h = this.A4_HEIGHT;
     for (let i = 0; i < prependBlank; i++) {
       merged.addPage([w, h]);
     }
-    const [copied] = await merged.copyPages(formDoc, [0]);
-    merged.addPage(copied);
-    const bytes = await merged.save({ addDefaultPage: false });
-    return Buffer.from(bytes);
+    const copiedPages = await merged.copyPages(formDoc, [contentPageIndex]);
+    merged.addPage(copiedPages[0]!);
+    return this.rebuildPdfWithPages(merged, Array.from({ length: expectedPages }, (_, i) => i));
+  }
+
+  /** pdf-lib bos sayfa birakirsa icerik son sayfada kalir */
+  private getContentPageIndex(doc: PDFDocument): number {
+    const n = doc.getPageCount();
+    if (n < 1) throw new Error('[OptikFormPdf] Form sayfasi yok');
+    return n - 1;
+  }
+
+  /** Kaynak PDF’den yalnizca secilen sayfalari yeni tek dokumana kopyalar */
+  private async rebuildPdfWithPages(source: PDFDocument, pageIndices: number[]): Promise<Buffer> {
+    const out = await PDFDocument.create();
+    this.clearAllPages(out);
+    const copied = await out.copyPages(source, pageIndices);
+    for (const p of copied) {
+      out.addPage(p);
+    }
+    if (out.getPageCount() !== pageIndices.length) {
+      throw new Error(
+        `[OptikFormPdf] Yeniden olusturma hatasi: beklenen ${pageIndices.length}, bulunan ${out.getPageCount()}`,
+      );
+    }
+    return Buffer.from(await out.save({ addDefaultPage: false }));
+  }
+
+  private clearAllPages(doc: PDFDocument): void {
+    while (doc.getPageCount() > 0) {
+      doc.removePage(0);
+    }
+  }
+
+  private assertSinglePage(doc: PDFDocument, label: string): void {
+    const n = doc.getPageCount();
+    if (n !== 1) {
+      throw new Error(`[OptikFormPdf] ${label}: beklenen 1 sayfa, bulunan ${n}`);
+    }
   }
 
   /** Tek sayfa optik formu (bos yazili sayfasi yok); prepend icin generatePdf copyPages kullanir */
@@ -244,6 +460,7 @@ export class OptikFormPdfService {
     template: OptikFormTemplate | Record<string, unknown>,
   ): Promise<PDFDocument> {
     const doc = await PDFDocument.create();
+    this.clearAllPages(doc);
     let font: import('pdf-lib').PDFFont;
     let fontBold: import('pdf-lib').PDFFont;
     let useTurkish = false;
@@ -296,86 +513,91 @@ export class OptikFormPdfService {
     blocks = normalizeTestBlocks(blocks);
     const questionCount = blocks.reduce((s, b) => s + b.questionCount, 0);
 
-    let page = doc.addPage([pageWidth, pageHeight]);
+    const page = doc.addPage([pageWidth, pageHeight]);
+    this.assertSinglePage(doc, 'build');
+    page.drawRectangle({ x: 0, y: 0, width: pageWidth, height: pageHeight, color: this.PAGE_BG });
     let y = pageHeight - margin;
 
-    // —— 1. Modern Header (lacivert) ——
-    const headerHeight = 32;
+    drawAnchorMarkers(page, pageWidth, pageHeight, margin);
+    drawAlignmentStrip(page, pageHeight, margin, this.ALIGN_STRIP_W, this.ALIGN_STRIP, this.ALIGN_TICK);
+
+    const headerHeight = 40;
     page.drawRectangle({
       x: 0,
       y: pageHeight - headerHeight,
       width: pageWidth,
       height: headerHeight,
-      color: this.HEADER_COLOR,
+      color: this.ACCENT,
     });
     page.drawRectangle({
       x: 0,
-      y: pageHeight - headerHeight + 2,
+      y: pageHeight - headerHeight,
       width: pageWidth,
-      height: 2,
-      color: this.ACCENT,
+      height: 4,
+      color: this.ACCENT_LINE,
     });
     page.drawText(txt('CEVAP KAĞIDI'), {
-      x: margin,
-      y: pageHeight - headerHeight + 10,
-      size: 16,
+      x: margin + this.ALIGN_STRIP_W + 4,
+      y: pageHeight - headerHeight + 14,
+      size: 15,
       font: fontBold,
       color: rgb(1, 1, 1),
     });
+    const nameW = font.widthOfTextAtSize(txt(name), 11);
     page.drawText(txt(name), {
-      x: pageWidth - margin - 180,
-      y: pageHeight - headerHeight + 11,
-      size: 12,
-      font: font,
-      color: rgb(0.95, 0.96, 0.98),
+      x: Math.max(margin + this.ALIGN_STRIP_W + 4, pageWidth - margin - nameW - 4),
+      y: pageHeight - headerHeight + 15,
+      size: 11,
+      font,
+      color: rgb(0.88, 0.93, 0.96),
     });
-    y -= headerHeight + 24;
-
-    // Flutter OMR: her sayfada sabit anchor markerlar
-    drawAnchorMarkers(page, pageWidth, pageHeight, margin);
-
-    // Sol hizalama seridi (OMR okuyucu icin – Cozum referansi)
-    const stripWidth = 8;
-    page.drawRectangle({
-      x: 0,
-      y: margin,
-      width: stripWidth,
-      height: pageHeight - 2 * margin,
-      color: this.ALIGN_STRIP,
+    page.drawText(txt(`${questionCount} soru`), {
+      x: margin + this.ALIGN_STRIP_W + 4,
+      y: pageHeight - headerHeight + 4,
+      size: 8,
+      font,
+      color: rgb(0.65, 0.75, 0.82),
     });
-    for (let i = 0; i < 25; i++) {
-      const sy = margin + 15 + i * 32;
-      page.drawRectangle({
-        x: 2,
-        y: sy,
-        width: 4,
-        height: 1,
-        color: rgb(0.95, 0.95, 0.97),
-      });
-    }
+    y -= headerHeight + 18;
 
-    const contentX = margin + stripWidth + 12;
+    const contentX = margin + this.ALIGN_STRIP_W + 12;
     const contentW = pageWidth - margin - contentX;
     const cardPad = 16;
     const cardInnerX = contentX + cardPad;
     const cardInnerW = contentW - 2 * cardPad;
     // CEVAPLAR ile ayni satir yuksekligi ve bubble boyutu
-    const idRowHeight = 10;
-    const idBubbleSize = 3.6;
-    const idMinChoiceSpacing = 2 * idBubbleSize + 2.2;
+    const idRowHeight = 11;
+    const idBubbleSize = 4;
+    const idMinChoiceSpacing = 2 * idBubbleSize + 3.5;
     const idOptionHeaderH = 10;
     const idDigitRows = 5;
+    const idLabelColW = 20;
+    const codeSt: CodeBubbleStyle = {
+      bubbleSize: idBubbleSize,
+      rowHeight: idRowHeight,
+      headerH: idOptionHeaderH,
+      labelColW: idLabelColW,
+      choiceSpacing: idMinChoiceSpacing,
+      lineColor: this.BUBBLE_BORDER,
+      headerBg: this.SECTION_BG,
+      rowAlt: this.ROW_ALT,
+      rowLine: this.ROW_LINE,
+      font,
+      fontBold,
+      textColor: this.TEXT_PRIMARY,
+      labelColor: this.TEXT_MUTED,
+    };
 
-    // —— Öğrenci bilgileri kartı: 2 sütun, CEVAPLAR satir/bubble formati ——
+    // —— Öğrenci bilgileri kartı: 2 sütun ——
     const idColGap = 12;
     const idColW = (cardInnerW - idColGap) / 2;
-    const idLabelW = 72;
+    const idFieldLabelW = 72;
     const cardHeaderH = 22;
-    const leftRowHeights = [idRowHeight, idRowHeight, idRowHeight, idRowHeight, idRowHeight * 2 + 4];
-    const cardBodyH = Math.max(
-      leftRowHeights.reduce((a, b) => a + b, 0) + 18,
-      idOptionHeaderH + idDigitRows * idRowHeight + 20,
-    ) + 8;
+    const kitapcikBlockH = idOptionHeaderH + idRowHeight;
+    const sinifBlockH = 2 * (idOptionHeaderH + idRowHeight);
+    const leftColBodyH = 3 * idRowHeight + kitapcikBlockH + sinifBlockH + 12;
+    const rightColBodyH = idOptionHeaderH + idDigitRows * idRowHeight + 14;
+    const cardBodyH = Math.max(leftColBodyH, rightColBodyH) + 8;
     const topBlockH = cardHeaderH + cardBodyH;
     const topBlockY = y;
     const topBlockX = contentX;
@@ -396,22 +618,21 @@ export class OptikFormPdfService {
       y: topBlockY - cardHeaderH,
       width: topBlockW,
       height: cardHeaderH,
-      color: this.ACCENT_SOFT,
-      borderColor: this.ACCENT,
+      color: this.SECTION_BG,
       borderWidth: 0,
     });
     page.drawLine({
       start: { x: topBlockX, y: topBlockY - cardHeaderH },
-      end: { x: topBlockX + 4, y: topBlockY - cardHeaderH },
-      thickness: 3,
-      color: this.ACCENT,
+      end: { x: topBlockX + 3, y: topBlockY - cardHeaderH },
+      thickness: 2,
+      color: this.ACCENT_LINE,
     });
     page.drawText(txt('ÖĞRENCİ BİLGİLERİ'), {
       x: cardInnerX,
       y: topBlockY - cardHeaderH + 7,
       size: 10,
       font: fontBold,
-      color: this.ACCENT,
+      color: this.TEXT_PRIMARY,
     });
 
     const colDivX = cardInnerX + idColW + idColGap / 2;
@@ -422,113 +643,91 @@ export class OptikFormPdfService {
       color: this.BORDER_COLOR,
     });
 
-    const leftRows: { label: string; type: 'line' | 'bubble'; labels?: string[]; cols?: number }[] = [
-      { label: 'Adı / Soyadı', type: 'line' },
-      { label: 'Testin Adı', type: 'line' },
-      { label: 'Sınav Tarihi', type: 'line' },
-      { label: 'Kitapçık', type: 'bubble', labels: ['A', 'B'], cols: 2 },
-      { label: 'Sınıf', type: 'bubble', labels: ['5', '6', '7', '8', '9', '10', '11', '12'], cols: 4 },
-    ];
-    const leftValX = cardInnerX + idLabelW;
+    const leftLineLabels = ['Adı / Soyadı', 'Testin Adı', 'Sınav Tarihi'];
+    const leftValX = cardInnerX + idFieldLabelW;
     let leftRowTop = topBlockY - cardHeaderH - 8;
 
-    leftRows.forEach((r, idx) => {
-      const rowH = leftRowHeights[idx];
-      const rowCenterY = leftRowTop - rowH / 2;
-      const rowBottom = leftRowTop - rowH;
-
+    for (let idx = 0; idx < leftLineLabels.length; idx++) {
+      const rowBottom = leftRowTop - idRowHeight;
       if (idx % 2 === 1) {
         page.drawRectangle({
           x: cardInnerX,
           y: rowBottom,
           width: idColW,
-          height: rowH,
-          color: rgb(0.992, 0.992, 0.992),
+          height: idRowHeight,
+          color: this.ROW_ALT,
         });
       }
       page.drawLine({
         start: { x: cardInnerX, y: leftRowTop },
         end: { x: cardInnerX + idColW, y: leftRowTop },
         thickness: 0.2,
-        color: rgb(0.92, 0.92, 0.92),
+        color: this.ROW_LINE,
       });
-
-      const labelY = r.type === 'bubble' ? rowCenterY - 4 : rowCenterY - 3;
-      page.drawText(txt(r.label), {
+      const rowCenterY = leftRowTop - idRowHeight / 2;
+      page.drawText(txt(leftLineLabels[idx]!), {
         x: cardInnerX + 2,
-        y: labelY,
+        y: rowCenterY - 3,
         size: 8,
         font: fontBold,
-        color: r.type === 'line' ? this.TEXT_MUTED : this.ACCENT,
+        color: this.TEXT_MUTED,
       });
+      page.drawLine({
+        start: { x: leftValX, y: rowCenterY - 4 },
+        end: { x: cardInnerX + idColW - 4, y: rowCenterY - 4 },
+        thickness: 0.5,
+        color: this.BORDER_COLOR,
+      });
+      leftRowTop -= idRowHeight;
+    }
 
-      if (r.type === 'line') {
-        page.drawLine({
-          start: { x: leftValX, y: rowCenterY - 4 },
-          end: { x: cardInnerX + idColW - 4, y: rowCenterY - 4 },
-          thickness: 0.5,
-          color: this.BORDER_COLOR,
-        });
-      } else if (r.type === 'bubble' && r.labels) {
-        const bubbleY = round10(rowCenterY);
-        const cols = r.cols ?? 5;
-        const isKitapcik = r.label === 'Kitapçık';
-        const isSinif = r.label === 'Sınıf';
-        const bubbleLabelStyle = isKitapcik || isSinif;
-        const choiceW = Math.max(
-          idMinChoiceSpacing + (bubbleLabelStyle ? 10 : 0),
-          (idColW - idLabelW - 12) / cols,
-        );
-        r.labels.forEach((lbl, i) => {
-          const col = i % cols;
-          const crow = Math.floor(i / cols);
-          const cyOffset = r.labels!.length > 2 ? (crow === 0 ? idRowHeight / 2 : -idRowHeight / 2) : 0;
-          const cx = round10(leftValX + col * choiceW + choiceW / 2);
-          const cy = round10(bubbleY + cyOffset);
-          page.drawCircle({ x: cx, y: cy, size: idBubbleSize, borderColor: this.BUBBLE_BORDER, borderWidth: 0.7 });
-          const lblX = bubbleLabelStyle ? (lbl.length > 1 ? 16 : 12) : (lbl.length > 1 ? 5 : 2);
-          const lblY = bubbleLabelStyle ? cy - 3 : round10(cy - idRowHeight / 2 - 2);
-          page.drawText(txt(lbl), { x: cx - lblX, y: lblY, size: 6, font, color: this.TEXT_MUTED });
-        });
-      }
-      leftRowTop -= rowH;
-    });
+    leftRowTop = drawCodeBubbleField(
+      page,
+      cardInnerX,
+      leftRowTop,
+      idColW - 4,
+      idFieldLabelW,
+      txt('Kitapçık'),
+      ['A', 'B'],
+      2,
+      codeSt,
+    );
+    leftRowTop = drawCodeBubbleField(
+      page,
+      cardInnerX,
+      leftRowTop,
+      idColW - 4,
+      idFieldLabelW,
+      txt('Sınıf'),
+      ['5', '6', '7', '8', '9', '10', '11', '12'],
+      4,
+      codeSt,
+    );
 
     page.drawLine({
       start: { x: cardInnerX, y: cardBottom + 8 },
       end: { x: cardInnerX + idColW, y: cardBottom + 8 },
       thickness: 0.2,
-      color: rgb(0.92, 0.92, 0.92),
+      color: this.ROW_LINE,
     });
 
     const rightColX = colDivX + idColGap / 2;
-    const idNumberW = 18;
-    const idDigitChoiceSpacing = Math.max(idMinChoiceSpacing, (idColW - idNumberW - 20) / 10);
+    const digitChoiceSpacing = Math.max(idMinChoiceSpacing, (idColW - idLabelColW - 12) / 10);
     const digitBlockTop = topBlockY - cardHeaderH - 8;
-    page.drawText(txt('Öğrenci No (5 hane)'), {
+    page.drawText(txt('Öğrenci kodu (5 hane)'), {
       x: rightColX,
       y: digitBlockTop,
       size: 8,
       font: fontBold,
-      color: this.ACCENT,
+      color: this.TEXT_PRIMARY,
     });
-    drawStudentNoRows(
-      page,
-      rightColX,
-      round10(digitBlockTop - 8),
-      idDigitRows,
-      idRowHeight,
-      idOptionHeaderH,
-      idBubbleSize,
-      idNumberW,
-      idDigitChoiceSpacing,
-      this.BUBBLE_BORDER,
-      font,
-      fontBold,
-      this.TEXT_MUTED,
-    );
+    drawStudentNoGrid(page, rightColX, round10(digitBlockTop - 6), idDigitRows, {
+      ...codeSt,
+      labelColW: idLabelColW,
+      choiceSpacing: digitChoiceSpacing,
+    });
 
-    y = cardBottom - 14;
+    y = cardBottom - 12;
 
     // Cevap alanı tek sayfaya sığacak dinamik grid
     const cevaplarX = contentX;
@@ -541,8 +740,8 @@ export class OptikFormPdfService {
     // Soru yoğunluğuna göre sütun sayısı
     let numCols = questionCount >= 100 ? 5 : questionCount >= 70 ? 4 : questionCount >= 35 ? 3 : 2;
     const maxChoiceCount = Math.max(1, ...blocks.map((b) => Math.max(1, Math.min(6, b.choiceCount))));
-    const minBubbleSize = 3.6;
-    const minChoiceSpacing = 2 * minBubbleSize + 2.2;
+    const minBubbleSize = 3.8;
+    const minChoiceSpacing = 2 * minBubbleSize + 3;
     while (numCols > 2) {
       const qw = (cevaplarWidth - (numCols - 1) * colGap) / numCols;
       const minCellW = 18 + maxChoiceCount * minChoiceSpacing + 8;
@@ -552,23 +751,24 @@ export class OptikFormPdfService {
 
     const totalRows = blocks.reduce((s, b) => s + Math.ceil(b.questionCount / numCols), 0);
     const fixedH = sectionHeight + blocks.length * (blockHeaderH + optionHeaderH + 8) + 10;
-    const availableH = Math.max(160, y - margin - 8);
-    const rowHeight = Math.max(8, Math.min(12, Math.floor((availableH - fixedH) / Math.max(1, totalRows))));
-    const answerBubble = Math.max(3.2, Math.min(4.4, rowHeight * 0.34));
+    const availableH = Math.max(140, y - margin - this.FOOTER_H - 8);
+    const rowHeight = Math.max(9, Math.min(12, Math.floor((availableH - fixedH) / Math.max(1, totalRows))));
+    const answerBubble = Math.max(3.6, Math.min(4.8, rowHeight * 0.36));
+    const answerAreaTopY = y;
     const questionWidth = (cevaplarWidth - (numCols - 1) * colGap) / numCols;
     const numberW = 18;
     const innerPad = 8;
 
     page.drawRectangle({
-      x: cevaplarX, y: y - sectionHeight, width: cevaplarWidth, height: sectionHeight, color: this.ACCENT_SOFT,
+      x: cevaplarX, y: y - sectionHeight, width: cevaplarWidth, height: sectionHeight, color: this.SECTION_BG,
     });
     page.drawLine({
       start: { x: cevaplarX, y: y - sectionHeight },
-      end: { x: cevaplarX + 4, y: y - sectionHeight },
-      thickness: 3,
-      color: this.ACCENT,
+      end: { x: cevaplarX + 3, y: y - sectionHeight },
+      thickness: 2,
+      color: this.ACCENT_LINE,
     });
-    page.drawText(txt('CEVAPLAR'), { x: cevaplarX + 12, y: y - 14, size: 10, font: fontBold, color: this.ACCENT });
+    page.drawText(txt('CEVAPLAR'), { x: cevaplarX + 12, y: y - 14, size: 10, font: fontBold, color: this.TEXT_PRIMARY });
     y -= sectionHeight + 10;
 
     for (const blk of blocks) {
@@ -579,7 +779,7 @@ export class OptikFormPdfService {
       // Ders başlığı (tek blok CEVAPLAR ise tekrar başlık çizme)
       if ((blk.label || '').toLocaleUpperCase('tr-TR') !== 'CEVAPLAR') {
         page.drawRectangle({
-          x: cevaplarX, y: y - blockHeaderH, width: cevaplarWidth, height: blockHeaderH, color: this.ACCENT_SOFT,
+          x: cevaplarX, y: y - blockHeaderH, width: cevaplarWidth, height: blockHeaderH, color: this.SECTION_BG,
         });
         page.drawText(txt((blk.label || 'CEVAPLAR').toLocaleUpperCase('tr-TR')), {
           x: cevaplarX + 6, y: y - 11, size: 8, font: fontBold, color: this.ACCENT,
@@ -610,14 +810,14 @@ export class OptikFormPdfService {
             y: rowsTop - (r + 1) * rowHeight,
             width: cevaplarWidth,
             height: rowHeight,
-            color: rgb(0.992, 0.992, 0.992),
+            color: this.ROW_ALT,
           });
         }
         page.drawLine({
           start: { x: cevaplarX, y: rowsTop - r * rowHeight },
           end: { x: cevaplarX + cevaplarWidth, y: rowsTop - r * rowHeight },
           thickness: 0.2,
-          color: rgb(0.92, 0.92, 0.92),
+          color: this.ROW_LINE,
         });
       }
 
@@ -641,18 +841,53 @@ export class OptikFormPdfService {
         // İşaretleme kutucukları (ABCD hizalı)
         for (let c = 0; c < blkChoiceCount; c++) {
           const cx = xColLeft + numberW + c * choiceW + choiceW / 2;
-          page.drawCircle({
-            x: Math.round(cx * 10) / 10,
-            y: Math.round(rowCenterY * 10) / 10,
-            size: answerBubble,
-            borderColor: this.BUBBLE_BORDER,
-            borderWidth: 0.7,
-          });
+          drawBubble(page, cx, rowCenterY, answerBubble, this.BUBBLE_BORDER, 1);
         }
       }
 
       y -= blockBodyH + 8;
     }
+
+    const answerAreaBottomY = y;
+    page.drawRectangle({
+      x: cevaplarX - 6,
+      y: answerAreaBottomY - 4,
+      width: cevaplarWidth + 12,
+      height: answerAreaTopY - answerAreaBottomY + 10,
+      borderColor: this.BUBBLE_BORDER,
+      borderWidth: 1,
+    });
+
+    page.drawRectangle({
+      x: contentX,
+      y: margin + 4,
+      width: contentW,
+      height: this.FOOTER_H - 4,
+      color: this.SCAN_TIP_BG,
+      borderColor: this.BORDER_COLOR,
+      borderWidth: 0.5,
+    });
+    page.drawText(txt('Telefon/PWA: Dört köşe karesi ve yan şeritler kadraja girsin; formu düz, iyi ışıkta tutun.'), {
+      x: contentX + 8,
+      y: margin + 16,
+      size: 7,
+      font,
+      color: this.TEXT_MUTED,
+    });
+    page.drawText(txt('Koyu kurşun kalem ile doldurun; her soruda yalnızca bir şık.'), {
+      x: contentX + 8,
+      y: margin + 8,
+      size: 7,
+      font,
+      color: this.TEXT_MUTED,
+    });
+    page.drawText(this.OMR_LAYOUT_VERSION, {
+      x: pageWidth - margin - 36,
+      y: margin + 6,
+      size: 6,
+      font,
+      color: rgb(0.75, 0.78, 0.82),
+    });
 
     return doc;
   }

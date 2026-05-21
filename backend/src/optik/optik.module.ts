@@ -12,16 +12,39 @@ import { OptikFormPdfService } from './optik-form-pdf.service';
 import { OptikFormTemplate } from './entities/optik-form-template.entity';
 import { OptikRubricTemplate } from './entities/optik-rubric-template.entity';
 import { OptikUsageLog } from './entities/optik-usage-log.entity';
+import { OptikScanResult } from './entities/optik-scan-result.entity';
+import { OptikExamSession } from './entities/optik-exam-session.entity';
+import { OptikReportsService } from './optik-reports.service';
+import { OptikSessionsService } from './optik-sessions.service';
+import { OptikReportPdfService } from './optik-report-pdf.service';
+import { School } from '../schools/entities/school.entity';
+import { User } from '../users/entities/user.entity';
 
 @Module({
   imports: [
     AppConfigModule,
     MarketModule,
     SchoolsModule,
-    TypeOrmModule.forFeature([OptikFormTemplate, OptikRubricTemplate, OptikUsageLog]),
+    TypeOrmModule.forFeature([
+      OptikFormTemplate,
+      OptikRubricTemplate,
+      OptikUsageLog,
+      OptikScanResult,
+      OptikExamSession,
+      School,
+      User,
+    ]),
   ],
   controllers: [OptikController, OptikAdminController],
-  providers: [OptikService, OptikAdminService, OptikFormPdfService, RequireSchoolModuleGuard],
+  providers: [
+    OptikService,
+    OptikAdminService,
+    OptikFormPdfService,
+    OptikReportsService,
+    OptikSessionsService,
+    OptikReportPdfService,
+    RequireSchoolModuleGuard,
+  ],
   exports: [OptikService],
 })
 export class OptikModule {}

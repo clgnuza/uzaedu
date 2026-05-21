@@ -13,6 +13,8 @@ import { MessagingUserPreference } from '../messaging/entities/messaging-user-pr
 import { DocumentGeneration } from '../document-templates/entities/document-generation.entity';
 import { OptikFormTemplate } from '../optik/entities/optik-form-template.entity';
 import { OptikUsageLog } from '../optik/entities/optik-usage-log.entity';
+import { OptikExamSession } from '../optik/entities/optik-exam-session.entity';
+import { OptikScanResult } from '../optik/entities/optik-scan-result.entity';
 import { SmartBoardDeviceSchedule } from '../smart-board/entities/smart-board-device-schedule.entity';
 import { BilsemCalendarAssignment } from '../bilsem/entities/bilsem-calendar-assignment.entity';
 import { BilsemGeneratedPlan } from '../bilsem/entities/bilsem-generated-plan.entity';
@@ -28,6 +30,8 @@ const ME_SNAPSHOT_ENTITIES = [
   DocumentGeneration,
   OptikFormTemplate,
   OptikUsageLog,
+  OptikExamSession,
+  OptikScanResult,
   SmartBoardDeviceSchedule,
   BilsemCalendarAssignment,
   BilsemGeneratedPlan,

@@ -21,6 +21,18 @@ export default function manifest(): MetadataRoute.Manifest {
         url: '/akilli-tahta',
         description: 'Tahta QR onayı ve bağlantı',
       },
+      {
+        name: 'Sınav oturumları',
+        short_name: 'Sınav',
+        url: '/optik-oturumlar',
+        description: 'Oturum → anahtar → tara → sonuç',
+      },
+      {
+        name: 'Serbest tarama',
+        short_name: 'Tara',
+        url: '/optik-okuma',
+        description: 'Oturumsuz tek kağıt',
+      },
     ],
   };
 }
