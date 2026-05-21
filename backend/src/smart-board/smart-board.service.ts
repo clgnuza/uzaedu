@@ -2092,7 +2092,6 @@ export class SmartBoardService {
       s.disconnected_at = new Date();
       await this.sessionRepo.save(s);
       closed++;
-      const device = s.device;
       if (device) {
         const hasOther = await this.sessionRepo.findOne({
           where: { device_id: device.id, disconnected_at: IsNull() },
