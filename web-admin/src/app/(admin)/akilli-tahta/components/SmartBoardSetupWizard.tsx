@@ -5,6 +5,8 @@ import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Alert } from '@/components/ui/alert';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import {
@@ -21,6 +23,9 @@ import {
   Wrench,
 } from 'lucide-react';
 import { buildClassroomSetupUrl, buildClassroomTvUrl } from '@/lib/smart-board-classroom-url';
+import { buildPardusKurulumPageUrl } from '@/lib/smart-board-setup-link-parse';
+import { SMART_BOARD_QR_FLOW_SUMMARY } from '@/lib/smart-board-teacher-qr-flow';
+import { buildTvAllowedIpsSettingsHref } from '@/lib/tv-settings-nav';
 import { buildClassroomQrImageSrc } from '@/lib/smart-board-classroom-api';
 import { openSmartBoardLabelsPrint } from '@/lib/smart-board-qr-labels';
 import { downloadAllSmartBoardUsbLaunchers } from '@/lib/smart-board-usb-bulk-download';
@@ -41,6 +46,7 @@ export function SmartBoardSetupWizard({
   schoolName,
   onDevicesChanged,
   onOpenSettings,
+  onAddDevice,
 }: {
   schoolId: string;
   token: string | null;
@@ -49,10 +55,18 @@ export function SmartBoardSetupWizard({
   schoolName?: string;
   onDevicesChanged: () => void;
   onOpenSettings?: () => void;
+  onAddDevice?: (data: {
+    name: string;
+    class_section: string;
+    room_or_location: string;
+  }) => Promise<Device | null>;
 }) {
   const [status, setStatus] = useState<SmartBoardSetupStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [extraBusy, setExtraBusy] = useState(false);
+  const [extraName, setExtraName] = useState('');
+  const [extraRoom, setExtraRoom] = useState('');
   const [regenBusy, setRegenBusy] = useState(false);
   const [zipBusy, setZipBusy] = useState(false);
   const [debZipBusy, setDebZipBusy] = useState(false);
@@ -106,14 +120,26 @@ export function SmartBoardSetupWizard({
     setBulkBusy(true);
     try {
       const items = [...selected].map((class_section) => ({ class_section }));
-      const res = await apiFetch<{ created?: Device[]; skipped?: string[] }>('/smart-board/devices/bulk', {
-        method: 'POST',
-        token,
-        body: JSON.stringify({ items }),
-      });
+      const res = await apiFetch<{ created?: Device[]; skipped?: string[]; errors?: string[] }>(
+        '/smart-board/devices/bulk',
+        {
+          method: 'POST',
+          token,
+          body: JSON.stringify({ items, school_id: schoolId }),
+        },
+      );
       const n = res.created?.length ?? 0;
       const sk = res.skipped?.length ?? 0;
-      toast.success(`${n} tahta eklendi${sk ? `, ${sk} zaten vardı` : ''}.`);
+      const errN = res.errors?.length ?? 0;
+      if (n > 0) {
+        toast.success(`${n} tahta eklendi${sk ? `, ${sk} zaten vardı` : ''}${errN ? `, ${errN} hata` : ''}.`);
+      } else if (errN > 0) {
+        toast.error(res.errors!.slice(0, 2).join(' · ') + (errN > 2 ? ` (+${errN - 2})` : ''));
+      } else if (sk > 0) {
+        toast.info('Seçilen sınıfların tahtası zaten kayıtlı.');
+      } else {
+        toast.error('Tahta eklenemedi.');
+      }
       onDevicesChanged();
       void fetchStatus();
     } catch (e) {
@@ -151,6 +177,37 @@ export function SmartBoardSetupWizard({
     [classSections, selected],
   );
 
+  const nonClassDevices = useMemo(
+    () => devices.filter((d) => !(d.classSection ?? '').trim()),
+    [devices],
+  );
+
+  const handleAddNonClass = async () => {
+    if (!onAddDevice) return;
+    const room = extraRoom.trim();
+    const name = extraName.trim();
+    if (!name && !room) {
+      toast.error('Ad veya lokasyon girin.');
+      return;
+    }
+    setExtraBusy(true);
+    try {
+      const device = await onAddDevice({
+        name: name || (room ? `Akıllı Tahta - ${room}` : 'Akıllı Tahta'),
+        class_section: '',
+        room_or_location: room,
+      });
+      if (device) {
+        setExtraName('');
+        setExtraRoom('');
+        onDevicesChanged();
+        toast.success('Sınıf dışı tahta eklendi');
+      }
+    } finally {
+      setExtraBusy(false);
+    }
+  };
+
   if (loading && !status) {
     return (
       <div className="flex justify-center py-12">
@@ -175,9 +232,44 @@ export function SmartBoardSetupWizard({
         </CardHeader>
         <CardContent className="space-y-4">
           <Alert variant="info">
-            <strong>3 adım:</strong> Sınıfları seç → Etiketleri yazdır → Tahtada tarayıcıyı aç (Duyuru TV otomatik başlar).
-            Öğretmen ders için hesabından QR onaylar. Pardus isteğe bağlıdır.
+            <strong>4 adım:</strong> Sınıfları seç → Etiketleri yazdır (eşleştirme kodu) → TV izinli IP (canlı) → Tahtada
+            kurulum linki veya Pardus sihirbazı. Kayıtlı tahta: etiketteki eşleştirme kodu.
           </Alert>
+          <p className="text-xs text-muted-foreground">{SMART_BOARD_QR_FLOW_SUMMARY}</p>
+          {status && !status.has_tv_ip ? (
+            <Alert variant="warning">
+              Canlı ortamda tahta kurulumu için <strong>TV izinli IP</strong> listesi zorunludur. Yerelde boş bırakılabilir.{' '}
+              <a href={buildTvAllowedIpsSettingsHref({ schoolId })} className="font-semibold text-primary underline">
+                IP listesini düzenle
+              </a>
+            </Alert>
+          ) : null}
+          {setupCode ? (
+            <Alert variant="info" className="border-violet-500/30 bg-violet-500/8">
+              <p className="text-sm">
+                <strong>Pardus tahtalar:</strong> Tahtada{' '}
+                <a
+                  href={buildPardusKurulumPageUrl(origin, setupCode)}
+                  className="font-semibold text-violet-700 underline dark:text-violet-300"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Pardus kurulum sihirbazını
+                </a>{' '}
+                açın — link yapıştır, tahta seç, ZIP indir, tek komutla kurun.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => copy(buildPardusKurulumPageUrl(origin, setupCode), 'Pardus kurulum linki')}
+              >
+                <Copy className="size-3.5" />
+                Pardus linkini kopyala
+              </Button>
+            </Alert>
+          ) : null}
 
           {status?.checklist?.length ? (
             <ul className="grid gap-2 sm:grid-cols-2">
@@ -214,7 +306,8 @@ export function SmartBoardSetupWizard({
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-xs text-muted-foreground">
-              Yeni tahtada ilk açılış: bu kod ile sınıf seçilir; ardından ekran Duyuru TV modunda kalır.
+              Tahtada <code className="rounded bg-muted px-1">/tv/classroom?setup=1</code> ile okul doğrulanır. Panelde
+              kayıtlı tahta için etiketteki <strong>eşleştirme kodu</strong> gerekir; yeni sınıf listeden seçilebilir.
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-2xl font-bold tracking-[0.25em] text-primary">{setupCode || '—'}</span>
@@ -243,7 +336,7 @@ export function SmartBoardSetupWizard({
           <CardContent className="space-y-3">
             {classSections.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                Sınıf listesi boş. Ders programı veya sınıf tanımlarından ekleyin; veya Cihazlar sekmesinden tek tek ekleyin.
+                Gruplar ve Dersler’de kayıtlı sınıf yok. Önce oraya şube ekleyin veya Cihazlar sekmesinden tek tek tahta oluşturun.
               </p>
             ) : (
               <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border p-2">
@@ -261,7 +354,7 @@ export function SmartBoardSetupWizard({
                         onChange={() => toggleClass(c)}
                       />
                       <span className={exists ? 'text-muted-foreground line-through' : ''}>{c}</span>
-                      {exists ? <span className="text-[10px] text-emerald-600">kayıtlı</span> : null}
+                      {exists ? <span className="text-[10px] text-emerald-600">tahta var</span> : null}
                     </label>
                   );
                 })}
@@ -275,6 +368,50 @@ export function SmartBoardSetupWizard({
               {bulkBusy ? <LoadingSpinner className="size-4" /> : <Monitor className="size-4" />}
               {suggestedToAdd.length} sınıf için tahta ekle
             </Button>
+            <div className="border-t border-dashed pt-3 space-y-2">
+              <p className="text-xs font-medium text-foreground">Sınıf dışı tahta (idare, lab, koridor…)</p>
+              {nonClassDevices.length > 0 ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Kayıtlı: {nonClassDevices.map((d) => d.name).join(', ')}
+                </p>
+              ) : null}
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="extra-board-name" className="text-xs">
+                    Tahta adı
+                  </Label>
+                  <Input
+                    id="extra-board-name"
+                    value={extraName}
+                    onChange={(e) => setExtraName(e.target.value)}
+                    placeholder="Örn. İdare salonu"
+                    className="mt-1 h-9 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="extra-board-room" className="text-xs">
+                    Lokasyon
+                  </Label>
+                  <Input
+                    id="extra-board-room"
+                    value={extraRoom}
+                    onChange={(e) => setExtraRoom(e.target.value)}
+                    placeholder="Örn. Zemin kat"
+                    className="mt-1 h-9 text-sm"
+                  />
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full"
+                disabled={extraBusy || !onAddDevice}
+                onClick={() => void handleAddNonClass()}
+              >
+                {extraBusy ? <LoadingSpinner className="size-4" /> : <Monitor className="size-4" />}
+                Sınıf dışı tahta ekle
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -283,18 +420,25 @@ export function SmartBoardSetupWizard({
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">3 — Etiketler ve saha dosyaları</CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
+        <CardContent className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Her etikette sınıf QR’sı ve <strong>eşleştirme kodu</strong> vardır; tahta ilk kurulumda kayıtlı cihaz için bu kod
+            istenir.
+          </p>
+          <div className="flex flex-wrap gap-2">
           <Button
             type="button"
             variant="default"
             disabled={devices.length === 0 || !setupCode}
-            onClick={() =>
-              openSmartBoardLabelsPrint({
+            onClick={() => {
+              const ok = openSmartBoardLabelsPrint({
                 schoolName: schoolName ?? 'Okul',
                 setupCode,
                 devices,
-              })
-            }
+                origin,
+              });
+              if (!ok) toast.error('Yazdırma penceresi açılamadı. Tarayıcıda açılır pencereye izin verin.');
+            }}
           >
             <Printer className="size-4" />
             QR etiketleri yazdır
@@ -305,6 +449,10 @@ export function SmartBoardSetupWizard({
               variant="outline"
               disabled={zipBusy}
               onClick={() => {
+                if (!origin) {
+                  toast.error('Panel adresi hazır değil; sayfayı yenileyin.');
+                  return;
+                }
                 setZipBusy(true);
                 void downloadAllSmartBoardUsbLaunchers({
                   panelOrigin: origin,
@@ -320,12 +468,16 @@ export function SmartBoardSetupWizard({
               Tüm USB HTML (ZIP)
             </Button>
           ) : null}
-          {devices.length > 1 ? (
+          {devices.length > 0 ? (
             <Button
               type="button"
               variant="outline"
               disabled={debZipBusy}
               onClick={() => {
+                if (!origin) {
+                  toast.error('Panel adresi hazır değil; sayfayı yenileyin.');
+                  return;
+                }
                 setDebZipBusy(true);
                 void downloadAllSmartBoardDebPackages({
                   panelOrigin: origin,
@@ -396,6 +548,7 @@ export function SmartBoardSetupWizard({
               Ayarlar
             </Button>
           ) : null}
+          </div>
         </CardContent>
       </Card>
 

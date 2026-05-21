@@ -2,12 +2,13 @@ import { buildClassroomTvUrl } from '@/lib/smart-board-classroom-url';
 import { buildClassroomQrImageSrc } from '@/lib/smart-board-classroom-api';
 import type { Device } from '@/app/(admin)/akilli-tahta/types';
 
+/** false = açılır pencere engellendi */
 export function openSmartBoardLabelsPrint(args: {
   schoolName: string;
   setupCode: string;
   devices: Device[];
   origin?: string;
-}): void {
+}): boolean {
   const origin = args.origin ?? (typeof window !== 'undefined' ? window.location.origin : '');
   const setupUrl = `${origin}/tv/classroom?setup=1&school_code=${encodeURIComponent(args.setupCode)}`;
   const cards = args.devices
@@ -52,7 +53,7 @@ export function openSmartBoardLabelsPrint(args: {
     <img src="${buildClassroomQrImageSrc(setupUrl)}" width="140" height="140" alt=""/>
     <div>
       <p><strong>Okul kurulum kodu:</strong> <span style="font-size:22px;letter-spacing:0.2em">${escapeHtml(args.setupCode)}</span></p>
-      <p style="font-size:12px">Yeni tahta: bu QR ile sınıf seçilir (ilk açılış).</p>
+      <p style="font-size:12px">Yeni tahta: bu QR ile sınıf seçilir. Kayıtlı tahta: listeden seç + etiketteki eşleştirme kodu.</p>
       <p style="font-size:10px;word-break:break-all">${escapeHtml(setupUrl)}</p>
     </div>
   </div>
@@ -60,9 +61,10 @@ export function openSmartBoardLabelsPrint(args: {
 </body></html>`;
 
   const w = window.open('', '_blank', 'noopener,noreferrer');
-  if (!w) return;
+  if (!w) return false;
   w.document.write(html);
   w.document.close();
+  return true;
 }
 
 function escapeHtml(s: string): string {

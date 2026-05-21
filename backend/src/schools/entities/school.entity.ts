@@ -314,9 +314,17 @@ export class School {
   @Column({ name: 'smart_board_notify_on_disconnect', type: 'boolean', default: true })
   smartBoardNotifyOnDisconnect: boolean;
 
-  /** Akıllı Tahta: Ders saati bitince heartbeat sırasında otomatik bağlantı kesilir (lesson_schedule gerekli). */
+  /** Akıllı Tahta: Öğle arası + gün sonu otomasyonu (lesson_schedule gerekli). */
   @Column({ name: 'smart_board_auto_disconnect_lesson_end', type: 'boolean', default: false })
   smartBoardAutoDisconnectLessonEnd: boolean;
+
+  /** Öğle arası: önceki ders bitişinden bu kadar dk sonra duyuru modu (oturum kesilir). */
+  @Column({ name: 'smart_board_lunch_duyuru_grace_minutes', type: 'int', default: 10 })
+  smartBoardLunchDuyuruGraceMinutes: number;
+
+  /** Gün sonu: son ders bitişinden bu kadar dk sonra tahta tam kapatılır. */
+  @Column({ name: 'smart_board_end_of_day_close_grace_minutes', type: 'int', default: 10 })
+  smartBoardEndOfDayCloseGraceMinutes: number;
 
   /** Akıllı Tahta: Saha kurulum / ilk açılış eşleme kodu (6–8 karakter, okul başına tekil). */
   @Column({ name: 'smart_board_setup_code', type: 'varchar', length: 8, nullable: true })
@@ -334,6 +342,22 @@ export class School {
 
   @Column({ name: 'smart_board_notify_on_qr_takeover', type: 'boolean', default: true })
   smartBoardNotifyOnQrTakeover: boolean;
+
+  /** 0 = anında devralma; 15–60 = tahtada geri sayım sonrası önceki oturum kapanır. */
+  @Column({ name: 'smart_board_soft_takeover_seconds', type: 'int', default: 0 })
+  smartBoardSoftTakeoverSeconds: number;
+
+  /** Aynı öğretmen+tahta için QR olmadan yeniden bağlanma süresi (dk). 0 = kapalı. */
+  @Column({ name: 'smart_board_reconnect_grace_minutes', type: 'int', default: 45 })
+  smartBoardReconnectGraceMinutes: number;
+
+  /** QR bildirimi: program varsa yalnız o saatte dersi olan öğretmenlere. */
+  @Column({ name: 'smart_board_notify_lesson_teachers_only', type: 'boolean', default: true })
+  smartBoardNotifyLessonTeachersOnly: boolean;
+
+  /** Tahta QR oluşturulunca öğretmene Inbox (tahta başına tek okunmamış kayıt güncellenir). */
+  @Column({ name: 'smart_board_notify_on_qr_pending', type: 'boolean', default: true })
+  smartBoardNotifyOnQrPending: boolean;
 
   /** Nöbet modülü: Varsayılan nöbet başlangıç saati (HH:mm). Örn: 08:00 – ilk ders -30 dk. */
   @Column({ name: 'duty_start_time', type: 'varchar', length: 5, nullable: true })

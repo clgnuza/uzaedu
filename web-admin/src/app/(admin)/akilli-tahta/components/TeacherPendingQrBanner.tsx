@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/api';
-import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { QrCode } from 'lucide-react';
 import { smartBoardNotificationHref } from '@/lib/smart-board-notification-link';
+import { dedupeSmartBoardQrPending } from '@/lib/dedupe-smart-board-notifications';
 
 type Notif = {
   id: string;
@@ -26,7 +26,11 @@ export function TeacherPendingQrBanner({ token }: { token: string | null }) {
       apiFetch<{ items?: Notif[] }>('/notifications?page=1&limit=8&event_type=smart_board', { token })
         .then((res) => {
           const list = Array.isArray(res?.items) ? res.items : [];
-          setItems(list.filter((n) => !n.read_at && n.event_type === 'smart_board.qr_pending'));
+          setItems(
+            dedupeSmartBoardQrPending(
+              list.filter((n) => !n.read_at && n.event_type === 'smart_board.qr_pending'),
+            ),
+          );
         })
         .catch(() => setItems([]));
     };
@@ -45,25 +49,18 @@ export function TeacherPendingQrBanner({ token }: { token: string | null }) {
   const top = items[0]!;
 
   return (
-    <Alert variant="info" className="mb-3 sm:mb-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <p className="flex items-center gap-1.5 text-sm font-semibold">
-            <QrCode className="size-4 shrink-0" />
-            {top.title}
-          </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {top.body ?? top.metadata?.device_name ?? 'Tahta onayı bekleniyor'}
-            {items.length > 1 ? ` (+${items.length - 1} diğer)` : ''}
-          </p>
-        </div>
-        <Button type="button" size="sm" variant="default" asChild>
-          <Link href={smartBoardNotificationHref(top)}>QR okut</Link>
-        </Button>
-        <Button type="button" size="sm" variant="secondary" asChild>
-          <Link href="/bildirimler?filter=smart_board">Bildirimler</Link>
-        </Button>
+    <div className="mb-2 flex items-center gap-2 rounded-xl border border-sky-500/35 bg-sky-500/10 px-3 py-2.5">
+      <QrCode className="size-4 shrink-0 text-sky-700 dark:text-sky-300" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs font-semibold">{top.title}</p>
+        <p className="truncate text-[10px] text-muted-foreground">
+          {top.body ?? top.metadata?.device_name ?? 'Onay bekleniyor'}
+          {items.length > 1 ? ` · +${items.length - 1}` : ''}
+        </p>
       </div>
-    </Alert>
+      <Button type="button" size="sm" className="h-8 shrink-0 rounded-lg px-3 text-xs font-semibold" asChild>
+        <Link href={smartBoardNotificationHref(top)}>Okut</Link>
+      </Button>
+    </div>
   );
 }

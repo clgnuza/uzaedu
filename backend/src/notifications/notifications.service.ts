@@ -77,12 +77,59 @@ export class NotificationsService {
       .update(Notification)
       .set({ read_at: () => 'CURRENT_TIMESTAMP' })
       .where('event_type = :et', { et: 'smart_board.qr_pending' })
-      .andWhere('entity_id = :sessionId', { sessionId })
       .andWhere('read_at IS NULL')
       .andWhere("metadata->>'device_id' = :deviceId", { deviceId })
       .andWhere("metadata->>'school_id' = :schoolId", { schoolId })
       .execute();
     return { count: result.affected ?? 0 };
+  }
+
+  /** Aynı tahta için okunmamış QR bildirimini güncelle (yenileme/tekrar QR = tek satır). */
+  async upsertSmartBoardQrPendingInbox(params: {
+    user_id: string;
+    entity_id: string;
+    title: string;
+    body?: string | null;
+    metadata: Record<string, unknown>;
+  }): Promise<Notification> {
+    const deviceId = String(params.metadata.device_id ?? '');
+    const schoolId = String(params.metadata.school_id ?? '');
+    if (!deviceId || !schoolId) {
+      return this.createInboxEntry({
+        user_id: params.user_id,
+        event_type: 'smart_board.qr_pending',
+        entity_id: params.entity_id,
+        target_screen: 'akilli-tahta',
+        title: params.title,
+        body: params.body,
+        metadata: params.metadata,
+      });
+    }
+    const existing = await this.notificationRepo
+      .createQueryBuilder('n')
+      .where('n.user_id = :userId', { userId: params.user_id })
+      .andWhere('n.event_type = :et', { et: 'smart_board.qr_pending' })
+      .andWhere('n.read_at IS NULL')
+      .andWhere("n.metadata->>'device_id' = :deviceId", { deviceId })
+      .andWhere("n.metadata->>'school_id' = :schoolId", { schoolId })
+      .orderBy('n.created_at', 'DESC')
+      .getOne();
+    if (existing) {
+      existing.entity_id = params.entity_id;
+      existing.title = params.title;
+      existing.body = params.body ?? null;
+      existing.metadata = params.metadata;
+      return this.notificationRepo.save(existing);
+    }
+    return this.createInboxEntry({
+      user_id: params.user_id,
+      event_type: 'smart_board.qr_pending',
+      entity_id: params.entity_id,
+      target_screen: 'akilli-tahta',
+      title: params.title,
+      body: params.body,
+      metadata: params.metadata,
+    });
   }
 
   async markAllRead(userId: string): Promise<{ count: number }> {

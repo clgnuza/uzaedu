@@ -1,31 +1,22 @@
 'use client';
 
-import { Card, CardContent } from '@/components/ui/card';
-import { CheckCircle2, Keyboard, XCircle } from 'lucide-react';
+import { CheckCircle2, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { SmartBoardIcon } from './SmartBoardIcon';
+import { SMART_BOARD_QR_FLOW_SUMMARY } from '@/lib/smart-board-teacher-qr-flow';
 import type { Status } from '../types';
 
-function Pill({
-  ok,
-  labelOk,
-  labelBad,
-}: {
-  ok: boolean;
-  labelOk: string;
-  labelBad: string;
-}) {
+function Pill({ ok, label }: { ok: boolean; label: string }) {
   return (
     <span
       className={cn(
-        'inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold sm:gap-1.5 sm:px-2.5 sm:py-1 sm:text-xs',
+        'inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold',
         ok
-          ? 'border-emerald-300/60 bg-emerald-500/10 text-emerald-800 dark:border-emerald-700/50 dark:text-emerald-200'
-          : 'border-amber-300/60 bg-amber-500/10 text-amber-900 dark:border-amber-800/50 dark:text-amber-100',
+          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+          : 'border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-100',
       )}
     >
-      {ok ? <CheckCircle2 className="size-3.5 shrink-0" /> : <XCircle className="size-3.5 shrink-0" />}
-      <span className="truncate">{ok ? labelOk : labelBad}</span>
+      {ok ? <CheckCircle2 className="size-3 shrink-0" /> : <XCircle className="size-3 shrink-0" />}
+      <span className="truncate">{label}</span>
     </span>
   );
 }
@@ -40,64 +31,47 @@ export function TeacherSmartBoardHero({
   schoolName?: string | null;
 }) {
   return (
-    <Card className="mb-2 overflow-hidden border-sky-200/55 bg-linear-to-br from-sky-500/8 via-background to-violet-500/5 shadow-sm ring-1 ring-sky-500/10 dark:border-sky-900/45 dark:from-sky-950/35 dark:to-violet-950/20 dark:ring-sky-900/20 sm:mb-5">
-      <CardContent className="flex gap-2 p-2 sm:gap-4 sm:p-4">
-        <div
-          className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-600 shadow-inner ring-1 ring-sky-500/25 dark:bg-sky-500/10 dark:text-sky-400 sm:size-16 sm:rounded-2xl"
-          aria-hidden
-        >
-          <SmartBoardIcon size={30} isOnline={!!status?.enabled} className="text-sky-600 sm:hidden dark:text-sky-400" />
-          <SmartBoardIcon size={48} isOnline={!!status?.enabled} className="hidden text-sky-600 sm:block dark:text-sky-400" />
+    <div className="mb-2 space-y-2 sm:mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 bg-card/80 px-3 py-2.5 shadow-sm">
+        <div className="min-w-0">
+          <p className="text-sm font-bold tracking-tight text-foreground">Akıllı tahta</p>
+          {schoolName ? <p className="truncate text-[11px] text-muted-foreground">{schoolName}</p> : null}
         </div>
-        <div className="min-w-0 flex-1 space-y-1 sm:space-y-2">
-          <div>
-            <h2 className="text-[13px] font-bold leading-tight tracking-tight text-foreground sm:text-lg">Akıllı tahta</h2>
-            {schoolName ? <p className="truncate text-[10px] text-muted-foreground sm:text-xs">{schoolName}</p> : null}
+        {!status ? (
+          <span className="text-[10px] text-muted-foreground">Yükleniyor…</span>
+        ) : (
+          <div className="flex flex-wrap justify-end gap-1">
+            <Pill ok={status.enabled} label={status.enabled ? 'Modül açık' : 'Modül kapalı'} />
+            <Pill ok={status.authorized} label={status.authorized ? 'Yetki var' : 'Yetki yok'} />
           </div>
-          {!status ? (
-            <p className="text-xs text-muted-foreground">Durum yükleniyor…</p>
-          ) : (
-            <>
-              <div className="flex flex-wrap gap-1.5 sm:gap-2">
-                <Pill ok={status.enabled} labelOk="Modül açık" labelBad="Modül kapalı" />
-                <Pill
-                  ok={status.authorized}
-                  labelOk="Bağlanma yetkisi var"
-                  labelBad="Yetki yok — idareye danışın"
-                />
-              </div>
-              {status.enabled && status.authorized && (
-                <>
-                  <p className="text-[11px] leading-snug text-muted-foreground sm:text-xs">
-                    {deviceCount > 0
-                      ? `${deviceCount} tahta kayıtlı. Tahta varsayılan Duyuru TV; ders için QR onayı verin.`
-                      : 'Kayıtlı tahta yok — idare kurulum sihirbazını tamamlamalı.'}
-                  </p>
-                  <div className="flex gap-2 rounded-xl border border-violet-200/50 bg-violet-500/6 p-2.5 dark:border-violet-800/40 dark:bg-violet-950/20">
-                    <Keyboard className="mt-0.5 size-4 shrink-0 text-violet-600 dark:text-violet-300" aria-hidden />
-                    <p className="text-[10px] leading-snug text-muted-foreground sm:text-xs">
-                      <span className="font-semibold text-foreground">Slayt geçişi (tahta TV):</span> Tarayıcı sekmesi odaktayken{' '}
-                      <kbd className="rounded border bg-muted px-1 font-mono text-[9px]">←</kbd>{' '}
-                      <kbd className="rounded border bg-muted px-1 font-mono text-[9px]">→</kbd> /{' '}
-                      <kbd className="rounded border bg-muted px-1 font-mono text-[9px]">Space</kbd> — Impress öndeyse önce sekmeye tıklayın.
-                    </p>
-                  </div>
-                </>
-              )}
-              {status.enabled && !status.authorized ? (
-                <p className="text-[11px] leading-snug text-amber-800 dark:text-amber-200">
-                  Yetki için okul yönetiminize başvurun.
-                </p>
-              ) : null}
-              {!status.enabled ? (
-                <p className="text-[11px] leading-snug text-muted-foreground">
-                  Modül kapalıyken bağlanamazsınız.
-                </p>
-              ) : null}
-            </>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+        )}
+      </div>
+
+      {status?.enabled && status.authorized ? (
+        <p className="text-[11px] leading-snug text-muted-foreground">{SMART_BOARD_QR_FLOW_SUMMARY}</p>
+      ) : null}
+
+      {status?.enabled && status.authorized && deviceCount > 0 ? (
+        <p className="text-[10px] text-muted-foreground">
+          <span className="font-medium text-foreground">{deviceCount}</span> kayıtlı tahta · Duyuru modunda QR ile ders
+        </p>
+      ) : null}
+
+      {status?.enabled && !status.authorized ? (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/8 px-2.5 py-2 text-[11px] text-amber-900 dark:text-amber-100">
+          Yetki için okul yönetiminize başvurun.
+        </p>
+      ) : null}
+
+      {/* Klavye kısayolu — yalnız masaüstü / geniş ekran */}
+      {status?.enabled && status.authorized ? (
+        <p className="hidden text-[10px] leading-snug text-muted-foreground md:block">
+          <span className="font-medium text-foreground">Tahta TV:</span> Sekme odaktayken{' '}
+          <kbd className="rounded border bg-muted px-1 font-mono">←</kbd>{' '}
+          <kbd className="rounded border bg-muted px-1 font-mono">→</kbd>{' '}
+          <kbd className="rounded border bg-muted px-1 font-mono">Space</kbd>
+        </p>
+      ) : null}
+    </div>
   );
 }

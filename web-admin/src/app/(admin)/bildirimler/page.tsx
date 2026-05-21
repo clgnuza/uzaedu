@@ -34,6 +34,7 @@ import { ToolbarIconHints, type ToolbarHintItem } from '@/components/layout/tool
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { smartBoardNotificationHref } from '@/lib/smart-board-notification-link';
+import { dedupeSmartBoardQrPending } from '@/lib/dedupe-smart-board-notifications';
 import { emitNotificationsUpdated } from '@/hooks/use-duty-notifications-unread';
 import { Toolbar, ToolbarHeading, ToolbarPageTitle } from '@/components/layout/toolbar';
 import { Card, CardContent } from '@/components/ui/card';
@@ -826,7 +827,8 @@ export default function BildirimlerPage() {
       else if (filter === 'penalty') q.set('event_group', 'school_reviews_penalty');
       else if (eventTypeParam) q.set('event_type', eventTypeParam);
       const res = await apiFetch<PaginatedResponse>(`/notifications?${q}`, { token });
-      setItems(res?.items ?? []);
+      const raw = res?.items ?? [];
+      setItems(dedupeSmartBoardQrPending(raw));
       setTotal(res?.total ?? 0);
     } catch {
       setItems([]);
@@ -851,7 +853,7 @@ export default function BildirimlerPage() {
       else if (eventTypeParam) q.set('event_type', eventTypeParam);
       apiFetch<PaginatedResponse>(`/notifications?${q}`, { token })
         .then((res) => {
-          setItems((prev) => [...prev, ...(res?.items ?? [])]);
+          setItems((prev) => dedupeSmartBoardQrPending([...prev, ...(res?.items ?? [])]));
         })
         .catch(() => {});
     }

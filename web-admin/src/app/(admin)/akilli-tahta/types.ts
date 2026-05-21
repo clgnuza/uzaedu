@@ -17,6 +17,14 @@ export type Device = {
     class_section: string | null;
     source?: 'timetable' | 'manual';
   };
+  lesson_context?: {
+    my_lesson_today: boolean;
+    my_lesson_now: boolean;
+    my_next_lesson: { lesson_num: number; subject: string; starts_in_minutes: number } | null;
+    current_slot: { lesson_num: number; subject: string; teacher_name: string } | null;
+    busy_teacher_name: string | null;
+    reconnect_without_qr: boolean;
+  };
 };
 
 export type AuthorizedTeacher = {

@@ -28,7 +28,9 @@ import { resolveDefaultApiBase } from '@/lib/resolve-api-base';
 import { buildPardusTahtaKioskZip, downloadPardusTahtaKioskZip } from '@/lib/pardus-tahta-kiosk-pack';
 import { downloadPardusTahtaDeb } from '@/lib/pardus-tahta-deb-pack';
 import { downloadSmartBoardUsbLauncher } from '@/lib/smart-board-usb-launcher';
+import { buildTvAllowedIpsSettingsHref } from '@/lib/tv-settings-nav';
 import { cn } from '@/lib/utils';
+import { SmartBoardLessonEndGraceFields } from '@/components/akilli-tahta/smart-board-lesson-end-grace-fields';
 
 function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
@@ -63,6 +65,8 @@ export function SmartBoardSettings({
   canManage,
   devices,
   authorizedCount,
+  floorPlanCount = 0,
+  floorPlacedCount = 0,
   onSaved,
 }: {
   schoolId: string;
@@ -70,6 +74,8 @@ export function SmartBoardSettings({
   canManage: boolean;
   devices: DeviceForSettings[];
   authorizedCount: number;
+  floorPlanCount?: number;
+  floorPlacedCount?: number;
   classSections?: string[];
   onSaved?: () => void;
   onEditDevice?: (d: DeviceForSettings) => void;
@@ -79,8 +85,14 @@ export function SmartBoardSettings({
   const [sessionTimeout, setSessionTimeout] = useState(2);
   const [notifyOnDisconnect, setNotifyOnDisconnect] = useState(true);
   const [autoDisconnectLessonEnd, setAutoDisconnectLessonEnd] = useState(false);
+  const [lunchDuyuruGraceMinutes, setLunchDuyuruGraceMinutes] = useState(10);
+  const [endOfDayCloseGraceMinutes, setEndOfDayCloseGraceMinutes] = useState(10);
   const [releasePreviousOnQr, setReleasePreviousOnQr] = useState(true);
   const [notifyOnQrTakeover, setNotifyOnQrTakeover] = useState(true);
+  const [softTakeoverSeconds, setSoftTakeoverSeconds] = useState(0);
+  const [reconnectGraceMinutes, setReconnectGraceMinutes] = useState(45);
+  const [notifyLessonTeachersOnly, setNotifyLessonTeachersOnly] = useState(true);
+  const [notifyOnQrPending, setNotifyOnQrPending] = useState(true);
   const [tvAllowedIps, setTvAllowedIps] = useState<string | null>(null);
   const [usbKiosk, setUsbKiosk] = useState(true);
   const [tahtaKilit, setTahtaKilit] = useState(true);
@@ -107,8 +119,14 @@ export function SmartBoardSettings({
       smartBoardSessionTimeoutMinutes?: number;
       smartBoardNotifyOnDisconnect?: boolean;
       smartBoardAutoDisconnectLessonEnd?: boolean;
+      smartBoardLunchDuyuruGraceMinutes?: number;
+      smartBoardEndOfDayCloseGraceMinutes?: number;
       smartBoardReleasePreviousOnQr?: boolean;
       smartBoardNotifyOnQrTakeover?: boolean;
+      smartBoardSoftTakeoverSeconds?: number;
+      smartBoardReconnectGraceMinutes?: number;
+      smartBoardNotifyLessonTeachersOnly?: boolean;
+      smartBoardNotifyOnQrPending?: boolean;
       smartBoardDefaultKiosk?: boolean;
       smartBoardDefaultKilit?: boolean;
       tv_allowed_ips?: string | null;
@@ -119,8 +137,14 @@ export function SmartBoardSettings({
         setSessionTimeout(s?.smartBoardSessionTimeoutMinutes ?? 2);
         setNotifyOnDisconnect(s?.smartBoardNotifyOnDisconnect ?? true);
         setAutoDisconnectLessonEnd(s?.smartBoardAutoDisconnectLessonEnd ?? false);
+        setLunchDuyuruGraceMinutes(s?.smartBoardLunchDuyuruGraceMinutes ?? 10);
+        setEndOfDayCloseGraceMinutes(s?.smartBoardEndOfDayCloseGraceMinutes ?? 10);
         setReleasePreviousOnQr(s?.smartBoardReleasePreviousOnQr ?? true);
         setNotifyOnQrTakeover(s?.smartBoardNotifyOnQrTakeover ?? true);
+        setSoftTakeoverSeconds(s?.smartBoardSoftTakeoverSeconds ?? 0);
+        setReconnectGraceMinutes(s?.smartBoardReconnectGraceMinutes ?? 45);
+        setNotifyLessonTeachersOnly(s?.smartBoardNotifyLessonTeachersOnly ?? true);
+        setNotifyOnQrPending(s?.smartBoardNotifyOnQrPending ?? true);
         setUsbKiosk(s?.smartBoardDefaultKiosk ?? true);
         setTahtaKilit(s?.smartBoardDefaultKilit ?? true);
         setTvAllowedIps(s?.tv_allowed_ips ?? null);
@@ -141,8 +165,14 @@ export function SmartBoardSettings({
           smart_board_session_timeout_minutes: sessionTimeout,
           smart_board_notify_on_disconnect: notifyOnDisconnect,
           smart_board_auto_disconnect_lesson_end: autoDisconnectLessonEnd,
+          smart_board_lunch_duyuru_grace_minutes: lunchDuyuruGraceMinutes,
+          smart_board_end_of_day_close_grace_minutes: endOfDayCloseGraceMinutes,
           smart_board_release_previous_on_qr: releasePreviousOnQr,
           smart_board_notify_on_qr_takeover: notifyOnQrTakeover,
+          smart_board_soft_takeover_seconds: softTakeoverSeconds,
+          smart_board_reconnect_grace_minutes: reconnectGraceMinutes,
+          smart_board_notify_lesson_teachers_only: notifyLessonTeachersOnly,
+          smart_board_notify_on_qr_pending: notifyOnQrPending,
           smart_board_default_kiosk: usbKiosk,
           smart_board_default_kilit: tahtaKilit,
         }),
@@ -167,7 +197,7 @@ export function SmartBoardSettings({
     },
     {
       label: 'Sadece dersi olan sınıflara',
-      hint: 'Ders programında sınıfı olan öğretmenler bağlanır. Yeni tahta kaydında sınıf etiketi zorunludur.',
+      hint: 'Açıkken öğretmen yalnız ders programındaki sınıflara bağlanır. Sınıf dışı tahtalarda bu kısıt uygulanmaz.',
       applies: 'connect · claimQr · tahta listesi · PIN/OTP',
       value: restrictToOwnClasses,
       set: setRestrictToOwnClasses,
@@ -187,18 +217,26 @@ export function SmartBoardSettings({
       set: setNotifyOnQrTakeover,
     },
     {
-      label: 'Ders saati bitince otomatik kes',
-      hint: 'Her heartbeat’te kontrol: okul ders saatleri tablosundaki son ders bitişinden sonra oturum kapanır.',
-      applies: 'heartbeat',
-      value: autoDisconnectLessonEnd,
-      set: setAutoDisconnectLessonEnd,
-    },
-    {
       label: 'QR’da önceki öğretmeni sonlandır',
       hint: 'Yeni QR onayında aynı tahtadaki aktif oturum kapatılır; kapalıyken “tahta meşgul” hatası alınır.',
       applies: 'claimQr → connect',
       value: releasePreviousOnQr,
       set: setReleasePreviousOnQr,
+    },
+    {
+      label: 'QR beklerken öğretmene bildir',
+      hint: 'Tahta yeni QR ürettiğinde Inbox (aynı tahta için tek okunmamış bildirim güncellenir).',
+      applies: 'notifyTeachersQrSessionPending',
+      value: notifyOnQrPending,
+      set: setNotifyOnQrPending,
+    },
+    {
+      label: 'QR bildirimi: ders saati öğretmenleri',
+      hint: 'Açıkken program varsa yalnız o saatte derse giren öğretmenlere gider.',
+      applies: 'notifyTeachersQrSessionPending',
+      value: notifyLessonTeachersOnly,
+      set: setNotifyLessonTeachersOnly,
+      disabled: !notifyOnQrPending,
     },
   ];
 
@@ -258,7 +296,11 @@ export function SmartBoardSettings({
                   <div key={r.label} className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 sm:px-4 sm:py-3">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-medium sm:text-sm">{r.label}</span>
-                      <Toggle checked={r.value} onChange={r.set} disabled={!canManage} />
+                      <Toggle
+                        checked={r.value}
+                        onChange={r.set}
+                        disabled={!canManage || ('disabled' in r && !!r.disabled)}
+                      />
                     </div>
                     <p className="mt-1 text-[10px] leading-snug text-muted-foreground sm:text-xs">{r.hint}</p>
                     {'applies' in r && r.applies ? (
@@ -266,6 +308,20 @@ export function SmartBoardSettings({
                     ) : null}
                   </div>
                 ))}
+                <div className="rounded-lg border border-amber-200/40 bg-amber-500/5 px-3 py-2.5 sm:px-4 sm:py-3 dark:border-amber-900/35">
+                  <SmartBoardLessonEndGraceFields
+                    enabled={autoDisconnectLessonEnd}
+                    onEnabledChange={setAutoDisconnectLessonEnd}
+                    lunchGraceMinutes={lunchDuyuruGraceMinutes}
+                    onLunchGraceChange={setLunchDuyuruGraceMinutes}
+                    endOfDayGraceMinutes={endOfDayCloseGraceMinutes}
+                    onEndOfDayGraceChange={setEndOfDayCloseGraceMinutes}
+                    disabled={!canManage}
+                  />
+                  <p className="mt-2 font-mono text-[9px] text-muted-foreground/80">
+                    Uygulama: heartbeat · classroom-session-status · cron
+                  </p>
+                </div>
                 <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 sm:px-4 sm:py-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs font-medium sm:text-sm">Heartbeat zaman aşımı</span>
@@ -287,13 +343,61 @@ export function SmartBoardSettings({
                   </p>
                   <p className="mt-0.5 font-mono text-[9px] text-muted-foreground/80">Uygulama: heartbeat · classroom-session-status</p>
                 </div>
+                <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 sm:px-4 sm:py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-medium sm:text-sm">Yumuşak devralma (sn)</span>
+                    <Select
+                      value={String(softTakeoverSeconds)}
+                      onValueChange={(v) => setSoftTakeoverSeconds(Number(v))}
+                      disabled={!canManage}
+                    >
+                      <SelectTrigger className="h-8 w-28 text-xs sm:text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[0, 15, 30, 45, 60].map((v) => (
+                          <SelectItem key={v} value={String(v)}>
+                            {v === 0 ? 'Kapalı' : `${v} sn`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <p className="mt-1 text-[10px] text-muted-foreground sm:text-xs">
+                    0 = anında devralma. &gt;0 iken tahtada geri sayım; slayt durur, sonra yeni öğretmen bağlanır.
+                  </p>
+                </div>
+                <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 sm:px-4 sm:py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-medium sm:text-sm">QR’sız yeniden bağlanma</span>
+                    <Select
+                      value={String(reconnectGraceMinutes)}
+                      onValueChange={(v) => setReconnectGraceMinutes(Number(v))}
+                      disabled={!canManage}
+                    >
+                      <SelectTrigger className="h-8 w-28 text-xs sm:text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[0, 15, 30, 45, 60, 90].map((v) => (
+                          <SelectItem key={v} value={String(v)}>
+                            {v === 0 ? 'Kapalı' : `${v} dk`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <p className="mt-1 text-[10px] text-muted-foreground sm:text-xs">
+                    Aynı öğretmen+tahta için kesintiden sonra panelden QR olmadan devam (ders süresi içi).
+                  </p>
+                </div>
                 <div className="rounded-lg border border-sky-500/25 bg-sky-500/5 px-3 py-2.5 text-[10px] text-muted-foreground sm:text-xs">
                   <p className="font-medium text-foreground">Kurallar özeti</p>
                   <ul className="mt-1.5 list-disc space-y-1 pl-4">
                     <li>Tahta varsayılan <strong className="text-foreground">duyuru TV</strong>; öğretmen QR onayı → kullanım modu → oturum bitince tekrar duyuru.</li>
                     <li>QR token tahtada tek seferlik <code className="rounded bg-muted px-1 font-mono text-[9px]">exchange</code> ile alınır; poll yanıtında token yok.</li>
                     <li>
-                      <strong className="text-foreground">İzinli IP</strong> (Duyuru TV): sınıf tahtası QR, duyuru ve oturum sorgusu için zorunlu; kurulum (setup) hariç.
+                      <strong className="text-foreground">İzinli IP</strong> (Duyuru TV, isteğe bağlı): liste doluysa sınıf tahtası ve duyuru yalnız okul ağından; boşsa kısıt yok.
                     </li>
                     <li>Kiosk / kilit URL parametreleri ({' '}
                       <code className="rounded bg-muted px-1 font-mono text-[9px]">kiosk=1</code>,{' '}
@@ -363,8 +467,8 @@ export function SmartBoardSettings({
                   </>
                 ) : (
                   <>
-                    <strong className="text-amber-800 dark:text-amber-200">Sınıf tahtası (QR / duyuru)</strong> için IP listesi
-                    zorunlu; liste boşken tahta QR ve duyuru istekleri reddedilir. Duyuru TV sayfasından subnet girin.
+                    <strong className="text-amber-800 dark:text-amber-200">Sınıf tahtası (QR / duyuru)</strong>: IP listesi
+                    isteğe bağlıdır; boş bırakırsanız kurulum ve tahta çalışır. Kısıtlamak için Duyuru TV’den subnet girin.
                   </>
                 )}
               </p>
@@ -381,7 +485,7 @@ export function SmartBoardSettings({
             </ul>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" className="h-9 gap-1.5" asChild>
-                <Link href="/tv">
+                <Link href={buildTvAllowedIpsSettingsHref({ schoolId })}>
                   <Tv className="size-4 shrink-0" />
                   IP listesini düzenle
                   <ExternalLink className="size-3.5 opacity-60" />
@@ -436,12 +540,12 @@ export function SmartBoardSettings({
             Duyuru TV varsayılan · QR ile kullanım modu
           </CardTitle>
           <CardDescription className="text-xs sm:text-sm">
-            Tahta duyuru modundayken sol altta sürekli QR; öğretmen telefondan okutur.
+            Tahta duyuru modundayken QR görünür; öğretmen telefonda Uzaedu ile girişli iken okutur — tahta şifresiz kullanım moduna geçer.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 px-4 py-4 sm:px-6 sm:py-4">
           <ul className="list-disc space-y-1.5 pl-4 text-[11px] text-muted-foreground sm:text-xs">
-            <li>Duyuru modunda QR chip otomatik yenilenir; onay sonrası tahta exchange ile token alır.</li>
+            <li>QR onayından sonra tahta birkaç saniye içinde kullanım moduna geçer (exchange); tahtada öğretmen şifresi yoktur.</li>
             <li>QR oturum süresi <code className="rounded bg-muted px-1 py-0.5 font-mono">120s</code>; exchange penceresi <code className="rounded bg-muted px-1 py-0.5 font-mono">90s</code>.</li>
             <li>PIN/OTP yedek giriş; yetki kuralları (otomatik yetki / sınıf kısıtı) burada da geçerli.</li>
             <li>OTP üretme <strong className="text-foreground">Yetkiler</strong> sekmesinden.</li>
@@ -558,7 +662,12 @@ export function SmartBoardSettings({
             <div className="space-y-2">
               <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:text-xs">Cihaz başına indir</p>
               <ul className="space-y-2">
-                {devices.map((d) => (
+                {[...devices]
+                  .sort((a, b) =>
+                    (a.classSection ?? '').localeCompare(b.classSection ?? '', 'tr', { numeric: true }) ||
+                    (a.name ?? '').localeCompare(b.name ?? '', 'tr', { numeric: true }),
+                  )
+                  .map((d) => (
                   (() => {
                     const downloadLabel = `${d.name}_${d.id.slice(0, 8)}`;
                     const lastDownload = lastDownloadByDevice[d.id];
@@ -834,6 +943,45 @@ export function SmartBoardSettings({
         </CardContent>
       </Card>
       </details>
+
+      <Card className="overflow-hidden border-amber-200/45 dark:border-amber-900/35">
+        <CardHeader className="border-b border-amber-200/35 bg-amber-500/5 px-4 py-3 sm:px-6 sm:py-4">
+          <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
+            <MapPin className="size-4 text-amber-700 dark:text-amber-300" />
+            Kroki ve yerleşim
+          </CardTitle>
+          <CardDescription className="text-xs sm:text-sm">
+            Kat planı görselleri ve tahta konumları ayrı sekmede yönetilir; okul genelinde tek kayıt.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 px-4 py-4 sm:px-6">
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-lg border bg-muted/25 px-2 py-2">
+              <p className="text-lg font-bold tabular-nums">{floorPlanCount}</p>
+              <p className="text-[10px] text-muted-foreground">Kat planı</p>
+            </div>
+            <div className="rounded-lg border bg-muted/25 px-2 py-2">
+              <p className="text-lg font-bold tabular-nums">{devices.length}</p>
+              <p className="text-[10px] text-muted-foreground">Tahta</p>
+            </div>
+            <div className="rounded-lg border bg-muted/25 px-2 py-2">
+              <p className="text-lg font-bold tabular-nums">{floorPlacedCount}</p>
+              <p className="text-[10px] text-muted-foreground">Konumlu</p>
+            </div>
+          </div>
+          <ul className="list-disc space-y-1 pl-4 text-[11px] text-muted-foreground sm:text-xs">
+            <li>Plan görseli: PNG/JPG veya HTTPS URL (okul sitesi, drive paylaşımı).</li>
+            <li>Her tahta için kat seçin; rozeti planda sürükleyerek yüzde konum kaydedilir.</li>
+            <li>Renkler: yeşil çevrimiçi, turuncu ders oturumu, gri kapalı.</li>
+          </ul>
+          <Button variant="default" size="sm" className="h-9 w-full gap-1.5 sm:w-auto" asChild>
+            <Link href="/akilli-tahta?tab=yerlesim">
+              <MapPin className="size-4" />
+              Yerleşim sekmesini aç
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
 
       <Card className="overflow-hidden border-slate-200/70 dark:border-slate-800">
         <CardHeader className="border-b border-border/60 px-4 py-3 sm:px-6 sm:py-3">

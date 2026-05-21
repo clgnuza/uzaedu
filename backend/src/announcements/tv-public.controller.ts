@@ -35,13 +35,23 @@ function getClientIp(req: Request): string {
   return req.ip ?? '';
 }
 
+function normalizeClientIp(raw: string): string {
+  return raw.replace(/^::ffff:/i, '').trim();
+}
+
+function isLoopbackClientIp(clientIp: string): boolean {
+  const ip = normalizeClientIp(clientIp);
+  return ip === '127.0.0.1' || ip === '::1';
+}
+
 function isIpAllowed(clientIp: string, allowedIps: string | null | undefined): boolean {
   if (!allowedIps?.trim()) return true;
   const parts = allowedIps.split(',').map((s) => s.trim()).filter(Boolean);
   if (parts.length === 0) return true;
+  const ip = normalizeClientIp(clientIp);
   for (const part of parts) {
-    if (clientIp === part) return true;
-    if (part.endsWith('.') && clientIp.startsWith(part)) return true;
+    if (ip === part) return true;
+    if (part.endsWith('.') && ip.startsWith(part)) return true;
   }
   return false;
 }
@@ -105,38 +115,42 @@ export class TvPublicController {
     private readonly schoolRepo: Repository<School>,
   ) {}
 
-  private async assertTvSchoolIp(
-    req: Request,
-    schoolId: string,
-    options?: { requireConfigured?: boolean },
-  ): Promise<void> {
+  /** Kurulum uçları: canlıda izinli IP listesi zorunlu (kod sızıntısında uzaktan kurulum engeli). */
+  private async assertTvSchoolIpForSetup(req: Request, schoolId: string): Promise<void> {
     const school = await this.schoolRepo.findOne({
       where: { id: schoolId },
       select: ['tv_allowed_ips'],
     });
     const allowed = school?.tv_allowed_ips?.trim();
-    if (!allowed) {
-      if (options?.requireConfigured) {
-        const nodeEnv = env.nodeEnv;
-        const localDev = nodeEnv === 'local' || nodeEnv === 'development';
-        const clientIp = getClientIp(req);
-        if (localDev && (clientIp === '127.0.0.1' || clientIp === '::1')) {
-          return;
-        }
-        throw new ForbiddenException({
-          code: 'TV_IP_NOT_CONFIGURED',
-          message:
-            'TV izinli IP listesi tanımlı değil. Panel → Ayarlar → Duyuru TV bölümünden okul ağı öneklerini ekleyin (ör. 192.168.1.).',
-        });
-      }
-      return;
+    if (process.env.NODE_ENV === 'production' && !allowed) {
+      throw new ForbiddenException({
+        code: 'TV_IP_NOT_CONFIGURED',
+        message:
+          'Kurulum için okul panelinde TV izinli IP listesini tanımlayın (Akıllı Tahta ayarları).',
+      });
     }
+    await this.assertTvSchoolIp(req, schoolId);
+  }
+
+  /** tv_allowed_ips boşsa kısıt yok; doluysa yalnızca listedeki IP/ön eklerden erişim. */
+  private async assertTvSchoolIp(req: Request, schoolId: string): Promise<void> {
+    const school = await this.schoolRepo.findOne({
+      where: { id: schoolId },
+      select: ['tv_allowed_ips'],
+    });
+    const allowed = school?.tv_allowed_ips?.trim();
+    if (!allowed) return;
     const clientIp = getClientIp(req);
     if (!isIpAllowed(clientIp, allowed)) {
-      throw new ForbiddenException({
-        code: 'TV_ACCESS_RESTRICTED',
-        message: 'TV sayfası sadece okul ağından erişilebilir.',
-      });
+      /** next dev (/be-api → 127.0.0.1) ve yerel tahta testi */
+      const devBypass =
+        process.env.NODE_ENV !== 'production' && isLoopbackClientIp(clientIp);
+      if (!devBypass) {
+        throw new ForbiddenException({
+          code: 'TV_ACCESS_RESTRICTED',
+          message: 'TV sayfası sadece okul ağından erişilebilir.',
+        });
+      }
     }
   }
 
@@ -329,7 +343,7 @@ export class TvPublicController {
     @Query('usb_unlock') usbUnlock?: string,
   ) {
     if (audience === 'classroom' && schoolId?.trim()) {
-      await this.assertTvSchoolIp(req, schoolId.trim(), { requireConfigured: true });
+      await this.assertTvSchoolIp(req, schoolId.trim());
     } else if (schoolId?.trim()) {
       await this.assertTvSchoolIp(req, schoolId.trim());
     }
@@ -400,7 +414,7 @@ export class TvPublicController {
     if (!schoolId || !deviceId || !pin) {
       throw new BadRequestException({ code: 'INVALID_BODY', message: 'school_id, device_id ve pin gerekli.' });
     }
-    await this.assertTvSchoolIp(req, schoolId, { requireConfigured: true });
+    await this.assertTvSchoolIp(req, schoolId);
     return this.smartBoardService.unlockClassroomWithUsbPin(
       schoolId,
       deviceId,
@@ -422,10 +436,10 @@ export class TvPublicController {
   async classroomSetupInfo(@Req() req: Request, @Query('setup_code') setupCode?: string) {
     const code = setupCode?.trim();
     if (!code) {
-      throw new BadRequestException({ code: 'INVALID_BODY', message: 'setup_code gerekli.' });
+      throw new BadRequestException({ code: 'INVALID_BODY', message: 'Kurulum kodu gerekli.' });
     }
-    const info = await this.smartBoardService.getSetupPublicInfo(code);
-    await this.assertTvSchoolIp(req, info.school_id);
+    const info = await this.smartBoardService.getSetupPublicInfo(code, getClientIp(req));
+    await this.assertTvSchoolIpForSetup(req, info.school_id);
     return info;
   }
 
@@ -443,20 +457,26 @@ export class TvPublicController {
       room_or_location?: string;
       name?: string;
       device_id?: string;
+      pairing_code?: string;
     },
   ) {
     const code = body?.setup_code?.trim();
     if (!code) {
-      throw new BadRequestException({ code: 'INVALID_BODY', message: 'setup_code gerekli.' });
+      throw new BadRequestException({ code: 'INVALID_BODY', message: 'Kurulum kodu gerekli.' });
     }
     const resolved = await this.smartBoardService.resolveSchoolBySetupCode(code);
-    await this.assertTvSchoolIp(req, resolved.school_id);
-    return this.smartBoardService.registerDeviceViaSetup(code, {
-      class_section: body?.class_section ?? '',
-      room_or_location: body?.room_or_location,
-      name: body?.name,
-      device_id: body?.device_id,
-    });
+    await this.assertTvSchoolIpForSetup(req, resolved.school_id);
+    return this.smartBoardService.registerDeviceViaSetup(
+      code,
+      {
+        class_section: body?.class_section?.trim() || undefined,
+        room_or_location: body?.room_or_location,
+        name: body?.name,
+        device_id: body?.device_id?.trim() || undefined,
+        pairing_code: body?.pairing_code?.trim() || undefined,
+      },
+      getClientIp(req),
+    );
   }
 
   @Post('classroom-qr-session')
@@ -469,7 +489,7 @@ export class TvPublicController {
     if (!schoolId || !deviceId) {
       throw new BadRequestException({ code: 'INVALID_BODY', message: 'school_id ve device_id gerekli.' });
     }
-    await this.assertTvSchoolIp(req, schoolId, { requireConfigured: true });
+    await this.assertTvSchoolIp(req, schoolId);
     return this.smartBoardService.createQrLoginSession(schoolId, deviceId, getClientIp(req));
   }
 
@@ -498,7 +518,7 @@ export class TvPublicController {
         message: 'school_id, device_id, session_id, exchange_nonce gerekli.',
       });
     }
-    await this.assertTvSchoolIp(req, schoolId, { requireConfigured: true });
+    await this.assertTvSchoolIp(req, schoolId);
     return this.smartBoardService.exchangeQrUnlockToken(
       schoolId,
       deviceId,
@@ -512,15 +532,21 @@ export class TvPublicController {
    * GET /api/tv/classroom-qr-image?url=... — quickchart yerine yerel QR PNG
    */
   @Get('classroom-qr-image')
-  async classroomQrImage(@Query('url') url: string, @Res() res: Response) {
+  async classroomQrImage(
+    @Query('url') url: string,
+    @Query('size') sizeParam: string | undefined,
+    @Res() res: Response,
+  ) {
     const data = (url || '').trim();
     if (!data || data.length > 2048) {
       throw new BadRequestException({ code: 'INVALID_URL', message: 'url parametresi geçersiz.' });
     }
+    const parsed = parseInt(String(sizeParam ?? '').trim(), 10);
+    const width = Number.isFinite(parsed) ? Math.min(512, Math.max(160, parsed)) : 280;
     try {
       const png = await QRCode.toBuffer(data, {
         type: 'png',
-        width: 280,
+        width,
         margin: 1,
         errorCorrectionLevel: 'M',
       });
@@ -573,7 +599,7 @@ export class TvPublicController {
     if (!sid || !did) {
       throw new BadRequestException({ code: 'INVALID_BODY', message: 'school_id ve device_id gerekli.' });
     }
-    await this.assertTvSchoolIp(req, sid, { requireConfigured: true });
+    await this.assertTvSchoolIp(req, sid);
     this.smartBoardService.assertTvEndpointRate(getClientIp(req), 'session_status', 120);
     return this.smartBoardService.getClassroomActiveSessionPublic(sid, did);
   }
@@ -590,7 +616,7 @@ export class TvPublicController {
     if (!sid || !did) {
       throw new BadRequestException({ code: 'INVALID_BODY', message: 'school_id ve device_id gerekli.' });
     }
-    await this.assertTvSchoolIp(req, sid, { requireConfigured: true });
+    await this.assertTvSchoolIp(req, sid);
     return this.smartBoardService.pollQrLoginSession(sid, did, sessionId, getClientIp(req));
   }
 

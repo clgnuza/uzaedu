@@ -365,10 +365,22 @@ export class UpdateSchoolDto {
   @IsBoolean()
   smart_board_notify_on_disconnect?: boolean;
 
-  /** Akıllı Tahta: Ders saati bitince otomatik bağlantı kesilir (lesson_schedule gerekli). */
+  /** Akıllı Tahta: Öğle arası duyuru + gün sonu tahta kapatma otomasyonu. */
   @IsOptional()
   @IsBoolean()
   smart_board_auto_disconnect_lesson_end?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(120)
+  smart_board_lunch_duyuru_grace_minutes?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(180)
+  smart_board_end_of_day_close_grace_minutes?: number;
 
   /** Akıllı Tahta: QR onayında aynı tahtadaki önceki öğretmen oturumunu sonlandır. */
   @IsOptional()
@@ -386,6 +398,26 @@ export class UpdateSchoolDto {
   @IsOptional()
   @IsBoolean()
   smart_board_notify_on_qr_takeover?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(120)
+  smart_board_soft_takeover_seconds?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(180)
+  smart_board_reconnect_grace_minutes?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  smart_board_notify_lesson_teachers_only?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  smart_board_notify_on_qr_pending?: boolean;
 
   /** Nöbet modülü: Varsayılan nöbet başlangıç saati (HH:mm). Örn: 08:00 */
   @IsOptional()

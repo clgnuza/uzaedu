@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
 import { CheckCircle2, Chrome, Copy, Monitor, QrCode, ShieldCheck, Terminal } from 'lucide-react';
 import { buildClassroomTvUrl } from '@/lib/smart-board-classroom-url';
+import { buildPardusKurulumPageUrl } from '@/lib/smart-board-setup-link-parse';
+import { SMART_BOARD_QR_FLOW_SUMMARY } from '@/lib/smart-board-teacher-qr-flow';
 import { AndroidKioskGuide } from './AndroidKioskGuide';
 
 export function SmartBoardInstallGuide({
@@ -35,8 +37,8 @@ export function SmartBoardInstallGuide({
   return (
     <div className="space-y-3 sm:space-y-4">
       <Alert variant="info">
-        <strong>Önerilen:</strong> Kurulum sihirbazı → tahta Duyuru TV → ders için öğretmen QR onayı. Pardus yalnızca gelişmiş
-        seçenek.
+        <strong>Önerilen:</strong> Kurulum sihirbazı → etiket + eşleştirme kodu → tahta ilk kurulum linki → Duyuru TV. Canlıda önce
+        TV izinli IP tanımlayın. {SMART_BOARD_QR_FLOW_SUMMARY}
       </Alert>
 
       <Card className="overflow-hidden border-emerald-200/50 dark:border-emerald-900/40">
@@ -48,8 +50,9 @@ export function SmartBoardInstallGuide({
         </CardHeader>
         <CardContent className="space-y-3 px-3 py-3 sm:px-6 sm:py-4 text-sm">
           <ol className="list-decimal space-y-2 pl-5 text-muted-foreground">
-            <li>Kurulum sihirbazından sınıfları ekleyin ve QR etiketlerini yazdırın.</li>
+            <li>Kurulum sihirbazından sınıfları ekleyin; QR etiketlerinde eşleştirme kodu vardır.</li>
             <li>Tahtada Chromium / Edge → kiosk veya tam ekran.</li>
+            <li>Kayıtlı tahta: ilk kurulum linkinde tahtayı seçin, etiketteki eşleştirme kodunu girin.</li>
             <li>
               Başlangıç adresi: sınıf etiketindeki URL veya{' '}
               {setupCode ? (
@@ -71,7 +74,7 @@ export function SmartBoardInstallGuide({
               )}
               .
             </li>
-            <li>Öğretmen telefondan / panelden QR onayı (PWA yakında).</li>
+            <li>Öğretmen telefonda girişli → QR okutur; tahta otomatik kullanım moduna geçer (tahtada şifre yok).</li>
           </ol>
           <code className="block break-all rounded bg-muted px-2 py-1 text-[10px]">{sample}</code>
           <p className="text-xs text-muted-foreground">
@@ -106,8 +109,20 @@ export function SmartBoardInstallGuide({
         </CardHeader>
         <CardContent className="space-y-2 px-3 py-3 sm:px-6 sm:py-4 text-sm text-muted-foreground">
           <p>
-            Hazır ZIP veya .deb: <strong>Ayarlar → USB / Pardus paketi</strong>. Terminal adımları teknik destek içindir;
-            okul idaresi tarayıcı-only akışı kullanmalıdır.
+            <strong>Pardus:</strong>{' '}
+            {setupCode && typeof window !== 'undefined' ? (
+              <a
+                href={buildPardusKurulumPageUrl(window.location.origin, setupCode)}
+                className="font-medium text-primary underline"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Kurulum sihirbazı
+              </a>
+            ) : (
+              'Kurulum sekmesindeki Pardus linki'
+            )}{' '}
+            — tahta seç, ZIP, tek komut. Alternatif: Ayarlar → USB / .deb.
           </p>
           <Button type="button" variant="outline" size="sm" asChild>
             <Link href="/akilli-tahta?tab=ayarlar">Ayarlar ve Pardus indir</Link>

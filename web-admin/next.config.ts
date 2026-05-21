@@ -63,6 +63,12 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        source: "/akilli-tahta/:path*",
+        headers: [
+          { key: "Permissions-Policy", value: "camera=(self), microphone=()" },
+        ],
+      },
+      {
         source: "/:path*",
         headers: [
           {

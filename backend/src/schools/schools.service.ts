@@ -215,6 +215,12 @@ export class SchoolsService {
     if (dto.smart_board_restrict_to_own_classes !== undefined) school.smartBoardRestrictToOwnClasses = dto.smart_board_restrict_to_own_classes;
     if (dto.smart_board_notify_on_disconnect !== undefined) school.smartBoardNotifyOnDisconnect = dto.smart_board_notify_on_disconnect;
     if (dto.smart_board_auto_disconnect_lesson_end !== undefined) school.smartBoardAutoDisconnectLessonEnd = dto.smart_board_auto_disconnect_lesson_end;
+    if (dto.smart_board_lunch_duyuru_grace_minutes !== undefined) {
+      school.smartBoardLunchDuyuruGraceMinutes = Math.max(0, Math.min(120, dto.smart_board_lunch_duyuru_grace_minutes));
+    }
+    if (dto.smart_board_end_of_day_close_grace_minutes !== undefined) {
+      school.smartBoardEndOfDayCloseGraceMinutes = Math.max(0, Math.min(180, dto.smart_board_end_of_day_close_grace_minutes));
+    }
     if (dto.smart_board_release_previous_on_qr !== undefined) {
       school.smartBoardReleasePreviousOnQr = dto.smart_board_release_previous_on_qr;
     }
@@ -223,16 +229,34 @@ export class SchoolsService {
     if (dto.smart_board_notify_on_qr_takeover !== undefined) {
       school.smartBoardNotifyOnQrTakeover = dto.smart_board_notify_on_qr_takeover;
     }
+    if (dto.smart_board_soft_takeover_seconds !== undefined) {
+      school.smartBoardSoftTakeoverSeconds = Math.max(0, Math.min(120, dto.smart_board_soft_takeover_seconds));
+    }
+    if (dto.smart_board_reconnect_grace_minutes !== undefined) {
+      school.smartBoardReconnectGraceMinutes = Math.max(0, Math.min(180, dto.smart_board_reconnect_grace_minutes));
+    }
+    if (dto.smart_board_notify_lesson_teachers_only !== undefined) {
+      school.smartBoardNotifyLessonTeachersOnly = dto.smart_board_notify_lesson_teachers_only;
+    }
+    if (dto.smart_board_notify_on_qr_pending !== undefined) {
+      school.smartBoardNotifyOnQrPending = dto.smart_board_notify_on_qr_pending;
+    }
     const smartBoardFields = [
       'smart_board_auto_authorize',
       'smart_board_session_timeout_minutes',
       'smart_board_restrict_to_own_classes',
       'smart_board_notify_on_disconnect',
       'smart_board_auto_disconnect_lesson_end',
+      'smart_board_lunch_duyuru_grace_minutes',
+      'smart_board_end_of_day_close_grace_minutes',
       'smart_board_release_previous_on_qr',
       'smart_board_default_kiosk',
       'smart_board_default_kilit',
       'smart_board_notify_on_qr_takeover',
+      'smart_board_soft_takeover_seconds',
+      'smart_board_reconnect_grace_minutes',
+      'smart_board_notify_lesson_teachers_only',
+      'smart_board_notify_on_qr_pending',
     ] as const;
     const smartBoardTouched = smartBoardFields.filter((f) => (dto as Record<string, unknown>)[f] !== undefined);
     if (dto.duty_start_time !== undefined) school.duty_start_time = dto.duty_start_time?.trim() || null;

@@ -9,11 +9,18 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { BookOpen, ChevronLeft, ChevronRight, Megaphone, Rss, Users } from 'lucide-react';
 import {
   ClassroomBoardNotice,
+  ClassroomSidePanelBlock,
   ClassroomTeacherControls,
   clearClassroomTeacherToken,
   persistClassroomTeacherToken,
 } from './classroom-teacher-unlock';
+import {
+  ClassroomShutdownWarningOverlay,
+  type ClassroomShutdownWarning,
+} from './classroom-shutdown-warning';
 import { subscribeClassroomBoardSync } from '@/lib/smart-board-classroom-sync';
+import { buildPardusKurulumPageUrl } from '@/lib/smart-board-setup-link-parse';
+import { SMART_BOARD_QR_FLOW_SUMMARY } from '@/lib/smart-board-teacher-qr-flow';
 
 type TvAudience = 'corridor' | 'teachers' | 'classroom';
 
@@ -387,6 +394,30 @@ function TvPairingGate({
   );
 }
 
+function classroomSetupErrorMessage(code?: string, fallback?: string): string {
+  switch (code) {
+    case 'INVALID_SETUP_CODE':
+    case 'SETUP_CODE_NOT_FOUND':
+      return 'Kurulum kodu geçersiz veya süresi dolmuş. Okul yöneticisinden yeni kod isteyin.';
+    case 'INVALID_BODY':
+      return fallback?.includes('class_section')
+        ? 'Sınıf seçin veya sınıf adı yazın.'
+        : fallback || 'Eksik bilgi. Lütfen tekrar deneyin.';
+    case 'NOT_FOUND':
+      return 'Seçilen tahta bulunamadı. Listeyi yenileyin veya yeni sınıf ekleyin.';
+    case 'TV_ACCESS_RESTRICTED':
+      return 'Bu istek okul ağı dışından geliyor. Tahtayı okul internetine bağlayın.';
+    case 'PAIRING_CODE_INVALID':
+      return 'Eşleştirme kodu hatalı. Tahta etiketindeki kodu girin.';
+    case 'SETUP_DEVICE_SCOPE':
+      return 'Bu tahta bu okul kurulum koduna ait değil.';
+    case 'TV_IP_NOT_CONFIGURED':
+      return 'Okul panelinde TV izinli IP listesi tanımlanmalı.';
+    default:
+      return fallback || 'İşlem tamamlanamadı.';
+  }
+}
+
 function ClassroomSetupScreen({ setupCode }: { setupCode: string }) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -396,6 +427,7 @@ function ClassroomSetupScreen({ setupCode }: { setupCode: string }) {
   const [devices, setDevices] = useState<Array<{ id: string; name: string; class_section: string | null }>>([]);
   const [suggested, setSuggested] = useState<string[]>([]);
   const [pickDeviceId, setPickDeviceId] = useState('');
+  const [pairingCode, setPairingCode] = useState('');
   const [customClass, setCustomClass] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -410,8 +442,11 @@ function ClassroomSetupScreen({ setupCode }: { setupCode: string }) {
           devices?: Array<{ id: string; name: string; class_section: string | null }>;
           suggested_classes?: string[];
           message?: string;
+          code?: string;
         };
-        if (!res.ok) throw new Error(body.message || 'Kurulum kodu geçersiz');
+        if (!res.ok) {
+          throw new Error(classroomSetupErrorMessage(body.code, body.message));
+        }
         setSchoolId(body.school_id ?? '');
         setSchoolName(body.school_name ?? '');
         setDevices(body.devices ?? []);
@@ -421,7 +456,7 @@ function ClassroomSetupScreen({ setupCode }: { setupCode: string }) {
       .finally(() => setLoading(false));
   }, [setupCode]);
 
-  const register = (payload: { device_id?: string; class_section?: string }) => {
+  const register = (payload: { device_id?: string; class_section?: string; pairing_code?: string }) => {
     setBusy(true);
     setErr(null);
     void fetch(getApiUrl('/tv/classroom-setup/register'), {
@@ -431,6 +466,7 @@ function ClassroomSetupScreen({ setupCode }: { setupCode: string }) {
         setup_code: setupCode,
         device_id: payload.device_id,
         class_section: payload.class_section,
+        pairing_code: payload.pairing_code,
       }),
     })
       .then(async (res) => {
@@ -438,9 +474,10 @@ function ClassroomSetupScreen({ setupCode }: { setupCode: string }) {
           school_id?: string;
           device_id?: string;
           message?: string;
+          code?: string;
         };
         if (!res.ok || !body.school_id || !body.device_id) {
-          throw new Error(body.message || 'Kayıt başarısız');
+          throw new Error(classroomSetupErrorMessage(body.code, body.message));
         }
         const q = new URLSearchParams({
           school_id: body.school_id,
@@ -465,40 +502,68 @@ function ClassroomSetupScreen({ setupCode }: { setupCode: string }) {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-slate-950 px-4 py-10 text-slate-100">
       <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900/90 p-6 shadow-xl">
-        <h1 className="text-center text-lg font-semibold">Tahta kurulumu</h1>
+        <h1 className="text-center text-lg font-semibold">Akıllı tahta ilk kurulum</h1>
+        <p className="mt-2 text-center text-[11px] leading-relaxed text-slate-500">{SMART_BOARD_QR_FLOW_SUMMARY}</p>
         <p className="mt-1 text-center text-sm text-slate-400">{schoolName || 'Okul'}</p>
-        <p className="mt-2 text-center font-mono text-xs tracking-widest text-teal-300">KOD: {setupCode}</p>
-        {err ? <p className="mt-4 text-center text-sm text-red-400">{err}</p> : null}
+        <p className="mt-2 text-center text-xs text-slate-500">
+          Kurulum kodu:{' '}
+          <span className="font-mono font-semibold tracking-widest text-teal-300">{setupCode}</span>
+        </p>
+        {err ? <p className="mt-4 rounded-lg bg-red-950/50 px-3 py-2 text-center text-sm text-red-300">{err}</p> : null}
 
         {devices.length > 0 ? (
           <div className="mt-4 space-y-2">
-            <p className="text-xs font-medium text-slate-300">Kayıtlı tahta seçin</p>
+            <p className="text-xs font-medium text-slate-300">Bu okulda kayıtlı tahta</p>
+            <p className="text-[11px] text-slate-500">Sınıfınızın tahtasını listeden seçin; duyuru ekranı açılır.</p>
             <select
               className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm"
               value={pickDeviceId}
-              onChange={(e) => setPickDeviceId(e.target.value)}
+              onChange={(e) => {
+                setPickDeviceId(e.target.value);
+                setPairingCode('');
+              }}
             >
-              <option value="">— Seçin —</option>
+              <option value="">Tahta seçin…</option>
               {devices.map((d) => (
                 <option key={d.id} value={d.id}>
+                  {d.class_section ? `${d.class_section} — ` : ''}
                   {d.name}
-                  {d.class_section ? ` (${d.class_section})` : ''}
                 </option>
               ))}
             </select>
+            {pickDeviceId ? (
+              <input
+                className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 font-mono text-sm tracking-widest"
+                placeholder="Etiket eşleştirme kodu (8 karakter)"
+                maxLength={12}
+                value={pairingCode}
+                onChange={(e) => setPairingCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+              />
+            ) : null}
             <button
               type="button"
-              disabled={!pickDeviceId || busy}
+              disabled={!pickDeviceId || pairingCode.trim().length < 6 || busy}
               className="w-full rounded-xl bg-teal-600 py-3 text-sm font-semibold disabled:opacity-50"
-              onClick={() => register({ device_id: pickDeviceId })}
+              onClick={() => register({ device_id: pickDeviceId, pairing_code: pairingCode.trim() })}
             >
-              Bu tahtayı aç
+              {busy ? 'Açılıyor…' : 'Duyuru ekranını başlat'}
             </button>
           </div>
         ) : null}
 
-        <div className="mt-6 space-y-2 border-t border-slate-700 pt-4">
-          <p className="text-xs font-medium text-slate-300">Yeni sınıf / tahta</p>
+        <div
+          className={
+            devices.length > 0 ? 'mt-6 space-y-2 border-t border-slate-700 pt-4' : 'mt-4 space-y-2'
+          }
+        >
+          <p className="text-xs font-medium text-slate-300">
+            {devices.length > 0 ? 'Tahtanız listede yoksa' : 'Sınıfınızı tanımlayın'}
+          </p>
+          <p className="text-[11px] text-slate-500">
+            {devices.length > 0
+              ? 'Aşağıdan sınıfınızı seçin veya adını yazın; sistem yeni tahta kaydı oluşturur.'
+              : 'Okulda henüz tahta yok. Sınıf adını seçin veya yazın.'}
+          </p>
           {suggested.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {suggested.slice(0, 12).map((c) => (
@@ -526,8 +591,21 @@ function ClassroomSetupScreen({ setupCode }: { setupCode: string }) {
             className="w-full rounded-xl border border-teal-500/50 bg-teal-950 py-3 text-sm font-semibold text-teal-100 disabled:opacity-50"
             onClick={() => register({ class_section: customClass.trim() })}
           >
-            Sınıfı kaydet ve başlat
+            {busy ? 'Kaydediliyor…' : 'Sınıfı kaydet ve duyuru ekranını aç'}
           </button>
+        </div>
+        <div className="mt-6 rounded-xl border border-violet-500/30 bg-violet-950/40 p-4">
+          <p className="text-xs font-medium text-violet-200">Pardus Linux tahta mı?</p>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Tarayıcı yerine tam kurulum paketi için adım adım sihirbazı kullanın: tahta seçimi, ZIP indirme ve otomatik
+            kurulum betiği.
+          </p>
+          <a
+            href={buildPardusKurulumPageUrl(typeof window !== 'undefined' ? window.location.origin : '', setupCode)}
+            className="mt-3 inline-flex w-full items-center justify-center rounded-lg bg-violet-600/80 py-2.5 text-sm font-semibold text-white hover:bg-violet-600"
+          >
+            Pardus kurulum sihirbazına git →
+          </a>
         </div>
       </div>
     </div>
@@ -556,9 +634,12 @@ export default function TvAudienceContent() {
   const [usbToken, setUsbToken] = useState<string | null>(null);
   const [sessionActive, setSessionActive] = useState(false);
   const [pendingTeacherConnect, setPendingTeacherConnect] = useState(false);
+  const [takeoverSecondsLeft, setTakeoverSecondsLeft] = useState<number | null>(null);
+  const [takeoverIncomingName, setTakeoverIncomingName] = useState<string | null>(null);
   const [activeTeacherName, setActiveTeacherName] = useState<string | null>(null);
   const [sessionEndsAt, setSessionEndsAt] = useState<number | null>(null);
   const [boardNotice, setBoardNotice] = useState<{ text: string; tone: 'info' | 'success' | 'warn' } | null>(null);
+  const [shutdownWarning, setShutdownWarning] = useState<ClassroomShutdownWarning | null>(null);
   const isKiosk = searchParams?.get('kiosk') === '1';
   const isPreview = searchParams?.get('preview') === '1';
   const classroomBoard = audience === 'classroom' && !!schoolId && !!deviceId && !setupMode;
@@ -566,6 +647,8 @@ export default function TvAudienceContent() {
   const teacherMode = classroomBoard && sessionActive;
   /** Duyuru TV (signage) veya öğretmen modu (tam TV düzeni) */
   const announcementsOnlyLock = classroomBoard ? urlSignageKilit && !teacherMode : searchParams?.get('kilit') === '1';
+  /** Sınıf tahtası: koridor TV ile aynı yan panel + alt şeritler (kilit modunda da) */
+  const showTvChrome = audience === 'classroom' || !announcementsOnlyLock;
   const hadActiveSessionRef = useRef(false);
   const pendingSinceRef = useRef(0);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -584,6 +667,7 @@ export default function TvAudienceContent() {
     setPendingTeacherConnect(false);
     setActiveTeacherName(null);
     setSessionEndsAt(null);
+    setShutdownWarning(null);
     hadActiveSessionRef.current = false;
   }, [schoolId, deviceId]);
 
@@ -611,10 +695,32 @@ export default function TvAudienceContent() {
         teacher_name?: string | null;
         last_heartbeat_at?: string | null;
         session_timeout_minutes?: number;
+        shutdown_warning?: ClassroomShutdownWarning | null;
+        takeover_pending?: { seconds_left: number; incoming_teacher_name: string | null };
+        slot_hint?: {
+          current_teacher_name: string | null;
+          next_teacher_name: string | null;
+          next_lesson_num: number | null;
+        };
       };
+      if (body.shutdown_warning && body.shutdown_warning.seconds_left > 0) {
+        setShutdownWarning(body.shutdown_warning);
+      } else {
+        setShutdownWarning(null);
+      }
+      if (body.takeover_pending && body.takeover_pending.seconds_left > 0) {
+        setTakeoverSecondsLeft(body.takeover_pending.seconds_left);
+        setTakeoverIncomingName(body.takeover_pending.incoming_teacher_name);
+        setPendingTeacherConnect(true);
+      } else {
+        setTakeoverSecondsLeft(null);
+        setTakeoverIncomingName(null);
+      }
       if (body.active) {
         setSessionActive(true);
         setPendingTeacherConnect(false);
+        setTakeoverSecondsLeft(null);
+        setTakeoverIncomingName(null);
         hadActiveSessionRef.current = true;
         if (body.teacher_name) setActiveTeacherName(body.teacher_name);
         const timeoutMin = body.session_timeout_minutes ?? 2;
@@ -916,12 +1022,24 @@ export default function TvAudienceContent() {
         setRefreshTrigger((x) => x + 1);
         return;
       }
+      if (ev.type === 'takeover_pending') {
+        setPendingTeacherConnect(true);
+        setTakeoverSecondsLeft(ev.seconds_left);
+        setTakeoverIncomingName(ev.teacher_name ?? null);
+        pendingSinceRef.current = Date.now();
+        showBoardNotice(
+          `${ev.teacher_name ? `${ev.teacher_name} ` : ''}ders oturumu ${ev.seconds_left} sn içinde başlayacak`,
+          'info',
+          12_000,
+        );
+        return;
+      }
       if (ev.type === 'session_started' || ev.type === 'qr_unlocked') {
         setPendingTeacherConnect(true);
         pendingSinceRef.current = Date.now();
         void pollClassroomSession().then((ok) => {
           if (ok) {
-            showBoardNotice('Tahta kullanım modu açıldı', 'success');
+            showBoardNotice('Ders oturumu açıldı', 'success');
             setRefreshTrigger((x) => x + 1);
           }
         });
@@ -938,8 +1056,8 @@ export default function TvAudienceContent() {
 
   const [showKioskPrompt, setShowKioskPrompt] = useState(false);
   useEffect(() => {
-    if (isKiosk && typeof window !== 'undefined' && !announcementsOnlyLock) setShowKioskPrompt(true);
-  }, [isKiosk, announcementsOnlyLock]);
+    if (isKiosk && typeof window !== 'undefined' && showTvChrome) setShowKioskPrompt(true);
+  }, [isKiosk, showTvChrome]);
 
   useEffect(() => {
     if (!announcementsOnlyLock || typeof document === 'undefined') return;
@@ -956,7 +1074,7 @@ export default function TvAudienceContent() {
   const [weather, setWeather] = useState<{ city: string; temp: string } | null>(null);
   const tvWeatherCity = data?.school?.tv_weather_city;
   useEffect(() => {
-    if (announcementsOnlyLock) {
+    if (!showTvChrome) {
       setWeather(null);
       return;
     }
@@ -972,7 +1090,7 @@ export default function TvAudienceContent() {
       })
       .catch(() => setWeather(null));
     return () => { cancelled = true; };
-  }, [tvWeatherCity, announcementsOnlyLock]);
+  }, [tvWeatherCity, showTvChrome]);
 
   const [rssItems, setRssItems] = useState<Array<{ title: string }>>([]);
   const [quoteItems, setQuoteItems] = useState<Array<{ quote: string; author?: string }>>([]);
@@ -980,7 +1098,7 @@ export default function TvAudienceContent() {
   const tvGununSozuRssUrl = data?.school?.tv_gunun_sozu_rss_url;
   const rssSchoolId = data?.school?.id ?? schoolId;
   useEffect(() => {
-    if (announcementsOnlyLock) {
+    if (!showTvChrome) {
       setRssItems([]);
       return;
     }
@@ -1002,9 +1120,9 @@ export default function TvAudienceContent() {
       })
       .catch(() => setRssItems([]));
     return () => { cancelled = true; };
-  }, [tvRssUrl, rssSchoolId, audience, classroomBoard, deviceId, usbToken, sessionActive, announcementsOnlyLock]);
+  }, [tvRssUrl, rssSchoolId, audience, classroomBoard, deviceId, usbToken, sessionActive, showTvChrome]);
   useEffect(() => {
-    if (announcementsOnlyLock) {
+    if (!showTvChrome) {
       setQuoteItems([]);
       return;
     }
@@ -1026,7 +1144,7 @@ export default function TvAudienceContent() {
       })
       .catch(() => setQuoteItems([]));
     return () => { cancelled = true; };
-  }, [tvGununSozuRssUrl, rssSchoolId, audience, classroomBoard, deviceId, usbToken, sessionActive, announcementsOnlyLock]);
+  }, [tvGununSozuRssUrl, rssSchoolId, audience, classroomBoard, deviceId, usbToken, sessionActive, showTvChrome]);
 
   /* Backend zaten show_on_tv=true olanları döndürüyor; yanıtta show_on_tv eksikse tüm items kullanılır. */
   const tvItems = useMemo(
@@ -1584,6 +1702,47 @@ export default function TvAudienceContent() {
   const themeClass = theme === 'light' ? 'tv-theme-light' : theme === 'school' ? 'tv-theme-school' : 'tv-theme-dark';
   const rootStyle = primaryColor ? { '--tv-accent': primaryColor, '--tv-primary': primaryColor } as React.CSSProperties : undefined;
 
+  const sPanelSlot = data?.current_slot;
+  const classroomSlotPanelLabel = sPanelSlot
+    ? sPanelSlot.class_section
+      ? `${sPanelSlot.class_section}: ${sPanelSlot.subject} – ${sPanelSlot.teacher_name}`
+      : `${sPanelSlot.subject} – ${sPanelSlot.teacher_name}`
+    : null;
+
+  const classroomPanelSlot =
+    classroomBoard && schoolId && deviceId ? (
+      <ClassroomSidePanelBlock
+        schoolId={schoolId}
+        deviceId={deviceId}
+        teacherMode={teacherMode}
+        teacherName={activeTeacherName}
+        pendingConnect={pendingTeacherConnect}
+        takeoverSecondsLeft={takeoverSecondsLeft}
+        takeoverTeacherName={takeoverIncomingName}
+        sessionEndsAt={sessionEndsAt}
+        currentSlotLabel={classroomSlotPanelLabel}
+        onTvError={(msg) => showBoardNotice(msg, 'warn', 12_000)}
+        onUnlocked={(t) => {
+          persistClassroomTeacherToken(schoolId, deviceId, t);
+          setUsbToken(t);
+          setPendingTeacherConnect(true);
+          pendingSinceRef.current = Date.now();
+          showBoardNotice('Ders oturumu onayı alındı…', 'info', 8000);
+          void pollClassroomSession().then((ok) => {
+            if (ok) {
+              showBoardNotice('Tahta kullanım modu açıldı', 'success');
+              setRefreshTrigger((x) => x + 1);
+            }
+          });
+        }}
+        onExitSignage={() => {
+          exitTeacherSignageMode();
+          showBoardNotice('Duyuru TV moduna dönüldü', 'info');
+          setRefreshTrigger((x) => x + 1);
+        }}
+      />
+    ) : null;
+
   return (
     <div
       className={`tv-main relative flex w-full flex-1 flex-col ${themeClass}${announcementsOnlyLock ? ' select-none' : ''}`}
@@ -1594,13 +1753,17 @@ export default function TvAudienceContent() {
       style={rootStyle}
     >
         <ClassroomBoardNotice message={boardNotice?.text ?? null} tone={boardNotice?.tone} />
+        {classroomBoard ? <ClassroomShutdownWarningOverlay warning={shutdownWarning} /> : null}
         {classroomBoard && schoolId && deviceId ? (
           <ClassroomTeacherControls
+            uiMode="panel"
             schoolId={schoolId}
             deviceId={deviceId}
             teacherMode={teacherMode}
             teacherName={activeTeacherName}
             pendingConnect={pendingTeacherConnect}
+            takeoverSecondsLeft={takeoverSecondsLeft}
+            takeoverTeacherName={takeoverIncomingName}
             sessionEndsAt={sessionEndsAt}
             onTvError={(msg) => showBoardNotice(msg, 'warn', 12_000)}
             onUnlocked={(t) => {
@@ -1608,7 +1771,7 @@ export default function TvAudienceContent() {
               setUsbToken(t);
               setPendingTeacherConnect(true);
               pendingSinceRef.current = Date.now();
-              showBoardNotice('Öğretmen onayı alındı, bağlanıyor…', 'info', 8000);
+              showBoardNotice('Ders oturumu onayı alındı…', 'info', 8000);
               void pollClassroomSession().then((ok) => {
                 if (ok) {
                   showBoardNotice('Tahta kullanım modu açıldı', 'success');
@@ -1637,7 +1800,7 @@ export default function TvAudienceContent() {
         )}
         {/* Ana alan + Sidebar – overflow sadece main'de, sidebar tam görünsün */}
         <div className="flex min-h-0 min-w-0 flex-1">
-          {cardPosition === 'left' && !announcementsOnlyLock && (
+          {cardPosition === 'left' && showTvChrome && (
             <SidePanel
               cardPosition={cardPosition}
               data={data}
@@ -1660,11 +1823,12 @@ export default function TvAudienceContent() {
               tarihKisa={tarihKisa}
               gunAdi={gunAdi}
               saat={saat}
+              classroomExtras={classroomPanelSlot}
             />
           )}
           {/* Ana slider – modern grid layout, içerik odaklı */}
           <div
-            className={`tv-slide-zone relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--tv-bg-dark)]${announcementsOnlyLock ? '' : ' rounded-2xl'}`}
+            className={`tv-slide-zone relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--tv-bg-dark)]${showTvChrome ? ' rounded-2xl' : ''}`}
           >
             {/* Logo badge – köşede */}
             <div
@@ -1792,7 +1956,7 @@ export default function TvAudienceContent() {
             )}
           </div>
 
-          {cardPosition === 'right' && !announcementsOnlyLock && (
+          {cardPosition === 'right' && showTvChrome && (
             <SidePanel
               cardPosition={cardPosition}
               data={data}
@@ -1815,12 +1979,13 @@ export default function TvAudienceContent() {
               tarihKisa={tarihKisa}
               gunAdi={gunAdi}
               saat={saat}
+              classroomExtras={classroomPanelSlot}
             />
           )}
         </div>
 
-        {/* Alt şeritler — tahta kilit modunda kapalı (yalnız okul duyuru slaytları) */}
-        {!announcementsOnlyLock && (
+        {/* Alt şeritler */}
+        {showTvChrome && (
         <div className="mt-2 flex shrink-0 flex-col gap-0">
           {isCardVisible('now_in_class_bar') && (
           <div className="tv-now-in-class-bar flex min-h-[52px] items-center gap-4 bg-black/98 px-5 py-3.5">
@@ -2135,6 +2300,7 @@ function SidePanel({
   tarihKisa,
   gunAdi,
   saat,
+  classroomExtras,
 }: {
   cardPosition: 'left' | 'right';
   data: TvResponse | null;
@@ -2157,6 +2323,7 @@ function SidePanel({
   tarihKisa: string;
   gunAdi: string;
   saat: string;
+  classroomExtras?: ReactNode;
 }) {
   const borderClass = cardPosition === 'right' ? 'border-l' : 'border-r';
 
@@ -2165,6 +2332,7 @@ function SidePanel({
       className={`flex min-h-0 w-[220px] shrink-0 flex-col self-stretch sm:w-[260px] md:w-[300px] lg:w-[340px] ${borderClass} border-[var(--tv-border)] bg-[var(--tv-bg-dark)]`}
     >
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overflow-x-hidden px-3 py-3 sm:gap-3 sm:px-4 sm:py-4">
+      {classroomExtras}
       {isCardVisible('datetime') && (
       <div className="tv-datetime-card flex min-h-0 min-w-0 shrink-0 flex-col items-center justify-center rounded-lg px-3 py-3 text-center">
         <p className="text-center text-sm font-medium text-[var(--tv-text-muted)]">{tarihKisa} · {gunAdi}</p>

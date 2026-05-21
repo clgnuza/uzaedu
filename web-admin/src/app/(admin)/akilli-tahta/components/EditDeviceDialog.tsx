@@ -46,7 +46,7 @@ export function EditDeviceDialog({
           <div className="rounded-xl border border-sky-500/25 bg-linear-to-br from-sky-500/12 via-cyan-500/8 to-indigo-500/10 p-2.5">
             <Label htmlFor="edit-device-class" className="flex items-center gap-1.5 text-sky-900 dark:text-sky-200">
               <BookOpen className="size-4 text-primary" />
-              Sınıf (Kayıtlı sınıf listesinden)
+              Sınıf (isteğe bağlı)
             </Label>
             {classSections.length > 0 ? (
               <select
@@ -55,7 +55,7 @@ export function EditDeviceDialog({
                 onChange={(e) => setClassSection(e.target.value)}
                 className="mt-1 w-full rounded-lg border border-input bg-background px-2.5 py-2 text-sm"
               >
-                <option value="">Sınıf seçin</option>
+                <option value="">— Sınıf yok (idare, lab, koridor…)</option>
                 {classSections.map((s) => (
                   <option key={s} value={s}>
                     {s}
@@ -72,7 +72,7 @@ export function EditDeviceDialog({
               />
             )}
             <p className="mt-1 text-xs text-muted-foreground">
-              Liste, Gruplar ve Dersler kaydı + Ders Programı sınıflarıyla uyumludur.
+              Sınıf yok: ders programı bağlanmaz. Liste Gruplar ve Dersler şubelerindendir.
             </p>
           </div>
           <div>

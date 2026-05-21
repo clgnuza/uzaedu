@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Clock, Save, Trash2, Sun, Moon, UtensilsCrossed, CalendarDays, CalendarRange } from 'lucide-react';
+import { Clock, Save, Trash2, Sun, Moon, UtensilsCrossed, CalendarDays, CalendarRange, Monitor } from 'lucide-react';
+import { SmartBoardLessonEndGraceFields } from '@/components/akilli-tahta/smart-board-lesson-end-grace-fields';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -92,7 +93,11 @@ type SchoolDefaultTimesData = {
 };
 
 export function ZamanCizelgesiForm() {
-  const { token } = useAuth();
+  const { token, me } = useAuth();
+  const schoolId = me?.school_id ?? null;
+  const [autoDisconnectLessonEnd, setAutoDisconnectLessonEnd] = useState(false);
+  const [lunchDuyuruGraceMinutes, setLunchDuyuruGraceMinutes] = useState(10);
+  const [endOfDayCloseGraceMinutes, setEndOfDayCloseGraceMinutes] = useState(10);
   const [educationMode, setEducationMode] = useState<'single' | 'double'>('single');
   const [maxLessons, setMaxLessons] = useState(8);
   const [activeShift, setActiveShift] = useState<'morning' | 'afternoon'>('morning');
@@ -115,10 +120,29 @@ export function ZamanCizelgesiForm() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  const fetchSmartBoardLessonEnd = useCallback(async () => {
+    if (!token || !schoolId) return;
+    try {
+      const s = await apiFetch<{
+        smartBoardAutoDisconnectLessonEnd?: boolean;
+        smartBoardLunchDuyuruGraceMinutes?: number;
+        smartBoardEndOfDayCloseGraceMinutes?: number;
+      }>(`/schools/${schoolId}`, { token });
+      setAutoDisconnectLessonEnd(s?.smartBoardAutoDisconnectLessonEnd ?? false);
+      setLunchDuyuruGraceMinutes(s?.smartBoardLunchDuyuruGraceMinutes ?? 10);
+      setEndOfDayCloseGraceMinutes(s?.smartBoardEndOfDayCloseGraceMinutes ?? 10);
+    } catch {
+      setAutoDisconnectLessonEnd(false);
+      setLunchDuyuruGraceMinutes(10);
+      setEndOfDayCloseGraceMinutes(10);
+    }
+  }, [token, schoolId]);
+
   const fetchData = useCallback(async () => {
     if (!token) return;
     setLoading(true);
     try {
+      await fetchSmartBoardLessonEnd();
       const data = await apiFetch<SchoolDefaultTimesData>('/duty/school-default-times', { token });
       const mode = data?.duty_education_mode === 'double' ? 'double' : 'single';
       setEducationMode(mode);
@@ -186,7 +210,7 @@ export function ZamanCizelgesiForm() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, fetchSmartBoardLessonEnd]);
 
   useEffect(() => {
     fetchData();
@@ -232,7 +256,18 @@ export function ZamanCizelgesiForm() {
           lesson_schedule_weekend_pm: weekendOverride ? lsWkPm : null,
         }),
       });
-      toast.success('Zaman çizelgesi kaydedildi.');
+      if (schoolId) {
+        await apiFetch(`/schools/${schoolId}`, {
+          token,
+          method: 'PATCH',
+          body: JSON.stringify({
+            smart_board_auto_disconnect_lesson_end: autoDisconnectLessonEnd,
+            smart_board_lunch_duyuru_grace_minutes: lunchDuyuruGraceMinutes,
+            smart_board_end_of_day_close_grace_minutes: endOfDayCloseGraceMinutes,
+          }),
+        });
+      }
+      toast.success('Okul ayarları kaydedildi.');
       fetchData();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Kaydedilemedi.');
@@ -922,6 +957,28 @@ export function ZamanCizelgesiForm() {
           </div>
           </>
           )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-violet-200/40 shadow-sm dark:border-violet-900/35">
+        <CardHeader className="border-b border-border/50 bg-violet-500/5 px-4 py-3">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Monitor className="size-4 text-violet-700 dark:text-violet-300" />
+            Akıllı tahta — ders sonu
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Zaman çizelgesindeki ders bitiş saatlerine göre otomatik duyuru / kapatma süreleri (dakika).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-4 py-4">
+          <SmartBoardLessonEndGraceFields
+            enabled={autoDisconnectLessonEnd}
+            onEnabledChange={setAutoDisconnectLessonEnd}
+            lunchGraceMinutes={lunchDuyuruGraceMinutes}
+            onLunchGraceChange={setLunchDuyuruGraceMinutes}
+            endOfDayGraceMinutes={endOfDayCloseGraceMinutes}
+            onEndOfDayGraceChange={setEndOfDayCloseGraceMinutes}
+          />
         </CardContent>
       </Card>
 

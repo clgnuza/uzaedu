@@ -48,6 +48,15 @@ export class SmartBoardDevice {
   @Column({ name: 'plan_floor_index', type: 'int', default: 0 })
   planFloorIndex: number;
 
+  @Column({ name: 'pending_takeover_until', type: 'timestamptz', nullable: true })
+  pendingTakeoverUntil: Date | null;
+
+  @Column({ name: 'pending_takeover_user_id', type: 'uuid', nullable: true })
+  pendingTakeoverUserId: string | null;
+
+  @Column({ name: 'pending_takeover_qr_session_id', type: 'uuid', nullable: true })
+  pendingTakeoverQrSessionId: string | null;
+
   @CreateDateColumn()
   created_at: Date;
 

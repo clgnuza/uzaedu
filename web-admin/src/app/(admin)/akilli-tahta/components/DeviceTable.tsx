@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { compareSmartBoardDevices } from '@/lib/smart-board-device-sort';
 import type { Device, Session } from '../types';
 
 /** Cihaz durumu: Açık (çevrimiçi, kullanılabilir), Kilitli (öğretmen bağlı), Kapalı (çevrimdışı) */
@@ -59,11 +60,7 @@ function sortDevices(
   const seenTs = (d: Device) => (d.last_seen_at ? new Date(d.last_seen_at).getTime() : 0);
   return [...list].sort((a, b) => {
     let cmp = 0;
-    if (key === 'name') cmp = (a.name ?? '').localeCompare(b.name ?? '', 'tr');
-    else if (key === 'class')
-      cmp =
-        (a.classSection ?? '').localeCompare(b.classSection ?? '', 'tr') ||
-        (a.name ?? '').localeCompare(b.name ?? '', 'tr');
+    if (key === 'name' || key === 'class') cmp = compareSmartBoardDevices(a, b);
     else if (key === 'status') cmp = statusRank(a, activeDeviceIds) - statusRank(b, activeDeviceIds);
     else if (key === 'seen') cmp = seenTs(a) - seenTs(b);
     return cmp * dir;
@@ -336,7 +333,7 @@ export function DeviceTable({
   onRefresh?: () => void;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [sortKey, setSortKey] = useState<SortKey>('name');
+  const [sortKey, setSortKey] = useState<SortKey>('class');
   const [sortDir, setSortDir] = useState(1);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 

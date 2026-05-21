@@ -135,7 +135,12 @@ export function DisplayModuleShell({
 export function DisplayModuleTeacherLane({ children }: { children: ReactNode }) {
   return (
     <section
-      className="display-module-teacher-lane -mx-1 space-y-3 rounded-2xl border-2 border-violet-300/35 bg-linear-to-br from-violet-500/6 via-background to-sky-500/5 p-3 shadow-sm ring-1 ring-violet-500/10 dark:border-violet-800/45 dark:from-violet-950/25 dark:to-sky-950/20 sm:mx-0 sm:space-y-4 sm:p-5"
+      className={cn(
+        'display-module-teacher-lane space-y-2 sm:space-y-3',
+        'max-sm:-mx-1 max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:shadow-none max-sm:ring-0',
+        'sm:rounded-2xl sm:border sm:border-violet-300/30 sm:bg-linear-to-br sm:from-violet-500/5 sm:via-background sm:to-sky-500/5 sm:p-4 sm:shadow-sm sm:ring-1 sm:ring-violet-500/10',
+        'dark:sm:border-violet-800/40 dark:sm:from-violet-950/20 dark:sm:to-sky-950/15',
+      )}
       aria-label="Öğretmen tahta işlemleri"
     >
       {children}

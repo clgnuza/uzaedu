@@ -12,5 +12,7 @@ export function smartBoardNotificationHref(item: {
   if (schoolId) params.set('qr_school', schoolId);
   if (deviceId) params.set('qr_device', deviceId);
   if (sessionId) params.set('qr_session', sessionId);
+  const qrCode = String(m.qr_code ?? '').trim();
+  if (qrCode) params.set('qr_code', qrCode);
   return `/akilli-tahta?${params.toString()}`;
 }

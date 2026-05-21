@@ -390,10 +390,27 @@ export default function TvPage() {
       const u = new URLSearchParams();
       u.set('tab', t);
       if (isSuperadmin && schoolId) u.set('school_id', schoolId);
-      router.replace(`/tv?${u.toString()}`, { scroll: false });
+      const hash = typeof window !== 'undefined' ? window.location.hash : '';
+      router.replace(`/tv?${u.toString()}${hash}`, { scroll: false });
     },
     [router, isSuperadmin, schoolId],
   );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (window.location.hash !== '#tv-allowed-ips') return;
+    if (mainTab !== 'ayarlar') {
+      setMainTab('ayarlar');
+      return;
+    }
+    if (!school) return;
+    const t = window.setTimeout(() => {
+      const el = document.getElementById('tv-allowed-ips');
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (el instanceof HTMLInputElement) el.focus({ preventScroll: true });
+    }, 200);
+    return () => clearTimeout(t);
+  }, [mainTab, school, setMainTab]);
 
   useEffect(() => {
     if (!isSuperadmin) return;
@@ -3154,7 +3171,7 @@ function TvSettingsForm({
           placeholder="Boş = tüm IP'ler. Örn: 85.123.45.67 veya 192.168.1."
         />
         <p id="tv-allowed-ips-desc" className="mt-1 text-xs text-muted-foreground">
-          Sadece bu IP&apos;lerden TV sayfası açılabilsin. Virgülle ayırın. Okulun genel IP&apos;sini bulmak için okuldan whatismyip.com açın.
+          Boş bırakırsanız kısıt yok (kurulum ve tahta çalışır). Doluysa yalnız bu IP/ön eklerden TV ve sınıf tahtası erişilebilir. Virgülle ayırın.
         </p>
       </div>
       <div>

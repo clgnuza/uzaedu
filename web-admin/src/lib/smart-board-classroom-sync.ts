@@ -3,7 +3,8 @@
 export type ClassroomBoardSyncEvent =
   | { type: 'session_started'; teacher_name?: string | null }
   | { type: 'session_ended' }
-  | { type: 'qr_unlocked' };
+  | { type: 'qr_unlocked' }
+  | { type: 'takeover_pending'; seconds_left: number; teacher_name?: string | null };
 
 export function classroomBoardChannelKey(schoolId: string, deviceId: string) {
   return `ogretmenpro-classroom-${schoolId}-${deviceId}`;
@@ -30,8 +31,17 @@ export function subscribeClassroomBoardSync(
   if (typeof window === 'undefined') return () => undefined;
 
   const onCustom = (e: Event) => {
-    const d = (e as CustomEvent<{ schoolId?: string; deviceId?: string; type?: string }>).detail;
+    const d = (e as CustomEvent<{ schoolId?: string; deviceId?: string; type?: string; seconds_left?: number; teacher_name?: string | null }>)
+      .detail;
     if (d?.schoolId !== schoolId || d?.deviceId !== deviceId || !d?.type) return;
+    if (d.type === 'takeover_pending' && typeof d.seconds_left === 'number') {
+      handler({
+        type: 'takeover_pending',
+        seconds_left: d.seconds_left,
+        teacher_name: d.teacher_name ?? null,
+      });
+      return;
+    }
     handler(d as ClassroomBoardSyncEvent);
   };
 
@@ -39,10 +49,21 @@ export function subscribeClassroomBoardSync(
   try {
     ch = new BroadcastChannel(classroomBoardChannelKey(schoolId, deviceId));
     ch.onmessage = (ev) => {
-      const data = ev.data as { type?: string; teacher_name?: string | null };
+      const data = ev.data as {
+        type?: string;
+        teacher_name?: string | null;
+        seconds_left?: number;
+      };
       if (data?.type === 'session_started') handler({ type: 'session_started', teacher_name: data.teacher_name });
       else if (data?.type === 'session_ended') handler({ type: 'session_ended' });
       else if (data?.type === 'qr_unlocked') handler({ type: 'qr_unlocked' });
+      else if (data?.type === 'takeover_pending' && typeof data.seconds_left === 'number') {
+        handler({
+          type: 'takeover_pending',
+          seconds_left: data.seconds_left,
+          teacher_name: data.teacher_name ?? null,
+        });
+      }
     };
   } catch {
     /* ignore */

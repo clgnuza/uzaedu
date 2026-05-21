@@ -52,6 +52,9 @@ import { SmartBoardSetupWizard } from './components/SmartBoardSetupWizard';
 import { SMART_BOARD_SCHOOL_SETUP_NOTE, SMART_BOARD_SCHOOL_SETUP_STEPS } from '@/lib/smart-board-school-setup-steps';
 import { SetupProgressCard } from './components/SetupProgressCard';
 import { TeacherQrClaimPanel } from './components/TeacherQrClaimPanel';
+import { TeacherActiveSessionBar } from './components/TeacherActiveSessionBar';
+import { TeacherQrStatusBanner } from './components/TeacherQrStatusBanner';
+import { TeacherSmartBoardStickyBar } from './components/TeacherSmartBoardStickyBar';
 import { PwaInstallHint } from './components/PwaInstallHint';
 import { TeacherPendingQrBanner } from './components/TeacherPendingQrBanner';
 import { TeacherSmartBoardUsageCard } from './components/TeacherSmartBoardUsageCard';
@@ -61,6 +64,11 @@ import { postClassroomBoardSync } from '@/lib/smart-board-classroom-sync';
 import { smartBoardConnectErrorMessage } from '@/lib/smart-board-connect-messages';
 import { TURKEY_CITIES, getDistrictsForCity } from '@/lib/turkey-addresses';
 import { cn } from '@/lib/utils';
+import { compareSmartBoardDevices, sortSmartBoardDevices } from '@/lib/smart-board-device-sort';
+import {
+  getSmartBoardAuditActionLabel,
+  getSmartBoardAuditMetaText,
+} from '@/lib/smart-board-audit-labels';
 
 function buildSchoolsQuery(params: { limit: number; city?: string; district?: string }): string {
   const u = new URLSearchParams();
@@ -102,89 +110,6 @@ function getTabActiveStyles(accent: string): string {
   return map[accent] ?? map.primary;
 }
 
-function getAuditActionLabel(action: string): string {
-  const map: Record<string, string> = {
-    SMARTBOARD_BULK_OPEN: 'Toplu aç',
-    SMARTBOARD_BULK_LOCK: 'Toplu kilitle',
-    SMARTBOARD_BULK_CLOSE: 'Toplu kapat',
-    SMARTBOARD_DEVICE_CREATED: 'Cihaz eklendi',
-    SMARTBOARD_DEVICE_UPDATED: 'Cihaz güncellendi',
-    SMARTBOARD_DEVICE_REMOVED: 'Cihaz silindi',
-    SMARTBOARD_QR_SESSION_CREATED: 'QR oturumu oluşturuldu',
-    SMARTBOARD_QR_SESSION_CLAIMED: 'QR oturumu onaylandı',
-    SMARTBOARD_USB_PIN_UNLOCK_SUCCESS: 'PIN ile açılış',
-    SMARTBOARD_OTP_UNLOCK_SUCCESS: 'OTP ile açılış',
-    SMARTBOARD_OTP_CODES_REGENERATED: 'OTP kodları yenilendi',
-    SMARTBOARD_SETUP_CODE_REGENERATED: 'Kurulum kodu yenilendi',
-  };
-  return map[action] ?? action;
-}
-
-function shortAuditId(v: string): string {
-  return v.length > 8 ? v.slice(0, 8) : v;
-}
-
-function getAuditMetaText(log: SmartBoardAuditLog, deviceNameById: Map<string, string>): string {
-  const meta = log.meta ?? {};
-  const get = (k: string): string | null => {
-    const v = meta[k];
-    return typeof v === 'string' && v.trim() ? v.trim() : null;
-  };
-  const deviceId = get('deviceId') ?? get('device_id');
-  const deviceNameFromMeta = get('deviceName') ?? get('device_name');
-  const classFromMeta = get('classSection') ?? get('class_section');
-  const sessionId = get('sessionId') ?? get('session_id');
-  const unlockMethod = get('unlockMethod') ?? get('unlock_method');
-  const teacherId = get('teacherId') ?? get('user_id');
-
-  const deviceLabel =
-    (deviceNameFromMeta
-      ? `${deviceNameFromMeta}${classFromMeta ? ` (${classFromMeta})` : ''}`
-      : null) ??
-    (deviceId ? (deviceNameById.get(deviceId) ?? `Cihaz #${shortAuditId(deviceId)}`) : null);
-
-  if (log.action === 'SMARTBOARD_DEVICE_REMOVED') {
-    return deviceLabel ? `${deviceLabel} silindi.` : 'Cihaz kaydı silindi.';
-  }
-  if (log.action === 'SMARTBOARD_DEVICE_CREATED') {
-    return deviceLabel ? `${deviceLabel} eklendi.` : 'Yeni cihaz eklendi.';
-  }
-  if (log.action === 'SMARTBOARD_QR_SESSION_CREATED') {
-    return `QR oturumu açıldı${deviceLabel ? ` (${deviceLabel})` : ''}${sessionId ? ` · Oturum #${shortAuditId(sessionId)}` : ''}.`;
-  }
-  if (log.action === 'SMARTBOARD_QR_SESSION_CLAIMED') {
-    return `QR onayı alındı${deviceLabel ? ` (${deviceLabel})` : ''}${sessionId ? ` · Oturum #${shortAuditId(sessionId)}` : ''}.`;
-  }
-  if (log.action === 'SMARTBOARD_USB_PIN_UNLOCK_SUCCESS' || log.action === 'SMARTBOARD_OTP_UNLOCK_SUCCESS') {
-    return `Tahta açıldı${deviceLabel ? ` (${deviceLabel})` : ''}${unlockMethod ? ` · Yöntem: ${unlockMethod.toUpperCase()}` : ''}.`;
-  }
-  if (log.action === 'SMARTBOARD_OTP_CODES_REGENERATED') {
-    return `OTP kodları yenilendi${teacherId ? ` · Kullanıcı #${shortAuditId(teacherId)}` : ''}.`;
-  }
-
-  const lines: string[] = [];
-  if (deviceLabel) lines.push(`Cihaz: ${deviceLabel}`);
-  if (sessionId) lines.push(`Oturum: #${shortAuditId(sessionId)}`);
-  if (unlockMethod) lines.push(`Yöntem: ${unlockMethod.toUpperCase()}`);
-
-  for (const [k, v] of Object.entries(meta)) {
-    if (v == null) continue;
-    if (['deviceId', 'device_id', 'sessionId', 'session_id', 'unlockMethod', 'unlock_method'].includes(k)) continue;
-    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
-      lines.push(`${k}: ${String(v)}`);
-      continue;
-    }
-    if (Array.isArray(v) && v.length > 0) {
-      lines.push(`${k}: ${v.length} kayıt`);
-      continue;
-    }
-    if (!Array.isArray(v) && typeof v === 'object') {
-      lines.push(`${k}: var`);
-    }
-  }
-  return lines.length > 0 ? lines.join(' · ') : '—';
-}
-
 const DEFAULT_ADMIN_TAB = 'genel-bakis';
 
 export default function AkilliTahtaPage() {
@@ -220,7 +145,7 @@ export default function AkilliTahtaPage() {
   const [classSections, setClassSections] = useState<string[]>([]);
   const [floorPlans, setFloorPlans] = useState<{ label: string; url: string }[]>([]);
   const [teacherSearch, setTeacherSearch] = useState('');
-  const [teacherFilterMyClasses, setTeacherFilterMyClasses] = useState(false);
+  const [teacherFilterToday, setTeacherFilterToday] = useState(false);
   const [yetkilerSearch, setYetkilerSearch] = useState('');
   const [usbPinFor, setUsbPinFor] = useState<AuthorizedTeacher | null>(null);
   const [usbPinInput, setUsbPinInput] = useState('');
@@ -230,7 +155,7 @@ export default function AkilliTahtaPage() {
   const [otpSaving, setOtpSaving] = useState(false);
   const [auditLogs, setAuditLogs] = useState<SmartBoardAuditLog[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
-  const [teacherDeviceSort, setTeacherDeviceSort] = useState<'recent' | 'name' | 'online'>('recent');
+  const [teacherDeviceSort, setTeacherDeviceSort] = useState<'name' | 'online'>('name');
   const [schoolFilters, setSchoolFilters] = useState({ city: '', district: '' });
   const schoolFiltersRef = useRef(schoolFilters);
   schoolFiltersRef.current = schoolFilters;
@@ -240,6 +165,7 @@ export default function AkilliTahtaPage() {
   const qrClaimAttemptedRef = useRef(false);
   const [qrClaimStatus, setQrClaimStatus] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
   const [qrClaimMessage, setQrClaimMessage] = useState<string>('');
+  const [qrScannerOpen, setQrScannerOpen] = useState(false);
   const [qrClaimBusy, setQrClaimBusy] = useState(false);
   const [bulkActionReport, setBulkActionReport] = useState<{
     action: 'open' | 'lock' | 'close';
@@ -250,12 +176,24 @@ export default function AkilliTahtaPage() {
   const isSchoolAdmin = me?.role === 'school_admin';
   const canView = !isTeacher && effectiveSchoolId; // school_admin + superadmin
   const canManage = isSchoolAdmin && !!effectiveSchoolId; // sadece okul yöneticisi tahta ekler, yetki verir, sonlandırır
+  const floorPlacedCount = useMemo(
+    () => devices.filter((d) => d.planPositionX != null || d.planPositionY != null).length,
+    [devices],
+  );
+
   const deviceNameById = useMemo(
     () =>
       new Map(
         devices.map((d) => [d.id, `${d.name}${d.classSection ? ` (${d.classSection})` : ''}`]),
       ),
     [devices],
+  );
+  const teacherNameById = useMemo(
+    () =>
+      new Map(
+        authorizedTeachers.map((t) => [t.user_id, t.display_name?.trim() || t.email || t.user_id]),
+      ),
+    [authorizedTeachers],
   );
 
   const fetchStatus = useCallback(async () => {
@@ -304,7 +242,7 @@ export default function AkilliTahtaPage() {
         ? `/smart-board/devices?school_id=${effectiveSchoolId}`
         : '/smart-board/devices';
       const res = await apiFetch<Device[]>(path, { token });
-      setDevices(Array.isArray(res) ? res : []);
+      setDevices(Array.isArray(res) ? sortSmartBoardDevices(res) : []);
     } catch {
       if (isTeacher) setDevices([]);
     }
@@ -374,37 +312,20 @@ export default function AkilliTahtaPage() {
 
   const fetchClassSections = useCallback(async () => {
     if (!token || !effectiveSchoolId || isTeacher) return;
-    let fromClassesSubjects: string[] = [];
-    let fromTimetable: string[] = [];
-
     try {
       const classesPath = isSuperadmin
         ? `/classes-subjects/classes?school_id=${encodeURIComponent(effectiveSchoolId)}`
         : '/classes-subjects/classes';
       const classes = await apiFetch<Array<{ name?: string | null }>>(classesPath, { token });
-      fromClassesSubjects = Array.isArray(classes)
+      const names = Array.isArray(classes)
         ? classes.map((c) => String(c?.name ?? '').trim()).filter((s) => !!s)
         : [];
+      setClassSections(
+        [...new Set(names)].sort((a, b) => a.localeCompare(b, 'tr', { numeric: true })),
+      );
     } catch {
-      fromClassesSubjects = [];
+      setClassSections([]);
     }
-
-    try {
-      const path = isSuperadmin
-        ? `/teacher-timetable/distinct-class-sections?school_id=${effectiveSchoolId}`
-        : '/teacher-timetable/distinct-class-sections';
-      const res = await apiFetch<string[]>(path, { token });
-      fromTimetable = Array.isArray(res)
-        ? res.map((s) => String(s ?? '').trim()).filter((s) => !!s)
-        : [];
-    } catch {
-      fromTimetable = [];
-    }
-
-    const merged = Array.from(new Set([...fromClassesSubjects, ...fromTimetable])).sort((a, b) =>
-      a.localeCompare(b, 'tr', { numeric: true }),
-    );
-    setClassSections(merged);
   }, [token, effectiveSchoolId, isTeacher, isSuperadmin]);
 
   useEffect(() => {
@@ -460,23 +381,40 @@ export default function AkilliTahtaPage() {
       setQrClaimStatus('pending');
       setQrClaimMessage('QR doğrulaması gönderiliyor...');
       try {
-        const claimRes = await apiFetch<{ ok?: boolean; session_id?: string }>('/smart-board/qr/claim', {
+        const claimRes = await apiFetch<{
+          ok?: boolean;
+          session_id?: string;
+          pending_takeover_seconds?: number;
+        }>('/smart-board/qr/claim', {
           method: 'POST',
           body: JSON.stringify(p),
           token,
         });
-        if (!claimRes?.session_id) {
-          throw new Error('Tahta oturumu oluşturulamadı. Tekrar deneyin.');
+        if (claimRes?.pending_takeover_seconds && claimRes.pending_takeover_seconds > 0) {
+          setQrClaimStatus('success');
+          setQrClaimMessage(
+            `${claimRes.pending_takeover_seconds} sn içinde ders oturumu devralınacak. Tahta duyuru modunda kalır.`,
+          );
+          toast.success(`Onay alındı. Tahta ${claimRes.pending_takeover_seconds} sn içinde devralınacak.`);
+          postClassroomBoardSync(p.school_id, p.device_id, {
+            type: 'takeover_pending',
+            seconds_left: claimRes.pending_takeover_seconds,
+            teacher_name: me?.display_name ?? me?.email ?? null,
+          });
+        } else {
+          if (!claimRes?.session_id) {
+            throw new Error('Ders oturumu oluşturulamadı. Tekrar deneyin.');
+          }
+          setQrClaimStatus('success');
+          setQrClaimMessage('Ders oturumu açıldı. Tahta kullanım moduna geçiyor…');
+          toast.success('Ders oturumuna bağlandınız.');
+          postClassroomBoardSync(p.school_id, p.device_id, {
+            type: 'session_started',
+            teacher_name: me?.display_name ?? me?.email ?? null,
+          });
+          postClassroomBoardSync(p.school_id, p.device_id, { type: 'qr_unlocked' });
         }
-        setQrClaimStatus('success');
-        setQrClaimMessage('Tahta bağlandı. Ekran kullanım moduna geçiyor…');
-        toast.success('Tahtaya bağlandınız. Ekran birkaç saniye içinde kullanım moduna geçer.');
         window.dispatchEvent(new Event('smart-board:qr-claimed'));
-        postClassroomBoardSync(p.school_id, p.device_id, {
-          type: 'session_started',
-          teacher_name: me?.display_name ?? me?.email ?? null,
-        });
-        postClassroomBoardSync(p.school_id, p.device_id, { type: 'qr_unlocked' });
         if (effectiveSchoolId) {
           try {
             localStorage.setItem(`smartboard-last-${effectiveSchoolId}`, p.device_id);
@@ -501,6 +439,11 @@ export default function AkilliTahtaPage() {
 
   useEffect(() => {
     if (!isTeacher || !openQrFocus) return;
+    if (status?.enabled && status?.authorized) setQrScannerOpen(true);
+  }, [isTeacher, openQrFocus, status?.enabled, status?.authorized]);
+
+  useEffect(() => {
+    if (!isTeacher || !openQrFocus || loading) return;
     const t = window.setTimeout(() => {
       document.getElementById('smart-board-qr-claim')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 350);
@@ -1110,6 +1053,7 @@ export default function AkilliTahtaPage() {
 
       {isTeacher ? (
         <DisplayModuleTeacherLane>
+      <div className={cn(status?.enabled && status?.authorized && 'max-sm:pb-24')}>
       {isTeacher && status && !status.enabled ? (
         <Alert variant="warning">
           <p className="text-sm font-medium">Akıllı Tahta modülü kapalı</p>
@@ -1127,72 +1071,48 @@ export default function AkilliTahtaPage() {
         />
       )}
 
-      {isTeacher && status?.enabled ? (
-        <TeacherSmartBoardUsageCard authorized={!!status?.authorized} />
-      ) : null}
-
       <SmartBoardPwaRegister />
 
       {isTeacher && status?.enabled && status?.authorized && (
         <>
           <TeacherPendingQrBanner token={token} />
-          <PwaInstallHint />
+          {qrClaimStatus !== 'idle' ? (
+            <TeacherQrStatusBanner
+              status={qrClaimStatus === 'error' ? 'error' : qrClaimStatus === 'pending' ? 'pending' : 'success'}
+              message={
+                qrClaimStatus === 'pending'
+                  ? 'QR doğrulaması işleniyor…'
+                  : qrClaimMessage || 'İşlem tamamlandı.'
+              }
+            />
+          ) : null}
           <TeacherQrClaimPanel
             busy={qrClaimBusy}
             onClaim={runQrClaim}
             deviceHint={qrDeviceHint}
             highlight={openQrFocus}
+            scannerOpen={qrScannerOpen}
+            onScannerOpenChange={setQrScannerOpen}
           />
         </>
       )}
 
-      {isTeacher && (qrClaimStatus !== 'idle' || (qrSchoolId && qrSessionId)) && (
-        <Alert
-          variant={qrClaimStatus === 'error' ? 'error' : 'info'}
-          className="mb-3 sm:mb-5"
-        >
-          {qrClaimStatus === 'pending'
-            ? 'QR doğrulaması işleniyor...'
-            : qrClaimMessage || 'QR doğrulama durumu güncelleniyor.'}
-        </Alert>
-      )}
-
       {isTeacher && status?.mySession && (
-        <div className="mb-3 sticky top-0 z-10 flex flex-col gap-2 rounded-xl border-2 border-emerald-500/45 bg-emerald-500/10 px-2.5 py-2 shadow-md sm:mb-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-4 sm:py-3">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/25 sm:size-10">
-              <Monitor className="size-4 text-emerald-700 sm:size-5 dark:text-emerald-300" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold leading-tight text-emerald-900 dark:text-emerald-100">
-                {status.mySession.device_name}
-              </p>
-              <p className="text-xs text-muted-foreground">Bağlantı aktif</p>
-            </div>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full shrink-0 border-amber-300 text-amber-800 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-950/40 sm:w-auto"
-            onClick={() => handleDisconnect(status.mySession!.session_id)}
-          >
-            <PowerOff className="mr-1 size-4" />
-            Bağlantıyı kes
-          </Button>
-        </div>
+        <TeacherActiveSessionBar
+          deviceName={status.mySession.device_name}
+          onDisconnect={() => handleDisconnect(status.mySession!.session_id)}
+        />
       )}
 
       {isTeacher && status?.enabled && status?.authorized && (
-        <Card className="mb-2 overflow-hidden border-teal-200/45 shadow-sm dark:border-teal-900/35 sm:mb-6">
-          <CardHeader className="space-y-2 border-b border-teal-200/40 bg-teal-500/6 px-2.5 py-2 dark:border-teal-900/40 sm:space-y-0 sm:px-6 sm:py-4">
-            <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
-              <span className="flex size-7 items-center justify-center rounded-lg bg-teal-500/15 sm:size-8">
-                <Monitor className="size-3.5 text-teal-700 dark:text-teal-400 sm:size-4" />
-              </span>
-              Sınıf tahtaları
+        <Card className="mb-2 overflow-hidden border-teal-200/40 shadow-sm dark:border-teal-900/35 sm:mb-4">
+          <CardHeader className="space-y-2 border-b border-teal-200/35 bg-teal-500/5 px-3 py-2.5 sm:px-5 sm:py-3">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Monitor className="size-4 text-teal-700 dark:text-teal-400" />
+              Bugünkü tahtalarım
             </CardTitle>
-            <p className="text-[11px] leading-snug text-muted-foreground sm:text-xs">
-              QR onayı üstteki panelden; liste yalnızca oturum kaydı ve sınıf seçimi içindir.
+            <p className="text-[10px] leading-snug text-muted-foreground sm:text-xs">
+              Ders programınıza göre sıralı; derse girmek için QR okutun.
             </p>
             {devices.length > 0 && (
               <div className="flex flex-col gap-2 sm:mt-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
@@ -1209,8 +1129,7 @@ export default function AkilliTahtaPage() {
                 <div className="flex flex-wrap items-center gap-1">
                   {(
                     [
-                      { id: 'recent' as const, label: 'Son kullanılan' },
-                      { id: 'name' as const, label: 'Ada göre' },
+                      { id: 'name' as const, label: 'Sınıf / ad (A→Z)' },
                       { id: 'online' as const, label: 'Önce açık' },
                     ] as const
                   ).map((opt) => (
@@ -1229,24 +1148,22 @@ export default function AkilliTahtaPage() {
                     </button>
                   ))}
                 </div>
-                {status.myClassSections && status.myClassSections.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setTeacherFilterMyClasses((v) => !v)}
-                    className={`flex h-8 items-center justify-center gap-1 rounded-lg border px-2.5 text-[10px] font-medium transition-colors sm:h-9 sm:gap-1.5 sm:px-3 sm:text-sm ${
-                      teacherFilterMyClasses
-                        ? 'border-teal-600 bg-teal-500/15 text-teal-900 dark:border-teal-500 dark:text-teal-100'
-                        : 'border-border hover:bg-muted/50'
-                    }`}
-                  >
-                    <Filter className="size-3 sm:size-4" />
-                    Sınıflarım
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setTeacherFilterToday((v) => !v)}
+                  className={`flex h-8 items-center justify-center gap-1 rounded-lg border px-2.5 text-[10px] font-medium transition-colors sm:h-9 sm:gap-1.5 sm:px-3 sm:text-sm ${
+                    teacherFilterToday
+                      ? 'border-teal-600 bg-teal-500/15 text-teal-900 dark:border-teal-500 dark:text-teal-100'
+                      : 'border-border hover:bg-muted/50'
+                  }`}
+                >
+                  <Filter className="size-3 sm:size-4" />
+                  Bugünüm
+                </button>
               </div>
             )}
           </CardHeader>
-          <CardContent className="px-2.5 py-2 sm:px-6 sm:py-6">
+          <CardContent className="px-3 py-2 sm:px-5 sm:py-4">
             {devices.length === 0 ? (
               <EmptyState
                 icon={<Monitor className="size-10 text-muted-foreground" />}
@@ -1254,25 +1171,9 @@ export default function AkilliTahtaPage() {
                 description="Okul idaresi Kurulum sekmesinden tahta eklemeli. Siz QR onayı yapamazsınız."
               />
             ) : (() => {
-              const lastConnected =
-                effectiveSchoolId && typeof window !== 'undefined'
-                  ? (() => {
-                      try {
-                        return localStorage.getItem(`smartboard-last-${effectiveSchoolId}`);
-                      } catch {
-                        return null;
-                      }
-                    })()
-                  : null;
-              const myClassesSet =
-                teacherFilterMyClasses && status.myClassSections?.length
-                  ? new Set(status.myClassSections.map((c) => c.toUpperCase()))
-                  : null;
               const q = teacherSearch.trim().toLowerCase();
               let filtered = devices.filter((d) => {
-                if (myClassesSet && d.classSection) {
-                  if (!myClassesSet.has(d.classSection.trim().toUpperCase())) return false;
-                }
+                if (teacherFilterToday && d.lesson_context?.my_lesson_today === false) return false;
                 if (!q) return true;
                 const name = (d.name ?? '').toLowerCase();
                 const room = (d.roomOrLocation ?? '').toLowerCase();
@@ -1281,16 +1182,15 @@ export default function AkilliTahtaPage() {
                 return name.includes(q) || room.includes(q) || cs.includes(q) || code.includes(q);
               });
               filtered = filtered.sort((a, b) => {
+                const aNow = a.lesson_context?.my_lesson_now ? 0 : 1;
+                const bNow = b.lesson_context?.my_lesson_now ? 0 : 1;
+                if (aNow !== bNow) return aNow - bNow;
                 if (teacherDeviceSort === 'online') {
                   const ao = a.status === 'online' ? 0 : 1;
                   const bo = b.status === 'online' ? 0 : 1;
                   if (ao !== bo) return ao - bo;
                 }
-                if (teacherDeviceSort === 'recent' && lastConnected) {
-                  if (a.id === lastConnected) return -1;
-                  if (b.id === lastConnected) return 1;
-                }
-                return (a.name ?? '').localeCompare(b.name ?? '', 'tr');
+                return compareSmartBoardDevices(a, b);
               });
               return filtered.length === 0 ? (
                 <EmptyState
@@ -1317,6 +1217,25 @@ export default function AkilliTahtaPage() {
           </CardContent>
         </Card>
       )}
+
+      {isTeacher && status?.enabled ? (
+        <TeacherSmartBoardUsageCard authorized={!!status?.authorized} />
+      ) : null}
+
+      {isTeacher && status?.enabled && status?.authorized ? <PwaInstallHint /> : null}
+      </div>
+
+      <TeacherSmartBoardStickyBar
+        visible={!!(status?.enabled && status?.authorized)}
+        hasActiveSession={!!status?.mySession}
+        busy={qrClaimBusy}
+        onScan={() => setQrScannerOpen(true)}
+        onDisconnect={
+          status?.mySession
+            ? () => handleDisconnect(status.mySession!.session_id)
+            : undefined
+        }
+      />
         </DisplayModuleTeacherLane>
       ) : null}
 
@@ -1793,7 +1712,7 @@ export default function AkilliTahtaPage() {
                   <EmptyState
                     icon={<ClipboardList className="size-10 text-muted-foreground" />}
                     title="Kayıt yok"
-                    description="Henüz smart board denetim kaydı yok."
+                    description="Henüz akıllı tahta işlem kaydı yok."
                   />
                 ) : (
                   <div className="table-x-scroll rounded-lg border">
@@ -1801,14 +1720,14 @@ export default function AkilliTahtaPage() {
                       <thead>
                         <tr className="border-b bg-muted/40">
                           <th className="px-3 py-2 text-left font-semibold">Zaman</th>
-                          <th className="px-3 py-2 text-left font-semibold">Aksiyon</th>
-                          <th className="px-3 py-2 text-left font-semibold">Kullanıcı</th>
-                          <th className="px-3 py-2 text-left font-semibold">Detay</th>
+                          <th className="px-3 py-2 text-left font-semibold">İşlem</th>
+                          <th className="px-3 py-2 text-left font-semibold">Yapan</th>
+                          <th className="px-3 py-2 text-left font-semibold">Açıklama</th>
                         </tr>
                       </thead>
                       <tbody>
                         {auditLogs.map((a) => {
-                          const label = getAuditActionLabel(a.action);
+                          const label = getSmartBoardAuditActionLabel(a.action);
                           return (
                             <tr key={a.id} className="border-b last:border-0">
                               <td className="whitespace-nowrap px-3 py-2">
@@ -1816,13 +1735,10 @@ export default function AkilliTahtaPage() {
                               </td>
                               <td className="px-3 py-2">
                                 <p className="text-[11px] font-medium sm:text-xs">{label}</p>
-                                {label === a.action ? (
-                                  <p className="font-mono text-[10px] text-muted-foreground">{a.action}</p>
-                                ) : null}
                               </td>
-                              <td className="px-3 py-2">{a.user?.display_name || a.user?.email || 'Sistem'}</td>
+                              <td className="px-3 py-2">{a.user?.display_name || a.user?.email || 'Otomatik'}</td>
                               <td className="px-3 py-2 text-muted-foreground">
-                                {getAuditMetaText(a, deviceNameById)}
+                                {getSmartBoardAuditMetaText(a, deviceNameById, teacherNameById)}
                               </td>
                             </tr>
                           );
@@ -1846,6 +1762,7 @@ export default function AkilliTahtaPage() {
               classSections={classSections}
               devices={devices}
               schoolName={schools.find((s) => s.id === effectiveSchoolId)?.name}
+              onAddDevice={handleAddDevice}
               onDevicesChanged={() => {
                 void fetchDevices();
                 void fetchStatus();
@@ -1861,6 +1778,8 @@ export default function AkilliTahtaPage() {
               canManage={canManage}
               devices={devices}
               authorizedCount={authorizedTeachers.length}
+              floorPlanCount={floorPlans.length}
+              floorPlacedCount={floorPlacedCount}
               classSections={classSections}
               onSaved={() => fetchSchoolForFloorPlan()}
               onEditDevice={(d) => {

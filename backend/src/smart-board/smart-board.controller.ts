@@ -73,20 +73,28 @@ export class SmartBoardController {
   @UseGuards(RolesGuard)
   @Roles(UserRole.school_admin)
   async bulkCreateDevices(
-    @Body() body: { items?: Array<{ class_section: string; name?: string; room_or_location?: string }> },
+    @Body()
+    body: {
+      items?: Array<{ class_section: string; name?: string; room_or_location?: string }>;
+      school_id?: string;
+    },
     @CurrentUser() payload: CurrentUserPayload,
   ) {
-    const schoolId = payload.schoolId ?? payload.user?.school_id;
+    const role = payload.user.role as UserRole;
+    const schoolId =
+      body?.school_id?.trim() ||
+      payload.schoolId ||
+      payload.user?.school_id ||
+      null;
     if (!schoolId) {
       const { ForbiddenException } = await import('@nestjs/common');
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Okul bilgisi gerekli.' });
     }
-    return this.service.bulkCreateDevices(
-      schoolId,
-      payload.user.role as UserRole,
-      payload.userId,
-      body?.items ?? [],
-    );
+    if (role === UserRole.school_admin && schoolId !== payload.user?.school_id) {
+      const { ForbiddenException } = await import('@nestjs/common');
+      throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu okul için yetkiniz yok.' });
+    }
+    return this.service.bulkCreateDevices(schoolId, role, payload.userId, body?.items ?? []);
   }
 
   @Post('devices')

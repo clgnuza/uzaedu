@@ -20,6 +20,7 @@ import { UserRole, UserStatus } from '../types/enums';
 import { SchoolsService } from '../schools/schools.service';
 import { AuditService } from '../audit/audit.service';
 import { TeacherTimetableService } from '../teacher-timetable/teacher-timetable.service';
+import { normalizeClassSectionForStorage } from '../teacher-timetable/class-timetable';
 import { NotificationsService } from '../notifications/notifications.service';
 import { School } from '../schools/entities/school.entity';
 import { env } from '../config/env';
@@ -31,8 +32,17 @@ const SMART_BOARD_QR_TTL_MS = 2 * 60 * 1000; // 2 dakika
 const QR_EXCHANGE_TTL_MS = 90 * 1000; // tahta token alışı
 const QR_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const USB_PIN_PATTERN = /^\d{4,8}$/;
+/** İki ders arası bu kadar dk ve üzeri boşluk öğle arası sayılır. */
+const LUNCH_GAP_MIN_MINUTES = 25;
 
-type TvRateBucket = 'qr_create' | 'qr_poll' | 'qr_exchange' | 'usb_unlock' | 'session_status';
+type TvRateBucket =
+  | 'qr_create'
+  | 'qr_poll'
+  | 'qr_exchange'
+  | 'usb_unlock'
+  | 'session_status'
+  | 'setup_lookup'
+  | 'setup_register';
 
 @Injectable()
 export class SmartBoardService {
@@ -166,6 +176,217 @@ export class SmartBoardService {
     return null;
   }
 
+  /** Şu anki ve bir sonraki ders numarası (lesson_schedule). */
+  private getCurrentAndNextLessonNums(
+    lessonSchedule: { lesson_num: number; start_time: string; end_time: string }[] | null,
+    now: Date,
+  ): { current: number | null; next: number | null } {
+    if (!lessonSchedule?.length) return { current: null, next: null };
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    let current: number | null = null;
+    let next: number | null = null;
+    const sorted = [...lessonSchedule].sort(
+      (a, b) => this.parseTimeToMinutes(a.start_time) - this.parseTimeToMinutes(b.start_time),
+    );
+    for (const slot of sorted) {
+      const start = this.parseTimeToMinutes(slot.start_time ?? '00:00');
+      const end = this.parseTimeToMinutes(slot.end_time ?? '23:59');
+      if (nowMin >= start && nowMin < end) current = slot.lesson_num ?? null;
+      if (nowMin < start && next == null) next = slot.lesson_num ?? null;
+    }
+    if (current != null && next == null) {
+      const cur = sorted.find((s) => s.lesson_num === current);
+      const curEnd = cur ? this.parseTimeToMinutes(cur.end_time ?? '23:59') : nowMin;
+      for (const slot of sorted) {
+        const start = this.parseTimeToMinutes(slot.start_time ?? '00:00');
+        if (start >= curEnd) {
+          next = slot.lesson_num ?? null;
+          break;
+        }
+      }
+    }
+    return { current, next };
+  }
+
+  /** Ders programındaki en uzun ara (genelde öğle arası). */
+  private findLunchGapMinutes(
+    sorted: { lesson_num: number; start_time: string; end_time: string }[],
+  ): { gapStartMin: number; gapEndMin: number } | null {
+    let best: { gapStartMin: number; gapEndMin: number; span: number } | null = null;
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const gapStartMin = this.parseTimeToMinutes(sorted[i]?.end_time ?? '12:00');
+      const gapEndMin = this.parseTimeToMinutes(sorted[i + 1]?.start_time ?? '13:00');
+      const span = gapEndMin - gapStartMin;
+      if (span >= LUNCH_GAP_MIN_MINUTES && (!best || span > best.span)) {
+        best = { gapStartMin, gapEndMin, span };
+      }
+    }
+    return best ? { gapStartMin: best.gapStartMin, gapEndMin: best.gapEndMin } : null;
+  }
+
+  /** none | duyuru = oturum kes, tahta çevrimiçi | close = oturum + offline */
+  private getAutoLessonEndAction(
+    lessonSchedule: { lesson_num: number; start_time: string; end_time: string }[] | null,
+    now: Date,
+    lunchGraceMin: number,
+    endDayGraceMin: number,
+  ): 'none' | 'duyuru' | 'close' {
+    if (!lessonSchedule?.length) return 'none';
+    if (this.getCurrentLessonNum(lessonSchedule, now) != null) return 'none';
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const sorted = [...lessonSchedule].sort(
+      (a, b) => this.parseTimeToMinutes(a.start_time) - this.parseTimeToMinutes(b.start_time),
+    );
+    const lastEnd = this.parseTimeToMinutes(sorted[sorted.length - 1]?.end_time ?? '23:59');
+    if (nowMin >= lastEnd + endDayGraceMin) return 'close';
+
+    const lunch = this.findLunchGapMinutes(sorted);
+    if (
+      lunch &&
+      nowMin >= lunch.gapStartMin + lunchGraceMin &&
+      nowMin < lunch.gapEndMin
+    ) {
+      return 'duyuru';
+    }
+    return 'none';
+  }
+
+  private secondsUntilScheduleMinute(targetMin: number, now: Date): number {
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    return Math.max(1, (targetMin - nowMin) * 60 - now.getSeconds());
+  }
+
+  /** Kapanma/duyuru öncesi tahta uyarısı (grace süresi içinde, işlem henüz yapılmadan). */
+  private getLessonEndShutdownWarning(
+    lessonSchedule: { lesson_num: number; start_time: string; end_time: string }[] | null,
+    now: Date,
+    lunchGraceMin: number,
+    endDayGraceMin: number,
+  ): { kind: 'duyuru' | 'close'; seconds_left: number; title: string; detail: string } | null {
+    if (!lessonSchedule?.length) return null;
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const sorted = [...lessonSchedule].sort(
+      (a, b) => this.parseTimeToMinutes(a.start_time) - this.parseTimeToMinutes(b.start_time),
+    );
+    const lastEnd = this.parseTimeToMinutes(sorted[sorted.length - 1]?.end_time ?? '23:59');
+    const closeAt = lastEnd + endDayGraceMin;
+    if (nowMin >= lastEnd && nowMin < closeAt) {
+      const sec = this.secondsUntilScheduleMinute(closeAt, now);
+      return {
+        kind: 'close',
+        seconds_left: sec,
+        title: 'Tahta kapanacak',
+        detail: `${Math.max(1, Math.ceil(sec / 60))} dk içinde oturum sonlanır ve tahta kapatılır. Kayıtlarınızı kaydedin.`,
+      };
+    }
+    const lunch = this.findLunchGapMinutes(sorted);
+    const lunchAt = lunch ? lunch.gapStartMin + lunchGraceMin : -1;
+    if (lunch && nowMin >= lunch.gapStartMin && nowMin < lunchAt) {
+      const sec = this.secondsUntilScheduleMinute(lunchAt, now);
+      return {
+        kind: 'duyuru',
+        seconds_left: sec,
+        title: 'Duyuru moduna geçiliyor',
+        detail: `${Math.max(1, Math.ceil(sec / 60))} dk içinde ders oturumu kapanır; ekran duyuru TV moduna döner.`,
+      };
+    }
+    return null;
+  }
+
+  private async endSessionForDuyuruMode(
+    session: SmartBoardSession,
+    device: SmartBoardDevice,
+    at: Date = new Date(),
+  ): Promise<void> {
+    session.disconnected_at = at;
+    await this.sessionRepo.save(session);
+    device.last_seen_at = at;
+    device.status = 'online';
+    await this.deviceRepo.save(device);
+  }
+
+  private async closeBoardAfterSchoolDay(
+    session: SmartBoardSession,
+    device: SmartBoardDevice,
+    at: Date = new Date(),
+  ): Promise<void> {
+    session.disconnected_at = at;
+    await this.sessionRepo.save(session);
+    const hasOther = await this.sessionRepo.findOne({
+      where: { device_id: device.id, disconnected_at: IsNull() },
+    });
+    if (!hasOther) {
+      device.status = 'offline';
+      await this.deviceRepo.save(device);
+    }
+  }
+
+  private async maybeAutoDisconnectForLessonEnd(
+    school: School | null,
+    device: SmartBoardDevice,
+    session: SmartBoardSession,
+    now: Date,
+  ): Promise<boolean> {
+    if (!school?.smartBoardAutoDisconnectLessonEnd) return false;
+    const sched = this.getEffectiveLessonSchedule(school, this.getDayOfWeekTR(now));
+    const lunchGrace = school.smartBoardLunchDuyuruGraceMinutes ?? 10;
+    const endGrace = school.smartBoardEndOfDayCloseGraceMinutes ?? 10;
+    const action = this.getAutoLessonEndAction(sched, now, lunchGrace, endGrace);
+    if (action === 'none') return false;
+    if (action === 'duyuru') await this.endSessionForDuyuruMode(session, device, now);
+    else await this.closeBoardAfterSchoolDay(session, device, now);
+    return true;
+  }
+
+  private async clearDevicePendingTakeover(deviceId: string): Promise<void> {
+    await this.deviceRepo.update(deviceId, {
+      pendingTakeoverUntil: null,
+      pendingTakeoverUserId: null,
+      pendingTakeoverQrSessionId: null,
+    });
+  }
+
+  /** Yumuşak devralma süresi dolduysa bağlan + QR exchange hazırla. */
+  private async completePendingTakeoverIfDue(deviceId: string, schoolId: string): Promise<boolean> {
+    const device = await this.deviceRepo.findOne({ where: { id: deviceId, school_id: schoolId } });
+    if (!device?.pendingTakeoverUntil || !device.pendingTakeoverUserId || !device.pendingTakeoverQrSessionId) {
+      return false;
+    }
+    if (device.pendingTakeoverUntil.getTime() > Date.now()) return false;
+
+    const qrSessionId = device.pendingTakeoverQrSessionId;
+    const teacherUserId = device.pendingTakeoverUserId;
+    const sess = await this.qrSessionRepo.findOne({
+      where: { id: qrSessionId, school_id: schoolId, device_id: deviceId },
+    });
+    await this.clearDevicePendingTakeover(deviceId);
+    if (!sess || sess.exchanged_at || !sess.claimed_at) return false;
+
+    const school = await this.schoolsService.findById(schoolId);
+    const releasePrevious = school.smartBoardReleasePreviousOnQr ?? true;
+    await this.connect(deviceId, teacherUserId, schoolId, { releaseOtherOnDevice: releasePrevious });
+    const exchangeNonce = randomBytes(24).toString('base64url');
+    sess.exchange_nonce = exchangeNonce;
+    sess.exchange_expires_at = new Date(Date.now() + QR_EXCHANGE_TTL_MS);
+    await this.qrSessionRepo.save(sess);
+    return true;
+  }
+
+  private async teacherCanReconnectWithoutQr(
+    schoolId: string,
+    deviceId: string,
+    userId: string,
+    graceMinutes: number,
+  ): Promise<boolean> {
+    if (graceMinutes <= 0) return false;
+    const last = await this.sessionRepo.findOne({
+      where: { device_id: deviceId, user_id: userId },
+      order: { disconnected_at: 'DESC' },
+    });
+    if (!last?.disconnected_at) return false;
+    return Date.now() - last.disconnected_at.getTime() <= graceMinutes * 60 * 1000;
+  }
+
   async listDevices(schoolId: string | null, role: UserRole): Promise<(SmartBoardDevice & { current_slot?: { lesson_num: number; subject: string; teacher_name: string; class_section: string | null } })[]> {
     if (role !== UserRole.school_admin && role !== UserRole.superadmin) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
@@ -173,7 +394,10 @@ export class SmartBoardService {
     if (role === UserRole.school_admin && !schoolId) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
-    const qb = this.deviceRepo.createQueryBuilder('d').orderBy('d.name', 'ASC');
+    const qb = this.deviceRepo
+      .createQueryBuilder('d')
+      .orderBy('d.classSection', 'ASC', 'NULLS LAST')
+      .addOrderBy('d.name', 'ASC');
     if (schoolId) {
       qb.andWhere('d.school_id = :schoolId', { schoolId });
     }
@@ -249,7 +473,21 @@ export class SmartBoardService {
     return devices;
   }
 
-  async listDevicesForTeacher(userId: string, schoolId: string): Promise<SmartBoardDevice[]> {
+  async listDevicesForTeacher(
+    userId: string,
+    schoolId: string,
+  ): Promise<
+    (SmartBoardDevice & {
+      lesson_context?: {
+        my_lesson_today: boolean;
+        my_lesson_now: boolean;
+        my_next_lesson: { lesson_num: number; subject: string; starts_in_minutes: number } | null;
+        current_slot: { lesson_num: number; subject: string; teacher_name: string } | null;
+        busy_teacher_name: string | null;
+        reconnect_without_qr: boolean;
+      };
+    })[]
+  > {
     const school = await this.schoolsService.findById(schoolId);
     if (!this.isModuleEnabled(school)) return [];
     const autoAuthorize = school.smartBoardAutoAuthorize ?? false;
@@ -257,19 +495,118 @@ export class SmartBoardService {
       const auth = await this.authRepo.findOne({ where: { school_id: schoolId, user_id: userId } });
       if (!auth) return [];
     }
-    const devices = await this.deviceRepo.find({
+    let devices = await this.deviceRepo.find({
       where: { school_id: schoolId },
-      order: { name: 'ASC' },
+      order: { classSection: 'ASC', name: 'ASC' },
     });
     const restrict = school.smartBoardRestrictToOwnClasses ?? false;
-    if (!restrict || devices.length === 0) return devices;
-    const teacherClasses = await this.timetableService.getClassSectionsForTeacher(schoolId, userId);
-    const teacherClassesSet = new Set(teacherClasses.map((c) => c.toUpperCase()));
-    return devices.filter((d) => {
+    if (restrict && devices.length > 0) {
+      const teacherClasses = await this.timetableService.getClassSectionsForTeacher(schoolId, userId);
+      const teacherClassesSet = new Set(teacherClasses.map((c) => c.toUpperCase()));
+      devices = devices.filter((d) => {
+        const cs = (d.classSection ?? '').trim().toUpperCase();
+        if (!cs) return true;
+        return teacherClassesSet.has(cs);
+      });
+    }
+
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+    const dayOfWeek = this.getDayOfWeekTR(now);
+    const lessonSchedule = this.getEffectiveLessonSchedule(school, dayOfWeek);
+    const { current: currentLessonNum, next: nextLessonNum } = this.getCurrentAndNextLessonNums(lessonSchedule, now);
+    const graceMin = school.smartBoardReconnectGraceMinutes ?? 45;
+    const mySlotsToday =
+      dayOfWeek >= 1 && dayOfWeek <= 5
+        ? (await this.timetableService.getByDate(schoolId, today))[userId] ?? {}
+        : {};
+    const myClassSectionsToday = new Set(
+      Object.values(mySlotsToday)
+        .map((s) => (s.class_section ?? '').trim().toUpperCase())
+        .filter(Boolean),
+    );
+
+    const out: (SmartBoardDevice & {
+      lesson_context?: {
+        my_lesson_today: boolean;
+        my_lesson_now: boolean;
+        my_next_lesson: { lesson_num: number; subject: string; starts_in_minutes: number } | null;
+        current_slot: { lesson_num: number; subject: string; teacher_name: string } | null;
+        busy_teacher_name: string | null;
+        reconnect_without_qr: boolean;
+      };
+    })[] = [];
+
+    for (const d of devices) {
       const cs = (d.classSection ?? '').trim().toUpperCase();
-      if (!cs) return true;
-      return teacherClassesSet.has(cs);
-    });
+      /** Program yoksa veya sınıfsız tahtaysa listede kalır; aksi halde bugünkü ders sınıfları. */
+      const myLessonToday =
+        !cs || myClassSectionsToday.size === 0 || myClassSectionsToday.has(cs);
+      let myLessonNow = false;
+      let myNextLesson: { lesson_num: number; subject: string; starts_in_minutes: number } | null = null;
+      let currentSlot: { lesson_num: number; subject: string; teacher_name: string } | null = null;
+
+      if (cs && dayOfWeek >= 1 && dayOfWeek <= 5) {
+        for (const [ln, slot] of Object.entries(mySlotsToday)) {
+          if ((slot.class_section ?? '').trim().toUpperCase() === cs) {
+            const num = Number(ln);
+            if (currentLessonNum != null && num === currentLessonNum) myLessonNow = true;
+            if (nextLessonNum != null && num === nextLessonNum) {
+              const schedSlot = lessonSchedule?.find((s) => s.lesson_num === nextLessonNum);
+              const startMin = schedSlot ? this.parseTimeToMinutes(schedSlot.start_time) : 0;
+              const nowMin = now.getHours() * 60 + now.getMinutes();
+              myNextLesson = {
+                lesson_num: num,
+                subject: slot.subject ?? '',
+                starts_in_minutes: Math.max(0, startMin - nowMin),
+              };
+            }
+          }
+        }
+        if (currentLessonNum != null) {
+          try {
+            const slot = await this.timetableService.getSlotByClassSection(
+              schoolId,
+              today,
+              d.classSection!.trim(),
+              currentLessonNum,
+            );
+            if (slot) {
+              currentSlot = {
+                lesson_num: currentLessonNum,
+                subject: slot.subject,
+                teacher_name: slot.teacher_name,
+              };
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+
+      const active = await this.sessionRepo.findOne({
+        where: { device_id: d.id, disconnected_at: IsNull() },
+        relations: ['user'],
+      });
+      const busyName =
+        active && active.user_id !== userId
+          ? active.user?.display_name ?? active.user?.email ?? null
+          : null;
+      const reconnectWithoutQr = await this.teacherCanReconnectWithoutQr(schoolId, d.id, userId, graceMin);
+
+      out.push({
+        ...d,
+        lesson_context: {
+          my_lesson_today: myLessonToday,
+          my_lesson_now: myLessonNow,
+          my_next_lesson: myNextLesson,
+          current_slot: currentSlot,
+          busy_teacher_name: busyName,
+          reconnect_without_qr: reconnectWithoutQr && !busyName,
+        },
+      });
+    }
+    return out;
   }
 
   async createDevice(
@@ -284,36 +621,28 @@ export class SmartBoardService {
     if (!schoolId) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
-    const classSection = opts?.class_section?.trim();
-    if (!classSection) {
+    const classSection = opts?.class_section?.trim()
+      ? normalizeClassSectionForStorage(opts.class_section) || null
+      : null;
+    const room = opts?.room_or_location?.trim() || null;
+    let name = opts?.name?.trim() || '';
+    if (!classSection && !name && !room) {
       throw new BadRequestException({
-        code: 'CLASS_SECTION_REQUIRED',
-        message: 'Sınıf / şube etiketi zorunludur (yetki kısıtı ve ders programı eşlemesi için).',
+        code: 'DEVICE_LABEL_REQUIRED',
+        message: 'Sınıf dışı tahta için tahta adı veya lokasyon girin.',
       });
     }
-    const pairingCode = randomBytes(4).toString('hex').toUpperCase();
-    const device = this.deviceRepo.create({
-      school_id: schoolId,
-      pairing_code: pairingCode,
-      name: opts?.name?.trim() || 'Akıllı Tahta',
-      roomOrLocation: opts?.room_or_location?.trim() || null,
-      classSection,
-      status: 'offline',
-    });
-    const saved = await this.deviceRepo.save(device);
-    await this.auditService.log({
-      action: 'SMARTBOARD_DEVICE_CREATED',
-      userId: userId ?? null,
+    if (!name) {
+      if (classSection && room) name = `${classSection} - ${room}`;
+      else if (classSection) name = `${classSection} Akıllı Tahta`;
+      else if (room) name = `Akıllı Tahta - ${room}`;
+      else name = 'Akıllı Tahta';
+    }
+    return this.createDeviceInternal(
       schoolId,
-      meta: {
-        deviceId: saved.id,
-        deviceName: saved.name,
-        classSection: saved.classSection ?? null,
-        roomOrLocation: saved.roomOrLocation ?? null,
-        pairingCode: saved.pairing_code,
-      },
-    });
-    return saved;
+      { name, class_section: classSection ?? undefined, room_or_location: room ?? undefined },
+      userId,
+    );
   }
 
   async updateDevice(
@@ -498,12 +827,23 @@ export class SmartBoardService {
     return code;
   }
 
+  private isLoopbackClientIp(clientIp: string): boolean {
+    const ip = (clientIp || '').replace(/^::ffff:/i, '').trim();
+    return ip === '127.0.0.1' || ip === '::1';
+  }
+
+  private tvRateLimitMax(clientIp: string, max: number): number {
+    if (process.env.NODE_ENV !== 'production' && this.isLoopbackClientIp(clientIp)) return max * 20;
+    return max;
+  }
+
   /** TV public uçları: IP başına pencere (çoklu instance’da en iyi çaba). */
   assertTvEndpointRate(clientIp: string, bucket: TvRateBucket, max: number, windowMs = 15 * 60 * 1000): void {
+    const effectiveMax = this.tvRateLimitMax(clientIp, max);
     const key = `${bucket}:${clientIp || 'unknown'}`;
     const now = Date.now();
     const arr = (this.tvEndpointHits.get(key) ?? []).filter((t) => now - t < windowMs);
-    if (arr.length >= max) {
+    if (arr.length >= effectiveMax) {
       throw new ForbiddenException({
         code: 'TV_RATE_LIMIT',
         message: 'Çok fazla istek. Lütfen kısa süre sonra tekrar deneyin.',
@@ -667,12 +1007,28 @@ export class SmartBoardService {
     deviceId: string,
     clientIp: string,
   ): Promise<{ session_id: string; code: string; expires_in: number }> {
-    this.assertTvEndpointRate(clientIp, 'qr_create', 40);
     const device = await this.deviceRepo.findOne({ where: { id: deviceId, school_id: schoolId } });
     if (!device) {
       throw new NotFoundException({ code: 'NOT_FOUND', message: 'Cihaz bulunamadı.' });
     }
     const now = Date.now();
+    const pending = await this.qrSessionRepo.findOne({
+      where: { school_id: schoolId, device_id: deviceId },
+      order: { created_at: 'DESC' },
+    });
+    if (
+      pending &&
+      pending.expires_at.getTime() > now &&
+      !pending.claimed_at &&
+      !pending.exchanged_at
+    ) {
+      return {
+        session_id: pending.id,
+        code: pending.code,
+        expires_in: Math.max(1, Math.floor((pending.expires_at.getTime() - now) / 1000)),
+      };
+    }
+    this.assertTvEndpointRate(clientIp, 'qr_create', 40);
     await this.qrSessionRepo.delete({ school_id: schoolId, device_id: deviceId });
     const code = this.generateQrCode();
     const row = await this.qrSessionRepo.save(
@@ -688,7 +1044,7 @@ export class SmartBoardService {
       schoolId,
       meta: { deviceId, sessionId: row.id },
     });
-    void this.notifyTeachersQrSessionPending(schoolId, device, row.id);
+    void this.notifyTeachersQrSessionPending(schoolId, device, row.id, code);
     return { session_id: row.id, code, expires_in: Math.floor(SMART_BOARD_QR_TTL_MS / 1000) };
   }
 
@@ -697,9 +1053,11 @@ export class SmartBoardService {
     schoolId: string,
     device: SmartBoardDevice,
     sessionId: string,
+    qrCode: string,
   ): Promise<void> {
     try {
       const school = await this.schoolsService.findById(schoolId);
+      if (school.smartBoardNotifyOnQrPending === false) return;
       const autoAuth = school.smartBoardAutoAuthorize ?? false;
       const restrict = school.smartBoardRestrictToOwnClasses ?? false;
       let userIds: string[] = [];
@@ -729,29 +1087,61 @@ export class SmartBoardService {
         }
       }
 
+      const lessonOnly = school.smartBoardNotifyLessonTeachersOnly !== false;
+      if (lessonOnly && device.classSection?.trim()) {
+        const now = new Date();
+        const dayOfWeek = this.getDayOfWeekTR(now);
+        const lessonSchedule = this.getEffectiveLessonSchedule(school, dayOfWeek);
+        const { current, next } = this.getCurrentAndNextLessonNums(lessonSchedule, now);
+        const today = now.toISOString().slice(0, 10);
+        const slotTeachers = new Set<string>();
+        for (const lessonNum of [current, next]) {
+          if (lessonNum == null) continue;
+          try {
+            const slot = await this.timetableService.getSlotByClassSection(
+              schoolId,
+              today,
+              device.classSection.trim(),
+              lessonNum,
+            );
+            if (slot?.user_id) slotTeachers.add(slot.user_id);
+          } catch {
+            /* ignore */
+          }
+        }
+        if (slotTeachers.size > 0) {
+          userIds = userIds.filter((id) => slotTeachers.has(id));
+        }
+      }
+
       if (userIds.length === 0) return;
 
-      const label = device.classSection
-        ? `${device.name} (${device.classSection})`
-        : device.name;
+      const classLabel = device.classSection?.trim() || device.name;
       const panelBase = env.frontendUrl.replace(/\/$/, '');
+      const panelParams = new URLSearchParams({
+        open_qr: '1',
+        qr_school: schoolId,
+        qr_device: device.id,
+        qr_session: sessionId,
+        qr_code: qrCode,
+      });
 
+      const meta = {
+        school_id: schoolId,
+        device_id: device.id,
+        session_id: sessionId,
+        qr_code: qrCode,
+        device_name: device.name,
+        class_section: device.classSection ?? null,
+        panel_url: `${panelBase}/akilli-tahta?${panelParams.toString()}`,
+      };
       for (const userId of userIds.slice(0, 60)) {
-        await this.notificationsService.createInboxEntry({
+        await this.notificationsService.upsertSmartBoardQrPendingInbox({
           user_id: userId,
-          event_type: 'smart_board.qr_pending',
           entity_id: sessionId,
-          target_screen: 'akilli-tahta',
-          title: 'Tahta QR onayı bekliyor',
-          body: `${label} — sınıftaki QR kodu okutun veya Akıllı Tahta sayfasında kamerayı kullanın.`,
-          metadata: {
-            school_id: schoolId,
-            device_id: device.id,
-            session_id: sessionId,
-            device_name: device.name,
-            class_section: device.classSection ?? null,
-            panel_url: `${panelBase}/akilli-tahta`,
-          },
+          title: `${classLabel} — ders oturumu bekliyor`,
+          body: `${classLabel} tahtasında QR onayı gerekiyor. Okutun veya bildirime dokunun.`,
+          metadata: meta,
         });
       }
     } catch {
@@ -765,7 +1155,7 @@ export class SmartBoardService {
     sessionId: string,
     code: string,
     teacherUserId: string,
-  ): Promise<{ ok: true; session_id: string }> {
+  ): Promise<{ ok: true; session_id?: string; pending_takeover_seconds?: number }> {
     const school = await this.schoolsService.findById(schoolId);
     if (!this.isModuleEnabled(school)) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Akıllı Tahta modülü bu okulda kapalı.' });
@@ -788,17 +1178,53 @@ export class SmartBoardService {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Tahta açma yetkiniz yok.' });
     }
     const releasePrevious = school.smartBoardReleasePreviousOnQr ?? true;
-    const { session_id: boardSessionId } = await this.connect(deviceId, teacherUserId, schoolId, {
-      releaseOtherOnDevice: releasePrevious,
+    const softSec = Math.max(0, Math.min(120, school.smartBoardSoftTakeoverSeconds ?? 0));
+    const device = await this.deviceRepo.findOne({ where: { id: deviceId, school_id: schoolId } });
+    if (!device) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Cihaz bulunamadı.' });
+
+    const activeOnDevice = await this.sessionRepo.findOne({
+      where: { device_id: deviceId, disconnected_at: IsNull() },
+      relations: ['user'],
     });
-    const exchangeNonce = randomBytes(24).toString('base64url');
+
     sess.claimed_at = new Date();
     sess.claimed_user_id = teacherUserId;
-    sess.exchange_nonce = exchangeNonce;
-    sess.exchange_expires_at = new Date(Date.now() + QR_EXCHANGE_TTL_MS);
     sess.exchanged_at = null;
     sess.issued_usb_token_hash = null;
     sess.issued_usb_token_plain = null;
+
+    if (
+      activeOnDevice &&
+      activeOnDevice.user_id !== teacherUserId &&
+      releasePrevious &&
+      softSec > 0
+    ) {
+      device.pendingTakeoverUntil = new Date(Date.now() + softSec * 1000);
+      device.pendingTakeoverUserId = teacherUserId;
+      device.pendingTakeoverQrSessionId = sessionId;
+      sess.exchange_nonce = null;
+      sess.exchange_expires_at = null;
+      await this.deviceRepo.save(device);
+      await this.qrSessionRepo.save(sess);
+      await this.notificationsService
+        .markReadSmartBoardQrPendingForSession(schoolId, deviceId, sessionId)
+        .catch(() => undefined);
+      await this.auditService.log({
+        action: 'SMARTBOARD_QR_SESSION_CLAIMED',
+        userId: teacherUserId,
+        schoolId,
+        meta: { deviceId, sessionId, qrCode: code, softTakeoverSeconds: softSec },
+      });
+      return { ok: true, pending_takeover_seconds: softSec };
+    }
+
+    const { session_id: boardSessionId } = await this.connect(deviceId, teacherUserId, schoolId, {
+      releaseOtherOnDevice: releasePrevious,
+    });
+    await this.clearDevicePendingTakeover(deviceId);
+    const exchangeNonce = randomBytes(24).toString('base64url');
+    sess.exchange_nonce = exchangeNonce;
+    sess.exchange_expires_at = new Date(Date.now() + QR_EXCHANGE_TTL_MS);
     await this.qrSessionRepo.save(sess);
     await this.notificationsService
       .markReadSmartBoardQrPendingForSession(schoolId, deviceId, sessionId)
@@ -821,37 +1247,135 @@ export class SmartBoardService {
     teacher_name: string | null;
     last_heartbeat_at?: string | null;
     session_timeout_minutes?: number;
+    takeover_pending?: { seconds_left: number; incoming_teacher_name: string | null };
+    shutdown_warning?: {
+      kind: 'duyuru' | 'close';
+      seconds_left: number;
+      title: string;
+      detail: string;
+    };
+    slot_hint?: {
+      current_teacher_name: string | null;
+      next_teacher_name: string | null;
+      next_lesson_num: number | null;
+    };
   }> {
+    await this.completePendingTakeoverIfDue(deviceId, schoolId);
     const device = await this.deviceRepo.findOne({ where: { id: deviceId, school_id: schoolId } });
     if (!device) return { active: false, teacher_name: null };
     const school = await this.schoolsService.findById(schoolId);
     const timeoutMin = school?.smartBoardSessionTimeoutMinutes ?? 2;
+
+    let takeover_pending: { seconds_left: number; incoming_teacher_name: string | null } | undefined;
+    if (device.pendingTakeoverUntil && device.pendingTakeoverUntil.getTime() > Date.now()) {
+      const incoming = device.pendingTakeoverUserId
+        ? await this.userRepo.findOne({
+            where: { id: device.pendingTakeoverUserId },
+            select: ['display_name', 'email'],
+          })
+        : null;
+      takeover_pending = {
+        seconds_left: Math.max(0, Math.ceil((device.pendingTakeoverUntil.getTime() - Date.now()) / 1000)),
+        incoming_teacher_name: incoming?.display_name ?? incoming?.email ?? null,
+      };
+    }
+
+    let slot_hint: {
+      current_teacher_name: string | null;
+      next_teacher_name: string | null;
+      next_lesson_num: number | null;
+    } | undefined;
+    if (device.classSection?.trim()) {
+      const now = new Date();
+      const dayOfWeek = this.getDayOfWeekTR(now);
+      const lessonSchedule = this.getEffectiveLessonSchedule(school, dayOfWeek);
+      const { current, next } = this.getCurrentAndNextLessonNums(lessonSchedule, now);
+      const today = now.toISOString().slice(0, 10);
+      let currentTeacher: string | null = null;
+      let nextTeacher: string | null = null;
+      if (current != null) {
+        try {
+          const slot = await this.timetableService.getSlotByClassSection(
+            schoolId,
+            today,
+            device.classSection.trim(),
+            current,
+          );
+          currentTeacher = slot?.teacher_name ?? null;
+        } catch {
+          /* ignore */
+        }
+      }
+      if (next != null) {
+        try {
+          const slot = await this.timetableService.getSlotByClassSection(
+            schoolId,
+            today,
+            device.classSection.trim(),
+            next,
+          );
+          nextTeacher = slot?.teacher_name ?? null;
+        } catch {
+          /* ignore */
+        }
+      }
+      if (currentTeacher || nextTeacher) {
+        slot_hint = {
+          current_teacher_name: currentTeacher,
+          next_teacher_name: nextTeacher,
+          next_lesson_num: next,
+        };
+      }
+    }
     const session = await this.sessionRepo.findOne({
       where: { device_id: deviceId, disconnected_at: IsNull() },
       relations: ['user'],
     });
+    let shutdown_warning: {
+      kind: 'duyuru' | 'close';
+      seconds_left: number;
+      title: string;
+      detail: string;
+    } | undefined;
+    if (school?.smartBoardAutoDisconnectLessonEnd) {
+      const sched = this.getEffectiveLessonSchedule(school, this.getDayOfWeekTR(new Date()));
+      const w = this.getLessonEndShutdownWarning(
+        sched,
+        new Date(),
+        school.smartBoardLunchDuyuruGraceMinutes ?? 10,
+        school.smartBoardEndOfDayCloseGraceMinutes ?? 10,
+      );
+      if (w && w.seconds_left > 0) shutdown_warning = w;
+    }
+
+    const baseExtras = { takeover_pending, shutdown_warning, slot_hint, session_timeout_minutes: timeoutMin };
     if (!session) {
-      return { active: false, teacher_name: null, session_timeout_minutes: timeoutMin };
+      return { active: false, teacher_name: null, ...baseExtras };
     }
     const hb = session.last_heartbeat_at ?? session.connected_at;
-    if (Date.now() - hb.getTime() > timeoutMin * 60 * 1000) {
-      session.disconnected_at = new Date();
-      await this.sessionRepo.save(session);
-      const hasOther = await this.sessionRepo.findOne({
-        where: { device_id: deviceId, disconnected_at: IsNull() },
-      });
-      if (!hasOther) {
-        device.status = 'offline';
-        await this.deviceRepo.save(device);
-      }
-      return { active: false, teacher_name: null, session_timeout_minutes: timeoutMin };
+    const now = new Date();
+    if (now.getTime() - hb.getTime() > timeoutMin * 60 * 1000) {
+      await this.closeBoardAfterSchoolDay(session, device, now);
+      return { active: false, teacher_name: null, ...baseExtras };
+    }
+    if (shutdown_warning) {
+      const u = session.user;
+      return {
+        active: true,
+        teacher_name: u?.display_name ?? u?.email ?? null,
+        last_heartbeat_at: hb.toISOString(),
+        ...baseExtras,
+      };
+    }
+    if (await this.maybeAutoDisconnectForLessonEnd(school, device, session, now)) {
+      return { active: false, teacher_name: null, ...baseExtras };
     }
     const u = session.user;
     return {
       active: true,
       teacher_name: u?.display_name ?? u?.email ?? null,
       last_heartbeat_at: hb.toISOString(),
-      session_timeout_minutes: timeoutMin,
+      ...baseExtras,
     };
   }
 
@@ -867,8 +1391,11 @@ export class SmartBoardService {
     exchange_expires_in?: number;
     exchanged?: boolean;
     teacher_name?: string | null;
+    takeover_pending?: boolean;
+    takeover_seconds_left?: number;
   }> {
     this.assertTvEndpointRate(clientIp, 'qr_poll', 180);
+    await this.completePendingTakeoverIfDue(deviceId, schoolId);
     const sess = await this.qrSessionRepo.findOne({
       where: { id: sessionId, school_id: schoolId, device_id: deviceId },
       relations: ['claimed_user'],
@@ -881,6 +1408,23 @@ export class SmartBoardService {
       return { approved: false, expired: false };
     }
     const teacherName = sess.claimed_user?.display_name ?? sess.claimed_user?.email ?? null;
+    const device = await this.deviceRepo.findOne({ where: { id: deviceId, school_id: schoolId } });
+    if (
+      device?.pendingTakeoverUntil &&
+      device.pendingTakeoverQrSessionId === sessionId &&
+      device.pendingTakeoverUntil.getTime() > now
+    ) {
+      return {
+        approved: false,
+        expired: false,
+        takeover_pending: true,
+        takeover_seconds_left: Math.max(
+          0,
+          Math.ceil((device.pendingTakeoverUntil.getTime() - now) / 1000),
+        ),
+        teacher_name: teacherName,
+      };
+    }
     if (sess.exchanged_at) {
       return { approved: true, expired: false, exchanged: true, teacher_name: teacherName };
     }
@@ -1525,17 +2069,24 @@ export class SmartBoardService {
       relations: ['device'],
     });
     const now = Date.now();
+    const nowDate = new Date();
     let closed = 0;
-    const schoolTimeout = new Map<string, number>();
+    const schoolCache = new Map<string, { timeoutMin: number; school: School | null }>();
     for (const s of active) {
       const sid = s.device?.school_id;
       if (!sid) continue;
-      let timeoutMin = schoolTimeout.get(sid);
-      if (timeoutMin === undefined) {
+      let cached = schoolCache.get(sid);
+      if (!cached) {
         const school = await this.schoolsService.findById(sid);
-        timeoutMin = school?.smartBoardSessionTimeoutMinutes ?? 2;
-        schoolTimeout.set(sid, timeoutMin);
+        cached = { timeoutMin: school?.smartBoardSessionTimeoutMinutes ?? 2, school };
+        schoolCache.set(sid, cached);
       }
+      const device = s.device;
+      if (device && (await this.maybeAutoDisconnectForLessonEnd(cached.school, device, s, nowDate))) {
+        closed++;
+        continue;
+      }
+      const timeoutMin = cached.timeoutMin;
       const hb = s.last_heartbeat_at ?? s.connected_at;
       if (now - hb.getTime() <= timeoutMin * 60 * 1000) continue;
       s.disconnected_at = new Date();
@@ -1607,32 +2158,11 @@ export class SmartBoardService {
         const timeoutMin = school?.smartBoardSessionTimeoutMinutes ?? 2;
         const hb = session.last_heartbeat_at ?? session.connected_at;
         if (now.getTime() - hb.getTime() > timeoutMin * 60 * 1000) {
-          session.disconnected_at = now;
-          await this.sessionRepo.save(session);
-          const hasOther = await this.sessionRepo.findOne({
-            where: { device_id: device.id, disconnected_at: IsNull() },
-          });
-          if (!hasOther) {
-            device.status = 'offline';
-            await this.deviceRepo.save(device);
-          }
+          await this.closeBoardAfterSchoolDay(session, device, now);
           return { ok: false };
         }
-        const dow = this.getDayOfWeekTR(now);
-        const sched = this.getEffectiveLessonSchedule(school, dow);
-        if (school?.smartBoardAutoDisconnectLessonEnd && sched?.length) {
-          const lastLesson = sched.reduce((a, b) =>
-            (b.lesson_num ?? 0) > (a.lesson_num ?? 0) ? b : a
-          );
-          const endMin = this.parseTimeToMinutes(lastLesson.end_time ?? '23:59');
-          const nowMin = now.getHours() * 60 + now.getMinutes();
-          if (nowMin >= endMin) {
-            session.disconnected_at = now;
-            await this.sessionRepo.save(session);
-            device.status = 'offline';
-            await this.deviceRepo.save(device);
-            return { ok: false };
-          }
+        if (await this.maybeAutoDisconnectForLessonEnd(school, device, session, now)) {
+          return { ok: false };
         }
       } catch {
         /* Devam et */
@@ -2030,13 +2560,17 @@ export class SmartBoardService {
     };
   }
 
-  async getSetupPublicInfo(setupCode: string): Promise<{
+  async getSetupPublicInfo(
+    setupCode: string,
+    clientIp: string,
+  ): Promise<{
     school_id: string;
     school_name: string;
     setup_code: string;
-    devices: Array<{ id: string; name: string; class_section: string | null; pairing_code: string }>;
+    devices: Array<{ id: string; name: string; class_section: string | null }>;
     suggested_classes: string[];
   }> {
+    this.assertTvEndpointRate(clientIp, 'setup_lookup', 80);
     const school = await this.schoolFromSetupCode(setupCode);
     const devices = await this.deviceRepo.find({
       where: { school_id: school.id },
@@ -2056,7 +2590,6 @@ export class SmartBoardService {
         id: d.id,
         name: d.name,
         class_section: d.classSection,
-        pairing_code: d.pairing_code,
       })),
       suggested_classes,
     };
@@ -2073,7 +2606,9 @@ export class SmartBoardService {
       pairing_code: pairingCode,
       name: opts.name?.trim() || 'Akıllı Tahta',
       roomOrLocation: opts.room_or_location?.trim() || null,
-      classSection: opts.class_section?.trim() || null,
+      classSection: opts?.class_section?.trim()
+        ? normalizeClassSectionForStorage(opts.class_section) || null
+        : null,
       status: 'offline',
     });
     const saved = await this.deviceRepo.save(device);
@@ -2093,7 +2628,14 @@ export class SmartBoardService {
 
   async registerDeviceViaSetup(
     setupCode: string,
-    body: { class_section: string; room_or_location?: string; name?: string; device_id?: string },
+    body: {
+      class_section?: string;
+      room_or_location?: string;
+      name?: string;
+      device_id?: string;
+      pairing_code?: string;
+    },
+    clientIp: string,
   ): Promise<{
     school_id: string;
     device_id: string;
@@ -2102,19 +2644,26 @@ export class SmartBoardService {
     pairing_code: string;
     created: boolean;
   }> {
+    this.assertTvEndpointRate(clientIp, 'setup_register', 40);
     const school = await this.schoolFromSetupCode(setupCode);
-    const classNorm = body.class_section?.trim();
-    if (!classNorm) {
-      throw new BadRequestException({ code: 'INVALID_BODY', message: 'class_section gerekli.' });
-    }
-    const classKey = classNorm.toUpperCase();
 
     if (body.device_id?.trim()) {
       const existing = await this.deviceRepo.findOne({
         where: { id: body.device_id.trim(), school_id: school.id },
       });
       if (!existing) {
-        throw new NotFoundException({ code: 'NOT_FOUND', message: 'Cihaz bulunamadı.' });
+        throw new NotFoundException({
+          code: 'SETUP_DEVICE_SCOPE',
+          message: 'Bu tahta seçilen okula ait değil.',
+        });
+      }
+      const pairing = (body.pairing_code ?? '').trim().toUpperCase();
+      const expected = (existing.pairing_code ?? '').trim().toUpperCase();
+      if (!pairing || pairing !== expected) {
+        throw new UnauthorizedException({
+          code: 'PAIRING_CODE_INVALID',
+          message: 'Etiket eşleştirme kodu hatalı. Yalnızca bu tahtanın etiketindeki kodu girin.',
+        });
       }
       return {
         school_id: school.id,
@@ -2125,6 +2674,15 @@ export class SmartBoardService {
         created: false,
       };
     }
+
+    const classNorm = body.class_section?.trim();
+    if (!classNorm) {
+      throw new BadRequestException({
+        code: 'INVALID_BODY',
+        message: 'Sınıf seçin veya sınıf adı yazın.',
+      });
+    }
+    const classKey = classNorm.toUpperCase();
 
     const all = await this.deviceRepo.find({ where: { school_id: school.id } });
     const match = all.find((d) => (d.classSection ?? '').trim().toUpperCase() === classKey);
@@ -2164,8 +2722,8 @@ export class SmartBoardService {
     role: UserRole,
     actorUserId: string,
     items: Array<{ class_section: string; name?: string; room_or_location?: string }>,
-  ): Promise<{ created: SmartBoardDevice[]; skipped: string[] }> {
-    if (role !== UserRole.school_admin) {
+  ): Promise<{ created: SmartBoardDevice[]; skipped: string[]; errors: string[] }> {
+    if (role !== UserRole.school_admin && role !== UserRole.superadmin) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
     }
     const school = await this.schoolsService.findById(schoolId);
@@ -2176,27 +2734,45 @@ export class SmartBoardService {
     const byClass = new Set(existing.map((d) => (d.classSection ?? '').trim().toUpperCase()).filter(Boolean));
     const created: SmartBoardDevice[] = [];
     const skipped: string[] = [];
+    const errors: string[] = [];
     for (const item of items ?? []) {
-      const cs = item.class_section?.trim();
-      if (!cs) continue;
+      const raw = item.class_section?.trim();
+      if (!raw) continue;
+      const cs = normalizeClassSectionForStorage(raw);
+      if (!cs) {
+        errors.push(`Geçersiz sınıf etiketi: "${raw.slice(0, 40)}${raw.length > 40 ? '…' : ''}"`);
+        continue;
+      }
       const key = cs.toUpperCase();
       if (byClass.has(key)) {
         skipped.push(cs);
         continue;
       }
-      const saved = await this.createDeviceInternal(
-        schoolId,
-        {
-          class_section: cs,
-          name: item.name?.trim() || `${cs} Akıllı Tahta`,
-          room_or_location: item.room_or_location,
-        },
-        actorUserId,
-      );
-      byClass.add(key);
-      created.push(saved);
+      try {
+        const saved = await this.createDeviceInternal(
+          schoolId,
+          {
+            class_section: cs,
+            name: item.name?.trim() || `${cs} Akıllı Tahta`,
+            room_or_location: item.room_or_location,
+          },
+          actorUserId,
+        );
+        byClass.add(key);
+        created.push(saved);
+      } catch (e) {
+        const label = raw.length > 48 ? `${raw.slice(0, 48)}…` : raw;
+        if (e instanceof QueryFailedError) {
+          errors.push(`Kaydedilemedi (${label}): veritabanı kısıtı`);
+        } else if (e instanceof BadRequestException || e instanceof ForbiddenException) {
+          const msg = (e.getResponse() as { message?: string })?.message;
+          errors.push(`${label}: ${msg ?? 'reddedildi'}`);
+        } else {
+          errors.push(`Kaydedilemedi: ${label}`);
+        }
+      }
     }
-    return { created, skipped };
+    return { created, skipped, errors };
   }
 
   async getSetupStatus(
@@ -2270,9 +2846,9 @@ export class SmartBoardService {
       },
       {
         id: 'tv_ip',
-        label: 'TV IP kısıtı (önerilen)',
+        label: 'TV izinli IP tanımlı',
         done: has_tv_ip,
-        hint: 'Ayarlar → TV izinli IP — boş bırakılabilir.',
+        hint: 'Canlıda kurulum için zorunlu. Ayarlar → TV izinli IP (okul ağı / VLAN).',
       },
     ];
     return {
