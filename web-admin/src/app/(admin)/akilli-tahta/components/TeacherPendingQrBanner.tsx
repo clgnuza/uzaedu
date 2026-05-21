@@ -10,10 +10,11 @@ import { dedupeSmartBoardQrPending } from '@/lib/dedupe-smart-board-notification
 
 type Notif = {
   id: string;
-  event_type?: string;
+  event_type: string;
   title: string;
   body: string | null;
   read_at: string | null;
+  created_at: string;
   metadata?: { device_name?: string; class_section?: string; device_id?: string } | null;
 };
 
@@ -27,7 +28,7 @@ export function TeacherPendingQrBanner({ token }: { token: string | null }) {
         .then((res) => {
           const list = Array.isArray(res?.items) ? res.items : [];
           setItems(
-            dedupeSmartBoardQrPending(
+            dedupeSmartBoardQrPending<Notif>(
               list.filter((n) => !n.read_at && n.event_type === 'smart_board.qr_pending'),
             ),
           );

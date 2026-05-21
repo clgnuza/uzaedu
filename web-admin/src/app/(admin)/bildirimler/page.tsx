@@ -828,7 +828,7 @@ export default function BildirimlerPage() {
       else if (eventTypeParam) q.set('event_type', eventTypeParam);
       const res = await apiFetch<PaginatedResponse>(`/notifications?${q}`, { token });
       const raw = res?.items ?? [];
-      setItems(dedupeSmartBoardQrPending(raw));
+      setItems(dedupeSmartBoardQrPending<NotificationItem>(raw));
       setTotal(res?.total ?? 0);
     } catch {
       setItems([]);
@@ -853,7 +853,7 @@ export default function BildirimlerPage() {
       else if (eventTypeParam) q.set('event_type', eventTypeParam);
       apiFetch<PaginatedResponse>(`/notifications?${q}`, { token })
         .then((res) => {
-          setItems((prev) => dedupeSmartBoardQrPending([...prev, ...(res?.items ?? [])]));
+          setItems((prev) => dedupeSmartBoardQrPending<NotificationItem>([...prev, ...(res?.items ?? [])]));
         })
         .catch(() => {});
     }
