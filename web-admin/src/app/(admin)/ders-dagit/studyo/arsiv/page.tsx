@@ -1,32 +1,29 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
-import { apiFetch } from '@/lib/api';
+import {
+  cloneProgram,
+  deleteProgram,
+  listStudioPrograms,
+  unarchiveProgram,
+  type DdProgramRow,
+} from '@/lib/ders-dagit-program-api';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DdCard, CardContent, CardHeader, CardTitle } from '@/components/ders-dagit/dd-ui';
 import { toast } from 'sonner';
-
-type Program = {
-  id: string;
-  name: string | null;
-  status: string;
-  score: number | null;
-  archived_at?: string | null;
-};
 
 export default function ArsivPage() {
   const { token } = useAuth();
   const { studio } = useDersDagitStudio();
-  const [rows, setRows] = useState<Program[]>([]);
+  const [rows, setRows] = useState<DdProgramRow[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token || !studio) return;
-    const list = await apiFetch<Program[]>(
-      `/ders-dagit/studios/${studio.id}/programs?include_archived=1`,
-      { token },
-    );
+    const list = await listStudioPrograms(token, studio.id, { includeArchived: true });
     setRows(list.filter((p) => p.archived_at));
   }, [token, studio]);
 
@@ -34,15 +31,20 @@ export default function ArsivPage() {
     void load();
   }, [load]);
 
-  async function archive(id: string) {
-    if (!token || !studio) return;
-    await apiFetch(`/ders-dagit/studios/${studio.id}/programs/${id}/archive`, { token, method: 'POST' });
-    toast.success('Arşivlendi');
-    await load();
+  async function act(id: string, fn: () => Promise<void>) {
+    setBusy(id);
+    try {
+      await fn();
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'İşlem başarısız');
+    } finally {
+      setBusy(null);
+    }
   }
 
   return (
-    <Card>
+    <DdCard>
       <CardHeader>
         <CardTitle className="text-base">Program arşivi</CardTitle>
       </CardHeader>
@@ -50,16 +52,69 @@ export default function ArsivPage() {
         {rows.length === 0 && <p className="text-muted-foreground">Arşivlenmiş program yok.</p>}
         {rows.map((p) => (
           <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-border p-2">
-            <span>
-              {p.name ?? p.id.slice(0, 8)} — skor {p.score ?? '—'}
-            </span>
-            <span className="text-xs text-muted-foreground">{p.archived_at?.slice(0, 10)}</span>
+            <div>
+              <p className="font-medium">{p.name ?? p.id.slice(0, 8)}</p>
+              <p className="text-xs text-muted-foreground">
+                {p.status} · puan {p.score ?? '—'} · {p.archived_at?.slice(0, 10)}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              <Button type="button" size="sm" variant="outline" asChild>
+                <Link href={`/ders-dagit/studyo/program?id=${p.id}`}>Aç</Link>
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={busy === p.id}
+                onClick={() =>
+                  void act(p.id, async () => {
+                    await unarchiveProgram(token!, studio!.id, p.id);
+                    toast.success('Arşivden çıkarıldı');
+                  })
+                }
+              >
+                Geri al
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy === p.id}
+                onClick={() =>
+                  void act(p.id, async () => {
+                    const copy = await cloneProgram(token!, studio!.id, p.id);
+                    toast.success(`Kopya: ${copy.name ?? copy.id.slice(0, 8)}`);
+                  })
+                }
+              >
+                Kopyala
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                disabled={busy === p.id || p.status === 'published'}
+                onClick={() => {
+                  if (!window.confirm('Kalıcı silinsin mi?')) return;
+                  void act(p.id, async () => {
+                    await deleteProgram(token!, studio!.id, p.id);
+                    toast.success('Silindi');
+                  });
+                }}
+              >
+                Sil
+              </Button>
+            </div>
           </div>
         ))}
         <p className="text-xs text-muted-foreground pt-2">
-          Aktif listeden arşivlemek için Yayın sayfasından program seçin.
+          Aktif programlarda arşiv/sil/kopyala:{' '}
+          <Link href="/ders-dagit/studyo/program" className="text-primary underline">
+            Program tablosu
+          </Link>
         </p>
       </CardContent>
-    </Card>
+    </DdCard>
   );
 }

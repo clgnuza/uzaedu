@@ -16,13 +16,16 @@ import {
 } from 'lucide-react';
 
 const FLOW = [
-  { href: '/ders-dagit/studyo', label: 'Özet', icon: LayoutDashboard, exact: true },
-  { href: '/ders-dagit/studyo/kurulum', label: 'Kurulum', icon: Settings2 },
-  { href: '/ders-dagit/studyo/dogrulama', label: 'Doğrula', icon: ClipboardCheck },
-  { href: '/ders-dagit/studyo/uret', label: 'Üret', icon: Wand2 },
-  { href: '/ders-dagit/studyo/program', label: 'Program', icon: TableProperties },
-  { href: '/ders-dagit/studyo/ayarlar', label: 'Ayarlar', icon: SlidersHorizontal },
+  { href: '/ders-dagit/studyo', label: 'Özet', icon: LayoutDashboard, exact: true, tone: 'indigo' },
+  { href: '/ders-dagit/studyo/kurulum', label: 'Kurulum', icon: Settings2, tone: 'violet' },
+  { href: '/ders-dagit/studyo/dogrulama', label: 'Doğrula', icon: ClipboardCheck, tone: 'teal' },
+  { href: '/ders-dagit/studyo/uret', label: 'Oluştur', icon: Wand2, tone: 'sky' },
+  { href: '/ders-dagit/studyo/program', label: 'Program', icon: TableProperties, tone: 'lavender' },
+  { href: '/ders-dagit/studyo/ayarlar', label: 'Ayarlar', icon: SlidersHorizontal, tone: 'mint' },
 ] as const;
+
+const TONE_ACTIVE = 'dd-nav-pill-active';
+const TONE_IDLE = 'dd-nav-pill text-muted-foreground hover:text-foreground';
 
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Taslak',
@@ -38,55 +41,63 @@ export function StudioHubBar({ overview }: { overview: StudioOverview | null }) 
   const year = st?.academic_year ?? '';
 
   return (
-    <div className="print:hidden space-y-3 rounded-xl border border-border bg-card/80 p-3 shadow-sm backdrop-blur-sm">
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="dd-hero print:hidden space-y-2.5 p-2.5 sm:space-y-3 sm:p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">DersDağıt Stüdyo</p>
-          <p className="truncate text-sm font-semibold">
-            {st?.name ?? 'Program stüdyosu'}
-            {year ? <span className="text-muted-foreground"> · {year}</span> : null}
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--dd-accent))]">
+            DersDağıt · Program merkezi
+          </p>
+          <p className="truncate text-sm font-semibold sm:text-base">
+            {st?.name ?? 'Okul programı'}
+            {year ? <span className="font-normal text-muted-foreground"> · {year}</span> : null}
           </p>
         </div>
-        <span
-          className={cn(
-            'rounded-full px-2.5 py-0.5 text-xs font-semibold',
-            st?.workflow_status === 'published'
-              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60'
-              : 'bg-muted text-muted-foreground',
-          )}
-        >
-          {STATUS_LABEL[st?.workflow_status ?? ''] ?? st?.workflow_status ?? 'Taslak'}
-        </span>
-        <div className="flex items-center gap-2">
-          <div className="relative size-11">
-            <svg className="size-11 -rotate-90" viewBox="0 0 36 36">
-              <circle cx="18" cy="18" r="15" fill="none" className="stroke-muted" strokeWidth="3" />
-              <circle
-                cx="18"
-                cy="18"
-                r="15"
-                fill="none"
-                className={cn(
-                  'stroke-current transition-all',
-                  readiness.percent >= 80 ? 'text-emerald-600' : readiness.percent >= 50 ? 'text-amber-600' : 'text-rose-600',
-                )}
-                strokeWidth="3"
-                strokeDasharray={`${readiness.percent * 0.94} 100`}
-                strokeLinecap="round"
-              />
-            </svg>
-            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold">
-              {readiness.percent}%
-            </span>
-          </div>
-          <div className="text-[10px] leading-tight text-muted-foreground">
-            <div>Veri {readiness.phases.data.percent}%</div>
-            <div>Kural {readiness.phases.rules.percent}%</div>
-            <div>Program {readiness.phases.program.percent}%</div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={cn(
+              'rounded-full px-2 py-0.5 text-[10px] font-semibold sm:px-2.5 sm:text-xs',
+              st?.workflow_status === 'published'
+                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200'
+                : 'bg-violet-100 text-violet-800 dark:bg-violet-950/50 dark:text-violet-200',
+            )}
+          >
+            {STATUS_LABEL[st?.workflow_status ?? ''] ?? st?.workflow_status ?? 'Taslak'}
+          </span>
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className="relative size-9 sm:size-11">
+              <svg className="size-9 -rotate-90 sm:size-11" viewBox="0 0 36 36">
+                <circle cx="18" cy="18" r="15" fill="none" className="stroke-muted" strokeWidth="3" />
+                <circle
+                  cx="18"
+                  cy="18"
+                  r="15"
+                  fill="none"
+                  className={cn(
+                    'stroke-current transition-all',
+                    readiness.percent >= 80
+                      ? 'text-emerald-600'
+                      : readiness.percent >= 50
+                        ? 'text-amber-600'
+                        : 'text-rose-600',
+                  )}
+                  strokeWidth="3"
+                  strokeDasharray={`${readiness.percent * 0.94} 100`}
+                  strokeLinecap="round"
+                />
+              </svg>
+              <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold sm:text-[10px]">
+                {readiness.percent}%
+              </span>
+            </div>
+            <div className="hidden text-[10px] leading-tight text-muted-foreground sm:block">
+              <div>Veri {readiness.phases.data.percent}%</div>
+              <div>Kural {readiness.phases.rules.percent}%</div>
+              <div>Program {readiness.phases.program.percent}%</div>
+            </div>
           </div>
         </div>
       </div>
-      <nav className="flex gap-1 overflow-x-auto">
+      <nav className="dd-nav-scroll -mx-0.5 hidden gap-1 overflow-x-auto pb-0.5 lg:flex">
         {FLOW.map(({ href, label, icon: Icon, ...rest }) => {
           const exact = 'exact' in rest && rest.exact;
           const active = exact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
@@ -95,11 +106,11 @@ export function StudioHubBar({ overview }: { overview: StudioOverview | null }) 
               key={href}
               href={href}
               className={cn(
-                'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors',
-                active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted',
+                'inline-flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-all sm:gap-1.5 sm:px-3 sm:py-2 sm:text-xs',
+                active ? TONE_ACTIVE : TONE_IDLE,
               )}
             >
-              <Icon className="size-3.5" />
+              <Icon className="size-3 sm:size-3.5" />
               {label}
             </Link>
           );
@@ -107,11 +118,13 @@ export function StudioHubBar({ overview }: { overview: StudioOverview | null }) 
         <Link
           href="/ders-dagit/studyo/program?panel=publish"
           className={cn(
-            'ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium',
-            pathname.includes('program') ? 'text-primary' : 'text-muted-foreground hover:bg-muted',
+            'ml-auto inline-flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium sm:gap-1.5 sm:px-3 sm:py-2 sm:text-xs',
+            pathname.includes('program')
+              ? 'text-indigo-700 dark:text-indigo-300'
+              : 'text-muted-foreground hover:bg-white/60 dark:hover:bg-white/10',
           )}
         >
-          <Send className="size-3.5" />
+          <Send className="size-3 sm:size-3.5" />
           Yayın
         </Link>
       </nav>

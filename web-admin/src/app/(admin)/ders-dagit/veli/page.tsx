@@ -4,9 +4,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { apiFetch } from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DdCard, CardContent, CardHeader, CardTitle, DdPageHeader, DD_PAGE, DD_CARD_HEADER, DD_CARD_CONTENT } from '@/components/ders-dagit/dd-ui';
+import { DdSectionField } from '@/components/ders-dagit/dd-section-picker';
 import { Button } from '@/components/ui/button';
 import { TimetableReadonly } from '@/components/timetable/TimetableReadonly';
+import { sortClassSections } from '@/lib/class-section-sort';
 import { downloadDersDagitExport } from '@/lib/ders-dagit-api';
 import { toast } from 'sonner';
 
@@ -40,7 +42,7 @@ export default function VeliProgramPage() {
         entries: Array<{ day_of_week: number; lesson_num: number; class_section: string; subject: string }>;
       }>(`/ders-dagit/studios/${studio.id}/programs/${pub[0].id}`, { token });
       setEntries(detail.entries);
-      const sections = [...new Set(detail.entries.map((e) => e.class_section))].sort();
+      const sections = sortClassSections([...new Set(detail.entries.map((e) => e.class_section))]);
       if (sections[0]) setClassSection(sections[0]);
     }
   }, [token, studio]);
@@ -62,29 +64,20 @@ export default function VeliProgramPage() {
   }, [load]);
 
   const filtered = classSection ? entries.filter((e) => e.class_section === classSection) : entries;
-  const sections = [...new Set(entries.map((e) => e.class_section))].sort();
+  const sections = sortClassSections([...new Set(entries.map((e) => e.class_section))]);
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-bold">Sınıf programı (salt okunur)</h1>
-      <p className="text-sm text-muted-foreground">Yayınlanmış okul programı — veli/öğrenci görünümü önizlemesi.</p>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Şube</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          {sections.map((s) => (
-            <button
-              key={s}
-              type="button"
-              className={`rounded-md px-3 py-1 text-sm ${classSection === s ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
-              onClick={() => setClassSection(s)}
-            >
-              {s}
-            </button>
-          ))}
-        </CardContent>
-      </Card>
+    <div className={DD_PAGE}>
+      <DdPageHeader
+        title="Sınıf programı"
+        description="Yayınlanmış okul programı — veli/öğrenci görünümü."
+      />
+      <DdSectionField
+        label="Şube"
+        value={classSection}
+        onValueChange={setClassSection}
+        extraSections={sections}
+      />
       {programs[0] && classSection && (
         <Button
           type="button"

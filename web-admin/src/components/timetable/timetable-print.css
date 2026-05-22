@@ -12,7 +12,7 @@
     top: 0;
     width: 100%;
   }
-  .print\\:hidden {
+  .print\:hidden {
     display: none !important;
   }
   .timetable-print-root table {

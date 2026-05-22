@@ -135,6 +135,14 @@ export function DialogTitle({ className, children, ...props }: React.HTMLAttribu
   );
 }
 
+export function DialogDescription({ className, children, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
+  return (
+    <p id="dialog-description" className={cn('text-sm text-muted-foreground', className)} {...props}>
+      {children}
+    </p>
+  );
+}
+
 export function DialogFooter({ className, children, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div className={cn('flex justify-end gap-2 pt-4', className)} {...props}>

@@ -27,13 +27,13 @@ export function TimetableHealthStrip({
       )}
     >
       {simulate && <span className="font-semibold text-sky-800 dark:text-sky-200">Simülasyon — kaydedilmedi</span>}
-      <Metric label="Slot" value={String(total)} ok />
+      <Metric label="Ders saati" value={String(total)} ok />
       <Metric label="Çakışma" value={String(clashCount)} ok={clashCount === 0} bad={clashCount > 0} />
       <Metric label="Yerleşmemiş" value={String(unplaced)} ok={unplaced === 0} bad={unplaced > 0} />
       <Metric label="Kilitli" value={String(locked)} ok />
       {ctx.program.score != null && (
         <span className="ml-auto text-muted-foreground">
-          Skor <strong className="text-foreground">{ctx.program.score}</strong>
+          Puan <strong className="text-foreground">{ctx.program.score}</strong>
         </span>
       )}
       <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase">{ctx.program.status}</span>

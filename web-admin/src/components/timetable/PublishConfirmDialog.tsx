@@ -55,7 +55,7 @@ export function PublishConfirmDialog({
           <li>
             Program: <strong>{summary.programName ?? '—'}</strong>
           </li>
-          <li>Slot: <strong>{summary.entryCount}</strong></li>
+          <li>Ders saati: <strong>{summary.entryCount}</strong></li>
           <li className={summary.clashCount ? 'text-destructive' : ''}>
             Çakışma: <strong>{summary.clashCount}</strong>
           </li>
@@ -81,7 +81,7 @@ export function PublishConfirmDialog({
           </div>
         </div>
         <p className="text-[10px] text-muted-foreground">
-          Yayın sonrası öğretmen/veli görünümleri güncellenir. Geri almak için yeni program üretin veya editörden düzenleyin.
+          Yayın sonrası öğretmen ve veli görünümleri güncellenir. Geri almak için yeni program oluşturun veya tablodan düzenleyin.
         </p>
         <DialogFooter className="gap-2">
           <Button type="button" variant="outline" onClick={onClose}>

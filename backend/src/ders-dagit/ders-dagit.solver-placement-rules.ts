@@ -1,7 +1,31 @@
 import type { SolverAssignment, SolverContext, SolverSlot } from './ders-dagit.solver';
+import { rulesForSection } from './ders-dagit.solver';
 
-function ruleOn(ctx: SolverContext, key: string): boolean {
-  return !!ctx.active_rules[key]?.active;
+function ruleOn(ctx: SolverContext, key: string, section: string): boolean {
+  return !!rulesForSection(ctx, section)[key]?.active;
+}
+
+function maxPerDayFromRules(ctx: SolverContext, section: string): number | null {
+  const rules = rulesForSection(ctx, section);
+  if (rules.max_one_per_day?.active) return 1;
+  if (rules.max_two_per_day?.active) {
+    const m = Number(rules.max_two_per_day.params?.max);
+    if (m >= 1 && m <= 8) return Math.floor(m);
+    return 2;
+  }
+  return null;
+}
+
+function maxConsecutiveRun(ctx: SolverContext, section: string): number {
+  const p = rulesForSection(ctx, section).four_plus_consecutive?.params as { max_run?: number } | undefined;
+  const n = Number(p?.max_run ?? 4);
+  return n >= 2 && n <= 8 ? Math.floor(n) : 4;
+}
+
+function minGapDays(ctx: SolverContext, section: string): number {
+  const p = rulesForSection(ctx, section).two_two_day_gap?.params as { min_gap?: number } | undefined;
+  const n = Number(p?.min_gap ?? 2);
+  return n >= 2 && n <= 6 ? Math.floor(n) : 2;
 }
 
 function effHours(a: SolverAssignment): number {
@@ -40,8 +64,8 @@ function isPractical(name: string): boolean {
   return /uygulama|atölye|laboratuvar|\blab\b|pratik/i.test(name);
 }
 
-function peMusicAllowedDays(ctx: SolverContext): number[] {
-  const p = ctx.active_rules.meb_pe_music_days?.params as { days?: number[] } | undefined;
+function peMusicAllowedDays(ctx: SolverContext, section: string): number[] {
+  const p = rulesForSection(ctx, section).meb_pe_music_days?.params as { days?: number[] } | undefined;
   return Array.isArray(p?.days) && p.days.length ? p.days : [2, 4];
 }
 
@@ -57,6 +81,7 @@ export function placementBlocked(
   const onDayCount = onDay.length;
   const eff = effHours(a);
   const days = assignmentDays(entries, a.id);
+  const section = a.class_sections?.[0] ?? '';
 
   for (const block of a.unavailable_periods ?? []) {
     if (block.day_of_week === day) {
@@ -65,51 +90,52 @@ export function placementBlocked(
   }
   if (a.max_days_per_week != null && !days.includes(day) && days.length >= a.max_days_per_week) return true;
 
-  const maxPerDayRule = ruleOn(ctx, 'max_one_per_day') ? 1 : ruleOn(ctx, 'max_two_per_day') ? 2 : null;
+  const maxPerDayRule = ruleOn(ctx, 'max_one_per_day', section) ? 1 : ruleOn(ctx, 'max_two_per_day', section) ? 2 : null;
   const cap =
     maxPerDayRule != null
       ? Math.min(a.max_per_day ?? maxPerDayRule, maxPerDayRule)
       : a.max_per_day;
   if (cap != null && onDayCount >= cap) return true;
 
-  if (ruleOn(ctx, 'distribute_week') && eff >= 3 && onDayCount >= 2) return true;
+  if (ruleOn(ctx, 'distribute_week', section) && eff >= 3 && onDayCount >= 2) return true;
 
   if (eff === 2) {
-    if (ruleOn(ctx, 'two_same_day') && days.length && !days.includes(day)) return true;
-    if (ruleOn(ctx, 'two_not_same_day') && onDayCount >= 1) return true;
-    if (ruleOn(ctx, 'two_not_consecutive_days')) {
+    if (ruleOn(ctx, 'two_same_day', section) && days.length && !days.includes(day)) return true;
+    if (ruleOn(ctx, 'two_not_same_day', section) && onDayCount >= 1) return true;
+    if (ruleOn(ctx, 'two_not_consecutive_days', section)) {
       for (const d of days) {
         if (Math.abs(d - day) === 1) return true;
       }
     }
-    if (ruleOn(ctx, 'two_two_day_gap')) {
+    if (ruleOn(ctx, 'two_two_day_gap', section)) {
+      const gap = minGapDays(ctx, section);
       for (const d of days) {
-        if (d !== day && Math.abs(d - day) < 3) return true;
+        if (d !== day && Math.abs(d - day) < gap) return true;
       }
     }
   }
 
-  if (ruleOn(ctx, 'same_day_consecutive') && onDayCount > 0) {
+  if (ruleOn(ctx, 'same_day_consecutive', section) && onDayCount > 0) {
     const lessons = onDay.map((e) => e.lesson_num);
     const ok = lessons.some((l) => lesson === l + 1 || lesson === l - 1);
     if (!ok) return true;
   }
 
-  if (ruleOn(ctx, 'four_plus_consecutive')) {
+  if (ruleOn(ctx, 'four_plus_consecutive', section)) {
     const lessons = onDay.map((e) => e.lesson_num);
-    if (maxRunIfAdd(lessons, lesson) >= 4) return true;
+    if (maxRunIfAdd(lessons, lesson) >= maxConsecutiveRun(ctx, section)) return true;
   }
 
-  if (ruleOn(ctx, 'min_two_per_day') && eff >= 2 && onDayCount === 1) {
+  if (ruleOn(ctx, 'min_two_per_day', section) && eff >= 2 && onDayCount === 1) {
     const only = onDay[0]!.lesson_num;
     if (lesson !== only + 1 && lesson !== only - 1) return true;
   }
 
-  if (ruleOn(ctx, 'meb_pe_music_days') && isPeMusic(a.subject_name) && !peMusicAllowedDays(ctx).includes(day)) {
+  if (ruleOn(ctx, 'meb_pe_music_days', section) && isPeMusic(a.subject_name) && !peMusicAllowedDays(ctx, section).includes(day)) {
     return true;
   }
 
-  if (ruleOn(ctx, 'meb_theory_am_practical_pm') && isPractical(a.subject_name) && lesson <= ctx.lunch_after_lesson) {
+  if (ruleOn(ctx, 'meb_theory_am_practical_pm', section) && isPractical(a.subject_name) && lesson <= ctx.lunch_after_lesson) {
     return true;
   }
 

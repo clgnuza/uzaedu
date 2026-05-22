@@ -1,0 +1,290 @@
+/* DersDağıt — glassmorphism tema (görsel: magenta→teal→navy geçişi) */
+
+:root {
+  --dd-accent: 45 139 158;
+}
+
+.ders-dagit-theme {
+  --dd-accent: 45 139 158; /* #2D8B9E */
+  --dd-magenta: 192 38 211;
+  --dd-violet: 139 92 246;
+  --dd-indigo: 99 102 241;
+  --dd-teal: 20 184 166;
+  --dd-navy: 30 58 138;
+  --dd-glass-opacity: 0.72;
+  --dd-glass-blur: 14px;
+  --dd-glass-border: 0.55;
+  --dd-glass-saturate: 1.15;
+  position: relative;
+  isolation: isolate;
+}
+
+.ders-dagit-theme::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 90% 55% at 100% 0%, rgb(var(--dd-magenta) / 0.22), transparent 52%),
+    radial-gradient(ellipse 70% 50% at 42% 38%, rgb(var(--dd-teal) / 0.18), transparent 58%),
+    radial-gradient(ellipse 85% 60% at 0% 100%, rgb(var(--dd-navy) / 0.28), transparent 55%),
+    radial-gradient(ellipse 50% 40% at 80% 90%, rgb(var(--dd-violet) / 0.12), transparent 50%);
+}
+
+.dark .ders-dagit-theme::before {
+  background:
+    radial-gradient(ellipse 90% 55% at 100% 0%, rgb(var(--dd-magenta) / 0.14), transparent 52%),
+    radial-gradient(ellipse 70% 50% at 42% 38%, rgb(var(--dd-teal) / 0.1), transparent 58%),
+    radial-gradient(ellipse 85% 60% at 0% 100%, rgb(var(--dd-navy) / 0.35), transparent 55%);
+}
+
+.ders-dagit-theme .dd-inner {
+  margin-inline: auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .ders-dagit-theme .dd-inner {
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .ders-dagit-theme .dd-inner {
+    padding: 1.25rem 1.5rem;
+  }
+}
+
+.ders-dagit-theme.dd-standard .dd-inner {
+  max-width: 72rem;
+}
+
+@media (min-width: 1280px) {
+  .ders-dagit-theme.dd-standard .dd-inner {
+    max-width: 80rem;
+  }
+}
+
+.ders-dagit-theme.dd-wide .dd-inner {
+  max-width: 100%;
+}
+
+@media (min-width: 1280px) {
+  .ders-dagit-theme.dd-wide .dd-inner {
+    max-width: 100rem;
+  }
+}
+
+@media (min-width: 1536px) {
+  .ders-dagit-theme.dd-wide .dd-inner {
+    max-width: 112rem;
+  }
+}
+
+/* —— Glass yüzeyler —— */
+.ders-dagit-theme .dd-glass {
+  background: rgb(255 255 255 / var(--dd-glass-opacity));
+  backdrop-filter: blur(var(--dd-glass-blur)) saturate(var(--dd-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--dd-glass-blur)) saturate(var(--dd-glass-saturate));
+  border: 1px solid rgb(255 255 255 / var(--dd-glass-border));
+  box-shadow:
+    0 1px 2px rgb(15 23 42 / 0.04),
+    0 8px 32px rgb(15 23 42 / 0.07);
+}
+
+.dark .ders-dagit-theme .dd-glass {
+  background: rgb(15 23 42 / 0.55);
+  border-color: rgb(255 255 255 / 0.1);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.25);
+}
+
+.ders-dagit-theme .dd-glass-strong {
+  --dd-glass-opacity: 0.86;
+  --dd-glass-blur: 18px;
+}
+
+.ders-dagit-theme .dd-glass-subtle {
+  --dd-glass-opacity: 0.55;
+  --dd-glass-blur: 10px;
+}
+
+.ders-dagit-theme .dd-hero,
+.ders-dagit-theme .dd-stepper,
+.ders-dagit-theme .dd-onboarding {
+  border-radius: 1rem;
+}
+
+.ders-dagit-theme .dd-hero {
+  background: linear-gradient(
+    135deg,
+    rgb(var(--dd-accent) / 0.14),
+    rgb(var(--dd-violet) / 0.1),
+    rgb(var(--dd-teal) / 0.08)
+  );
+  border-color: rgb(var(--dd-accent) / 0.25);
+}
+
+.ders-dagit-theme .dd-stepper {
+  border-color: rgb(var(--dd-violet) / 0.2);
+  background: linear-gradient(90deg, rgb(var(--dd-indigo) / 0.08), rgb(var(--dd-teal) / 0.06));
+}
+
+.ders-dagit-theme .dd-onboarding {
+  border-color: rgb(var(--dd-teal) / 0.28);
+  background: linear-gradient(90deg, rgb(var(--dd-teal) / 0.1), rgb(var(--dd-accent) / 0.06));
+}
+
+.ders-dagit-theme .dd-hero,
+.ders-dagit-theme .dd-stepper,
+.ders-dagit-theme .dd-onboarding {
+  background: rgb(255 255 255 / var(--dd-glass-opacity));
+  backdrop-filter: blur(var(--dd-glass-blur)) saturate(var(--dd-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--dd-glass-blur)) saturate(var(--dd-glass-saturate));
+  border: 1px solid rgb(255 255 255 / var(--dd-glass-border));
+  box-shadow: 0 8px 32px rgb(15 23 42 / 0.07);
+}
+
+.dark .ders-dagit-theme .dd-hero,
+.dark .ders-dagit-theme .dd-stepper,
+.dark .ders-dagit-theme .dd-onboarding {
+  background: rgb(15 23 42 / 0.55);
+  border-color: rgb(255 255 255 / 0.1);
+}
+
+.ders-dagit-theme .dd-glass-panel {
+  border-radius: 1rem;
+  background: rgb(255 255 255 / var(--dd-glass-opacity));
+  backdrop-filter: blur(var(--dd-glass-blur)) saturate(var(--dd-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--dd-glass-blur)) saturate(var(--dd-glass-saturate));
+  border: 1px solid rgb(255 255 255 / var(--dd-glass-border));
+  box-shadow: 0 8px 32px rgb(15 23 42 / 0.07);
+}
+
+.dark .ders-dagit-theme .dd-glass-panel {
+  background: rgb(15 23 42 / 0.55);
+  border-color: rgb(255 255 255 / 0.1);
+}
+
+.ders-dagit-theme .dd-nav-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+
+.ders-dagit-theme .dd-nav-scroll > a {
+  scroll-snap-align: start;
+}
+
+.ders-dagit-theme .dd-nav-pill {
+  background: rgb(255 255 255 / 0.45);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgb(255 255 255 / 0.5);
+}
+
+.dark .ders-dagit-theme .dd-nav-pill {
+  background: rgb(30 41 59 / 0.5);
+  border-color: rgb(255 255 255 / 0.08);
+}
+
+.ders-dagit-theme .dd-nav-pill-active {
+  background: linear-gradient(135deg, rgb(var(--dd-accent)), rgb(var(--dd-teal)));
+  border-color: transparent;
+  color: white;
+  box-shadow: 0 4px 14px rgb(var(--dd-accent) / 0.35);
+}
+
+.ders-dagit-theme .dd-page-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  background: linear-gradient(105deg, rgb(var(--dd-accent)), rgb(var(--dd-violet)), rgb(var(--dd-magenta)));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@media (min-width: 640px) {
+  .ders-dagit-theme .dd-page-title {
+    font-size: 1.35rem;
+  }
+}
+
+.ders-dagit-theme .dd-icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  background: linear-gradient(145deg, rgb(var(--dd-accent)), rgb(var(--dd-teal)));
+  color: white;
+  box-shadow: 0 4px 16px rgb(var(--dd-accent) / 0.35);
+}
+
+.ders-dagit-theme .dd-accent-btn {
+  background: linear-gradient(135deg, rgb(var(--dd-accent)), rgb(20 150 170));
+  color: white;
+  border: none;
+  box-shadow: 0 4px 14px rgb(var(--dd-accent) / 0.3);
+}
+
+.ders-dagit-theme .dd-accent-btn:hover {
+  filter: brightness(1.06);
+}
+
+.ders-dagit-theme .dd-input-glass input,
+.ders-dagit-theme .dd-input-glass select {
+  background: rgb(255 255 255 / 0.92);
+  border-radius: 0.625rem;
+  border-color: rgb(var(--dd-accent) / 0.15);
+}
+
+.dark .ders-dagit-theme .dd-input-glass input,
+.dark .ders-dagit-theme .dd-input-glass select {
+  background: rgb(30 41 59 / 0.7);
+}
+
+/* Kartlar modül içinde cam efekti */
+.ders-dagit-theme .dd-card-glass {
+  background: rgb(255 255 255 / var(--dd-glass-opacity)) !important;
+  backdrop-filter: blur(var(--dd-glass-blur)) saturate(var(--dd-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--dd-glass-blur)) saturate(var(--dd-glass-saturate));
+  border-color: rgb(255 255 255 / var(--dd-glass-border)) !important;
+  box-shadow: 0 8px 28px rgb(15 23 42 / 0.06) !important;
+}
+
+.dark .ders-dagit-theme .dd-card-glass {
+  background: rgb(15 23 42 / 0.5) !important;
+  border-color: rgb(255 255 255 / 0.1) !important;
+}
+
+/* Portal diyaloglar (.ders-dagit-theme dışında) */
+.dd-dialog-glass {
+  --dd-accent: 45 139 158;
+  --dd-glass-opacity: 0.9;
+  --dd-glass-blur: 16px;
+  --dd-glass-border: 0.5;
+  --dd-glass-saturate: 1.12;
+  background: rgb(255 255 255 / var(--dd-glass-opacity)) !important;
+  backdrop-filter: blur(var(--dd-glass-blur)) saturate(var(--dd-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--dd-glass-blur)) saturate(var(--dd-glass-saturate));
+  border-color: rgb(255 255 255 / var(--dd-glass-border)) !important;
+  box-shadow:
+    0 12px 40px rgb(15 23 42 / 0.12),
+    0 0 0 1px rgb(var(--dd-accent) / 0.08) !important;
+}
+
+.dark .dd-dialog-glass {
+  background: rgb(15 23 42 / 0.82) !important;
+  border-color: rgb(255 255 255 / 0.12) !important;
+}
+
+.dd-dialog-glass [class*='border-b'] {
+  background: linear-gradient(90deg, rgb(var(--dd-accent) / 0.08), transparent);
+}

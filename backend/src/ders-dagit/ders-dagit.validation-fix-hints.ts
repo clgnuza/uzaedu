@@ -1,5 +1,5 @@
 export const VALIDATION_FIX_HINTS: Record<string, { fix_hint: string; href?: string }> = {
-  MIN_CLASSES: { fix_hint: 'En az iki sınıf profili ekleyin.', href: '/ders-dagit/studyo/kurulum' },
+  MIN_CLASSES: { fix_hint: 'Kurulumda en az bir profil oluşturup şube seçin (tüm şubeler tek profilde olabilir).', href: '/ders-dagit/studyo/kurulum' },
   MIN_TEACHERS: { fix_hint: 'Öğretmen senkronu yapın.', href: '/ders-dagit/studyo/ogretmenler' },
   CLASS_NO_SECTIONS: { fix_hint: 'Sınıf profiline şube ekleyin.', href: '/ders-dagit/studyo/kurulum' },
   CLASS_OVER_CAPACITY: {

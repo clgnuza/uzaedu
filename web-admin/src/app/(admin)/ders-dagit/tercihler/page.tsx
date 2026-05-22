@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { apiFetch } from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DdCard, CardContent, CardHeader, CardTitle, DdPageHeader, DD_PAGE, DD_CARD_HEADER, DD_CARD_CONTENT } from '@/components/ders-dagit/dd-ui';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
@@ -89,8 +89,8 @@ export default function TercihlerPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-bold">DersDağıt — Tercihler</h1>
+    <div className={DD_PAGE}>
+      <DdPageHeader title="Tercihler" description="Öğretmen müsaitlik ve değişiklik talepleri." />
       {!open && me?.role === 'teacher' && (
         <p className="text-sm text-amber-700 dark:text-amber-300">Tercih penceresi şu an kapalı.</p>
       )}
@@ -99,7 +99,7 @@ export default function TercihlerPage() {
           {open ? 'Tercih toplamayı kapat' : 'Tercih toplamayı aç'}
         </Button>
       )}
-      <Card>
+      <DdCard>
         <CardHeader>
           <CardTitle className="text-base">Müsait değil</CardTitle>
         </CardHeader>
@@ -134,8 +134,8 @@ export default function TercihlerPage() {
             ))}
           </div>
         </CardContent>
-      </Card>
-      <Card>
+      </DdCard>
+      <DdCard>
         <CardHeader>
           <CardTitle className="text-base">Değişiklik talebi</CardTitle>
         </CardHeader>
@@ -145,9 +145,9 @@ export default function TercihlerPage() {
             Gönder
           </Button>
         </CardContent>
-      </Card>
+      </DdCard>
       {me?.role === 'school_admin' && requests.length > 0 && (
-        <Card>
+        <DdCard>
           <CardHeader>
             <CardTitle className="text-base">Talep moderasyonu</CardTitle>
           </CardHeader>
@@ -171,7 +171,7 @@ export default function TercihlerPage() {
               </div>
             ))}
           </CardContent>
-        </Card>
+        </DdCard>
       )}
     </div>
   );

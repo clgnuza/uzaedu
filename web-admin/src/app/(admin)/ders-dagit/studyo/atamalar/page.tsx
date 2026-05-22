@@ -1,35 +1,48 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { apiFetch } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DdCard, CardContent, CardHeader, CardTitle, DD_PAGE, DD_GRID, DD_CARD_HEADER, DD_CARD_CONTENT, ddVariantAt } from '@/components/ders-dagit/dd-ui';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { DdSelect, DdSelectField, DdMultiSelect } from '@/components/ders-dagit/dd-select';
+import { DdSectionMultiField } from '@/components/ders-dagit/dd-section-picker';
+import { formatClassSectionsList, sortClassSections } from '@/lib/class-section-sort';
+import { dayLabel, groupModeLabel } from '@/lib/ders-dagit-labels';
 import { toast } from 'sonner';
+import { AssignedLessonsPanel } from '@/components/ders-dagit/assigned-lessons-panel';
+import { LessonAssignmentDialog } from '@/components/ders-dagit/lesson-assignment-dialog';
+import {
+  assignmentToDraft,
+  type LessonAssignmentDraft,
+  type LessonAssignmentRow,
+} from '@/lib/lesson-assignment';
+import { DdPageHeader } from '@/components/ders-dagit/dd-ui';
+import { ListChecks } from 'lucide-react';
+
+const EOKUL_FORMAT_OPTS = [
+  { value: 'auto', label: 'Otomatik (tablo → ızgara)' },
+  { value: 'xlsx', label: 'Tablo XLSX' },
+  { value: 'grid_xlsx', label: 'Program ızgarası XLS' },
+  { value: 'csv', label: 'CSV' },
+];
+
+const FIX_DAY_OPTS = [1, 2, 3, 4, 5, 6].map((d) => ({ value: String(d), label: dayLabel(d) }));
 import Link from 'next/link';
 
-type Assignment = {
+type Assignment = LessonAssignmentRow;
+
+type Room = {
   id: string;
-  subject_name: string;
-  class_sections: string[];
-  weekly_hours: number;
-  teacher_ids?: string[];
-  group_id?: string | null;
-  room_ids?: string[];
-  biweekly?: boolean;
-  place_first?: boolean;
-  min_days_per_week?: number | null;
-  max_per_day?: number | null;
-  max_days_per_week?: number | null;
-  fixed_slots?: Array<{ day_of_week: number; lesson_num: number; class_section?: string }>;
+  name: string;
+  allowed_subjects?: string[] | null;
+  allowed_class_sections?: string[] | null;
+  allowed_teacher_ids?: string[] | null;
 };
-
-type Room = { id: string; name: string };
-type SchoolPlan = { id: string; name: string | null; status: string };
-
 type Group = {
   id: string;
   name: string;
@@ -43,15 +56,18 @@ type Teacher = { user_id: string; display_name?: string };
 export default function AtamalarPage() {
   const { token } = useAuth();
   const { studio } = useDersDagitStudio();
+  const searchParams = useSearchParams();
+  const scopeTeacher = searchParams.get('teacher');
+  const scopeSection = searchParams.get('section');
+  const scopeRoom = searchParams.get('room');
+  const scopeSubject = searchParams.get('subject');
   const [rows, setRows] = useState<Assignment[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [subject, setSubject] = useState('');
-  const [sections, setSections] = useState('5A');
+  const [sections, setSections] = useState<string[]>(['5A']);
   const [hours, setHours] = useState(4);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomId, setRoomId] = useState('');
-  const [plans, setPlans] = useState<SchoolPlan[]>([]);
-  const [planId, setPlanId] = useState('');
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [teacherIds, setTeacherIds] = useState<string[]>([]);
   const [subjects, setSubjects] = useState<Array<{ id: string; name: string }>>([]);
@@ -86,14 +102,16 @@ export default function AtamalarPage() {
   const [eokulFormat, setEokulFormat] = useState<'auto' | 'xlsx' | 'grid_xlsx' | 'csv'>('auto');
   const [eokulB64, setEokulB64] = useState<string | null>(null);
   const [autoElectiveGroups, setAutoElectiveGroups] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [listActiveId, setListActiveId] = useState<string | null>(null);
+  const [assignmentDraft, setAssignmentDraft] = useState<LessonAssignmentDraft | null>(null);
 
   const load = useCallback(async () => {
     if (!token || !studio) return;
-    const [a, g, r, p, t, sub, sp] = await Promise.all([
+    const [a, g, r, t, sub, sp] = await Promise.all([
       apiFetch<Assignment[]>(`/ders-dagit/studios/${studio.id}/assignments`, { token }),
       apiFetch<GroupsRes>(`/ders-dagit/studios/${studio.id}/groups`, { token }),
       apiFetch<Room[]>('/ders-dagit/rooms', { token }),
-      apiFetch<SchoolPlan[]>('/teacher-timetable/plans', { token }).catch(() => [] as SchoolPlan[]),
       apiFetch<Teacher[]>(`/ders-dagit/studios/${studio.id}/teachers`, { token }),
       apiFetch<Array<{ id: string; name: string }>>(`/ders-dagit/studios/${studio.id}/subjects`, { token }).catch(
         () => [],
@@ -107,38 +125,104 @@ export default function AtamalarPage() {
     setGroups(g.groups);
     setGroupId((prev) => prev || g.groups[0]?.id || '');
     setRooms(r);
-    setPlans(p);
     setTeachers(t);
     setSubjects(sub);
     setRoomId((prev) => prev || r[0]?.id || '');
-    setPlanId((prev) => prev || p[0]?.id || '');
     setTeacherIds((prev) => (prev.length ? prev : t[0]?.user_id ? [t[0].user_id] : []));
   }, [token, studio]);
-
-  async function importFromPlan(replace: boolean) {
-    if (!token || !studio || !planId) return;
-    try {
-      const res = await apiFetch<{ imported: number }>(
-        `/ders-dagit/studios/${studio.id}/import-from-plan`,
-        { token, method: 'POST', body: { plan_id: planId, replace } },
-      );
-      toast.success(`${res.imported} atama içe aktarıldı`);
-      await load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'İçe aktarma başarısız');
-    }
-  }
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (scopeTeacher) setTeacherIds([scopeTeacher]);
+    if (scopeSection) setSections([scopeSection]);
+    if (scopeRoom) setRoomId(scopeRoom);
+    if (scopeSubject) setSubjectId(scopeSubject);
+  }, [scopeTeacher, scopeSection, scopeRoom, scopeSubject]);
+
+  const scopedRows = useMemo(() => {
+    let list = rows;
+    if (scopeTeacher) list = list.filter((a) => a.teacher_ids?.includes(scopeTeacher));
+    if (scopeSection) list = list.filter((a) => a.class_sections.includes(scopeSection));
+    if (scopeRoom) list = list.filter((a) => a.room_ids?.includes(scopeRoom));
+    if (scopeSubject) {
+      list = list.filter(
+        (a) =>
+          a.subject_id === scopeSubject ||
+          subjects.find((s) => s.id === scopeSubject)?.name === a.subject_name,
+      );
+    }
+    return list;
+  }, [rows, scopeTeacher, scopeSection, scopeRoom, scopeSubject, subjects]);
+
+  const scopeBanner = useMemo(() => {
+    const parts: string[] = [];
+    if (scopeTeacher) {
+      const t = teachers.find((x) => x.user_id === scopeTeacher);
+      parts.push(`öğretmen: ${t?.display_name ?? scopeTeacher}`);
+    }
+    if (scopeSection) parts.push(`şube: ${scopeSection}`);
+    if (scopeRoom) parts.push(`derslik: ${rooms.find((r) => r.id === scopeRoom)?.name ?? scopeRoom}`);
+    if (scopeSubject) parts.push(`ders: ${subjects.find((s) => s.id === scopeSubject)?.name ?? scopeSubject}`);
+    return parts.length ? parts.join(' · ') : null;
+  }, [scopeTeacher, scopeSection, scopeRoom, scopeSubject, teachers, rooms, subjects]);
+
   const selectedGroup = groups.find((g) => g.id === groupId);
+
+  const allSections = useMemo(
+    () => sortClassSections([...new Set(rows.flatMap((r) => r.class_sections))]),
+    [rows],
+  );
+
+  const panelTitle = scopeTeacher
+    ? `Atanan dersler — ${teachers.find((t) => t.user_id === scopeTeacher)?.display_name ?? ''}`
+    : 'Atanan dersler';
+
+  function openNewLesson() {
+    const d: LessonAssignmentDraft = {
+      subject_id: scopeSubject ?? subjects[0]?.id ?? '',
+      subject_name: subjects.find((s) => s.id === scopeSubject)?.name ?? '',
+      primary_teacher_id: scopeTeacher ?? teachers[0]?.user_id ?? '',
+      co_teacher_ids: [],
+      section: scopeSection ?? allSections[0] ?? '',
+      joined_sections: [],
+      use_joined: false,
+      group_id: '',
+      weekly_hours: 4,
+      period_format: 'single',
+      room_mode: 'class',
+      room_ids: scopeRoom ? [scopeRoom] : [],
+      place_first: false,
+      min_days_per_week: 2,
+      max_per_day: 2,
+    };
+    setAssignmentDraft(d);
+    setListActiveId(null);
+    setDialogOpen(true);
+  }
+
+  function openEditLesson() {
+    const r = scopedRows.find((x) => x.id === listActiveId);
+    if (!r) return;
+    setAssignmentDraft(assignmentToDraft(r, subjects));
+    setDialogOpen(true);
+  }
+
+  async function deleteLesson(id: string) {
+    if (!token || !studio) return;
+    if (!window.confirm('Bu ders ataması silinsin mi?')) return;
+    await apiFetch(`/ders-dagit/studios/${studio.id}/assignments/${id}`, { token, method: 'DELETE' });
+    toast.success('Silindi');
+    if (listActiveId === id) setListActiveId(null);
+    await load();
+  }
 
   function loadToForm(r: Assignment) {
     setEditId(r.id);
     setSubject(r.subject_name);
-    setSections(r.class_sections.join(','));
+    setSections(r.class_sections.length ? r.class_sections : ['5A']);
     setHours(r.weekly_hours);
     setTeacherIds(r.teacher_ids ?? []);
     setRoomId(r.room_ids?.[0] ?? '');
@@ -173,9 +257,7 @@ export default function AtamalarPage() {
             : {}),
         },
         class_sections:
-          selectedGroup?.member_sections?.length && groupId
-            ? selectedGroup.member_sections
-            : sections.split(/[,/]/).map((s) => s.trim()).filter(Boolean),
+          selectedGroup?.member_sections?.length && groupId ? selectedGroup.member_sections : sections,
         weekly_hours: hours,
         max_per_day: maxPerDay,
         max_days_per_week: maxDaysWeek === '' ? null : Number(maxDaysWeek),
@@ -196,23 +278,73 @@ export default function AtamalarPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <Card>
+    <div className={DD_PAGE}>
+      <DdPageHeader
+        icon={ListChecks}
+        title="Ders atama"
+        description="aSc akışı: atanan dersler listesi · Ders penceresi ile öğretmen, ders, sınıf, saat, derslik."
+      />
+      {scopeBanner && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+          <strong>Bireysel kapsam:</strong> {scopeBanner}
+          <span className="ml-2 text-xs text-muted-foreground">
+            ({scopedRows.length} / {rows.length} atama)
+          </span>
+          <Link href="/ders-dagit/studyo/atamalar" className="ml-2 text-xs text-primary underline">
+            Tüm atamalar
+          </Link>
+        </div>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
+        <AssignedLessonsPanel
+          title={panelTitle}
+          rows={scopedRows}
+          subjects={subjects}
+          activeId={listActiveId}
+          onSelect={setListActiveId}
+          onNew={openNewLesson}
+          onEdit={openEditLesson}
+          onDelete={() => listActiveId && void deleteLesson(listActiveId)}
+        />
+        <p className="hidden text-xs text-muted-foreground lg:block">
+          Sağdaki <strong>Ders</strong> penceresi yalnızca seçili öğretmen / şube / ders kapsamına uygulanır. Gelişmiş
+          toplu içe aktarma altta.
+        </p>
+      </div>
+
+      {token && studio && (
+        <LessonAssignmentDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          studioId={studio.id}
+          token={token}
+          draft={assignmentDraft}
+          onDraftChange={setAssignmentDraft}
+          teachers={teachers}
+          subjects={subjects}
+          rooms={rooms}
+          groups={groups}
+          sections={allSections}
+          onSaved={() => void load()}
+        />
+      )}
+
+      <details className="rounded-lg border bg-muted/20 px-3 py-2">
+        <summary className="cursor-pointer text-sm font-medium">Toplu içe aktarma ve gelişmiş form</summary>
+        <div className="mt-3 space-y-4">
+      <DdCard>
         <CardHeader>
-          <CardTitle className="text-base">e-Okul içe aktar (Faz 34)</CardTitle>
+          <CardTitle className="text-base">e-Okul dosyasından yükle</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap items-end gap-2">
-            <select
-              className="h-9 rounded-md border px-2 text-sm"
+            <DdSelect
+              className="min-w-[200px] flex-1 sm:flex-none"
               value={eokulFormat}
-              onChange={(e) => setEokulFormat(e.target.value as typeof eokulFormat)}
-            >
-              <option value="auto">Otomatik (tablo → ızgara)</option>
-              <option value="xlsx">Tablo XLSX</option>
-              <option value="grid_xlsx">Program ızgarası XLS</option>
-              <option value="csv">CSV</option>
-            </select>
+              onValueChange={(v) => setEokulFormat(v as typeof eokulFormat)}
+              options={EOKUL_FORMAT_OPTS}
+            />
             <input
               type="file"
               accept=".xlsx,.xls,.csv"
@@ -266,7 +398,7 @@ export default function AtamalarPage() {
               <ul className="max-h-40 overflow-y-auto text-xs">
                 {eokulPreview.rows.slice(0, 20).map((r, i) => (
                   <li key={i}>
-                    {r.class_sections.join(',')} — {r.subject_name} ({r.weekly_hours} saat)
+                    {formatClassSectionsList(r.class_sections)} — {r.subject_name} ({r.weekly_hours} saat)
                     {r.match_warning ? ` ⚠ ${r.match_warning}` : ''}
                   </li>
                 ))}
@@ -277,7 +409,7 @@ export default function AtamalarPage() {
                   checked={autoElectiveGroups}
                   onChange={(e) => setAutoElectiveGroups(e.target.checked)}
                 />
-                Seçmeli satırlardan alt grup havuzu oluştur (Faz 37)
+                Seçmeli ders satırlarından alt grup oluştur
               </label>
               <div className="flex gap-2">
                 <Button
@@ -343,8 +475,8 @@ export default function AtamalarPage() {
             </>
           )}
         </CardContent>
-      </Card>
-      <Card>
+      </DdCard>
+      <DdCard>
         <CardHeader>
           <CardTitle className="text-base">Ders kataloğundan atama</CardTitle>
         </CardHeader>
@@ -355,11 +487,11 @@ export default function AtamalarPage() {
             variant="secondary"
             onClick={async () => {
               if (!token || !studio) return;
-              const res = await apiFetch<{ created: number }>(
+              const res = await apiFetch<{ created: number; updated?: number }>(
                 `/ders-dagit/studios/${studio.id}/assignments/sync-from-subjects`,
                 { token, method: 'POST', body: {} },
               );
-              toast.success(`${res.created} atama`);
+              toast.success(`${res.created} yeni${res.updated ? `, ${res.updated} güncellendi` : ''}`);
               await load();
             }}
           >
@@ -371,67 +503,49 @@ export default function AtamalarPage() {
             variant="outline"
             onClick={async () => {
               if (!token || !studio) return;
-              const res = await apiFetch<{ created: number }>(
+              const res = await apiFetch<{ created: number; updated?: number }>(
                 `/ders-dagit/studios/${studio.id}/assignments/sync-from-subjects`,
                 { token, method: 'POST', body: { replace: true } },
               );
-              toast.success(`${res.created} atama (yenilendi)`);
+              toast.success(`${res.created} atama (katalog yenilendi)`);
               await load();
             }}
           >
             Katalogdan değiştir
           </Button>
         </CardContent>
-      </Card>
-      {plans.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Okul planından içe aktar (e-Okul köprüsü)</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-wrap items-end gap-2">
-            <select
-              className="flex h-9 min-w-[200px] rounded-md border border-input bg-transparent px-3 text-sm"
-              value={planId}
-              onChange={(e) => setPlanId(e.target.value)}
-            >
-              {plans.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name ?? p.id.slice(0, 8)} ({p.status})
-                </option>
-              ))}
-            </select>
-            <Button type="button" size="sm" variant="secondary" onClick={() => void importFromPlan(false)}>
-              Ekle
-            </Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => void importFromPlan(true)}>
-              Değiştir (mevcutları sil)
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-      <Card>
+      </DdCard>
+      <p className="text-xs text-muted-foreground">
+        Okul planından ders + atama aktarımı için{' '}
+        <a href="/ders-dagit/studyo/dersler" className="font-medium text-primary underline-offset-2 hover:underline">
+          Dersler
+        </a>{' '}
+        sayfasındaki önizleme ve onay akışını kullanın.
+      </p>
+      <DdCard>
         <CardHeader>
-          <CardTitle className="text-base">Grup (Horarium divisions)</CardTitle>
+          <CardTitle className="text-base">Paralel grup</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-wrap items-end gap-2">
-          <select
-            className="flex h-9 min-w-[220px] rounded-md border border-input bg-transparent px-3 text-sm"
+          <DdSelect
+            className="min-w-[220px] flex-1"
             value={groupId}
-            onChange={(e) => setGroupId(e.target.value)}
-          >
-            <option value="">Grup yok</option>
-            {groups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name} ({g.parallel_mode})
-              </option>
-            ))}
-          </select>
+            onValueChange={setGroupId}
+            placeholder="Grup yok"
+            options={[
+              { value: '', label: 'Grup yok' },
+              ...groups.map((g) => ({
+                value: g.id,
+                label: `${g.name} (${groupModeLabel(g.parallel_mode)})`,
+              })),
+            ]}
+          />
           <Button type="button" size="sm" variant="outline" asChild>
             <Link href="/ders-dagit/studyo/gruplar">Grupları yönet</Link>
           </Button>
         </CardContent>
-      </Card>
-      <Card>
+      </DdCard>
+      <DdCard>
         <CardHeader>
           <CardTitle className="text-base">Yeni ders ataması</CardTitle>
         </CardHeader>
@@ -446,7 +560,7 @@ export default function AtamalarPage() {
           </label>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={coTeach} onChange={(e) => setCoTeach(e.target.checked)} />
-            Ortak öğretim (aynı slot)
+            Aynı saatte ortak öğretim
           </label>
           {(schoolType === 'mtal' || blockLessons > 0) && (
             <>
@@ -476,62 +590,56 @@ export default function AtamalarPage() {
           <div>
             <Label>Ders</Label>
             {subjects.length > 0 ? (
-              <select
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              <DdSelect
                 value={subject}
-                onChange={(e) => {
-                  const name = e.target.value;
+                onValueChange={(name) => {
                   setSubject(name);
                   const s = subjects.find((x) => x.name === name);
                   setSubjectId(s?.id ?? '');
                 }}
-              >
-                <option value="">—</option>
-                {subjects.map((s) => (
-                  <option key={s.id} value={s.name}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+                placeholder="—"
+                options={[
+                  { value: '', label: '—' },
+                  ...subjects.map((s) => ({ value: s.name, label: s.name })),
+                ]}
+              />
             ) : (
               <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Matematik" />
             )}
           </div>
-          <div>
-            <Label>Sınıflar (5A veya 9A/9B)</Label>
-            <Input value={sections} onChange={(e) => setSections(e.target.value)} />
-          </div>
+          <DdSectionMultiField
+            className="sm:col-span-2"
+            label="Sınıflar / şubeler"
+            value={sections}
+            onValueChange={setSections}
+            extraSections={rows.flatMap((r) => r.class_sections)}
+          />
           <div>
             <Label>Haftalık saat</Label>
             <Input type="number" min={1} value={hours} onChange={(e) => setHours(Number(e.target.value))} />
           </div>
           <div>
             <Label>Öğretmen(ler)</Label>
-            <select
-              multiple
-              className="flex h-16 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+            <DdMultiSelect
               value={teacherIds}
-              onChange={(e) =>
-                setTeacherIds(Array.from(e.target.selectedOptions, (o) => o.value))
-              }
-            >
-              {teachers.map((t) => (
-                <option key={t.user_id} value={t.user_id}>
-                  {t.display_name ?? t.user_id.slice(0, 8)}
-                </option>
-              ))}
-            </select>
+              onValueChange={setTeacherIds}
+              rows={4}
+              options={teachers.map((t) => ({
+                value: t.user_id,
+                label: t.display_name ?? t.user_id.slice(0, 8),
+              }))}
+            />
           </div>
           <div>
-            <Label>Min gün/hf</Label>
+            <Label>Haftada en az gün</Label>
             <Input type="number" min={1} value={minDays} onChange={(e) => setMinDays(Number(e.target.value))} />
           </div>
           <div>
-            <Label>Max/gün</Label>
+            <Label>Günde en fazla saat</Label>
             <Input type="number" min={1} value={maxPerDay} onChange={(e) => setMaxPerDay(Number(e.target.value))} />
           </div>
           <div>
-            <Label>Max gün/hf</Label>
+            <Label>Haftada en fazla gün</Label>
             <Input
               type="number"
               min={1}
@@ -543,27 +651,23 @@ export default function AtamalarPage() {
           </div>
           <div>
             <Label>Derslik</Label>
-            <select
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+            <DdSelect
               value={roomId}
-              onChange={(e) => setRoomId(e.target.value)}
-            >
-              <option value="">—</option>
-              {rooms.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
+              onValueChange={setRoomId}
+              placeholder="—"
+              options={[
+                { value: '', label: '—' },
+                ...rooms.map((r) => ({ value: r.id, label: r.name })),
+              ]}
+            />
           </div>
           <div className="flex flex-wrap items-end gap-2 sm:col-span-2">
-            <select className="h-9 rounded-md border px-2 text-sm" value={fixDay} onChange={(e) => setFixDay(Number(e.target.value))}>
-              {[1, 2, 3, 4, 5, 6].map((d) => (
-                <option key={d} value={d}>
-                  Gün {d}
-                </option>
-              ))}
-            </select>
+            <DdSelect
+              className="max-w-[120px]"
+              value={String(fixDay)}
+              onValueChange={(v) => setFixDay(Number(v))}
+              options={FIX_DAY_OPTS}
+            />
             <Input type="number" className="h-9 w-16" min={1} value={fixLesson} onChange={(e) => setFixLesson(Number(e.target.value))} />
             <Button
               type="button"
@@ -571,7 +675,7 @@ export default function AtamalarPage() {
               variant="outline"
               onClick={() => setFixedSlots((p) => [...p, { day_of_week: fixDay, lesson_num: fixLesson }])}
             >
-              + Sabit slot
+              + Sabit saat ekle
             </Button>
             <Button type="button" onClick={() => void addAssignment()}>
               {editId ? 'Güncelle' : 'Ekle'}
@@ -584,15 +688,15 @@ export default function AtamalarPage() {
           </div>
           {fixedSlots.length > 0 && (
             <p className="text-xs text-muted-foreground sm:col-span-6">
-              Sabit: {fixedSlots.map((f, i) => `${f.day_of_week}/${f.lesson_num}`).join(', ')}
+              Sabit saatler: {fixedSlots.map((f) => `gün ${f.day_of_week}, ${f.lesson_num}. ders`).join(' · ')}
               <button type="button" className="ml-2 underline" onClick={() => setFixedSlots([])}>
                 temizle
               </button>
             </p>
           )}
         </CardContent>
-      </Card>
-      <Card>
+      </DdCard>
+      <DdCard>
         <CardHeader>
           <CardTitle className="text-base">Excel toplu içe aktar</CardTitle>
         </CardHeader>
@@ -640,8 +744,8 @@ export default function AtamalarPage() {
             }}
           />
         </CardContent>
-      </Card>
-      <Card>
+      </DdCard>
+      <DdCard>
         <CardHeader>
           <CardTitle className="text-base">CSV toplu içe aktar</CardTitle>
         </CardHeader>
@@ -675,63 +779,9 @@ export default function AtamalarPage() {
             </Button>
           </div>
         </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Atamalar ({rows.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {rows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Henüz atama yok.</p>
-          ) : (
-            <ul className="space-y-2 text-sm">
-              {rows.map((r) => (
-                <li key={r.id} className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2">
-                  <button type="button" className="text-left hover:underline" onClick={() => loadToForm(r)}>
-                    <strong>{r.subject_name}</strong> — {r.class_sections.join(', ')} · {r.weekly_hours} saat/hafta
-                  {r.teacher_ids?.[0] ? (
-                    <span className="text-muted-foreground">
-                      {' '}
-                      · {teachers.find((t) => t.user_id === r.teacher_ids![0])?.display_name ?? 'öğrt.'}
-                    </span>
-                  ) : null}
-                    {r.room_ids?.length ? (
-                      <span className="text-muted-foreground">
-                        {' '}
-                        · {rooms.find((x) => x.id === r.room_ids![0])?.name ?? 'derslik'}
-                      </span>
-                    ) : null}
-                  {r.group_id ? (
-                    <span className="text-muted-foreground">
-                      {' '}
-                      · {groups.find((g) => g.id === r.group_id)?.abbreviation ?? 'grup'}
-                    </span>
-                  ) : null}
-                  {r.biweekly ? <span className="text-muted-foreground"> · 2hf</span> : null}
-                  </button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="text-destructive"
-                    onClick={async () => {
-                      if (!token || !studio) return;
-                      await apiFetch(`/ders-dagit/studios/${studio.id}/assignments/${r.id}`, {
-                        token,
-                        method: 'DELETE',
-                      });
-                      toast.success('Silindi');
-                      await load();
-                    }}
-                  >
-                    Sil
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+      </DdCard>
+        </div>
+      </details>
     </div>
   );
 }

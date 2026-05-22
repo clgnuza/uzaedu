@@ -89,7 +89,7 @@ export function parseSlotFromTimeColumn(cell: string): { slot: number | null; ti
   return { slot, time };
 }
 
-function isLessonCellText(raw: string): boolean {
+export function isLessonCellText(raw: string): boolean {
   if (!raw || raw.length < 3) return false;
   return raw.includes('<->') || /\d{1,2}\s*\.?\s*Sınıf\s*\//i.test(raw);
 }

@@ -47,8 +47,16 @@ export class DersDagitClassProfile {
   @Column({ name: 'education_shift', type: 'varchar', length: 16, nullable: true })
   education_shift: string | null;
 
+  /** Bu profile bağlı tüm şubelerde staj/beceri günü (haftalık gün no 1–7) */
+  @Column({ name: 'internship_days', type: 'jsonb', default: [] })
+  internship_days: number[];
+
   @Column({ name: 'sort_order', type: 'int', default: 0 })
   sort_order: number;
+
+  /** Boş veya null → stüdyo varsayılan kuralları */
+  @Column({ type: 'jsonb', nullable: true })
+  rules: Record<string, { active: boolean; weight?: number; params?: Record<string, unknown> }> | null;
 
   @CreateDateColumn({ name: 'created_at' })
   created_at: Date;

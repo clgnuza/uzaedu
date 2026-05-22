@@ -1,5 +1,6 @@
 /** Faz 37 — Seçmeli havuz + AİHL norm */
 
+import { sortClassSections } from './class-section-sort';
 import type { StudioSchoolProfile } from './ders-dagit.school-profile';
 
 const ELECTIVE_RE = /seçmeli|elective|alan\s*ders/i;
@@ -61,7 +62,7 @@ export function clusterElectiveImportRows(
   }
   const out: ElectiveImportCluster[] = [];
   for (const [base, v] of byBase) {
-    let members = [...v.sections].sort();
+    let members = sortClassSections([...v.sections]);
     if (members.length < 2 && (v.teacherKeys.size >= 2 || v.subjects.size >= 2)) {
       const n = Math.max(2, v.teacherKeys.size, v.subjects.size);
       members = Array.from({ length: n }, (_, i) => `${base}-S${i + 1}`);

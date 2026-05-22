@@ -1,4 +1,4 @@
--- Faz 6-9: Horarium divisions — alt şubeler
+-- Faz 6-9: Paralel grup / alt şubeler
 
 ALTER TABLE ders_dagit_group
   ADD COLUMN IF NOT EXISTS member_sections JSONB NOT NULL DEFAULT '[]';

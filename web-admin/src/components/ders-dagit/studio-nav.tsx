@@ -22,32 +22,38 @@ import {
   Archive,
   TableProperties,
   SlidersHorizontal,
+  Grid3x3,
 } from 'lucide-react';
 
 const STEPS = [
-  { href: '/ders-dagit/studyo/kurulum', label: 'Kurulum', icon: Settings2 },
-  { href: '/ders-dagit/studyo/donem', label: 'Dönem', icon: CalendarRange },
-  { href: '/ders-dagit/studyo/ogretmenler', label: 'Öğretmenler', icon: Users },
-  { href: '/ders-dagit/studyo/dersler', label: 'Dersler', icon: BookOpen },
-  { href: '/ders-dagit/studyo/gruplar', label: 'Gruplar', icon: GitBranch },
-  { href: '/ders-dagit/studyo/secmeli', label: 'Seçmeli', icon: Layers },
-  { href: '/ders-dagit/studyo/derslikler', label: 'Derslikler', icon: Building2 },
-  { href: '/ders-dagit/studyo/atamalar', label: 'Atamalar', icon: ListChecks },
-  { href: '/ders-dagit/studyo/kurallar', label: 'Kurallar', icon: Scale },
-  { href: '/ders-dagit/studyo/dogrulama', label: 'Doğrulama', icon: ClipboardCheck },
-  { href: '/ders-dagit/studyo/uret', label: 'Üret', icon: Wand2 },
-  { href: '/ders-dagit/studyo/program', label: 'Program', icon: TableProperties },
-  { href: '/ders-dagit/studyo/yayin', label: 'Yayın', icon: Send },
-  { href: '/ders-dagit/studyo/ogretmen-program', label: 'Öğretmen', icon: LayoutGrid },
-  { href: '/ders-dagit/studyo/arsiv', label: 'Arşiv', icon: Archive },
-  { href: '/ders-dagit/studyo/adalet', label: 'Adalet', icon: BarChart3 },
-  { href: '/ders-dagit/studyo/ayarlar', label: 'Ayarlar', icon: SlidersHorizontal },
+  { href: '/ders-dagit/studyo/kurulum', label: 'Kurulum', icon: Settings2, tone: 'indigo' },
+  { href: '/ders-dagit/studyo/donem', label: 'Dönem', icon: CalendarRange, tone: 'violet' },
+  { href: '/ders-dagit/studyo/sinif-saatleri', label: 'Sınıf saatleri', icon: Grid3x3, tone: 'amber' },
+  { href: '/ders-dagit/studyo/ogretmenler', label: 'Öğretmenler', icon: Users, tone: 'teal' },
+  { href: '/ders-dagit/studyo/dersler', label: 'Dersler', icon: BookOpen, tone: 'sky' },
+  { href: '/ders-dagit/studyo/gruplar', label: 'Gruplar', icon: GitBranch, tone: 'lavender' },
+  { href: '/ders-dagit/studyo/secmeli', label: 'Seçmeli', icon: Layers, tone: 'mint' },
+  { href: '/ders-dagit/studyo/derslikler', label: 'Derslikler', icon: Building2, tone: 'peach' },
+  { href: '/ders-dagit/studyo/atamalar', label: 'Atamalar', icon: ListChecks, tone: 'rose' },
+  { href: '/ders-dagit/studyo/planlama-iliskileri', label: 'Planlama', icon: GitBranch, tone: 'amber' },
+  { href: '/ders-dagit/studyo/kurallar', label: 'Kurallar', icon: Scale, tone: 'peach' },
+  { href: '/ders-dagit/studyo/dogrulama', label: 'Doğrulama', icon: ClipboardCheck, tone: 'indigo' },
+  { href: '/ders-dagit/studyo/uret', label: 'Oluştur', icon: Wand2, tone: 'violet' },
+  { href: '/ders-dagit/studyo/program', label: 'Program', icon: TableProperties, tone: 'teal' },
+  { href: '/ders-dagit/studyo/yayin', label: 'Yayın', icon: Send, tone: 'sky' },
+  { href: '/ders-dagit/studyo/ogretmen-program', label: 'Öğretmen', icon: LayoutGrid, tone: 'lavender' },
+  { href: '/ders-dagit/studyo/arsiv', label: 'Arşiv', icon: Archive, tone: 'mint' },
+  { href: '/ders-dagit/studyo/adalet', label: 'Adalet', icon: BarChart3, tone: 'peach' },
+  { href: '/ders-dagit/studyo/ayarlar', label: 'Ayarlar', icon: SlidersHorizontal, tone: 'indigo' },
 ] as const;
+
+const ACTIVE = 'dd-nav-pill-active';
+const IDLE = 'dd-nav-pill text-muted-foreground hover:text-foreground';
 
 export function DersDagitStudioNav({ healthScore }: { healthScore?: number }) {
   const pathname = usePathname();
   return (
-    <nav className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
+    <nav className="dd-glass dd-glass-subtle dd-nav-scroll hidden gap-1.5 overflow-x-auto rounded-xl p-2 pb-1 lg:flex lg:flex-wrap lg:gap-2 lg:overflow-visible lg:pb-2">
       {STEPS.map(({ href, label, icon: Icon }) => {
         const active = pathname === href || pathname.startsWith(`${href}/`);
         return (
@@ -55,13 +61,11 @@ export function DersDagitStudioNav({ healthScore }: { healthScore?: number }) {
             key={href}
             href={href}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-              active
-                ? 'bg-primary text-primary-foreground shadow-sm'
-                : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground',
+              'inline-flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all sm:gap-1.5 sm:px-3 sm:py-2 sm:text-sm',
+              active ? ACTIVE : IDLE,
             )}
           >
-            <Icon className="size-4 shrink-0" />
+            <Icon className="size-3.5 shrink-0 sm:size-4" />
             {label}
           </Link>
         );
@@ -69,7 +73,7 @@ export function DersDagitStudioNav({ healthScore }: { healthScore?: number }) {
       {healthScore != null && (
         <span
           className={cn(
-            'ml-auto inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold',
+            'ml-auto inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold sm:px-3 sm:text-xs',
             healthScore >= 80
               ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200'
               : healthScore >= 50
@@ -77,7 +81,7 @@ export function DersDagitStudioNav({ healthScore }: { healthScore?: number }) {
                 : 'bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-100',
           )}
         >
-          <Heart className="size-3.5" />
+          <Heart className="size-3 sm:size-3.5" />
           Sağlık {healthScore}
         </span>
       )}

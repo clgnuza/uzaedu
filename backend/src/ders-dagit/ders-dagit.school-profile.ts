@@ -14,7 +14,10 @@ export type StudioSchoolProfile = {
   type: MebSchoolType;
   /** 12. sınıf YKS kolu (anadolu/fen) */
   yks_track?: YksTrack | null;
-  /** Bu günlerde staj vb. — listedeki şubeler ders almaz (boş: tüm şubeler) */
+  /**
+   * @deprecated Okul geneli staj — yeni kurulumda kullanmayın.
+   * Şube bazlı: section_schedules.internship_days veya sınıf profili internship_days.
+   */
   internship_days?: number[];
   internship_sections?: string[];
 };

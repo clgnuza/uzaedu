@@ -1,4 +1,6 @@
-/** Horarium yaygın hatalar (#errors) — ön doğrulama */
+import { compareClassSections, sortClassSections, sortValidationIssues } from './class-section-sort';
+
+/** Yaygın doğrulama hataları — ön doğrulama */
 
 export type ValidationIssue = {
   code: string;
@@ -35,18 +37,45 @@ export type StudioValidationInput = {
 
 const WORK_DAYS = 5;
 
+/** Profillerdeki benzersiz şube sayısı (toplu tek profil dahil). */
+export function countClassSectionsFromProfiles(
+  profiles: Array<{ class_sections?: string[] }>,
+): number {
+  const set = new Set<string>();
+  for (const p of profiles) {
+    for (const s of p.class_sections ?? []) {
+      const t = String(s).trim();
+      if (t) set.add(t);
+    }
+  }
+  return set.size;
+}
+
 export function validateStudioData(input: StudioValidationInput): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
-  if (input.class_profiles.length < 2) {
-    issues.push({ code: 'MIN_CLASSES', severity: 'error', message: 'En az iki sınıf yapılandırması gerekli.' });
+  const sectionCount = input.class_profiles.reduce((n, cp) => n + (cp.class_sections?.length ?? 0), 0);
+  if (input.class_profiles.length === 0 || sectionCount === 0) {
+    issues.push({
+      code: 'MIN_CLASSES',
+      severity: 'error',
+      message: 'En az bir sınıf profili ve şube tanımlayın.',
+    });
   }
   if (input.teachers.length < 2) {
     issues.push({ code: 'MIN_TEACHERS', severity: 'error', message: 'En az iki öğretmen gerekli.' });
   }
 
-  for (const cp of input.class_profiles) {
-    const sections = cp.class_sections ?? [];
+  const profiles = [...input.class_profiles]
+    .map((cp) => ({ ...cp, class_sections: sortClassSections(cp.class_sections ?? []) }))
+    .sort((a, b) => {
+      const sa = a.class_sections[0] ?? a.name;
+      const sb = b.class_sections[0] ?? b.name;
+      return compareClassSections(sa, sb);
+    });
+
+  for (const cp of profiles) {
+    const sections = cp.class_sections;
     if (sections.length === 0) {
       issues.push({
         code: 'CLASS_NO_SECTIONS',
@@ -152,5 +181,5 @@ export function validateStudioData(input: StudioValidationInput): ValidationIssu
     }
   }
 
-  return issues;
+  return sortValidationIssues(issues);
 }

@@ -1,6 +1,7 @@
 /**
  * Faz 35 — e-Okul dışa aktarım + doğrulama raporu
  */
+import { compareClassSections } from './class-section-sort';
 import type { ExportEntry } from './ders-dagit.export';
 import { DAY_LABELS, escCsv } from './ders-dagit.export';
 
@@ -139,7 +140,7 @@ export function buildEokulScheduleCsv(
   const out = [EOKUL_HEADERS.join(';')];
   const sorted = [...rows].sort(
     (a, b) =>
-      a.class_section.localeCompare(b.class_section, 'tr') ||
+      compareClassSections(a.class_section, b.class_section) ||
       a.day_of_week - b.day_of_week ||
       a.lesson_num - b.lesson_num,
   );

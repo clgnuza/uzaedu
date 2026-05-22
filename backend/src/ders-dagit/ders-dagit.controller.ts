@@ -76,6 +76,38 @@ export class DersDagitController {
     return this.service.deleteClassProfile(id, studioId);
   }
 
+  @Patch('studios/:studioId/class-profiles/:profileId/rules')
+  @Roles(UserRole.school_admin)
+  updateClassProfileRules(
+    @Param('studioId') studioId: string,
+    @Param('profileId') profileId: string,
+    @Body() body: { rules: Record<string, { active: boolean; weight?: number; params?: Record<string, unknown> }> },
+  ) {
+    return this.service.updateClassProfileRules(studioId, profileId, body.rules);
+  }
+
+  @Get('studios/:studioId/class-sections')
+  @Roles(UserRole.school_admin)
+  listStudioClassSections(@CurrentUser() u: CurrentUserPayload, @Param('studioId') studioId: string) {
+    return this.service.listStudioClassSections(studioId, u.schoolId!);
+  }
+
+  @Get('studios/:studioId/section-schedules')
+  @Roles(UserRole.school_admin)
+  getSectionSchedules(@CurrentUser() u: CurrentUserPayload, @Param('studioId') studioId: string) {
+    return this.service.getSectionSchedules(studioId, u.schoolId!);
+  }
+
+  @Patch('studios/:studioId/section-schedules')
+  @Roles(UserRole.school_admin)
+  updateSectionSchedule(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Body() body: { section: string; schedule: { lessons_per_day_by_dow?: Record<string, number>; cells?: Record<string, string> } },
+  ) {
+    return this.service.updateSectionSchedule(studioId, u.schoolId!, body.section, body.schedule as never);
+  }
+
   // Teachers
   @Post('studios/:studioId/teachers/sync')
   @Roles(UserRole.school_admin)
@@ -127,6 +159,22 @@ export class DersDagitController {
     return this.service.upsertGroup(studioId, body as never);
   }
 
+  @Get('studios/:studioId/groups/suggestions')
+  @Roles(UserRole.school_admin)
+  suggestGroups(@CurrentUser() u: CurrentUserPayload, @Param('studioId') studioId: string) {
+    return this.service.suggestGroups(studioId, u.schoolId!);
+  }
+
+  @Post('studios/:studioId/groups/apply-suggestions')
+  @Roles(UserRole.school_admin)
+  applyGroupSuggestions(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Body() body: { keys?: string[]; apply_all?: boolean },
+  ) {
+    return this.service.applyGroupSuggestions(studioId, u.userId, body);
+  }
+
   @Delete('studios/:studioId/groups/:id')
   @Roles(UserRole.school_admin)
   deleteGroup(@Param('studioId') studioId: string, @Param('id') id: string) {
@@ -157,10 +205,32 @@ export class DersDagitController {
     return this.service.syncElectivePoolGroup(studioId, id);
   }
 
+  @Post('studios/:studioId/elective-pools/:id/apply-assignments/preview')
+  @Roles(UserRole.school_admin)
+  previewApplyElectivePool(@Param('studioId') studioId: string, @Param('id') id: string) {
+    return this.service.previewApplyElectivePoolAssignments(studioId, id);
+  }
+
   @Post('studios/:studioId/elective-pools/:id/apply-assignments')
   @Roles(UserRole.school_admin)
   applyElectivePool(@Param('studioId') studioId: string, @Param('id') id: string) {
     return this.service.applyElectivePoolAssignments(studioId, id);
+  }
+
+  @Get('studios/:studioId/elective-pools/suggestions')
+  @Roles(UserRole.school_admin)
+  suggestElectivePools(@Param('studioId') studioId: string) {
+    return this.service.suggestElectivePools(studioId);
+  }
+
+  @Post('studios/:studioId/elective-pools/apply-suggestions')
+  @Roles(UserRole.school_admin)
+  applyElectiveSuggestions(
+    @Param('studioId') studioId: string,
+    @Body()
+    body: { keys?: string[]; apply_all?: boolean; sync_groups?: boolean; apply_assignments?: boolean },
+  ) {
+    return this.service.applyElectivePoolSuggestions(studioId, body);
   }
 
   @Get('studios/:studioId/aihl-norm')
@@ -235,6 +305,15 @@ export class DersDagitController {
     return this.service.upsertRoom(u.schoolId!, body as never);
   }
 
+  @Post('rooms/auto-from-sections')
+  @Roles(UserRole.school_admin)
+  autoRoomsFromSections(
+    @CurrentUser() u: CurrentUserPayload,
+    @Body() body: { studio_id: string },
+  ) {
+    return this.service.autoCreateRoomsFromClassSections(u.schoolId!, body.studio_id);
+  }
+
   // Assignments
   @Get('studios/:studioId/assignments')
   @Roles(UserRole.school_admin)
@@ -297,6 +376,18 @@ export class DersDagitController {
     @Body() body: { rules: Record<string, unknown>; building_travel?: unknown[] },
   ) {
     return this.service.updateRules(studioId, body.rules, body.building_travel);
+  }
+
+  @Patch('studios/:studioId/planning-relations')
+  @Roles(UserRole.school_admin)
+  updatePlanningRelations(
+    @Param('studioId') studioId: string,
+    @Body() body: { relations: unknown[] },
+  ) {
+    return this.service.updatePlanningRelations(
+      studioId,
+      body.relations as import('./ders-dagit.planning-relations').PlanningRelationRow[],
+    );
   }
 
   // Preferences
@@ -757,6 +848,27 @@ export class DersDagitController {
     return this.service.archiveProgram(studioId, programId, u.userId);
   }
 
+  @Post('studios/:studioId/programs/:programId/unarchive')
+  @Roles(UserRole.school_admin)
+  unarchiveProgram(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Param('programId') programId: string,
+  ) {
+    return this.service.unarchiveProgram(studioId, programId, u.userId);
+  }
+
+  @Patch('studios/:studioId/programs/:programId')
+  @Roles(UserRole.school_admin)
+  patchProgram(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Param('programId') programId: string,
+    @Body() body: { name?: string },
+  ) {
+    return this.service.patchProgram(studioId, programId, u.userId, body);
+  }
+
   @Get('studios/:studioId/programs/:programId/teacher-grid')
   @Roles(UserRole.school_admin, UserRole.teacher)
   teacherGrid(@Param('studioId') studioId: string, @Param('programId') programId: string) {
@@ -769,19 +881,31 @@ export class DersDagitController {
     return this.service.getGenerationJob(studioId, jobId);
   }
 
+  @Post('studios/:studioId/import-from-plan/preview')
+  @Roles(UserRole.school_admin)
+  previewImportFromPlan(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Body() body: { plan_id: string },
+  ) {
+    return this.service.previewImportFromSchoolPlan(studioId, u.schoolId!, body.plan_id);
+  }
+
   @Post('studios/:studioId/import-from-plan')
   @Roles(UserRole.school_admin)
   importFromPlan(
     @CurrentUser() u: CurrentUserPayload,
     @Param('studioId') studioId: string,
-    @Body() body: { plan_id: string; replace?: boolean },
+    @Body()
+    body: {
+      plan_id: string;
+      replace?: boolean;
+      replace_subjects?: boolean;
+      replace_assignments?: boolean;
+      import_subjects?: boolean;
+      import_assignments?: boolean;
+    },
   ) {
-    return this.service.importAssignmentsFromSchoolPlan(
-      studioId,
-      u.schoolId!,
-      body.plan_id,
-      u.userId,
-      { replace: !!body.replace },
-    );
+    return this.service.importFromSchoolPlan(studioId, u.schoolId!, body.plan_id, u.userId, body);
   }
 }

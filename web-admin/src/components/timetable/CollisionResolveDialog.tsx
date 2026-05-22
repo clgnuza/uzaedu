@@ -32,7 +32,7 @@ export function CollisionResolveDialog({
           <DialogTitle>Çakışma — ne yapalım?</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          <strong>{moving.class_section} · {moving.subject}</strong> bu slotta{' '}
+          <strong>{moving.class_section} · {moving.subject}</strong> bu saatte{' '}
           {occupants.length} ders var.
         </p>
         <ul className="space-y-2">

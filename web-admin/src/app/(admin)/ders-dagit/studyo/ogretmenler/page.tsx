@@ -1,77 +1,226 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { apiFetch } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import {
+  DdCard,
+  CardContent,
+  DdPageHeader,
+  DD_PAGE,
+  DD_CARD_CONTENT,
+} from '@/components/ders-dagit/dd-ui';
+import type { TeacherConfig } from '@/components/ders-dagit/teacher-config-types';
+import { DdEntityActionBar, type EntityActionKey } from '@/components/ders-dagit/dd-entity-action-bar';
+import { DdEntityWorkspace } from '@/components/ders-dagit/dd-entity-workspace';
+import { DdEntityTimeDialog } from '@/components/ders-dagit/dd-entity-time-dialog';
+import { TeacherEntityTable } from '@/components/ders-dagit/teacher-entity-table';
+import { TeacherSettingsForm, teacherToDraft } from '@/components/ders-dagit/teacher-settings-form';
+import { TeacherAvailabilityGrid } from '@/components/ders-dagit/teacher-availability-grid';
+import type { TeacherDraft } from '@/components/ders-dagit/teacher-config-types';
+import {
+  assignmentToDraft,
+  suggestRooms,
+  type LessonAssignmentDraft,
+  type LessonAssignmentRow,
+} from '@/lib/lesson-assignment';
+import { AssignedLessonsPanel } from '@/components/ders-dagit/assigned-lessons-panel';
+import { LessonAssignmentDialog } from '@/components/ders-dagit/lesson-assignment-dialog';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { Users } from 'lucide-react';
 
-type Teacher = {
-  id: string;
-  user_id: string;
-  display_name?: string;
-  branch?: string | null;
-  mandatory_weekly_hours: number | null;
-  max_extra_weekly_hours: number | null;
-  max_lessons_per_day: number | null;
-  min_work_days: number | null;
-  max_work_days: number | null;
-  allow_am_pm_gap: boolean;
-  unavailable_periods: Array<{ day_of_week: number; lesson_num?: number }>;
-  constraints?: { education_shift?: 'morning' | 'afternoon' | null };
+type PeriodsRes = {
+  duty_max_lessons: number | null;
+  work_days: number[];
 };
 
-const DAY_OPTS = [
-  { v: 1, l: 'Pzt' },
-  { v: 2, l: 'Sal' },
-  { v: 3, l: 'Çar' },
-  { v: 4, l: 'Per' },
-  { v: 5, l: 'Cum' },
-  { v: 6, l: 'Cmt' },
-];
+type Assignment = LessonAssignmentRow;
+type SubjectRow = { id: string; name: string; short_code?: string | null };
+type RoomRow = {
+  id: string;
+  name: string;
+  allowed_subjects?: string[] | null;
+  allowed_class_sections?: string[] | null;
+  allowed_teacher_ids?: string[] | null;
+};
+type GroupRow = { id: string; name: string; parallel_mode: string | null; member_sections: string[] };
+
+type BulkField = 'hours' | 'availability' | 'shift';
+type EditTab = 'limits' | 'availability';
+
+function mergeDraft(base: TeacherConfig, draft: TeacherDraft, fields: Set<BulkField>): Partial<TeacherConfig> {
+  const patch: Partial<TeacherConfig> = {};
+  if (fields.has('hours')) {
+    patch.branch = draft.branch;
+    patch.mandatory_weekly_hours = draft.mandatory_weekly_hours;
+    patch.max_extra_weekly_hours = draft.max_extra_weekly_hours;
+    patch.max_lessons_per_day = draft.max_lessons_per_day;
+    patch.min_work_days = draft.min_work_days;
+    patch.max_work_days = draft.max_work_days;
+  }
+  if (fields.has('shift')) {
+    patch.allow_am_pm_gap = draft.allow_am_pm_gap;
+    patch.constraints = draft.constraints;
+  }
+  if (fields.has('availability')) {
+    patch.unavailable_periods = draft.unavailable_periods;
+  }
+  return { ...base, ...patch };
+}
 
 export default function OgretmenlerPage() {
   const { token } = useAuth();
   const { studio, refresh } = useDersDagitStudio();
-  const [rows, setRows] = useState<Teacher[]>([]);
+  const [rows, setRows] = useState<TeacherConfig[]>([]);
+  const [periods, setPeriods] = useState<PeriodsRes | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [bulkIds, setBulkIds] = useState<Set<string>>(new Set());
+  const [draft, setDraft] = useState<TeacherDraft | null>(null);
+  const [baselineDraft, setBaselineDraft] = useState<string>('');
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [blockDay, setBlockDay] = useState(1);
-  const [blockLesson, setBlockLesson] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  const [editTab, setEditTab] = useState<EditTab>('limits');
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [timeOpen, setTimeOpen] = useState(false);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [subjects, setSubjects] = useState<SubjectRow[]>([]);
+  const [rooms, setRooms] = useState<RoomRow[]>([]);
+  const [groups, setGroups] = useState<GroupRow[]>([]);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [assignmentDraft, setAssignmentDraft] = useState<LessonAssignmentDraft | null>(null);
+  const [listActiveId, setListActiveId] = useState<string | null>(null);
+  const [assignPanelOpen, setAssignPanelOpen] = useState(false);
+  const [studioSections, setStudioSections] = useState<string[]>([]);
+  const [bulkFields, setBulkFields] = useState<Set<BulkField>>(
+    () => new Set<BulkField>(['hours', 'availability', 'shift']),
+  );
+
+  const colorIndex = useMemo(() => new Map(rows.map((t, i) => [t.id, i])), [rows]);
+  const active = useMemo(() => rows.find((t) => t.id === activeId) ?? null, [rows, activeId]);
+  const workDays = periods?.work_days ?? [1, 2, 3, 4, 5];
+  const maxLessons = periods?.duty_max_lessons ?? 8;
+
+  const teacherNameById = useMemo(
+    () => new Map(rows.map((t) => [t.user_id, t.display_name?.trim() || t.user_id.slice(0, 8)])),
+    [rows],
+  );
+  const roomNameById = useMemo(() => new Map(rooms.map((r) => [r.id, r.name])), [rooms]);
+  const allSections = useMemo(() => studioSections, [studioSections]);
+  const teacherAssignments = useMemo(() => {
+    if (!active?.user_id) return [];
+    return assignments.filter((a) => a.teacher_ids?.includes(active.user_id));
+  }, [assignments, active?.user_id]);
+
+  function openNewAssignment() {
+    if (!active?.user_id) return;
+    const teacherId = active.user_id;
+    const sec = allSections[0] ?? '';
+    setAssignmentDraft({
+      subject_id: subjects[0]?.id ?? '',
+      subject_name: subjects[0]?.name ?? '',
+      primary_teacher_id: teacherId,
+      co_teacher_ids: [],
+      section: sec,
+      joined_sections: [],
+      use_joined: false,
+      group_id: '',
+      weekly_hours: 4,
+      period_format: 'single',
+      room_mode: 'class',
+      room_ids: suggestRooms('class', { section: sec, subjectName: subjects[0]?.name ?? '', teacherId, rooms }),
+      place_first: false,
+      min_days_per_week: 2,
+      max_per_day: 2,
+    });
+    setListActiveId(null);
+    setDialogOpen(true);
+  }
+
+  function openEditAssignment(row: Assignment) {
+    setAssignmentDraft(assignmentToDraft(row, subjects));
+    setListActiveId(row.id);
+    setDialogOpen(true);
+  }
+
+  async function deleteAssignment(id: string) {
+    if (!token || !studio) return;
+    if (!window.confirm('Bu ders ataması silinsin mi?')) return;
+    await apiFetch(`/ders-dagit/studios/${studio.id}/assignments/${id}`, { token, method: 'DELETE' });
+    toast.success('Atama silindi');
+    if (listActiveId === id) setListActiveId(null);
+    await load();
+  }
 
   const load = useCallback(async () => {
     if (!token || !studio) return;
-    setRows(await apiFetch<Teacher[]>(`/ders-dagit/studios/${studio.id}/teachers`, { token }));
+    setLoading(true);
+    try {
+      const [list, per, asn, sub, rm, gr, secs] = await Promise.all([
+        apiFetch<TeacherConfig[]>(`/ders-dagit/studios/${studio.id}/teachers`, { token }),
+        apiFetch<PeriodsRes>(`/ders-dagit/studios/${studio.id}/periods`, { token }).catch(() => null),
+        apiFetch<Assignment[]>(`/ders-dagit/studios/${studio.id}/assignments`, { token }).catch(() => []),
+        apiFetch<SubjectRow[]>(`/ders-dagit/studios/${studio.id}/subjects`, { token }).catch(() => []),
+        apiFetch<RoomRow[]>('/ders-dagit/rooms', { token }).catch(() => []),
+        apiFetch<{ groups: GroupRow[] }>(`/ders-dagit/studios/${studio.id}/groups`, { token }).catch(() => ({
+          groups: [],
+        })),
+        apiFetch<string[]>(`/ders-dagit/studios/${studio.id}/class-sections`, { token }).catch(() => []),
+      ]);
+      setRows(list);
+      setPeriods(per);
+      setAssignments(asn);
+      setSubjects(sub);
+      setRooms(rm);
+      setGroups(gr.groups ?? []);
+      setStudioSections(Array.isArray(secs) ? secs : []);
+      setActiveId((prev) => prev ?? list[0]?.id ?? null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Yüklenemedi');
+    } finally {
+      setLoading(false);
+    }
   }, [token, studio]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  async function syncAll() {
-    if (!token || !studio) return;
-    setSyncing(true);
-    try {
-      await apiFetch(`/ders-dagit/studios/${studio.id}/teachers/sync`, { token, method: 'POST' });
-      toast.success('Okul öğretmenleri eklendi');
-      await load();
-      await refresh();
-    } catch {
-      toast.error('Senkron başarısız');
-    } finally {
-      setSyncing(false);
+  useEffect(() => {
+    if (!active) {
+      setDraft(null);
+      setBaselineDraft('');
+      setDirty(false);
+      return;
     }
+    const d = teacherToDraft(active);
+    setDraft(d);
+    setBaselineDraft(JSON.stringify(d));
+    setDirty(false);
+  }, [active?.id, rows]);
+
+  useEffect(() => {
+    if (!draft) return;
+    setDirty(JSON.stringify(draft) !== baselineDraft);
+  }, [draft, baselineDraft]);
+
+  function patchDraft(patch: Partial<TeacherDraft>) {
+    setDraft((prev) => (prev ? { ...prev, ...patch } : prev));
   }
 
-  function patch(id: string, patch: Partial<Teacher>) {
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  function selectTeacher(id: string) {
+    if (dirty && id !== activeId && !window.confirm('Kaydedilmemiş değişiklikler silinecek. Devam?')) return;
+    setActiveId(id);
+    setDetailOpen(true);
   }
 
-  async function save(t: Teacher) {
+  async function persistTeacher(t: TeacherConfig) {
     if (!token || !studio) return;
     await apiFetch(`/ders-dagit/studios/${studio.id}/teachers`, {
       token,
@@ -90,207 +239,322 @@ export default function OgretmenlerPage() {
         constraints: t.constraints ?? {},
       },
     });
-    toast.success('Kaydedildi');
-    await load();
-    await refresh();
   }
 
-  function addBlock(t: Teacher) {
-    patch(t.id, {
-      unavailable_periods: [...t.unavailable_periods, { day_of_week: blockDay, lesson_num: blockLesson }],
-    });
+  async function saveActive() {
+    if (!active || !draft) return;
+    setSaving(true);
+    try {
+      const merged = { ...active, ...draft };
+      await persistTeacher(merged);
+      setRows((prev) => prev.map((t) => (t.id === merged.id ? merged : t)));
+      setBaselineDraft(JSON.stringify(draft));
+      setDirty(false);
+      await load();
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Kayıt başarısız');
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function removeBlock(t: Teacher, idx: number) {
-    patch(t.id, {
-      unavailable_periods: t.unavailable_periods.filter((_, i) => i !== idx),
-    });
+  async function bulkApply() {
+    if (!draft || bulkIds.size === 0) return;
+    if (bulkFields.size === 0) {
+      toast.error('En az bir alan grubu seçin');
+      return;
+    }
+    setSaving(true);
+    try {
+      let n = 0;
+      for (const id of bulkIds) {
+        const t = rows.find((r) => r.id === id);
+        if (!t) continue;
+        await persistTeacher(mergeDraft(t, draft, bulkFields) as TeacherConfig);
+        n++;
+      }
+      toast.success(`${n} öğretmene uygulandı`);
+      await load();
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Toplu kayıt başarısız');
+    } finally {
+      setSaving(false);
+    }
   }
+
+  async function syncAll() {
+    if (!token || !studio) return;
+    setSyncing(true);
+    try {
+      await apiFetch(`/ders-dagit/studios/${studio.id}/teachers/sync`, { token, method: 'POST' });
+      toast.success('Öğretmenler eklendi');
+      await load();
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Senkron başarısız');
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  function handleAction(key: EntityActionKey) {
+    if (!active && key !== 'new') return;
+    switch (key) {
+      case 'new':
+        void syncAll();
+        break;
+      case 'edit':
+        setDetailOpen(true);
+        setEditTab('limits');
+        break;
+      case 'timetable':
+        setTimeOpen(true);
+        break;
+      case 'constraints':
+        setDetailOpen(true);
+        setEditTab('limits');
+        break;
+      case 'assign':
+        setAssignPanelOpen(true);
+        openNewAssignment();
+        break;
+      case 'save':
+        void saveActive();
+        break;
+      case 'delete':
+        toast.info('Öğretmen silme okul personelinden yapılır');
+        break;
+    }
+  }
+
+  const tabBtn = (id: EditTab, label: string) => (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={editTab === id}
+      className={cn(
+        'rounded-lg px-3 py-1.5 text-sm font-medium',
+        editTab === id ? 'bg-primary text-primary-foreground' : 'bg-muted/60 text-muted-foreground',
+      )}
+      onClick={() => setEditTab(id)}
+    >
+      {label}
+    </button>
+  );
+
+  const teacherActions = [
+    { key: 'new' as const, label: 'Okuldan çek', disabled: syncing },
+    { key: 'edit' as const, label: 'Güncelle' },
+    { key: 'timetable' as const, label: 'Zaman tablosu' },
+    { key: 'assign' as const, label: 'Ders atama' },
+    { key: 'constraints' as const, label: 'Kısıtlamalar' },
+    { key: 'save' as const, label: 'Kaydet', disabled: !active || !dirty || saving },
+    { key: 'delete' as const, label: 'Sil', hidden: true },
+  ];
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        Horarium öğretmen ayarları: saat limitleri, çalışma günü, öğle arası boşluğu, müsait değil.{' '}
-        <Link href="/ders-dagit/studyo/donem" className="underline">
-          Dönem (öğle arası)
-        </Link>
-      </p>
-      <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="secondary" size="sm" disabled={syncing} onClick={() => void syncAll()}>
-          Okuldan öğretmen çek
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={async () => {
-            if (!token || !studio) return;
-            const r = await apiFetch<{ updated: number; norm: { mandatory_weekly_hours: number; max_extra_weekly_hours: number } }>(
-              `/ders-dagit/studios/${studio.id}/sync-extra-lesson-params`,
-              { token, method: 'POST' },
-            );
-            toast.success(`Maaş karşılığı norm: ${r.updated} öğretmen (${r.norm.mandatory_weekly_hours}+${r.norm.max_extra_weekly_hours} saat)`);
-            await load();
-          }}
-        >
-          Ek ders norm senkron
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={async () => {
-            if (!token || !studio) return;
-            const r = await apiFetch<{ block_count: number }>(`/ders-dagit/studios/${studio.id}/duty-sync`, {
-              token,
-              method: 'POST',
-              body: {},
-            });
-            toast.success(`Nöbet: ${r.block_count} müsait değil slot`);
-          }}
-        >
-          Nöbet senkron
-        </Button>
-        <Link href="/nobet" className="text-xs text-primary underline self-center">
-          Nöbet planı
-        </Link>
-      </div>
-      {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Önce senkron yapın.</p>
+    <div className={cn(DD_PAGE, 'min-h-0 max-w-full overflow-x-hidden')}>
+      <DdPageHeader
+        icon={Users}
+        title="Öğretmenler"
+        description="Öğretmen ayarları burada; ders atamaları Dersler/Derslikler ile ortak kayıttır."
+      />
+
+      <DdCard variant="sky" className="mb-2">
+        <CardContent className={`${DD_CARD_CONTENT} flex flex-wrap gap-2 py-2`}>
+          <Button type="button" variant="ghost" size="sm" asChild>
+            <Link href="/ders-dagit/studyo/donem">Dönem</Link>
+          </Button>
+          <Button type="button" variant="ghost" size="sm" asChild>
+            <Link href="/ders-dagit/studyo/planlama-iliskileri">Planlama ilişkileri</Link>
+          </Button>
+        </CardContent>
+      </DdCard>
+
+      {loading && !rows.length ? (
+        <p className="text-sm text-muted-foreground">Yükleniyor…</p>
+      ) : !rows.length ? (
+        <DdCard variant="lavender">
+          <CardContent className={DD_CARD_CONTENT}>
+            <Button type="button" size="sm" onClick={() => void syncAll()}>
+              Okuldan öğretmen çek
+            </Button>
+          </CardContent>
+        </DdCard>
       ) : (
-        rows.map((t) => (
-          <Card key={t.id}>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">{t.display_name ?? t.user_id}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <div className="grid gap-2 sm:grid-cols-4">
-                <div>
-                  <Label className="text-xs">Branş</Label>
-                  <Input className="h-8" value={t.branch ?? ''} onChange={(e) => patch(t.id, { branch: e.target.value })} />
+        <>
+          <DdEntityWorkspace
+            title="Tanımlı öğretmenler ve dersleri"
+            toolbar={
+              <span className="text-xs text-muted-foreground">
+                {rows.length} kayıt · çift tık = güncelle
+              </span>
+            }
+            actions={
+              <DdEntityActionBar
+                kind="ogretmen"
+                selectedLabel={active?.display_name ?? active?.user_id ?? null}
+                actions={teacherActions}
+                onAction={handleAction}
+              />
+            }
+            selectedTitle={active?.display_name ?? active?.user_id}
+            list={
+              <TeacherEntityTable
+                teachers={rows}
+                colorIndex={colorIndex}
+                activeId={activeId}
+                workDays={workDays}
+                maxLessons={maxLessons}
+                query={query}
+                onQueryChange={setQuery}
+                onSelect={selectTeacher}
+                onDoubleClick={(id) => {
+                  selectTeacher(id);
+                  setEditTab('limits');
+                }}
+                onTimeTableClick={(id) => {
+                  selectTeacher(id);
+                  setTimeOpen(true);
+                }}
+              />
+            }
+            detailOpen={detailOpen && !!active && !!draft}
+            detail={
+              active && draft ? (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="font-semibold">{active.display_name ?? active.user_id}</h3>
+                    <div className="flex gap-2">
+                      <Button type="button" size="sm" disabled={!dirty || saving} onClick={() => void saveActive()}>
+                        Kaydet
+                      </Button>
+                      {dirty && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setDraft(teacherToDraft(active));
+                            setBaselineDraft(JSON.stringify(teacherToDraft(active)));
+                            setDirty(false);
+                          }}
+                        >
+                          Geri al
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-2" role="tablist">
+                    {tabBtn('limits', 'Saat limitleri')}
+                    {tabBtn('availability', 'Zaman tablosu')}
+                  </div>
+                  {editTab === 'limits' ? (
+                    <TeacherSettingsForm draft={draft} onChange={patchDraft} schoolMaxLessons={maxLessons} />
+                  ) : (
+                    <TeacherAvailabilityGrid
+                      workDays={workDays}
+                      maxLessons={maxLessons}
+                      periods={draft.unavailable_periods}
+                      onChange={(unavailable_periods) => patchDraft({ unavailable_periods })}
+                    />
+                  )}
+                  {bulkIds.size > 1 && (
+                    <div className="rounded-lg border border-amber-300/60 bg-amber-50/80 p-2 text-xs dark:bg-amber-950/30">
+                      <p className="mb-2">
+                        <strong>{bulkIds.size}</strong> öğretmene toplu uygula (seçim: liste modunda checkbox yakında)
+                      </p>
+                      <Button type="button" size="sm" onClick={() => void bulkApply()}>
+                        Toplu uygula
+                      </Button>
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <Label className="text-xs">Zorunlu saat/hf</Label>
-                  <Input
-                    type="number"
-                    className="h-8"
-                    value={t.mandatory_weekly_hours ?? ''}
-                    onChange={(e) =>
-                      patch(t.id, { mandatory_weekly_hours: e.target.value ? Number(e.target.value) : null })
-                    }
+              ) : null
+            }
+            footer="Satır seç · mini ızgara = zaman tablosu · sağdaki Güncelle = detay paneli"
+          />
+
+          <DdEntityTimeDialog
+            open={timeOpen}
+            onOpenChange={setTimeOpen}
+            title={active?.display_name ?? ''}
+            dirty={dirty}
+            saving={saving}
+            onSave={() => {
+              void saveActive().then(() => setTimeOpen(false));
+            }}
+          >
+            {draft && (
+              <TeacherAvailabilityGrid
+                workDays={workDays}
+                maxLessons={maxLessons}
+                periods={draft.unavailable_periods}
+                onChange={(unavailable_periods) => patchDraft({ unavailable_periods })}
+              />
+            )}
+          </DdEntityTimeDialog>
+
+          {active && (assignPanelOpen || teacherAssignments.length > 0) && (
+            <DdCard variant="teal" className="overflow-hidden">
+              <CardContent className="p-0">
+                <div className="grid min-h-[360px] gap-0 lg:grid-cols-[minmax(280px,1fr)_minmax(0,1.2fr)]">
+                  <AssignedLessonsPanel
+                    title="Seçili öğretmene atanan dersler"
+                    teacherName={active.display_name ?? active.user_id}
+                    rows={teacherAssignments}
+                    subjects={subjects}
+                    activeId={listActiveId}
+                    teacherNames={teacherNameById}
+                    roomNames={roomNameById}
+                    onSelect={setListActiveId}
+                    onNew={() => openNewAssignment()}
+                    onEdit={() => {
+                      const r = teacherAssignments.find((x) => x.id === listActiveId);
+                      if (r) openEditAssignment(r);
+                    }}
+                    onDelete={() => listActiveId && void deleteAssignment(listActiveId)}
                   />
+                  <div className="hidden border-l bg-gradient-to-b from-muted/30 to-transparent p-6 lg:flex lg:flex-col lg:justify-center">
+                    <p className="text-sm font-medium text-foreground">Ders atama sihirbazı</p>
+                    <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                      Yeni ders veya Güncelle ile açılan pencerede adım adım öğretmen, ders, sınıf, saat ve derslik
+                      seçilir — dersler ve atamalar sayfasıyla aynı deneyim.
+                    </p>
+                    <Button type="button" size="sm" className="mt-4 w-fit gap-1" onClick={() => openNewAssignment()}>
+                      Yeni ders ekle
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" className="mt-2 w-fit text-xs" asChild>
+                      <Link href={`/ders-dagit/studyo/atamalar?teacher=${encodeURIComponent(active.user_id)}`}>
+                        Tüm atamalar sayfası
+                      </Link>
+                    </Button>
+                  </div>
                 </div>
-                <div>
-                  <Label className="text-xs">Ekstra max/hf</Label>
-                  <Input
-                    type="number"
-                    className="h-8"
-                    value={t.max_extra_weekly_hours ?? ''}
-                    onChange={(e) =>
-                      patch(t.id, { max_extra_weekly_hours: e.target.value ? Number(e.target.value) : null })
-                    }
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Max/gün</Label>
-                  <Input
-                    type="number"
-                    className="h-8"
-                    value={t.max_lessons_per_day ?? ''}
-                    onChange={(e) =>
-                      patch(t.id, { max_lessons_per_day: e.target.value ? Number(e.target.value) : null })
-                    }
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Min çalışma günü</Label>
-                  <Input
-                    type="number"
-                    className="h-8"
-                    value={t.min_work_days ?? ''}
-                    onChange={(e) => patch(t.id, { min_work_days: e.target.value ? Number(e.target.value) : null })}
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Max çalışma günü</Label>
-                  <Input
-                    type="number"
-                    className="h-8"
-                    value={t.max_work_days ?? ''}
-                    onChange={(e) => patch(t.id, { max_work_days: e.target.value ? Number(e.target.value) : null })}
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Vardiya (ikili)</Label>
-                  <select
-                    className="h-8 w-full rounded-md border px-2 text-xs"
-                    value={t.constraints?.education_shift ?? ''}
-                    onChange={(e) =>
-                      patch(t.id, {
-                        constraints: {
-                          ...(t.constraints ?? {}),
-                          education_shift: (e.target.value || null) as 'morning' | 'afternoon' | null,
-                        },
-                      })
-                    }
-                  >
-                    <option value="">Her iki</option>
-                    <option value="morning">Sabah</option>
-                    <option value="afternoon">Öğle</option>
-                  </select>
-                </div>
-              </div>
-              <label className="flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={t.allow_am_pm_gap}
-                  onChange={(e) => patch(t.id, { allow_am_pm_gap: e.target.checked })}
-                />
-                Sabah/öğleden sonra arasında boşluk olabilir (kapalı = tek blok)
-              </label>
-              <div className="flex flex-wrap items-end gap-2">
-                <select
-                  className="h-8 rounded-md border px-2 text-xs"
-                  value={blockDay}
-                  onChange={(e) => setBlockDay(Number(e.target.value))}
-                >
-                  {DAY_OPTS.map((d) => (
-                    <option key={d.v} value={d.v}>
-                      {d.l}
-                    </option>
-                  ))}
-                </select>
-                <Input
-                  type="number"
-                  className="h-8 w-16"
-                  min={1}
-                  placeholder="saat"
-                  value={blockLesson}
-                  onChange={(e) => setBlockLesson(Number(e.target.value))}
-                />
-                <Button type="button" size="sm" variant="outline" onClick={() => addBlock(t)}>
-                  + Müsait değil
-                </Button>
-                <Button type="button" size="sm" onClick={() => void save(t)}>
-                  Kaydet
-                </Button>
-              </div>
-              {t.unavailable_periods.length > 0 && (
-                <ul className="flex flex-wrap gap-1 text-xs">
-                  {t.unavailable_periods.map((b, i) => (
-                    <li key={i} className="rounded bg-muted px-2 py-0.5">
-                      {DAY_OPTS.find((d) => d.v === b.day_of_week)?.l ?? b.day_of_week}/
-                      {b.lesson_num ?? '*'}
-                      <button type="button" className="ml-1 text-destructive" onClick={() => removeBlock(t, i)}>
-                        ×
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-        ))
+              </CardContent>
+            </DdCard>
+          )}
+
+          {token && studio && active && (
+            <LessonAssignmentDialog
+              open={dialogOpen}
+              onOpenChange={setDialogOpen}
+              studioId={studio.id}
+              token={token}
+              draft={assignmentDraft}
+              onDraftChange={setAssignmentDraft}
+              teachers={rows.map((t) => ({ user_id: t.user_id, display_name: t.display_name }))}
+              subjects={subjects}
+              rooms={rooms}
+              groups={groups}
+              sections={allSections}
+              lockTeacherId={active.user_id}
+              onSaved={() => void load()}
+            />
+          )}
+        </>
       )}
     </div>
   );

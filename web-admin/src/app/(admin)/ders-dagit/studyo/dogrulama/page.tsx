@@ -6,7 +6,7 @@ import { useStudioValidation } from '@/hooks/use-studio-validation';
 import { StudioIssueCards } from '@/components/ders-dagit/StudioIssueCards';
 import { computeStudioReadiness } from '@/lib/ders-dagit-readiness';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DdCard, CardContent, CardHeader, CardTitle, DD_PAGE, DD_GRID, DD_CARD_HEADER, DD_CARD_CONTENT, ddVariantAt } from '@/components/ders-dagit/dd-ui';
 
 export default function DogrulamaPage() {
   const { studio, overview } = useDersDagitStudio();
@@ -15,22 +15,22 @@ export default function DogrulamaPage() {
 
   return (
     <div className="space-y-4">
-      <Card>
+      <DdCard>
         <CardHeader>
-          <CardTitle className="text-base">Ön doğrulama</CardTitle>
+          <CardTitle className="text-base">Kontrol listesi</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
           <Button type="button" size="sm" variant="outline" onClick={() => void refresh()}>
             Yenile
           </Button>
           <Button type="button" size="sm" disabled={!canProceed} asChild>
-            <Link href="/ders-dagit/studyo/uret">Üretime geç</Link>
+            <Link href="/ders-dagit/studyo/uret">Program oluştur</Link>
           </Button>
           {!canProceed && r.blockReason && (
             <p className="w-full text-sm text-destructive">{r.blockReason}</p>
           )}
         </CardContent>
-      </Card>
+      </DdCard>
       <StudioIssueCards issues={issues} onRefresh={() => void refresh()} />
     </div>
   );

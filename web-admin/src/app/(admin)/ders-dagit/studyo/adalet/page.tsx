@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { apiFetch } from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DdCard, CardContent, CardHeader, CardTitle, DD_PAGE, DD_GRID, DD_CARD_HEADER, DD_CARD_CONTENT, ddVariantAt } from '@/components/ders-dagit/dd-ui';
 
 type Fairness = {
   ready: boolean;
@@ -46,20 +46,20 @@ export default function AdaletPage() {
         </p>
       )}
       <div className="grid gap-4 sm:grid-cols-2">
-        <Card>
+        <DdCard>
           <CardHeader>
             <CardTitle className="text-base">Ortalama</CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-bold">{data.avg_lessons_per_teacher} saat</CardContent>
-        </Card>
-        <Card>
+        </DdCard>
+        <DdCard>
           <CardHeader>
-            <CardTitle className="text-base">Pzt/Cum slot oranı</CardTitle>
+            <CardTitle className="text-base">Pazartesi–Cuma ders oranı</CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-bold">%{data.monday_friday_slot_ratio}</CardContent>
-        </Card>
+        </DdCard>
       </div>
-      <Card>
+      <DdCard>
         <CardHeader>
           <CardTitle className="text-base">Öğretmen istatistikleri (anonim id)</CardTitle>
         </CardHeader>
@@ -74,7 +74,7 @@ export default function AdaletPage() {
             ))}
           </ul>
         </CardContent>
-      </Card>
+      </DdCard>
     </div>
   );
 }

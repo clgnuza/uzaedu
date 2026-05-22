@@ -25,12 +25,15 @@ const ctx = {
   room_building: new Map(),
   building_travel_gap: 0,
   no_building_same_day: false,
-  blocked_lesson_nums: new Set([5]),
+  blocked_lesson_nums: new Set(),
   max_lesson_by_day: new Map([[1, 8], [2, 8], [3, 8], [4, 8], [5, 8]]),
   lunch_after_lesson: 4,
   room_constraints: new Map(),
   building_travel_matrix: new Map([['b1:b2', 2]]),
   school_profile: { type: 'anadolu_lise', internship_days: [], internship_sections: [] },
+  section_schedules: new Map(),
+  section_internship_from_profiles: new Map(),
+  studio_period: { work_days: [1, 2, 3, 4, 5], long_breaks: [{ after_lesson: 4, blocked_slots: 1 }], lessons_per_day_by_dow: {} },
 };
 
 const assignments = [

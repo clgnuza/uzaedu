@@ -15,6 +15,9 @@ export class DersDagitRuleSet {
   @Column({ name: 'building_travel', type: 'jsonb', default: [] })
   building_travel: unknown[];
 
+  @Column({ name: 'planning_relations', type: 'jsonb', default: [] })
+  planning_relations: unknown[];
+
   @UpdateDateColumn({ name: 'updated_at' })
   updated_at: Date;
 

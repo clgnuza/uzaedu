@@ -1,6 +1,6 @@
 /** Faz 36 — İkili eğitim (sabah / öğle vardiyası) */
 
-import { blockedLessonNums, lunchAfterLesson, type StudioPeriodConfig } from './ders-dagit.period';
+import { lunchAfterLesson, type StudioPeriodConfig } from './ders-dagit.period';
 
 export type EducationShift = 'morning' | 'afternoon';
 
@@ -22,11 +22,7 @@ export function parseDualEducation(raw: unknown): DualEducationConfig {
 
 export function pmFirstLessonNum(period: StudioPeriodConfig, dual: DualEducationConfig): number {
   if (dual.pm_first_lesson != null) return dual.pm_first_lesson;
-  const lunch = lunchAfterLesson(period);
-  const blocked = blockedLessonNums(period);
-  let n = lunch + 1;
-  while (blocked.has(n)) n++;
-  return n;
+  return lunchAfterLesson(period) + 1;
 }
 
 export function lessonInShift(

@@ -4,26 +4,13 @@ export type GridRow =
   | { kind: 'lesson'; lessonNum: number }
   | { kind: 'lunch'; label: string; afterLesson: number };
 
-export function buildTimetableRows(
-  maxLesson: number,
-  blockedLessonNums: number[],
-  longBreaks: LongBreakDef[],
-): GridRow[] {
-  const blocked = new Set(blockedLessonNums);
+/** Her ders sırası + varsa sonrasında öğle (ders sayısını düşürmez). */
+export function buildTimetableRows(maxLesson: number, longBreaks: LongBreakDef[]): GridRow[] {
   const rows: GridRow[] = [];
   for (let lesson = 1; lesson <= maxLesson; lesson++) {
-    if (blocked.has(lesson)) {
-      const br = longBreaks.find((b) => b.after_lesson === lesson - 1);
-      rows.push({
-        kind: 'lunch',
-        label: br?.label ?? 'Öğle tatili',
-        afterLesson: lesson - 1,
-      });
-      continue;
-    }
     rows.push({ kind: 'lesson', lessonNum: lesson });
     const br = longBreaks.find((b) => b.after_lesson === lesson);
-    if (br && !blocked.has(lesson + 1)) {
+    if (br) {
       rows.push({ kind: 'lunch', label: br.label ?? 'Öğle tatili', afterLesson: lesson });
     }
   }
@@ -33,13 +20,9 @@ export function buildTimetableRows(
 export function buildForbiddenSlots(
   workDays: number[],
   maxLesson: number,
-  blockedLessonNums: number[],
   teacherUnavailable: Array<{ day_of_week: number; lesson_num?: number }> | undefined,
 ): Set<string> {
   const set = new Set<string>();
-  for (const n of blockedLessonNums) {
-    for (const d of workDays) set.add(`${d}-${n}`);
-  }
   for (const p of teacherUnavailable ?? []) {
     if (p.lesson_num != null) {
       set.add(`${p.day_of_week}-${p.lesson_num}`);

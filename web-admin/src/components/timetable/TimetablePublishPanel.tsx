@@ -6,6 +6,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { useStudioValidation } from '@/hooks/use-studio-validation';
 import { apiFetch } from '@/lib/api';
+import { listStudioPrograms } from '@/lib/ders-dagit-program-api';
+import { ProgramManageBar } from './ProgramManageBar';
 import { downloadDersDagitExport } from '@/lib/ders-dagit-api';
 import { downloadParentAllZip, fetchEditorContext } from '@/lib/ders-dagit-timetable-api';
 import { StudioValidationGate } from '@/components/ders-dagit/StudioValidationGate';
@@ -40,7 +42,7 @@ export function TimetablePublishPanel({ programId }: { programId: string }) {
 
   const load = useCallback(async () => {
     if (!token || !studio) return;
-    setPrograms(await apiFetch<Program[]>(`/ders-dagit/studios/${studio.id}/programs`, { token }));
+    setPrograms(await listStudioPrograms(token, studio.id));
   }, [token, studio]);
 
   useEffect(() => {
@@ -58,7 +60,7 @@ export function TimetablePublishPanel({ programId }: { programId: string }) {
         `${e.class_section}|${e.subject}|${e.day_of_week}|${e.lesson_num}`;
       const prevKeys = new Set(prev.entries.map(key));
       const diff = ctx.entries.filter((e) => !prevKeys.has(key(e))).length;
-      if (diff > 0) diffSummary = `Yayındaki programa göre ~${diff} slot farklı (${published.name ?? 'yayın'})`;
+      if (diff > 0) diffSummary = `Yayındaki programa göre yaklaşık ${diff} ders saati farklı (${published.name ?? 'yayın'})`;
       else diffSummary = 'Yayındaki programla aynı dağılım görünüyor';
     }
     setSummary({
@@ -180,6 +182,17 @@ export function TimetablePublishPanel({ programId }: { programId: string }) {
             )}
           </div>
           {shareUrl && <p className="break-all text-xs text-muted-foreground">{shareUrl}</p>}
+          {pid && (
+            <ProgramManageBar
+              programId={pid}
+              program={programs.find((p) => p.id === pid) ?? null}
+              onChanged={async (opts) => {
+                await load();
+                if (opts?.removedId && opts.removedId === pid) return;
+              }}
+              compact
+            />
+          )}
         </CardContent>
       </Card>
       <PublishConfirmDialog

@@ -5,19 +5,9 @@ import type { StudioOverview } from '@/hooks/use-ders-dagit-studio';
 import { cn } from '@/lib/utils';
 import { CheckCircle2, Circle } from 'lucide-react';
 
-const STEPS: Array<
-  | { kind: 'count'; key: string; min: number; href: string; label: string }
-  | { kind: 'validation'; href: string; label: string }
-  | { kind: 'period'; href: string; label: string }
-> = [
-  { kind: 'count', key: 'classCount', min: 1, href: '/ders-dagit/studyo/kurulum', label: 'Sınıf profili' },
-  { kind: 'period', href: '/ders-dagit/studyo/donem', label: 'Dönem' },
-  { kind: 'count', key: 'subjectCount', min: 1, href: '/ders-dagit/studyo/dersler', label: 'Dersler' },
-  { kind: 'count', key: 'groupCount', min: 0, href: '/ders-dagit/studyo/gruplar', label: 'Gruplar (opsiyonel)' },
-  { kind: 'count', key: 'teacherCount', min: 1, href: '/ders-dagit/studyo/ogretmenler', label: 'Öğretmenler' },
-  { kind: 'count', key: 'assignmentCount', min: 1, href: '/ders-dagit/studyo/atamalar', label: 'Atamalar' },
-  { kind: 'validation', href: '/ders-dagit/studyo/dogrulama', label: 'Ön doğrulama' },
-];
+import { DD_SETUP_STEPS } from '@/components/ders-dagit/dd-setup-checklist';
+
+const STEPS = DD_SETUP_STEPS;
 
 export function StudioOnboarding({ overview }: { overview: StudioOverview | null }) {
   if (!overview) return null;
@@ -34,19 +24,26 @@ export function StudioOnboarding({ overview }: { overview: StudioOverview | null
   if (done && overview.studio.workflow_status === 'published') return null;
 
   return (
-    <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
-      <p className="mb-2 text-sm font-medium">Kurulum adımları</p>
-      <ul className="flex flex-wrap gap-3 text-sm">
+    <div className="dd-onboarding px-3 py-2.5 sm:px-4 sm:py-3">
+      <p className="mb-1.5 text-xs font-semibold text-teal-900 dark:text-teal-100 sm:text-sm">Kurulum adımları</p>
+      <ul className="dd-nav-scroll flex gap-2 overflow-x-auto text-xs sm:flex-wrap sm:gap-3 sm:text-sm">
         {STEPS.map((s, i) => {
           const ok =
-            s.kind === 'validation' ? errs === 0 : s.kind === 'period' ? periodOk : (c[s.key] ?? 0) >= s.min;
+            s.kind === 'validation'
+              ? errs === 0
+              : s.kind === 'period'
+                ? periodOk
+                : (c[s.key as keyof typeof c] ?? 0) >= s.min;
           return (
-            <li key={i}>
+            <li key={i} className="shrink-0">
               <Link
                 href={s.href}
-                className={cn('inline-flex items-center gap-1.5 hover:underline', ok ? 'text-emerald-700 dark:text-emerald-300' : '')}
+                className={cn(
+                  'inline-flex items-center gap-1 whitespace-nowrap hover:underline',
+                  ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground',
+                )}
               >
-                {ok ? <CheckCircle2 className="size-4" /> : <Circle className="size-4 text-muted-foreground" />}
+                {ok ? <CheckCircle2 className="size-3.5 sm:size-4" /> : <Circle className="size-3.5 text-muted-foreground sm:size-4" />}
                 {s.label}
               </Link>
             </li>

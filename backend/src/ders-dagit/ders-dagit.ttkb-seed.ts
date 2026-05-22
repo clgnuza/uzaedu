@@ -20,10 +20,25 @@ export type TtkbSeedCell = {
 };
 
 export function gradeFromClassSection(section: string): number | null {
-  const m = /^(\d{1,2})\s*[-.]?\s*/i.exec(section.trim());
-  if (!m) return null;
-  const g = parseInt(m[1]!, 10);
-  return g >= 1 && g <= 12 ? g : null;
+  const t = section.trim();
+  if (!t) return null;
+  // 9/A, 10-BT, AMP - 9/A (alan) — sınıf numarası şube metninin ortasında da olabilir
+  const classLike = /(?:^|[^\d])(\d{1,2})\s*[/.\-]\s*[A-Za-zğüşıöçĞÜŞİÖÇ0-9]/u.exec(t);
+  if (classLike) {
+    const g = parseInt(classLike[1]!, 10);
+    if (g >= 1 && g <= 12) return g;
+  }
+  const head = /^(\d{1,2})\s*[-./]?\s*/i.exec(t);
+  if (head) {
+    const g = parseInt(head[1]!, 10);
+    if (g >= 1 && g <= 12) return g;
+  }
+  const tail = /(?:^|[^\d])(\d{1,2})\s*$/i.exec(t);
+  if (tail) {
+    const g = parseInt(tail[1]!, 10);
+    if (g >= 1 && g <= 12) return g;
+  }
+  return null;
 }
 
 export function sectionKeyForSchoolType(type: MebSchoolType, grade: number): SectionKey | undefined {
@@ -35,6 +50,16 @@ export function sectionKeyForSchoolType(type: MebSchoolType, grade: number): Sec
 
 function normalizeCode(code: string): string {
   return (code ?? '').toLowerCase().trim().replace(/_maarif(_[a-z]+)?$/, '').replace(/_maarif$/, '');
+}
+
+const SHORT_CODE_MAX = 16;
+
+/** DB short_code varchar(16) — uzun TTKB kodlarını kısaltır. */
+export function fitSubjectShortCode(code: string): string {
+  const n = normalizeCode(code);
+  if (n.length <= SHORT_CODE_MAX) return n;
+  const tail = n.slice(-(SHORT_CODE_MAX - 1));
+  return `${n.charAt(0)}${tail}`.slice(0, SHORT_CODE_MAX);
 }
 
 export function buildTtkbCatalogForGrade(
@@ -106,7 +131,7 @@ export function mergeCellsToSubjects(
     { name: string; short_code: string; class_hours: Record<string, number>; is_elective: boolean }
   >();
   for (const c of cells) {
-    const code = normalizeCode(c.subject_code);
+    const code = fitSubjectShortCode(c.subject_code);
     const prev = map.get(code) ?? {
       name: c.subject_name,
       short_code: code,

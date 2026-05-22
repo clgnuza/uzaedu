@@ -48,6 +48,10 @@ const DERS_SAATI_MAP: Record<string, DersSaatiEntry[]> = {
   tc_inkilap: [{ gradeMin: 8, gradeMax: 8, saat: 2 }],
   bil_tek_yazilim: [{ gradeMin: 5, gradeMax: 8, saat: 2 }],
   bilgisayar_bilimi: [{ gradeMin: 9, gradeMax: 12, saat: 2 }],
+  meslek_egitimi: [{ gradeMin: 9, gradeMax: 12, saat: 2 }],
+  staj: [{ gradeMin: 9, gradeMax: 12, saat: 8 }],
+  atolye_calismasi: [{ gradeMin: 9, gradeMax: 12, saat: 4 }],
+  rehberlik_meslek: [{ gradeMin: 9, gradeMax: 12, saat: 1 }],
 };
 
 /** Statik config'ten ders saati (AppConfig yoksa fallback). */

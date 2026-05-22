@@ -41,7 +41,10 @@ export function coalesceEntryClassSubject(
   subject: string,
 ): { class_section: string; subject: string } {
   let cls = normalizeClassSectionForStorage(classSection);
-  let sub = normalizeWhitespace(subject).slice(0, 128);
+  let sub = normalizeWhitespace(subject)
+    .replace(/^[,;.\s:·]+/, '')
+    .replace(/[,;.\s:·]+$/, '')
+    .slice(0, 128);
   if (cls) return { class_section: cls, subject: sub };
 
   if (sub) {

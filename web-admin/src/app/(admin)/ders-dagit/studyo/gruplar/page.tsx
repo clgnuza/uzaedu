@@ -1,151 +1,381 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { apiFetch } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  DdCard,
+  CardContent,
+  DdPageHeader,
+  DD_PAGE,
+  DD_CARD_CONTENT,
+} from '@/components/ders-dagit/dd-ui';
+import { GitBranch, Sparkles } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { DdSelectField } from '@/components/ders-dagit/dd-select';
+import { DdSectionMultiField } from '@/components/ders-dagit/dd-section-picker';
+import { DdEntityActionBar, type EntityActionKey } from '@/components/ders-dagit/dd-entity-action-bar';
+import { DdEntityWorkspace } from '@/components/ders-dagit/dd-entity-workspace';
+import { GroupEntityTable, type GroupRow } from '@/components/ders-dagit/group-entity-table';
+import { groupModeLabel } from '@/lib/ders-dagit-labels';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 type GroupMode = 'parallel_rooms' | 'subgroups' | 'teacher_multi_class';
 
-type Group = {
-  id: string;
+type Group = GroupRow;
+
+type GroupSuggestion = {
+  key: string;
   name: string;
   abbreviation: string;
-  parallel_mode: string | null;
+  parallel_mode: GroupMode;
   member_sections: string[];
+  source: string;
+  reason: string;
+  already_exists: boolean;
 };
 
 type GroupsRes = {
   groups: Group[];
-  catalog: Array<{ mode: GroupMode; label_tr: string; horarium_ref: string }>;
+  catalog: Array<{ mode: GroupMode; label_tr: string }>;
+};
+
+const SOURCE_LABEL: Record<string, string> = {
+  section_tracks: 'Şube adları',
+  assignment_joined: 'Atama',
+  elective_cluster: 'Seçmeli',
 };
 
 export default function GruplarPage() {
   const { token } = useAuth();
   const { studio } = useDersDagitStudio();
   const [data, setData] = useState<GroupsRes | null>(null);
+  const [suggestions, setSuggestions] = useState<GroupSuggestion[]>([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestBusy, setSuggestBusy] = useState(false);
+  const [selectedSuggest, setSelectedSuggest] = useState<Set<string>>(new Set());
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const [name, setName] = useState('');
   const [abbr, setAbbr] = useState('');
-  const [mode, setMode] = useState<GroupMode>('parallel_rooms');
-  const [members, setMembers] = useState('5A-A, 5A-B');
+  const [mode, setMode] = useState<GroupMode>('subgroups');
+  const [members, setMembers] = useState<string[]>([]);
+
+  const active = useMemo(() => data?.groups.find((g) => g.id === activeId) ?? null, [data, activeId]);
 
   const load = useCallback(async () => {
     if (!token || !studio) return;
-    setData(await apiFetch<GroupsRes>(`/ders-dagit/studios/${studio.id}/groups`, { token }));
+    const res = await apiFetch<GroupsRes>(`/ders-dagit/studios/${studio.id}/groups`, { token });
+    setData(res);
+    setActiveId((prev) => (prev && res.groups.some((g) => g.id === prev) ? prev : res.groups[0]?.id ?? null));
   }, [token, studio]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  function loadToForm(g: Group | null) {
+    if (!g) {
+      setEditId(null);
+      setName('');
+      setAbbr('');
+      setMode('subgroups');
+      setMembers([]);
+      return;
+    }
+    setEditId(g.id);
+    setName(g.name);
+    setAbbr(g.abbreviation);
+    setMode((g.parallel_mode as GroupMode) || 'subgroups');
+    setMembers(g.member_sections ?? []);
+    setDetailOpen(true);
+  }
+
+  useEffect(() => {
+    if (!detailOpen || !activeId) return;
+    const g = data?.groups.find((x) => x.id === activeId);
+    if (g) loadToForm(g);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync on list refresh
+  }, [data, activeId, detailOpen]);
+
+  function selectGroup(id: string) {
+    setActiveId(id);
+    const g = data?.groups.find((x) => x.id === id);
+    if (g) loadToForm(g);
+  }
+
+  async function fetchSuggestions() {
+    if (!token || !studio) return;
+    setSuggestBusy(true);
+    try {
+      const res = await apiFetch<{ suggestions: GroupSuggestion[] }>(
+        `/ders-dagit/studios/${studio.id}/groups/suggestions`,
+        { token },
+      );
+      setSuggestions(res.suggestions ?? []);
+      setSelectedSuggest(
+        new Set(res.suggestions.filter((s) => !s.already_exists).map((s) => s.key)),
+      );
+      setSuggestOpen(true);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Öneriler alınamadı');
+    } finally {
+      setSuggestBusy(false);
+    }
+  }
+
+  async function applySuggestions(applyAll: boolean) {
+    if (!token || !studio) return;
+    setSuggestBusy(true);
+    try {
+      const r = await apiFetch<{ created: number; skipped: number }>(
+        `/ders-dagit/studios/${studio.id}/groups/apply-suggestions`,
+        {
+          token,
+          method: 'POST',
+          body: applyAll
+            ? { apply_all: true }
+            : { keys: [...selectedSuggest] },
+        },
+      );
+      toast.success(`${r.created} grup eklendi`);
+      setSuggestOpen(false);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Uygulanamadı');
+    } finally {
+      setSuggestBusy(false);
+    }
+  }
+
   async function save() {
     if (!token || !studio || !name.trim() || !abbr.trim()) return;
+    if (members.length < 2 && (mode === 'subgroups' || mode === 'parallel_rooms')) {
+      toast.error('Bu mod için en az iki alt şube seçin');
+      return;
+    }
     try {
       await apiFetch(`/ders-dagit/studios/${studio.id}/groups`, {
         token,
         method: 'POST',
         body: {
+          id: editId ?? undefined,
           name: name.trim(),
           abbreviation: abbr.trim().slice(0, 8),
           parallel_mode: mode,
-          member_sections: members.split(/[,/]/).map((s) => s.trim()).filter(Boolean),
+          member_sections: members,
         },
       });
-      setName('');
-      setAbbr('');
-      toast.success('Grup kaydedildi');
+      toast.success(editId ? 'Güncellendi' : 'Kaydedildi');
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Kayıt başarısız');
     }
   }
 
-  const modeLabel = (m: string | null) =>
-    data?.catalog.find((c) => c.mode === m)?.label_tr ?? m ?? '—';
+  async function deleteActive() {
+    if (!token || !studio || !activeId) return;
+    if (!window.confirm('Bu grup silinsin mi?')) return;
+    await apiFetch(`/ders-dagit/studios/${studio.id}/groups/${activeId}`, { token, method: 'DELETE' });
+    toast.success('Silindi');
+    setActiveId(null);
+    loadToForm(null);
+    setDetailOpen(false);
+    await load();
+  }
+
+  function handleAction(key: EntityActionKey) {
+    switch (key) {
+      case 'new':
+        setActiveId(null);
+        loadToForm(null);
+        setDetailOpen(true);
+        break;
+      case 'edit':
+        if (active) loadToForm(active);
+        break;
+      case 'save':
+        void save();
+        break;
+      case 'delete':
+        void deleteActive();
+        break;
+      case 'assign':
+        void fetchSuggestions();
+        break;
+      default:
+        break;
+    }
+  }
+
+  const groupActions = [
+    { key: 'new' as const, label: 'Yeni' },
+    { key: 'edit' as const, label: 'Güncelle' },
+    { key: 'assign' as const, label: 'Verilerden öner', icon: Sparkles },
+    { key: 'save' as const, label: 'Kaydet', disabled: !name.trim() || !abbr.trim() },
+    { key: 'delete' as const, label: 'Sil', variant: 'outline' as const },
+  ];
+
+  const newSuggestions = suggestions.filter((s) => !s.already_exists);
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        Horarium Gruplar:{' '}
-        <a href="https://horarium.ai/tr/help#divisions" className="underline" target="_blank" rel="noreferrer">
-          yardım
-        </a>
-      </p>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Yeni grup</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <Label>Ad</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="5A bölünmesi" />
-          </div>
-          <div>
-            <Label>Kısaltma</Label>
-            <Input value={abbr} onChange={(e) => setAbbr(e.target.value)} placeholder="5a" maxLength={8} />
-          </div>
-          <div className="sm:col-span-2">
-            <Label>Mod</Label>
-            <select
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-              value={mode}
-              onChange={(e) => setMode(e.target.value as GroupMode)}
-            >
-              {(data?.catalog ?? []).map((c) => (
-                <option key={c.mode} value={c.mode}>
-                  {c.label_tr}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="sm:col-span-2">
-            <Label>Alt şubeler (virgülle)</Label>
-            <Input value={members} onChange={(e) => setMembers(e.target.value)} placeholder="5A-A, 5A-B" />
-          </div>
-          <Button type="button" onClick={() => void save()}>
-            Kaydet
+    <div className={DD_PAGE}>
+      <DdPageHeader
+        icon={GitBranch}
+        title="Gruplar"
+        description="Paralel şube ve alt gruplar — atama/şube adlarından öneri veya elle tanım."
+      />
+
+      <DdEntityWorkspace
+        title="Tanımlı gruplar"
+        toolbar={
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="h-8 gap-1 text-xs"
+            disabled={suggestBusy || !studio}
+            onClick={() => void fetchSuggestions()}
+          >
+            <Sparkles className="size-3.5" aria-hidden />
+            {suggestBusy ? '…' : 'Verilerden öner'}
           </Button>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Gruplar ({data?.groups.length ?? 0})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ul className="space-y-2 text-sm">
-            {(data?.groups ?? []).map((g) => (
-              <li key={g.id} className="flex justify-between rounded-lg border px-3 py-2">
-                <span>
-                  <strong>{g.name}</strong> ({g.abbreviation}) — {modeLabel(g.parallel_mode)}
-                  <br />
-                  <span className="text-xs text-muted-foreground">{g.member_sections?.join(', ') || '—'}</span>
-                </span>
+        }
+        actions={
+          <DdEntityActionBar
+            kind="ders"
+            selectedLabel={active?.name ?? (name.trim() || null)}
+            actions={groupActions}
+            onAction={handleAction}
+          />
+        }
+        selectedTitle={active?.name ?? (name.trim() || undefined)}
+        list={
+          <GroupEntityTable
+            groups={data?.groups ?? []}
+            activeId={activeId}
+            query={query}
+            onQueryChange={setQuery}
+            onSelect={selectGroup}
+          />
+        }
+        detailOpen={detailOpen}
+        detail={
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label>Ad</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="5A bölünmesi" />
+            </div>
+            <div>
+              <Label>Kısaltma (max 8)</Label>
+              <Input value={abbr} onChange={(e) => setAbbr(e.target.value)} placeholder="5a" maxLength={8} />
+            </div>
+            <DdSelectField
+              className="sm:col-span-2"
+              label="Mod"
+              value={mode}
+              onValueChange={(v) => setMode(v as GroupMode)}
+              options={(data?.catalog ?? []).map((c) => ({ value: c.mode, label: c.label_tr }))}
+            />
+            <DdSectionMultiField
+              className="sm:col-span-2"
+              label="Alt şubeler (en az 2)"
+              value={members}
+              onValueChange={setMembers}
+              extraSections={members}
+            />
+            <p className="sm:col-span-2 text-[11px] text-muted-foreground">
+              {groupModeLabel(mode)} — ders atama penceresinde &quot;Bütün sınıf&quot; yerine bu grup seçilir.
+            </p>
+          </div>
+        }
+        footer={`${data?.groups.length ?? 0} grup · çift tık = düzenle`}
+      />
+
+      {suggestOpen && (
+        <DdCard variant="violet" className="overflow-hidden">
+          <CardContent className={cn(DD_CARD_CONTENT, 'space-y-3')}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-medium">Verilerden önerilen gruplar</p>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" variant="ghost" onClick={() => setSuggestOpen(false)}>
+                  Kapat
+                </Button>
                 <Button
                   type="button"
                   size="sm"
-                  variant="ghost"
-                  className="text-destructive"
-                  onClick={async () => {
-                    if (!token || !studio) return;
-                    await apiFetch(`/ders-dagit/studios/${studio.id}/groups/${g.id}`, {
-                      token,
-                      method: 'DELETE',
-                    });
-                    await load();
-                  }}
+                  disabled={suggestBusy || !newSuggestions.length}
+                  onClick={() => void applySuggestions(true)}
                 >
-                  Sil
+                  Tüm yeni önerileri ekle ({newSuggestions.length})
                 </Button>
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={suggestBusy || selectedSuggest.size === 0}
+                  onClick={() => void applySuggestions(false)}
+                >
+                  Seçilenleri ekle ({selectedSuggest.size})
+                </Button>
+              </div>
+            </div>
+            {!suggestions.length ? (
+              <p className="text-sm text-muted-foreground">
+                Öneri yok. Şube adlarında 5A-A / 5A-B gibi bölünmüş etiketler veya çoklu şubeli atamalar gerekir.
+              </p>
+            ) : (
+              <ul className="max-h-64 space-y-2 overflow-y-auto text-sm">
+                {suggestions.map((s) => (
+                  <li
+                    key={s.key}
+                    className={cn(
+                      'rounded-lg border px-3 py-2',
+                      s.already_exists && 'opacity-50',
+                    )}
+                  >
+                    <label className="flex cursor-pointer items-start gap-2">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        disabled={s.already_exists}
+                        checked={selectedSuggest.has(s.key)}
+                        onChange={(e) => {
+                          setSelectedSuggest((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(s.key);
+                            else next.delete(s.key);
+                            return next;
+                          });
+                        }}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="font-medium">{s.name}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {groupModeLabel(s.parallel_mode)} · {SOURCE_LABEL[s.source] ?? s.source}
+                        </span>
+                        <br />
+                        <span className="text-xs text-muted-foreground">{s.member_sections.join(', ')}</span>
+                        <br />
+                        <span className="text-[10px] text-muted-foreground">{s.reason}</span>
+                        {s.already_exists ? (
+                          <span className="ml-1 text-[10px] font-medium text-primary">(zaten kayıtlı)</span>
+                        ) : null}
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </DdCard>
+      )}
     </div>
   );
 }

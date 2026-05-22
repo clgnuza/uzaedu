@@ -23,7 +23,7 @@ function ProgramEditorInner() {
   }, [showPublish]);
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-3 sm:space-y-4">
       <TimetableShell
         initialProgramId={programId}
         compareProgramId={compareId}
@@ -37,7 +37,7 @@ function ProgramEditorInner() {
 
 export default function ProgramEditorPage() {
   return (
-    <Suspense fallback={<LoadingSpinner label="Editör…" />}>
+    <Suspense fallback={<LoadingSpinner label="Program tablosu…" />}>
       <ProgramEditorInner />
     </Suspense>
   );

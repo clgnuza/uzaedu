@@ -5,6 +5,7 @@ import { join } from 'path';
 const fontkitRaw = require('@pdf-lib/fontkit');
 const fontkit = fontkitRaw?.default ?? fontkitRaw;
 import { PDFDocument, rgb } from 'pdf-lib';
+import { compareClassSections } from './class-section-sort';
 import { DAY_LABELS, type ExportEntry } from './ders-dagit.export';
 
 function getDejaVuFontPaths(): { sans: string; bold: string } {
@@ -34,7 +35,7 @@ export class DersDagitPdfService {
       arr.push(e);
       byClass.set(e.class_section, arr);
     }
-    const sections = [...byClass.keys()].sort((a, b) => a.localeCompare(b, 'tr'));
+    const sections = [...byClass.keys()].sort(compareClassSections);
 
     const pageW = 842;
     const pageH = 595;

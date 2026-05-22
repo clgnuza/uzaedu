@@ -1,17 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { DdAccentButton } from '@/components/ders-dagit/dd-ui';
+import { DdSelectField } from '@/components/ders-dagit/dd-select';
+import { schoolSetupCapabilities } from '@/lib/school-profile-capabilities';
 
 const TYPES = [
   { value: 'ilkokul', label: 'İlkokul' },
   { value: 'ortaokul', label: 'Ortaokul' },
   { value: 'anadolu_lise', label: 'Anadolu Lisesi' },
-  { value: 'mtal', label: 'MTAL' },
-  { value: 'fen_lise', label: 'Fen/Sosyal Bilimler Lisesi' },
-  { value: 'aihl', label: 'Anadolu İmam Hatip' },
+  { value: 'mtal', label: 'MTAL / Mesleki' },
+  { value: 'fen_lise', label: 'Fen ve Sosyal Bilimler Lisesi' },
+  { value: 'aihl', label: 'Anadolu İmam Hatip Lisesi' },
 ] as const;
 
 const YKS = [
@@ -38,75 +39,83 @@ export function SchoolProfileForm({
 }) {
   const [type, setType] = useState(initial?.type ?? 'anadolu_lise');
   const [yks, setYks] = useState(initial?.yks_track ?? '');
-  const [internDays, setInternDays] = useState((initial?.internship_days ?? []).join(','));
-  const [internSecs, setInternSecs] = useState((initial?.internship_sections ?? []).join(','));
+  const [busy, setBusy] = useState(false);
+
+  const caps = useMemo(() => schoolSetupCapabilities(type), [type]);
 
   useEffect(() => {
     if (!initial) return;
     setType(initial.type);
     setYks(initial.yks_track ?? '');
-    setInternDays((initial.internship_days ?? []).join(','));
-    setInternSecs((initial.internship_sections ?? []).join(','));
   }, [initial]);
 
+  useEffect(() => {
+    if (!caps.yksTrack) setYks('');
+  }, [caps.yksTrack]);
+
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
-      <div>
-        <Label>Okul türü (MEB)</Label>
-        <select
-          className="mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-          value={type}
-          onChange={(e) => setType(e.target.value)}
-        >
-          {TYPES.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <Label>12. sınıf YKS kolu</Label>
-        <select
-          className="mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+    <div className="grid gap-4 sm:grid-cols-2">
+      <DdSelectField
+        label="Okul türü (MEB)"
+        value={type}
+        onValueChange={setType}
+        options={[...TYPES]}
+        className="sm:col-span-2"
+      />
+
+      {caps.yksTrack ? (
+        <DdSelectField
+          label="12. sınıf YKS kolu"
           value={yks}
-          onChange={(e) => setYks(e.target.value)}
-        >
-          {YKS.map((t) => (
-            <option key={t.value || 'x'} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="sm:col-span-2">
-        <Label>Staj günleri (1=Pzt … 7=Paz, virgülle)</Label>
-        <Input className="mt-1 font-mono text-xs" value={internDays} onChange={(e) => setInternDays(e.target.value)} placeholder="3,4,5" />
-      </div>
-      <div className="sm:col-span-2">
-        <Label>Staj şubeleri (boş = tüm şubeler o gün boş)</Label>
-        <Input className="mt-1 font-mono text-xs" value={internSecs} onChange={(e) => setInternSecs(e.target.value)} placeholder="12-A,12-B" />
-      </div>
-      <Button
+          onValueChange={setYks}
+          options={[...YKS]}
+          className="sm:col-span-2"
+        />
+      ) : (
+        <p className="sm:col-span-2 text-xs text-muted-foreground">
+          YKS kolu yalnızca Anadolu ve Fen/Sosyal Bilimler liselerinde kullanılır.
+        </p>
+      )}
+
+      {caps.internshipGuidance ? (
+        <div className="sm:col-span-2 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5 text-sm">
+          <p className="font-medium text-amber-950 dark:text-amber-100">Staj / işletmede beceri eğitimi</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Günler program ve şubeye göre değişir. Tanım yerleri:
+          </p>
+          <ul className="mt-2 list-inside list-disc text-xs text-muted-foreground">
+            <li>
+              <Link href="/ders-dagit/studyo/sinif-saatleri" className="text-primary underline">
+                Sınıf saatleri
+              </Link>{' '}
+              — şube bazlı tam gün veya hücre
+            </li>
+            <li>
+              <Link href="/ders-dagit/studyo/kurulum" className="text-primary underline">
+                Sınıf profili
+              </Link>{' '}
+              — profile bağlı şubeler için ortak günler
+            </li>
+          </ul>
+        </div>
+      ) : null}
+
+      <DdAccentButton
         type="button"
         className="sm:col-span-2"
-        onClick={() =>
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
           void onSave({
             type,
-            yks_track: yks || null,
-            internship_days: internDays
-              .split(',')
-              .map((s) => Number(s.trim()))
-              .filter((n) => n >= 1 && n <= 7),
-            internship_sections: internSecs
-              .split(/[,/]/)
-              .map((s) => s.trim())
-              .filter(Boolean),
-          })
-        }
+            yks_track: caps.yksTrack ? yks || null : null,
+            internship_days: [],
+            internship_sections: [],
+          }).finally(() => setBusy(false));
+        }}
       >
         Okul profilini kaydet
-      </Button>
+      </DdAccentButton>
     </div>
   );
 }

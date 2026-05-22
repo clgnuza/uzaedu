@@ -19,8 +19,11 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { DdSelect, DdSelectField } from '@/components/ders-dagit/dd-select';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { apiFetch } from '@/lib/api';
+import { listStudioPrograms, type DdProgramRow } from '@/lib/ders-dagit-program-api';
+import { ProgramManageBar } from './ProgramManageBar';
 import { downloadDersDagitExport } from '@/lib/ders-dagit-api';
 import { cn } from '@/lib/utils';
 import type { EditorEntry } from '@/lib/ders-dagit-timetable-api';
@@ -35,7 +38,7 @@ import { clashAtSlot, clashEntryIds } from '@/lib/timetable-clash';
 import { toast } from 'sonner';
 import './timetable-print.css';
 
-type ProgramRow = { id: string; name: string | null; status: string; score: number | null };
+type ProgramRow = DdProgramRow;
 type AuditRow = { id: string; action: string; user_label: string | null; created_at: string };
 
 const EMPTY_GRID = {
@@ -96,10 +99,25 @@ export function TimetableShell({
     useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
   );
 
+  const reloadPrograms = useCallback(
+    async (opts?: { selectId?: string; removedId?: string }) => {
+      if (!token || !studio) return;
+      const list = await listStudioPrograms(token, studio.id);
+      setPrograms(list);
+      const cur = editor.programId;
+      const removed = opts?.removedId;
+      const pick =
+        opts?.selectId ?? (removed && cur === removed ? list[0]?.id : list.some((p) => p.id === cur) ? cur : list[0]?.id);
+      if (pick && pick !== cur) await editor.load(pick);
+      onProgramIdChange?.(pick ?? '');
+    },
+    [token, studio, editor.programId, editor.load, onProgramIdChange],
+  );
+
   useEffect(() => {
     if (!token || !studio) return;
     void Promise.all([
-      apiFetch<ProgramRow[]>(`/ders-dagit/studios/${studio.id}/programs`, { token }),
+      listStudioPrograms(token, studio.id),
       apiFetch<AuditRow[]>(`/ders-dagit/studios/${studio.id}/audit-log?limit=30`, { token }),
     ]).then(([list, logs]) => {
       setPrograms(list);
@@ -296,11 +314,10 @@ export function TimetableShell({
       const forb = buildForbiddenSlots(
         c.period.work_days ?? [1, 2, 3, 4, 5],
         c.max_lesson,
-        c.grid?.blocked_lesson_nums ?? [],
         teacherUnavailable,
       );
       if (forb.has(`${day}-${lesson}`)) {
-        toast.error('Bu slot kapalı veya müsait değil.');
+        toast.error('Bu saat kapalı veya uygun değil.');
         return;
       }
       const occupants = c.entries.filter(
@@ -343,7 +360,7 @@ export function TimetableShell({
         if (c) {
           const occ = c.entries.filter((e) => e.day_of_week === day && e.lesson_num === lesson);
           if (occ.length > 1) {
-            toast.error('Slot dolu — önce bir dersi taşıyın veya takas seçin.');
+            toast.error('Saat dolu — önce bir dersi taşıyın veya takas seçin.');
             return;
           }
         }
@@ -387,67 +404,57 @@ export function TimetableShell({
       <div className="space-y-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Program editörü</CardTitle>
+            <CardTitle className="text-base">Program tablosu</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-wrap items-end gap-2">
-            <div>
-              <Label className="text-xs">Program</Label>
-              <select
-                className="mt-1 flex h-9 min-w-[200px] rounded-md border px-2 text-sm"
-                value={editor.programId}
-                onChange={(e) => void editor.load(e.target.value)}
-              >
-                {programs.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name ?? p.id.slice(0, 8)} ({p.status})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <Label className="text-xs">Görünüm</Label>
-              <select
-                className="mt-1 flex h-9 rounded-md border px-2 text-sm"
-                value={view}
-                onChange={(e) => setView(e.target.value as ViewMode)}
-              >
-                <option value="class">Sınıf</option>
-                <option value="teacher">Öğretmen</option>
-                <option value="room">Derslik</option>
-                <option value="all">Tümü</option>
-              </select>
-            </div>
+            <DdSelectField
+              label="Program"
+              labelClassName="text-xs"
+              className="min-w-[160px] flex-1 sm:min-w-[200px] sm:flex-none"
+              value={editor.programId}
+              onValueChange={(v) => void editor.load(v)}
+              options={programs.map((p) => ({
+                value: p.id,
+                label: `${p.name ?? p.id.slice(0, 8)} (${p.status})`,
+              }))}
+            />
+            <DdSelectField
+              label="Görünüm"
+              labelClassName="text-xs"
+              className="min-w-[120px]"
+              value={view}
+              onValueChange={(v) => setView(v as ViewMode)}
+              options={[
+                { value: 'class', label: 'Sınıf' },
+                { value: 'teacher', label: 'Öğretmen' },
+                { value: 'room', label: 'Derslik' },
+                { value: 'all', label: 'Tümü' },
+              ]}
+            />
             {view !== 'all' && (
-              <div>
-                <Label className="text-xs">Filtre</Label>
-                <select
-                  className="mt-1 flex h-9 min-w-[140px] rounded-md border px-2 text-sm"
-                  value={filterId}
-                  onChange={(e) => setFilterId(e.target.value)}
-                >
-                  {filterOptions.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <DdSelectField
+                label="Filtre"
+                labelClassName="text-xs"
+                className="min-w-[140px] flex-1 sm:flex-none"
+                value={filterId}
+                onValueChange={setFilterId}
+                options={filterOptions.map((o) => ({ value: o.id, label: o.label }))}
+              />
             )}
-            <div>
-              <Label className="text-xs">Karşılaştır</Label>
-              <select
-                className="mt-1 flex h-9 min-w-[160px] rounded-md border px-2 text-sm"
-                value={compareId}
-                onChange={(e) => setCompareId(e.target.value)}
-              >
-                <option value="">—</option>
-                {programs.filter((p) => p.id !== editor.programId).map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name ?? p.id.slice(0, 8)}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <DdSelectField
+              label="Karşılaştır"
+              labelClassName="text-xs"
+              className="min-w-[140px] flex-1 sm:flex-none"
+              value={compareId}
+              onValueChange={setCompareId}
+              placeholder="—"
+              options={[
+                { value: '', label: '—' },
+                ...programs
+                  .filter((p) => p.id !== editor.programId)
+                  .map((p) => ({ value: p.id, label: p.name ?? p.id.slice(0, 8) })),
+              ]}
+            />
             <Button type="button" size="sm" variant="outline" onClick={() => setZoom((z) => Math.max(75, z - 10))}>
               <ZoomOut className="size-4" />
             </Button>
@@ -491,6 +498,11 @@ export function TimetableShell({
               <Printer className="size-4" />
               Yazdır
             </Button>
+            <ProgramManageBar
+              programId={editor.programId}
+              program={programs.find((p) => p.id === editor.programId) ?? null}
+              onChanged={reloadPrograms}
+            />
             {token && editor.programId && (
               <>
                 <Button type="button" size="sm" variant="secondary" onClick={() => void downloadDersDagitExport(token, studio.id, editor.programId, 'pdf')}>
@@ -578,7 +590,7 @@ export function TimetableShell({
               </div>
               <TimetableUnplacedTray unplaced={ctx.unplaced} busy={editorBusy || simulate} />
               <p className="text-[10px] text-muted-foreground print:hidden">
-                Yeşil/mavi/kırmızı = sürüklerken slot · sağ tık · çift tık · Ctrl+Z
+                Yeşil/mavi/kırmızı = sürüklerken hücre · sağ tık · çift tık · Ctrl+Z
                 {placementMode === 'click' ? ' · kart seç → hücre tıkla' : ''}
               </p>
             </div>
@@ -621,7 +633,7 @@ export function TimetableShell({
               <li>Ctrl+Z — geri al</li>
               <li>? — bu liste</li>
               <li>Esc — simülasyonu iptal</li>
-              <li>Çift tık — slot düzenle</li>
+              <li>Çift tık — ders saatini düzenle</li>
               <li>Sağ tık — kart menüsü</li>
             </ul>
           </DialogContent>
@@ -630,7 +642,7 @@ export function TimetableShell({
         <Dialog open={!!editEntry} onOpenChange={(o) => !o && setEditEntry(null)}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Slot düzenle</DialogTitle>
+              <DialogTitle>Ders saatini düzenle</DialogTitle>
             </DialogHeader>
             {editEntry && (
               <div className="space-y-3 text-sm">
@@ -652,21 +664,17 @@ export function TimetableShell({
                   Kilitli
                 </label>
                 {ctx && ctx.rooms.length > 0 && (
-                  <div>
-                    <Label className="text-xs">Derslik</Label>
-                    <select
-                      className="mt-1 flex h-9 w-full rounded-md border px-2 text-sm"
-                      value={editRoomId}
-                      onChange={(e) => setEditRoomId(e.target.value)}
-                    >
-                      <option value="">—</option>
-                      {ctx.rooms.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <DdSelectField
+                    label="Derslik"
+                    labelClassName="text-xs"
+                    value={editRoomId}
+                    onValueChange={setEditRoomId}
+                    placeholder="—"
+                    options={[
+                      { value: '', label: '—' },
+                      ...ctx.rooms.map((r) => ({ value: r.id, label: r.name })),
+                    ]}
+                  />
                 )}
               </div>
             )}

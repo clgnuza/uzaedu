@@ -110,6 +110,39 @@ export function isAbortError(e: unknown): boolean {
   return false;
 }
 
+function shouldStringifyBody(body: BodyInit | null | undefined): body is Record<string, unknown> | unknown[] {
+  if (body == null) return false;
+  if (typeof body === 'string') return false;
+  if (body instanceof FormData || body instanceof Blob || body instanceof ArrayBuffer) return false;
+  if (ArrayBuffer.isView(body)) return false;
+  if (body instanceof URLSearchParams) return false;
+  return typeof body === 'object';
+}
+
+function formatApiErrorMessage(msg: unknown): string | undefined {
+  if (typeof msg === 'string') {
+    const t = msg.trim();
+    return t || undefined;
+  }
+  if (Array.isArray(msg)) {
+    const parts = msg
+      .map((x) => {
+        if (typeof x === 'string') return x.trim();
+        if (x && typeof x === 'object' && 'message' in x) {
+          const m = (x as { message?: unknown }).message;
+          return typeof m === 'string' ? m.trim() : undefined;
+        }
+        return undefined;
+      })
+      .filter((x): x is string => !!x);
+    return parts.length ? parts.join(' · ') : undefined;
+  }
+  if (msg && typeof msg === 'object' && 'message' in msg) {
+    return formatApiErrorMessage((msg as { message?: unknown }).message);
+  }
+  return undefined;
+}
+
 /** fetch için istemci süre sınırı (AbortSignal.timeout yoksa polyfill). */
 export function createFetchTimeoutSignal(ms: number): AbortSignal {
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
@@ -135,9 +168,15 @@ export async function apiFetch<T>(
   if (token && token !== COOKIE_SESSION_TOKEN) headers['Authorization'] = `Bearer ${token}`;
   if (isFormData) delete headers['Content-Type'];
 
+  let body = init.body;
+  if (shouldStringifyBody(body)) {
+    body = JSON.stringify(body);
+  }
+
   try {
     const res = await fetch(buildApiUrl(path, requestBase), {
       ...init,
+      body,
       headers,
       cache: init.cache ?? 'no-store',
       credentials: init.credentials ?? 'include',
@@ -148,15 +187,7 @@ export async function apiFetch<T>(
         code?: string;
         details?: Record<string, unknown>;
       };
-      const msg = body?.message;
-      const fromBody =
-        typeof msg === 'string'
-          ? msg.trim() || undefined
-          : Array.isArray(msg)
-            ? msg.filter((x): x is string => typeof x === 'string').join(' · ') || undefined
-            : msg && typeof msg === 'object' && 'message' in msg && typeof (msg as { message?: unknown }).message === 'string'
-              ? (msg as { message: string }).message.trim() || undefined
-              : undefined;
+      const fromBody = formatApiErrorMessage(body?.message);
       const fallback = res.statusText || 'İstek başarısız';
       const userMsg = HTTP_STATUS_USER_MESSAGE[res.status];
       const text = userMsg ?? fromBody ?? fallback;
@@ -181,7 +212,13 @@ export async function apiFetch<T>(
       throw err;
     }
     clearApiUnavailable();
-    return res.json() as Promise<T>;
+    const text = await res.text();
+    if (!text.trim()) return undefined as T;
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      return undefined as T;
+    }
   } catch (e) {
     if (isAbortError(e)) throw e;
     if (isConnectionError(e)) {

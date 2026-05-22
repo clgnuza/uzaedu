@@ -1,17 +1,18 @@
 'use client';
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DdPageHeader, DD_PAGE } from '@/components/ders-dagit/dd-ui';
+import { SlidersHorizontal } from 'lucide-react';
 import { StudioSettingsPanel } from '@/components/ders-dagit/StudioSettingsPanel';
 
 export default function StudioAyarlarPage() {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Stüdyo ayarları</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <StudioSettingsPanel />
-      </CardContent>
-    </Card>
+    <div className={DD_PAGE}>
+      <DdPageHeader
+        icon={SlidersHorizontal}
+        title="Ayarlar"
+        description="Tüm modül sayfalarına kısayol — kurulum, dönem, atama, kurallar ve program."
+      />
+      <StudioSettingsPanel />
+    </div>
   );
 }

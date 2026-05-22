@@ -59,7 +59,7 @@ export const SCHOOL_MODULE_MARKET_HINTS: Record<SchoolModuleKey, string> = {
   messaging: 'WhatsApp mesaj gönderme: veli, öğretmen, ek ders, maaş, devamsızlık, karne dağıtımı.',
   dogrudan_temin: 'Okul satın alma: doğrudan temin dosyaları, teklif/karar ve rapor/çıktılar.',
   ders_dagit:
-    'DersDağıt: Horarium tarzı kurallar, gruplar/bölümler, otomatik üretim; mevcut ders programına yayın.',
+    'DersDağıt: kural motoru, gruplar/bölümler, otomatik üretim; mevcut ders programına yayın.',
 };
 
 export const SCHOOL_MODULE_OPTIONS = SCHOOL_MODULE_KEYS.map((key) => ({

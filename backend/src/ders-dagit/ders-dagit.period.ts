@@ -1,4 +1,4 @@
-/** Faz 2 — Stüdyo dönem / zaman (Horarium Dönemler) */
+/** Faz 2 — Stüdyo dönem / zaman ayarları */
 
 export type LongBreakDef = {
   /** Bu dersten sonra mola (örn. 4 → öğle arası) */
@@ -37,16 +37,9 @@ export function parseStudioPeriod(raw: unknown): StudioPeriodConfig {
   };
 }
 
-/** Öğle vb. için yerleştirilemeyen ders sıra numaraları */
-export function blockedLessonNums(period: StudioPeriodConfig): Set<number> {
-  const blocked = new Set<number>();
-  for (const b of period.long_breaks ?? []) {
-    const n = Math.max(1, b.blocked_slots ?? 1);
-    for (let i = 1; i <= n; i++) {
-      blocked.add(b.after_lesson + i);
-    }
-  }
-  return blocked;
+/** Eski API uyumu; öğle artık ders sırası tüketmez (ayrı mola). */
+export function blockedLessonNums(_period: StudioPeriodConfig): Set<number> {
+  return new Set();
 }
 
 export function lunchAfterLesson(period: StudioPeriodConfig): number {

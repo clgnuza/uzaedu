@@ -47,7 +47,7 @@ export function TimetableUnplacedTray({
   return (
     <div className="print:hidden rounded-lg border border-dashed border-primary/30 bg-muted/20 p-2">
       <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-        Yerleşmemiş ({unplaced.length}) — slota sürükleyin
+        Yerleşmemiş dersler ({unplaced.length}) — tabloya sürükleyin
       </p>
       <div className="flex gap-1.5 overflow-x-auto pb-0.5">
         {unplaced.map((u) => (

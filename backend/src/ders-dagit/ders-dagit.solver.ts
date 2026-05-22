@@ -1,13 +1,16 @@
 import { applySoftRulePenalties } from './ders-dagit.solver-rules';
 import { placementBlocked } from './ders-dagit.solver-placement-rules';
 import type { DersDagitGroupMode } from './ders-dagit.groups';
-import {
-  assignmentBlockLessons,
-  isInternshipBlocked,
-  type StudioSchoolProfile,
-} from './ders-dagit.school-profile';
+import { assignmentBlockLessons, type StudioSchoolProfile } from './ders-dagit.school-profile';
+import { isInternshipPlacementBlocked } from './ders-dagit.internship';
 import { daysForAssignment } from './ders-dagit.solver-blocks';
 import { lessonInShift, type EducationShift } from './ders-dagit.dual-education';
+import {
+  isSectionSlotPlaceable,
+  maxLessonsForSectionDay,
+  type SectionScheduleConfig,
+} from './ders-dagit.section-schedule';
+import type { StudioPeriodConfig } from './ders-dagit.period';
 
 /**
  * Kısıtlı yerleştirme — sert: çakışma, müsait değil, öğretmen limitleri.
@@ -96,7 +99,19 @@ export type SolverContext = {
   section_shift: Map<string, EducationShift | null>;
   teacher_shift: Map<string, EducationShift | null>;
   group_member_sections: Map<string, string[]>;
+  /** Şube → etkin kural seti (profil özelleştirmesi) */
+  section_rules: Map<string, RuleState>;
+  /** Şube → slot ızgarası (kapalı / staj / günlük max) */
+  section_schedules: Map<string, SectionScheduleConfig>;
+  section_internship_from_profiles: Map<string, number[]>;
+  studio_period: StudioPeriodConfig;
+  strict_rule_keys_global?: Set<string>;
+  strict_rule_keys_by_section?: Map<string, Set<string>>;
 };
+
+export function rulesForSection(ctx: SolverContext, section: string): RuleState {
+  return ctx.section_rules.get(section) ?? ctx.active_rules;
+}
 
 function effectiveWeeklyHours(a: SolverAssignment): number {
   return a.biweekly ? Math.ceil(a.weekly_hours / 2) : a.weekly_hours;
@@ -150,11 +165,25 @@ export function canPlace(
   ctx: SolverContext,
   assignment: SolverAssignment,
 ): boolean {
-  const dayMax = ctx.max_lesson_by_day.get(day) ?? ctx.max_lesson_per_day;
+  const secSched = ctx.section_schedules.get(classSection);
+  const dayMax = secSched
+    ? maxLessonsForSectionDay(secSched, day, ctx.studio_period, ctx.max_lesson_by_day.get(day) ?? ctx.max_lesson_per_day)
+    : ctx.max_lesson_by_day.get(day) ?? ctx.max_lesson_per_day;
   if (lesson < 1 || lesson > dayMax) return false;
-  if (ctx.blocked_lesson_nums.has(lesson)) return false;
+  if (!isSectionSlotPlaceable(secSched, day, lesson, ctx.studio_period, ctx.max_lesson_per_day)) return false;
   if (!ctx.work_days.includes(day)) return false;
-  if (isInternshipBlocked(ctx.school_profile, day, classSection)) return false;
+  if (
+    isInternshipPlacementBlocked(
+      {
+        school_profile: ctx.school_profile,
+        section_schedules: ctx.section_schedules,
+        section_internship_from_profiles: ctx.section_internship_from_profiles,
+      },
+      day,
+      classSection,
+    )
+  )
+    return false;
   if (ctx.dual_education_enabled) {
     const secShift = ctx.section_shift.get(classSection) ?? null;
     if (!lessonInShift(lesson, secShift, ctx.pm_first_lesson)) return false;

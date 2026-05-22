@@ -262,22 +262,13 @@ export function TimetableGrid({
 
   const forbiddenSlots = useMemo(
     () =>
-      buildForbiddenSlots(
-        days,
-        maxLesson,
-        gridMeta?.blocked_lesson_nums ?? [],
-        teacherUnavailable,
-      ),
+      buildForbiddenSlots(days, maxLesson, teacherUnavailable),
     [days, maxLesson, gridMeta, teacherUnavailable],
   );
 
   const rows = useMemo(
     () =>
-      buildTimetableRows(
-        maxLesson,
-        gridMeta?.blocked_lesson_nums ?? [],
-        gridMeta?.long_breaks ?? [],
-      ),
+      buildTimetableRows(maxLesson, gridMeta?.long_breaks ?? []),
     [maxLesson, gridMeta],
   );
 

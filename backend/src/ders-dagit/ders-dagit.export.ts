@@ -1,3 +1,5 @@
+import { compareClassSections } from './class-section-sort';
+
 export const DAY_LABELS: Record<number, string> = {
   1: 'Pazartesi',
   2: 'Salı',
@@ -28,7 +30,7 @@ export function buildProgramGridCsv(entries: ExportEntry[]): string {
   const rows = ['Sinif;Gun;DersNo;Ders;Ogretmen;Derslik'];
   const sorted = [...entries].sort(
     (a, b) =>
-      a.class_section.localeCompare(b.class_section, 'tr') ||
+      compareClassSections(a.class_section, b.class_section) ||
       a.day_of_week - b.day_of_week ||
       a.lesson_num - b.lesson_num,
   );
@@ -77,7 +79,7 @@ export function buildProgramGridXlsx(entries: ExportEntry[]): Buffer {
   const rows = [...entries]
     .sort(
       (a, b) =>
-        a.class_section.localeCompare(b.class_section, 'tr') ||
+        compareClassSections(a.class_section, b.class_section) ||
         a.day_of_week - b.day_of_week ||
         a.lesson_num - b.lesson_num,
     )

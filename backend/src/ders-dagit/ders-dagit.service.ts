@@ -26,7 +26,26 @@ import {
   DersDagitAuditLog,
 } from './entities';
 import { buildDefaultRuleState, DERS_DAGIT_RULE_CATALOG } from './ders-dagit.rules';
-import { validateStudioData, type ValidationIssue } from './ders-dagit.validation';
+import {
+  applySchoolPedagogyRules,
+  buildStrictRuleKeys,
+  mergePlanningRelationsIntoRules,
+  validatePlanningRelationsForGenerate,
+} from './ders-dagit.rules-merge';
+import { internshipDaysBySectionFromProfiles, normalizeInternshipDays } from './ders-dagit.internship';
+import {
+  ADVANCED_PLANNING_RULES,
+  SIMPLE_PLANNING_RULES,
+  importanceWeight,
+  relationDefinition,
+  type PlanningRelationRow,
+} from './ders-dagit.planning-relations';
+import { compareClassSections, sortClassSections, sortValidationIssues } from './class-section-sort';
+import {
+  countClassSectionsFromProfiles,
+  validateStudioData,
+  type ValidationIssue,
+} from './ders-dagit.validation';
 import { enrichValidationIssues } from './ders-dagit.validation-fix-hints';
 import { runCspSolver } from './ders-dagit.solver-csp';
 import { runConstraintSolver, type SolverAssignment, type SolverContext } from './ders-dagit.solver';
@@ -35,13 +54,26 @@ import { linkGenerationViolations } from './ders-dagit.generation-hints';
 import { DutySlot } from '../duty/entities/duty-slot.entity';
 import { randomBytes } from 'crypto';
 import { improveWithLocalSearch } from './ders-dagit.local-search';
+import { applySoftRulePenalties } from './ders-dagit.solver-rules';
 import { GROUP_MODE_CATALOG, normalizeGroupMode, type DersDagitGroupMode } from './ders-dagit.groups';
+import { suggestGroupsFromData, suggestionExists } from './ders-dagit.group-suggest';
+import {
+  aggregatePlanImportRows,
+  subjectsFromPlanRows,
+  type PlanImportRow,
+} from './ders-dagit.plan-import';
 import {
   parseStudioPeriod,
   blockedLessonNums,
   maxLessonsForDay,
   lunchAfterLesson,
+  type StudioPeriodConfig,
 } from './ders-dagit.period';
+import {
+  parseSectionSchedules,
+  sectionSchedulesToJson,
+  type SectionScheduleConfig,
+} from './ders-dagit.section-schedule';
 import {
   parseDualEducation,
   pmFirstLessonNum,
@@ -49,9 +81,6 @@ import {
   type DualEducationConfig,
   type EducationShift,
 } from './ders-dagit.dual-education';
-import {
-  type StudioPeriodConfig,
-} from './ders-dagit.period';
 import { parseSchoolProfile, type StudioSchoolProfile } from './ders-dagit.school-profile';
 import {
   clusterElectiveImportRows,
@@ -150,7 +179,12 @@ export class DersDagitService {
         settings: {},
         created_by: userId,
       });
-      await this.ruleSetRepo.save({ studio_id: studio.id, rules: buildDefaultRuleState(), building_travel: [] });
+      await this.ruleSetRepo.save({
+        studio_id: studio.id,
+        rules: buildDefaultRuleState(),
+        building_travel: [],
+        planning_relations: [],
+      });
       await this.audit(studio.id, userId, 'studio.created', { academic_year: year });
       return studio;
     } catch (err: unknown) {
@@ -186,7 +220,9 @@ export class DersDagitService {
       ruleSet,
       validation,
     ] = await Promise.all([
-      this.classProfileRepo.count({ where: { studio_id: studioId } }),
+      this.classProfileRepo
+        .find({ where: { studio_id: studioId }, select: ['class_sections'] })
+        .then((rows) => countClassSectionsFromProfiles(rows)),
       this.teacherConfigRepo.count({ where: { studio_id: studioId } }),
       this.subjectRepo.count({ where: { studio_id: studioId } }),
       this.groupRepo.count({ where: { studio_id: studioId } }),
@@ -278,7 +314,7 @@ export class DersDagitService {
       class_profiles: profiles.map((p) => ({
         id: p.id,
         name: p.name,
-        class_sections: p.class_sections,
+        class_sections: sortClassSections(p.class_sections ?? []),
         max_lessons_per_day: p.max_lessons_per_day,
         min_weekly_lessons: p.min_weekly_lessons,
         max_weekly_lessons: p.max_weekly_lessons,
@@ -290,7 +326,7 @@ export class DersDagitService {
       subjects_by_class,
       assignments: assignments.map((a) => ({
         id: a.id,
-        class_sections: a.class_sections,
+        class_sections: sortClassSections(a.class_sections ?? []),
         weekly_hours: a.weekly_hours,
         biweekly: a.biweekly,
         group_id: a.group_id,
@@ -335,25 +371,69 @@ export class DersDagitService {
         });
       }
     }
-    return enrichValidationIssues(issues);
+    return enrichValidationIssues(sortValidationIssues(issues));
   }
 
   // --- Class profiles (Faz 3) ---
   async listClassProfiles(studioId: string) {
-    return this.classProfileRepo.find({ where: { studio_id: studioId }, order: { sort_order: 'ASC' } });
+    const rows = await this.classProfileRepo.find({ where: { studio_id: studioId }, order: { sort_order: 'ASC' } });
+    return rows.map((p) => ({
+      ...p,
+      class_sections: sortClassSections(p.class_sections ?? []),
+    }));
   }
 
   async upsertClassProfile(studioId: string, dto: Partial<DersDagitClassProfile>) {
+    const name = typeof dto.name === 'string' ? dto.name.trim() : '';
+    if (!name) throw new BadRequestException('Profil adı gerekli');
+    const sections = sortClassSections(
+      Array.isArray(dto.class_sections)
+        ? [...new Set(dto.class_sections.map((s) => String(s).trim()).filter(Boolean))]
+        : [],
+    );
+    if (!sections.length) throw new BadRequestException('En az bir şube girin');
+
+    const others = await this.classProfileRepo.find({
+      where: { studio_id: studioId },
+      select: ['id', 'name', 'class_sections'],
+    });
+    const normName = name.toLocaleLowerCase('tr');
+    const nameDup = others.find((p) => p.id !== dto.id && p.name.trim().toLocaleLowerCase('tr') === normName);
+    if (nameDup) {
+      throw new BadRequestException(`"${name}" adlı profil zaten var. Düzenlemek için listeden seçin.`);
+    }
+    const sectionConflicts: string[] = [];
+    for (const p of others) {
+      if (p.id === dto.id) continue;
+      for (const s of p.class_sections ?? []) {
+        if (sections.includes(s)) sectionConflicts.push(`${s} → ${p.name}`);
+      }
+    }
+    if (sectionConflicts.length) {
+      throw new BadRequestException(
+        `Şubeler başka profilde: ${sectionConflicts.slice(0, 5).join(', ')}${sectionConflicts.length > 5 ? '…' : ''}`,
+      );
+    }
+
+    const payload = {
+      ...dto,
+      name,
+      class_sections: sections,
+      studio_id: studioId,
+      internship_days: normalizeInternshipDays(dto.internship_days),
+    };
     if (dto.id) {
       const row = await this.classProfileRepo.findOne({ where: { id: dto.id, studio_id: studioId } });
       if (!row) throw new NotFoundException();
-      return this.classProfileRepo.save({ ...row, ...dto });
+      return this.classProfileRepo.save({ ...row, ...payload });
     }
-    return this.classProfileRepo.save({ ...dto, studio_id: studioId } as DersDagitClassProfile);
+    return this.classProfileRepo.save(payload as DersDagitClassProfile);
   }
 
   async deleteClassProfile(id: string, studioId: string) {
-    await this.classProfileRepo.delete({ id, studio_id: studioId });
+    const res = await this.classProfileRepo.delete({ id, studio_id: studioId });
+    if (!res.affected) throw new NotFoundException('Profil bulunamadı');
+    return { ok: true as const };
   }
 
   // --- Teachers (Faz 4) ---
@@ -415,6 +495,61 @@ export class DersDagitService {
   async listGroups(studioId: string) {
     const rows = await this.groupRepo.find({ where: { studio_id: studioId }, order: { sort_order: 'ASC' } });
     return { groups: rows, catalog: GROUP_MODE_CATALOG };
+  }
+
+  async suggestGroups(studioId: string, schoolId: string) {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
+    const [sections, assignments, existing] = await Promise.all([
+      this.collectStudioSections(studioId, schoolId),
+      this.assignmentRepo.find({ where: { studio_id: studioId } }),
+      this.groupRepo.find({ where: { studio_id: studioId } }),
+    ]);
+    const suggestions = suggestGroupsFromData({
+      sections,
+      assignments: assignments.map((a) => ({
+        subject_name: a.subject_name,
+        class_sections: a.class_sections ?? [],
+        options: (a.options ?? null) as Record<string, unknown> | null,
+      })),
+      existing: existing.map((g) => ({
+        member_sections: g.member_sections ?? [],
+        parallel_mode: g.parallel_mode,
+      })),
+    });
+    return {
+      catalog: GROUP_MODE_CATALOG,
+      suggestions: suggestions.map((s) => ({
+        ...s,
+        already_exists: suggestionExists(s, existing),
+      })),
+    };
+  }
+
+  async applyGroupSuggestions(
+    studioId: string,
+    userId: string,
+    body: { keys?: string[]; apply_all?: boolean },
+  ) {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId } });
+    if (!studio) throw new NotFoundException();
+    const schoolId = studio.school_id;
+    const { suggestions: raw } = await this.suggestGroups(studioId, schoolId);
+    const pick = body.apply_all
+      ? raw.filter((s) => !s.already_exists)
+      : raw.filter((s) => !s.already_exists && body.keys?.includes(s.key));
+    let created = 0;
+    for (const s of pick) {
+      await this.upsertGroup(studioId, {
+        name: s.name,
+        abbreviation: s.abbreviation.slice(0, 8),
+        parallel_mode: s.parallel_mode,
+        member_sections: s.member_sections,
+      });
+      created++;
+    }
+    await this.audit(studioId, userId, 'groups.applied_suggestions', { created, keys: pick.map((p) => p.key) });
+    return { created, skipped: raw.length - pick.length };
   }
 
   async deleteGroup(id: string, studioId: string) {
@@ -492,6 +627,38 @@ export class DersDagitService {
     return { pool, group };
   }
 
+  async previewApplyElectivePoolAssignments(studioId: string, poolId: string) {
+    const pool = await this.electivePoolRepo.findOne({ where: { id: poolId, studio_id: studioId } });
+    if (!pool) throw new NotFoundException();
+    const subjects = pool.subject_names.length > 0 ? pool.subject_names : ['Seçmeli'];
+    const existing = await this.assignmentRepo.find({ where: { studio_id: studioId } });
+    const lines: Array<{ subject_name: string; class_section: string; exists: boolean }> = [];
+    let would_create = 0;
+    let would_update = 0;
+    for (const sub of subjects) {
+      for (const sec of pool.member_sections) {
+        const hit = existing.find(
+          (a) =>
+            a.subject_name === sub &&
+            a.class_sections?.length === 1 &&
+            a.class_sections[0] === sec &&
+            (a.group_id === pool.group_id || !pool.group_id),
+        );
+        lines.push({ subject_name: sub, class_section: sec, exists: !!hit });
+        if (hit) would_update++;
+        else would_create++;
+      }
+    }
+    return {
+      pool: { id: pool.id, name: pool.name, group_id: pool.group_id },
+      would_create,
+      would_update,
+      total: lines.length,
+      lines: lines.slice(0, 48),
+      needs_group: !pool.group_id,
+    };
+  }
+
   async applyElectivePoolAssignments(studioId: string, poolId: string) {
     const pool = await this.electivePoolRepo.findOne({ where: { id: poolId, studio_id: studioId } });
     if (!pool) throw new NotFoundException();
@@ -500,24 +667,97 @@ export class DersDagitService {
     if (!refreshed?.group_id) throw new BadRequestException({ code: 'NO_GROUP', message: 'Grup oluşturulamadı.' });
     const subjects =
       refreshed.subject_names.length > 0 ? refreshed.subject_names : ['Seçmeli'];
-    const created: DersDagitAssignment[] = [];
+    const existing = await this.assignmentRepo.find({ where: { studio_id: studioId } });
+    let created = 0;
+    let updated = 0;
     for (const sub of subjects) {
       for (const sec of refreshed.member_sections) {
-        created.push(
-          await this.upsertAssignment(studioId, {
-            subject_name: sub,
-            class_sections: [sec],
-            weekly_hours: refreshed.weekly_hours_per_track,
-            group_id: refreshed.group_id,
-            max_per_day: Math.min(4, refreshed.weekly_hours_per_track),
-            min_days_per_week: Math.min(3, refreshed.weekly_hours_per_track),
-            room_ids: [],
-            options: { elective_pool_id: refreshed.id },
-          }),
+        const prev = existing.find(
+          (a) =>
+            a.subject_name === sub &&
+            a.class_sections?.length === 1 &&
+            a.class_sections[0] === sec,
         );
+        const payload = {
+          subject_name: sub,
+          class_sections: [sec],
+          weekly_hours: refreshed.weekly_hours_per_track,
+          group_id: refreshed.group_id,
+          max_per_day: Math.min(4, refreshed.weekly_hours_per_track),
+          min_days_per_week: Math.min(3, refreshed.weekly_hours_per_track),
+          room_ids: prev?.room_ids ?? [],
+          teacher_ids: [] as string[],
+          options: { ...(prev?.options as object), elective_pool_id: refreshed.id },
+        };
+        if (prev) {
+          await this.upsertAssignment(studioId, { id: prev.id, ...payload });
+          updated++;
+        } else {
+          await this.upsertAssignment(studioId, payload);
+          created++;
+        }
       }
     }
-    return { pool: refreshed, assignments_created: created.length };
+    return { pool: refreshed, assignments_created: created, assignments_updated: updated };
+  }
+
+  async suggestElectivePools(studioId: string) {
+    const assignments = await this.assignmentRepo.find({ where: { studio_id: studioId } });
+    const links = await this.assignmentTeacherRepo.find({
+      where: { assignment_id: In(assignments.map((a) => a.id)) },
+    });
+    const byAssign = new Map<string, string[]>();
+    for (const l of links) {
+      const arr = byAssign.get(l.assignment_id) ?? [];
+      arr.push(l.user_id);
+      byAssign.set(l.assignment_id, arr);
+    }
+    const rows = assignments.map((a) => ({
+      subject_name: a.subject_name,
+      class_sections: a.class_sections ?? [],
+      resolved_teacher_id: byAssign.get(a.id)?.[0] ?? null,
+    }));
+    const clusters = clusterElectiveImportRows(rows);
+    const existing = await this.electivePoolRepo.find({ where: { studio_id: studioId } });
+    return {
+      suggestions: clusters.map((c) => ({
+        key: c.base_section,
+        name: `${c.base_section} Seçmeli`,
+        base_section: c.base_section,
+        member_sections: c.member_sections,
+        subject_names: c.subject_names,
+        weekly_hours_per_track: 2,
+        already_exists: existing.some((e) => e.base_section === c.base_section),
+      })),
+    };
+  }
+
+  async applyElectivePoolSuggestions(
+    studioId: string,
+    body: { keys?: string[]; apply_all?: boolean; sync_groups?: boolean; apply_assignments?: boolean },
+  ) {
+    const { suggestions } = await this.suggestElectivePools(studioId);
+    const pick = body.apply_all
+      ? suggestions.filter((s) => !s.already_exists)
+      : suggestions.filter((s) => !s.already_exists && body.keys?.includes(s.key));
+    let created = 0;
+    let assignments_created = 0;
+    for (const s of pick) {
+      const pool = await this.upsertElectivePool(studioId, {
+        name: s.name,
+        base_section: s.base_section,
+        member_sections: s.member_sections,
+        subject_names: s.subject_names,
+        weekly_hours_per_track: s.weekly_hours_per_track,
+      });
+      created++;
+      if (body.sync_groups !== false) await this.syncElectivePoolGroup(studioId, pool.id);
+      if (body.apply_assignments) {
+        const r = await this.applyElectivePoolAssignments(studioId, pool.id);
+        assignments_created += r.assignments_created + (r.assignments_updated ?? 0);
+      }
+    }
+    return { created, assignments_created };
   }
 
   async getAihlNormReport(studioId: string, schoolId: string) {
@@ -605,6 +845,68 @@ export class DersDagitService {
 
   async deleteRoom(id: string, schoolId: string) {
     await this.roomRepo.delete({ id, school_id: schoolId });
+  }
+
+  /** Şube listesinden sınıf dersliği oluştur (mevcut eşleşenleri atlar). */
+  async autoCreateRoomsFromClassSections(
+    schoolId: string,
+    studioId: string,
+  ): Promise<{ created: number; skipped: number; sections: string[] }> {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
+
+    const sections = await this.collectStudioSections(studioId, schoolId);
+    if (!sections.length) return { created: 0, skipped: 0, sections: [] };
+
+    let building = await this.buildingRepo.findOne({
+      where: { school_id: schoolId },
+      order: { sort_order: 'ASC' },
+    });
+    if (!building) {
+      building = await this.buildingRepo.save({
+        school_id: schoolId,
+        name: 'Ana Bina',
+        sort_order: 0,
+      } as DersDagitBuilding);
+    }
+
+    const existing = await this.roomRepo.find({ where: { school_id: schoolId } });
+    const covers = (r: DersDagitRoom, sec: string) => {
+      const allowed = r.allowed_class_sections ?? [];
+      if (allowed.includes(sec)) return true;
+      const n = r.name.trim().toLocaleLowerCase('tr');
+      const s = sec.toLocaleLowerCase('tr');
+      return n === s;
+    };
+
+    let created = 0;
+    let skipped = 0;
+    let sortOrder =
+      existing.reduce((m, r) => Math.max(m, r.sort_order ?? 0), 0) + 1;
+
+    for (const sec of sections) {
+      if (existing.some((r) => covers(r, sec))) {
+        skipped++;
+        continue;
+      }
+      const row = await this.roomRepo.save(
+        this.roomRepo.create({
+          school_id: schoolId,
+          building_id: building.id,
+          name: sec,
+          capacity: 30,
+          features: [],
+          allowed_class_sections: [sec],
+          allowed_subjects: null,
+          allowed_teacher_ids: null,
+          sort_order: sortOrder++,
+        }),
+      );
+      existing.push(row);
+      created++;
+    }
+
+    return { created, skipped, sections };
   }
 
   // --- Assignments (Faz 10-11) ---
@@ -736,9 +1038,48 @@ export class DersDagitService {
   async getRules(studioId: string) {
     let rs = await this.ruleSetRepo.findOne({ where: { studio_id: studioId } });
     if (!rs) {
-      rs = await this.ruleSetRepo.save({ studio_id: studioId, rules: buildDefaultRuleState(), building_travel: [] });
+      rs = await this.ruleSetRepo.save({
+        studio_id: studioId,
+        rules: buildDefaultRuleState(),
+        building_travel: [],
+        planning_relations: [],
+      });
     }
-    return { ...rs, catalog: DERS_DAGIT_RULE_CATALOG };
+    const profiles = await this.classProfileRepo.find({
+      where: { studio_id: studioId },
+      order: { sort_order: 'ASC' },
+      select: ['id', 'name', 'class_sections', 'rules'],
+    });
+    return {
+      rules: rs.rules,
+      building_travel: rs.building_travel,
+      planning_relations: (rs.planning_relations ?? []) as PlanningRelationRow[],
+      simple_planning_catalog: SIMPLE_PLANNING_RULES,
+      advanced_planning_catalog: ADVANCED_PLANNING_RULES,
+      catalog: DERS_DAGIT_RULE_CATALOG,
+      class_profiles: profiles.map((p) => ({
+        id: p.id,
+        name: p.name,
+        class_sections: p.class_sections ?? [],
+        rules: p.rules ?? null,
+      })),
+    };
+  }
+
+  async updateClassProfileRules(
+    studioId: string,
+    profileId: string,
+    rules: Record<string, { active: boolean; weight?: number; params?: Record<string, unknown> }>,
+  ) {
+    const row = await this.classProfileRepo.findOne({ where: { id: profileId, studio_id: studioId } });
+    if (!row) throw new NotFoundException();
+    row.rules = rules;
+    await this.classProfileRepo.save(row);
+    return this.getRules(studioId);
+  }
+
+  async listStudioClassSections(studioId: string, schoolId: string) {
+    return this.collectStudioSections(studioId, schoolId);
   }
 
   async updateRules(studioId: string, rules: Record<string, unknown>, building_travel?: unknown[]) {
@@ -750,8 +1091,72 @@ export class DersDagitService {
     return this.getRules(studioId);
   }
 
+  async updatePlanningRelations(studioId: string, relations: PlanningRelationRow[]) {
+    let rs = await this.ruleSetRepo.findOne({ where: { studio_id: studioId } });
+    if (!rs) {
+      rs = await this.ruleSetRepo.save({
+        studio_id: studioId,
+        rules: buildDefaultRuleState(),
+        building_travel: [],
+        planning_relations: [],
+      });
+    }
+    rs.planning_relations = relations;
+    await this.ruleSetRepo.save(rs);
+    await this.syncPlanningRelationsToRules(studioId, relations, rs.rules);
+    return this.getRules(studioId);
+  }
+
+  private async syncPlanningRelationsToRules(
+    studioId: string,
+    relations: PlanningRelationRow[],
+    studioRules: DersDagitRuleSet['rules'],
+  ) {
+    const profiles = await this.classProfileRepo.find({ where: { studio_id: studioId } });
+    let studioDirty = false;
+    const profileDirty = new Map<string, Record<string, { active: boolean; weight?: number; params?: Record<string, unknown> }>>();
+
+    for (const row of relations) {
+      if (!row.active) continue;
+      const def = relationDefinition(row);
+      if (!def || !('catalog_key' in def) || !def.catalog_key) continue;
+      const key = def.catalog_key;
+      const state = {
+        active: true,
+        weight: importanceWeight(row.importance),
+        params: row.params,
+      };
+      if (row.sections_mode === 'all') {
+        studioRules[key] = { ...studioRules[key], ...state };
+        studioDirty = true;
+      } else {
+        for (const p of profiles) {
+          const secs = p.class_sections ?? [];
+          if (!secs.some((s) => row.sections.includes(s))) continue;
+          const cur = profileDirty.get(p.id) ?? { ...(p.rules ?? {}) };
+          cur[key] = state;
+          profileDirty.set(p.id, cur);
+        }
+      }
+    }
+
+    if (studioDirty) {
+      const rs = await this.ruleSetRepo.findOne({ where: { studio_id: studioId } });
+      if (rs) {
+        rs.rules = studioRules;
+        await this.ruleSetRepo.save(rs);
+      }
+    }
+    for (const [profileId, rules] of profileDirty) {
+      await this.updateClassProfileRules(studioId, profileId, rules);
+    }
+  }
+
   async deleteSubject(id: string, studioId: string) {
+    const linked = await this.assignmentRepo.find({ where: { studio_id: studioId, subject_id: id } });
+    for (const a of linked) await this.deleteAssignment(a.id, studioId);
     await this.subjectRepo.delete({ id, studio_id: studioId });
+    return { deleted_assignments: linked.length };
   }
 
   // --- Preferences (Faz 23) ---
@@ -853,9 +1258,30 @@ export class DersDagitService {
       this.groupRepo.find({ where: { studio_id: studioId } }),
       this.ruleSetRepo.findOne({ where: { studio_id: studioId } }),
     ]);
-    const active_rules = (ruleSet?.rules ?? buildDefaultRuleState()) as SolverContext['active_rules'];
     const studio = await this.studioRepo.findOne({ where: { id: studioId } });
     const settings = (studio?.settings ?? {}) as Record<string, unknown>;
+    const schoolProfile = parseSchoolProfile(settings.school_profile);
+    const planningRelations = (ruleSet?.planning_relations ?? []) as PlanningRelationRow[];
+    let studio_rules = applySchoolPedagogyRules(
+      (ruleSet?.rules ?? buildDefaultRuleState()) as SolverContext['active_rules'],
+      schoolProfile,
+    );
+    const mergedRules = mergePlanningRelationsIntoRules(
+      studio_rules,
+      profiles.map((p) => ({
+        id: p.id,
+        class_sections: p.class_sections,
+        rules: p.rules as SolverContext['active_rules'] | null,
+      })),
+      planningRelations,
+    );
+    studio_rules = applySchoolPedagogyRules(mergedRules.studio_rules, schoolProfile);
+    const section_rules = mergedRules.section_rules;
+    for (const [sec, rules] of section_rules) {
+      section_rules.set(sec, applySchoolPedagogyRules(rules, schoolProfile));
+    }
+    const active_rules = studio_rules;
+    const strictKeys = buildStrictRuleKeys(planningRelations);
     const period = parseStudioPeriod(settings.period);
     const dual = parseDualEducation(settings.dual_education);
     let maxLesson = school?.duty_max_lessons ?? 8;
@@ -986,7 +1412,52 @@ export class DersDagitService {
       section_shift,
       teacher_shift,
       group_member_sections,
+      section_rules,
+      section_schedules: parseSectionSchedules(settings.section_schedules),
+      section_internship_from_profiles: internshipDaysBySectionFromProfiles(profiles),
+      studio_period: period,
+      strict_rule_keys_global: strictKeys.global,
+      strict_rule_keys_by_section: strictKeys.bySection,
     };
+  }
+
+  async getSectionSchedules(studioId: string, schoolId: string) {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
+    const settings = (studio.settings ?? {}) as Record<string, unknown>;
+    const sections = await this.collectStudioSections(studioId, schoolId);
+    const map = parseSectionSchedules(settings.section_schedules);
+    const schedules: Record<string, SectionScheduleConfig> = {};
+    for (const sec of sections) {
+      schedules[sec] = map.get(sec) ?? { lessons_per_day_by_dow: {}, cells: {} };
+    }
+    return { sections, schedules };
+  }
+
+  async updateSectionSchedule(
+    studioId: string,
+    schoolId: string,
+    section: string,
+    schedule: SectionScheduleConfig,
+  ) {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
+    const sec = section.trim();
+    if (!sec) throw new BadRequestException({ code: 'SECTION_REQUIRED', message: 'Şube adı gerekli.' });
+    const settings = { ...(studio.settings ?? {}) } as Record<string, unknown>;
+    const map = parseSectionSchedules(settings.section_schedules);
+    const internship_days = Array.isArray(schedule.internship_days)
+      ? [...new Set(schedule.internship_days.map((d) => Number(d)).filter((d) => d >= 1 && d <= 7))].sort((a, b) => a - b)
+      : [];
+    map.set(sec, {
+      lessons_per_day_by_dow: schedule.lessons_per_day_by_dow ?? {},
+      cells: schedule.cells ?? {},
+      ...(internship_days.length ? { internship_days } : {}),
+    });
+    settings.section_schedules = sectionSchedulesToJson(map);
+    studio.settings = settings;
+    await this.studioRepo.save(studio);
+    return this.getSectionSchedules(studioId, schoolId);
   }
 
   async getSchoolProfile(studioId: string, schoolId: string) {
@@ -1198,8 +1669,15 @@ export class DersDagitService {
     opts: { duration_sec?: number; versions?: number; use_csp?: boolean },
   ) {
     const errors = (await this.runValidation(studioId)).filter((e) => e.severity === 'error');
-    if (errors.length) {
-      throw new BadRequestException({ code: 'VALIDATION_FAILED', issues: errors });
+    const ruleSet = await this.ruleSetRepo.findOne({ where: { studio_id: studioId } });
+    const planningIssues = validatePlanningRelationsForGenerate(
+      (ruleSet?.planning_relations ?? []) as PlanningRelationRow[],
+    );
+    if (errors.length || planningIssues.length) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        issues: [...errors, ...planningIssues],
+      });
     }
     const job = await this.jobRepo.save({
       studio_id: studioId,
@@ -1261,6 +1739,19 @@ export class DersDagitService {
         code: 'DUTY_CONFLICT',
         message: 'Üretilen program nöbet slotlarıyla çakışıyor.',
         violations: dutyConflicts,
+      });
+    }
+    const { strict_violations: strictViolations } = applySoftRulePenalties(
+      bestResult.entries,
+      solverInput,
+      solverCtx,
+    );
+    if (strictViolations.length) {
+      await this.jobRepo.update(job.id, { status: 'failed', finished_at: new Date() });
+      throw new BadRequestException({
+        code: 'STRICT_RULES_VIOLATED',
+        message: 'Zorunlu planlama veya okul kuralları karşılanamadı.',
+        violations: strictViolations.slice(0, 20),
       });
     }
     for (let v = 0; v < versionCount; v++) {
@@ -1419,7 +1910,7 @@ export class DersDagitService {
 
   async exportParentAllPdfZip(programId: string, studioId: string, schoolId: string): Promise<Buffer> {
     const { entries } = await this.getProgram(programId, studioId);
-    const sections = [...new Set(entries.map((e) => e.class_section))].sort((a, b) => a.localeCompare(b, 'tr'));
+    const sections = sortClassSections([...new Set(entries.map((e) => e.class_section))]);
     if (!sections.length) {
       throw new BadRequestException({ code: 'NO_SECTIONS', message: 'Programda şube yok.' });
     }
@@ -1455,7 +1946,7 @@ export class DersDagitService {
       where: { school_id: schoolId },
       order: { sort_order: 'ASC', name: 'ASC' },
     });
-    const class_sections = [...new Set(entries.map((e) => e.class_section))].sort((a, b) => a.localeCompare(b, 'tr'));
+    const class_sections = sortClassSections([...new Set(entries.map((e) => e.class_section))]);
     const teacherConfigs = await this.listTeacherConfigs(studioId);
     const teachers = teacherConfigs.map((t) => ({
       id: t.user_id,
@@ -1762,7 +2253,7 @@ export class DersDagitService {
       .orderBy('sc.name', 'ASC')
       .getRawMany<{ name: string }>()
       .catch(() => [] as { name: string }[]);
-    return rows.map((r) => String(r.name ?? '').trim()).filter(Boolean);
+    return sortClassSections(rows.map((r) => String(r.name ?? '').trim()).filter(Boolean));
   }
 
   /** Yayınlanmış programdan sınıf görünümü (veli/öğretmen önizleme). */
@@ -1956,7 +2447,197 @@ export class DersDagitService {
     return this.programRepo.findOne({ where: { id: programId } });
   }
 
-  /** Okul ders programı planından atama türet (Faz 28). */
+  private async loadSchoolPlanEntries(schoolId: string, planId: string) {
+    const plan = await this.schoolPlanRepo.findOne({ where: { id: planId, school_id: schoolId } });
+    if (!plan) throw new NotFoundException('Plan bulunamadı');
+    const entries = await this.schoolPlanEntryRepo.find({ where: { plan_id: planId } });
+    if (!entries.length) {
+      throw new BadRequestException({ code: 'EMPTY_PLAN', message: 'Planda ders satırı yok.' });
+    }
+    return { plan, entries };
+  }
+
+  /** Okul programı → önizleme (aktarma yok). */
+  async previewImportFromSchoolPlan(studioId: string, schoolId: string, planId: string) {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
+    const { plan, entries } = await this.loadSchoolPlanEntries(schoolId, planId);
+    const { rows, skipped, names_fixed } = aggregatePlanImportRows(entries);
+    const subjects = subjectsFromPlanRows(rows);
+    return {
+      plan: { id: plan.id, name: plan.name ?? null, status: plan.status },
+      entry_count: entries.length,
+      skipped,
+      names_fixed,
+      subject_count: subjects.length,
+      assignment_count: rows.length,
+      subjects: subjects.slice(0, 80),
+      assignments: rows.slice(0, 40).map((r) => ({
+        subject_name: r.subject,
+        subject_raw: r.subject_raw !== r.subject ? r.subject_raw : undefined,
+        class_section: r.section,
+        weekly_hours: r.weekly_hours,
+        teacher_count: r.teacher_ids.length,
+      })),
+    };
+  }
+
+  private async upsertSubjectsFromPlanRows(
+    studioId: string,
+    rows: PlanImportRow[],
+    replace: boolean,
+  ): Promise<{ created: number; updated: number }> {
+    if (replace) {
+      await this.subjectRepo.delete({ studio_id: studioId });
+    }
+    const catalog = subjectsFromPlanRows(rows);
+    let created = 0;
+    let updated = 0;
+    for (const sub of catalog) {
+      const existing = replace
+        ? null
+        : await this.subjectRepo.findOne({ where: { studio_id: studioId, name: sub.name } });
+      if (existing) {
+        await this.subjectRepo.save({
+          ...existing,
+          class_hours: { ...existing.class_hours, ...sub.class_hours },
+        });
+        updated++;
+      } else {
+        await this.subjectRepo.save({
+          studio_id: studioId,
+          name: sub.name,
+          class_hours: sub.class_hours,
+        } as DersDagitSubject);
+        created++;
+      }
+    }
+    return { created, updated };
+  }
+
+  private async upsertAssignmentsFromPlanRows(
+    studioId: string,
+    rows: PlanImportRow[],
+    replace: boolean,
+  ): Promise<{ created: number; updated: number }> {
+    if (replace) {
+      const existing = await this.assignmentRepo.find({ where: { studio_id: studioId }, select: ['id'] });
+      if (existing.length) {
+        await this.assignmentTeacherRepo.delete({ assignment_id: In(existing.map((a) => a.id)) });
+        await this.assignmentRepo.delete({ studio_id: studioId });
+      }
+    }
+    const existing = replace
+      ? []
+      : await this.assignmentRepo.find({ where: { studio_id: studioId } });
+    const links = existing.length
+      ? await this.assignmentTeacherRepo.find({
+          where: { assignment_id: In(existing.map((r) => r.id)) },
+        })
+      : [];
+    const teachersByAssign = new Map<string, string[]>();
+    for (const l of links) {
+      const arr = teachersByAssign.get(l.assignment_id) ?? [];
+      arr.push(l.user_id);
+      teachersByAssign.set(l.assignment_id, arr);
+    }
+    const subjectRows = await this.subjectRepo.find({ where: { studio_id: studioId } });
+    const subjectByName = new Map(subjectRows.map((s) => [s.name, s.id]));
+    const catalogKey = (subjectId: string | null, subjectName: string, sec: string) =>
+      `${subjectId ?? ''}\0${subjectName}\0${sec}`;
+    const byKey = new Map<string, DersDagitAssignment>();
+    for (const a of existing) {
+      if ((a.class_sections?.length ?? 0) !== 1) continue;
+      const sec = a.class_sections[0]!;
+      byKey.set(catalogKey(a.subject_id, a.subject_name, sec), a);
+    }
+
+    let created = 0;
+    let updated = 0;
+    for (const r of rows) {
+      const subject_id = subjectByName.get(r.subject) ?? null;
+      const payload = {
+        subject_id,
+        subject_name: r.subject,
+        class_sections: [r.section],
+        weekly_hours: r.weekly_hours,
+        max_per_day: Math.min(4, r.weekly_hours),
+        min_days_per_week: Math.min(5, Math.max(1, Math.ceil(r.weekly_hours / 2))),
+        room_ids: [] as string[],
+        teacher_ids: r.teacher_ids,
+      };
+      const prev = byKey.get(catalogKey(subject_id, r.subject, r.section));
+      if (prev) {
+        await this.upsertAssignment(studioId, {
+          id: prev.id,
+          ...payload,
+          room_ids: prev.room_ids ?? [],
+        });
+        updated++;
+      } else {
+        await this.upsertAssignment(studioId, payload);
+        created++;
+      }
+    }
+    return { created, updated };
+  }
+
+  /** Okul ders programı planından ders kataloğu + atama (onay sonrası). */
+  async importFromSchoolPlan(
+    studioId: string,
+    schoolId: string,
+    planId: string,
+    userId: string,
+    opts?: {
+      replace?: boolean;
+      replace_subjects?: boolean;
+      replace_assignments?: boolean;
+      import_subjects?: boolean;
+      import_assignments?: boolean;
+    },
+  ) {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
+    const { plan, entries } = await this.loadSchoolPlanEntries(schoolId, planId);
+    const { rows } = aggregatePlanImportRows(entries);
+    const replaceAssignments = !!(opts?.replace_assignments ?? opts?.replace);
+    const replaceSubjects = !!opts?.replace_subjects;
+    const importSubjects = opts?.import_subjects !== false;
+    const importAssignments = opts?.import_assignments !== false;
+
+    let subjects_created = 0;
+    let subjects_updated = 0;
+    let assignments_created = 0;
+    let assignments_updated = 0;
+
+    if (importSubjects) {
+      const s = await this.upsertSubjectsFromPlanRows(studioId, rows, replaceSubjects);
+      subjects_created = s.created;
+      subjects_updated = s.updated;
+    }
+    if (importAssignments) {
+      const a = await this.upsertAssignmentsFromPlanRows(studioId, rows, replaceAssignments);
+      assignments_created = a.created;
+      assignments_updated = a.updated;
+    }
+
+    await this.audit(studioId, userId, 'plan.imported', {
+      plan_id: planId,
+      subjects_created,
+      assignments_created,
+    });
+    return {
+      plan_id: planId,
+      plan_name: plan.name,
+      subjects_created,
+      subjects_updated,
+      assignments_created,
+      assignments_updated,
+      imported: assignments_created + assignments_updated,
+    };
+  }
+
+  /** @deprecated use importFromSchoolPlan */
   async importAssignmentsFromSchoolPlan(
     studioId: string,
     schoolId: string,
@@ -1964,62 +2645,18 @@ export class DersDagitService {
     userId: string,
     opts?: { replace?: boolean },
   ) {
-    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
-    if (!studio) throw new NotFoundException();
-    const plan = await this.schoolPlanRepo.findOne({ where: { id: planId, school_id: schoolId } });
-    if (!plan) throw new NotFoundException('Plan bulunamadı');
-    const entries = await this.schoolPlanEntryRepo.find({ where: { plan_id: planId } });
-    if (!entries.length) {
-      throw new BadRequestException({ code: 'EMPTY_PLAN', message: 'Planda ders satırı yok.' });
-    }
-    if (opts?.replace) {
-      const existing = await this.assignmentRepo.find({ where: { studio_id: studioId }, select: ['id'] });
-      if (existing.length) {
-        await this.assignmentTeacherRepo.delete({ assignment_id: In(existing.map((a) => a.id)) });
-        await this.assignmentRepo.delete({ studio_id: studioId });
-      }
-    }
-    const bucket = new Map<
-      string,
-      { subject: string; sections: Set<string>; hours: number; teacherIds: Set<string> }
-    >();
-    for (const e of entries) {
-      const section = String(e.class_section ?? '').trim();
-      const subject = String(e.subject ?? '').trim();
-      if (!section || !subject) continue;
-      const k = `${subject}\0${section}`;
-      let b = bucket.get(k);
-      if (!b) {
-        b = { subject, sections: new Set([section]), hours: 0, teacherIds: new Set() };
-        bucket.set(k, b);
-      }
-      b.hours += 1;
-      if (e.user_id) b.teacherIds.add(e.user_id);
-    }
-    const created: DersDagitAssignment[] = [];
-    for (const b of bucket.values()) {
-      const row = await this.upsertAssignment(studioId, {
-        subject_name: b.subject,
-        class_sections: [...b.sections],
-        weekly_hours: b.hours,
-        max_per_day: Math.min(4, b.hours),
-        min_days_per_week: Math.min(5, Math.max(1, Math.ceil(b.hours / 2))),
-        room_ids: [],
-        teacher_ids: [...b.teacherIds],
-      });
-      created.push(row);
-    }
-    await this.audit(studioId, userId, 'assignments.imported_from_plan', {
-      plan_id: planId,
-      count: created.length,
+    return this.importFromSchoolPlan(studioId, schoolId, planId, userId, {
+      replace_assignments: opts?.replace,
+      import_subjects: true,
+      import_assignments: true,
     });
-    return { imported: created.length, plan_id: planId, assignments: created };
   }
 
   private async collectStudioSections(studioId: string, schoolId: string): Promise<string[]> {
-    const [profiles, assignments, suggested] = await Promise.all([
+    const [profiles, assignments, subjectRows, suggested] = await Promise.all([
       this.classProfileRepo.find({ where: { studio_id: studioId }, select: ['class_sections'] }),
       this.assignmentRepo.find({ where: { studio_id: studioId }, select: ['class_sections'] }),
+      this.subjectRepo.find({ where: { studio_id: studioId }, select: ['class_hours'] }),
       this.suggestClassSections(schoolId).catch(() => [] as string[]),
     ]);
     const set = new Set<string>();
@@ -2029,11 +2666,14 @@ export class DersDagitService {
     for (const a of assignments) {
       for (const s of a.class_sections ?? []) if (s?.trim()) set.add(s.trim());
     }
+    for (const sub of subjectRows) {
+      for (const sec of Object.keys(sub.class_hours ?? {})) if (sec?.trim()) set.add(sec.trim());
+    }
     for (const s of suggested) if (s?.trim()) set.add(s.trim());
     if (!set.size) {
       for (let g = 5; g <= 12; g++) set.add(`${g}A`);
     }
-    return [...set].sort();
+    return sortClassSections([...set]);
   }
 
   private async loadYillikWeeklyHours(
@@ -2076,13 +2716,30 @@ export class DersDagitService {
     const yillik = await this.loadYillikWeeklyHours(grades, studio.academic_year);
     const cells = buildTtkbSeedCells(sections, profile.type, yillik);
     const subjects = mergeCellsToSubjects(cells);
+    const sections_without_grade = sections.filter((s) => gradeFromClassSection(s) == null);
+    const empty_message =
+      cells.length === 0
+        ? sections_without_grade.length
+          ? `Şube adından sınıf seviyesi okunamadı: ${sections_without_grade.slice(0, 5).join(', ')}${sections_without_grade.length > 5 ? '…' : ''}. Örn. 9/A veya 10-BT kullanın.`
+          : 'TTKB listesi üretilemedi. Kurulumda sınıf profili ekleyin ve okul türünü kaydedin.'
+        : undefined;
     return {
       sections,
+      sections_without_grade,
+      empty_message,
       school_type: profile.type,
       cell_count: cells.length,
       subject_count: subjects.size,
       yillik_plan_keys: yillik.size,
       sample: cells.slice(0, 30),
+      cells: cells.map((c) => ({
+        subject_code: c.subject_code,
+        subject_name: c.subject_name,
+        class_section: c.class_section,
+        grade: c.grade,
+        weekly_hours: c.weekly_hours,
+        source: c.source,
+      })),
       totals_by_section: Object.fromEntries(
         sections.map((sec) => [
           sec,
@@ -2106,6 +2763,15 @@ export class DersDagitService {
     const grades = [...new Set(sections.map((s) => gradeFromClassSection(s)).filter((g): g is number => g != null))];
     const yillik = await this.loadYillikWeeklyHours(grades, studio.academic_year);
     let cells = buildTtkbSeedCells(sections, profile.type, yillik);
+    if (!cells.length) {
+      const bad = sections.filter((s) => gradeFromClassSection(s) == null);
+      throw new BadRequestException({
+        code: 'TTKB_EMPTY',
+        message: bad.length
+          ? `Şube adından sınıf seviyesi okunamadı: ${bad.join(', ')}. Örn. 9/A veya 10-BT.`
+          : 'TTKB listesi üretilemedi. Kurulumda sınıf profili ekleyin ve okul türünü kaydedin.',
+      });
+    }
     for (const c of cells) {
       if (c.source === 'ttkb') {
         const h = await this.appConfig.getDersSaati(c.subject_code, c.grade);
@@ -2166,26 +2832,63 @@ export class DersDagitService {
     if (opts?.replace) {
       await this.assignmentRepo.delete({ studio_id: studioId });
     }
+    const existing = opts?.replace
+      ? []
+      : await this.assignmentRepo.find({ where: { studio_id: studioId } });
+    const links = existing.length
+      ? await this.assignmentTeacherRepo.find({
+          where: { assignment_id: In(existing.map((r) => r.id)) },
+        })
+      : [];
+    const teachersByAssign = new Map<string, string[]>();
+    for (const l of links) {
+      const arr = teachersByAssign.get(l.assignment_id) ?? [];
+      arr.push(l.user_id);
+      teachersByAssign.set(l.assignment_id, arr);
+    }
+    const catalogKey = (subjectId: string, sec: string) => `${subjectId}\0${sec}`;
+    const byCatalog = new Map<string, DersDagitAssignment>();
+    for (const a of existing) {
+      if (!a.subject_id || (a.class_sections?.length ?? 0) !== 1) continue;
+      const sec = a.class_sections[0]!;
+      byCatalog.set(catalogKey(a.subject_id, sec), a);
+    }
+
     let created = 0;
+    let updated = 0;
     for (const sub of subjects) {
       for (const [sec, hrs] of Object.entries(sub.class_hours ?? {})) {
         const h = Number(hrs);
         if (!sec || !h || h < 1) continue;
-        await this.upsertAssignment(studioId, {
+        const prev = byCatalog.get(catalogKey(sub.id, sec));
+        const payload = {
           subject_id: sub.id,
           subject_name: sub.name,
           class_sections: [sec],
           weekly_hours: h,
-          room_ids: [],
-          teacher_ids: [],
           min_days_per_week: Math.min(5, Math.max(1, Math.ceil(h / 2))),
           max_per_day: Math.min(4, h),
-        });
-        created++;
+        };
+        if (prev) {
+          await this.upsertAssignment(studioId, {
+            id: prev.id,
+            ...payload,
+            room_ids: prev.room_ids ?? [],
+            teacher_ids: teachersByAssign.get(prev.id) ?? [],
+          });
+          updated++;
+        } else {
+          await this.upsertAssignment(studioId, {
+            ...payload,
+            room_ids: [],
+            teacher_ids: [],
+          });
+          created++;
+        }
       }
     }
-    await this.audit(studioId, userId, 'assignments.synced_from_catalog', { created });
-    return { created };
+    await this.audit(studioId, userId, 'assignments.synced_from_catalog', { created, updated });
+    return { created, updated };
   }
 
   async bulkUpsertAssignments(
@@ -2265,7 +2968,7 @@ export class DersDagitService {
       where: { id: program.studio_id },
       select: ['id', 'name', 'academic_year'],
     });
-    const sections = [...new Set(entries.map((e) => e.class_section))].sort((a, b) => a.localeCompare(b, 'tr'));
+    const sections = sortClassSections([...new Set(entries.map((e) => e.class_section))]);
     const sec = classSection?.trim();
     const filtered = sec ? entries.filter((e) => e.class_section === sec) : entries;
     return {
@@ -2312,7 +3015,7 @@ export class DersDagitService {
       violations: violations.slice(0, 15),
       by_class: [...byClass.entries()]
         .map(([section, weekly_slots]) => ({ section, weekly_slots }))
-        .sort((a, b) => a.section.localeCompare(b.section, 'tr')),
+        .sort((a, b) => compareClassSections(a.section, b.section)),
     });
   }
 
@@ -2361,6 +3064,31 @@ export class DersDagitService {
     await this.programRepo.update(programId, { archived_at: new Date() });
     await this.audit(studioId, userId, 'program.archived', { program_id: programId });
     return { ok: true };
+  }
+
+  async unarchiveProgram(studioId: string, programId: string, userId: string) {
+    const prog = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
+    if (!prog) throw new NotFoundException();
+    await this.programRepo.update(programId, { archived_at: null });
+    await this.audit(studioId, userId, 'program.unarchived', { program_id: programId });
+    return { ok: true };
+  }
+
+  async patchProgram(
+    studioId: string,
+    programId: string,
+    userId: string,
+    body: { name?: string },
+  ) {
+    const prog = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
+    if (!prog) throw new NotFoundException();
+    if (body.name !== undefined) {
+      const name = String(body.name).trim();
+      if (!name) throw new BadRequestException({ code: 'NAME_REQUIRED', message: 'Program adı gerekli.' });
+      await this.programRepo.update(programId, { name });
+    }
+    await this.audit(studioId, userId, 'program.updated', { program_id: programId, fields: Object.keys(body) });
+    return this.programRepo.findOne({ where: { id: programId } });
   }
 
   async getTeacherProgramGrid(studioId: string, programId: string) {
@@ -2483,7 +3211,7 @@ export class DersDagitService {
       { subject_name: string; class_sections: string[]; weekly_hours: number; teacher_ids: string[] }
     >();
     for (const r of preview.rows) {
-      const secs = [...r.class_sections].sort().join(',');
+      const secs = sortClassSections(r.class_sections).join(',');
       const tid = r.resolved_teacher_id ?? '';
       const k = `${r.subject_name}\0${secs}\0${tid}`;
       const prev = merge.get(k);

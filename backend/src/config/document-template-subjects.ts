@@ -99,6 +99,14 @@ export const GRADE_9_12_SUBJECTS: SubjectEntry[] = [
 
 export type SectionKey = 'ders' | 'secmeli' | 'iho' | 'ihl' | 'meslek' | 'mesem' | 'gsl' | 'spor_l';
 
+/** 9–12 MTAL / meslek: ortak lise + meslek/staj/atölye */
+export const GRADE_MESLEK_9_12: SubjectEntry[] = [
+  { code: 'meslek_egitimi', label: 'Meslek Eğitimi' },
+  { code: 'staj', label: 'Staj' },
+  { code: 'atolye_calismasi', label: 'Atölye Çalışması' },
+  { code: 'rehberlik_meslek', label: 'Rehberlik (Meslek)' },
+];
+
 export function getSubjectsByGradeAndSection(
   grade: number,
   section?: SectionKey | string | null
@@ -115,6 +123,9 @@ export function getSubjectsByGradeAndSection(
     return GRADE_5_8_DERS;
   }
   if (grade >= 9 && grade <= 12) {
+    if (section === 'meslek' || section === 'mesem') {
+      return [...GRADE_9_12_SUBJECTS, ...GRADE_MESLEK_9_12];
+    }
     return GRADE_9_12_SUBJECTS;
   }
   return [];

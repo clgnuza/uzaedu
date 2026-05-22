@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 
 export type DualEducationConfig = {
   enabled: boolean;
@@ -28,28 +29,41 @@ export function DualEducationForm({ initial, pmFirstDefault, pmScheduleCount, on
   }, [initial, pmFirstDefault]);
 
   return (
-    <div className="space-y-3 border-t pt-4">
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-        İkili eğitim (sabah / öğle vardiyası)
-      </label>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2">
+        <div>
+          <p className="text-sm font-medium">İkili eğitim</p>
+          <p className="text-xs text-muted-foreground">Sabah ve öğle vardiyası ayrı programlanır.</p>
+        </div>
+        <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="İkili eğitim" />
+      </div>
+
       {enabled && (
-        <>
+        <div className="space-y-3 rounded-lg border border-dashed p-3">
           <div>
-            <Label>Öğle vardiyası ilk ders sırası</Label>
-            <Input type="number" min={2} max={14} value={pmFirst} onChange={(e) => setPmFirst(e.target.value)} />
+            <Label>Öğle vardiyası — ilk ders sırası</Label>
+            <Input
+              className="mt-1 max-w-[8rem]"
+              type="number"
+              min={2}
+              max={14}
+              value={pmFirst}
+              onChange={(e) => setPmFirst(e.target.value)}
+            />
             <p className="mt-1 text-xs text-muted-foreground">
-              Önerilen: {pmFirstDefault} · Öğle çizelgesi: {pmScheduleCount || '—'} ders
+              Önerilen: {pmFirstDefault}
+              {pmScheduleCount > 0 ? ` · Okul öğle çizelgesi: ${pmScheduleCount} ders` : ' · Öğle çizelgesi tanımlı değil'}
             </p>
           </div>
           <p className="text-xs text-muted-foreground">
-            Sınıf profillerinde ve öğretmenlerde sabah/öğle etiketi verin; solver yalnız uygun slotlara yerleştirir.
+            Kurulumda sınıf profillerine ve öğretmenlere <strong>Sabah</strong> / <strong>Öğle</strong> vardiyası verin;
+            program oluşturucu yalnız uygun slotlara yerleştirir.
           </p>
-        </>
+        </div>
       )}
+
       <Button
         type="button"
-        size="sm"
         disabled={busy}
         onClick={() => {
           setBusy(true);
@@ -59,7 +73,7 @@ export function DualEducationForm({ initial, pmFirstDefault, pmScheduleCount, on
           }).finally(() => setBusy(false));
         }}
       >
-        İkili eğitim kaydet
+        {busy ? 'Kaydediliyor…' : 'İkili eğitim kaydet'}
       </Button>
     </div>
   );
