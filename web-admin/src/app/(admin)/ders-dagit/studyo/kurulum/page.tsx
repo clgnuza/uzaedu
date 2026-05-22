@@ -109,7 +109,7 @@ export default function KurulumPage() {
           </ul>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" size="sm" asChild>
-              <Link href="/ders-dagit/stüdyo/donem">Dönem ayarları</Link>
+              <Link href="/ders-dagit/studyo/donem">Dönem ayarları</Link>
             </Button>
             <Button type="button" variant="outline" size="sm" asChild>
               <Link href="/ders-programi/ayarlar">Okul zaman çizelgesi</Link>

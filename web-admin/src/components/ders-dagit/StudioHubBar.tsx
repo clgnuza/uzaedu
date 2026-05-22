@@ -16,12 +16,12 @@ import {
 } from 'lucide-react';
 
 const FLOW = [
-  { href: '/ders-dagit/stüdyo', label: 'Özet', icon: LayoutDashboard, exact: true },
-  { href: '/ders-dagit/stüdyo/kurulum', label: 'Kurulum', icon: Settings2 },
-  { href: '/ders-dagit/stüdyo/dogrulama', label: 'Doğrula', icon: ClipboardCheck },
-  { href: '/ders-dagit/stüdyo/uret', label: 'Üret', icon: Wand2 },
-  { href: '/ders-dagit/stüdyo/program', label: 'Program', icon: TableProperties },
-  { href: '/ders-dagit/stüdyo/ayarlar', label: 'Ayarlar', icon: SlidersHorizontal },
+  { href: '/ders-dagit/studyo', label: 'Özet', icon: LayoutDashboard, exact: true },
+  { href: '/ders-dagit/studyo/kurulum', label: 'Kurulum', icon: Settings2 },
+  { href: '/ders-dagit/studyo/dogrulama', label: 'Doğrula', icon: ClipboardCheck },
+  { href: '/ders-dagit/studyo/uret', label: 'Üret', icon: Wand2 },
+  { href: '/ders-dagit/studyo/program', label: 'Program', icon: TableProperties },
+  { href: '/ders-dagit/studyo/ayarlar', label: 'Ayarlar', icon: SlidersHorizontal },
 ] as const;
 
 const STATUS_LABEL: Record<string, string> = {
@@ -105,7 +105,7 @@ export function StudioHubBar({ overview }: { overview: StudioOverview | null }) 
           );
         })}
         <Link
-          href="/ders-dagit/stüdyo/program?panel=publish"
+          href="/ders-dagit/studyo/program?panel=publish"
           className={cn(
             'ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium',
             pathname.includes('program') ? 'text-primary' : 'text-muted-foreground hover:bg-muted',

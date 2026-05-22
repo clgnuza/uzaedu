@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 export default function YayinRedirectPage() {
   const router = useRouter();
   useEffect(() => {
-    router.replace('/ders-dagit/stüdyo/program?panel=publish');
+    router.replace('/ders-dagit/studyo/program?panel=publish');
   }, [router]);
   return <p className="text-sm text-muted-foreground">Program editörüne yönlendiriliyor…</p>;
 }

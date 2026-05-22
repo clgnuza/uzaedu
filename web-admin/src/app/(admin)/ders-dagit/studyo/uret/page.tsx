@@ -172,7 +172,7 @@ export default function UretPage() {
             <TimetableReadonly entries={previewEntries} />
             {previewId && (
               <Button type="button" size="sm" asChild>
-                <Link href={`/ders-dagit/stüdyo/program?id=${previewId}`}>Editörde aç</Link>
+                <Link href={`/ders-dagit/studyo/program?id=${previewId}`}>Editörde aç</Link>
               </Button>
             )}
           </>

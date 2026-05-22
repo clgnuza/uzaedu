@@ -24,7 +24,7 @@ export default function DogrulamaPage() {
             Yenile
           </Button>
           <Button type="button" size="sm" disabled={!canProceed} asChild>
-            <Link href="/ders-dagit/stüdyo/uret">Üretime geç</Link>
+            <Link href="/ders-dagit/studyo/uret">Üretime geç</Link>
           </Button>
           {!canProceed && r.blockReason && (
             <p className="w-full text-sm text-destructive">{r.blockReason}</p>

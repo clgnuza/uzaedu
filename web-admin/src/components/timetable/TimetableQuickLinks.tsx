@@ -7,19 +7,19 @@ export function TimetableQuickLinks() {
   return (
     <div className="flex flex-wrap gap-1.5 print:hidden">
       <Button type="button" size="sm" variant="outline" asChild>
-        <Link href="/ders-dagit/stüdyo/donem">Dönem / saatler</Link>
+        <Link href="/ders-dagit/studyo/donem">Dönem / saatler</Link>
       </Button>
       <Button type="button" size="sm" variant="outline" asChild>
-        <Link href="/ders-dagit/stüdyo/ogretmenler">Öğretmen müsaitlik</Link>
+        <Link href="/ders-dagit/studyo/ogretmenler">Öğretmen müsaitlik</Link>
       </Button>
       <Button type="button" size="sm" variant="outline" asChild>
-        <Link href="/ders-dagit/stüdyo/kurallar">Kurallar</Link>
+        <Link href="/ders-dagit/studyo/kurallar">Kurallar</Link>
       </Button>
       <Button type="button" size="sm" variant="outline" asChild>
-        <Link href="/ders-dagit/stüdyo/dogrulama">Doğrulama</Link>
+        <Link href="/ders-dagit/studyo/dogrulama">Doğrulama</Link>
       </Button>
       <Button type="button" size="sm" variant="outline" asChild>
-        <Link href="/ders-dagit/stüdyo/uret">Yeniden üret</Link>
+        <Link href="/ders-dagit/studyo/uret">Yeniden üret</Link>
       </Button>
     </div>
   );

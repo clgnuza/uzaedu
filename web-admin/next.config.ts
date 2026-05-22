@@ -1,4 +1,23 @@
 import type { NextConfig } from "next";
+import { networkInterfaces } from "node:os";
+
+/** Aynı ağdaki telefon / tablet — next dev HMR ve cross-origin için (NEXT_DEV_EXTRA_ORIGINS ile genişletilebilir). */
+function localLanHttpOrigins(ports: readonly string[]): string[] {
+  const nets = networkInterfaces();
+  const out = new Set<string>();
+  for (const list of Object.values(nets)) {
+    if (!list) continue;
+    for (const net of list) {
+      const v4 =
+        net.family === "IPv4" || (typeof net.family === "number" && net.family === 4);
+      if (!v4 || net.internal) continue;
+      for (const port of ports) {
+        out.add(`http://${net.address}:${port}`);
+      }
+    }
+  }
+  return [...out];
+}
 
 const extraDevOrigins =
   process.env.NEXT_DEV_EXTRA_ORIGINS?.split(",")
@@ -28,6 +47,7 @@ const nextConfig: NextConfig = {
     "http://10.0.2.2:3000",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    ...localLanHttpOrigins(["3000", "3001", "3002"]),
     ...extraDevOrigins,
   ],
   /** Tree-shake: yalnızca kullanılan ikonlar bundle’a girer */
@@ -102,6 +122,8 @@ const nextConfig: NextConfig = {
       { source: "/extra-lesson-calc", destination: "/ek-ders-hesaplama", permanent: true },
       { source: "/school-reviews", destination: "/okul-degerlendirmeleri", permanent: true },
       { source: "/moderation", destination: "/school-reviews-settings", permanent: false },
+      { source: "/ders-dagit/st%C3%BCdyo", destination: "/ders-dagit/studyo", permanent: true },
+      { source: "/ders-dagit/st%C3%BCdyo/:path*", destination: "/ders-dagit/studyo/:path*", permanent: true },
     ];
   },
 };

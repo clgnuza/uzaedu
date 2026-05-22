@@ -301,7 +301,7 @@ export class DersDagitService {
           severity: n.severity,
           message: `${n.subject_name}: ${n.assigned} saat (üst sınır ${n.max})`,
           fix_hint: 'Atama saatlerini MEB AİHL normuna göre düzenleyin.',
-          href: '/ders-dagit/stüdyo/atamalar',
+          href: '/ders-dagit/studyo/atamalar',
         });
       }
     }

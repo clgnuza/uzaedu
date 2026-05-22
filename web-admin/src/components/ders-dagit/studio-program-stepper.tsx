@@ -5,13 +5,13 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 
 const STEPS = [
-  { href: '/ders-dagit/stüdyo/kurulum', label: '1 Kurulum' },
-  { href: '/ders-dagit/stüdyo/donem', label: '2 Dönem' },
-  { href: '/ders-dagit/stüdyo/atamalar', label: '3 Atama' },
-  { href: '/ders-dagit/stüdyo/kurallar', label: '4 Kurallar' },
-  { href: '/ders-dagit/stüdyo/dogrulama', label: '5 Doğrula' },
-  { href: '/ders-dagit/stüdyo/uret', label: '6 Üret' },
-  { href: '/ders-dagit/stüdyo/program', label: '7 Program' },
+  { href: '/ders-dagit/studyo/kurulum', label: '1 Kurulum' },
+  { href: '/ders-dagit/studyo/donem', label: '2 Dönem' },
+  { href: '/ders-dagit/studyo/atamalar', label: '3 Atama' },
+  { href: '/ders-dagit/studyo/kurallar', label: '4 Kurallar' },
+  { href: '/ders-dagit/studyo/dogrulama', label: '5 Doğrula' },
+  { href: '/ders-dagit/studyo/uret', label: '6 Üret' },
+  { href: '/ders-dagit/studyo/program', label: '7 Program' },
 ] as const;
 
 export function StudioProgramStepper() {

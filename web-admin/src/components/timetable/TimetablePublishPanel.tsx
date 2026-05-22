@@ -127,7 +127,7 @@ export function TimetablePublishPanel({ programId }: { programId: string }) {
           </StudioValidationGate>
           <div className="flex flex-wrap items-end gap-3">
             <Button type="button" variant="outline" asChild>
-              <Link href="/ders-dagit/stüdyo/adalet">Öğretmen yükü</Link>
+              <Link href="/ders-dagit/studyo/adalet">Öğretmen yükü</Link>
             </Button>
             {pid && token && studio && (
               <>

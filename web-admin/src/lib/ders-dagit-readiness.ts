@@ -39,19 +39,19 @@ export function computeStudioReadiness(overview: StudioOverview | null): StudioR
   const periodOk = !!((st?.period?.work_days ?? st?.work_days)?.length);
 
   const dataSteps: ReadinessStep[] = [
-    { id: 'class', label: 'Sınıf profili', href: '/ders-dagit/stüdyo/kurulum', done: (c.classCount ?? 0) >= 1, required: true },
-    { id: 'period', label: 'Dönem / günler', href: '/ders-dagit/stüdyo/donem', done: periodOk, required: true },
-    { id: 'subject', label: 'Dersler', href: '/ders-dagit/stüdyo/dersler', done: (c.subjectCount ?? 0) >= 1, required: true },
-    { id: 'teacher', label: 'Öğretmenler', href: '/ders-dagit/stüdyo/ogretmenler', done: (c.teacherCount ?? 0) >= 1, required: true },
-    { id: 'assign', label: 'Atamalar', href: '/ders-dagit/stüdyo/atamalar', done: (c.assignmentCount ?? 0) >= 1, required: true },
+    { id: 'class', label: 'Sınıf profili', href: '/ders-dagit/studyo/kurulum', done: (c.classCount ?? 0) >= 1, required: true },
+    { id: 'period', label: 'Dönem / günler', href: '/ders-dagit/studyo/donem', done: periodOk, required: true },
+    { id: 'subject', label: 'Dersler', href: '/ders-dagit/studyo/dersler', done: (c.subjectCount ?? 0) >= 1, required: true },
+    { id: 'teacher', label: 'Öğretmenler', href: '/ders-dagit/studyo/ogretmenler', done: (c.teacherCount ?? 0) >= 1, required: true },
+    { id: 'assign', label: 'Atamalar', href: '/ders-dagit/studyo/atamalar', done: (c.assignmentCount ?? 0) >= 1, required: true },
   ];
   const rulesSteps: ReadinessStep[] = [
-    { id: 'rules', label: 'Kurallar', href: '/ders-dagit/stüdyo/kurallar', done: true },
-    { id: 'validate', label: 'Doğrulama temiz', href: '/ders-dagit/stüdyo/dogrulama', done: errors.length === 0, required: true },
+    { id: 'rules', label: 'Kurallar', href: '/ders-dagit/studyo/kurallar', done: true },
+    { id: 'validate', label: 'Doğrulama temiz', href: '/ders-dagit/studyo/dogrulama', done: errors.length === 0, required: true },
   ];
   const programSteps: ReadinessStep[] = [
-    { id: 'programs', label: 'En az 1 program', href: '/ders-dagit/stüdyo/uret', done: (c.programCount ?? 0) >= 1 },
-    { id: 'editor', label: 'Program editörü', href: '/ders-dagit/stüdyo/program', done: (c.programCount ?? 0) >= 1 },
+    { id: 'programs', label: 'En az 1 program', href: '/ders-dagit/studyo/uret', done: (c.programCount ?? 0) >= 1 },
+    { id: 'editor', label: 'Program editörü', href: '/ders-dagit/studyo/program', done: (c.programCount ?? 0) >= 1 },
   ];
 
   const phasePct = (steps: ReadinessStep[]) => {

@@ -427,7 +427,7 @@ export default function AtamalarPage() {
             ))}
           </select>
           <Button type="button" size="sm" variant="outline" asChild>
-            <Link href="/ders-dagit/stüdyo/gruplar">Grupları yönet</Link>
+            <Link href="/ders-dagit/studyo/gruplar">Grupları yönet</Link>
           </Button>
         </CardContent>
       </Card>

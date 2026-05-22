@@ -58,16 +58,16 @@ export function StudioReadinessDashboard({ overview }: { overview: StudioOvervie
             </p>
           )}
           <Button type="button" size="sm" variant="outline" asChild>
-            <Link href="/ders-dagit/stüdyo/dogrulama">Doğrulama</Link>
+            <Link href="/ders-dagit/studyo/dogrulama">Doğrulama</Link>
           </Button>
           <Button type="button" size="sm" disabled={!r.canGenerate} asChild>
-            <Link href="/ders-dagit/stüdyo/uret">
+            <Link href="/ders-dagit/studyo/uret">
               Üret
               <ArrowRight className="ml-1 size-4" />
             </Link>
           </Button>
           <Button type="button" size="sm" variant="secondary" disabled={!r.canPublish} asChild>
-            <Link href="/ders-dagit/stüdyo/program">Program editörü</Link>
+            <Link href="/ders-dagit/studyo/program">Program editörü</Link>
           </Button>
         </CardContent>
       </Card>

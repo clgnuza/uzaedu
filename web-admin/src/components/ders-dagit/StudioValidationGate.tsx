@@ -32,7 +32,7 @@ export function StudioValidationGate({
         </div>
       </div>
       <Button type="button" size="sm" variant="outline" asChild>
-        <Link href="/ders-dagit/stüdyo/dogrulama">Doğrulamayı düzelt</Link>
+        <Link href="/ders-dagit/studyo/dogrulama">Doğrulamayı düzelt</Link>
       </Button>
       <div className="pointer-events-none opacity-50">{children}</div>
     </div>

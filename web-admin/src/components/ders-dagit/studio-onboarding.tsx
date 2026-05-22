@@ -10,13 +10,13 @@ const STEPS: Array<
   | { kind: 'validation'; href: string; label: string }
   | { kind: 'period'; href: string; label: string }
 > = [
-  { kind: 'count', key: 'classCount', min: 1, href: '/ders-dagit/stüdyo/kurulum', label: 'Sınıf profili' },
-  { kind: 'period', href: '/ders-dagit/stüdyo/donem', label: 'Dönem' },
-  { kind: 'count', key: 'subjectCount', min: 1, href: '/ders-dagit/stüdyo/dersler', label: 'Dersler' },
-  { kind: 'count', key: 'groupCount', min: 0, href: '/ders-dagit/stüdyo/gruplar', label: 'Gruplar (opsiyonel)' },
-  { kind: 'count', key: 'teacherCount', min: 1, href: '/ders-dagit/stüdyo/ogretmenler', label: 'Öğretmenler' },
-  { kind: 'count', key: 'assignmentCount', min: 1, href: '/ders-dagit/stüdyo/atamalar', label: 'Atamalar' },
-  { kind: 'validation', href: '/ders-dagit/stüdyo/dogrulama', label: 'Ön doğrulama' },
+  { kind: 'count', key: 'classCount', min: 1, href: '/ders-dagit/studyo/kurulum', label: 'Sınıf profili' },
+  { kind: 'period', href: '/ders-dagit/studyo/donem', label: 'Dönem' },
+  { kind: 'count', key: 'subjectCount', min: 1, href: '/ders-dagit/studyo/dersler', label: 'Dersler' },
+  { kind: 'count', key: 'groupCount', min: 0, href: '/ders-dagit/studyo/gruplar', label: 'Gruplar (opsiyonel)' },
+  { kind: 'count', key: 'teacherCount', min: 1, href: '/ders-dagit/studyo/ogretmenler', label: 'Öğretmenler' },
+  { kind: 'count', key: 'assignmentCount', min: 1, href: '/ders-dagit/studyo/atamalar', label: 'Atamalar' },
+  { kind: 'validation', href: '/ders-dagit/studyo/dogrulama', label: 'Ön doğrulama' },
 ];
 
 export function StudioOnboarding({ overview }: { overview: StudioOverview | null }) {

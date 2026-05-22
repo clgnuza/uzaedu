@@ -8,37 +8,37 @@ const GROUPS = [
   {
     title: 'Zaman ve dönem',
     desc: 'Gün sayısı, öğle arası, hafta sonu saatleri.',
-    href: '/ders-dagit/stüdyo/donem',
+    href: '/ders-dagit/studyo/donem',
     icon: CalendarRange,
   },
   {
     title: 'Kısıtlar ve kurallar',
     desc: 'Öğretmen limitleri, derslik zorunluluğu, ardışık boşluk.',
-    href: '/ders-dagit/stüdyo/kurallar',
+    href: '/ders-dagit/studyo/kurallar',
     icon: Scale,
   },
   {
     title: 'Derslikler',
     desc: 'Oda listesi ve kapasite.',
-    href: '/ders-dagit/stüdyo/derslikler',
+    href: '/ders-dagit/studyo/derslikler',
     icon: Building2,
   },
   {
     title: 'Üretim',
     desc: 'CSP motoru, versiyon sayısı, süre.',
-    href: '/ders-dagit/stüdyo/uret',
+    href: '/ders-dagit/studyo/uret',
     icon: Wand2,
   },
   {
     title: 'Yayın ve paylaşım',
     desc: 'Okula aktarım, veli PDF, paylaşım linki.',
-    href: '/ders-dagit/stüdyo/program?panel=publish',
+    href: '/ders-dagit/studyo/program?panel=publish',
     icon: Send,
   },
   {
     title: 'Görünüm (editör)',
     desc: 'Yazdır, renkler, varsayılan filtre.',
-    href: '/ders-dagit/stüdyo/program',
+    href: '/ders-dagit/studyo/program',
     icon: Palette,
   },
 ] as const;

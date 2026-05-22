@@ -111,7 +111,7 @@ export default function OgretmenlerPage() {
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
         Horarium öğretmen ayarları: saat limitleri, çalışma günü, öğle arası boşluğu, müsait değil.{' '}
-        <Link href="/ders-dagit/stüdyo/donem" className="underline">
+        <Link href="/ders-dagit/studyo/donem" className="underline">
           Dönem (öğle arası)
         </Link>
       </p>

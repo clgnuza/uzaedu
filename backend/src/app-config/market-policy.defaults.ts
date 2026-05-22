@@ -226,8 +226,8 @@ const MODULE_ENTRY_NOTICES: Record<MarketModuleKey, { tr: string; en: string }> 
     en: 'Direct procurement: school purchasing files, estimated cost, quotes/decision and document outputs.',
   },
   ders_dagit: {
-    tr: 'DersDağıt Program Stüdyosu: ders ataması, kurallar, gruplar ve otomatik program üretimi.',
-    en: 'DersDağıt studio: lesson assignments, rules, groups and automated timetable generation.',
+    tr: 'DersDağıt Program Stüdyosu: 5 adımlı kurulum, kural katmanları, 3 versiyon üretim, e-Okul dışa aktarım ve ders programına yayın. Başlangıç: /ders-dagit/studyo/kurulum',
+    en: 'DersDağıt studio: setup wizard, rules, triple generation, e-Okul export and publish to school timetable. Start: /ders-dagit/studyo/kurulum',
   },
 };
 
