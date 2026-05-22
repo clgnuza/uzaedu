@@ -9,8 +9,7 @@ export class MessagingSettings {
   schoolId: string;
 
   @Column({ type: 'varchar', length: 30, default: 'mock' })
-  /** whatsapp_link: API yok; wa.me ile tarayıcıda WhatsApp Web / uygulama açılır */
-  provider: 'mock' | 'meta' | 'twilio' | 'netgsm' | 'custom' | 'whatsapp_link';
+  provider: 'mock' | 'meta' | 'twilio' | 'netgsm' | 'custom';
 
   @Column({ name: 'api_key', type: 'text', nullable: true })
   apiKey: string | null;

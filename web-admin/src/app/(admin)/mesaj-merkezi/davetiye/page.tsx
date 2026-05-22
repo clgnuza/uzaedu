@@ -10,9 +10,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { toast } from 'sonner';
-import { Upload, X, RefreshCw, Send } from 'lucide-react';
-import CampaignPreviewTable from '../components/CampaignPreviewTable';
-import SendPanel from '../components/SendPanel';
+import { Upload, X, Send } from 'lucide-react';
+import CampaignPreviewStep from '../components/CampaignPreviewStep';
+import TemplateEditorWithPreview from '../components/TemplateEditorWithPreview';
 
 type Group = { id: string; name: string; memberCount: number };
 
@@ -49,7 +49,7 @@ export default function DavetiyePage() {
       if (source === 'group') { fd.append('source', 'group'); fd.append('groupId', selectedGroup); }
       if (excelFile) fd.append('file', excelFile);
       if (attFile) fd.append('attachment', attFile);
-      const endpoint = source === 'excel' ? '/messaging/campaigns/davetiye/excel' : '/messaging/campaigns/veli-toplantisi';
+      const endpoint = source === 'excel' ? '/messaging/campaigns/davetiye/excel' : '/messaging/campaigns/davetiye';
       const c = await apiFetch<Campaign>(endpoint + q, { method: 'POST', token, body: fd });
       setCampaign(c);
       setRecipients(await loadRecipients(token ?? '', c.id, q));
@@ -107,12 +107,13 @@ export default function DavetiyePage() {
               </select>
             )}
 
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-muted-foreground">Mesaj</label>
-              <textarea rows={6} value={message} onChange={(e) => setMessage(e.target.value)}
-                className="w-full rounded-lg border border-input bg-white px-3 py-2 text-sm dark:bg-zinc-900 resize-y" />
-              <p className="mt-1 text-[10px] text-muted-foreground">{'{AD}'} = alıcı adı. Boş bırakabilirsiniz.</p>
-            </div>
+            <TemplateEditorWithPreview
+              value={message}
+              onChange={setMessage}
+              rows={7}
+              attachmentLabel={attFile?.name ?? null}
+              help="{AD} = alıcı adı"
+            />
 
             {/* Dosya eki */}
             <div className="flex items-center gap-2 rounded-xl border border-dashed border-indigo-300 bg-indigo-50/50 px-4 py-3 dark:border-indigo-800/50 dark:bg-indigo-950/10">
@@ -144,17 +145,14 @@ export default function DavetiyePage() {
         )}
 
         {step === 'preview' && campaign && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold">{recipients.length} alıcı önizleme</p>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => setStep('form')}><Upload className="size-4 mr-1" /> Yeniden</Button>
-                <Button size="sm" variant="outline" onClick={refreshAll}><RefreshCw className="size-4" /></Button>
-              </div>
-            </div>
-            <SendPanel campaign={campaign} token={token} q={q} onSent={refreshAll} />
-            <CampaignPreviewTable campaignId={campaign.id} recipients={recipients} token={token} q={q} onChange={refreshAll} />
-          </div>
+          <CampaignPreviewStep
+            campaign={campaign}
+            recipients={recipients}
+            token={token}
+            q={q}
+            onRefresh={refreshAll}
+            onBack={() => setStep('form')}
+          />
         )}
       </div>
     </div>

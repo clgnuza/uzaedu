@@ -109,7 +109,8 @@ export default function GruplarPage() {
       fd.append('title', title); fd.append('message', sendMsg); fd.append('groupId', selected.id);
       if (attFile) fd.append('attachment', attFile);
       const c = await apiFetch<{ id: string }>(`/messaging/campaigns/grup-mesaj${q}`, { method: 'POST', token, body: fd });
-      toast.success(`Kampanya oluşturuldu (${c.id.slice(0, 8)}…). Genel Bakış'tan gönderin.`);
+      toast.success('Kampanya oluşturuldu');
+      window.location.href = `/mesaj-merkezi/kampanya/${c.id}${q}`;
       setSendMsg(''); setAttFile(null);
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Hata'); }
     finally { setSending(false); }

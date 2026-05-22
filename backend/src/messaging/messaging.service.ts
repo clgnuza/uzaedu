@@ -1,6 +1,6 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { Between, DataSource, Repository } from 'typeorm';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { MessagingSettings } from './entities/messaging-settings.entity';
@@ -9,7 +9,32 @@ import { MessagingRecipient } from './entities/messaging-recipient.entity';
 import { MessagingContactGroup } from './entities/messaging-contact-group.entity';
 import { MessagingGroupMember } from './entities/messaging-group-member.entity';
 import { MessagingUserPreference } from './entities/messaging-user-preference.entity';
+import { MessagingTemplate } from './entities/messaging-template.entity';
+import { MessagingOptOut } from './entities/messaging-opt-out.entity';
+import { MessagingContactPreference } from './entities/messaging-contact-preference.entity';
+import { MessagingDeliveryEvent } from './entities/messaging-delivery-event.entity';
+import { MessagingInboundMessage } from './entities/messaging-inbound-message.entity';
 import { WhatsAppService } from './whatsapp.service';
+import { SmsService } from './sms.service';
+import {
+  allowedChannels,
+  campaignHasPdfAttachment,
+  defaultChannelForCampaign,
+} from './messaging-channel-rules';
+import {
+  TPL_DEVAMSIZLIK,
+  TPL_DERS_DEVAMSIZLIK,
+  TPL_EK_DERS,
+  TPL_IZIN,
+  TPL_KARNE,
+  TPL_MAAS,
+  TPL_VELI_ILETISIM,
+  TPL_VELI_TOPLANTISI,
+  TPL_ACIL,
+  TPL_DAVETIYE,
+} from './default-message-templates';
+import { mergeSmsIntoExtra, parseSmsConfig, smsConfigReady, type SmsConfig } from './sms-config';
+import type { ExecuteCampaignDto } from './dto/messaging.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../types/enums';
@@ -20,6 +45,7 @@ import {
 import type { SaveSettingsDto, PatchTeacherMessagingPreferencesDto } from './dto/messaging.dto';
 import { parseMebbisPuantaj, parseEkDersBordro, parseMaasBordro, BordroTeacher } from './parsers/bordro-parsers';
 import { splitPdfByPageCount } from './parsers/pdf-splitter';
+import { MessagingSchoolNeedsService } from './messaging-school-needs.service';
 
 const UPLOADS_DIR = join(process.cwd(), 'uploads', 'messaging');
 
@@ -40,11 +66,24 @@ export class MessagingService {
     private readonly memberRepo: Repository<MessagingGroupMember>,
     @InjectRepository(MessagingUserPreference)
     private readonly userPrefRepo: Repository<MessagingUserPreference>,
+    @InjectRepository(MessagingTemplate)
+    private readonly templateRepo: Repository<MessagingTemplate>,
+    @InjectRepository(MessagingOptOut)
+    private readonly optOutRepo: Repository<MessagingOptOut>,
+    @InjectRepository(MessagingContactPreference)
+    private readonly contactPrefRepo: Repository<MessagingContactPreference>,
+    @InjectRepository(MessagingDeliveryEvent)
+    private readonly deliveryRepo: Repository<MessagingDeliveryEvent>,
+    @InjectRepository(MessagingInboundMessage)
+    private readonly inboundRepo: Repository<MessagingInboundMessage>,
     private readonly wa: WhatsAppService,
+    private readonly sms: SmsService,
     private readonly dataSource: DataSource,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly notificationsService: NotificationsService,
+    @Inject(forwardRef(() => MessagingSchoolNeedsService))
+    private readonly schoolNeeds: MessagingSchoolNeedsService,
   ) {
     if (!existsSync(UPLOADS_DIR)) mkdirSync(UPLOADS_DIR, { recursive: true });
   }
@@ -52,7 +91,9 @@ export class MessagingService {
   // ── Ayarlar ───────────────────────────────────────────────────────────────
 
   async getSettings(schoolId: string) {
-    return this.settingsRepo.findOne({ where: { schoolId } });
+    const s = await this.settingsRepo.findOne({ where: { schoolId } });
+    if (!s || (s.provider as string) !== 'whatsapp_link') return s;
+    return { ...s, provider: 'mock' as MessagingSettings['provider'], isActive: false };
   }
 
   async getTeacherMessagingPreferences(userId: string, schoolId: string): Promise<{
@@ -82,11 +123,354 @@ export class MessagingService {
     return this.getTeacherMessagingPreferences(userId, schoolId);
   }
 
-  /** Öğretmen arayüzü: API anahtarı döndürmeden wa.me modu bilgisi */
-  getDeliveryHint(schoolId: string) {
-    return this.settingsRepo.findOne({ where: { schoolId } }).then((s) => ({
-      whatsappLinkMode: !!(s?.provider === 'whatsapp_link' && s.isActive),
-    }));
+  /** Kanal hazırlık durumu (gönderim paneli). */
+  async getDeliveryHint(schoolId: string) {
+    const s = await this.settingsRepo.findOne({ where: { schoolId } });
+    const legacyLink = (s?.provider as string) === 'whatsapp_link';
+    const whatsappReady =
+      !!s?.isActive &&
+      !legacyLink &&
+      (s.provider === 'mock' || ['meta', 'twilio', 'netgsm', 'custom'].includes(s.provider));
+    const smsCfg = parseSmsConfig(s?.extraConfig);
+    const smsReady = smsConfigReady(smsCfg);
+    return {
+      whatsappReady,
+      smsReady,
+      apiReady: whatsappReady || smsReady,
+      defaultChannel: defaultChannelForCampaign('toplu_mesaj', false, smsReady, whatsappReady),
+    };
+  }
+
+  getChannelRulesForType(type: CampaignType, hasAttachment = false) {
+    const hasPdf = campaignHasPdfAttachment(type, hasAttachment ? 'x' : null);
+    return { hasPdf, allowed: allowedChannels(type, hasPdf) };
+  }
+
+  // ── Şablon kütüphanesi ─────────────────────────────────────────────────────
+
+  async listTemplates(schoolId: string) {
+    await this._seedTemplatesIfEmpty(schoolId);
+    return this.templateRepo.find({ where: { schoolId }, order: { campaignType: 'ASC', title: 'ASC' } });
+  }
+
+  async saveTemplate(
+    schoolId: string,
+    dto: { id?: string; campaignType: string; title: string; body: string; variables?: string },
+  ) {
+    if (dto.id) {
+      const row = await this.templateRepo.findOne({ where: { id: dto.id, schoolId } });
+      if (!row) throw new NotFoundException();
+      Object.assign(row, dto);
+      return this.templateRepo.save(row);
+    }
+    return this.templateRepo.save(
+      this.templateRepo.create({
+        schoolId,
+        campaignType: dto.campaignType,
+        title: dto.title,
+        body: dto.body,
+        variables: dto.variables ?? null,
+        isSystem: false,
+      }),
+    );
+  }
+
+  async deleteTemplate(schoolId: string, id: string) {
+    const row = await this.templateRepo.findOne({ where: { id, schoolId } });
+    if (!row) throw new NotFoundException();
+    if (row.isSystem) throw new BadRequestException('Sistem şablonu silinemez');
+    await this.templateRepo.remove(row);
+    return { ok: true };
+  }
+
+  private async _seedTemplatesIfEmpty(schoolId: string) {
+    const n = await this.templateRepo.count({ where: { schoolId } });
+    if (n > 0) return;
+    const seeds: Array<{ campaignType: string; title: string; body: string; variables: string }> = [
+      { campaignType: 'toplu_mesaj', title: 'Bilgilendirme', body: TPL_VELI_ILETISIM, variables: '{AD}' },
+      { campaignType: 'devamsizlik', title: 'Devamsızlık', body: TPL_DEVAMSIZLIK, variables: '{AD},{OGRENCI},{SINIF},{TARIH},{GUN},{TUR},{OKUL}' },
+      { campaignType: 'ders_devamsizlik', title: 'Ders devamsızlık', body: TPL_DERS_DEVAMSIZLIK, variables: '{AD},{OGRENCI},{SINIF},{TARIH},{DERSLER_INLINE},{OKUL}' },
+      { campaignType: 'veli_toplantisi', title: 'Veli toplantısı', body: TPL_VELI_TOPLANTISI, variables: '{AD}' },
+      { campaignType: 'karne', title: 'Karne', body: TPL_KARNE, variables: '{AD},{OGRENCI},{SINIF},{OKUL}' },
+      { campaignType: 'izin', title: 'İzin', body: TPL_IZIN, variables: '{AD},{OGRENCI},{SINIF},{TUR},{CIKIS},{DONUS},{OKUL}' },
+      { campaignType: 'ek_ders', title: 'Ek ders', body: TPL_EK_DERS, variables: '{AD},{AY},{SAAT},{TUTAR}' },
+      { campaignType: 'maas', title: 'Maaş', body: TPL_MAAS, variables: '{AD},{AY},{BRUT},{NET}' },
+      { campaignType: 'davetiye', title: 'Davetiye', body: TPL_DAVETIYE, variables: '{AD},{MESAJ},{OKUL}' },
+      { campaignType: 'toplu_mesaj', title: 'Acil bilgilendirme', body: TPL_ACIL, variables: '{AD},{MESAJ},{OKUL}' },
+    ];
+    await this.templateRepo.save(seeds.map((s) => this.templateRepo.create({ schoolId, ...s, isSystem: true })));
+  }
+
+  // ── Opt-out & veli tercihleri ─────────────────────────────────────────────
+
+  private _normPhone(phone: string): string {
+    let d = String(phone).replace(/\D/g, '');
+    if (d.startsWith('0')) d = '90' + d.slice(1);
+    if (d.length === 10 && !d.startsWith('90')) d = '90' + d;
+    return d;
+  }
+
+  async listOptOuts(schoolId: string) {
+    return this.optOutRepo.find({ where: { schoolId }, order: { createdAt: 'DESC' }, take: 500 });
+  }
+
+  async addOptOut(schoolId: string, phone: string, reason?: string) {
+    const p = this._normPhone(phone);
+    if (p.length < 10) throw new BadRequestException('Geçersiz telefon');
+    const existing = await this.optOutRepo.findOne({ where: { schoolId, phone: p } });
+    if (existing) return existing;
+    return this.optOutRepo.save(this.optOutRepo.create({ schoolId, phone: p, reason: reason ?? null }));
+  }
+
+  async removeOptOut(schoolId: string, id: string) {
+    await this.optOutRepo.delete({ id, schoolId });
+    return { ok: true };
+  }
+
+  async listContactPreferences(schoolId: string) {
+    return this.contactPrefRepo.find({ where: { schoolId }, order: { updatedAt: 'DESC' }, take: 500 });
+  }
+
+  async upsertContactPreference(
+    schoolId: string,
+    dto: {
+      phone: string;
+      name?: string;
+      preferredChannel?: 'whatsapp' | 'sms';
+      noSms?: boolean;
+      noWhatsapp?: boolean;
+      quietHoursNote?: string;
+    },
+  ) {
+    const phone = this._normPhone(dto.phone);
+    let row = await this.contactPrefRepo.findOne({ where: { schoolId, phone } });
+    if (!row) row = this.contactPrefRepo.create({ schoolId, phone });
+    if (dto.name !== undefined) row.name = dto.name;
+    if (dto.preferredChannel) row.preferredChannel = dto.preferredChannel;
+    if (dto.noSms !== undefined) row.noSms = dto.noSms;
+    if (dto.noWhatsapp !== undefined) row.noWhatsapp = dto.noWhatsapp;
+    if (dto.quietHoursNote !== undefined) row.quietHoursNote = dto.quietHoursNote;
+    return this.contactPrefRepo.save(row);
+  }
+
+  private async _isOptedOut(schoolId: string, phone: string): Promise<boolean> {
+    const p = this._normPhone(phone);
+    return !!(await this.optOutRepo.findOne({ where: { schoolId, phone: p } }));
+  }
+
+  // ── Onay akışı ───────────────────────────────────────────────────────────
+
+  async listPendingApprovals(schoolId: string) {
+    return this.campaignRepo.find({
+      where: { schoolId, approvalStatus: 'pending' },
+      order: { createdAt: 'DESC' },
+      take: 50,
+    });
+  }
+
+  async approveCampaign(schoolId: string, campaignId: string, approverId: string) {
+    const c = await this.getCampaign(schoolId, campaignId);
+    if (c.approvalStatus !== 'pending') throw new BadRequestException('Onay bekleyen kampanya değil');
+    c.approvalStatus = 'approved';
+    c.approvedBy = approverId;
+    c.approvedAt = new Date();
+    return this.campaignRepo.save(c);
+  }
+
+  async rejectCampaign(schoolId: string, campaignId: string, approverId: string, reason?: string) {
+    const c = await this.getCampaign(schoolId, campaignId);
+    if (c.approvalStatus !== 'pending') throw new BadRequestException('Onay bekleyen kampanya değil');
+    c.approvalStatus = 'rejected';
+    c.approvedBy = approverId;
+    c.approvedAt = new Date();
+    c.metadata = { ...(c.metadata ?? {}), rejectionReason: reason ?? '' };
+    return this.campaignRepo.save(c);
+  }
+
+  // ── Zamanlama ─────────────────────────────────────────────────────────────
+
+  async scheduleCampaign(
+    schoolId: string,
+    campaignId: string,
+    atIso: string,
+    opts: ExecuteCampaignDto,
+    requester?: { userId: string; role: string },
+  ) {
+    const campaign = await this.getCampaign(schoolId, campaignId);
+    if (requester?.role === UserRole.teacher && campaign.createdBy !== requester.userId) {
+      throw new ForbiddenException();
+    }
+    if (campaign.approvalStatus === 'pending') {
+      throw new BadRequestException('Önce yönetici onayı gerekli');
+    }
+    const at = new Date(atIso);
+    if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now() + 60_000) {
+      throw new BadRequestException('Zamanlama en az 1 dakika sonrası olmalı');
+    }
+    const settings = await this.settingsRepo.findOne({ where: { schoolId } });
+    const channel = opts.channel === 'sms' ? 'sms' : 'whatsapp';
+    campaign.metadata = {
+      ...(campaign.metadata ?? {}),
+      channel,
+      ...(opts.smsHeader?.trim() ? { smsHeader: opts.smsHeader.trim().slice(0, 11) } : {}),
+      scheduledBy: requester?.userId,
+    };
+    this._assertChannelReady(settings, channel, campaign);
+    campaign.scheduledAt = at;
+    return this.campaignRepo.save(campaign);
+  }
+
+  async cancelSchedule(schoolId: string, campaignId: string) {
+    const c = await this.getCampaign(schoolId, campaignId);
+    c.scheduledAt = null;
+    return this.campaignRepo.save(c);
+  }
+
+  async executeScheduledCampaign(schoolId: string, campaignId: string, channel: 'whatsapp' | 'sms') {
+    const c = await this.getCampaign(schoolId, campaignId);
+    c.scheduledAt = null;
+    await this.campaignRepo.save(c);
+    return this.executeCampaign(schoolId, campaignId, undefined, { channel });
+  }
+
+  // ── Export & iletişim geçmişi ─────────────────────────────────────────────
+
+  async exportReportsCsv(schoolId: string, fromIso?: string, toIso?: string): string {
+    const data = await this.getReportsOverview(schoolId, fromIso, toIso);
+    const lines = [
+      'Tür,Kampanya,Gönderilen,Hatalı,Toplam,Başarı%',
+      ...data.byType.map((t) =>
+        `${t.type},${t.campaigns},${t.sent},${t.failed},${t.total},${t.successRate ?? ''}`,
+      ),
+      '',
+      'Kampanya,Başlık,Durum,Gönderilen,Hatalı,Toplam,Oran%,Kanal,Tarih',
+      ...data.recentCampaigns.map((c) =>
+        `${c.type},"${c.title.replace(/"/g, '""')}",${c.status},${c.sentCount},${c.failedCount},${c.totalCount},${c.deliveryRate ?? ''},${c.channel ?? ''},${c.createdAt}`,
+      ),
+    ];
+    return '\uFEFF' + lines.join('\n');
+  }
+
+  async exportCampaignCsv(schoolId: string, campaignId: string): string {
+    await this.getCampaign(schoolId, campaignId);
+    const rows = await this.recipientRepo.find({ where: { campaignId }, order: { sortOrder: 'ASC' } });
+    const lines = [
+      'Ad,Telefon,Öğrenci,Sınıf,Durum,Hata,Mesaj',
+      ...rows.map((r) =>
+        [
+          r.recipientName ?? '',
+          r.phone ?? '',
+          r.studentName ?? '',
+          r.className ?? '',
+          r.status,
+          (r.errorMsg ?? '').replace(/"/g, '""'),
+          (r.messageText ?? '').replace(/"/g, '""').replace(/\n/g, ' '),
+        ]
+          .map((v) => `"${v}"`)
+          .join(','),
+      ),
+    ];
+    return '\uFEFF' + lines.join('\n');
+  }
+
+  async getContactHistory(schoolId: string, phone: string) {
+    const diary = await this.getCommunicationDiary(schoolId, phone);
+    return diary.outbound;
+  }
+
+  async getCommunicationDiary(schoolId: string, phone: string) {
+    const normalized = this._normPhone(phone);
+    const suffix = normalized.slice(-10);
+    const like = `%${suffix}`;
+
+    const outbound: Array<Record<string, unknown>> = await this.dataSource.query(
+      `SELECT r.id, r.campaign_id, r.recipient_name, r.phone, r.status, r.sent_at, r.error_msg,
+              r.message_text, r.provider_message_id, r.delivery_status, r.delivered_at, r.read_at,
+              c.title, c.type, c.status AS campaign_status, c.created_at,
+              COALESCE(c.metadata->>'channel', 'whatsapp') AS channel
+       FROM messaging_recipients r
+       INNER JOIN messaging_campaigns c ON c.id = r.campaign_id
+       WHERE c.school_id = $1
+         AND regexp_replace(COALESCE(r.phone, ''), '\\D', '', 'g') LIKE $2
+       ORDER BY COALESCE(r.sent_at, r.created_at) DESC
+       LIMIT 50`,
+      [schoolId, like],
+    );
+
+    const inbound = await this.inboundRepo
+      .createQueryBuilder('m')
+      .where('m.school_id = :schoolId', { schoolId })
+      .andWhere("regexp_replace(m.phone, '\\\\D', '', 'g') LIKE :like", { like })
+      .orderBy('m.received_at', 'DESC')
+      .take(50)
+      .getMany();
+
+    const deliveryEvents = await this.deliveryRepo
+      .createQueryBuilder('e')
+      .where('e.school_id = :schoolId', { schoolId })
+      .andWhere(
+        `(e.recipient_id IN (
+          SELECT r.id FROM messaging_recipients r
+          INNER JOIN messaging_campaigns c ON c.id = r.campaign_id
+          WHERE c.school_id = :schoolId
+            AND regexp_replace(COALESCE(r.phone, ''), '\\\\D', '', 'g') LIKE :like
+        ) OR e.external_message_id IN (
+          SELECT r.provider_message_id FROM messaging_recipients r
+          INNER JOIN messaging_campaigns c ON c.id = r.campaign_id
+          WHERE c.school_id = :schoolId
+            AND r.provider_message_id IS NOT NULL
+            AND regexp_replace(COALESCE(r.phone, ''), '\\\\D', '', 'g') LIKE :like
+        ))`,
+        { schoolId, like },
+      )
+      .orderBy('e.created_at', 'DESC')
+      .take(80)
+      .getMany();
+
+    type TimelineItem = {
+      kind: 'outbound' | 'inbound' | 'delivery';
+      at: string;
+      payload: Record<string, unknown>;
+    };
+
+    const timeline: TimelineItem[] = [];
+    for (const o of outbound) {
+      timeline.push({
+        kind: 'outbound',
+        at: (o.sent_at as Date)?.toISOString?.() ?? (o.created_at as Date)?.toISOString?.() ?? new Date().toISOString(),
+        payload: o,
+      });
+    }
+    for (const m of inbound) {
+      timeline.push({ kind: 'inbound', at: m.receivedAt.toISOString(), payload: m as unknown as Record<string, unknown> });
+    }
+    for (const e of deliveryEvents) {
+      timeline.push({ kind: 'delivery', at: e.createdAt.toISOString(), payload: e as unknown as Record<string, unknown> });
+    }
+    timeline.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+
+    return { phone: normalized, outbound, inbound, deliveryEvents, timeline };
+  }
+
+  async listRecentCommunicationPhones(schoolId: string, limit = 30) {
+    const rows: Array<{ phone: string; last_at: Date }> = await this.dataSource.query(
+      `SELECT phone, MAX(last_at) AS last_at FROM (
+         SELECT regexp_replace(phone, '\\D', '', 'g') AS phone, received_at AS last_at
+         FROM messaging_inbound_messages WHERE school_id = $1
+         UNION ALL
+         SELECT regexp_replace(COALESCE(r.phone, ''), '\\D', '', 'g'),
+                COALESCE(r.sent_at, r.created_at)
+         FROM messaging_recipients r
+         INNER JOIN messaging_campaigns c ON c.id = r.campaign_id
+         WHERE c.school_id = $1 AND r.phone IS NOT NULL
+       ) t
+       WHERE phone <> ''
+       GROUP BY phone
+       ORDER BY MAX(last_at) DESC
+       LIMIT $2`,
+      [schoolId, limit],
+    );
+    return rows.map((r) => ({ phone: r.phone, lastAt: r.last_at }));
   }
 
   async saveSettings(schoolId: string, dto: SaveSettingsDto) {
@@ -108,117 +492,258 @@ export class MessagingService {
       mergedExtra.policyComplianceAckAt = mergedExtra.policyComplianceAckAt ?? new Date().toISOString();
       mergedExtra.complianceAckVersion = '2025-04';
     }
-    if (rest.isActive && rest.provider === 'whatsapp_link') {
-      if (mergedExtra.waManualPolicyAck !== true) {
-        throw new BadRequestException({
-          code: 'POLICY_ACK_REQUIRED',
-          message: 'wa.me ile manuel gönderim için iletişim / KVKK uyumu onayı gerekli.',
-        });
-      }
-      mergedExtra.waManualPolicyAckAt = mergedExtra.waManualPolicyAckAt ?? new Date().toISOString();
+    if ((rest.provider as string) === 'whatsapp_link') {
+      throw new BadRequestException({
+        code: 'WHATSAPP_LINK_REMOVED',
+        message: 'WhatsApp Web (wa.me) modu kaldırıldı. Meta, Twilio, Netgsm veya özel API seçin.',
+      });
     }
 
+    const prevSms = parseSmsConfig(s.extraConfig);
+    const smsIncoming = (dtoExtra?.sms ?? null) as Partial<SmsConfig> | null;
+    if (smsIncoming && typeof smsIncoming === 'object') {
+      if (smsIncoming.isActive && smsIncoming.commercialAck !== true) {
+        throw new BadRequestException({
+          code: 'SMS_ACK_REQUIRED',
+          message: 'SMS ticari gönderim için İYS / mevzuat onayı gerekli.',
+        });
+      }
+      s.extraConfig = mergeSmsIntoExtra(mergedExtra, smsIncoming, prevSms);
+    } else {
+      s.extraConfig = mergedExtra;
+    }
+
+    if (!rest.apiKey?.trim() && s.apiKey) rest.apiKey = s.apiKey;
+    if (!rest.apiSecret?.trim() && s.apiSecret) rest.apiSecret = s.apiSecret;
+
     Object.assign(s, rest);
-    s.extraConfig = mergedExtra;
     return this.settingsRepo.save(s);
   }
 
   async testConnection(schoolId: string, testPhone: string): Promise<{ ok: boolean; message: string }> {
     const s = await this.settingsRepo.findOne({ where: { schoolId } });
     if (!s) return { ok: false, message: 'Ayarlar bulunamadı' };
-    if (s.provider === 'whatsapp_link') {
-      const url = this.buildWaMeUrl(testPhone, '🔔 Uzaedu Öğretmen — wa.me testi (göndermek için bağlantıyı açın)');
+    if ((s.provider as string) === 'whatsapp_link') {
       return {
-        ok: true,
-        message: url
-          ? `API yok; tarayıcıda WhatsApp açılır: ${url}`
-          : 'Geçerli bir telefon girin',
+        ok: false,
+        message: 'WhatsApp Web modu kaldırıldı. Ayarlardan resmi API sağlayıcısı seçin.',
       };
     }
-    const res = await this.wa.sendText(s, testPhone, '🔔 Uzaedu Öğretmen — Bağlantı testi başarılı!');
+    const res = await this.wa.sendText(s, testPhone, '🔔 Uzaedu Öğretmen — WhatsApp bağlantı testi başarılı!');
     return { ok: res.success, message: res.error ?? 'Gönderildi' };
   }
 
-  /** wa.me — API anahtarı gerektirmez; kullanıcının WhatsApp Web / uygulaması açılır */
-  buildWaMeUrl(phone: string | null | undefined, text: string): string {
-    if (!phone?.trim()) return '';
-    let d = String(phone).replace(/\D/g, '');
-    if (d.startsWith('0')) d = '90' + d.slice(1);
-    if (d.length === 10 && !d.startsWith('90')) d = '90' + d;
-    if (d.length < 10) return '';
-    let url = `https://wa.me/${d}`;
-    const t = (text ?? '').trim();
-    if (t) {
-      const q = encodeURIComponent(t);
-      if (url.length + q.length < 7000) url += `?text=${q}`;
-    }
-    return url;
-  }
-
-  async getWaManualLinks(schoolId: string, campaignId: string, userId: string) {
-    const campaign = await this.getCampaign(schoolId, campaignId);
-    const settings = await this.settingsRepo.findOne({ where: { schoolId } });
-    if (!settings || settings.provider !== 'whatsapp_link' || !settings.isActive) {
-      throw new BadRequestException({
-        code: 'NOT_WHATSAPP_LINK_MODE',
-        message: 'Ayarlar → WhatsApp Web (API yok) modu açık olmalıdır.',
-      });
-    }
-    const recipients = await this.recipientRepo.find({
-      where: { campaignId, status: 'pending' },
-      order: { sortOrder: 'ASC' },
-    });
-    const { appendSignature } = await this.getTeacherMessagingPreferences(userId, schoolId);
-    const sig = appendSignature.trim();
-    const augment = (raw: string | null | undefined) => {
-      const body = (raw ?? '').trim();
-      if (!sig) return body;
-      if (!body) return sig;
-      return `${body}\n\n${sig}`;
-    };
-    const hasPdf =
-      !!(campaign.attachmentPath && existsSync(campaign.attachmentPath)) ||
-      recipients.some((r) => r.filePath && existsSync(r.filePath));
-    return {
-      notice: hasPdf
-        ? 'Bu kampanyada PDF/dosya eki var. wa.me yalnızca metin açar; dosyayı WhatsApp’ta elle eklemeniz gerekir.'
-        : undefined,
-      items: recipients.map((r) => ({
-        id: r.id,
-        phone: r.phone,
-        recipientName: r.recipientName,
-        messageText: r.messageText,
-        waUrl: this.buildWaMeUrl(r.phone, augment(r.messageText)),
-      })),
-    };
-  }
-
-  async markRecipientManualSent(
+  async testSmsConnection(
     schoolId: string,
-    userId: string,
-    role: string,
-    recipientId: string,
-  ) {
-    const r = await this.recipientRepo.findOne({ where: { id: recipientId } });
-    if (!r) throw new NotFoundException();
-    const c = await this.campaignRepo.findOne({ where: { id: r.campaignId, schoolId } });
-    if (!c) throw new NotFoundException();
-    if (role === UserRole.teacher && c.createdBy !== userId) {
-      throw new ForbiddenException('Bu kampanyayı siz oluşturmadınız.');
+    testPhone: string,
+    testMessage?: string,
+  ): Promise<{ ok: boolean; message: string }> {
+    const s = await this.settingsRepo.findOne({ where: { schoolId } });
+    if (!s) return { ok: false, message: 'Ayarlar bulunamadı' };
+    const sms = parseSmsConfig(s.extraConfig);
+    if (!smsConfigReady(sms)) {
+      return { ok: false, message: 'SMS entegrasyonu aktif değil veya başlık / API bilgisi eksik' };
     }
-    if (r.status === 'sent') return { recipient: r, campaign: c };
-    r.status = 'sent';
-    r.sentAt = new Date();
-    await this.recipientRepo.save(r);
-    await this._syncCampaignCountsFromRecipients(c.id);
-    const fresh = await this.campaignRepo.findOne({ where: { id: c.id } });
-    return { recipient: r, campaign: fresh ?? c };
+    const msg = (testMessage ?? '').trim() || '🔔 Uzaedu — SMS bağlantı testi başarılı!';
+    const res = await this.sms.sendText(sms, testPhone, msg);
+    return { ok: res.success, message: res.error ?? (res.messageId ? `Gönderildi (${res.messageId})` : 'Gönderildi') };
   }
 
   // ── Kampanyalar ────────────────────────────────────────────────────────────
 
   async listCampaigns(schoolId: string, limit = 30) {
     return this.campaignRepo.find({ where: { schoolId }, order: { createdAt: 'DESC' }, take: limit });
+  }
+
+  /** Okul geneli iletim raporu (tarih aralığı, kanal/tür kırılımı). */
+  async getReportsOverview(schoolId: string, fromIso?: string, toIso?: string) {
+    const to = toIso ? new Date(`${toIso}T23:59:59.999`) : new Date();
+    const from = fromIso
+      ? new Date(`${fromIso}T00:00:00.000`)
+      : new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const campaigns = await this.campaignRepo.find({
+      where: { schoolId, createdAt: Between(from, to) },
+      order: { createdAt: 'DESC' },
+      take: 80,
+    });
+
+    const recipientStatusRows = await this.recipientRepo
+      .createQueryBuilder('r')
+      .innerJoin(MessagingCampaign, 'c', 'c.id = r.campaignId')
+      .select('r.status', 'status')
+      .addSelect('COUNT(*)', 'cnt')
+      .where('c.schoolId = :schoolId', { schoolId })
+      .andWhere('c.createdAt BETWEEN :from AND :to', { from, to })
+      .groupBy('r.status')
+      .getRawMany<{ status: string; cnt: string }>();
+
+    const byTypeRows = await this.recipientRepo
+      .createQueryBuilder('r')
+      .innerJoin(MessagingCampaign, 'c', 'c.id = r.campaignId')
+      .select('c.type', 'type')
+      .addSelect('r.status', 'status')
+      .addSelect('COUNT(*)', 'cnt')
+      .where('c.schoolId = :schoolId', { schoolId })
+      .andWhere('c.createdAt BETWEEN :from AND :to', { from, to })
+      .groupBy('c.type')
+      .addGroupBy('r.status')
+      .getRawMany<{ type: string; status: string; cnt: string }>();
+
+    const channelRows = await this.recipientRepo
+      .createQueryBuilder('r')
+      .innerJoin(MessagingCampaign, 'c', 'c.id = r.campaignId')
+      .select("COALESCE(NULLIF(TRIM(c.metadata->>'channel'), ''), 'belirtilmedi')", 'channel')
+      .addSelect('r.status', 'status')
+      .addSelect('COUNT(*)', 'cnt')
+      .where('c.schoolId = :schoolId', { schoolId })
+      .andWhere('c.createdAt BETWEEN :from AND :to', { from, to })
+      .andWhere("r.status IN ('sent', 'failed')")
+      .groupBy("COALESCE(NULLIF(TRIM(c.metadata->>'channel'), ''), 'belirtilmedi')")
+      .addGroupBy('r.status')
+      .getRawMany<{ channel: string; status: string; cnt: string }>();
+
+    const timelineRows = await this.recipientRepo
+      .createQueryBuilder('r')
+      .innerJoin(MessagingCampaign, 'c', 'c.id = r.campaignId')
+      .select('DATE(r.sentAt)', 'day')
+      .addSelect("SUM(CASE WHEN r.status = 'sent' THEN 1 ELSE 0 END)", 'sent')
+      .addSelect("SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END)", 'failed')
+      .where('c.schoolId = :schoolId', { schoolId })
+      .andWhere('r.sentAt IS NOT NULL')
+      .andWhere('r.sentAt BETWEEN :from AND :to', { from, to })
+      .groupBy('day')
+      .orderBy('day', 'ASC')
+      .getRawMany<{ day: string; sent: string; failed: string }>();
+
+    const topErrors = await this.recipientRepo
+      .createQueryBuilder('r')
+      .innerJoin(MessagingCampaign, 'c', 'c.id = r.campaignId')
+      .select('r.errorMsg', 'error')
+      .addSelect('COUNT(*)', 'cnt')
+      .where('c.schoolId = :schoolId', { schoolId })
+      .andWhere('c.createdAt BETWEEN :from AND :to', { from, to })
+      .andWhere("r.status = 'failed'")
+      .andWhere('r.errorMsg IS NOT NULL')
+      .andWhere("TRIM(r.errorMsg) <> ''")
+      .groupBy('r.errorMsg')
+      .orderBy('cnt', 'DESC')
+      .limit(8)
+      .getRawMany<{ error: string; cnt: string }>();
+
+    const num = (rows: { cnt: string }[]) =>
+      rows.reduce((s, x) => s + Number(x.cnt || 0), 0);
+
+    const recipients = {
+      total: num(recipientStatusRows),
+      sent: Number(recipientStatusRows.find((x) => x.status === 'sent')?.cnt ?? 0),
+      failed: Number(recipientStatusRows.find((x) => x.status === 'failed')?.cnt ?? 0),
+      pending: Number(recipientStatusRows.find((x) => x.status === 'pending')?.cnt ?? 0),
+      skipped: Number(recipientStatusRows.find((x) => x.status === 'skipped')?.cnt ?? 0),
+    };
+
+    const attempted = recipients.sent + recipients.failed;
+    const deliveryRate = attempted > 0 ? Math.round((recipients.sent / attempted) * 1000) / 10 : null;
+
+    const byCampaignStatus: Record<string, number> = {};
+    for (const c of campaigns) {
+      byCampaignStatus[c.status] = (byCampaignStatus[c.status] ?? 0) + 1;
+    }
+
+    const typeMap = new Map<string, { campaigns: Set<string>; sent: number; failed: number; pending: number; total: number }>();
+    for (const c of campaigns) {
+      if (!typeMap.has(c.type)) {
+        typeMap.set(c.type, { campaigns: new Set(), sent: 0, failed: 0, pending: 0, total: 0 });
+      }
+      typeMap.get(c.type)!.campaigns.add(c.id);
+    }
+    for (const row of byTypeRows) {
+      const t = typeMap.get(row.type) ?? {
+        campaigns: new Set<string>(),
+        sent: 0,
+        failed: 0,
+        pending: 0,
+        total: 0,
+      };
+      const n = Number(row.cnt || 0);
+      t.total += n;
+      if (row.status === 'sent') t.sent += n;
+      else if (row.status === 'failed') t.failed += n;
+      else if (row.status === 'pending') t.pending += n;
+      typeMap.set(row.type, t);
+    }
+
+    const byType = [...typeMap.entries()]
+      .map(([type, v]) => ({
+        type,
+        campaigns: v.campaigns.size,
+        sent: v.sent,
+        failed: v.failed,
+        pending: v.pending,
+        total: v.total,
+        successRate: v.sent + v.failed > 0 ? Math.round((v.sent / (v.sent + v.failed)) * 1000) / 10 : null,
+      }))
+      .sort((a, b) => b.total - a.total);
+
+    const channelMap = new Map<string, { sent: number; failed: number }>();
+    for (const row of channelRows) {
+      const ch = row.channel || 'belirtilmedi';
+      if (!channelMap.has(ch)) channelMap.set(ch, { sent: 0, failed: 0 });
+      const n = Number(row.cnt || 0);
+      if (row.status === 'sent') channelMap.get(ch)!.sent += n;
+      else if (row.status === 'failed') channelMap.get(ch)!.failed += n;
+    }
+    const byChannel = [...channelMap.entries()]
+      .map(([channel, v]) => ({
+        channel,
+        sent: v.sent,
+        failed: v.failed,
+        total: v.sent + v.failed,
+        successRate: v.sent + v.failed > 0 ? Math.round((v.sent / (v.sent + v.failed)) * 1000) / 10 : null,
+      }))
+      .sort((a, b) => b.total - a.total);
+
+    const recentCampaigns = campaigns.slice(0, 25).map((c) => {
+      const ch = (c.metadata as Record<string, unknown> | undefined)?.channel;
+      const attemptedC = c.sentCount + c.failedCount;
+      return {
+        id: c.id,
+        title: c.title,
+        type: c.type,
+        status: c.status,
+        totalCount: c.totalCount,
+        sentCount: c.sentCount,
+        failedCount: c.failedCount,
+        pendingCount: Math.max(0, c.totalCount - c.sentCount - c.failedCount),
+        channel: typeof ch === 'string' ? ch : null,
+        createdAt: c.createdAt,
+        deliveryRate: attemptedC > 0 ? Math.round((c.sentCount / attemptedC) * 1000) / 10 : null,
+      };
+    });
+
+    return {
+      period: { from: from.toISOString(), to: to.toISOString() },
+      summary: {
+        campaignsTotal: campaigns.length,
+        campaignsCompleted: byCampaignStatus.completed ?? 0,
+        campaignsSending: byCampaignStatus.sending ?? 0,
+        campaignsPreview: byCampaignStatus.preview ?? 0,
+        campaignsFailed: byCampaignStatus.failed ?? 0,
+        campaignsCancelled: byCampaignStatus.cancelled ?? 0,
+        ...recipients,
+        deliveryRate,
+      },
+      byCampaignStatus: Object.entries(byCampaignStatus).map(([status, count]) => ({ status, count })),
+      byType,
+      byChannel,
+      timeline: timelineRows.map((r) => ({
+        day: String(r.day).slice(0, 10),
+        sent: Number(r.sent || 0),
+        failed: Number(r.failed || 0),
+      })),
+      topErrors: topErrors.map((e) => ({ message: e.error, count: Number(e.cnt || 0) })),
+      recentCampaigns,
+    };
   }
 
   async getCampaign(schoolId: string, id: string) {
@@ -251,6 +776,27 @@ export class MessagingService {
     const parsed: ParsedRecipient[] = recipients.map((r, i) => ({ recipientName: r.name, phone: r.phone, messageText: r.message, sortOrder: i }));
     if (!parsed.length) throw new BadRequestException('En az bir alıcı gerekli');
     return this._saveCampaign(schoolId, userId, 'toplu_mesaj', title, parsed, null, null, {});
+  }
+
+  async createAcilCampaign(
+    schoolId: string,
+    userId: string,
+    title: string,
+    message: string,
+    recipients: Array<{ name?: string; phone: string }>,
+  ) {
+    const okul = await this._getSchoolName(schoolId);
+    const parsed: ParsedRecipient[] = recipients.map((r, i) => ({
+      recipientName: r.name ?? 'Veli',
+      phone: r.phone,
+      messageText: TPL_ACIL.replace('{AD}', r.name ?? 'Veli').replace('{MESAJ}', message).replace('{OKUL}', okul),
+      sortOrder: i,
+    }));
+    if (!parsed.length) throw new BadRequestException('En az bir telefon gerekli');
+    return this._saveCampaign(schoolId, userId, 'toplu_mesaj', title || '🚨 Acil bilgilendirme', parsed, null, null, {
+      acil: true,
+      channel: 'whatsapp',
+    });
   }
 
   // ── Ek Ders ───────────────────────────────────────────────────────────────
@@ -578,7 +1124,7 @@ export class MessagingService {
 
   // ── Gönderme ──────────────────────────────────────────────────────────────
 
-  /** Başarısız alıcıları tekrar pending yapıp API gönderimini yeniden başlatır (whatsapp_link hariç). */
+  /** Başarısız alıcıları tekrar pending yapıp API gönderimini yeniden başlatır. */
   async retryFailedRecipients(
     schoolId: string,
     campaignId: string,
@@ -590,8 +1136,8 @@ export class MessagingService {
     }
     const settings = await this.settingsRepo.findOne({ where: { schoolId } });
     if (!settings) throw new BadRequestException('Mesaj ayarları bulunamadı.');
-    if (settings.provider === 'whatsapp_link' && settings.isActive) {
-      throw new BadRequestException('Bu modda sunucudan gönderim yok; wa.me listesini kullanın.');
+    if ((settings.provider as string) === 'whatsapp_link') {
+      throw new BadRequestException('WhatsApp Web modu kaldırıldı. Okul yöneticisi API ayarlarını güncellemeli.');
     }
     if (campaign.status === 'sending') throw new BadRequestException('Gönderim devam ediyor; bitene kadar bekleyin.');
     const failedList = await this.recipientRepo.find({ where: { campaignId, status: 'failed' } });
@@ -605,9 +1151,8 @@ export class MessagingService {
     const pending = await this.recipientRepo.find({ where: { campaignId, status: 'pending' }, order: { sortOrder: 'ASC' } });
     if (!pending.length) throw new BadRequestException('Yeniden gönderilecek alıcı kalmadı.');
     const fresh = await this.getCampaign(schoolId, campaignId);
-    if (!settings?.isActive && settings?.provider !== 'mock') {
-      throw new BadRequestException('WhatsApp entegrasyonu aktif değil.');
-    }
+    const channel = this._campaignChannel(fresh);
+    this._assertChannelReady(settings, channel, fresh);
     if (fresh.status === 'sending') {
       void this._sendAll(fresh, pending, settings);
       return { started: true, total: pending.length };
@@ -637,10 +1182,17 @@ export class MessagingService {
     schoolId: string,
     campaignId: string,
     requester?: { userId: string; role: string },
-  ): Promise<{ started: boolean; total: number }> {
+    opts?: ExecuteCampaignDto,
+  ): Promise<{ started: boolean; total: number; channel: 'whatsapp' | 'sms' }> {
     const campaign = await this.getCampaign(schoolId, campaignId);
     if (requester?.role === UserRole.teacher && campaign.createdBy !== requester.userId) {
       throw new ForbiddenException('Bu kampanyayı siz oluşturmadınız.');
+    }
+    if (campaign.approvalStatus === 'pending') {
+      throw new BadRequestException({ code: 'APPROVAL_PENDING', message: 'Kampanya yönetici onayı bekliyor.' });
+    }
+    if (campaign.approvalStatus === 'rejected') {
+      throw new BadRequestException({ code: 'APPROVAL_REJECTED', message: 'Kampanya reddedildi.' });
     }
     if (campaign.status === 'sending') throw new BadRequestException('Gönderim zaten devam ediyor');
     if (campaign.metadata && (campaign.metadata as Record<string, unknown>).abortSend === true) {
@@ -648,16 +1200,13 @@ export class MessagingService {
       await this.campaignRepo.save(campaign);
     }
     const settings = await this.settingsRepo.findOne({ where: { schoolId } });
-    if (settings?.provider === 'whatsapp_link' && settings.isActive) {
-      throw new BadRequestException({
-        message:
-          'Bu modda sunucudan toplu gönderim yok. Kampanya önizlemesinde "WhatsApp ile gönder (wa.me)" bölümünü kullanın.',
-        code: 'USE_WA_MANUAL_LINKS',
-      });
-    }
-    if (!settings?.isActive && settings?.provider !== 'mock') {
-      throw new BadRequestException('WhatsApp entegrasyonu aktif değil. Ayarlar sayfasından yapılandırın.');
-    }
+    const channel = opts?.channel === 'sms' ? 'sms' : opts?.channel === 'whatsapp' ? 'whatsapp' : this._campaignChannel(campaign);
+    campaign.metadata = {
+      ...(campaign.metadata ?? {}),
+      channel,
+      ...(opts?.smsHeader?.trim() ? { smsHeader: opts.smsHeader.trim().slice(0, 11) } : {}),
+    };
+    this._assertChannelReady(settings, channel, campaign);
 
     const recipients = await this.recipientRepo.find({ where: { campaignId, status: 'pending' }, order: { sortOrder: 'ASC' } });
     if (!recipients.length) throw new BadRequestException('Gönderilecek alıcı yok');
@@ -665,9 +1214,47 @@ export class MessagingService {
     campaign.status = 'sending';
     await this.campaignRepo.save(campaign);
 
-    // Async gönderim (arka planda)
     void this._sendAll(campaign, recipients, settings ?? this._mockSettings(schoolId));
-    return { started: true, total: recipients.length };
+    return { started: true, total: recipients.length, channel };
+  }
+
+  private _campaignChannel(campaign: MessagingCampaign): 'whatsapp' | 'sms' {
+    const ch = (campaign.metadata as Record<string, unknown> | undefined)?.channel;
+    return ch === 'sms' ? 'sms' : 'whatsapp';
+  }
+
+  private _assertChannelReady(
+    settings: MessagingSettings | null,
+    channel: 'whatsapp' | 'sms',
+    campaign: MessagingCampaign,
+  ): void {
+    if (channel === 'sms') {
+      const sms = parseSmsConfig(settings?.extraConfig);
+      if (!smsConfigReady(sms)) {
+        throw new BadRequestException({
+          code: 'SMS_NOT_CONFIGURED',
+          message: 'SMS entegrasyonu aktif değil. Ayarlar → SMS bölümünden Netgsm bilgilerini girin.',
+        });
+      }
+      const hdr =
+        String((campaign.metadata as Record<string, unknown>)?.smsHeader ?? '').trim() || sms.header;
+      if (!hdr) throw new BadRequestException('SMS gönderici başlığı (msgheader) seçin veya ayarlarda tanımlayın.');
+      const hasPdf =
+        !!(campaign.attachmentPath && existsSync(campaign.attachmentPath));
+      if (hasPdf) {
+        throw new BadRequestException('SMS kanalında kampanya eki (PDF) gönderilemez; yalnızca metin.');
+      }
+      return;
+    }
+    if (settings && (settings.provider as string) === 'whatsapp_link') {
+      throw new BadRequestException({
+        message: 'WhatsApp Web modu kaldırıldı. Ayarlar → resmi API sağlayıcısı yapılandırın.',
+        code: 'WHATSAPP_LINK_REMOVED',
+      });
+    }
+    if (!settings?.isActive && settings?.provider !== 'mock') {
+      throw new BadRequestException('WhatsApp entegrasyonu aktif değil. Ayarlar sayfasından yapılandırın.');
+    }
   }
 
   async getCampaignStats(schoolId: string, campaignId: string) {
@@ -723,11 +1310,21 @@ export class MessagingService {
     parsed: ParsedRecipient[], fileBuffer: Buffer | null, filename: string | null,
     metadata: Record<string, unknown>,
   ) {
+    const settings = await this.settingsRepo.findOne({ where: { schoolId } });
+    const creator = await this.userRepo.findOne({ where: { id: userId }, select: ['id', 'role'] });
+    const ex = (settings?.extraConfig ?? {}) as Record<string, unknown>;
+    const needApproval =
+      ex.requireTeacherApproval === true && creator?.role === UserRole.teacher;
+
     const campaign = await this.campaignRepo.save(this.campaignRepo.create({
-      schoolId, createdBy: userId, type, title,
+      schoolId,
+      createdBy: userId,
+      type,
+      title,
       status: 'preview',
       totalCount: parsed.length,
       metadata,
+      approvalStatus: needApproval ? 'pending' : 'none',
     }));
 
     if (fileBuffer && filename) {
@@ -752,6 +1349,7 @@ export class MessagingService {
       }),
     );
     await this.recipientRepo.save(rows);
+    void this.schoolNeeds.syncVeliDirectory(schoolId).catch(() => undefined);
 
     return campaign;
   }
@@ -768,10 +1366,16 @@ export class MessagingService {
 
   private async _sendAll(campaign: MessagingCampaign, recipients: MessagingRecipient[], settings: MessagingSettings) {
     const { delayMs, maxRetries } = this._sendTuning(settings);
-    // Kampanya düzeyinde ortak dosya eki
-    const commonAttachment = campaign.attachmentPath && existsSync(campaign.attachmentPath)
-      ? { buf: readFileSync(campaign.attachmentPath), name: campaign.attachmentName ?? 'ek.pdf' }
-      : null;
+    const autoCfg = await this.schoolNeeds.getAutomationConfig(campaign.schoolId);
+    const quiet = this.schoolNeeds.isQuietHoursNow(autoCfg);
+    const channel = this._campaignChannel(campaign);
+    const smsCfg = parseSmsConfig(settings.extraConfig);
+    const smsHeader =
+      String((campaign.metadata as Record<string, unknown>)?.smsHeader ?? '').trim() || smsCfg.header;
+    const commonAttachment =
+      channel === 'whatsapp' && campaign.attachmentPath && existsSync(campaign.attachmentPath)
+        ? { buf: readFileSync(campaign.attachmentPath), name: campaign.attachmentName ?? 'ek.pdf' }
+        : null;
 
     for (const r of recipients) {
       const ctrl = await this.campaignRepo.findOne({ where: { id: campaign.id } });
@@ -793,8 +1397,61 @@ export class MessagingService {
 
       if (!r.phone) {
         r.status = 'skipped';
+        r.errorMsg = 'Telefon yok';
         await this.recipientRepo.save(r);
         continue;
+      }
+
+      if (quiet) {
+        r.status = 'skipped';
+        r.errorMsg = 'Sessiz saat (otomasyon ayarı)';
+        await this.recipientRepo.save(r);
+        continue;
+      }
+
+      if (await this._isOptedOut(campaign.schoolId, r.phone)) {
+        r.status = 'skipped';
+        r.errorMsg = 'İletişim listesinden çıkmış (opt-out)';
+        await this.recipientRepo.save(r);
+        continue;
+      }
+
+      const pref = await this.contactPrefRepo.findOne({
+        where: { schoolId: campaign.schoolId, phone: this._normPhone(r.phone) },
+      });
+      let effectiveChannel = channel;
+      if (pref) {
+        if (effectiveChannel === 'sms' && pref.noSms) {
+          r.status = 'skipped';
+          r.errorMsg = 'Veli SMS istemiyor';
+          await this.recipientRepo.save(r);
+          continue;
+        }
+        if (effectiveChannel === 'whatsapp' && pref.noWhatsapp) {
+          r.status = 'skipped';
+          r.errorMsg = 'Veli WhatsApp istemiyor';
+          await this.recipientRepo.save(r);
+          continue;
+        }
+        if (!pref.noSms && !pref.noWhatsapp && pref.preferredChannel) {
+          const hasPdf =
+            !!(r.filePath && existsSync(r.filePath)) || !!commonAttachment;
+          const allowed = allowedChannels(campaign.type, hasPdf);
+          if (allowed.includes(pref.preferredChannel)) {
+            effectiveChannel = pref.preferredChannel;
+          }
+        }
+      }
+
+      let messageText = r.messageText ?? '';
+      if (campaign.createdBy) {
+        const prefUser = await this.userPrefRepo.findOne({
+          where: { userId: campaign.createdBy, schoolId: campaign.schoolId },
+        });
+        const sig = (prefUser?.preferences as Record<string, unknown> | undefined)?.appendSignature;
+        if (typeof sig === 'string' && sig.trim() && !messageText.includes(sig.trim())) {
+          messageText = `${messageText.trim()}\n\n${sig.trim()}`;
+        }
       }
 
       let lastError = 'Hata';
@@ -805,20 +1462,55 @@ export class MessagingService {
           await new Promise((res) => setTimeout(res, backoff));
         }
         try {
-          let result;
-          if (r.filePath && existsSync(r.filePath)) {
+          let result: { success: boolean; error?: string; messageId?: string };
+          if (effectiveChannel === 'sms') {
+            if ((r.filePath && existsSync(r.filePath)) || commonAttachment) {
+              lastError = 'SMS ile PDF/dosya gönderilemez';
+              break;
+            }
+            result = await this.sms.sendText(smsCfg, r.phone, messageText, smsHeader);
+          } else if (r.filePath && existsSync(r.filePath)) {
             const buf = readFileSync(r.filePath);
-            result = await this.wa.sendDocument(settings, r.phone, r.messageText ?? '', buf, r.filePath.split(/[\\/]/).pop() ?? 'dosya.pdf');
+            result = await this.wa.sendDocument(
+              settings,
+              r.phone,
+              messageText,
+              buf,
+              r.filePath.split(/[\\/]/).pop() ?? 'dosya.pdf',
+            );
           } else if (commonAttachment) {
-            result = await this.wa.sendDocument(settings, r.phone, r.messageText ?? '', commonAttachment.buf, commonAttachment.name);
+            result = await this.wa.sendDocument(
+              settings,
+              r.phone,
+              messageText,
+              commonAttachment.buf,
+              commonAttachment.name,
+            );
           } else {
-            result = await this.wa.sendText(settings, r.phone, r.messageText ?? '');
+            result = await this.wa.sendText(settings, r.phone, messageText);
           }
           if (result.success) {
             r.status = 'sent';
             r.sentAt = new Date();
             r.errorMsg = null;
+            if (result.messageId) {
+              r.providerMessageId = result.messageId;
+              r.deliveryStatus = 'sent';
+            }
             ok = true;
+            if (result.messageId) {
+              await this.deliveryRepo.save(
+                this.deliveryRepo.create({
+                  schoolId: campaign.schoolId,
+                  campaignId: campaign.id,
+                  recipientId: r.id,
+                  provider: effectiveChannel === 'sms' ? 'sms' : (settings.provider ?? 'whatsapp'),
+                  externalMessageId: result.messageId,
+                  status: 'sent',
+                  rawPayload: { source: 'send' },
+                }),
+              );
+            }
           } else {
             lastError = result.error ?? 'Hata';
           }

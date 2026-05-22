@@ -8,11 +8,12 @@ import TeacherWaQuickSend from './components/TeacherWaQuickSend';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { Trash2, Send, Clock, CheckCircle2, XCircle, Settings } from 'lucide-react';
+import { Trash2, Send, Clock, CheckCircle2, XCircle, Settings, BarChart2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 
 const QUICK_LINKS = [
+  { href: '/mesaj-merkezi/acil',           label: 'Acil duyuru',        desc: 'Hızlı toplu bilgilendirme',   color: 'from-red-600 to-rose-600', adminOnly: true },
   { href: '/mesaj-merkezi/veli-iletisim',  label: 'Veli / Toplu Mesaj', desc: 'Excel veya manuel giriş',     color: 'from-sky-500 to-cyan-500' },
   { href: '/mesaj-merkezi/gruplar',        label: 'Gruplar',            desc: 'Sınırsız kişi, toplu gönder', color: 'from-violet-500 to-purple-500' },
   { href: '/mesaj-merkezi/veli-toplantisi',label: 'Veli Toplantısı',   desc: 'Toplantı + davetiye gönder',  color: 'from-cyan-500 to-sky-600' },
@@ -68,7 +69,7 @@ export default function MesajMerkeziPage() {
           <span>
             <span className="font-semibold text-emerald-900 dark:text-emerald-100 block">Ayarlarım — gönderim tercihleri</span>
             <span className="mt-0.5 block text-[11px] font-normal text-emerald-800/85 dark:text-emerald-200/80">
-              İmza, wa.me nasıl açılsın; yalnızca sizin hesabınıza kaydedilir.
+              Kişisel imza/not tercihleri.
             </span>
           </span>
           <Settings className="size-5 shrink-0 text-emerald-700 dark:text-emerald-300" />
@@ -93,6 +94,21 @@ export default function MesajMerkeziPage() {
             ))}
           </div>
         </div>
+      ) : null}
+
+      {isAdmin ? (
+        <Link
+          href={`/mesaj-merkezi/raporlar${q}`}
+          className="flex items-center justify-between gap-3 rounded-2xl border border-fuchsia-200/80 bg-gradient-to-r from-fuchsia-50/90 to-indigo-50/70 px-4 py-3 shadow-sm transition hover:shadow-md dark:border-fuchsia-900/40 dark:from-fuchsia-950/30 dark:to-indigo-950/20"
+        >
+          <span>
+            <span className="font-semibold text-fuchsia-950 dark:text-fuchsia-100 block">İletim Raporları</span>
+            <span className="mt-0.5 block text-[11px] text-fuchsia-800/85 dark:text-fuchsia-200/80">
+              Kanal, tür ve kampanya bazında gönderim istatistikleri
+            </span>
+          </span>
+          <BarChart2 className="size-6 shrink-0 text-fuchsia-600 dark:text-fuchsia-400" />
+        </Link>
       ) : null}
 
       {/* İstatistik */}
@@ -124,7 +140,9 @@ export default function MesajMerkeziPage() {
             <div key={c.id} className="flex items-center gap-3 rounded-xl border bg-white/70 px-4 py-3 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/50">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-sm leading-tight">{c.title}</span>
+                  <Link href={`/mesaj-merkezi/kampanya/${c.id}${q}`} className="font-semibold text-sm leading-tight hover:underline">
+                    {c.title}
+                  </Link>
                   <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
                     {TYPE_LABELS[c.type] ?? c.type}
                   </span>

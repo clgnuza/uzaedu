@@ -4,20 +4,23 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   Campaign,
   executeCampaign,
+  scheduleCampaign,
   getDeliveryHint,
   loadRecipients,
   retryFailedCampaign,
   abortCampaignSend,
   STATUS_COLORS,
   STATUS_LABELS,
+  type DeliveryHint,
+  type MessagingChannel,
   type Recipient,
 } from '@/lib/messaging-api';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { toast } from 'sonner';
-import { Send, CheckCircle2, XCircle, Clock, OctagonAlert, RotateCcw, StopCircle } from 'lucide-react';
+import { Send, CheckCircle2, XCircle, Clock, OctagonAlert, RotateCcw, StopCircle, MessageSquare, CalendarClock } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import ManualWhatsappSendPanel from './ManualWhatsappSendPanel';
 
 interface Props {
   campaign: Campaign;
@@ -28,17 +31,27 @@ interface Props {
 
 export default function SendPanel({ campaign, token, q, onSent }: Props) {
   const [sending, setSending] = useState(false);
-  const [linkMode, setLinkMode] = useState<boolean | null>(null);
+  const [hint, setHint] = useState<DeliveryHint | null>(null);
+  const [channel, setChannel] = useState<MessagingChannel>('whatsapp');
+  const [smsHeader, setSmsHeader] = useState('');
   const [failedRows, setFailedRows] = useState<Recipient[]>([]);
   const [failOpen, setFailOpen] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [aborting, setAborting] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState('');
+  const [scheduling, setScheduling] = useState(false);
+
+  const approvalBlocked = campaign.approvalStatus === 'pending' || campaign.approvalStatus === 'rejected';
 
   useEffect(() => {
     if (!token) return;
     void getDeliveryHint(token, q)
-      .then((h) => setLinkMode(h.whatsappLinkMode))
-      .catch(() => setLinkMode(false));
+      .then((h) => {
+        setHint(h);
+        if (h.smsReady && !h.whatsappReady) setChannel('sms');
+        else if (h.whatsappReady) setChannel('whatsapp');
+      })
+      .catch(() => setHint({ whatsappReady: false, smsReady: false, apiReady: false }));
   }, [token, q]);
 
   const loadFailures = useCallback(async () => {
@@ -55,16 +68,31 @@ export default function SendPanel({ campaign, token, q, onSent }: Props) {
   }, [token, campaign.id, campaign.failedCount, q]);
 
   useEffect(() => {
-    if (linkMode !== false || campaign.failedCount <= 0) return;
+    if (campaign.failedCount <= 0) return;
     void loadFailures();
-  }, [linkMode, campaign.failedCount, campaign.id, loadFailures]);
+  }, [campaign.failedCount, campaign.id, loadFailures]);
+
+  const channelReady = channel === 'sms' ? hint?.smsReady : hint?.whatsappReady;
+  const hasPdfCampaign =
+    !!(campaign.metadata?.hasAttachment) ||
+    ['karne', 'ara_karne', 'devamsizlik_mektup'].includes(campaign.type);
 
   const send = async () => {
-    if (!confirm(`"${campaign.title}" kampanyasındaki ${campaign.totalCount} kişiye mesaj gönderilecek. Devam?`)) return;
+    if (!channelReady) {
+      return toast.error(channel === 'sms' ? 'SMS ayarları eksik veya pasif' : 'WhatsApp API ayarları eksik veya pasif');
+    }
+    if (channel === 'sms' && hasPdfCampaign) {
+      return toast.error('Bu kampanya türünde SMS ile gönderim yapılamaz (PDF). WhatsApp seçin.');
+    }
+    const chLabel = channel === 'sms' ? 'SMS' : 'WhatsApp API';
+    if (!confirm(`"${campaign.title}" — ${campaign.totalCount} kişiye ${chLabel} ile gönderilecek. Devam?`)) return;
     setSending(true);
     try {
-      const res = await executeCampaign(token ?? '', campaign.id, q);
-      toast.success(`Gönderim başladı — ${res.total} alıcı`);
+      const res = await executeCampaign(token ?? '', campaign.id, q, {
+        channel,
+        ...(channel === 'sms' && smsHeader.trim() ? { smsHeader: smsHeader.trim() } : {}),
+      });
+      toast.success(`${chLabel} gönderimi başladı — ${res.total} alıcı`);
       onSent?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Hata');
@@ -74,8 +102,6 @@ export default function SendPanel({ campaign, token, q, onSent }: Props) {
   };
 
   const pct = campaign.totalCount > 0 ? Math.round((campaign.sentCount / campaign.totalCount) * 100) : 0;
-  const showManual =
-    linkMode && (campaign.status === 'preview' || campaign.status === 'failed' || campaign.status === 'sending');
 
   const retryFailed = async () => {
     if (!token) return;
@@ -94,7 +120,7 @@ export default function SendPanel({ campaign, token, q, onSent }: Props) {
 
   const abortSend = async () => {
     if (!token) return;
-    if (!confirm('Gönderimi durdurmak istediğinize emin misiniz? (Bir sonraki alıcıdan önce durur.)')) return;
+    if (!confirm('Gönderimi durdurmak istediğinize emin misiniz?')) return;
     setAborting(true);
     try {
       await abortCampaignSend(token, campaign.id, q);
@@ -109,37 +135,124 @@ export default function SendPanel({ campaign, token, q, onSent }: Props) {
 
   return (
     <div className="rounded-2xl border border-white/50 bg-white/80 p-4 shadow-sm dark:border-zinc-800/40 dark:bg-zinc-900/60 space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <p className="font-semibold text-sm">{campaign.title}</p>
           <span className={cn('inline-block mt-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold', STATUS_COLORS[campaign.status])}>
             {STATUS_LABELS[campaign.status]}
           </span>
+          {(campaign.metadata?.channel as string) && campaign.status !== 'preview' ? (
+            <span className="ml-1 text-[10px] text-muted-foreground">
+              · {(campaign.metadata.channel as string) === 'sms' ? 'SMS' : 'WhatsApp'}
+            </span>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {campaign.status === 'sending' && linkMode === false && (
+          {campaign.status === 'sending' && (
             <Button size="sm" variant="outline" className="gap-1 text-destructive" disabled={aborting} onClick={() => void abortSend()}>
               {aborting ? <LoadingSpinner className="size-4" /> : <StopCircle className="size-4" />}
               Durdur
             </Button>
           )}
-          {(campaign.status === 'preview' || campaign.status === 'failed') && (
-            <>
-              {linkMode === null ? (
-                <LoadingSpinner className="size-6" />
-              ) : linkMode === false ? (
-                <Button size="sm" className="gap-1.5 bg-green-600 hover:bg-green-700" disabled={sending} onClick={send}>
-                  {sending ? <LoadingSpinner className="size-4" /> : <Send className="size-4" />}
-                  Gönder
-                </Button>
-              ) : null}
-            </>
+          {(campaign.status === 'preview' || campaign.status === 'failed') && !approvalBlocked && (
+            <Button
+              size="sm"
+              className="gap-1.5 bg-green-600 hover:bg-green-700"
+              disabled={sending || !channelReady}
+              onClick={send}
+            >
+              {sending ? <LoadingSpinner className="size-4" /> : <Send className="size-4" />}
+              Gönder
+            </Button>
           )}
         </div>
       </div>
 
-      {showManual ? (
-        <ManualWhatsappSendPanel campaign={campaign} token={token} q={q} onUpdate={onSent} />
+      {(campaign.status === 'preview' || campaign.status === 'failed') && hint ? (
+        <div className="rounded-xl border bg-slate-50/80 p-3 dark:bg-zinc-900/50 space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground">Gönderim kanalı</p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={!hint.whatsappReady}
+              onClick={() => setChannel('whatsapp')}
+              className={cn(
+                'rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors',
+                channel === 'whatsapp' ? 'border-green-500 bg-green-600 text-white' : 'opacity-60',
+                !hint.whatsappReady && 'cursor-not-allowed',
+              )}
+            >
+              WhatsApp API
+            </button>
+            <button
+              type="button"
+              disabled={!hint.smsReady || hasPdfCampaign}
+              onClick={() => setChannel('sms')}
+              className={cn(
+                'rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors',
+                channel === 'sms' ? 'border-sky-500 bg-sky-600 text-white' : 'opacity-60',
+                (!hint.smsReady || hasPdfCampaign) && 'cursor-not-allowed',
+              )}
+            >
+              <MessageSquare className="inline size-3.5 mr-1" />
+              SMS (başlıklı)
+            </button>
+          </div>
+          {channel === 'sms' ? (
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">SMS başlığı (gönderici adı, max 11)</label>
+              <Input
+                className="h-9 text-sm"
+                maxLength={11}
+                value={smsHeader}
+                onChange={(e) => setSmsHeader(e.target.value.toUpperCase())}
+                placeholder="Örn: OKULADI"
+              />
+              <p className="mt-0.5 text-[10px] text-muted-foreground">Boş bırakılırsa ayarlardaki varsayılan başlık kullanılır.</p>
+            </div>
+          ) : null}
+          {!channelReady ? (
+            <p className="text-[11px] text-amber-700 dark:text-amber-300">Seçilen kanal için ayarlar eksik. Mesaj Merkezi → Ayarlar.</p>
+          ) : null}
+          {!approvalBlocked && channelReady ? (
+            <div className="flex flex-wrap items-end gap-2 pt-1 border-t border-dashed">
+              <div className="flex-1 min-w-[160px]">
+                <label className="text-[10px] font-medium text-muted-foreground">Zamanla</label>
+                <input
+                  type="datetime-local"
+                  value={scheduleAt}
+                  onChange={(e) => setScheduleAt(e.target.value)}
+                  className="mt-0.5 h-9 w-full rounded-lg border px-2 text-sm dark:bg-zinc-900"
+                />
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1"
+                disabled={scheduling || !scheduleAt}
+                onClick={async () => {
+                  setScheduling(true);
+                  try {
+                    await scheduleCampaign(token ?? '', campaign.id, q, {
+                      at: new Date(scheduleAt).toISOString(),
+                      channel,
+                      ...(channel === 'sms' && smsHeader.trim() ? { smsHeader: smsHeader.trim() } : {}),
+                    });
+                    toast.success('Gönderim zamanlandı');
+                    onSent?.();
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : 'Hata');
+                  } finally {
+                    setScheduling(false);
+                  }
+                }}
+              >
+                {scheduling ? <LoadingSpinner className="size-4" /> : <CalendarClock className="size-4" />}
+                Zamanla
+              </Button>
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="grid grid-cols-3 gap-2 text-center text-xs">
@@ -160,7 +273,7 @@ export default function SendPanel({ campaign, token, q, onSent }: Props) {
         </div>
       </div>
 
-      {linkMode === false && campaign.failedCount > 0 && (campaign.status === 'completed' || campaign.status === 'failed') && (
+      {campaign.failedCount > 0 && (campaign.status === 'completed' || campaign.status === 'failed') && (
         <div className="rounded-xl border border-red-200/70 bg-red-50/40 p-2 dark:border-red-900/40 dark:bg-red-950/20">
           <button
             type="button"

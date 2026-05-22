@@ -4,36 +4,39 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
-import { msgQ } from '@/lib/messaging-api';
+import { resolveDefaultApiBase } from '@/lib/resolve-api-base';
+import {
+  msgQ,
+  parseSmsFromExtra,
+  DEFAULT_SMS_SETTINGS,
+  type SmsSettingsForm,
+} from '@/lib/messaging-api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { toast } from 'sonner';
-import { Save, Wifi } from 'lucide-react';
+import { Save, Wifi, MessageSquare } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
-type Provider = 'mock' | 'meta' | 'twilio' | 'netgsm' | 'custom' | 'whatsapp_link';
-type Settings = {
-  provider: Provider; apiKey: string; apiSecret: string;
+type WaProvider = 'mock' | 'meta' | 'twilio' | 'netgsm' | 'custom';
+type WaSettings = {
+  provider: WaProvider; apiKey: string; apiSecret: string;
   phoneNumberId: string; fromNumber: string; apiEndpoint: string; isActive: boolean;
   extraConfig: {
     policyComplianceAck: boolean;
-    waManualPolicyAck: boolean;
     send_delay_ms?: number;
     send_max_retries?: number;
+    requireTeacherApproval?: boolean;
+    sms?: Record<string, unknown>;
   };
 };
 
-const PROVIDER_DOCS: Record<Provider, { label: string; helpUrl: string; fields: string[] }> = {
-  mock:   { label: 'Test (Mock)',            helpUrl: '',                                                        fields: [] },
+const WA_PROVIDERS: Record<WaProvider, { label: string; helpUrl: string; fields: string[] }> = {
+  mock:   { label: 'Test (Mock)',            helpUrl: '', fields: [] },
   meta:   { label: 'Meta Business API',      helpUrl: 'https://developers.facebook.com/docs/whatsapp/cloud-api', fields: ['apiKey', 'phoneNumberId'] },
-  twilio: { label: 'Twilio WhatsApp',        helpUrl: 'https://www.twilio.com/en-us/whatsapp',                  fields: ['apiKey', 'apiSecret', 'fromNumber'] },
-  netgsm: { label: 'Netgsm WhatsApp',        helpUrl: 'https://www.netgsm.com.tr/whatsapp-api',                 fields: ['apiKey', 'apiSecret'] },
-  custom: { label: 'Özel API (HTTP POST)',   helpUrl: '',                                                        fields: ['apiKey', 'apiEndpoint'] },
-  whatsapp_link: {
-    label: 'WhatsApp Web (API yok)',
-    helpUrl: '',
-    fields: [],
-  },
+  twilio: { label: 'Twilio WhatsApp',        helpUrl: 'https://www.twilio.com/en-us/whatsapp', fields: ['apiKey', 'apiSecret', 'fromNumber'] },
+  netgsm: { label: 'Netgsm WhatsApp',        helpUrl: 'https://www.netgsm.com.tr/whatsapp-api', fields: ['apiKey', 'apiSecret'] },
+  custom: { label: 'Özel API (HTTP POST)',   helpUrl: '', fields: ['apiKey', 'apiEndpoint'] },
 };
 
 const FIELD_LABELS: Record<string, string> = {
@@ -44,17 +47,21 @@ const FIELD_LABELS: Record<string, string> = {
   apiEndpoint: 'API Endpoint URL',
 };
 
+type Tab = 'whatsapp' | 'sms';
+
 export default function AyarlarPage() {
   const searchParams = useSearchParams();
   const { me, token } = useAuth();
   const q = msgQ(me?.role, searchParams.get('school_id'));
 
-  const [form, setForm]       = useState<Settings>({
+  const [tab, setTab] = useState<Tab>('whatsapp');
+  const [wa, setWa] = useState<WaSettings>({
     provider: 'mock', apiKey: '', apiSecret: '', phoneNumberId: '', fromNumber: '', apiEndpoint: '', isActive: false,
-    extraConfig: { policyComplianceAck: false, waManualPolicyAck: false, send_delay_ms: 600, send_max_retries: 1 },
+    extraConfig: { policyComplianceAck: false, send_delay_ms: 600, send_max_retries: 1, requireTeacherApproval: false },
   });
+  const [sms, setSms] = useState<SmsSettingsForm>(DEFAULT_SMS_SETTINGS);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving]   = useState(false);
+  const [saving, setSaving] = useState(false);
   const [testPhone, setTestPhone] = useState('');
   const [testing, setTesting] = useState(false);
 
@@ -63,21 +70,31 @@ export default function AyarlarPage() {
     void (async () => {
       setLoading(true);
       try {
-        const s = await apiFetch<Settings & { extraConfig?: Record<string, unknown> } | null>(`/messaging/settings${q}`, { token });
+        const s = await apiFetch<(WaSettings & { extraConfig?: Record<string, unknown> }) | null>(
+          `/messaging/settings${q}`,
+          { token },
+        );
         if (s) {
           const ex = s.extraConfig ?? {};
-          setForm((f) => ({
-            ...f,
+          const rawProv = String(s.provider ?? 'mock');
+          const legacyLink = rawProv === 'whatsapp_link';
+          const prov = (legacyLink ? 'mock' : rawProv) as WaProvider;
+          setWa({
             ...s,
+            provider: prov,
+            isActive: legacyLink ? false : s.isActive,
             extraConfig: {
               policyComplianceAck: ex.policyComplianceAck === true,
-              waManualPolicyAck: ex.waManualPolicyAck === true,
               send_delay_ms: Math.min(15000, Math.max(200, Number(ex.send_delay_ms) || 600)),
               send_max_retries: Math.min(4, Math.max(0, Number(ex.send_max_retries) || 1)),
+              requireTeacherApproval: ex.requireTeacherApproval === true,
             },
-          }));
+          });
+          const parsed = parseSmsFromExtra(ex);
+          setSms(parsed);
+          if (parsed.header) setSms((prev) => ({ ...prev, header: parsed.header }));
         }
-      } catch { /* 404 = no settings yet */ }
+      } catch { /* yok */ }
       finally { setLoading(false); }
     })();
   }, [token, q]);
@@ -90,232 +107,286 @@ export default function AyarlarPage() {
         method: 'POST',
         token,
         body: JSON.stringify({
-          provider: form.provider,
-          apiKey: s(form.apiKey),
-          apiSecret: s(form.apiSecret),
-          phoneNumberId: s(form.phoneNumberId),
-          fromNumber: s(form.fromNumber),
-          apiEndpoint: s(form.apiEndpoint),
-          isActive: form.isActive,
+          provider: wa.provider,
+          apiKey: s(wa.apiKey),
+          apiSecret: s(wa.apiSecret),
+          phoneNumberId: s(wa.phoneNumberId),
+          fromNumber: s(wa.fromNumber),
+          apiEndpoint: s(wa.apiEndpoint),
+          isActive: wa.isActive,
           extraConfig: {
-            policyComplianceAck: form.extraConfig.policyComplianceAck,
-            waManualPolicyAck: form.extraConfig.waManualPolicyAck,
-            send_delay_ms: form.extraConfig.send_delay_ms ?? 600,
-            send_max_retries: form.extraConfig.send_max_retries ?? 1,
+            policyComplianceAck: wa.extraConfig.policyComplianceAck,
+            send_delay_ms: wa.extraConfig.send_delay_ms ?? 600,
+            send_max_retries: wa.extraConfig.send_max_retries ?? 1,
+            requireTeacherApproval: wa.extraConfig.requireTeacherApproval === true,
+            sms: {
+              provider: sms.provider,
+              usercode: sms.usercode.trim(),
+              password: sms.password,
+              header: sms.header.trim().slice(0, 11),
+              isActive: sms.isActive,
+              iys: sms.iys,
+              iysList: sms.iysList,
+              encoding: sms.encoding,
+              commercialAck: sms.commercialAck,
+            },
           },
         }),
       });
       toast.success('Ayarlar kaydedildi');
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Hata'); }
-    finally { setSaving(false); }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const test = async () => {
+  const testWa = async () => {
     if (!testPhone.trim()) return toast.error('Test numarası gerekli');
     setTesting(true);
     try {
-      const res = await apiFetch<{ ok: boolean; message: string }>(`/messaging/settings/test${q}`, { method: 'POST', token, body: JSON.stringify({ testPhone: testPhone.trim() }) });
-      if (res.ok) {
-        if (form.provider === 'whatsapp_link') {
-          const m = res.message.match(/(https:\/\/wa\.me\/[^\s]+)/);
-          if (m) window.open(m[1], '_blank', 'noopener,noreferrer');
-          toast.success(
-            m
-              ? 'wa.me açıldı. Bu modda sunucudan mesaj gitmez; sohbeti WhatsApp’ta siz başlatırsınız.'
-              : res.message,
-          );
-        } else {
-          toast.success(`✅ Bağlantı başarılı: ${res.message}`);
-        }
-      } else toast.error(`❌ ${res.message}`);
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Hata'); }
-    finally { setTesting(false); }
+      const res = await apiFetch<{ ok: boolean; message: string }>(`/messaging/settings/test${q}`, {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ testPhone: testPhone.trim() }),
+      });
+      if (res.ok) toast.success(`WhatsApp: ${res.message}`);
+      else toast.error(`WhatsApp: ${res.message}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const testSms = async () => {
+    if (!testPhone.trim()) return toast.error('Test numarası gerekli');
+    setTesting(true);
+    try {
+      const res = await apiFetch<{ ok: boolean; message: string }>(`/messaging/settings/sms/test${q}`, {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ testPhone: testPhone.trim() }),
+      });
+      if (res.ok) toast.success(`SMS: ${res.message}`);
+      else toast.error(`SMS: ${res.message}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setTesting(false);
+    }
   };
 
   if (loading) return <div className="flex justify-center py-16"><LoadingSpinner /></div>;
 
-  const provDoc = PROVIDER_DOCS[form.provider];
+  const waDoc = WA_PROVIDERS[wa.provider];
+  const apiBase = resolveDefaultApiBase().replace(/\/$/, '');
+  const metaWebhook = `${apiBase}/messaging/webhooks/meta`;
+  const twilioWebhook = `${apiBase}/messaging/webhooks/twilio`;
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border bg-white/80 p-5 shadow-sm dark:bg-zinc-900/60 space-y-4">
-        <p className="font-bold">WhatsApp Entegrasyon Ayarları</p>
+      <div className="flex gap-2 border-b pb-2">
+        {(['whatsapp', 'sms'] as Tab[]).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setTab(t)}
+            className={cn(
+              'rounded-lg px-4 py-2 text-sm font-semibold transition-colors',
+              tab === t ? 'bg-indigo-600 text-white' : 'text-muted-foreground hover:bg-slate-100 dark:hover:bg-zinc-800',
+            )}
+          >
+            {t === 'whatsapp' ? 'WhatsApp API' : 'SMS (Netgsm)'}
+          </button>
+        ))}
+      </div>
 
-        {/* Sağlayıcı seçimi */}
-        <div>
-          <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">WhatsApp Sağlayıcısı</label>
+      {tab === 'whatsapp' ? (
+        <div className="rounded-2xl border bg-white/80 p-5 shadow-sm dark:bg-zinc-900/60 space-y-4">
+          <p className="font-bold">WhatsApp Business API</p>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {(Object.keys(PROVIDER_DOCS) as Provider[]).map((p) => (
-              <button key={p} onClick={() => setForm((f) => ({ ...f, provider: p }))}
-                className={`rounded-xl border py-2 px-3 text-xs font-semibold transition-colors ${form.provider === p ? 'border-indigo-400 bg-indigo-600 text-white' : 'border-input bg-white/60 hover:bg-indigo-50 dark:bg-zinc-900/50'}`}>
-                {PROVIDER_DOCS[p].label}
+            {(Object.keys(WA_PROVIDERS) as WaProvider[]).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setWa((f) => ({ ...f, provider: p }))}
+                className={cn(
+                  'rounded-xl border py-2 px-3 text-xs font-semibold',
+                  wa.provider === p ? 'border-indigo-400 bg-indigo-600 text-white' : 'border-input bg-white/60 dark:bg-zinc-900/50',
+                )}
+              >
+                {WA_PROVIDERS[p].label}
               </button>
             ))}
           </div>
-          {provDoc.helpUrl && (
-            <a href={provDoc.helpUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[11px] text-indigo-600 underline dark:text-indigo-400">
-              {provDoc.label} Dokümantasyonu →
+          {waDoc.helpUrl ? (
+            <a href={waDoc.helpUrl} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-600 underline">
+              Dokümantasyon →
             </a>
-          )}
-        </div>
-
-        {/* Sağlayıcı özel alanlar */}
-        {provDoc.fields.length > 0 && (
-          <div className="space-y-3">
-            {provDoc.fields.map((field) => (
-              <div key={field}>
-                <label className="mb-1 block text-xs font-semibold text-muted-foreground">{FIELD_LABELS[field]}</label>
-                <Input
-                  type={field.toLowerCase().includes('secret') || field.toLowerCase().includes('key') ? 'password' : 'text'}
-                  value={(form as unknown as Record<string, string>)[field] ?? ''}
-                  onChange={(e) => setForm((f) => ({ ...f, [field]: e.target.value }))}
-                  placeholder={FIELD_LABELS[field]}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Aktif/Pasif */}
-        <label className="flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-          <div className={`relative h-5 w-9 rounded-full transition-colors ${form.isActive ? 'bg-green-500' : 'bg-slate-300 dark:bg-zinc-600'}`}>
-            <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${form.isActive ? 'translate-x-4' : 'translate-x-0.5'}`} />
-          </div>
-          <span className="text-sm font-semibold">{form.isActive ? '✅ Entegrasyon Aktif' : '⏸ Entegrasyon Pasif'}</span>
-          <input type="checkbox" className="sr-only" checked={form.isActive} onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.checked }))} />
-        </label>
-
-        {form.isActive && ['meta', 'twilio', 'netgsm', 'custom'].includes(form.provider) ? (
-          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200/80 bg-amber-50/60 px-4 py-3 dark:border-amber-900/40 dark:bg-amber-950/25">
+          ) : null}
+          {waDoc.fields.map((field) => (
+            <div key={field}>
+              <label className="mb-1 block text-xs font-semibold text-muted-foreground">{FIELD_LABELS[field]}</label>
+              <Input
+                type={field.includes('secret') || field.includes('Key') ? 'password' : 'text'}
+                value={(wa as unknown as Record<string, string>)[field] ?? ''}
+                onChange={(e) => setWa((f) => ({ ...f, [field]: e.target.value }))}
+              />
+            </div>
+          ))}
+          <label className="flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3">
+            <input type="checkbox" checked={wa.isActive} onChange={(e) => setWa((f) => ({ ...f, isActive: e.target.checked }))} />
+            <span className="text-sm font-semibold">{wa.isActive ? 'WhatsApp aktif' : 'WhatsApp pasif'}</span>
+          </label>
+          {wa.isActive && ['meta', 'twilio', 'netgsm', 'custom'].includes(wa.provider) ? (
+            <label className="flex items-start gap-3 rounded-xl border border-amber-200/80 bg-amber-50/60 px-4 py-3 text-xs">
+              <input
+                type="checkbox"
+                checked={wa.extraConfig.policyComplianceAck}
+                onChange={(e) => setWa((f) => ({ ...f, extraConfig: { ...f.extraConfig, policyComplianceAck: e.target.checked } }))}
+              />
+              <span>WhatsApp Business Policy onayı</span>
+            </label>
+          ) : null}
+          <label className="flex items-start gap-3 rounded-xl border px-4 py-3 text-xs">
             <input
               type="checkbox"
-              className="mt-1"
-              checked={form.extraConfig.policyComplianceAck}
-              onChange={(e) => setForm((f) => ({
-                ...f,
-                extraConfig: { ...f.extraConfig, policyComplianceAck: e.target.checked },
-              }))}
+              checked={wa.extraConfig.requireTeacherApproval === true}
+              onChange={(e) => setWa((f) => ({ ...f, extraConfig: { ...f.extraConfig, requireTeacherApproval: e.target.checked } }))}
             />
-            <span className="text-xs leading-relaxed text-amber-950 dark:text-amber-100">
-              Okul olarak WhatsApp Business Platform / ilgili sağlayıcı koşullarını okuduk:{' '}
-              <a href="https://www.whatsapp.com/legal/business-policy/" target="_blank" rel="noreferrer" className="font-semibold underline">
-                WhatsApp Business Policy
-              </a>
-              ,{' '}
-              <a href="https://developers.facebook.com/docs/whatsapp/overview" target="_blank" rel="noreferrer" className="font-semibold underline">
-                Geliştirici kuralları
-              </a>
-              . Yalnızca meşru ve izinli iletişim için kullanacağız.
-            </span>
+            <span>Öğretmen kampanyaları gönderimden önce yönetici onayı gerektirsin</span>
           </label>
-        ) : null}
-
-        {form.isActive && ['meta', 'twilio', 'netgsm', 'custom', 'mock'].includes(form.provider) ? (
-          <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 px-4 py-3 dark:border-zinc-700/60 dark:bg-zinc-900/40 space-y-2">
-            <p className="text-xs font-semibold text-foreground">API toplu gönderim</p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Alıcılar arası bekleme (ms)</label>
-                <Input
-                  type="number"
-                  min={200}
-                  max={15000}
-                  step={100}
-                  className="h-9 text-sm"
-                  value={form.extraConfig.send_delay_ms ?? 600}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      extraConfig: { ...f.extraConfig, send_delay_ms: Number(e.target.value) || 600 },
-                    }))
-                  }
-                />
-                <p className="mt-0.5 text-[10px] text-muted-foreground">200–15000. Varsayılan 600.</p>
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Başarısızlıkta ek deneme (0–4)</label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={4}
-                  className="h-9 text-sm"
-                  value={form.extraConfig.send_max_retries ?? 1}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      extraConfig: { ...f.extraConfig, send_max_retries: Math.min(4, Math.max(0, Number(e.target.value) || 0)) },
-                    }))
-                  }
-                />
-                <p className="mt-0.5 text-[10px] text-muted-foreground">Her alıcı için ilk denemeden sonra tekrar sayısı.</p>
-              </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Bekleme (ms)</label>
+              <Input type="number" min={200} max={15000} value={wa.extraConfig.send_delay_ms ?? 600}
+                onChange={(e) => setWa((f) => ({ ...f, extraConfig: { ...f.extraConfig, send_delay_ms: Number(e.target.value) || 600 } }))} />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Yeniden deneme</label>
+              <Input type="number" min={0} max={4} value={wa.extraConfig.send_max_retries ?? 1}
+                onChange={(e) => setWa((f) => ({ ...f, extraConfig: { ...f.extraConfig, send_max_retries: Math.min(4, Math.max(0, Number(e.target.value) || 0)) } }))} />
             </div>
           </div>
-        ) : null}
-
-        {form.isActive && form.provider === 'whatsapp_link' ? (
-          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200/80 bg-amber-50/60 px-4 py-3 dark:border-amber-900/40 dark:bg-amber-950/25">
+        </div>
+      ) : (
+        <div className="rounded-2xl border bg-white/80 p-5 shadow-sm dark:bg-zinc-900/60 space-y-4">
+          <p className="font-bold flex items-center gap-2">
+            <MessageSquare className="size-5 text-sky-600" />
+            Başlıklı SMS (Netgsm)
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Netgsm panelinden API alt kullanıcısı ve BTK onaylı gönderici adı (başlık) gerekir. Veli bilgilendirme için İYS önerilir.
+          </p>
+          <div className="flex gap-2">
+            {(['netgsm', 'mock'] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setSms((f) => ({ ...f, provider: p }))}
+                className={cn(
+                  'rounded-xl border py-2 px-4 text-xs font-semibold',
+                  sms.provider === p ? 'border-sky-500 bg-sky-600 text-white' : 'border-input',
+                )}
+              >
+                {p === 'netgsm' ? 'Netgsm' : 'Test (Mock)'}
+              </button>
+            ))}
+          </div>
+          {sms.provider === 'netgsm' ? (
+            <>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-muted-foreground">Netgsm kullanıcı adı (abone no, 0’sız)</label>
+                <Input value={sms.usercode} onChange={(e) => setSms((f) => ({ ...f, usercode: e.target.value }))} placeholder="850xxxxxxx" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-muted-foreground">API şifresi</label>
+                <Input type="password" value={sms.password} onChange={(e) => setSms((f) => ({ ...f, password: e.target.value }))} placeholder="Değiştirmemek için boş bırakın" />
+              </div>
+            </>
+          ) : null}
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-muted-foreground">Varsayılan SMS başlığı (max 11 karakter)</label>
+            <Input
+              maxLength={11}
+              value={sms.header}
+              onChange={(e) => setSms((f) => ({ ...f, header: e.target.value.toUpperCase() }))}
+              placeholder="OKULADI"
+            />
+          </div>
+          <label className="flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3">
+            <input type="checkbox" checked={sms.isActive} onChange={(e) => setSms((f) => ({ ...f, isActive: e.target.checked }))} />
+            <span className="text-sm font-semibold">{sms.isActive ? 'SMS aktif' : 'SMS pasif'}</span>
+          </label>
+          <label className="flex items-start gap-3 rounded-xl border px-4 py-3 text-xs">
+            <input type="checkbox" checked={sms.iys} onChange={(e) => setSms((f) => ({ ...f, iys: e.target.checked }))} />
+            <span>İYS kontrollü gönderim (ticari / veli SMS için önerilir)</span>
+          </label>
+          {sms.iys ? (
+            <div className="flex gap-2">
+              {(['BIREYSEL', 'TACIR'] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setSms((f) => ({ ...f, iysList: v }))}
+                  className={cn('rounded-lg border px-3 py-1 text-xs font-semibold', sms.iysList === v && 'bg-sky-100 border-sky-400')}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <label className="flex items-start gap-3 rounded-xl border border-amber-200/80 bg-amber-50/60 px-4 py-3 text-xs">
             <input
               type="checkbox"
-              className="mt-1"
-              checked={form.extraConfig.waManualPolicyAck}
-              onChange={(e) => setForm((f) => ({
-                ...f,
-                extraConfig: { ...f.extraConfig, waManualPolicyAck: e.target.checked },
-              }))}
+              checked={sms.commercialAck}
+              onChange={(e) => setSms((f) => ({ ...f, commercialAck: e.target.checked }))}
             />
-            <span className="text-xs leading-relaxed text-amber-950 dark:text-amber-100">
-              wa.me ile manuel gönderimde veli/alıcıdan iletişim izni ve{' '}
-              <a href="https://www.kvkk.gov.tr/" target="_blank" rel="noreferrer" className="font-semibold underline">
-                KVKK
-              </a>
-              {' '}yükümlülüklerine uyacağımızı beyan ederiz.
-            </span>
+            <span>6563 / İYS uyumlu ticari SMS gönderimi için okul olarak onaylıyoruz.</span>
           </label>
-        ) : null}
-
-        <Button className="w-full gap-1.5" disabled={saving} onClick={save}>
-          {saving ? <LoadingSpinner className="size-4" /> : <Save className="size-4" />}
-          Kaydet
-        </Button>
-      </div>
-
-      {/* Bağlantı testi */}
-      <div className="rounded-2xl border bg-white/80 p-5 shadow-sm dark:bg-zinc-900/60 space-y-3">
-        <p className="font-bold">Bağlantı Testi</p>
-        <p className="text-xs text-muted-foreground">
-          {form.provider === 'whatsapp_link'
-            ? 'API yok: test sunucudan mesaj göndermez; wa.me açılır, gönderimi WhatsApp’ta siz yaparsınız.'
-            : 'Ayarları kaydettikten sonra test mesajı gönderin.'}
-        </p>
-        <div className="flex gap-2">
-          <Input placeholder="Test telefon (+905XXXXXXXXX)" value={testPhone} onChange={(e) => setTestPhone(e.target.value)} />
-          <Button variant="outline" className="gap-1.5 shrink-0" disabled={testing} onClick={test}>
-            {testing ? <LoadingSpinner className="size-4" /> : <Wifi className="size-4" />}
-            Test
-          </Button>
         </div>
-      </div>
+      )}
 
-      {/* Kılavuz */}
-      <div className="rounded-2xl border border-indigo-200/50 bg-indigo-50/50 p-4 dark:border-indigo-800/30 dark:bg-indigo-950/20 space-y-2">
-        <p className="font-semibold text-sm text-indigo-900 dark:text-indigo-100">Hızlı Kurulum Kılavuzu</p>
-        <div className="space-y-1.5 text-xs text-indigo-800 dark:text-indigo-200">
-          <p><strong>Mock (Test):</strong> Gerçek gönderim yoktur; geliştirme ortamı için idealdir.</p>
-          <p><strong>Meta Business API:</strong> Meta Developer Console → WhatsApp → API Setup → Access Token + Phone Number ID</p>
-          <p><strong>Twilio:</strong> Twilio Console → Account SID (API Key) + Auth Token + WhatsApp sandbox numarası</p>
-          <p><strong>Netgsm:</strong> Netgsm panelinden WhatsApp Business API paketi alınır; Kullanıcı adı = API Key, Şifre = Secret</p>
-          <p><strong>Özel API:</strong> Kendi WhatsApp gateway'inizin POST endpoint'ini girin. Body: {`{ to, text }`}</p>
-          <p>
-            <strong>WhatsApp Web (API yok):</strong> Meta/Twilio/Netgsm anahtarı gerekmez. Kampanya ekranında her alıcı için{' '}
-            <code className="rounded bg-indigo-100 px-1 dark:bg-indigo-900/50">wa.me</code> bağlantısı açılır; gönderimi WhatsApp Web veya telefondaki uygulamada siz yaparsınız (sunucudan toplu otomatik gönderim yok). WAMS, WARocket, Prime Sender gibi Chrome eklentilerinde de ayrı API ayarı yoktur: toplu gönderim, açık WhatsApp Web oturumunuza{' '}
-            <em>browser automation</em> (tarayıcı otomasyonu) ile mümkün olur — bu uygulama ise oturumu otomatikleştirmez, yalnızca hazır metin ve numara ile{' '}
-            <code className="rounded bg-indigo-100 px-1 dark:bg-indigo-900/50">wa.me</code> üretir. İletişim izni ve{' '}
-            <a href="https://www.whatsapp.com/legal/business-policy/" target="_blank" rel="noreferrer" className="underline">
-              WhatsApp Business Policy
-            </a>
-            /KVKK sorumluluğu okuldadır.
-          </p>
+      <Button className="w-full gap-1.5" disabled={saving} onClick={save}>
+        {saving ? <LoadingSpinner className="size-4" /> : <Save className="size-4" />}
+        Tüm ayarları kaydet
+      </Button>
+
+      {(wa.provider === 'meta' || wa.provider === 'twilio') && (
+        <div className="rounded-2xl border border-blue-200/70 bg-blue-50/40 p-4 text-xs dark:border-blue-900/50 dark:bg-blue-950/30 space-y-2">
+          <p className="font-bold text-sm">Webhook (iletim + gelen mesaj)</p>
+          {wa.provider === 'meta' && (
+            <>
+              <p>
+                Meta Developer → WhatsApp → Configuration → Callback URL:
+                <code className="ml-1 break-all rounded bg-white/80 px-1 py-0.5 dark:bg-zinc-900">{metaWebhook}</code>
+              </p>
+              <p>Verify token: <code>META_WHATSAPP_VERIFY_TOKEN</code> (backend .env, varsayılan: uzaedu_meta_verify)</p>
+              <p>İmza: <code>META_WHATSAPP_APP_SECRET</code> — X-Hub-Signature-256</p>
+            </>
+          )}
+          {wa.provider === 'twilio' && (
+            <p>
+              Twilio mesaj durumu URL:
+              <code className="ml-1 break-all rounded bg-white/80 px-1 py-0.5 dark:bg-zinc-900">{twilioWebhook}</code>
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="rounded-2xl border bg-white/80 p-5 shadow-sm dark:bg-zinc-900/60 space-y-3">
+        <p className="font-bold">Bağlantı testi</p>
+        <div className="flex gap-2">
+          <Input placeholder="+905XXXXXXXXX" value={testPhone} onChange={(e) => setTestPhone(e.target.value)} />
+          <Button variant="outline" disabled={testing} onClick={testWa}>
+            {testing ? <LoadingSpinner className="size-4" /> : <Wifi className="size-4" />}
+            WA
+          </Button>
+          <Button variant="outline" disabled={testing} onClick={testSms}>
+            {testing ? <LoadingSpinner className="size-4" /> : <MessageSquare className="size-4" />}
+            SMS
+          </Button>
         </div>
       </div>
     </div>

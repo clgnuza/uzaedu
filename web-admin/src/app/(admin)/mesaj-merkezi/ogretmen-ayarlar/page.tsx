@@ -40,7 +40,6 @@ export default function OgretmenMesajAyarlarPage() {
     try {
       const p = await patchMyMessagingPreferences(token, q, {
         appendSignature: form.appendSignature,
-        openWaInNewTab: form.openWaInNewTab,
       });
       setForm(p);
       toast.success('Kaydedildi');
@@ -54,7 +53,7 @@ export default function OgretmenMesajAyarlarPage() {
   if (me?.role !== 'teacher') {
     return (
       <div className="rounded-2xl border bg-white/80 p-6 text-sm dark:bg-zinc-900/60">
-        Bu sayfa yalnızca öğretmen hesapları içindir. Okul geneli WhatsApp ayarları için{' '}
+        Bu sayfa yalnızca öğretmen hesapları içindir. Okul geneli WhatsApp API ayarları için{' '}
         <Link href={`/mesaj-merkezi/ayarlar${q}`} className="font-semibold text-indigo-600 underline">
           WhatsApp Ayarları
         </Link>{' '}
@@ -86,24 +85,9 @@ export default function OgretmenMesajAyarlarPage() {
         <div>
           <p className="font-bold">Kişisel gönderim ayarları</p>
           <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-            Burada <strong className="text-foreground font-semibold">yalnızca sizin hesabınıza</strong> kaydedilen tercihleri yönetirsiniz:
-            imza, wa.me bağlantısının nasıl açılacağı. İstediğiniz zaman değiştirip <strong className="text-foreground font-semibold">Kaydet</strong> ile güncelleyebilirsiniz.
-            Okul genelindeki teknik WhatsApp (API / wa.me) modu buradan değişmez; bu sayfa gönderim alışkanlıklarınız içindir.
+            Mesaj şablonlarınıza eklenecek imza/not (yalnızca sizin hesabınız).
           </p>
         </div>
-
-        <label className="flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3">
-          <input
-            type="checkbox"
-            className="mt-1"
-            checked={form.openWaInNewTab}
-            onChange={(e) => setForm((f) => ({ ...f, openWaInNewTab: e.target.checked }))}
-          />
-          <span className="text-sm">
-            <span className="font-semibold">wa.me bağlantılarını yeni sekmede aç</span>
-            <span className="mt-0.5 block text-xs text-muted-foreground">Kapalıysa aynı sekmede açılır.</span>
-          </span>
-        </label>
 
         <div>
           <label className="mb-1 block text-xs font-semibold text-muted-foreground">Mesaj sonuna eklenecek imza / not</label>
@@ -114,9 +98,6 @@ export default function OgretmenMesajAyarlarPage() {
             placeholder="Örn: Saygılarımla — Ad Soyad"
             className="w-full rounded-lg border border-input bg-white px-3 py-2 text-sm dark:bg-zinc-900 resize-y leading-relaxed"
           />
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            WhatsApp metin kutusuna otomatik eklenir (wa.me bağlantılarında).
-          </p>
         </div>
 
         <Button className="gap-1.5" disabled={saving} onClick={() => void save()}>
@@ -126,12 +107,11 @@ export default function OgretmenMesajAyarlarPage() {
       </div>
 
       <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-xs text-slate-700 dark:border-zinc-700/60 dark:bg-zinc-900/40 dark:text-zinc-300">
-        <span className="font-semibold text-slate-800 dark:text-zinc-200">Okul ayarı (bilgi):</span>{' '}
-        Tüm okul için WhatsApp (API / wa.me) modunu okul yöneticisi{' '}
+        Gönderim yalnızca okulun yapılandırdığı WhatsApp API ile yapılır. Teknik ayarlar:{' '}
         <Link href={`/mesaj-merkezi/ayarlar${q}`} className="font-medium text-indigo-600 underline dark:text-indigo-400">
-          Mesaj → WhatsApp Ayarları
+          WhatsApp Ayarları
         </Link>{' '}
-        üzerinden belirler. Bu, sizin kişisel tercihlerinizi etkilemez; yukarıdaki ayarları tamamen siz kontrol edersiniz.
+        (okul yöneticisi).
       </div>
     </div>
   );

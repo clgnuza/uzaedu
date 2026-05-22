@@ -116,3 +116,38 @@ Evci / çarşı izin bilgileri tarafınıza iletilmiştir.
 
 ────────
 📚 {OKUL}`;
+
+export const TPL_VELI_TOPLANTISI = `📅 Veli toplantısı daveti
+
+Sayın {AD}
+
+• Öğrenci : {OGRENCI}
+• Sınıf   : {SINIF}
+• Tarih   : {TARIH}
+• Saat    : {SAAT}
+• Yer     : {YER}
+
+Katılım için bu mesaja EVET veya HAYIR yazarak yanıtlayabilirsiniz.
+
+────────
+📚 {OKUL}`;
+
+export const TPL_DAVETIYE = `🎉 Davetiye
+
+Sayın {AD}
+
+{MESAJ}
+
+Katılım için EVET veya HAYIR yazarak yanıt verebilirsiniz.
+
+────────
+📚 {OKUL}`;
+
+export const TPL_ACIL = `🚨 ACİL BİLGİLENDİRME
+
+Sayın {AD}
+
+{MESAJ}
+
+────────
+📚 {OKUL}`;

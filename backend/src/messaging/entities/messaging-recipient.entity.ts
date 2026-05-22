@@ -40,6 +40,21 @@ export class MessagingRecipient {
   @Column({ name: 'error_msg', type: 'text', nullable: true })
   errorMsg: string | null;
 
+  @Column({ name: 'provider_message_id', type: 'varchar', length: 128, nullable: true })
+  providerMessageId: string | null;
+
+  @Column({ name: 'delivery_status', type: 'varchar', length: 20, nullable: true })
+  deliveryStatus: string | null;
+
+  @Column({ name: 'delivered_at', type: 'timestamptz', nullable: true })
+  deliveredAt: Date | null;
+
+  @Column({ name: 'read_at', type: 'timestamptz', nullable: true })
+  readAt: Date | null;
+
+  @Column({ name: 'rsvp_status', type: 'varchar', length: 20, nullable: true })
+  rsvpStatus: string | null;
+
   @Column({ name: 'sort_order', type: 'int', default: 0 })
   sortOrder: number;
 

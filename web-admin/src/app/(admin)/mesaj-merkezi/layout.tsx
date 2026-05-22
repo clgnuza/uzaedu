@@ -5,9 +5,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
-import { msgQ } from '@/lib/messaging-api';
+import { msgQ, fetchDashboardCounts } from '@/lib/messaging-api';
 import {
   LayoutGrid,
+  BarChart2,
   Users,
   Banknote,
   FileText,
@@ -20,6 +21,10 @@ import {
   ClipboardList,
   GraduationCap,
   Mail,
+  BookUser,
+  Zap,
+  AlertTriangle,
+  Bot,
   ChevronDown,
 } from 'lucide-react';
 
@@ -28,6 +33,16 @@ const GROUPS = [
     label: 'Genel',
     tabs: [
       { path: '/mesaj-merkezi',               label: 'Genel Bakış',      icon: LayoutGrid,    adminOnly: false, active: (p: string) => p === '/mesaj-merkezi',                          cls: 'from-indigo-500 to-violet-600 shadow-indigo-500/30',  idle: 'hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300' },
+      { path: '/mesaj-merkezi/raporlar',      label: 'Raporlar',         icon: BarChart2,     adminOnly: true,  active: (p: string) => p.startsWith('/mesaj-merkezi/raporlar'),       cls: 'from-fuchsia-500 to-pink-600 shadow-fuchsia-500/25',  idle: 'hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950/40 text-fuchsia-700 dark:text-fuchsia-300' },
+      { path: '/mesaj-merkezi/is-akislari',   label: 'İş akışları',      icon: ClipboardList, adminOnly: true,  active: (p: string) => p.startsWith('/mesaj-merkezi/is-akislari'),    cls: 'from-orange-500 to-amber-600 shadow-orange-500/20',   idle: 'hover:bg-orange-50 dark:hover:bg-orange-950/40 text-orange-700 dark:text-orange-300' },
+      { path: '/mesaj-merkezi/sablonlar',     label: 'Şablonlar',        icon: FileText,      adminOnly: true,  active: (p: string) => p.startsWith('/mesaj-merkezi/sablonlar'),      cls: 'from-violet-500 to-indigo-600 shadow-violet-500/20',    idle: 'hover:bg-violet-50 dark:hover:bg-violet-950/40 text-violet-700 dark:text-violet-300' },
+      { path: '/mesaj-merkezi/onay',          label: 'Onay',             icon: CalendarCheck, adminOnly: true,  active: (p: string) => p.startsWith('/mesaj-merkezi/onay'),           cls: 'from-amber-500 to-yellow-600 shadow-amber-500/20',      idle: 'hover:bg-amber-50 dark:hover:bg-amber-950/40 text-amber-700 dark:text-amber-300' },
+      { path: '/mesaj-merkezi/tercihler',     label: 'Tercihler',        icon: Mail,          adminOnly: true,  active: (p: string) => p.startsWith('/mesaj-merkezi/tercihler'),     cls: 'from-teal-500 to-cyan-600 shadow-teal-500/20',        idle: 'hover:bg-teal-50 dark:hover:bg-teal-950/40 text-teal-700 dark:text-teal-300' },
+      { path: '/mesaj-merkezi/iletisim-defteri', label: 'İletişim defteri', icon: BookUser,   adminOnly: true,  active: (p: string) => p.startsWith('/mesaj-merkezi/iletisim-defteri'), cls: 'from-blue-500 to-indigo-600 shadow-blue-500/20', idle: 'hover:bg-blue-50 dark:hover:bg-blue-950/40 text-blue-700 dark:text-blue-300' },
+      { path: '/mesaj-merkezi/veli-rehber',    label: 'Veli rehberi',     icon: Users,        adminOnly: true,  active: (p: string) => p.startsWith('/mesaj-merkezi/veli-rehber'),    cls: 'from-indigo-500 to-violet-600 shadow-indigo-500/20', idle: 'hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300' },
+      { path: '/mesaj-merkezi/risk',           label: 'Risk',             icon: AlertTriangle, adminOnly: true, active: (p: string) => p.startsWith('/mesaj-merkezi/risk'),           cls: 'from-red-500 to-orange-600 shadow-red-500/20',       idle: 'hover:bg-red-50 dark:hover:bg-red-950/40 text-red-700 dark:text-red-300' },
+      { path: '/mesaj-merkezi/otomasyon',      label: 'Otomasyon',        icon: Bot,          adminOnly: true,  active: (p: string) => p.startsWith('/mesaj-merkezi/otomasyon'),      cls: 'from-slate-500 to-zinc-600 shadow-slate-500/20',     idle: 'hover:bg-slate-50 dark:hover:bg-slate-950/40 text-slate-700 dark:text-slate-300' },
+      { path: '/mesaj-merkezi/acil',           label: 'Acil',             icon: Zap,          adminOnly: true,  active: (p: string) => p.startsWith('/mesaj-merkezi/acil'),           cls: 'from-red-600 to-rose-700 shadow-red-500/30',         idle: 'hover:bg-red-50 dark:hover:bg-red-950/40 text-red-800 dark:text-red-300' },
       { path: '/mesaj-merkezi/ogretmen-ayarlar', label: 'Ayarlarım',     icon: Settings,      adminOnly: false, active: (p: string) => p.startsWith('/mesaj-merkezi/ogretmen-ayarlar'), cls: 'from-emerald-500 to-teal-600 shadow-emerald-500/25',   idle: 'hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' },
       { path: '/mesaj-merkezi/veli-iletisim', label: 'Toplu Mesaj',      icon: MessageSquare, adminOnly: false, active: (p: string) => p.startsWith('/mesaj-merkezi/veli-iletisim'),  cls: 'from-sky-500 to-cyan-600 shadow-sky-500/25',          idle: 'hover:bg-sky-50 dark:hover:bg-sky-950/40 text-sky-700 dark:text-sky-300' },
       { path: '/mesaj-merkezi/gruplar',       label: 'Gruplar',          icon: Users,         adminOnly: false, active: (p: string) => p.startsWith('/mesaj-merkezi/gruplar'),        cls: 'from-violet-500 to-purple-600 shadow-violet-500/25',  idle: 'hover:bg-violet-50 dark:hover:bg-violet-950/40 text-violet-700 dark:text-violet-300' },
@@ -87,16 +102,22 @@ function tabVisible(t: TabDef, isAdmin: boolean, isTeacher: boolean): boolean {
 export default function MesajMerkeziLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { me } = useAuth();
+  const { me, token } = useAuth();
   const isAdmin = me?.role !== 'teacher';
   const isTeacher = me?.role === 'teacher';
   const q = msgQ(me?.role, searchParams.get('school_id'));
 
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [pendingOnay, setPendingOnay] = useState(0);
 
   useEffect(() => {
     setMobileNavOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!token || !isAdmin) return;
+    void fetchDashboardCounts(token, q).then((c) => setPendingOnay(c.pendingApprovals)).catch(() => undefined);
+  }, [token, q, isAdmin, pathname]);
 
   const currentTabLabel = useMemo(() => {
     for (const group of GROUPS) {
@@ -109,7 +130,7 @@ export default function MesajMerkeziLayout({ children }: { children: React.React
   }, [pathname, isAdmin, isTeacher]);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-3 px-1 sm:space-y-4 sm:px-0">
+    <div className={cn('mx-auto space-y-3 px-1 sm:space-y-4 sm:px-0', pathname.startsWith('/mesaj-merkezi/raporlar') ? 'max-w-6xl' : 'max-w-5xl')}>
       <div className="overflow-hidden rounded-xl border border-green-200/50 bg-linear-to-br from-green-500/8 via-teal-500/5 to-indigo-400/6 p-2 shadow-sm dark:border-green-900/40 dark:from-green-950/50 sm:rounded-2xl sm:p-3">
         <div className="mb-1.5 flex items-start justify-between gap-2 sm:mb-2">
           <div className="min-w-0 flex-1">
@@ -164,7 +185,12 @@ export default function MesajMerkeziLayout({ children }: { children: React.React
                         )}
                       >
                         <Icon className="size-4 shrink-0 sm:size-3.5" strokeWidth={2.2} />
-                        <span className="min-w-0 text-left sm:truncate sm:text-center">{tab.label}</span>
+                        <span className="min-w-0 text-left sm:truncate sm:text-center">
+                          {tab.label}
+                          {tab.path === '/mesaj-merkezi/onay' && pendingOnay > 0 ? (
+                            <span className="ml-1 inline-flex min-w-[18px] justify-center rounded-full bg-amber-500 px-1 text-[10px] text-white">{pendingOnay}</span>
+                          ) : null}
+                        </span>
                       </Link>
                     );
                   })}

@@ -7,9 +7,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { toast } from 'sonner';
-import { Upload, Phone, Send, RefreshCw, AlertTriangle, ShieldCheck, Eye } from 'lucide-react';
-import CampaignPreviewTable from './CampaignPreviewTable';
-import SendPanel from './SendPanel';
+import { Upload, Phone, Send, AlertTriangle, ShieldCheck, Eye } from 'lucide-react';
+import CampaignPreviewStep from './CampaignPreviewStep';
+import MessageBubblePreview from './MessageBubblePreview';
 
 type BordroType = 'mebbis_puantaj' | 'ek_ders_bordro' | 'maas_bordro';
 
@@ -230,15 +230,8 @@ export default function BordroUploadFlow({ type, title, description, icon, priva
               </button>
 
               {showPreview && (
-                <div className="mt-2 flex justify-start">
-                  <div className="relative max-w-[280px] sm:max-w-xs">
-                    {/* WhatsApp bubble */}
-                    <div className="rounded-2xl rounded-tl-none bg-white shadow px-3.5 py-2.5 text-[12px] leading-[1.55] text-slate-800 whitespace-pre-line border border-slate-100 dark:bg-zinc-800 dark:text-slate-100 dark:border-zinc-700">
-                      {previewText}
-                    </div>
-                    <div className="absolute -left-1.5 top-0 size-0 border-t-[10px] border-t-white dark:border-t-zinc-800 border-r-[8px] border-r-transparent" />
-                    <p className="mt-1 text-right text-[10px] text-muted-foreground">17:25 ✓✓</p>
-                  </div>
+                <div className="mt-3">
+                  <MessageBubblePreview text={previewText} attachmentLabel="bordro.pdf" />
                 </div>
               )}
             </div>
@@ -337,17 +330,15 @@ export default function BordroUploadFlow({ type, title, description, icon, priva
 
         {/* ADIM 3: Önizleme ve Gönderim */}
         {step === 'preview' && campaign && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold">{recipients.length} alıcı</p>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => setStep('form')}><Upload className="size-4 mr-1" /> Yeniden</Button>
-                <Button size="sm" variant="outline" onClick={refreshAll}><RefreshCw className="size-4" /></Button>
-              </div>
-            </div>
-            <SendPanel campaign={campaign} token={token} q={q} onSent={refreshAll} />
-            <CampaignPreviewTable campaignId={campaign.id} recipients={recipients} token={token} q={q} onChange={refreshAll} />
-          </div>
+          <CampaignPreviewStep
+            campaign={campaign}
+            recipients={recipients}
+            token={token}
+            q={q}
+            onRefresh={refreshAll}
+            onBack={() => setStep('form')}
+            enablePdfPreview
+          />
         )}
       </div>
     </div>

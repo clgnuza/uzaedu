@@ -18,8 +18,6 @@ export type WhatsAppSendResult = {
 const INTERNAL_MESSAGING_EXTRA_KEYS = new Set([
   'policyComplianceAck',
   'policyComplianceAckAt',
-  'waManualPolicyAck',
-  'waManualPolicyAckAt',
   'complianceAckVersion',
 ]);
 
@@ -39,8 +37,6 @@ export class WhatsAppService {
   async sendText(settings: MessagingSettings, to: string, text: string): Promise<WhatsAppSendResult> {
     if (!settings.isActive) return { success: false, error: 'WhatsApp entegrasyonu aktif değil' };
     switch (settings.provider) {
-      case 'whatsapp_link':
-        return { success: false, error: 'Bu modda sunucudan gönderim yapılmaz; wa.me bağlantılarını kullanın.' };
       case 'mock':    return this._mockSend(to, text);
       case 'meta':    return this._metaSend(settings, to, text);
       case 'twilio':  return this._twilioSend(settings, to, text);
@@ -54,8 +50,6 @@ export class WhatsAppService {
     if (!settings.isActive) return { success: false, error: 'WhatsApp entegrasyonu aktif değil' };
     // Meta ve Twilio dosya gönderimini destekler; diğerleri metin + notla fallback
     switch (settings.provider) {
-      case 'whatsapp_link':
-        return { success: false, error: 'Bu modda sunucudan dosya gönderimi yok; wa.me veya API sağlayıcısı kullanın.' };
       case 'mock':   return this._mockSend(to, `[DOC: ${filename}] ${text}`);
       case 'meta':   return this._metaSendDoc(settings, to, text, pdfBuffer, filename);
       case 'twilio': return this._twilioSendDoc(settings, to, text, pdfBuffer, filename);

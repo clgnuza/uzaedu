@@ -10,9 +10,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { toast } from 'sonner';
-import { Upload, X, RefreshCw } from 'lucide-react';
-import CampaignPreviewTable from '../components/CampaignPreviewTable';
-import SendPanel from '../components/SendPanel';
+import { Upload, X } from 'lucide-react';
+import CampaignPreviewStep from '../components/CampaignPreviewStep';
+import TemplateEditorWithPreview from '../components/TemplateEditorWithPreview';
 
 type Group = { id: string; name: string; memberCount: number };
 type Source = 'excel' | 'group' | 'manual';
@@ -111,12 +111,13 @@ export default function VeliToplantisiPage() {
               </div>
             )}
 
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-muted-foreground">Mesaj Şablonu</label>
-              <textarea rows={10} value={message} onChange={(e) => setMessage(e.target.value)}
-                className="w-full rounded-lg border border-input bg-white px-3 py-2 text-sm dark:bg-zinc-900 resize-y font-mono leading-relaxed" />
-              <p className="mt-1 text-[10px] text-muted-foreground">Değişkenler: {'{AD}'} = veli adı</p>
-            </div>
+            <TemplateEditorWithPreview
+              value={message}
+              onChange={setMessage}
+              rows={10}
+              attachmentLabel={attFile?.name ?? null}
+              help="Değişkenler: {AD} = veli adı"
+            />
 
             <div className="flex items-center gap-2">
               <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800">
@@ -144,17 +145,14 @@ export default function VeliToplantisiPage() {
         )}
 
         {step === 'preview' && campaign && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold">{recipients.length} alıcı</p>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => setStep('form')}><Upload className="size-4 mr-1" /> Yeniden</Button>
-                <Button size="sm" variant="outline" onClick={refreshAll}><RefreshCw className="size-4" /></Button>
-              </div>
-            </div>
-            <SendPanel campaign={campaign} token={token} q={q} onSent={refreshAll} />
-            <CampaignPreviewTable campaignId={campaign.id} recipients={recipients} token={token} q={q} onChange={refreshAll} />
-          </div>
+          <CampaignPreviewStep
+            campaign={campaign}
+            recipients={recipients}
+            token={token}
+            q={q}
+            onRefresh={refreshAll}
+            onBack={() => setStep('form')}
+          />
         )}
       </div>
     </div>

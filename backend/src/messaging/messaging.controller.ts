@@ -13,8 +13,10 @@ import { RequireSchoolModule } from '../common/decorators/require-school-module.
 import { RequireModuleActivationGuard } from '../market/guards/require-module-activation.guard';
 import { UserRole } from '../types/enums';
 import { MessagingService } from './messaging.service';
+import { MessagingSchoolNeedsService, type SchoolAutomationConfig } from './messaging-school-needs.service';
 import {
-  SaveSettingsDto, TestConnectionDto, CreateManualCampaignDto,
+  SaveSettingsDto, TestConnectionDto, TestSmsConnectionDto, ExecuteCampaignDto,
+  CreateManualCampaignDto,
   CreateExcelCampaignDto, CreatePdfSplitCampaignDto,
   PatchTeacherMessagingPreferencesDto,
 } from './dto/messaging.dto';
@@ -34,7 +36,10 @@ import {
 @UseGuards(JwtAuthGuard, RolesGuard, RequireSchoolModuleGuard, RequireModuleActivationGuard)
 @RequireSchoolModule('messaging')
 export class MessagingController {
-  constructor(private readonly svc: MessagingService) {}
+  constructor(
+    private readonly svc: MessagingService,
+    private readonly schoolNeeds: MessagingSchoolNeedsService,
+  ) {}
 
   private sid(p: CurrentUserPayload, q?: string): string {
     if (p.role === UserRole.superadmin || p.role === UserRole.moderator) {
@@ -65,6 +70,16 @@ export class MessagingController {
     return this.svc.testConnection(this.sid(p, q), dto.testPhone);
   }
 
+  @Post('settings/sms/test')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  testSmsConnection(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q: string | undefined,
+    @Body() dto: TestSmsConnectionDto,
+  ) {
+    return this.svc.testSmsConnection(this.sid(p, q), dto.testPhone, dto.testMessage);
+  }
+
   @Get('delivery-hint')
   @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
   deliveryHint(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q?: string) {
@@ -90,6 +105,293 @@ export class MessagingController {
 
   // ── Kampanyalar listesi ────────────────────────────────────────────────────
 
+  @Get('reports/overview')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  reportsOverview(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.svc.getReportsOverview(this.sid(p, q), from, to);
+  }
+
+  @Get('reports/risk')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  riskReport(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q?: string) {
+    return this.schoolNeeds.getRiskList(this.sid(p, q));
+  }
+
+  @Get('reports/weekly-principal')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  weeklyPrincipal(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q?: string) {
+    return this.schoolNeeds.getWeeklyPrincipalReport(this.sid(p, q));
+  }
+
+  @Get('reports/b2g')
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  b2gOverview(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    if (p.role !== UserRole.superadmin && p.role !== UserRole.moderator) {
+      throw new BadRequestException('Yetkisiz');
+    }
+    return this.schoolNeeds.getB2GOverview(from, to);
+  }
+
+  @Get('reports/missing-phones')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  missingPhones(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q?: string,
+    @Query('campaign_id') campaignId?: string,
+  ) {
+    return this.schoolNeeds.getMissingPhonesReport(this.sid(p, q), campaignId);
+  }
+
+  @Get('dashboard/counts')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  dashboardCounts(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q?: string) {
+    return this.schoolNeeds.getDashboardCounts(this.sid(p, q));
+  }
+
+  @Get('automation/config')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  getAutomation(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q?: string) {
+    return this.schoolNeeds.getAutomationConfig(this.sid(p, q));
+  }
+
+  @Post('automation/config')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  saveAutomation(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q: string | undefined,
+    @Body() body: SchoolAutomationConfig,
+  ) {
+    return this.schoolNeeds.saveAutomationConfig(this.sid(p, q), body);
+  }
+
+  @Get('veli-directory')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  veliDirectory(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q?: string,
+    @Query('q') search?: string,
+  ) {
+    return this.schoolNeeds.listVeliDirectory(this.sid(p, q), search);
+  }
+
+  @Post('veli-directory/sync')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  syncVeliDirectory(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q?: string) {
+    return this.schoolNeeds.syncVeliDirectory(this.sid(p, q));
+  }
+
+  @Post('inbound/:id/reply')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  replyInbound(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Query('school_id') q: string | undefined,
+    @Body() body: { note: string },
+  ) {
+    if (!body.note?.trim()) throw new BadRequestException('note gerekli');
+    return this.schoolNeeds.replyToInbound(this.sid(p, q), id, p.userId, body.note);
+  }
+
+  @Get('reports/export')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  async reportsExport(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q: string | undefined,
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+    @Res() res: Response,
+  ) {
+    const csv = await this.svc.exportReportsCsv(this.sid(p, q), from, to);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="mesaj-rapor.csv"');
+    res.send(csv);
+  }
+
+  @Get('templates')
+  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  listTemplates(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q?: string) {
+    return this.svc.listTemplates(this.sid(p, q));
+  }
+
+  @Post('templates')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  saveTemplate(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q: string | undefined,
+    @Body() body: { id?: string; campaignType: string; title: string; body: string; variables?: string },
+  ) {
+    return this.svc.saveTemplate(this.sid(p, q), body);
+  }
+
+  @Delete('templates/:id')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  deleteTemplate(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') q?: string) {
+    return this.svc.deleteTemplate(this.sid(p, q), id);
+  }
+
+  @Get('opt-outs')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  listOptOuts(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q?: string) {
+    return this.svc.listOptOuts(this.sid(p, q));
+  }
+
+  @Post('opt-outs')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  addOptOut(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q: string | undefined,
+    @Body() body: { phone: string; reason?: string },
+  ) {
+    return this.svc.addOptOut(this.sid(p, q), body.phone, body.reason);
+  }
+
+  @Delete('opt-outs/:id')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  removeOptOut(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') q?: string) {
+    return this.svc.removeOptOut(this.sid(p, q), id);
+  }
+
+  @Get('contact-preferences')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  listContactPrefs(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q?: string) {
+    return this.svc.listContactPreferences(this.sid(p, q));
+  }
+
+  @Post('contact-preferences')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  upsertContactPref(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q: string | undefined,
+    @Body()
+    body: {
+      phone: string;
+      name?: string;
+      preferredChannel?: 'whatsapp' | 'sms';
+      noSms?: boolean;
+      noWhatsapp?: boolean;
+      quietHoursNote?: string;
+    },
+  ) {
+    return this.svc.upsertContactPreference(this.sid(p, q), body);
+  }
+
+  @Get('contacts/history')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  contactHistory(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q: string | undefined,
+    @Query('phone') phone: string,
+  ) {
+    if (!phone?.trim()) throw new BadRequestException('phone gerekli');
+    return this.svc.getContactHistory(this.sid(p, q), phone);
+  }
+
+  @Get('contacts/diary')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  contactDiary(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q: string | undefined,
+    @Query('phone') phone: string,
+  ) {
+    if (!phone?.trim()) throw new BadRequestException('phone gerekli');
+    return this.svc.getCommunicationDiary(this.sid(p, q), phone);
+  }
+
+  @Get('contacts/recent')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  recentContacts(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q?: string) {
+    return this.svc.listRecentCommunicationPhones(this.sid(p, q));
+  }
+
+  @Get('approvals/pending')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  pendingApprovals(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q?: string) {
+    return this.svc.listPendingApprovals(this.sid(p, q));
+  }
+
+  @Post('campaigns/:id/approve')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  approve(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') q?: string) {
+    return this.svc.approveCampaign(this.sid(p, q), id, p.userId);
+  }
+
+  @Post('campaigns/:id/reject')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  reject(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Query('school_id') q: string | undefined,
+    @Body() body: { reason?: string },
+  ) {
+    return this.svc.rejectCampaign(this.sid(p, q), id, p.userId, body.reason);
+  }
+
+  @Post('campaigns/:id/schedule')
+  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  schedule(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Query('school_id') q: string | undefined,
+    @Body() body: { at: string } & ExecuteCampaignDto,
+  ) {
+    return this.svc.scheduleCampaign(this.sid(p, q), id, body.at, body, { userId: p.userId, role: p.role });
+  }
+
+  @Delete('campaigns/:id/schedule')
+  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  cancelSchedule(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') q?: string) {
+    return this.svc.cancelSchedule(this.sid(p, q), id);
+  }
+
+  @Get('campaigns/:id/rsvp')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  rsvpSummary(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') q?: string) {
+    return this.schoolNeeds.getRsvpSummary(this.sid(p, q), id);
+  }
+
+  @Post('campaigns/acil')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  createAcil(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q: string | undefined,
+    @Body() body: { title?: string; message: string; recipients: Array<{ name?: string; phone: string }> },
+  ) {
+    if (!body.message?.trim()) throw new BadRequestException('message gerekli');
+    return this.svc.createAcilCampaign(this.sid(p, q), p.userId, body.title ?? '', body.message, body.recipients ?? []);
+  }
+
+  @Get('campaigns/:id/export')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  async campaignExport(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Query('school_id') q: string | undefined,
+    @Res() res: Response,
+  ) {
+    const csv = await this.svc.exportCampaignCsv(this.sid(p, q), id);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="kampanya-${id.slice(0, 8)}.csv"`);
+    res.send(csv);
+  }
+
+  @Get('channel-rules')
+  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  channelRules(
+    @Query('type') type: string,
+    @Query('has_attachment') hasAttachment?: string,
+  ) {
+    return this.svc.getChannelRulesForType(type as never, hasAttachment === '1' || hasAttachment === 'true');
+  }
+
   @Get('campaigns')
   @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
   list(@CurrentUser() p: CurrentUserPayload, @Query('school_id') q?: string) {
@@ -114,23 +416,6 @@ export class MessagingController {
     return this.svc.listRecipients(this.sid(p, q), id);
   }
 
-  /** API anahtarı olmadan wa.me bağlantıları (WhatsApp Web / uygulama) */
-  @Get('campaigns/:id/wa-manual-links')
-  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
-  waManualLinks(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') q?: string) {
-    return this.svc.getWaManualLinks(this.sid(p, q), id, p.userId);
-  }
-
-  @Post('recipients/:recipientId/mark-manual-sent')
-  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
-  markManualSent(
-    @CurrentUser() p: CurrentUserPayload,
-    @Param('recipientId') recipientId: string,
-    @Query('school_id') q?: string,
-  ) {
-    return this.svc.markRecipientManualSent(this.sid(p, q), p.userId, p.role, recipientId);
-  }
-
   @Patch('recipients/:id')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   updateRecipient(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') q: string | undefined, @Body() body: { phone?: string; messageText?: string; recipientName?: string }) {
@@ -140,8 +425,13 @@ export class MessagingController {
 
   @Post('campaigns/:id/execute')
   @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
-  execute(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') q?: string) {
-    return this.svc.executeCampaign(this.sid(p, q), id, { userId: p.userId, role: p.role });
+  execute(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Query('school_id') q?: string,
+    @Body() body?: ExecuteCampaignDto,
+  ) {
+    return this.svc.executeCampaign(this.sid(p, q), id, { userId: p.userId, role: p.role }, body);
   }
 
   @Post('campaigns/:id/retry-failed')
@@ -284,6 +574,32 @@ export class MessagingController {
   }
 
   // ── Davetiye ──────────────────────────────────────────────────────────────
+
+  @Post('campaigns/davetiye')
+  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  @UseInterceptors(FileInterceptor('attachment'))
+  async davetiye(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q: string | undefined,
+    @Body() body: { title: string; message: string; source: 'group'; groupId: string },
+    @UploadedFile() attachment?: Express.Multer.File,
+  ) {
+    if (!body.groupId) throw new BadRequestException('Grup seçin');
+    return this.svc.createSimpleCampaign(
+      this.sid(p, q),
+      p.userId,
+      'davetiye',
+      body.title,
+      body.message,
+      'group',
+      undefined,
+      undefined,
+      body.groupId,
+      undefined,
+      attachment?.buffer,
+      attachment?.originalname,
+    );
+  }
 
   @Post('campaigns/davetiye/excel')
   @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)

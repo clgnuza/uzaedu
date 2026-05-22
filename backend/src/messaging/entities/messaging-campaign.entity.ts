@@ -2,6 +2,7 @@ import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateCol
 
 export type CampaignType = 'toplu_mesaj' | 'ek_ders' | 'maas' | 'devamsizlik' | 'ders_devamsizlik' | 'devamsizlik_mektup' | 'karne' | 'ara_karne' | 'izin' | 'veli_toplantisi' | 'davetiye' | 'grup_mesaj' | 'mebbis_puantaj' | 'ek_ders_bordro' | 'maas_bordro';
 export type CampaignStatus = 'draft' | 'preview' | 'sending' | 'completed' | 'failed' | 'cancelled';
+export type CampaignApprovalStatus = 'none' | 'pending' | 'approved' | 'rejected';
 
 @Entity('messaging_campaigns')
 export class MessagingCampaign {
@@ -46,6 +47,18 @@ export class MessagingCampaign {
 
   @Column({ name: 'send_to_group_id', type: 'uuid', nullable: true })
   sendToGroupId: string | null;
+
+  @Column({ name: 'scheduled_at', type: 'timestamptz', nullable: true })
+  scheduledAt: Date | null;
+
+  @Column({ name: 'approval_status', type: 'varchar', length: 20, default: 'none' })
+  approvalStatus: CampaignApprovalStatus;
+
+  @Column({ name: 'approved_by', type: 'uuid', nullable: true })
+  approvedBy: string | null;
+
+  @Column({ name: 'approved_at', type: 'timestamptz', nullable: true })
+  approvedAt: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

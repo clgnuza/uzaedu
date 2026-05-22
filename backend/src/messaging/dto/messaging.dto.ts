@@ -1,8 +1,8 @@
 import { IsString, IsOptional, IsIn, IsArray, IsInt, Min, Max, IsBoolean, IsObject } from 'class-validator';
 
 export class SaveSettingsDto {
-  @IsIn(['mock', 'meta', 'twilio', 'netgsm', 'custom', 'whatsapp_link'])
-  provider: 'mock' | 'meta' | 'twilio' | 'netgsm' | 'custom' | 'whatsapp_link';
+  @IsIn(['mock', 'meta', 'twilio', 'netgsm', 'custom'])
+  provider: 'mock' | 'meta' | 'twilio' | 'netgsm' | 'custom';
 
   @IsOptional() @IsString() apiKey?: string;
   @IsOptional() @IsString() apiSecret?: string;
@@ -18,6 +18,19 @@ export class SaveSettingsDto {
 
 export class TestConnectionDto {
   @IsString() testPhone: string;
+}
+
+export class TestSmsConnectionDto {
+  @IsString() testPhone: string;
+  @IsOptional() @IsString() testMessage?: string;
+}
+
+export class ExecuteCampaignDto {
+  @IsOptional() @IsIn(['whatsapp', 'sms'])
+  channel?: 'whatsapp' | 'sms';
+
+  @IsOptional() @IsString()
+  smsHeader?: string;
 }
 
 export class CreateManualCampaignDto {

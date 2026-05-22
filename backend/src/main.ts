@@ -35,7 +35,17 @@ async function bootstrap() {
     }),
   );
   app.use(cookieParser());
-  app.use(json({ limit: '20mb' }));
+  app.use(
+    json({
+      limit: '20mb',
+      verify: (req, _res, buf) => {
+        const u = req.url ?? '';
+        if (u.includes('/messaging/webhooks/')) {
+          (req as { rawBody?: Buffer }).rawBody = buf;
+        }
+      },
+    }),
+  );
   app.use(urlencoded({ limit: '20mb', extended: true }));
   app.setGlobalPrefix('api');
   app.useGlobalPipes(

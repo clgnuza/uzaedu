@@ -1,19 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import {
   Campaign,
   createManualMessagingCampaign,
   getDeliveryHint,
-  getMyMessagingPreferences,
 } from '@/lib/messaging-api';
-import { buildWaMeUrl, augmentMessageBody } from '@/lib/wa-me-url';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { toast } from 'sonner';
-import { ExternalLink, MessageCirclePlus, Plus, Trash2 } from 'lucide-react';
-import ManualWhatsappSendPanel from './ManualWhatsappSendPanel';
+import { MessageCirclePlus, Plus, Trash2 } from 'lucide-react';
+import SendPanel from './SendPanel';
 
 const PRESETS = [
   { label: 'Bilgilendirme', text: 'Sayın {AD},\n\nOkul ile ilgili kısa bir bilgilendirme mesajıdır.\n\nİyi günler.' },
@@ -25,32 +24,24 @@ type Row = { name: string; phone: string };
 
 interface Props {
   token: string | null | undefined;
-  /** msgQ(me?.role, school_id) */
   q: string;
   onCampaignCreated?: () => void;
 }
 
 export default function TeacherWaQuickSend({ token, q, onCampaignCreated }: Props) {
-  const [hint, setHint] = useState<{ whatsappLinkMode: boolean } | null>(null);
+  const [apiReady, setApiReady] = useState<boolean | null>(null);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState(PRESETS[0].text);
   const [rows, setRows] = useState<Row[]>([{ name: '', phone: '' }]);
   const [submitting, setSubmitting] = useState(false);
   const [campaign, setCampaign] = useState<Campaign | null>(null);
-  const [fallbackUrls, setFallbackUrls] = useState<Array<{ name: string; phone: string; url: string; text: string }>>([]);
-
-  const loadHint = useCallback(async () => {
-    if (!token) return;
-    try {
-      setHint(await getDeliveryHint(token, q));
-    } catch {
-      setHint({ whatsappLinkMode: false });
-    }
-  }, [token, q]);
 
   useEffect(() => {
-    void loadHint();
-  }, [loadHint]);
+    if (!token) return;
+    void getDeliveryHint(token, q)
+      .then((h) => setApiReady(h.apiReady))
+      .catch(() => setApiReady(false));
+  }, [token, q]);
 
   const addRow = () => setRows((r) => [...r, { name: '', phone: '' }]);
   const removeRow = (i: number) => setRows((r) => r.filter((_, idx) => idx !== i));
@@ -58,7 +49,7 @@ export default function TeacherWaQuickSend({ token, q, onCampaignCreated }: Prop
     setRows((r) => r.map((row, idx) => (idx === i ? { ...row, [field]: v } : row)));
 
   const buildRecipients = () => {
-    const filled = rows
+    return rows
       .map((r) => {
         const name = r.name.trim();
         const phone = r.phone.trim();
@@ -66,20 +57,6 @@ export default function TeacherWaQuickSend({ token, q, onCampaignCreated }: Prop
         return { name, phone, message: msg };
       })
       .filter((r) => r.name && r.phone);
-    return filled;
-  };
-
-  const openWa = async (url: string) => {
-    if (!url) return;
-    let newTab = true;
-    try {
-      if (token) {
-        const p = await getMyMessagingPreferences(token, q);
-        newTab = p.openWaInNewTab !== false;
-      }
-    } catch { /* default */ }
-    if (newTab) window.open(url, '_blank', 'noopener,noreferrer');
-    else window.location.assign(url);
   };
 
   const submit = async () => {
@@ -90,27 +67,11 @@ export default function TeacherWaQuickSend({ token, q, onCampaignCreated }: Prop
     if (!rec.length) return toast.error('En az bir alıcı (ad ve telefon) girin');
     setSubmitting(true);
     setCampaign(null);
-    setFallbackUrls([]);
     try {
       const c = await createManualMessagingCampaign(token, q, { title: t, recipients: rec });
       setCampaign(c);
-      const h = await getDeliveryHint(token, q);
-      setHint(h);
-      toast.success('Liste hazır — aşağıdan WhatsApp bağlantılarını kullanın');
+      toast.success('Kampanya hazır — API ile gönderin');
       onCampaignCreated?.();
-
-      if (!h.whatsappLinkMode) {
-        const prefs = await getMyMessagingPreferences(token, q).catch(() => ({ appendSignature: '', openWaInNewTab: true }));
-        const sig = prefs.appendSignature ?? '';
-        setFallbackUrls(
-          rec.map((r) => {
-            const text = augmentMessageBody(r.message, sig);
-            return { name: r.name, phone: r.phone, text, url: buildWaMeUrl(r.phone, text) };
-          }),
-        );
-      } else {
-        setFallbackUrls([]);
-      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Oluşturulamadı');
     } finally {
@@ -123,13 +84,16 @@ export default function TeacherWaQuickSend({ token, q, onCampaignCreated }: Prop
       <div className="flex items-start gap-1.5 sm:gap-2">
         <MessageCirclePlus className="mt-0.5 size-4 shrink-0 text-teal-700 dark:text-teal-400 sm:size-5" />
         <div>
-          <p className="text-xs font-semibold text-teal-950 dark:text-teal-100 sm:text-sm">WhatsApp Web ile gönder (wa.me)</p>
+          <p className="text-xs font-semibold text-teal-950 dark:text-teal-100 sm:text-sm">Hızlı toplu mesaj</p>
           <p className="mt-0.5 text-[11px] leading-snug text-teal-900/85 dark:text-teal-200/85 sm:text-xs">
-            Kendi tarayıcı/WhatsApp oturumunuzla gönderirsiniz. Mesaj metninde {'{AD}'} alıcı adıyla değişir. Ayarlardan imza ve yeni sekme tercihinizi kullanırız.
+            Gönderimde WhatsApp API veya SMS (başlıklı) seçilir; okul ayarlarından en az biri aktif olmalı.
           </p>
-          {hint && !hint.whatsappLinkMode ? (
+          {apiReady === false ? (
             <p className="mt-1 text-[11px] font-medium text-amber-800 dark:text-amber-200/90">
-              Okul şu an otomatik API gönderiminde olabilir; yine de aşağıdan wa.me ile elle gönderebilirsiniz.
+              Okul mesaj ayarları eksik.{' '}
+              <Link href={`/mesaj-merkezi/ayarlar${q}`} className="underline font-semibold">
+                Ayarlar
+              </Link>
             </p>
           ) : null}
         </div>
@@ -179,30 +143,11 @@ export default function TeacherWaQuickSend({ token, q, onCampaignCreated }: Prop
 
       <Button type="button" className="h-10 w-full gap-1.5 bg-teal-600 text-sm hover:bg-teal-700 sm:h-11" disabled={submitting || !token} onClick={() => void submit()}>
         {submitting ? <LoadingSpinner className="size-4" /> : <MessageCirclePlus className="size-4" />}
-        Hazırla ve WhatsApp bağlantılarını göster
+        Kampanya oluştur
       </Button>
 
-      {campaign && hint?.whatsappLinkMode ? (
-        <div className="pt-2 border-t border-teal-200/50 dark:border-teal-900/40">
-          <ManualWhatsappSendPanel campaign={campaign} token={token} q={q} onUpdate={onCampaignCreated} />
-        </div>
-      ) : null}
-
-      {campaign && !hint?.whatsappLinkMode && fallbackUrls.length > 0 ? (
-        <div className="pt-2 border-t border-teal-200/50 space-y-2 dark:border-teal-900/40">
-          <p className="text-xs font-medium text-teal-900 dark:text-teal-100">wa.me bağlantıları (kişisel oturumunuz)</p>
-          <ul className="space-y-2">
-            {fallbackUrls.map((row, idx) => (
-              <li key={idx} className="flex flex-col gap-1 rounded-lg border bg-white/90 p-2 text-sm dark:bg-zinc-900/70 sm:flex-row sm:items-center sm:justify-between">
-                <span className="font-medium truncate">{row.name}</span>
-                <Button type="button" size="sm" variant="secondary" className="gap-1 shrink-0" disabled={!row.url} onClick={() => void openWa(row.url)}>
-                  <ExternalLink className="size-3.5" />
-                  WhatsApp
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </div>
+      {campaign ? (
+        <SendPanel campaign={campaign} token={token} q={q} onSent={onCampaignCreated} />
       ) : null}
     </div>
   );

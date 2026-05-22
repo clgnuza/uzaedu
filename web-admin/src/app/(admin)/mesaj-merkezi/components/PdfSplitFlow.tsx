@@ -7,10 +7,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { toast } from 'sonner';
-import { Upload, Plus, Trash2, RefreshCw, FileText, Info, Eye } from 'lucide-react';
-import CampaignPreviewTable from './CampaignPreviewTable';
-import SendPanel from './SendPanel';
-import { applyWaTemplateSamples } from '@/lib/messaging-template-samples';
+import { Upload, Plus, Trash2, FileText, Info } from 'lucide-react';
+import CampaignPreviewStep from './CampaignPreviewStep';
+import TemplateEditorWithPreview from './TemplateEditorWithPreview';
 
 type RecipRow = { name: string; phone: string; studentName: string; studentNumber: string; className: string };
 
@@ -39,7 +38,6 @@ export default function PdfSplitFlow({
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [uploading, setUploading] = useState(false);
 
-  const [showPreview, setShowPreview] = useState(false);
   const addRow    = () => setRows((r) => [...r, { name: '', phone: '', studentName: '', studentNumber: '', className: '' }]);
   const removeRow = (i: number) => setRows((r) => r.filter((_, idx) => idx !== i));
   const updateRow = (i: number, f: keyof RecipRow, v: string) => setRows((r) => r.map((row, idx) => idx === i ? { ...row, [f]: v } : row));
@@ -99,30 +97,13 @@ export default function PdfSplitFlow({
               </div>
             </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-semibold text-muted-foreground">Mesaj Şablonu</label>
-                <button onClick={() => setShowPreview((v) => !v)} className="flex items-center gap-1 text-[10px] text-indigo-600 hover:text-indigo-800">
-                  <Eye className="size-3" />{showPreview ? 'Gizle' : 'Önizle'}
-                </button>
-              </div>
-              <textarea rows={8} value={template} onChange={(e) => setTemplate(e.target.value)}
-                className="w-full rounded-lg border border-input bg-white px-3 py-2 text-sm dark:bg-zinc-900 resize-y font-mono leading-relaxed" />
-              <p className="mt-1 text-[10px] text-muted-foreground">
-                {'{AD}'} = veli &nbsp;|&nbsp; {'{OGRENCI}'} = öğrenci &nbsp;|&nbsp; {'{SINIF}'} = sınıf
-              </p>
-              {showPreview && (
-                <div className="mt-2 flex justify-start">
-                  <div className="relative max-w-[280px] sm:max-w-xs">
-                    <div className="rounded-2xl rounded-tl-none bg-[#d9fdd3] shadow px-3.5 py-2.5 text-[12px] leading-[1.65] text-slate-800 whitespace-pre-line border border-green-100 dark:bg-[#1a3a2a] dark:text-slate-100 dark:border-green-900/30">
-                      {applyWaTemplateSamples(template)}
-                    </div>
-                    <div className="absolute -left-1.5 top-0 size-0 border-t-[10px] border-t-[#d9fdd3] dark:border-t-[#1a3a2a] border-r-[8px] border-r-transparent" />
-                    <p className="mt-0.5 text-right text-[9px] text-muted-foreground">📎 ogrenci_belgesi.pdf &nbsp; 17:25 ✓✓</p>
-                  </div>
-                </div>
-              )}
-            </div>
+            <TemplateEditorWithPreview
+              value={template}
+              onChange={setTemplate}
+              rows={8}
+              attachmentLabel="ogrenci_belgesi.pdf"
+              help="{AD} = veli · {OGRENCI} = öğrenci · {SINIF} = sınıf"
+            />
 
             {/* Bilgi kutusu */}
             <div className="flex gap-2 rounded-xl border border-blue-200 bg-blue-50/60 px-3 py-2 dark:border-blue-900/40 dark:bg-blue-950/10">
@@ -168,17 +149,15 @@ export default function PdfSplitFlow({
         )}
 
         {step === 'preview' && campaign && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold">{recipients.length} alıcı — PDF bölündü</p>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => setStep('form')}><Upload className="size-4 mr-1" /> Yeniden</Button>
-                <Button size="sm" variant="outline" onClick={refreshAll}><RefreshCw className="size-4" /></Button>
-              </div>
-            </div>
-            <SendPanel campaign={campaign} token={token} q={q} onSent={refreshAll} />
-            <CampaignPreviewTable campaignId={campaign.id} recipients={recipients} token={token} q={q} onChange={refreshAll} />
-          </div>
+          <CampaignPreviewStep
+            campaign={campaign}
+            recipients={recipients}
+            token={token}
+            q={q}
+            onRefresh={refreshAll}
+            onBack={() => setStep('form')}
+            enablePdfPreview
+          />
         )}
       </div>
     </div>
