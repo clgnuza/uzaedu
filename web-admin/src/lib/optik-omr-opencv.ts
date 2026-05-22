@@ -12,9 +12,10 @@ export type OmrQuad = { tl: OmrPoint; tr: OmrPoint; bl: OmrPoint; br: OmrPoint }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type CvModule = any;
 
+/** CDN önce; /opencv.js yalnızca public/ altında dosya varsa (404 HTML onload tuzağı) */
 const OPENCV_JS_URLS = [
-  '/opencv.js',
   'https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.12.0-release.1/dist/opencv.js',
+  '/opencv.js',
 ];
 
 declare global {
@@ -33,49 +34,56 @@ function waitCvRuntime(cv: CvModule): Promise<CvModule> {
   });
 }
 
+let injectPromise: Promise<CvModule> | null = null;
+
 function injectOpenCvScript(): Promise<CvModule> {
   if (typeof window === 'undefined') {
     return Promise.reject(new Error('OpenCV yalnızca tarayıcıda çalışır'));
   }
   if (window.cv) return waitCvRuntime(window.cv);
+  if (injectPromise) return injectPromise;
 
-  return new Promise((resolve, reject) => {
-    const done = () => {
-      if (!window.cv) {
-        reject(new Error('OpenCV global yok'));
-        return;
-      }
+  injectPromise = new Promise((resolve, reject) => {
+    const finish = () => {
+      if (!window.cv) return false;
       waitCvRuntime(window.cv).then(resolve).catch(reject);
+      return true;
     };
-
-    const existing = document.querySelector('script[data-optik-opencv]');
-    if (existing) {
-      existing.addEventListener('load', () => void done());
-      existing.addEventListener('error', () => reject(new Error('OpenCV script hata')));
-      if (window.cv) void done();
-      return;
-    }
 
     let urlIdx = 0;
     const tryNext = () => {
+      if (finish()) return;
       if (urlIdx >= OPENCV_JS_URLS.length) {
+        injectPromise = null;
         reject(new Error('OpenCV script yüklenemedi'));
         return;
       }
+      const url = OPENCV_JS_URLS[urlIdx]!;
+      urlIdx += 1;
       const s = document.createElement('script');
-      s.src = OPENCV_JS_URLS[urlIdx]!;
+      s.src = url;
       s.async = true;
+      s.crossOrigin = 'anonymous';
       s.dataset.optikOpencv = '1';
-      s.onload = () => void done();
+      s.onload = () => {
+        if (finish()) return;
+        s.remove();
+        tryNext();
+      };
       s.onerror = () => {
         s.remove();
-        urlIdx += 1;
         tryNext();
       };
       document.head.appendChild(s);
     };
     tryNext();
   });
+
+  injectPromise.catch(() => {
+    injectPromise = null;
+  });
+
+  return injectPromise;
 }
 
 /** İlk MC taramadan önce çağırın */

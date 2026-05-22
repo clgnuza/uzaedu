@@ -21,7 +21,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { OptikFirstVisitHint } from '@/components/optik/OptikFirstVisitHint';
 import { OptikPageShell } from '@/components/optik/OptikPageShell';
 import { OptikQuickNav, OPTIK_OKUMA_QUICK_NAV } from '@/components/optik/OptikQuickNav';
 import { OptikSessionBadge } from '@/components/optik/OptikSessionBadge';
@@ -152,7 +151,6 @@ export default function OptikOturumlarPage() {
       <OptikQuickNav
         items={OPTIK_OKUMA_QUICK_NAV.filter((i) => i.href !== '/optik-oturumlar')}
       />
-      <OptikFirstVisitHint />
       <OptikTeacherGuide activeStep={1} />
 
       <section className="rounded-xl border bg-card p-2.5 shadow-sm md:rounded-2xl md:p-3">

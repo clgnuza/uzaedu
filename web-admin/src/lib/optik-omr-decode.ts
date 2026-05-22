@@ -349,6 +349,43 @@ function cvQuadToLocal(q: CvOmrQuad): OmrQuad {
   return { tl: q.tl, tr: q.tr, bl: q.bl, br: q.br };
 }
 
+const LIVE_PREVIEW_WIDTH = 520;
+const LIVE_PREVIEW_HEIGHT = Math.round(LIVE_PREVIEW_WIDTH * (OMR_PAGE_HEIGHT / OMR_PAGE_WIDTH));
+
+/** Canlı kamera — OpenCV yok (ana iş parçacığını kilitlemez) */
+function warpForLayoutLive(
+  gray: Uint8Array,
+  w: number,
+  h: number,
+  layout: OmrScanLayout,
+): WarpLayoutResult {
+  const quad = detectOmrQuad(gray, w, h, layout);
+  if (!quad) {
+    const enhanced = boxBlur3(stretchContrast(gray), w, h);
+    return { gray: enhanced, w, h, anchorScore: 0, quad: null, engine: 'none' };
+  }
+  const warped = warpQuadToRect(
+    gray,
+    w,
+    h,
+    quad.tl,
+    quad.tr,
+    quad.br,
+    quad.bl,
+    LIVE_PREVIEW_WIDTH,
+    LIVE_PREVIEW_HEIGHT,
+  );
+  const enhanced = boxBlur3(stretchContrast(warped), LIVE_PREVIEW_WIDTH, LIVE_PREVIEW_HEIGHT);
+  return {
+    gray: enhanced,
+    w: LIVE_PREVIEW_WIDTH,
+    h: LIVE_PREVIEW_HEIGHT,
+    anchorScore: 1,
+    quad,
+    engine: 'legacy',
+  };
+}
+
 async function warpForLayout(
   gray: Uint8Array,
   w: number,
@@ -426,15 +463,15 @@ function prepareGrayFromVideo(video: HTMLVideoElement, maxWidth = 720): { gray: 
   return { gray: toGray(id.data, w, h), w, h };
 }
 
-/** Kamera canlı önizleme (düşük çözünürlük, OpenCV tercih) */
-export async function decodeOmrLivePreviewFromVideo(
+/** Kamera canlı önizleme — senkron, düşük çözünürlük, OpenCV kullanmaz */
+export function decodeOmrLivePreviewFromVideo(
   video: HTMLVideoElement,
   layout: OmrScanLayout,
   opts?: OmrDecodeOptions,
-): Promise<OmrLivePreview | null> {
+): OmrLivePreview | null {
   if (!video.videoWidth) return null;
-  const { gray, w, h } = prepareGrayFromVideo(video, 720);
-  const warped = await warpForLayout(gray, w, h, layout);
+  const { gray, w, h } = prepareGrayFromVideo(video, 400);
+  const warped = warpForLayoutLive(gray, w, h, layout);
   const result = decodeOmrFromGray(warped.gray, warped.w, warped.h, layout, opts);
   const bubbles = collectBubbleSamples(warped.gray, warped.w, warped.h, layout, opts);
   return {

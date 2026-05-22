@@ -24,7 +24,6 @@ import {
   type OptikRubricTemplate,
   type OptikStatus,
 } from '@/lib/optik-api';
-import { preloadOptikOpenCv } from '@/lib/optik-omr-decode';
 import { answerKeyToNumberMap } from '@/lib/optik-omr-overlay';
 import { parseAnswerKeyText } from '@/lib/optik-answer-key-parse';
 import { buildMcScanReview, type McScanReviewPayload } from '@/lib/optik-mc-scan-review';
@@ -181,7 +180,6 @@ export function useOptikOkuma() {
           optikToast.warn('Form düzeni', getOptikErrorMessage(e, 'Şablon yüklenemedi')),
         );
       }
-      if (kind === 'mc') void preloadOptikOpenCv();
       setCameraOpen(true);
     },
     [token, selected, layoutCache],

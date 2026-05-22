@@ -18,7 +18,6 @@ import {
   loadCachedScanLayout,
   setCachedScanLayout,
 } from '@/lib/optik-layout-cache';
-import { preloadOptikOpenCv } from '@/lib/optik-omr-decode';
 import { buildMcScanReview, type McScanReviewPayload } from '@/lib/optik-mc-scan-review';
 import {
   answerKeyFilledCount,
@@ -806,12 +805,10 @@ export function useSessionDetail() {
     runMcKeyScan,
     runMcKeyOcr,
     openMcScan: () => {
-      void preloadOptikOpenCv();
       setCameraPurpose('mc_student');
       setCameraOpen(true);
     },
     openMcKeyScan: () => {
-      void preloadOptikOpenCv();
       setCameraPurpose('mc_key');
       setCameraOpen(true);
     },

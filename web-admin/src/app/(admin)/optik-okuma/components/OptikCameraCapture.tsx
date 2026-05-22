@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -16,7 +16,6 @@ import { toggleCameraTorch } from '@/lib/smart-board-qr-scanner';
 import {
   captureVideoFrameJpeg,
   decodeOmrLivePreviewFromVideo,
-  preloadOptikOpenCv,
   type OmrDecodeMode,
   type OmrLivePreview,
 } from '@/lib/optik-omr-decode';
@@ -61,7 +60,13 @@ export function OptikCameraCapture({
   mode?: 'mc' | 'key' | 'student';
   omrOverlay?: OptikCameraOverlayConfig | null;
 }) {
-  const settings = cameraSettings ?? loadOptikCameraSettings();
+  const [fallbackSettings] = useState(() => loadOptikCameraSettings());
+  const settings = cameraSettings ?? fallbackSettings;
+  const settingsKey = useMemo(
+    () =>
+      `${settings.facingMode}|${settings.resolution}|${settings.mcBurstFrames}|${settings.jpegQuality}|${settings.preferTorchOnStart}`,
+    [settings],
+  );
   const frameCount =
     burstFrames ??
     (mode === 'mc' ? settings.mcBurstFrames : 1);
@@ -140,11 +145,12 @@ export function OptikCameraCapture({
       cancelled = true;
       stopAll();
     };
-  }, [open, stopAll, settings]);
+  }, [open, stopAll, settingsKey]);
 
-  useEffect(() => {
-    if (open && mode === 'mc') void preloadOptikOpenCv();
-  }, [open, mode]);
+  const omrOverlayKey = useMemo(() => {
+    if (!omrOverlay?.layout) return '';
+    return `${omrOverlay.maxQuestion}|${omrOverlay.mode ?? 'student'}|${omrOverlay.layout.bubbles.length}`;
+  }, [omrOverlay]);
 
   const overlayKey = omrOverlay?.answerKey
     ? answerKeyToNumberMap(omrOverlay.answerKey)
@@ -161,34 +167,40 @@ export function OptikCameraCapture({
       setLivePreview(null);
       return;
     }
-    let raf = 0;
-    let last = 0;
-    const tick = (t: number) => {
-      if (t - last >= 520 && !liveBusyRef.current) {
-        last = t;
-        const video = videoRef.current;
-        if (video?.videoWidth) {
-          liveBusyRef.current = true;
-          void decodeOmrLivePreviewFromVideo(video, omrOverlay.layout, {
-            maxQuestion: omrOverlay.maxQuestion,
-            mode: omrOverlay.mode ?? 'student',
-          })
-            .then((p) => {
-              if (p) setLivePreview(p);
-            })
-            .catch(() => {
-              /* kamera / OpenCV hazır değil */
-            })
-            .finally(() => {
-              liveBusyRef.current = false;
-            });
-        }
+    const layout = omrOverlay.layout;
+    const maxQuestion = omrOverlay.maxQuestion;
+    const decodeMode = omrOverlay.mode ?? 'student';
+
+    const runTick = () => {
+      if (liveBusyRef.current) return;
+      const video = videoRef.current;
+      if (!video?.videoWidth) return;
+      liveBusyRef.current = true;
+      try {
+        const p = decodeOmrLivePreviewFromVideo(video, layout, {
+          maxQuestion,
+          mode: decodeMode,
+        });
+        if (p) setLivePreview(p);
+      } catch {
+        /* önizleme atlandı */
+      } finally {
+        liveBusyRef.current = false;
       }
-      raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [open, ready, mode, omrOverlay]);
+
+    let intervalId = 0;
+    const startDelay = window.setTimeout(() => {
+      runTick();
+      intervalId = window.setInterval(runTick, 1400);
+    }, 900);
+
+    return () => {
+      window.clearTimeout(startDelay);
+      if (intervalId) window.clearInterval(intervalId);
+      setLivePreview(null);
+    };
+  }, [open, ready, mode, omrOverlayKey, omrOverlay]);
 
   const handleClose = useCallback(() => {
     stopAll();
