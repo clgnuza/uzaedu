@@ -141,17 +141,26 @@ export class DersDagitService {
     const year = academicYear?.trim() || this.defaultAcademicYear();
     let studio = await this.studioRepo.findOne({ where: { school_id: schoolId, academic_year: year } });
     if (studio) return studio;
-    studio = await this.studioRepo.save({
-      school_id: schoolId,
-      academic_year: year,
-      name: `${year} DersDağıt`,
-      workflow_status: 'setup',
-      settings: {},
-      created_by: userId,
-    });
-    await this.ruleSetRepo.save({ studio_id: studio.id, rules: buildDefaultRuleState(), building_travel: [] });
-    await this.audit(studio.id, userId, 'studio.created', { academic_year: year });
-    return studio;
+    try {
+      studio = await this.studioRepo.save({
+        school_id: schoolId,
+        academic_year: year,
+        name: `${year} DersDağıt`,
+        workflow_status: 'setup',
+        settings: {},
+        created_by: userId,
+      });
+      await this.ruleSetRepo.save({ studio_id: studio.id, rules: buildDefaultRuleState(), building_travel: [] });
+      await this.audit(studio.id, userId, 'studio.created', { academic_year: year });
+      return studio;
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code;
+      if (code === '23505') {
+        const existing = await this.studioRepo.findOne({ where: { school_id: schoolId, academic_year: year } });
+        if (existing) return existing;
+      }
+      throw err;
+    }
   }
 
   defaultAcademicYear(): string {

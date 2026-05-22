@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, isApiErrorCode } from '@/lib/api';
 
 export type DersDagitStudio = {
   id: string;
@@ -22,6 +22,21 @@ export type StudioOverview = {
   health_score: number;
 };
 
+let createStudioInflight: Promise<DersDagitStudio> | null = null;
+
+async function createStudioOnce(token: string): Promise<DersDagitStudio> {
+  if (!createStudioInflight) {
+    createStudioInflight = apiFetch<DersDagitStudio>('/ders-dagit/studios', {
+      token,
+      method: 'POST',
+      body: JSON.stringify({}),
+    }).finally(() => {
+      createStudioInflight = null;
+    });
+  }
+  return createStudioInflight;
+}
+
 export function useDersDagitStudio() {
   const { token, me } = useAuth();
   const [studio, setStudio] = useState<DersDagitStudio | null>(null);
@@ -30,22 +45,25 @@ export function useDersDagitStudio() {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!token || (me?.role !== 'school_admin' && me?.role !== 'teacher')) return;
+    if (!token || (me?.role !== 'school_admin' && me?.role !== 'teacher')) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      let s = studio;
-      if (!s) {
-        const list = await apiFetch<DersDagitStudio[]>('/ders-dagit/studios', { token });
-        if (list.length > 0) s = list[0]!;
-        else if (me?.role === 'school_admin') {
-          s = await apiFetch<DersDagitStudio>('/ders-dagit/studios', { token, method: 'POST', body: {} });
-        } else {
-          setError('Henüz stüdyo oluşturulmamış');
-          return;
-        }
-        setStudio(s);
+      const list = await apiFetch<DersDagitStudio[]>('/ders-dagit/studios', { token });
+      let s = list[0] ?? null;
+      if (!s && me?.role === 'school_admin') {
+        s = await createStudioOnce(token);
       }
+      if (!s) {
+        setError('Henüz stüdyo oluşturulmamış');
+        setStudio(null);
+        setOverview(null);
+        return;
+      }
+      setStudio(s);
       const ov =
         me?.role === 'school_admin'
           ? await apiFetch<StudioOverview>(`/ders-dagit/studios/${s.id}/overview`, { token })
@@ -57,15 +75,19 @@ export function useDersDagitStudio() {
         setOverview(null);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Yüklenemedi');
+      if (isApiErrorCode(e, 'MODULE_DISABLED')) {
+        setError('Bu okulda DersDağıt modülü kapalı. Okul ayarlarından modülü açın.');
+      } else {
+        setError(e instanceof Error ? e.message : 'Yüklenemedi');
+      }
     } finally {
       setLoading(false);
     }
-  }, [token, me?.role, studio]);
+  }, [token, me?.role]);
 
   useEffect(() => {
     void refresh();
-  }, [token, me?.role]);
+  }, [refresh]);
 
   return { studio, overview, loading, error, refresh };
 }
