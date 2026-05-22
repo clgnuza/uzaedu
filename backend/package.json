@@ -32,6 +32,7 @@
     "inject-placeholders-yillik-plan": "ts-node -r tsconfig-paths/register scripts/inject-placeholders-yillik-plan.ts",
     "create-modern-yillik-plan": "ts-node -r tsconfig-paths/register scripts/create-modern-yillik-plan-template.ts",
     "seed-work-calendar": "ts-node -r tsconfig-paths/register scripts/seed-work-calendar-and-plan.ts",
+    "seed:ders-dagit-demo": "node tools/seed-ders-dagit-demo.cjs",
     "seed-content": "ts-node -r tsconfig-paths/register scripts/seed-content-module.ts",
     "seed-classes-subjects": "ts-node -r tsconfig-paths/register scripts/seed-classes-subjects-all-schools.ts",
     "seed-optik-form-templates": "ts-node -r tsconfig-paths/register scripts/seed-optik-form-templates.ts",

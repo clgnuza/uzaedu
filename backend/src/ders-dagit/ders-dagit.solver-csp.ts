@@ -219,7 +219,9 @@ function finalizeResult(
   violations.push(...soft.violations);
   const target = assignments.reduce((s, a) => s + effHours(a), 0);
   const failed = Math.max(0, target - entries.length);
-  const score = Math.max(0, 100 - failed * 3 - violations.length * 2 - clashCount * 10 - soft.penalty);
+  const score = Math.round(
+    Math.max(0, 100 - failed * 3 - violations.length * 2 - clashCount * 10 - soft.penalty),
+  );
   return { entries, placed: entries.length, failed, violations, score };
 }
 

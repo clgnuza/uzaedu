@@ -36,7 +36,7 @@ function scoreEntries(
   const soft = applySoftRulePenalties(entries, assignments, ctx);
   const target = assignments.reduce((s, a) => s + effHours(a), 0);
   const failed = Math.max(0, target - entries.length);
-  return Math.max(0, 100 - failed * 3 - soft.penalty);
+  return Math.round(Math.max(0, 100 - failed * 3 - soft.penalty));
 }
 
 function isValidEntries(
@@ -48,6 +48,7 @@ function isValidEntries(
   const occupied = new Map<string, SolverSlot[]>();
   const built: SolverSlot[] = [];
   for (const e of entries) {
+    if (!e?.assignment_id) return false;
     const a = byId.get(e.assignment_id);
     if (!a) return false;
     if (!canPlace(occupied, e.day_of_week, e.lesson_num, e.class_section, e.user_id, ctx, a)) {
@@ -70,17 +71,20 @@ function repairWithMoves(
   ctx: SolverContext,
   attempts: number,
 ): SolverResult {
-  let entries = [...base.entries];
+  let entries = base.entries.filter(Boolean);
+  if (!entries.length) return base;
   let score = scoreEntries(entries, assignments, ctx);
   const byId = new Map(assignments.map((a) => [a.id, a]));
 
   for (let n = 0; n < attempts; n++) {
+    if (!entries.length) break;
     if (entries.length >= 2 && n % 3 !== 2) {
       const i = Math.floor(Math.random() * entries.length);
       let j = Math.floor(Math.random() * entries.length);
       if (i === j) continue;
-      const ei = entries[i]!;
-      const ej = entries[j]!;
+      const ei = entries[i];
+      const ej = entries[j];
+      if (!ei || !ej) continue;
       const trial = entries.map((e, idx) => {
         if (idx === i) return { ...e, day_of_week: ej.day_of_week, lesson_num: ej.lesson_num };
         if (idx === j) return { ...e, day_of_week: ei.day_of_week, lesson_num: ei.lesson_num };
@@ -97,7 +101,8 @@ function repairWithMoves(
     }
 
     const i = Math.floor(Math.random() * entries.length);
-    const e = entries[i]!;
+    const e = entries[i];
+    if (!e) continue;
     const a = byId.get(e.assignment_id);
     if (!a) continue;
     const rest = entries.filter((_, idx) => idx !== i);

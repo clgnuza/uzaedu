@@ -10,6 +10,7 @@ import {
   UseGuards,
   Res,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
@@ -21,7 +22,9 @@ import { UserRole } from '../types/enums';
 import { DersDagitService } from './ders-dagit.service';
 import { DERS_DAGIT_RULE_CATALOG } from './ders-dagit.rules';
 
+/** Stüdyo layout + çoklu alt bileşen GET; Strict Mode çift çağrı — global throttle 429 üretmesin. */
 @Controller('ders-dagit')
+@SkipThrottle({ default: true, auth: true, public: true })
 @UseGuards(JwtAuthGuard, RequireSchoolModuleGuard, RolesGuard)
 @RequireSchoolModule('ders_dagit')
 export class DersDagitController {

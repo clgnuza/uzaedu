@@ -1758,7 +1758,7 @@ export class DersDagitService {
       const shuffled = [...baseDays].sort(() => Math.random() - 0.5);
       const result = solveOnce({ ...solverCtx, day_order: shuffled });
       if (result.score > bestResult.score || result.failed < bestResult.failed) bestResult = result;
-      const score = result.score;
+      const score = Math.round(result.score);
       const prog = await this.programRepo.save({
         studio_id: studioId,
         name: `Üretim ${new Date().toISOString().slice(0, 16)} v${v + 1}`,
@@ -1794,19 +1794,20 @@ export class DersDagitService {
         placed: bestResult.placed,
         failed: bestResult.failed,
         violations: bestResult.violations,
-        score: bestResult.score,
+        score: Math.round(bestResult.score),
         program_ids: programs.map((p) => p.id),
       },
     });
     await this.studioRepo.update(studioId, { workflow_status: 'generated' });
     await this.audit(studioId, userId, 'programs.generated', { job_id: job.id });
+    const finalScore = Math.round(bestResult.score);
     return {
       job,
       programs,
       entries_count: bestResult.placed,
       placed: bestResult.placed,
       failed: bestResult.failed,
-      score: bestResult.score,
+      score: finalScore,
       violations: bestResult.violations,
       violation_links: linkGenerationViolations(bestResult.violations.slice(0, 30)),
     };

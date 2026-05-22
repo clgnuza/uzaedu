@@ -345,7 +345,7 @@ export function ProgramGenerateStudio() {
         if (best) await loadPreview(best.id);
       }
       toast.success(`${res.entries_count} ders saati yerleştirildi`);
-      await refresh();
+      await refresh({ force: true });
       await loadExisting();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Üretim başarısız');

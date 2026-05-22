@@ -91,7 +91,7 @@ export function TimetablePublishPanel({ programId }: { programId: string }) {
       );
       toast.success(`Yayınlandı — ${res.imported} satır okul programına aktarıldı`);
       setConfirmOpen(false);
-      await refresh();
+      await refresh({ force: true });
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Yayın başarısız');

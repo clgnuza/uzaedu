@@ -20,7 +20,7 @@ export default function DogrulamaPage() {
           <CardTitle className="text-base">Kontrol listesi</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
-          <Button type="button" size="sm" variant="outline" onClick={() => void refresh()}>
+          <Button type="button" size="sm" variant="outline" onClick={() => void refresh({ force: true })}>
             Yenile
           </Button>
           <Button type="button" size="sm" disabled={!canProceed} asChild>
@@ -31,7 +31,7 @@ export default function DogrulamaPage() {
           )}
         </CardContent>
       </DdCard>
-      <StudioIssueCards issues={issues} onRefresh={() => void refresh()} />
+      <StudioIssueCards issues={issues} onRefresh={() => void refresh({ force: true })} />
     </div>
   );
 }

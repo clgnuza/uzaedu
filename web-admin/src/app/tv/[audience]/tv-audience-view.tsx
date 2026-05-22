@@ -3131,7 +3131,7 @@ function SlideView({
         <div className="relative h-full w-full overflow-hidden">
           <div className="absolute inset-0 flex flex-col bg-[var(--tv-bg-dark)]">
             {hasGrid && timetableData ? (
-              <TimetableGrid
+              <TvTimetableGrid
                 data={timetableData}
                 currentLessonNum={currentLessonNum ?? 0}
                 highlightLessonNums={activeLessonNums}
@@ -3281,7 +3281,7 @@ function renderHighlightedText(text: string | null | undefined): ReactNode {
   });
 }
 
-function TimetableGrid({
+function TvTimetableGrid({
   data,
   currentLessonNum,
   highlightLessonNums = [],
@@ -3301,13 +3301,13 @@ function TimetableGrid({
   const dayLabel = TV_TIMETABLE_DAY_NAMES[turkishToday] ?? 'Bugün';
   const chunkTotal = Math.max(1, classChunkTotal ?? 1);
   const chunkIndex = Math.min(Math.max(0, classChunkIndex ?? 0), chunkTotal - 1);
-  const activeSet = new Set(
+  const activeLessonNums =
     highlightLessonNums.length > 0
       ? highlightLessonNums
       : currentLessonNum > 0
         ? [currentLessonNum]
-        : [],
-  );
+        : [];
+  const activeSet = new Set(activeLessonNums);
 
   const allClassSections = useMemo(() => {
     if (!data) return [];

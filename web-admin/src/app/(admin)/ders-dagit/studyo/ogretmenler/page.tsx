@@ -251,7 +251,7 @@ export default function OgretmenlerPage() {
       setBaselineDraft(JSON.stringify(draft));
       setDirty(false);
       await load();
-      await refresh();
+      await refresh({ force: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Kayıt başarısız');
     } finally {
@@ -276,7 +276,7 @@ export default function OgretmenlerPage() {
       }
       toast.success(`${n} öğretmene uygulandı`);
       await load();
-      await refresh();
+      await refresh({ force: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Toplu kayıt başarısız');
     } finally {
@@ -291,7 +291,7 @@ export default function OgretmenlerPage() {
       await apiFetch(`/ders-dagit/studios/${studio.id}/teachers/sync`, { token, method: 'POST' });
       toast.success('Öğretmenler eklendi');
       await load();
-      await refresh();
+      await refresh({ force: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Senkron başarısız');
     } finally {

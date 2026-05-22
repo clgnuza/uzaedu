@@ -22,7 +22,56 @@ export type StudioOverview = {
   health_score: number;
 };
 
+const STUDIO_CACHE_MS = 4000;
+
 let createStudioInflight: Promise<DersDagitStudio> | null = null;
+let listCache: { token: string; data: DersDagitStudio[]; at: number } | null = null;
+const listInflight = new Map<string, Promise<DersDagitStudio[]>>();
+const overviewCache = new Map<string, { data: StudioOverview; at: number }>();
+const overviewInflight = new Map<string, Promise<StudioOverview>>();
+
+function clearStudioFetchCache() {
+  listCache = null;
+  overviewCache.clear();
+}
+
+function fetchStudioList(token: string, force = false): Promise<DersDagitStudio[]> {
+  if (!force && listCache?.token === token && Date.now() - listCache.at < STUDIO_CACHE_MS) {
+    return Promise.resolve(listCache.data);
+  }
+  const inflight = listInflight.get(token);
+  if (inflight) return inflight;
+  const p = apiFetch<DersDagitStudio[]>('/ders-dagit/studios', { token })
+    .then((data) => {
+      listCache = { token, data, at: Date.now() };
+      return data;
+    })
+    .finally(() => {
+      listInflight.delete(token);
+    });
+  listInflight.set(token, p);
+  return p;
+}
+
+function fetchStudioOverview(token: string, studioId: string, force = false): Promise<StudioOverview> {
+  const key = `${token}:${studioId}`;
+  const cached = overviewCache.get(key);
+  if (!force && cached && Date.now() - cached.at < STUDIO_CACHE_MS) {
+    return Promise.resolve(cached.data);
+  }
+  const inflight = overviewInflight.get(key);
+  if (inflight) return inflight;
+  const p = apiFetch<StudioOverview>(`/ders-dagit/studios/${studioId}/overview`, { token })
+    .then((data) => {
+      overviewCache.set(key, { data, at: Date.now() });
+      return data;
+    })
+    .finally(() => {
+      overviewInflight.delete(key);
+    });
+  overviewInflight.set(key, p);
+  return p;
+}
 
 async function createStudioOnce(token: string): Promise<DersDagitStudio> {
   if (!createStudioInflight) {
@@ -44,18 +93,21 @@ export function useDersDagitStudio() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (opts?: { force?: boolean }) => {
     if (!token || (me?.role !== 'school_admin' && me?.role !== 'teacher')) {
       setLoading(false);
       return;
     }
+    const force = opts?.force === true;
+    if (force) clearStudioFetchCache();
     setLoading(true);
     setError(null);
     try {
-      const list = await apiFetch<DersDagitStudio[]>('/ders-dagit/studios', { token });
+      const list = await fetchStudioList(token, force);
       let s = list[0] ?? null;
       if (!s && me?.role === 'school_admin') {
         s = await createStudioOnce(token);
+        clearStudioFetchCache();
       }
       if (!s) {
         setError('Henüz stüdyo oluşturulmamış');
@@ -66,7 +118,7 @@ export function useDersDagitStudio() {
       setStudio(s);
       const ov =
         me?.role === 'school_admin'
-          ? await apiFetch<StudioOverview>(`/ders-dagit/studios/${s.id}/overview`, { token })
+          ? await fetchStudioOverview(token, s.id, force)
           : null;
       if (ov) {
         setOverview(ov);

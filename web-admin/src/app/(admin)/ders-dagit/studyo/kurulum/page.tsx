@@ -88,7 +88,7 @@ export default function KurulumPage() {
     try {
       await apiFetch(`/ders-dagit/studios/${studio.id}/teachers/sync`, { token, method: 'POST' });
       toast.success('Öğretmenler senkronlandı');
-      await refresh();
+      await refresh({ force: true });
       await load();
     } catch {
       toast.error('Senkron başarısız');
@@ -108,7 +108,7 @@ export default function KurulumPage() {
       toast.success(dto.id ? 'Profil güncellendi' : 'Sınıf profili kaydedildi');
       setEditingProfile(null);
       await load();
-      await refresh();
+      await refresh({ force: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Kayıt başarısız');
       throw e;
@@ -123,7 +123,7 @@ export default function KurulumPage() {
       toast.success('Profil silindi');
       if (editingProfile?.id === id) setEditingProfile(null);
       await load();
-      await refresh();
+      await refresh({ force: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Silinemedi');
     }
@@ -233,7 +233,7 @@ export default function KurulumPage() {
               });
               setSchoolProfile(dto);
               toast.success('Okul profili kaydedildi');
-              await refresh();
+              await refresh({ force: true });
             }}
           />
         </CardContent>
