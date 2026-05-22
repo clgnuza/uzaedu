@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Copy, Monitor, Package } from 'lucide-react';
 import { downloadPardusTahtaDeb } from '@/lib/pardus-tahta-deb-pack';
-import { resolveDefaultApiBase } from '@/lib/resolve-api-base';
+import { resolveSmartBoardPackApiBase } from '@/lib/smart-board-pack-url';
 import { toast } from 'sonner';
 import {
   buildLinuxDesktopEntry,
@@ -69,7 +69,7 @@ export function KioskQuickStart({
           onClick={() =>
             void downloadPardusTahtaDeb({
               panelOrigin: origin,
-              apiBaseUrl: resolveDefaultApiBase(),
+              apiBaseUrl: resolveSmartBoardPackApiBase(origin),
               schoolId: sample.school_id,
               deviceId: sample.id,
               deviceLabel: sample.name,

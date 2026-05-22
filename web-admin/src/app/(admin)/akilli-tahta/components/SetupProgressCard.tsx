@@ -40,8 +40,9 @@ export function SetupProgressCard({
   }
   if (!status) return null;
 
-  const done = status.checklist.filter((c) => c.done).length;
-  const total = status.checklist.length;
+  const required = status.checklist.filter((c) => !c.optional);
+  const done = required.filter((c) => c.done).length;
+  const total = required.length;
   const allDone = done === total && total > 0;
 
   if (allDone) return null;

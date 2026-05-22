@@ -115,20 +115,8 @@ export class TvPublicController {
     private readonly schoolRepo: Repository<School>,
   ) {}
 
-  /** Kurulum uçları: canlıda izinli IP listesi zorunlu (kod sızıntısında uzaktan kurulum engeli). */
+  /** Kurulum uçları: tv_allowed_ips doluysa aynı IP kuralı; boşsa kısıt yok. */
   private async assertTvSchoolIpForSetup(req: Request, schoolId: string): Promise<void> {
-    const school = await this.schoolRepo.findOne({
-      where: { id: schoolId },
-      select: ['tv_allowed_ips'],
-    });
-    const allowed = school?.tv_allowed_ips?.trim();
-    if (process.env.NODE_ENV === 'production' && !allowed) {
-      throw new ForbiddenException({
-        code: 'TV_IP_NOT_CONFIGURED',
-        message:
-          'Kurulum için okul panelinde TV izinli IP listesini tanımlayın (Akıllı Tahta ayarları).',
-      });
-    }
     await this.assertTvSchoolIp(req, schoolId);
   }
 

@@ -25,14 +25,13 @@ import {
 import { buildClassroomSetupUrl, buildClassroomTvUrl } from '@/lib/smart-board-classroom-url';
 import { buildPardusKurulumPageUrl } from '@/lib/smart-board-setup-link-parse';
 import { SMART_BOARD_QR_FLOW_SUMMARY } from '@/lib/smart-board-teacher-qr-flow';
-import { buildTvAllowedIpsSettingsHref } from '@/lib/tv-settings-nav';
 import { buildClassroomQrImageSrc } from '@/lib/smart-board-classroom-api';
 import { openSmartBoardLabelsPrint } from '@/lib/smart-board-qr-labels';
 import { downloadAllSmartBoardUsbLaunchers } from '@/lib/smart-board-usb-bulk-download';
 import { downloadAllSmartBoardDebPackages } from '@/lib/smart-board-deb-bulk-download';
 import { downloadSmartBoardUsbLauncher } from '@/lib/smart-board-usb-launcher';
 import { downloadPardusTahtaDeb } from '@/lib/pardus-tahta-deb-pack';
-import { resolveDefaultApiBase } from '@/lib/resolve-api-base';
+import { resolveSmartBoardPackApiBase } from '@/lib/smart-board-pack-url';
 import type { Device, SmartBoardSetupStatus } from '../types';
 import { SmartBoardInstallGuide } from './SmartBoardInstallGuide';
 import { KioskQuickStart } from './KioskQuickStart';
@@ -103,8 +102,9 @@ export function SmartBoardSetupWizard({
   const setupCode = status?.setup_code ?? '';
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const setupUrl = setupCode ? buildClassroomSetupUrl({ origin, setupCode }) : '';
-  const doneCount = status?.checklist.filter((c) => c.done).length ?? 0;
-  const totalCheck = status?.checklist.length ?? 0;
+  const requiredChecklist = status?.checklist.filter((c) => !c.optional) ?? [];
+  const doneCount = requiredChecklist.filter((c) => c.done).length;
+  const totalCheck = requiredChecklist.length;
 
   const toggleClass = (c: string) => {
     setSelected((prev) => {
@@ -232,18 +232,10 @@ export function SmartBoardSetupWizard({
         </CardHeader>
         <CardContent className="space-y-4">
           <Alert variant="info">
-            <strong>4 adım:</strong> Sınıfları seç → Etiketleri yazdır (eşleştirme kodu) → TV izinli IP (canlı) → Tahtada
-            kurulum linki veya Pardus sihirbazı. Kayıtlı tahta: etiketteki eşleştirme kodu.
+            <strong>4 adım:</strong> Sınıfları seç → Etiketleri yazdır (eşleştirme kodu) → Tahtada kurulum linki veya Pardus
+            sihirbazı → (isteğe bağlı) TV izinli IP. Kayıtlı tahta: etiketteki eşleştirme kodu.
           </Alert>
           <p className="text-xs text-muted-foreground">{SMART_BOARD_QR_FLOW_SUMMARY}</p>
-          {status && !status.has_tv_ip ? (
-            <Alert variant="warning">
-              Canlı ortamda tahta kurulumu için <strong>TV izinli IP</strong> listesi zorunludur. Yerelde boş bırakılabilir.{' '}
-              <a href={buildTvAllowedIpsSettingsHref({ schoolId })} className="font-semibold text-primary underline">
-                IP listesini düzenle
-              </a>
-            </Alert>
-          ) : null}
           {setupCode ? (
             <Alert variant="info" className="border-violet-500/30 bg-violet-500/8">
               <p className="text-sm">
@@ -278,11 +270,17 @@ export function SmartBoardSetupWizard({
                   key={item.id}
                   className={cn(
                     'flex items-start gap-2 rounded-lg border px-3 py-2 text-sm',
-                    item.done ? 'border-emerald-500/40 bg-emerald-500/8' : 'border-border bg-card',
+                    item.done
+                      ? 'border-emerald-500/40 bg-emerald-500/8'
+                      : item.optional
+                        ? 'border-dashed border-border/80 bg-card/50'
+                        : 'border-border bg-card',
                   )}
                 >
                   {item.done ? (
                     <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />
+                  ) : item.optional ? (
+                    <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground/60" />
                   ) : (
                     <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                   )}
@@ -521,7 +519,7 @@ export function SmartBoardSetupWizard({
                 onClick={() =>
                   void downloadPardusTahtaDeb({
                     panelOrigin: origin,
-                    apiBaseUrl: resolveDefaultApiBase(),
+                    apiBaseUrl: resolveSmartBoardPackApiBase(origin),
                     schoolId: devices[0]!.school_id,
                     deviceId: devices[0]!.id,
                     deviceLabel: devices[0]!.name,

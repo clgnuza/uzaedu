@@ -158,7 +158,7 @@ export type QrPollUnlockResult = 'pending' | 'expired' | 'unlocked' | 'error' | 
 export function classroomTvErrorMessage(code?: string, fallback?: string): string {
   switch (code) {
     case 'TV_IP_NOT_CONFIGURED':
-      return 'TV IP kısıtı tanımlı değil (eski sunucu). Liste boş bırakılabilir; güncel sürümde zorunlu değil.';
+      return 'TV izinli IP listesi boş; isteğe bağlıdır. Kısıtlamak için Duyuru TV ayarlarından girin.';
     case 'TV_ACCESS_RESTRICTED':
       return 'Bu istek okul ağı dışından geliyor. İzinli IP listesini kontrol edin.';
     case 'TV_RATE_LIMIT':

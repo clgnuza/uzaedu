@@ -430,7 +430,7 @@ function classroomSetupErrorMessage(code?: string, fallback?: string): string {
     case 'SETUP_DEVICE_SCOPE':
       return 'Bu tahta bu okul kurulum koduna ait değil.';
     case 'TV_IP_NOT_CONFIGURED':
-      return 'Okul panelinde TV izinli IP listesi tanımlanmalı.';
+      return 'TV izinli IP listesi boş; isteğe bağlıdır.';
     default:
       return fallback || 'İşlem tamamlanamadı.';
   }

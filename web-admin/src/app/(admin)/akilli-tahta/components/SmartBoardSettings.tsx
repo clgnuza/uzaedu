@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiFetch, getApiUrl } from '@/lib/api';
-import { resolveDefaultApiBase } from '@/lib/resolve-api-base';
+import { resolveSmartBoardPackApiBase } from '@/lib/smart-board-pack-url';
 import { buildPardusTahtaKioskZip, downloadPardusTahtaKioskZip } from '@/lib/pardus-tahta-kiosk-pack';
 import { downloadPardusTahtaDeb } from '@/lib/pardus-tahta-deb-pack';
 import { downloadSmartBoardUsbLauncher } from '@/lib/smart-board-usb-launcher';
@@ -105,6 +105,7 @@ export function SmartBoardSettings({
   const [lastDownloadByDevice, setLastDownloadByDevice] = useState<
     Record<string, { kind: 'html' | 'zip' | 'deb'; at: number }>
   >({});
+  const [packDownloadBusy, setPackDownloadBusy] = useState<string | null>(null);
 
   useEffect(() => {
     setPanelOrigin(typeof window !== 'undefined' ? window.location.origin : '');
@@ -446,7 +447,7 @@ export function SmartBoardSettings({
               Kapalı devre ve erişim
             </CardTitle>
             <CardDescription className="text-xs sm:text-sm">
-              Sınıf tahtası ve duyuru TV aynı IP kuralını kullanır; yalnızca okul içi ağa izin verin.
+              Liste doluysa sınıf tahtası ve duyuru TV yalnız izinli IP’lerden açılır; boş bırakırsanız kısıt yok.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 px-4 py-4 text-xs sm:px-6 sm:py-5 sm:text-sm">
@@ -745,15 +746,16 @@ export function SmartBoardSettings({
                         variant="outline"
                         size="sm"
                         className="h-9 flex-1 gap-1.5 rounded-xl text-xs sm:flex-initial"
-                        disabled={!panelOrigin}
+                        disabled={!panelOrigin || packDownloadBusy === d.id}
                         onClick={() => {
                           if (!panelOrigin) {
                             toast.error('Panel adresi hazır değil; sayfayı yenileyin.');
                             return;
                           }
+                          setPackDownloadBusy(d.id);
                           void downloadPardusTahtaDeb({
                             panelOrigin,
-                            apiBaseUrl: resolveDefaultApiBase(),
+                            apiBaseUrl: resolveSmartBoardPackApiBase(panelOrigin),
                             schoolId,
                             deviceId: d.id,
                             deviceLabel: d.name,
@@ -767,27 +769,35 @@ export function SmartBoardSettings({
                               }));
                               toast.success('Hazır .deb indirildi; Pardus Paket Kurucu ile kurun.');
                             })
-                            .catch(() => toast.error('.deb oluşturulamadı; ZIP veya install.sh deneyin.'));
+                            .catch((e: unknown) => {
+                              const msg =
+                                e instanceof Error
+                                  ? e.message
+                                  : 'Paket oluşturulamadı. Tarayıcı güncel mi? (Chrome/Edge önerilir)';
+                              toast.error(msg);
+                            })
+                            .finally(() => setPackDownloadBusy(null));
                         }}
                       >
                         <Package className="size-3.5" />
-                        Hazır .deb
+                        {packDownloadBusy === d.id ? 'Hazırlanıyor…' : 'Hazır .deb'}
                       </Button>
                       <Button
                         type="button"
                         size="sm"
                         className="h-9 flex-1 gap-1.5 rounded-xl border-0 bg-linear-to-r from-cyan-600 to-sky-600 text-white shadow-md shadow-cyan-500/20 hover:from-cyan-500 hover:to-sky-500 sm:flex-initial"
-                        disabled={!panelOrigin}
+                        disabled={!panelOrigin || packDownloadBusy === d.id}
                         onClick={() => {
                           if (!panelOrigin) {
                             toast.error('Panel adresi hazır değil; sayfayı yenileyin.');
                             return;
                           }
+                          setPackDownloadBusy(d.id);
                           void (async () => {
                             try {
                               const blob = await buildPardusTahtaKioskZip({
                                 panelOrigin,
-                                apiBaseUrl: resolveDefaultApiBase(),
+                                apiBaseUrl: resolveSmartBoardPackApiBase(panelOrigin),
                                 schoolId,
                                 deviceId: d.id,
                                 deviceLabel: d.name,
@@ -800,14 +810,20 @@ export function SmartBoardSettings({
                                 [d.id]: { kind: 'zip', at: Date.now() },
                               }));
                               toast.success('Pardus paketi indirildi; tahtada ZIP’i açıp kurun.');
-                            } catch {
-                              toast.error('Pardus paketi oluşturulamadı.');
+                            } catch (e: unknown) {
+                              const msg =
+                                e instanceof Error
+                                  ? e.message
+                                  : 'ZIP oluşturulamadı. Tarayıcı güncel mi? (Chrome/Edge önerilir)';
+                              toast.error(msg);
+                            } finally {
+                              setPackDownloadBusy(null);
                             }
                           })();
                         }}
                       >
                         <Archive className="size-3.5" />
-                        Pardus ZIP
+                        {packDownloadBusy === d.id ? 'Hazırlanıyor…' : 'Pardus ZIP'}
                       </Button>
                     </div>
                   </li>

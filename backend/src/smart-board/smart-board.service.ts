@@ -2787,7 +2787,7 @@ export class SmartBoardService {
     auto_authorize: boolean;
     authorized_teacher_count: number;
     qr_claimed_last_7d: boolean;
-    checklist: Array<{ id: string; label: string; done: boolean; hint?: string }>;
+    checklist: Array<{ id: string; label: string; done: boolean; hint?: string; optional?: boolean }>;
   }> {
     if (scope.role === UserRole.school_admin && scope.schoolId !== schoolId) {
       throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu veriye erişim yetkiniz yok.' });
@@ -2845,9 +2845,10 @@ export class SmartBoardService {
       },
       {
         id: 'tv_ip',
-        label: 'TV izinli IP tanımlı',
+        label: 'TV izinli IP (isteğe bağlı)',
         done: has_tv_ip,
-        hint: 'Canlıda kurulum için zorunlu. Ayarlar → TV izinli IP (okul ağı / VLAN).',
+        optional: true,
+        hint: 'Boş bırakılabilir. Kapalı devre için Duyuru TV → izinli IP.',
       },
     ];
     return {

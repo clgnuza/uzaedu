@@ -1,12 +1,10 @@
 /**
  * Tarayıcıda cihaza özel .deb (dpkg-deb / build-deb.sh gerekmez).
  */
-import {
-  buildChromiumManagedPolicyJson,
-  buildConf,
-  pardusKioskDebScripts,
-} from '@/lib/pardus-tahta-kiosk-pack';
-import { sanitizeFileBase } from '@/lib/smart-board-usb-launcher';
+import { buildChromiumManagedPolicyJson, buildConf } from '@/lib/pardus-tahta-kiosk-config';
+import { pardusKioskDebScripts } from '@/lib/pardus-tahta-kiosk-scripts';
+import { normalizeHttpBaseUrl, normalizePanelOrigin, withPackBuildTimeout } from '@/lib/smart-board-pack-url';
+import { sanitizeFileBase, triggerBlobDownload } from '@/lib/smart-board-usb-launcher';
 
 const VERSION = '2.1.0';
 
@@ -65,27 +63,12 @@ function buildTar(entries: Array<{ path: string; data: Uint8Array; mode?: number
 
 async function gzipBytes(data: Uint8Array): Promise<Uint8Array> {
   if (typeof CompressionStream === 'undefined') {
-    throw new Error('Tarayıcı gzip desteklemiyor; ZIP veya install.sh kullanın.');
+    throw new Error('Tarayıcı gzip desteklemiyor; Chrome veya Edge kullanın.');
   }
-  const cs = new CompressionStream('gzip');
-  const writer = cs.writable.getWriter();
-  await writer.write(new Uint8Array(data));
-  await writer.close();
-  const reader = cs.readable.getReader();
-  const parts: Uint8Array[] = [];
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    parts.push(value);
-  }
-  const total = parts.reduce((s, p) => s + p.length, 0);
-  const out = new Uint8Array(total);
-  let o = 0;
-  for (const p of parts) {
-    out.set(p, o);
-    o += p.length;
-  }
-  return new Uint8Array(out);
+  const ab = await new Response(
+    new Blob([new Uint8Array(data)]).stream().pipeThrough(new CompressionStream('gzip')),
+  ).arrayBuffer();
+  return new Uint8Array(ab);
 }
 
 function arEntry(name: string, data: Uint8Array): Uint8Array {
@@ -131,19 +114,21 @@ export async function buildPardusTahtaDebBlob(args: {
   tahtaKilit?: boolean;
   allowYoutubeEmbeds?: boolean;
 }): Promise<Blob> {
+  const panelOrigin = normalizePanelOrigin(args.panelOrigin);
+  const apiBaseUrl = normalizeHttpBaseUrl(args.apiBaseUrl, panelOrigin);
   const S = pardusKioskDebScripts;
   const enc = new TextEncoder();
   const policy = buildChromiumManagedPolicyJson({
-    panelOrigin: args.panelOrigin,
-    apiBaseUrl: args.apiBaseUrl,
+    panelOrigin,
+    apiBaseUrl,
     allowYoutubeEmbeds: args.allowYoutubeEmbeds !== false,
   });
   const conf = buildConf({
-    panelOrigin: args.panelOrigin,
+    panelOrigin,
     schoolId: args.schoolId,
     deviceId: args.deviceId,
     kiosk: args.kiosk !== false,
-    apiBaseUrl: args.apiBaseUrl,
+    apiBaseUrl,
     tahtaKilit: args.tahtaKilit !== false,
   });
   const controlTar = buildTar([
@@ -175,19 +160,11 @@ export async function buildPardusTahtaDebBlob(args: {
     { name: 'control.tar.gz', data: controlGz },
     { name: 'data.tar.gz', data: dataGz },
   ]);
-  return new Blob([Uint8Array.from(deb)], { type: 'application/vnd.debian.binary-package' });
+  return new Blob([new Uint8Array(deb)], { type: 'application/octet-stream' });
 }
 
 export async function downloadPardusTahtaDeb(args: Parameters<typeof buildPardusTahtaDebBlob>[0]): Promise<void> {
-  const blob = await buildPardusTahtaDebBlob(args);
+  const blob = await withPackBuildTimeout(buildPardusTahtaDebBlob(args), '.deb');
   const base = sanitizeFileBase(args.deviceLabel.trim() || 'tahta');
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `ogretmenpro-tahta_${VERSION}_${base}.deb`;
-  a.rel = 'noopener';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  triggerBlobDownload(blob, `ogretmenpro-tahta_${VERSION}_${base}.deb`);
 }

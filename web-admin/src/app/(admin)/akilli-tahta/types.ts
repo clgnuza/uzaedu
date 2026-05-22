@@ -104,7 +104,7 @@ export type SmartBoardSetupStatus = {
   auto_authorize: boolean;
   authorized_teacher_count: number;
   qr_claimed_last_7d: boolean;
-  checklist: Array<{ id: string; label: string; done: boolean; hint?: string }>;
+  checklist: Array<{ id: string; label: string; done: boolean; hint?: string; optional?: boolean }>;
 };
 
 export type SmartBoardAuditLog = {

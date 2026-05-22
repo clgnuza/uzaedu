@@ -59,21 +59,26 @@ function escapeAttr(s: string): string {
   return escapeHtml(s).replace(/"/g, '&quot;');
 }
 
+/** Blob indirmesini tetikler; revokeObjectURL geciktirilir (hemen revoke bazı tarayıcılarda indirmeyi keser). */
+export function triggerBlobDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+}
+
 export function downloadSmartBoardUsbLauncher(
   args: Parameters<typeof buildSmartBoardUsbLauncherHtml>[0],
   fileBaseName: string,
 ): void {
   const html = buildSmartBoardUsbLauncherHtml(args);
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${sanitizeFileBase(fileBaseName)}.html`;
-  a.rel = 'noopener';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  triggerBlobDownload(new Blob([html], { type: 'text/html;charset=utf-8' }), `${sanitizeFileBase(fileBaseName)}.html`);
 }
 
 export function sanitizeFileBase(name: string): string {
