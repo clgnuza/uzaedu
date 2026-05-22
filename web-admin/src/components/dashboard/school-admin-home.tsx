@@ -221,6 +221,7 @@ const MODULE_CATALOG: { key: SchoolModuleKey; label: string; href: string; icon:
   { key: 'messaging', label: 'Mesaj merkezi', href: '/mesaj-merkezi', icon: MessageSquare },
   { key: 'butterfly_exam', label: 'Kertenkele sınav', href: '/kelebek-sinav', icon: LayoutGrid },
   { key: 'sorumluluk_sinav', label: 'Sorumluluk sınavı', href: '/sorumluluk-sinav', icon: GraduationCap },
+  { key: 'ders_dagit', label: 'DersDağıt', href: '/ders-dagit/stüdyo', icon: Sparkles },
 ];
 
 type CoreLink = { label: string; href: string; icon: LucideIcon; hint: string; moduleKey?: SchoolModuleKey };
