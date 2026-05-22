@@ -1021,6 +1021,29 @@ export class TeacherTimetableService {
     return this.saveDraftTimetablePlan(schoolId, normalized, errors);
   }
 
+  /** DersDağıt üretilmiş programı okul ders programına aktarır ve yayınlar. */
+  async importAndPublishFromDersDagit(
+    schoolId: string,
+    userId: string,
+    entries: TimetableEntry[],
+    options: { name?: string; valid_from?: string; valid_until?: string | null } = {},
+  ): Promise<{ plan_id: string; imported: number }> {
+    if (!schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için yetkiniz yok.' });
+    if (!entries.length) {
+      throw new BadRequestException({ code: 'NO_ENTRIES', message: 'Yayınlanacak ders satırı yok.' });
+    }
+    const draft = await this.saveDraftFromPreviewEntries(schoolId, entries, []);
+    const planId = draft.plan_id;
+    if (!planId) throw new BadRequestException({ code: 'NO_PLAN', message: 'Taslak plan oluşturulamadı.' });
+
+    const vFrom = (options.valid_from ?? new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const vUntil = options.valid_until?.slice(0, 10) ?? null;
+    const planName = options.name?.trim() || `DersDağıt ${vFrom}`;
+    await this.patchSchoolPlan(planId, schoolId, { name: planName, valid_from: vFrom, valid_until: vUntil });
+    await this.publishPlan(planId, schoolId, userId, vFrom, vUntil);
+    return { plan_id: planId, imported: draft.imported };
+  }
+
   private async saveDraftTimetablePlan(schoolId: string, toInsert: TimetableEntry[], errors: string[]): Promise<UploadResult> {
     if (toInsert.length === 0) {
       throw new BadRequestException({

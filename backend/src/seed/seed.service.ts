@@ -265,7 +265,7 @@ export class SeedService {
         about_description:
           'Yerel geliştirme için örnek okul kaydıdır; gerçek kurum veya kişi adı içermez.',
         principalName: 'Demo Müdür',
-        enabled_modules: ['butterfly_exam', 'sorumluluk_sinav', 'messaging', 'teacher_agenda', 'duty', 'bilsem', 'optical', 'smart_board', 'tv', 'school_reviews', 'document', 'outcome'],
+        enabled_modules: ['butterfly_exam', 'sorumluluk_sinav', 'messaging', 'teacher_agenda', 'duty', 'bilsem', 'optical', 'smart_board', 'tv', 'school_reviews', 'document', 'outcome', 'ders_dagit'],
       };
       if (!school) {
         school = await this.schoolRepo.save(this.schoolRepo.create(demoSchoolData));
@@ -335,7 +335,7 @@ export class SeedService {
       district: 'Çankaya',
       status: SchoolStatus.aktif,
       teacher_limit: 100,
-      enabled_modules: ['butterfly_exam', 'sorumluluk_sinav', 'messaging', 'teacher_agenda', 'duty', 'bilsem', 'optical', 'smart_board', 'tv', 'school_reviews', 'document', 'outcome'],
+      enabled_modules: ['butterfly_exam', 'sorumluluk_sinav', 'messaging', 'teacher_agenda', 'duty', 'bilsem', 'optical', 'smart_board', 'tv', 'school_reviews', 'document', 'outcome', 'ders_dagit'],
     });
     const savedSchool = await this.schoolRepo.save(school);
 

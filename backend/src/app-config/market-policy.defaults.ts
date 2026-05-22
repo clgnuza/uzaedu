@@ -16,6 +16,7 @@ export const MARKET_MODULE_KEYS = [
   'sorumluluk_sinav',
   'messaging',
   'dogrudan_temin',
+  'ders_dagit',
 ] as const;
 
 export type MarketModuleKey = (typeof MARKET_MODULE_KEYS)[number];
@@ -223,6 +224,10 @@ const MODULE_ENTRY_NOTICES: Record<MarketModuleKey, { tr: string; en: string }> 
   dogrudan_temin: {
     tr: 'Doğrudan Temin: okul satın alma dosyaları, yaklaşık maliyet, teklif/karar ve çıktı belgeleri.',
     en: 'Direct procurement: school purchasing files, estimated cost, quotes/decision and document outputs.',
+  },
+  ders_dagit: {
+    tr: 'DersDağıt Program Stüdyosu: ders ataması, kurallar, gruplar ve otomatik program üretimi.',
+    en: 'DersDağıt studio: lesson assignments, rules, groups and automated timetable generation.',
   },
 };
 

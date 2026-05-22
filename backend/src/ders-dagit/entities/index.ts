@@ -1,0 +1,16 @@
+export { DersDagitStudio } from './ders-dagit-studio.entity';
+export { DersDagitClassProfile } from './ders-dagit-class-profile.entity';
+export { DersDagitTeacherConfig } from './ders-dagit-teacher-config.entity';
+export { DersDagitSubject } from './ders-dagit-subject.entity';
+export { DersDagitGroup } from './ders-dagit-group.entity';
+export { DersDagitBuilding } from './ders-dagit-building.entity';
+export { DersDagitRoom } from './ders-dagit-room.entity';
+export { DersDagitAssignment } from './ders-dagit-assignment.entity';
+export { DersDagitAssignmentTeacher } from './ders-dagit-assignment-teacher.entity';
+export { DersDagitRuleSet } from './ders-dagit-rule-set.entity';
+export { DersDagitPreference } from './ders-dagit-preference.entity';
+export { DersDagitRequest } from './ders-dagit-request.entity';
+export { DersDagitProgram } from './ders-dagit-program.entity';
+export { DersDagitProgramEntry } from './ders-dagit-program-entry.entity';
+export { DersDagitGenerationJob } from './ders-dagit-generation-job.entity';
+export { DersDagitAuditLog } from './ders-dagit-audit-log.entity';

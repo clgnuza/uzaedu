@@ -27,6 +27,7 @@ const ROUTE_PREFIX_TO_MARKET_MODULE: [string, SchoolModuleKey][] = [
   ['/optik-okuma', 'optical'],
   ['/optik-oturumlar', 'optical'],
   ['/optik-raporlar', 'optical'],
+  ['/ders-dagit', 'ders_dagit'],
   ['/duty', 'duty'],
   ['/tv', 'tv'],
   ['/akilli-tahta', 'smart_board'],

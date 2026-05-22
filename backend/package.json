@@ -14,6 +14,7 @@
     "migrate:sql": "node tools/run-sql-migrations.js",
     "migrate:sql:one": "node tools/run-single-migration.js",
     "migrate:optik": "node tools/run-optik-migrations.js",
+    "test:ders-dagit": "npm run build && node tools/ders-dagit-solver.test.cjs",
     "test:optik-summary": "npm run build && node tools/optik-session-summary.test.cjs",
     "test:optik-pdf": "npm run build && node tools/optik-pdf-belge.test.cjs",
     "test:optik-scan": "node tools/optik-session-scan-validation.test.cjs",

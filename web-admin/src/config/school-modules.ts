@@ -17,6 +17,7 @@ export const SCHOOL_MODULE_KEYS = [
   'sorumluluk_sinav',
   'messaging',
   'dogrudan_temin',
+  'ders_dagit',
 ] as const;
 
 export type SchoolModuleKey = (typeof SCHOOL_MODULE_KEYS)[number];
@@ -37,6 +38,7 @@ export const SCHOOL_MODULE_LABELS: Record<SchoolModuleKey, string> = {
   sorumluluk_sinav: 'Sorumluluk / Beceri Sınavı',
   messaging: 'Mesaj Gönderme Merkezi',
   dogrudan_temin: 'Doğrudan Temin',
+  ders_dagit: 'DersDağıt',
 };
 
 /** Market sayfası: modül hücresi için kısa bağlam (hover) */
@@ -56,6 +58,8 @@ export const SCHOOL_MODULE_MARKET_HINTS: Record<SchoolModuleKey, string> = {
   sorumluluk_sinav: 'Sorumluluk ve beceri sınavları programlama, görevlendirme ve raporlar.',
   messaging: 'WhatsApp mesaj gönderme: veli, öğretmen, ek ders, maaş, devamsızlık, karne dağıtımı.',
   dogrudan_temin: 'Okul satın alma: doğrudan temin dosyaları, teklif/karar ve rapor/çıktılar.',
+  ders_dagit:
+    'DersDağıt: Horarium tarzı kurallar, gruplar/bölümler, otomatik üretim; mevcut ders programına yayın.',
 };
 
 export const SCHOOL_MODULE_OPTIONS = SCHOOL_MODULE_KEYS.map((key) => ({
