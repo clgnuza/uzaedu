@@ -5,6 +5,7 @@ export type ValidationIssue = {
   severity: 'error' | 'warning';
   message: string;
   fix_hint?: string;
+  href?: string;
   entity_type?: string;
   entity_id?: string;
 };
@@ -119,6 +120,15 @@ export function validateStudioData(input: StudioValidationInput): ValidationIssu
 
   const biweeklyByGroup: Record<string, number> = {};
   for (const a of input.assignments) {
+    if (!a.class_sections.length) {
+      issues.push({
+        code: 'ASSIGN_NO_SECTION',
+        severity: 'error',
+        message: `Atama ${a.id.slice(0, 8)}: sınıf/şube yok.`,
+        entity_type: 'assignment',
+        entity_id: a.id,
+      });
+    }
     if (a.room_ids.length === 0) {
       issues.push({
         code: 'NO_ROOMS_LIST',

@@ -139,13 +139,14 @@ function repairWithMoves(
   };
 }
 
-/** Greedy + gün sırası + swap/taşıma onarımı (Faz 20). */
+/** Greedy + CSP taban + gün sırası + swap/taşıma (Faz 20). */
 export function improveWithLocalSearch(
   assignments: SolverAssignment[],
   ctx: SolverContext,
   iterations = 24,
+  seed?: SolverResult,
 ): SolverResult {
-  let best = runConstraintSolver(assignments, ctx);
+  let best = seed ?? runConstraintSolver(assignments, ctx);
   const baseDays = ctx.work_days.length ? ctx.work_days : [1, 2, 3, 4, 5];
   const repairPasses = Math.max(8, Math.floor(iterations / 2));
   for (let i = 0; i < iterations; i++) {

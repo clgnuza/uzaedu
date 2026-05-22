@@ -3,6 +3,7 @@ export { DersDagitClassProfile } from './ders-dagit-class-profile.entity';
 export { DersDagitTeacherConfig } from './ders-dagit-teacher-config.entity';
 export { DersDagitSubject } from './ders-dagit-subject.entity';
 export { DersDagitGroup } from './ders-dagit-group.entity';
+export { DersDagitElectivePool } from './ders-dagit-elective-pool.entity';
 export { DersDagitBuilding } from './ders-dagit-building.entity';
 export { DersDagitRoom } from './ders-dagit-room.entity';
 export { DersDagitAssignment } from './ders-dagit-assignment.entity';

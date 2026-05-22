@@ -3,20 +3,25 @@
 import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
+import { StudioValidationGate } from '@/components/ders-dagit/StudioValidationGate';
+import { computeStudioReadiness } from '@/lib/ders-dagit-readiness';
 import { apiFetch } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { ProgramGridPreview } from '@/components/ders-dagit/program-grid-preview';
+import Link from 'next/link';
+import { TimetableReadonly } from '@/components/timetable/TimetableReadonly';
 
 export default function UretPage() {
   const { token } = useAuth();
-  const { studio, refresh } = useDersDagitStudio();
+  const { studio, overview, refresh } = useDersDagitStudio();
+  const readiness = computeStudioReadiness(overview);
   const [busy, setBusy] = useState(false);
   const [last, setLast] = useState<{
     programs: Array<{ id: string; name: string; score: number | null }>;
     score?: number;
     violations?: string[];
+    violation_links?: Array<{ text: string; href?: string }>;
     failed?: number;
   } | null>(null);
   const [previewEntries, setPreviewEntries] = useState<
@@ -26,6 +31,7 @@ export default function UretPage() {
     Array<{ id: string; name: string | null; score: number | null; entry_count: number }>
   >([]);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [useCsp, setUseCsp] = useState(true);
 
   async function generate() {
     if (!token || !studio) return;
@@ -36,16 +42,18 @@ export default function UretPage() {
         entries_count: number;
         score?: number;
         violations?: string[];
+        violation_links?: Array<{ text: string; href?: string }>;
         failed?: number;
       }>(`/ders-dagit/studios/${studio.id}/generate`, {
         token,
         method: 'POST',
-        body: { duration_sec: 60, versions: 3 },
+        body: { duration_sec: 90, versions: 3, use_csp: useCsp },
       });
       setLast({
         programs: res.programs.map((p) => ({ id: p.id, name: p.name ?? 'Program', score: p.score })),
         score: res.score,
         violations: res.violations,
+        violation_links: res.violation_links,
         failed: res.failed,
       });
       const ids = res.programs.map((p) => p.id).join(',');
@@ -80,24 +88,46 @@ export default function UretPage() {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Yerel arama + swap onarım + kural skoru. Önce ön doğrulama hatası olmamalı.
+          CSP geri izleme + yerel arama + swap onarım. Hazırlık: <strong>{readiness.percent}%</strong>
         </p>
-        <Button type="button" disabled={busy || !studio} onClick={() => void generate()}>
-          {busy ? 'Üretiliyor…' : 'Program üret (3 versiyon)'}
-        </Button>
+        {last?.score != null && (
+          <p className="text-xs text-muted-foreground">
+            Neden bu skor? Daha yüksek skor = daha az kural ihlali ve dengeli öğretmen yükü.
+          </p>
+        )}
+        <StudioValidationGate overview={overview} action="generate">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={useCsp} onChange={(e) => setUseCsp(e.target.checked)} />
+            CSP motoru (önerilen)
+          </label>
+          <Button type="button" disabled={busy || !studio} onClick={() => void generate()}>
+            {busy ? 'Üretiliyor…' : 'Program üret (3 versiyon)'}
+          </Button>
+        </StudioValidationGate>
         {last && (
           <div className="space-y-2 text-sm">
             {last.score != null && <p>Motor skoru: <strong>{last.score}</strong></p>}
             {last.failed != null && last.failed > 0 && (
               <p className="text-amber-700 dark:text-amber-300">{last.failed} atama yerleştirilemedi.</p>
             )}
-            {last.violations && last.violations.length > 0 && (
+            {(last.violation_links?.length ? last.violation_links : last.violations?.map((t) => ({ text: t }))) &&
+              (last.violation_links?.length || last.violations?.length) ? (
               <ul className="max-h-32 overflow-y-auto rounded border border-border p-2 text-xs text-muted-foreground">
-                {last.violations.slice(0, 15).map((v, i) => (
-                  <li key={i}>{v}</li>
-                ))}
+                {(last.violation_links ?? last.violations!.map((t) => ({ text: t })))
+                  .slice(0, 15)
+                  .map((v, i) => (
+                    <li key={i}>
+                      {v.href ? (
+                        <Link href={v.href} className="text-primary underline">
+                          {v.text}
+                        </Link>
+                      ) : (
+                        v.text
+                      )}
+                    </li>
+                  ))}
               </ul>
-            )}
+            ) : null}
             {compare.length > 0 && (
               <table className="w-full text-xs">
                 <thead>
@@ -139,7 +169,12 @@ export default function UretPage() {
         {previewEntries.length > 0 && (
           <>
             {previewId && <p className="text-xs text-muted-foreground">Önizleme: {previewId.slice(0, 8)}…</p>}
-            <ProgramGridPreview entries={previewEntries} />
+            <TimetableReadonly entries={previewEntries} />
+            {previewId && (
+              <Button type="button" size="sm" asChild>
+                <Link href={`/ders-dagit/stüdyo/program?id=${previewId}`}>Editörde aç</Link>
+              </Button>
+            )}
           </>
         )}
       </CardContent>

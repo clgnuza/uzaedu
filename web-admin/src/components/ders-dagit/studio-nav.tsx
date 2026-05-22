@@ -16,7 +16,12 @@ import {
   ClipboardCheck,
   BookOpen,
   GitBranch,
+  Layers,
   CalendarRange,
+  LayoutGrid,
+  Archive,
+  TableProperties,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 const STEPS = [
@@ -25,13 +30,18 @@ const STEPS = [
   { href: '/ders-dagit/stüdyo/ogretmenler', label: 'Öğretmenler', icon: Users },
   { href: '/ders-dagit/stüdyo/dersler', label: 'Dersler', icon: BookOpen },
   { href: '/ders-dagit/stüdyo/gruplar', label: 'Gruplar', icon: GitBranch },
+  { href: '/ders-dagit/stüdyo/secmeli', label: 'Seçmeli', icon: Layers },
   { href: '/ders-dagit/stüdyo/derslikler', label: 'Derslikler', icon: Building2 },
   { href: '/ders-dagit/stüdyo/atamalar', label: 'Atamalar', icon: ListChecks },
   { href: '/ders-dagit/stüdyo/kurallar', label: 'Kurallar', icon: Scale },
   { href: '/ders-dagit/stüdyo/dogrulama', label: 'Doğrulama', icon: ClipboardCheck },
   { href: '/ders-dagit/stüdyo/uret', label: 'Üret', icon: Wand2 },
+  { href: '/ders-dagit/stüdyo/program', label: 'Program', icon: TableProperties },
   { href: '/ders-dagit/stüdyo/yayin', label: 'Yayın', icon: Send },
+  { href: '/ders-dagit/stüdyo/ogretmen-program', label: 'Öğretmen', icon: LayoutGrid },
+  { href: '/ders-dagit/stüdyo/arsiv', label: 'Arşiv', icon: Archive },
   { href: '/ders-dagit/stüdyo/adalet', label: 'Adalet', icon: BarChart3 },
+  { href: '/ders-dagit/stüdyo/ayarlar', label: 'Ayarlar', icon: SlidersHorizontal },
 ] as const;
 
 export function DersDagitStudioNav({ healthScore }: { healthScore?: number }) {

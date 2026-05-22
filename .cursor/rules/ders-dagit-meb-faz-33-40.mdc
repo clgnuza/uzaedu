@@ -1,0 +1,53 @@
+---
+description: DersDağıt MEB fazları 33-40 backlog (MTAL, e-Okul, ikili, seçmeli)
+globs:
+  - backend/src/ders-dagit/**
+  - web-admin/src/app/**/ders-dagit/**
+---
+
+# DersDağıt — MEB fazları 33–40
+
+Ön koşul: Faz 0–32 MVP. Sıra: **33 MTAL → 34–35 e-Okul → 36 ikili → 37 seçmeli → 38 ek ders/nöbet → 39 TTKB → 40 veli/kurul**.
+
+## Faz 33 — Okul türü (MTAL / AİHL / YKS kol) ✅ MVP
+- `studio.settings.school_profile` + `GET/PATCH .../school-profile`
+- Atama `options`: `block_lessons`, `place_on_days`
+- Solver: ardışık blok + `isInternshipBlocked`
+- UI: Kurulum `SchoolProfileForm`; Atamalar MTAL alanları
+
+## Faz 34 — e-Okul içe aktarma ✅ MVP
+- `POST .../import/eokul/preview` + `import/eokul`
+- CSV / tablo XLSX / ızgara XLSX; TC+ad öğretmen eşleme
+
+## Faz 35 — e-Okul dışa aktarma ✅ MVP
+- `export/eokul` CSV (OgretmenTc, Durum sütunu)
+- `export/eokul.xlsx` (Program + Dogrulama sayfası)
+- `export/eokul/report` JSON + `report.csv`
+
+## Faz 36 — İkili eğitim ✅ MVP
+- `settings.dual_education` + `lesson_schedule_pm`
+- Sınıf profili `education_shift`; öğretmen `constraints.education_shift`
+- Solver: sabah/öğle slot ayrımı (`pm_first_lesson`)
+
+## Faz 37 — Seçmeli / norm birleştirme ✅ MVP
+- `ders_dagit_elective_pool` + `/elective-pools` API
+- e-Okul `auto_elective_groups` → havuz + subgroups grup + atama bağlama
+- Solver: `subgroups` aynı slot; AİHL `GET .../aihl-norm`
+
+## Faz 38 — Maaş karşılığı + ek ders + nöbet ✅ MVP
+- `POST .../sync-extra-lesson-params` → MEB norm + aktif dönem
+- `POST .../duty-sync` + tarih→gün; yayınlı nöbet planı
+- Doğrulama/üretim: nöbet `error`; `DUTY_CONFLICT` engeli
+
+## Faz 39 — TTKB / Maarif seed ✅ MVP
+- `GET/POST .../seed/ttkb` — `document-template-subjects` + `ders-saati` + yıllık plan SUM
+- Okul profili → İHO/İHL/meslek bölümü; `sync_assignments` opsiyonel
+
+## Faz 40 — Veli + kurul PDF ✅ MVP
+- Paylaşım `?section=` + `class_sections` listesi
+- `export/council.pdf` kurul tutanağı
+- `export/parent.pdf` + `public/share/:token/parent.pdf` (veli ızgara)
+
+Mevcut: `duty_education_mode`, `GROUP_MODE_CATALOG`, `buildEokulScheduleCsv`, `loadDutyUnavailableSlots`, `DersDagitPublicController`.
+
+Dış kapsam: çok okullu görevlendirme; resmi e-Okul API.

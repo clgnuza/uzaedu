@@ -11,7 +11,7 @@ const STEPS: Array<
   | { kind: 'period'; href: string; label: string }
 > = [
   { kind: 'count', key: 'classCount', min: 1, href: '/ders-dagit/stüdyo/kurulum', label: 'Sınıf profili' },
-  { kind: 'validation', href: '/ders-dagit/stüdyo/donem', label: 'Dönem' },
+  { kind: 'period', href: '/ders-dagit/stüdyo/donem', label: 'Dönem' },
   { kind: 'count', key: 'subjectCount', min: 1, href: '/ders-dagit/stüdyo/dersler', label: 'Dersler' },
   { kind: 'count', key: 'groupCount', min: 0, href: '/ders-dagit/stüdyo/gruplar', label: 'Gruplar (opsiyonel)' },
   { kind: 'count', key: 'teacherCount', min: 1, href: '/ders-dagit/stüdyo/ogretmenler', label: 'Öğretmenler' },

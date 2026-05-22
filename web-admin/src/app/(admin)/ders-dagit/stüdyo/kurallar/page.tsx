@@ -24,11 +24,19 @@ export default function KurallarPage() {
   const [data, setData] = useState<RulesRes | null>(null);
   const [travelMin, setTravelMin] = useState(5);
   const [peDays, setPeDays] = useState('2,4');
+  const [buildings, setBuildings] = useState<Array<{ id: string; name: string }>>([]);
+  const [travelFrom, setTravelFrom] = useState('default');
+  const [travelTo, setTravelTo] = useState('default');
+  const [travelPairMin, setTravelPairMin] = useState(5);
 
   const load = useCallback(async () => {
     if (!token || !studio) return;
-    const r = await apiFetch<RulesRes>(`/ders-dagit/studios/${studio.id}/rules`, { token });
+    const [r, b] = await Promise.all([
+      apiFetch<RulesRes>(`/ders-dagit/studios/${studio.id}/rules`, { token }),
+      apiFetch<Array<{ id: string; name: string }>>('/ders-dagit/buildings', { token }),
+    ]);
     setData(r);
+    setBuildings(b);
     const d = r.rules.meb_pe_music_days?.params?.days;
     if (d?.length) setPeDays(d.join(','));
   }, [token, studio]);
@@ -143,13 +151,73 @@ export default function KurallarPage() {
             type="button"
             size="sm"
             variant="secondary"
-            onClick={() =>
-              void patch(data!.rules, [{ from: 'default', to: 'default', minutes: travelMin }])
-            }
+            onClick={() => {
+              const rows = data?.building_travel ?? [];
+              const next = rows.filter((x) => !(x.from === 'default' && x.to === 'default'));
+              next.push({ from: 'default', to: 'default', minutes: travelMin });
+              void patch(data!.rules, next);
+            }}
           >
             Varsayılan kaydet
           </Button>
         </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Bina geçiş matrisi</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-end gap-2">
+          <select
+            className="h-9 rounded-md border px-2 text-sm"
+            value={travelFrom}
+            onChange={(e) => setTravelFrom(e.target.value)}
+          >
+            <option value="default">Varsayılan</option>
+            {buildings.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+          <span className="text-sm">→</span>
+          <select
+            className="h-9 rounded-md border px-2 text-sm"
+            value={travelTo}
+            onChange={(e) => setTravelTo(e.target.value)}
+          >
+            <option value="default">Varsayılan</option>
+            {buildings.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+          <Input type="number" className="w-20" value={travelPairMin} onChange={(e) => setTravelPairMin(Number(e.target.value))} />
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => {
+              if (!data) return;
+              const rows = [...(data.building_travel ?? [])];
+              const i = rows.findIndex((x) => x.from === travelFrom && x.to === travelTo);
+              const row = { from: travelFrom, to: travelTo, minutes: travelPairMin };
+              if (i >= 0) rows[i] = row;
+              else rows.push(row);
+              void patch(data.rules, rows);
+            }}
+          >
+            Ekle / güncelle
+          </Button>
+        </CardContent>
+        {data?.building_travel && data.building_travel.length > 0 && (
+          <ul className="px-6 pb-4 text-xs text-muted-foreground">
+            {data.building_travel.map((t, i) => (
+              <li key={i}>
+                {t.from} → {t.to}: {t.minutes} dk
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
     </div>
   );

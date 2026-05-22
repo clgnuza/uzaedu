@@ -7,14 +7,18 @@ import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { apiFetch } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PeriodConfigForm, type PeriodConfig } from '@/components/ders-dagit/period-config-form';
+import { DualEducationForm, type DualEducationConfig } from '@/components/ders-dagit/dual-education-form';
 import { toast } from 'sonner';
 
 type PeriodsRes = {
   duty_max_lessons: number | null;
   duty_education_mode: string;
   lesson_schedule: Array<{ lesson_num: number; start_time: string; end_time: string }>;
+  lesson_schedule_pm?: Array<{ lesson_num: number; start_time: string; end_time: string }>;
   studio_period: PeriodConfig;
   work_days: number[];
+  dual_education: DualEducationConfig;
+  pm_first_lesson: number;
 };
 
 export default function DonemPage() {
@@ -36,9 +40,20 @@ export default function DonemPage() {
     await apiFetch(`/ders-dagit/studios/${studio.id}/periods`, {
       token,
       method: 'PATCH',
-      body: { period, work_days: period.work_days },
+      body: { period, work_days: period.work_days, dual_education: data?.dual_education },
     });
     toast.success('Dönem kaydedildi');
+    await load();
+  }
+
+  async function saveDual(dual: DualEducationConfig) {
+    if (!token || !studio) return;
+    await apiFetch(`/ders-dagit/studios/${studio.id}/periods`, {
+      token,
+      method: 'PATCH',
+      body: { dual_education: dual },
+    });
+    toast.success('İkili eğitim kaydedildi');
     await load();
   }
 
@@ -57,13 +72,26 @@ export default function DonemPage() {
           <CardTitle className="text-base">Okul saat çizelgesi (salt okunur)</CardTitle>
         </CardHeader>
         <CardContent className="text-sm">
-          <ul className="max-h-40 overflow-y-auto text-xs text-muted-foreground">
+          <p className="text-xs font-medium text-muted-foreground">Sabah</p>
+          <ul className="max-h-32 overflow-y-auto text-xs text-muted-foreground">
             {(data?.lesson_schedule ?? []).map((s) => (
               <li key={s.lesson_num}>
                 {s.lesson_num}. {s.start_time}–{s.end_time}
               </li>
             ))}
           </ul>
+          {(data?.lesson_schedule_pm?.length ?? 0) > 0 && (
+            <>
+              <p className="mt-2 text-xs font-medium text-muted-foreground">Öğle</p>
+              <ul className="max-h-32 overflow-y-auto text-xs text-muted-foreground">
+                {data!.lesson_schedule_pm!.map((s) => (
+                  <li key={`pm-${s.lesson_num}`}>
+                    {s.lesson_num}. {s.start_time}–{s.end_time}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
           <Link href="/ders-programi/ayarlar" className="mt-2 inline-block text-xs underline">
             Okul zaman çizelgesini düzenle
           </Link>
@@ -83,6 +111,12 @@ export default function DonemPage() {
               }}
               schoolMaxLessons={max}
               onSave={save}
+            />
+            <DualEducationForm
+              initial={data.dual_education ?? { enabled: false }}
+              pmFirstDefault={data.pm_first_lesson ?? 6}
+              pmScheduleCount={data.lesson_schedule_pm?.length ?? 0}
+              onSave={saveDual}
             />
           </CardContent>
         </Card>

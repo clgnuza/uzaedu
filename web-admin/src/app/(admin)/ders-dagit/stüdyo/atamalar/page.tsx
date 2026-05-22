@@ -23,6 +23,7 @@ type Assignment = {
   place_first?: boolean;
   min_days_per_week?: number | null;
   max_per_day?: number | null;
+  max_days_per_week?: number | null;
   fixed_slots?: Array<{ day_of_week: number; lesson_num: number; class_section?: string }>;
 };
 
@@ -59,16 +60,36 @@ export default function AtamalarPage() {
   const [placeFirst, setPlaceFirst] = useState(false);
   const [minDays, setMinDays] = useState(2);
   const [maxPerDay, setMaxPerDay] = useState(2);
+  const [maxDaysWeek, setMaxDaysWeek] = useState<number | ''>('');
   const [fixDay, setFixDay] = useState(1);
   const [fixLesson, setFixLesson] = useState(1);
   const [fixedSlots, setFixedSlots] = useState<
     Array<{ day_of_week: number; lesson_num: number; class_section?: string }>
   >([]);
   const [csvText, setCsvText] = useState('');
+  const [editId, setEditId] = useState<string | null>(null);
+  const [subjectId, setSubjectId] = useState('');
+  const [coTeach, setCoTeach] = useState(false);
+  const [blockLessons, setBlockLessons] = useState(0);
+  const [placeOnDays, setPlaceOnDays] = useState('1,2');
+  const [schoolType, setSchoolType] = useState('anadolu_lise');
+  const [eokulPreview, setEokulPreview] = useState<{
+    rows: Array<{
+      subject_name: string;
+      class_sections: string[];
+      weekly_hours: number;
+      match_warning: string | null;
+    }>;
+    warnings: Array<{ message: string }>;
+    format: string;
+  } | null>(null);
+  const [eokulFormat, setEokulFormat] = useState<'auto' | 'xlsx' | 'grid_xlsx' | 'csv'>('auto');
+  const [eokulB64, setEokulB64] = useState<string | null>(null);
+  const [autoElectiveGroups, setAutoElectiveGroups] = useState(true);
 
   const load = useCallback(async () => {
     if (!token || !studio) return;
-    const [a, g, r, p, t, sub] = await Promise.all([
+    const [a, g, r, p, t, sub, sp] = await Promise.all([
       apiFetch<Assignment[]>(`/ders-dagit/studios/${studio.id}/assignments`, { token }),
       apiFetch<GroupsRes>(`/ders-dagit/studios/${studio.id}/groups`, { token }),
       apiFetch<Room[]>('/ders-dagit/rooms', { token }),
@@ -77,7 +98,11 @@ export default function AtamalarPage() {
       apiFetch<Array<{ id: string; name: string }>>(`/ders-dagit/studios/${studio.id}/subjects`, { token }).catch(
         () => [],
       ),
+      apiFetch<{ type: string }>(`/ders-dagit/studios/${studio.id}/school-profile`, { token }).catch(() => ({
+        type: 'anadolu_lise',
+      })),
     ]);
+    setSchoolType(sp.type);
     setRows(a);
     setGroups(g.groups);
     setGroupId((prev) => prev || g.groups[0]?.id || '');
@@ -110,19 +135,50 @@ export default function AtamalarPage() {
 
   const selectedGroup = groups.find((g) => g.id === groupId);
 
+  function loadToForm(r: Assignment) {
+    setEditId(r.id);
+    setSubject(r.subject_name);
+    setSections(r.class_sections.join(','));
+    setHours(r.weekly_hours);
+    setTeacherIds(r.teacher_ids ?? []);
+    setRoomId(r.room_ids?.[0] ?? '');
+    setGroupId(r.group_id ?? '');
+    setBiweekly(!!r.biweekly);
+    setPlaceFirst(!!r.place_first);
+    setMinDays(r.min_days_per_week ?? 2);
+    setMaxPerDay(r.max_per_day ?? 2);
+    setMaxDaysWeek(r.max_days_per_week ?? '');
+    setFixedSlots(r.fixed_slots ?? []);
+  }
+
   async function addAssignment() {
     if (!token || !studio || !subject.trim()) return;
     await apiFetch(`/ders-dagit/studios/${studio.id}/assignments`, {
       token,
       method: 'POST',
       body: {
+        id: editId ?? undefined,
+        subject_id: subjectId || null,
         subject_name: subject.trim(),
+        options: {
+          co_teach: coTeach,
+          ...(blockLessons >= 2 ? { block_lessons: blockLessons } : {}),
+          ...(placeOnDays.trim()
+            ? {
+                place_on_days: placeOnDays
+                  .split(',')
+                  .map((s) => Number(s.trim()))
+                  .filter((n) => n >= 1 && n <= 7),
+              }
+            : {}),
+        },
         class_sections:
           selectedGroup?.member_sections?.length && groupId
             ? selectedGroup.member_sections
             : sections.split(/[,/]/).map((s) => s.trim()).filter(Boolean),
         weekly_hours: hours,
         max_per_day: maxPerDay,
+        max_days_per_week: maxDaysWeek === '' ? null : Number(maxDaysWeek),
         min_days_per_week: minDays,
         room_ids: roomId ? [roomId] : [],
         teacher_ids: teacherIds,
@@ -133,13 +189,200 @@ export default function AtamalarPage() {
       },
     });
     setSubject('');
+    setEditId(null);
     setFixedSlots([]);
     await load();
-    toast.success('Atama eklendi');
+    toast.success(editId ? 'Güncellendi' : 'Atama eklendi');
   }
 
   return (
     <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">e-Okul içe aktar (Faz 34)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <select
+              className="h-9 rounded-md border px-2 text-sm"
+              value={eokulFormat}
+              onChange={(e) => setEokulFormat(e.target.value as typeof eokulFormat)}
+            >
+              <option value="auto">Otomatik (tablo → ızgara)</option>
+              <option value="xlsx">Tablo XLSX</option>
+              <option value="grid_xlsx">Program ızgarası XLS</option>
+              <option value="csv">CSV</option>
+            </select>
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="text-sm"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (!f || !token || !studio) return;
+                void f.arrayBuffer().then((buf) => {
+                  const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+                  setEokulB64(b64);
+                  return apiFetch<NonNullable<typeof eokulPreview>>(
+                    `/ders-dagit/studios/${studio.id}/import/eokul/preview`,
+                    { token, method: 'POST', body: { file_base64: b64, format: eokulFormat } },
+                  );
+                }).then((p) => p && setEokulPreview(p));
+              }}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                if (!token || !studio) return;
+                const { resolveDefaultApiBase } = await import('@/lib/resolve-api-base');
+                const base = resolveDefaultApiBase().replace(/\/$/, '');
+                const res = await fetch(`${base}/ders-dagit/studios/${studio.id}/assignments/eokul-template.xlsx`, {
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'eokul-ders-dagit-atama.xlsx';
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              Şablon
+            </Button>
+          </div>
+          {eokulPreview && (
+            <>
+              <p className="text-xs text-muted-foreground">
+                Format: {eokulPreview.format} · {eokulPreview.rows.length} atama
+              </p>
+              {eokulPreview.warnings.map((w, i) => (
+                <p key={i} className="text-xs text-amber-700">
+                  {w.message}
+                </p>
+              ))}
+              <ul className="max-h-40 overflow-y-auto text-xs">
+                {eokulPreview.rows.slice(0, 20).map((r, i) => (
+                  <li key={i}>
+                    {r.class_sections.join(',')} — {r.subject_name} ({r.weekly_hours} saat)
+                    {r.match_warning ? ` ⚠ ${r.match_warning}` : ''}
+                  </li>
+                ))}
+              </ul>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={autoElectiveGroups}
+                  onChange={(e) => setAutoElectiveGroups(e.target.checked)}
+                />
+                Seçmeli satırlardan alt grup havuzu oluştur (Faz 37)
+              </label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={!eokulB64}
+                  onClick={async () => {
+                    if (!eokulB64 || !token || !studio) return;
+                    const res = await apiFetch<{ imported: number; elective_pools_created?: number }>(
+                      `/ders-dagit/studios/${studio.id}/import/eokul`,
+                      {
+                        token,
+                        method: 'POST',
+                        body: {
+                          file_base64: eokulB64,
+                          format: eokulFormat,
+                          replace: false,
+                          auto_elective_groups: autoElectiveGroups,
+                        },
+                      },
+                    );
+                    toast.success(
+                      `${res.imported} atama${res.elective_pools_created ? ` · ${res.elective_pools_created} seçmeli havuz` : ''}`,
+                    );
+                    setEokulPreview(null);
+                    setEokulB64(null);
+                    await load();
+                  }}
+                >
+                  İçe aktar (ekle)
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="destructive"
+                  disabled={!eokulB64}
+                  onClick={async () => {
+                    if (!eokulB64 || !token || !studio) return;
+                    const res = await apiFetch<{ imported: number; elective_pools_created?: number }>(
+                      `/ders-dagit/studios/${studio.id}/import/eokul`,
+                      {
+                        token,
+                        method: 'POST',
+                        body: {
+                          file_base64: eokulB64,
+                          format: eokulFormat,
+                          replace: true,
+                          auto_elective_groups: autoElectiveGroups,
+                        },
+                      },
+                    );
+                    toast.success(
+                      `${res.imported} atama${res.elective_pools_created ? ` · ${res.elective_pools_created} havuz` : ''}`,
+                    );
+                    setEokulPreview(null);
+                    setEokulB64(null);
+                    await load();
+                  }}
+                >
+                  Değiştir (sil + aktar)
+                </Button>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Ders kataloğundan atama</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={async () => {
+              if (!token || !studio) return;
+              const res = await apiFetch<{ created: number }>(
+                `/ders-dagit/studios/${studio.id}/assignments/sync-from-subjects`,
+                { token, method: 'POST', body: {} },
+              );
+              toast.success(`${res.created} atama`);
+              await load();
+            }}
+          >
+            Katalogdan üret (ekle)
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={async () => {
+              if (!token || !studio) return;
+              const res = await apiFetch<{ created: number }>(
+                `/ders-dagit/studios/${studio.id}/assignments/sync-from-subjects`,
+                { token, method: 'POST', body: { replace: true } },
+              );
+              toast.success(`${res.created} atama (yenilendi)`);
+              await load();
+            }}
+          >
+            Katalogdan değiştir
+          </Button>
+        </CardContent>
+      </Card>
       {plans.length > 0 && (
         <Card>
           <CardHeader>
@@ -201,6 +444,33 @@ export default function AtamalarPage() {
             <input type="checkbox" checked={placeFirst} onChange={(e) => setPlaceFirst(e.target.checked)} />
             Önce yerleştir
           </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={coTeach} onChange={(e) => setCoTeach(e.target.checked)} />
+            Ortak öğretim (aynı slot)
+          </label>
+          {(schoolType === 'mtal' || blockLessons > 0) && (
+            <>
+              <div>
+                <Label>Blok ders (2–8 ardışık saat)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={8}
+                  value={blockLessons || ''}
+                  onChange={(e) => setBlockLessons(Number(e.target.value) || 0)}
+                />
+              </div>
+              <div>
+                <Label>Yalnız günler (1–7)</Label>
+                <Input
+                  className="font-mono text-xs"
+                  value={placeOnDays}
+                  onChange={(e) => setPlaceOnDays(e.target.value)}
+                  placeholder="1,2"
+                />
+              </div>
+            </>
+          )}
         </CardContent>
         <CardContent className="grid gap-3 border-t pt-3 sm:grid-cols-6">
           <div>
@@ -209,7 +479,12 @@ export default function AtamalarPage() {
               <select
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                 value={subject}
-                onChange={(e) => setSubject(e.target.value)}
+                onChange={(e) => {
+                  const name = e.target.value;
+                  setSubject(name);
+                  const s = subjects.find((x) => x.name === name);
+                  setSubjectId(s?.id ?? '');
+                }}
               >
                 <option value="">—</option>
                 {subjects.map((s) => (
@@ -256,6 +531,17 @@ export default function AtamalarPage() {
             <Input type="number" min={1} value={maxPerDay} onChange={(e) => setMaxPerDay(Number(e.target.value))} />
           </div>
           <div>
+            <Label>Max gün/hf</Label>
+            <Input
+              type="number"
+              min={1}
+              max={6}
+              value={maxDaysWeek}
+              onChange={(e) => setMaxDaysWeek(e.target.value === '' ? '' : Number(e.target.value))}
+              placeholder="—"
+            />
+          </div>
+          <div>
             <Label>Derslik</Label>
             <select
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
@@ -288,8 +574,13 @@ export default function AtamalarPage() {
               + Sabit slot
             </Button>
             <Button type="button" onClick={() => void addAssignment()}>
-              Ekle
+              {editId ? 'Güncelle' : 'Ekle'}
             </Button>
+            {editId && (
+              <Button type="button" variant="outline" onClick={() => setEditId(null)}>
+                İptal
+              </Button>
+            )}
           </div>
           {fixedSlots.length > 0 && (
             <p className="text-xs text-muted-foreground sm:col-span-6">
@@ -299,6 +590,55 @@ export default function AtamalarPage() {
               </button>
             </p>
           )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Excel toplu içe aktar</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={async () => {
+              if (!token || !studio) return;
+              const base = (await import('@/lib/resolve-api-base')).resolveDefaultApiBase().replace(/\/$/, '');
+              const res = await fetch(`${base}/ders-dagit/studios/${studio.id}/assignments/import-template.xlsx`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              const blob = await res.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'ders-dagit-atama-sablon.xlsx';
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+          >
+            Şablon indir
+          </Button>
+          <input
+            type="file"
+            accept=".xlsx,.xls"
+            className="text-xs"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file || !token || !studio) return;
+              const b64 = await new Promise<string>((resolve, reject) => {
+                const r = new FileReader();
+                r.onload = () => resolve((r.result as string).split(',')[1] ?? '');
+                r.onerror = reject;
+                r.readAsDataURL(file);
+              });
+              const res = await apiFetch<{ imported: number }>(
+                `/ders-dagit/studios/${studio.id}/assignments/import-xlsx`,
+                { token, method: 'POST', body: { file_base64: b64 } },
+              );
+              toast.success(`${res.imported} satır`);
+              await load();
+            }}
+          />
         </CardContent>
       </Card>
       <Card>
@@ -347,7 +687,7 @@ export default function AtamalarPage() {
             <ul className="space-y-2 text-sm">
               {rows.map((r) => (
                 <li key={r.id} className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2">
-                  <span>
+                  <button type="button" className="text-left hover:underline" onClick={() => loadToForm(r)}>
                     <strong>{r.subject_name}</strong> — {r.class_sections.join(', ')} · {r.weekly_hours} saat/hafta
                   {r.teacher_ids?.[0] ? (
                     <span className="text-muted-foreground">
@@ -368,7 +708,7 @@ export default function AtamalarPage() {
                     </span>
                   ) : null}
                   {r.biweekly ? <span className="text-muted-foreground"> · 2hf</span> : null}
-                  </span>
+                  </button>
                   <Button
                     type="button"
                     size="sm"

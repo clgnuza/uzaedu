@@ -13,12 +13,23 @@ alwaysApply: true
 - **Tarayıcı (Windows):** `cmd /c start "" "http://..."` — `Start-Process` yerine bunu tercih et.
 - **Ön kontrol:** `Invoke-WebRequest -Uri http://127.0.0.1:<port>/... -UseBasicParsing -TimeoutSec 5` ile port cevap veriyor mu bak; sonra `cmd /c start` ile URL aç.
 
+## Aynı ağdan telefon (LAN)
+
+- **Telefonda `localhost` olmaz:** `http://localhost:3000` telefondaki cihazı gösterir, PC’yi değil; LAN’da PC’ye gitmek için **PC’nin LAN IP’si** veya (ağ destekliyorsa) bilgisayar adı / `.local` gerekir.
+- **PC IP:** `ipconfig` → Wi-Fi IPv4 (örn. `192.168.1.42`). Telefonda: `http://<IPv4>:3000/` (Next `0.0.0.0:3000` dinler). API dev’de `http://<IPv4>:3000/be-api` ile proxylanır (`resolve-api-base.ts`). **Sık IP aramamak için:** router’da bu PC’ye sabit (DHCP rezervasyonu) IP ver.
+- **Windows Güvenlik Duvarı:** Gerekirse gelen kurallarla TCP **3000** ve **4000**’e izin ver (veya `node.exe`).
+- **Firebase (Google giriş):** Firebase Console → Authentication → Authorized domains → LAN hostunu ekle.
+- **Android emülatör (AVD):** Hosttaki site için tarayıcıda **`http://10.0.2.2:3000/`** (`10.0.2.2` = emülatörden bilgisayar). `adb devices` cihaz `device` iken: `.\tools\open-emulator-web-admin.ps1` veya  
+  `& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" shell am start -a android.intent.action.VIEW -d "http://10.0.2.2:3000/"`  
+  Emülatör **offline** ise: emülatörü tam açıp Cold Boot / `adb kill-server` dene.
+
 ## Kullanıcı tetikleyicisi: backend localhost + aç
 
-Kullanıcı **"bankded/banked/banced/backend localhost başlat ve aç"** (yazım hatalarıyla) derse:
+Kullanıcı **"bankded/banked/banced/bancked/backend + localhost başlat ve aç"** veya **"açık tut"** (sürekli çalışsın) derse:
 
-1. **Backend** ve **web-admin** ikisini de başlat (3000 çalışsın diye Next gerekli).
+1. **Backend** ve **web-admin** ikisini de başlat (3000 çalışsın diye Next gerekli); `block_until_ms: 0` ile arka planda bırak.
 2. Tarayıcıda **iki URL** aç: `http://localhost:4000/api/health` ve `http://localhost:3000/`.
+3. **Açık tutma:** Cursor arka plan görevi iptal edilirse süreçler de kesilir; uzun süre açık kalsın istiyorsa kullanıcı bu terminalleri IDE’de açık bırakmalı veya kendi PowerShell’inde aynı komutları çalıştırmalı.
 
 ## Canlı güncelleme (bakım + Hetzner)
 

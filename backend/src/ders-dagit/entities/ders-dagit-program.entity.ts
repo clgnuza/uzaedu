@@ -36,6 +36,12 @@ export class DersDagitProgram {
   @Column({ name: 'generation_meta', type: 'jsonb', default: {} })
   generation_meta: Record<string, unknown>;
 
+  @Column({ name: 'share_token', type: 'varchar', length: 64, nullable: true })
+  share_token: string | null;
+
+  @Column({ name: 'archived_at', type: 'timestamptz', nullable: true })
+  archived_at: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   created_at: Date;
 

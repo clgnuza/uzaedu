@@ -58,6 +58,13 @@ export function placementBlocked(
   const eff = effHours(a);
   const days = assignmentDays(entries, a.id);
 
+  for (const block of a.unavailable_periods ?? []) {
+    if (block.day_of_week === day) {
+      if (block.lesson_num == null || block.lesson_num === lesson) return true;
+    }
+  }
+  if (a.max_days_per_week != null && !days.includes(day) && days.length >= a.max_days_per_week) return true;
+
   const maxPerDayRule = ruleOn(ctx, 'max_one_per_day') ? 1 : ruleOn(ctx, 'max_two_per_day') ? 2 : null;
   const cap =
     maxPerDayRule != null

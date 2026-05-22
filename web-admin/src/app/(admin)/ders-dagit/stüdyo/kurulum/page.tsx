@@ -10,12 +10,14 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { ClassProfileForm } from '@/components/ders-dagit/class-profile-form';
+import { SchoolProfileForm, type SchoolProfileDto } from '@/components/ders-dagit/school-profile-form';
 
 type ClassProfile = {
   id: string;
   name: string;
   class_sections: string[];
   max_lessons_per_day: number;
+  education_shift?: string | null;
 };
 
 export default function KurulumPage() {
@@ -25,15 +27,18 @@ export default function KurulumPage() {
   const [syncing, setSyncing] = useState(false);
   const [profiles, setProfiles] = useState<ClassProfile[]>([]);
   const [suggested, setSuggested] = useState<string[]>([]);
+  const [schoolProfile, setSchoolProfile] = useState<SchoolProfileDto | null>(null);
 
   const load = useCallback(async () => {
     if (!token || !studio) return;
-    const [p, s] = await Promise.all([
+    const [p, s, sp] = await Promise.all([
       apiFetch<ClassProfile[]>(`/ders-dagit/studios/${studio.id}/class-profiles`, { token }),
       apiFetch<string[]>('/ders-dagit/class-sections/suggest', { token }).catch(() => []),
+      apiFetch<SchoolProfileDto>(`/ders-dagit/studios/${studio.id}/school-profile`, { token }).catch(() => null),
     ]);
     setProfiles(p);
     setSuggested(s);
+    setSchoolProfile(sp);
   }, [token, studio]);
 
   useEffect(() => {
@@ -114,6 +119,26 @@ export default function KurulumPage() {
       </Card>
       <Card className="md:col-span-2">
         <CardHeader>
+          <CardTitle className="text-base">Okul türü (MEB — Faz 33)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <SchoolProfileForm
+            initial={schoolProfile}
+            onSave={async (dto) => {
+              if (!token || !studio) return;
+              await apiFetch(`/ders-dagit/studios/${studio.id}/school-profile`, {
+                token,
+                method: 'PATCH',
+                body: dto,
+              });
+              setSchoolProfile(dto);
+              toast.success('Okul profili kaydedildi');
+            }}
+          />
+        </CardContent>
+      </Card>
+      <Card className="md:col-span-2">
+        <CardHeader>
           <CardTitle className="text-base">Sınıf profili (Faz 3)</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -122,7 +147,8 @@ export default function KurulumPage() {
             <ul className="space-y-1 border-t pt-3 text-sm">
               {profiles.map((p) => (
                 <li key={p.id}>
-                  <strong>{p.name}</strong> — {p.class_sections.join(', ')} (max {p.max_lessons_per_day}/gün)
+                  <strong>{p.name}</strong> — {p.class_sections.join(', ')} (max {p.max_lessons_per_day}/gün
+                  {p.education_shift ? ` · ${p.education_shift === 'morning' ? 'sabah' : 'öğle'}` : ''})
                 </li>
               ))}
             </ul>

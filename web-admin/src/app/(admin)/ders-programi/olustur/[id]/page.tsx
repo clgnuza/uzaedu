@@ -39,6 +39,25 @@ import {
 } from '@/components/ui/dialog';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { LessonCellCard } from '@/components/ders-programi/lesson-cell-card';
+import {
+  TimetableDraggableCell,
+  TimetableDroppableSlot,
+  parseEntryDragId,
+  parseSlotDropId,
+} from '@/components/ders-programi/timetable-slot-dnd';
+import { LessonPaletteDnd, parsePaletteDragId } from '@/components/ders-programi/lesson-palette-dnd';
+import '@/components/timetable/timetable-print.css';
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  TouchSensor,
+  pointerWithin,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core';
 import { DersProgramiWeekIllustration } from '@/components/ders-programi/ders-programi-week-illustration';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -196,6 +215,11 @@ export default function ProgramEditPage() {
   const [program, setProgram] = useState<ProgramWithEntries | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [dragCell, setDragCell] = useState<{ subject: string; classSection: string } | null>(null);
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+  );
   const [deleting, setDeleting] = useState(false);
   const [addModal, setAddModal] = useState<{ day: number; lesson: number } | null>(null);
   const [addClassSection, setAddClassSection] = useState('');
@@ -399,6 +423,109 @@ export default function ProgramEditPage() {
       setSaving(false);
     }
   };
+
+  const handleMoveLesson = async (fromDay: number, fromLesson: number, toDay: number, toLesson: number) => {
+    if (!token || !program) return;
+    const entries = program.entries ?? [];
+    if (entries.some((e) => e.day_of_week === toDay && e.lesson_num === toLesson)) {
+      toast.error('Hedef hücre dolu.');
+      return;
+    }
+    const newEntries = entries.map((e) =>
+      e.day_of_week === fromDay && e.lesson_num === fromLesson
+        ? { ...e, day_of_week: toDay, lesson_num: toLesson }
+        : e,
+    );
+    setSaving(true);
+    try {
+      const updated = await apiFetch<ProgramWithEntries>(`/teacher-timetable/my-programs/${id}`, {
+        token,
+        method: 'PATCH',
+        body: JSON.stringify({
+          entries: newEntries.map((e) => ({
+            day_of_week: e.day_of_week,
+            lesson_num: e.lesson_num,
+            class_section: e.class_section,
+            subject: e.subject,
+          })),
+        }),
+      });
+      setProgram(updated);
+      toast.success('Ders taşındı.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Taşınamadı.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleQuickAdd = async (day: number, lesson: number, subjectKey: string) => {
+    if (!token || !program) return;
+    const classSection = addClassSection.trim().slice(0, 32);
+    if (!classSection) {
+      toast.error('Üstte sınıf/şube girin veya paletten önce şube seçin.');
+      return;
+    }
+    if (getCellEntry(day, lesson)) {
+      toast.error('Hücre dolu.');
+      return;
+    }
+    const picked = schoolSubjects.find((s) => s.id === subjectKey);
+    const subject = (
+      schoolSubjects.length > 0 && picked ? formatSchoolSubjectOptionLabel(picked) : subjectKey
+    ).slice(0, 128);
+    const newEntries = [
+      ...(program.entries ?? []),
+      { day_of_week: day, lesson_num: lesson, class_section: classSection, subject, user_id: me?.id },
+    ];
+    setSaving(true);
+    try {
+      const updated = await apiFetch<ProgramWithEntries>(`/teacher-timetable/my-programs/${id}`, {
+        token,
+        method: 'PATCH',
+        body: JSON.stringify({
+          entries: newEntries.map((e) => ({
+            day_of_week: e.day_of_week,
+            lesson_num: e.lesson_num,
+            class_section: e.class_section,
+            subject: e.subject,
+          })),
+        }),
+      });
+      setProgram(updated);
+      toast.success('Ders eklendi.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Eklenemedi.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onTimetableDragEnd = (ev: DragEndEvent) => {
+    setDragCell(null);
+    if (saving) return;
+    const activeId = String(ev.active.id);
+    const to = ev.over ? parseSlotDropId(String(ev.over.id)) : null;
+    const paletteKey = parsePaletteDragId(activeId);
+    if (paletteKey && to) {
+      void handleQuickAdd(to.day, to.lesson, paletteKey);
+      return;
+    }
+    const from = parseEntryDragId(activeId);
+    if (!from || !to) return;
+    if (from.day === to.day && from.lesson === to.lesson) return;
+    void handleMoveLesson(from.day, from.lesson, to.day, to.lesson);
+  };
+
+  const weeklyPrintRef = useRef<HTMLDivElement>(null);
+  const paletteSubjects = useMemo(
+    () =>
+      schoolSubjects.map((s) => ({
+        id: s.id,
+        label: formatSchoolSubjectOptionLabel(s),
+      })),
+    [schoolSubjects],
+  );
 
   const handleRemoveLesson = async (day: number, lesson: number) => {
     if (!token || !program) return;
@@ -1130,8 +1257,9 @@ export default function ProgramEditPage() {
       <Card
         ref={(el) => {
           sectionRefs.current.weekly = el;
+          weeklyPrintRef.current = el;
         }}
-        className="scroll-mt-36 overflow-hidden border-border shadow-md sm:scroll-mt-40"
+        className="timetable-print-root scroll-mt-36 overflow-hidden border-border shadow-md sm:scroll-mt-40 print:shadow-none"
       >
         <CardHeader className="border-b border-sky-200/50 bg-linear-to-r from-sky-500/8 via-card to-transparent px-3 py-3 dark:border-sky-900/40 sm:px-5 sm:py-4">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -1140,11 +1268,49 @@ export default function ProgramEditPage() {
             </div>
             <div className="min-w-0 flex-1">
               <CardTitle className="text-base font-bold sm:text-lg">Haftalık program</CardTitle>
-              <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">Hücrelere dokunarak ders ekleyin veya kaldırın.</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">
+                Paletten veya boş hücreye sürükleyin; ders kartını başka slota taşıyın.
+              </p>
             </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="print:hidden"
+              onClick={() => window.print()}
+            >
+              Yazdır
+            </Button>
+          </div>
+          <div className="mt-3 border-t border-border/60 pt-3 print:hidden">
+            <p className="mb-1.5 text-[10px] font-semibold uppercase text-muted-foreground">Ders paleti</p>
+            <LessonPaletteDnd
+              subjects={paletteSubjects}
+              classSection={addClassSection}
+              disabled={saving}
+            />
           </div>
         </CardHeader>
         <CardContent className="p-0 table-x-scroll">
+          <DndContext
+            sensors={dndSensors}
+            collisionDetection={pointerWithin}
+            onDragStart={(e: DragStartEvent) => {
+              const from = parseEntryDragId(String(e.active.id));
+              if (!from || !program?.entries) return;
+              const ent = program.entries.find(
+                (x) => x.day_of_week === from.day && x.lesson_num === from.lesson,
+              );
+              if (ent) {
+                setDragCell({
+                  subject: resolveSchoolSubjectDisplay(ent.subject, schoolSubjects),
+                  classSection: ent.class_section,
+                });
+              }
+            }}
+            onDragEnd={onTimetableDragEnd}
+            onDragCancel={() => setDragCell(null)}
+          >
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="bg-muted/50">
@@ -1204,13 +1370,18 @@ export default function ProgramEditPage() {
                     }
                     const lessonNum = slot.lessonNum!;
                     const entry = getCellEntry(day, lessonNum);
+                    const tdClass =
+                      'w-[min(100%,6rem)] min-w-21 border-b border-r border-border align-middle p-1 last:border-r-0 sm:min-w-20 sm:p-1.5';
                     return (
-                      <td
+                      <TimetableDroppableSlot
                         key={day}
-                        className="w-[min(100%,6rem)] min-w-21 border-b border-r border-border align-middle p-1 last:border-r-0 sm:min-w-20 sm:p-1.5"
+                        day={day}
+                        lesson={lessonNum}
+                        disabled={saving}
+                        className={tdClass}
                       >
                         {entry ? (
-                          <div className="flex h-full min-h-14 w-full items-stretch justify-center sm:min-h-16">
+                          <TimetableDraggableCell day={day} lesson={lessonNum} disabled={saving}>
                             <LessonCellCard
                               subject={resolveSchoolSubjectDisplay(entry.subject, schoolSubjects)}
                               classSection={entry.class_section}
@@ -1219,7 +1390,7 @@ export default function ProgramEditPage() {
                               editable
                               teacherCell
                             />
-                          </div>
+                          </TimetableDraggableCell>
                         ) : (
                           <button
                             type="button"
@@ -1232,13 +1403,22 @@ export default function ProgramEditPage() {
                             <span className="text-[9px] font-semibold uppercase leading-tight tracking-wide sm:text-[10px]">Ders ekle</span>
                           </button>
                         )}
-                      </td>
+                      </TimetableDroppableSlot>
                     );
                   })}
                 </tr>
               ))}
             </tbody>
           </table>
+          <DragOverlay>
+            {dragCell ? (
+              <div className="rounded-lg border border-primary/30 bg-background px-3 py-2 text-xs shadow-lg">
+                <p className="font-bold">{dragCell.subject}</p>
+                {dragCell.classSection ? <p className="text-muted-foreground">{dragCell.classSection}</p> : null}
+              </div>
+            ) : null}
+          </DragOverlay>
+          </DndContext>
         </CardContent>
       </Card>
 

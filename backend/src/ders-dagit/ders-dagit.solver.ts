@@ -1,6 +1,13 @@
 import { applySoftRulePenalties } from './ders-dagit.solver-rules';
 import { placementBlocked } from './ders-dagit.solver-placement-rules';
 import type { DersDagitGroupMode } from './ders-dagit.groups';
+import {
+  assignmentBlockLessons,
+  isInternshipBlocked,
+  type StudioSchoolProfile,
+} from './ders-dagit.school-profile';
+import { daysForAssignment } from './ders-dagit.solver-blocks';
+import { lessonInShift, type EducationShift } from './ders-dagit.dual-education';
 
 /**
  * Kısıtlı yerleştirme — sert: çakışma, müsait değil, öğretmen limitleri.
@@ -31,6 +38,10 @@ export type SolverAssignment = {
   fixed_slots: Array<{ day_of_week: number; lesson_num: number; class_section?: string }>;
   place_first: boolean;
   biweekly?: boolean;
+  max_days_per_week?: number | null;
+  unavailable_periods?: Array<{ day_of_week: number; lesson_num?: number }>;
+  co_teach?: boolean;
+  options?: Record<string, unknown>;
 };
 
 export type RoomConstraint = {
@@ -78,6 +89,13 @@ export type SolverContext = {
   /** Öğle arası: bu dersten sonraki slotlar PM sayılır */
   lunch_after_lesson: number;
   room_constraints: Map<string, RoomConstraint>;
+  building_travel_matrix: Map<string, number>;
+  school_profile: StudioSchoolProfile;
+  dual_education_enabled: boolean;
+  pm_first_lesson: number;
+  section_shift: Map<string, EducationShift | null>;
+  teacher_shift: Map<string, EducationShift | null>;
+  group_member_sections: Map<string, string[]>;
 };
 
 function effectiveWeeklyHours(a: SolverAssignment): number {
@@ -136,16 +154,29 @@ export function canPlace(
   if (lesson < 1 || lesson > dayMax) return false;
   if (ctx.blocked_lesson_nums.has(lesson)) return false;
   if (!ctx.work_days.includes(day)) return false;
+  if (isInternshipBlocked(ctx.school_profile, day, classSection)) return false;
+  if (ctx.dual_education_enabled) {
+    const secShift = ctx.section_shift.get(classSection) ?? null;
+    if (!lessonInShift(lesson, secShift, ctx.pm_first_lesson)) return false;
+    if (userId) {
+      const tShift = ctx.teacher_shift.get(userId) ?? null;
+      if (!lessonInShift(lesson, tShift, ctx.pm_first_lesson)) return false;
+    }
+  }
   if (userId && isUnavailable(ctx, day, lesson, userId)) return false;
 
   const mode = assignment.group_id ? ctx.group_modes.get(assignment.group_id) : undefined;
   const key = slotKey(day, lesson);
   const existing = occupied.get(key) ?? [];
   for (const e of existing) {
-    if (e.class_section === classSection) return false;
+    if (e.class_section === classSection) {
+      if (assignment.co_teach && e.assignment_id === assignment.id) continue;
+      return false;
+    }
     if (userId && e.user_id && e.user_id === userId) {
       const sameGroup = assignment.group_id && e.group_id === assignment.group_id;
       if (sameGroup && mode === 'teacher_multi_class') continue;
+      if (sameGroup && mode === 'subgroups' && e.class_section !== classSection) continue;
       return false;
     }
     if (mode === 'parallel_rooms' && assignment.group_id && e.group_id === assignment.group_id) {
@@ -225,12 +256,15 @@ function violatesBuildingRules(
       if (b && b !== newB) return true;
     }
   }
-  if (ctx.building_travel_gap > 0 && newB) {
+  if (newB) {
     for (const e of sameDay) {
       const b = buildingOf(ctx, e.room_id);
-      if (b && b !== newB && Math.abs(e.lesson_num - lesson) < ctx.building_travel_gap) {
-        return true;
-      }
+      if (!b || b === newB) continue;
+      const gap =
+        ctx.building_travel_matrix.get(`${b}:${newB}`) ??
+        ctx.building_travel_matrix.get(`${newB}:${b}`) ??
+        ctx.building_travel_gap;
+      if (gap > 0 && Math.abs(e.lesson_num - lesson) < gap) return true;
     }
   }
   return false;
@@ -315,6 +349,25 @@ export function runConstraintSolver(
     const arr = occupied.get(key) ?? [];
     arr.push(slot);
     occupied.set(key, arr);
+    if (a.co_teach && userId) {
+      for (const coId of a.teacher_ids) {
+        if (coId === userId) continue;
+        if (!canPlace(occupied, day, lesson, classSection, coId, ctx, a)) continue;
+        const coSlot: SolverSlot = {
+          day_of_week: day,
+          lesson_num: lesson,
+          class_section: classSection,
+          subject: a.subject_name,
+          user_id: coId,
+          assignment_id: a.id,
+          room_id,
+          group_id: a.group_id,
+        };
+        entries.push(coSlot);
+        arr.push(coSlot);
+      }
+      occupied.set(key, arr);
+    }
     return true;
   };
 
@@ -350,6 +403,32 @@ export function runConstraintSolver(
     }
 
     const gMode = a.group_id ? ctx.group_modes.get(a.group_id) : undefined;
+    const subgroupSecs =
+      gMode === 'subgroups' && a.group_id
+        ? (ctx.group_member_sections.get(a.group_id) ?? a.class_sections)
+        : a.class_sections;
+    if (gMode === 'subgroups' && subgroupSecs.length > 1) {
+      let placedBlock = false;
+      outerSub: for (const day of days) {
+        const dayMax = ctx.max_lesson_by_day.get(day) ?? ctx.max_lesson_per_day;
+        for (let lesson = 1; lesson <= dayMax; lesson++) {
+          if (ctx.blocked_lesson_nums.has(lesson)) continue;
+          const ok = subgroupSecs.every((sec) => canPlace(occupied, day, lesson, sec, uid, ctx, a));
+          if (!ok) continue;
+          if (a.max_per_day != null && countAssignmentOnDay(entries, a.id, day) + subgroupSecs.length > a.max_per_day) {
+            continue;
+          }
+          for (const sec of subgroupSecs) {
+            placeOne(a, sec, day, lesson, uid);
+          }
+          need -= subgroupSecs.length;
+          placedBlock = true;
+          if (a.group_id) groupAnchor.set(a.group_id, { day, lesson });
+          break outerSub;
+        }
+      }
+      if (placedBlock && need <= 0) continue;
+    }
     if (gMode === 'teacher_multi_class' && a.class_sections.length > 1) {
       let placedBlock = false;
       outer: for (const day of days) {
@@ -382,7 +461,38 @@ export function runConstraintSolver(
       const needSpread = usedDays.size < minDays ? -2 : 0;
       return onDay * 10 - isNewDay * 5 + needSpread;
     };
-    const dayTry = [...days].sort((x, y) => dayScores(x) - dayScores(y));
+    const dayTry = daysForAssignment(a, [...days].sort((x, y) => dayScores(x) - dayScores(y)));
+
+    const blockSize = assignmentBlockLessons(a.options);
+    if (blockSize > 1 && need > 0) {
+      outerBlock: for (const day of dayTry) {
+        const dayMax = ctx.max_lesson_by_day.get(day) ?? ctx.max_lesson_per_day;
+        for (let start = 1; start <= dayMax - blockSize + 1; start++) {
+          if (ctx.blocked_lesson_nums.has(start)) continue;
+          for (const sec of a.class_sections) {
+            let ok = true;
+            for (let i = 0; i < blockSize; i++) {
+              const les = start + i;
+              if (!canPlace(occupied, day, les, sec, uid, ctx, a)) {
+                ok = false;
+                break;
+              }
+            }
+            if (!ok) continue;
+            if (a.max_per_day != null && countAssignmentOnDay(entries, a.id, day) + blockSize > a.max_per_day) {
+              continue;
+            }
+            for (let i = 0; i < blockSize; i++) {
+              placeOne(a, sec, day, start + i, uid);
+              need--;
+              usedDays.add(day);
+            }
+            if (need <= 0) break outerBlock;
+          }
+        }
+        if (need <= 0) break;
+      }
+    }
 
     let attempts = 0;
     const maxAttempts = days.length * ctx.max_lesson_per_day * 4;
@@ -416,7 +526,8 @@ export function runConstraintSolver(
       violations.push(`${a.subject_name}: min ${a.min_days_per_week} gün dağılımı sağlanamadı`);
     }
     if (need > 0) {
-      violations.push(`${a.subject_name}: ${need} saat yerleşmedi`);
+      const hint = blockSize > 1 ? ' (blok ders?)' : '';
+      violations.push(`${a.subject_name}: ${need} saat yerleşmedi${hint}`);
     }
   }
 
@@ -424,8 +535,11 @@ export function runConstraintSolver(
   for (const [, slots] of occupied) {
     const teachers = new Set(slots.map((s) => s.user_id).filter(Boolean));
     const classes = new Set(slots.map((s) => s.class_section));
-    if (teachers.size < slots.filter((s) => s.user_id).length) clashCount++;
-    if (classes.size < slots.length) clashCount++;
+    const gid = slots[0]?.group_id;
+    const gMode = gid ? ctx.group_modes.get(gid) : undefined;
+    const subgroupOk = gMode === 'subgroups' && gid && slots.every((s) => s.group_id === gid);
+    if (!subgroupOk && teachers.size < slots.filter((s) => s.user_id).length) clashCount++;
+    if (classes.size < slots.length && !subgroupOk) clashCount++;
   }
 
   for (const lim of ctx.teacher_limits) {
@@ -447,7 +561,10 @@ export function runConstraintSolver(
   const soft = applySoftRulePenalties(entries, assignments, ctx);
   violations.push(...soft.violations);
 
-  const target = assignments.reduce((s, a) => s + a.weekly_hours, 0);
+  const target = assignments.reduce(
+    (s, a) => s + (a.biweekly ? Math.ceil(a.weekly_hours / 2) : a.weekly_hours),
+    0,
+  );
   const failed = Math.max(0, target - entries.length);
   const score = Math.max(
     0,

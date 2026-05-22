@@ -23,6 +23,7 @@ type Teacher = {
   max_work_days: number | null;
   allow_am_pm_gap: boolean;
   unavailable_periods: Array<{ day_of_week: number; lesson_num?: number }>;
+  constraints?: { education_shift?: 'morning' | 'afternoon' | null };
 };
 
 const DAY_OPTS = [
@@ -86,6 +87,7 @@ export default function OgretmenlerPage() {
         max_work_days: t.max_work_days,
         allow_am_pm_gap: t.allow_am_pm_gap,
         unavailable_periods: t.unavailable_periods,
+        constraints: t.constraints ?? {},
       },
     });
     toast.success('Kaydedildi');
@@ -113,10 +115,45 @@ export default function OgretmenlerPage() {
           Dönem (öğle arası)
         </Link>
       </p>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="button" variant="secondary" size="sm" disabled={syncing} onClick={() => void syncAll()}>
           Okuldan öğretmen çek
         </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={async () => {
+            if (!token || !studio) return;
+            const r = await apiFetch<{ updated: number; norm: { mandatory_weekly_hours: number; max_extra_weekly_hours: number } }>(
+              `/ders-dagit/studios/${studio.id}/sync-extra-lesson-params`,
+              { token, method: 'POST' },
+            );
+            toast.success(`Maaş karşılığı norm: ${r.updated} öğretmen (${r.norm.mandatory_weekly_hours}+${r.norm.max_extra_weekly_hours} saat)`);
+            await load();
+          }}
+        >
+          Ek ders norm senkron
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={async () => {
+            if (!token || !studio) return;
+            const r = await apiFetch<{ block_count: number }>(`/ders-dagit/studios/${studio.id}/duty-sync`, {
+              token,
+              method: 'POST',
+              body: {},
+            });
+            toast.success(`Nöbet: ${r.block_count} müsait değil slot`);
+          }}
+        >
+          Nöbet senkron
+        </Button>
+        <Link href="/nobet" className="text-xs text-primary underline self-center">
+          Nöbet planı
+        </Link>
       </div>
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">Önce senkron yapın.</p>
@@ -182,6 +219,25 @@ export default function OgretmenlerPage() {
                     value={t.max_work_days ?? ''}
                     onChange={(e) => patch(t.id, { max_work_days: e.target.value ? Number(e.target.value) : null })}
                   />
+                </div>
+                <div>
+                  <Label className="text-xs">Vardiya (ikili)</Label>
+                  <select
+                    className="h-8 w-full rounded-md border px-2 text-xs"
+                    value={t.constraints?.education_shift ?? ''}
+                    onChange={(e) =>
+                      patch(t.id, {
+                        constraints: {
+                          ...(t.constraints ?? {}),
+                          education_shift: (e.target.value || null) as 'morning' | 'afternoon' | null,
+                        },
+                      })
+                    }
+                  >
+                    <option value="">Her iki</option>
+                    <option value="morning">Sabah</option>
+                    <option value="afternoon">Öğle</option>
+                  </select>
                 </div>
               </div>
               <label className="flex items-center gap-2 text-xs">

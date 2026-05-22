@@ -1,0 +1,38 @@
+'use client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { cn } from '@/lib/utils';
+
+const STEPS = [
+  { href: '/ders-dagit/stüdyo/kurulum', label: '1 Kurulum' },
+  { href: '/ders-dagit/stüdyo/donem', label: '2 Dönem' },
+  { href: '/ders-dagit/stüdyo/atamalar', label: '3 Atama' },
+  { href: '/ders-dagit/stüdyo/kurallar', label: '4 Kurallar' },
+  { href: '/ders-dagit/stüdyo/dogrulama', label: '5 Doğrula' },
+  { href: '/ders-dagit/stüdyo/uret', label: '6 Üret' },
+  { href: '/ders-dagit/stüdyo/program', label: '7 Program' },
+] as const;
+
+export function StudioProgramStepper() {
+  const pathname = usePathname();
+  return (
+    <nav className="print:hidden flex gap-1 overflow-x-auto rounded-lg border border-border bg-muted/30 p-1 text-xs">
+      {STEPS.map((s) => {
+        const active = pathname === s.href || pathname.startsWith(`${s.href}/`);
+        return (
+          <Link
+            key={s.href}
+            href={s.href}
+            className={cn(
+              'shrink-0 rounded-md px-2.5 py-1.5 font-medium transition-colors',
+              active ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted',
+            )}
+          >
+            {s.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}

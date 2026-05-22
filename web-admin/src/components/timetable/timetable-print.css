@@ -1,0 +1,26 @@
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .timetable-print-root,
+  .timetable-print-root * {
+    visibility: visible;
+  }
+  .timetable-print-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  .print\\:hidden {
+    display: none !important;
+  }
+  .timetable-print-root table {
+    font-size: 9pt;
+    page-break-inside: avoid;
+  }
+  .timetable-print-root th,
+  .timetable-print-root td {
+    border: 1px solid #333 !important;
+  }
+}

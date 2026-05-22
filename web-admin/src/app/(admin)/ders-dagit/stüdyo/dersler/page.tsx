@@ -24,6 +24,12 @@ export default function DerslerPage() {
   const [name, setName] = useState('');
   const [section, setSection] = useState('5A');
   const [hours, setHours] = useState(4);
+  const [ttkbPreview, setTtkbPreview] = useState<{
+    subject_count: number;
+    cell_count: number;
+    sections: string[];
+    sample: Array<{ subject_name: string; class_section: string; weekly_hours: number; source: string }>;
+  } | null>(null);
 
   const load = useCallback(async () => {
     if (!token || !studio) return;
@@ -48,6 +54,50 @@ export default function DerslerPage() {
 
   return (
     <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">TTKB / Maarif tohum (Faz 39)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                if (!token || !studio) return;
+                setTtkbPreview(
+                  await apiFetch(`/ders-dagit/studios/${studio.id}/seed/ttkb/preview`, { token }),
+                );
+              }}
+            >
+              Önizle
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={async () => {
+                if (!token || !studio) return;
+                const r = await apiFetch<{ created: number; updated: number; assignments_created?: number }>(
+                  `/ders-dagit/studios/${studio.id}/seed/ttkb`,
+                  { token, method: 'POST', body: { sync_assignments: true } },
+                );
+                toast.success(`${r.created} yeni, ${r.updated} güncellendi · ${r.assignments_created ?? 0} atama`);
+                setTtkbPreview(null);
+                await load();
+              }}
+            >
+              Tohumla + atama
+            </Button>
+          </div>
+          {ttkbPreview && (
+            <p className="text-xs text-muted-foreground">
+              {ttkbPreview.subject_count} ders · {ttkbPreview.cell_count} hücre · şubeler:{' '}
+              {ttkbPreview.sections.slice(0, 8).join(', ')}
+            </p>
+          )}
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Ders kataloğu (Faz 5)</CardTitle>

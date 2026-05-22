@@ -5,7 +5,10 @@ import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { apiFetch } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ProgramGridPreview } from '@/components/ders-dagit/program-grid-preview';
+import { Button } from '@/components/ui/button';
+import { TimetableReadonly } from '@/components/timetable/TimetableReadonly';
+import { downloadDersDagitExport } from '@/lib/ders-dagit-api';
+import { toast } from 'sonner';
 
 type Program = { id: string; name: string | null; status: string };
 
@@ -82,8 +85,25 @@ export default function VeliProgramPage() {
           ))}
         </CardContent>
       </Card>
+      {programs[0] && classSection && (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={async () => {
+            if (!token || !studio) return;
+            try {
+              await downloadDersDagitExport(token, studio.id, programs[0]!.id, 'parent_pdf', classSection);
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : 'PDF indirilemedi');
+            }
+          }}
+        >
+          Veli PDF indir
+        </Button>
+      )}
       {filtered.length > 0 ? (
-        <ProgramGridPreview entries={filtered} />
+        <TimetableReadonly entries={filtered} classSection={classSection} />
       ) : (
         <p className="text-sm text-muted-foreground">Yayınlanmış program yok.</p>
       )}
