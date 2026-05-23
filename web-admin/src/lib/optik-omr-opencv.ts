@@ -140,7 +140,7 @@ function findMarkerInRoi(
   expX: number,
   expY: number,
 ): OmrPoint | null {
-  const roiR = Math.round(Math.min(w, h) * 0.12);
+  const roiR = Math.round(Math.min(w, h) * 0.14);
   const cx = Math.round(expX * w);
   const cy = Math.round(expY * h);
   const x0 = Math.max(0, cx - roiR);
@@ -153,24 +153,39 @@ function findMarkerInRoi(
   const roi = gray.roi(rect);
   const blurred = new cv.Mat();
   const thresh = new cv.Mat();
+  const morphed = new cv.Mat();
   const contours = new cv.MatVector();
   const hierarchy = new cv.Mat();
 
   try {
-    cv.GaussianBlur(roi, blurred, new cv.Size(5, 5), 0);
+    cv.GaussianBlur(roi, blurred, new cv.Size(7, 7), 0);
+    
+    const otsuThresh = new cv.Mat();
+    cv.threshold(blurred, otsuThresh, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
+    
     cv.adaptiveThreshold(
       blurred,
       thresh,
       255,
       cv.ADAPTIVE_THRESH_GAUSSIAN_C,
       cv.THRESH_BINARY_INV,
-      15,
-      7,
+      17,
+      8,
     );
-    cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    
+    cv.bitwise_and(thresh, otsuThresh, morphed);
+    otsuThresh.delete();
+    
+    const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(2, 2));
+    const closed = new cv.Mat();
+    cv.morphologyEx(morphed, closed, cv.MORPH_CLOSE, kernel);
+    kernel.delete();
+    
+    cv.findContours(closed, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    closed.delete();
 
-    const minArea = rw * rh * 0.002;
-    const maxArea = rw * rh * 0.35;
+    const minArea = rw * rh * 0.0015;
+    const maxArea = rw * rh * 0.42;
     let best: OmrPoint | null = null;
     let bestScore = 0;
 
@@ -180,13 +195,19 @@ function findMarkerInRoi(
       if (area < minArea || area > maxArea) continue;
       const box = cv.boundingRect(c);
       const ar = box.width / Math.max(1, box.height);
-      if (ar < 0.45 || ar > 2.2) continue;
+      if (ar < 0.35 || ar > 2.8) continue;
+      
       const m = cv.moments(c);
       if (m.m00 < 1) continue;
       const px = x0 + m.m10 / m.m00;
       const py = y0 + m.m01 / m.m00;
       const dist = Math.hypot(px - cx, py - cy);
-      const score = area / (1 + dist * 0.05);
+      
+      const compactness = 4 * Math.PI * area / (cv.arcLength(c, true) ** 2);
+      const shapeScore = Math.min(1, compactness * 1.2);
+      const distScore = Math.exp(-dist / roiR);
+      const score = area * shapeScore * distScore;
+      
       if (score > bestScore) {
         bestScore = score;
         best = { x: px, y: py };
@@ -197,6 +218,7 @@ function findMarkerInRoi(
     roi.delete();
     blurred.delete();
     thresh.delete();
+    morphed.delete();
     contours.delete();
     hierarchy.delete();
   }
@@ -256,8 +278,10 @@ export async function warpOmrOpenCv(
   const M = cv.getPerspectiveTransform(src, dst);
   const mat = grayToMat(cv, gray, w, h);
   const warped = new cv.Mat();
-  const clahe = cv.createCLAHE(2.2, new cv.Size(8, 8));
+  const denoised = new cv.Mat();
+  const clahe = cv.createCLAHE(2.8, new cv.Size(8, 8));
   const enhanced = new cv.Mat();
+  const bilateral = new cv.Mat();
   const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(2, 2));
   const opened = new cv.Mat();
 
@@ -271,17 +295,31 @@ export async function warpOmrOpenCv(
       cv.BORDER_CONSTANT,
       new cv.Scalar(255),
     );
-    clahe.apply(warped, enhanced);
+    
+    cv.bilateralFilter(warped, bilateral, 5, 50, 50);
+    clahe.apply(bilateral, enhanced);
     cv.morphologyEx(enhanced, opened, cv.MORPH_OPEN, kernel);
-    return matToGray(cv, opened);
+    
+    const sharpKernel = cv.matFromArray(3, 3, cv.CV_32F, [
+      0, -0.5, 0,
+      -0.5, 3, -0.5,
+      0, -0.5, 0,
+    ]);
+    const sharpened = new cv.Mat();
+    cv.filter2D(opened, sharpened, cv.CV_8U, sharpKernel);
+    sharpKernel.delete();
+    
+    return matToGray(cv, sharpened);
   } finally {
     src.delete();
     dst.delete();
     M.delete();
     mat.delete();
     warped.delete();
+    denoised.delete();
     clahe.delete();
     enhanced.delete();
+    bilateral.delete();
     kernel.delete();
     opened.delete();
   }

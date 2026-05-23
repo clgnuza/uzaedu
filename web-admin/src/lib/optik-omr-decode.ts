@@ -103,37 +103,54 @@ function sampleBubbleMark(
   cy: number,
   rPx: number,
 ): number {
-  const innerR = rPx * 0.4;
+  const innerR = rPx * 0.38;
   const innerR2 = innerR * innerR;
-  const ringR1 = rPx * 0.62;
-  const ringR2 = rPx * 1.08;
+  const midR1 = rPx * 0.58;
+  const midR2 = rPx * 0.78;
+  const midR1_2 = midR1 * midR1;
+  const midR2_2 = midR2 * midR2;
+  const ringR1 = rPx * 0.85;
+  const ringR2 = rPx * 1.12;
   const ringR1_2 = ringR1 * ringR1;
   const ringR2_2 = ringR2 * ringR2;
+  
   let innerDark = 0;
   let innerN = 0;
+  let midGray = 0;
+  let midN = 0;
   let ringBright = 0;
   let ringN = 0;
-  const step = Math.max(1, Math.floor(rPx / 5));
-  for (let dy = -rPx; dy <= rPx; dy += step) {
-    for (let dx = -rPx; dx <= rPx; dx += step) {
+  
+  const step = Math.max(1, Math.floor(rPx / 6));
+  for (let dy = -rPx * 1.2; dy <= rPx * 1.2; dy += step) {
+    for (let dx = -rPx * 1.2; dx <= rPx * 1.2; dx += step) {
       const d2 = dx * dx + dy * dy;
       const x = Math.round(cx + dx);
       const y = Math.round(cy + dy);
       if (x < 0 || y < 0 || x >= w || y >= h) continue;
       const g = gray[y * w + x]!;
+      
       if (d2 <= innerR2) {
         innerDark += 255 - g;
         innerN++;
+      } else if (d2 >= midR1_2 && d2 <= midR2_2) {
+        midGray += 255 - g;
+        midN++;
       } else if (d2 >= ringR1_2 && d2 <= ringR2_2) {
         ringBright += g;
         ringN++;
       }
     }
   }
+  
   if (innerN < 2) return 0;
-  const mark = innerDark / innerN / 255;
+  const inner = innerDark / innerN / 255;
+  const mid = midN > 0 ? midGray / midN / 255 : inner * 0.5;
   const paper = ringN > 0 ? ringBright / ringN / 255 : 0.92;
-  return Math.max(0, mark - (1 - paper) * 0.35);
+  
+  const mark = Math.max(inner, mid * 0.85);
+  const contrast = paper - (1 - mark);
+  return Math.max(0, mark - (1 - paper) * 0.28) * (0.7 + Math.min(0.3, contrast * 0.5));
 }
 
 function filterLayoutBubbles(layout: OmrScanLayout, opts?: OmrDecodeOptions) {
@@ -190,7 +207,7 @@ export function pickAnswerFromMarks(
   };
 }
 
-/** Yerel köşe — ROI içi yerel eşik + en koyu bağlı alan */
+/** Yerel köşe — ROI içi çoklu eşik + en koyu bağlı alan */
 function detectCorner(
   gray: Uint8Array,
   w: number,
@@ -198,7 +215,7 @@ function detectCorner(
   expX: number,
   expY: number,
 ): Point | null {
-  const searchR = Math.round(Math.min(w, h) * 0.11);
+  const searchR = Math.round(Math.min(w, h) * 0.13);
   const ecx = Math.round(expX * w);
   const ecy = Math.round(expY * h);
   const x0 = Math.max(0, ecx - searchR);
@@ -211,37 +228,53 @@ function detectCorner(
     for (let x = x0; x <= x1; x++) patch.push(gray[y * w + x]!);
   }
   patch.sort((a, b) => a - b);
-  const thresh = patch[Math.floor(patch.length * 0.72)] ?? 140;
+  
+  const t1 = patch[Math.floor(patch.length * 0.68)] ?? 140;
+  const t2 = patch[Math.floor(patch.length * 0.75)] ?? 155;
 
-  let best = 0;
-  let bx = ecx;
-  let by = ecy;
-  const step = Math.max(2, Math.floor(searchR / 16));
-  for (let y = y0; y <= y1; y += step) {
-    for (let x = x0; x <= x1; x += step) {
-      let dark = 0;
-      let total = 0;
-      const r = 6;
-      for (let oy = -r; oy <= r; oy++) {
-        for (let ox = -r; ox <= r; ox++) {
-          const nx = x + ox;
-          const ny = y + oy;
-          if (nx < x0 || ny < y0 || nx > x1 || ny > y1) continue;
-          total++;
-          if (gray[ny * w + nx]! < thresh) dark++;
+  const cands: Point[] = [];
+  for (const thresh of [t1, t2]) {
+    let best = 0;
+    let bx = ecx;
+    let by = ecy;
+    const step = Math.max(2, Math.floor(searchR / 18));
+    
+    for (let y = y0; y <= y1; y += step) {
+      for (let x = x0; x <= x1; x += step) {
+        let dark = 0;
+        let total = 0;
+        const r = 7;
+        for (let oy = -r; oy <= r; oy++) {
+          for (let ox = -r; ox <= r; ox++) {
+            const nx = x + ox;
+            const ny = y + oy;
+            if (nx < x0 || ny < y0 || nx > x1 || ny > y1) continue;
+            total++;
+            if (gray[ny * w + nx]! < thresh) dark++;
+          }
+        }
+        const score = total > 0 ? dark / total : 0;
+        const dist = Math.hypot(x - ecx, y - ecy);
+        const weighted = score / (1 + dist * 0.0015);
+        if (weighted > best) {
+          best = weighted;
+          bx = x;
+          by = y;
         }
       }
-      const score = total > 0 ? dark / total : 0;
-      const dist = Math.hypot(x - ecx, y - ecy);
-      const weighted = score / (1 + dist * 0.002);
-      if (weighted > best) {
-        best = weighted;
-        bx = x;
-        by = y;
-      }
     }
+    if (best > 0.28) cands.push({ x: bx, y: by });
   }
-  return best > 0.32 ? { x: bx, y: by } : null;
+
+  if (cands.length === 0) return null;
+  
+  cands.sort((a, b) => {
+    const dA = Math.hypot(a.x - ecx, a.y - ecy);
+    const dB = Math.hypot(b.x - ecx, b.y - ecy);
+    return dA - dB;
+  });
+  
+  return cands[0]!;
 }
 
 function bilinearSample(gray: Uint8Array, w: number, h: number, x: number, y: number): number {

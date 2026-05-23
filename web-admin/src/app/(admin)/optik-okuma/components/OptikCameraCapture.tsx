@@ -27,6 +27,11 @@ import {
 } from './OptikOmrCameraOverlay';
 import { answerKeyToNumberMap } from '@/lib/optik-omr-overlay';
 import { Camera, Flashlight, FlashlightOff, ScanLine, X } from 'lucide-react';
+import {
+  assessCameraGuidance,
+  type CameraGuidance,
+  type DetectedQuad,
+} from '@/lib/optik-camera-guidance';
 
 export type OptikCameraOverlayConfig = {
   layout: OmrScanLayout;
@@ -82,6 +87,7 @@ export function OptikCameraCapture({
   const streamRef = useRef<MediaStream | null>(null);
   const liveBusyRef = useRef(false);
   const [livePreview, setLivePreview] = useState<OmrLivePreview | null>(null);
+  const [guidance, setGuidance] = useState<CameraGuidance | null>(null);
 
   const title =
     mode === 'mc' ? 'Optik form' : mode === 'key' ? 'Anahtar metni' : 'Öğrenci cevabı';
@@ -165,6 +171,7 @@ export function OptikCameraCapture({
   useEffect(() => {
     if (!open || !ready || mode !== 'mc' || !omrOverlay?.layout) {
       setLivePreview(null);
+      setGuidance(null);
       return;
     }
     const layout = omrOverlay.layout;
@@ -181,7 +188,19 @@ export function OptikCameraCapture({
           maxQuestion,
           mode: decodeMode,
         });
-        if (p) setLivePreview(p);
+        if (p) {
+          setLivePreview(p);
+          const detectedQuad: DetectedQuad | null = p.quad
+            ? {
+                tl: { x: p.quad.tl.x, y: p.quad.tl.y },
+                tr: { x: p.quad.tr.x, y: p.quad.tr.y },
+                bl: { x: p.quad.bl.x, y: p.quad.bl.y },
+                br: { x: p.quad.br.x, y: p.quad.br.y },
+              }
+            : null;
+          const g = assessCameraGuidance(video, detectedQuad);
+          setGuidance(g);
+        }
       } catch {
         /* önizleme atlandı */
       } finally {
@@ -199,6 +218,7 @@ export function OptikCameraCapture({
       window.clearTimeout(startDelay);
       if (intervalId) window.clearInterval(intervalId);
       setLivePreview(null);
+      setGuidance(null);
     };
   }, [open, ready, mode, omrOverlayKey, omrOverlay]);
 
@@ -274,6 +294,21 @@ export function OptikCameraCapture({
         {mode === 'mc' && omrOverlay?.layout ? (
           <OptikOmrOverlayLegend showGrade={showGrade} stats={overlayStats} />
         ) : null}
+        
+        {mode === 'mc' && guidance && (
+          <div
+            className={cn(
+              'absolute left-1/2 top-4 -translate-x-1/2 rounded-lg px-4 py-2 text-center text-sm font-semibold shadow-lg transition-colors',
+              guidance.ready
+                ? 'bg-green-600/95 text-white'
+                : guidance.lighting === 'dark' || guidance.lighting === 'bright'
+                  ? 'bg-yellow-600/95 text-white'
+                  : 'bg-orange-600/95 text-white',
+            )}
+          >
+            {guidance.message}
+          </div>
+        )}
         {mode === 'mc' ? (
           <>
             <div className="pointer-events-none absolute inset-5 rounded-2xl border-2 border-fuchsia-400/70 shadow-[inset_0_0_40px_rgba(192,38,211,0.15)]" />
