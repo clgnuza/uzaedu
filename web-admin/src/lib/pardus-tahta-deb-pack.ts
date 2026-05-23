@@ -12,6 +12,10 @@ function padOctal(n: number, len: number): string {
   return n.toString(8).padStart(len, '0');
 }
 
+function padDecimal(n: number, len: number): string {
+  return n.toString(10).padStart(len, ' ');
+}
+
 function ustarChecksum(h: Uint8Array): void {
   let sum = 0;
   for (let i = 0; i < 512; i++) sum += h[i]!;
@@ -25,21 +29,28 @@ function ustarEntry(path: string, data: Uint8Array, mode = 0o644): Uint8Array[] 
   const name = path.replace(/^\.\//, '');
   const h = new Uint8Array(512);
   const w = (off: number, s: string, len: number) => enc.encodeInto(s.slice(0, len), h.subarray(off, off + len));
-  if (name.length <= 100) w(0, name, 100);
-  else {
-    w(0, name.slice(0, 155), 155);
-    w(345, name.slice(155), 155);
+  
+  if (name.length <= 100) {
+    w(0, name, 100);
+  } else {
+    const lastSlash = name.lastIndexOf('/', 99);
+    if (lastSlash > 0 && lastSlash < 155) {
+      w(345, name.substring(0, lastSlash), 155);
+      w(0, name.substring(lastSlash + 1), 100);
+    } else {
+      w(0, name.substring(0, 100), 100);
+    }
   }
-  w(100, padOctal(mode, 7), 8);
-  w(108, padOctal(0, 7), 8);
-  w(116, padOctal(0, 7), 8);
-  w(124, padOctal(data.length, 11), 12);
-  w(136, padOctal(Math.floor(Date.now() / 1000), 11), 12);
+  
+  w(100, padOctal(mode, 7) + '\0', 8);
+  w(108, padOctal(0, 7) + '\0', 8);
+  w(116, padOctal(0, 7) + '\0', 8);
+  w(124, padOctal(data.length, 11) + ' ', 12);
+  w(136, padOctal(Math.floor(Date.now() / 1000), 11) + ' ', 12);
   w(148, '        ', 8);
   h[156] = '0'.charCodeAt(0)!;
-  enc.encodeInto('ustar\x00', h.subarray(257, 265));
-  h[265] = '0'.charCodeAt(0)!;
-  h[266] = '0'.charCodeAt(0)!;
+  w(257, 'ustar\0', 6);
+  w(263, '00', 2);
   ustarChecksum(h);
   const padLen = (512 - (data.length % 512)) % 512;
   const out: Uint8Array[] = [h, data];
@@ -76,11 +87,11 @@ function arEntry(name: string, data: Uint8Array): Uint8Array {
   const n = name.padEnd(16, ' ');
   const headerStr =
     n +
-    padOctal(Math.floor(Date.now() / 1000), 12) +
-    padOctal(0, 6) +
-    padOctal(0, 6) +
-    padOctal(644, 8) +
-    padOctal(data.length, 10) +
+    padDecimal(Math.floor(Date.now() / 1000), 12) +
+    padDecimal(0, 6) +
+    padDecimal(0, 6) +
+    padDecimal(33188, 8) +
+    padDecimal(data.length, 10) +
     '`\n';
   const header = enc.encode(headerStr);
   const padByte = data.length % 2 === 1 ? 1 : 0;
