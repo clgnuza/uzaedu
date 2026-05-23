@@ -56,9 +56,9 @@ function SchoolLoginForm() {
   }, [searchParams, router]);
 
   const setTokenAndRedirect = async (token: string) => {
-    await setToken(token);
+    const ok = await setToken(token);
+    if (!ok) return;
     router.push(getPostLoginRedirect(redirectQuery));
-    router.refresh();
   };
 
   const doLogin = async (e: React.FormEvent) => {

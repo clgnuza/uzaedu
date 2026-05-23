@@ -23,6 +23,11 @@ const IDLE_LOGOUT_ROLES = new Set<WebAdminRole>(['teacher', 'school_admin']);
 
 const TOKEN_KEY = 'ogretmenpro_token';
 const meRequestCache = new Map<string, Promise<Me | null>>();
+const ME_CACHE_KEY = `cache:${COOKIE_SESSION_TOKEN}`;
+
+function invalidateMeCache() {
+  meRequestCache.delete(ME_CACHE_KEY);
+}
 const PUBLIC_AUTH_PATHS = new Set([
   '/login',
   '/login/okul',
@@ -121,7 +126,7 @@ type AuthContextValue = {
   schoolId: string | null;
   loading: boolean;
   error: string | null;
-  setToken: (value: string | null) => Promise<void>;
+  setToken: (value: string | null) => Promise<boolean>;
   logout: (opts?: { redirectTo?: string }) => void;
   refetchMe: () => Promise<Me | null>;
   isAuthenticated: boolean;
@@ -207,7 +212,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     safeStorageRemoveItem(TOKEN_KEY);
     if (!hadSession) setTokenState(null);
     const finish = () => setLoading(false);
-    void fetchMe(COOKIE_SESSION_TOKEN)
+    void fetchMe(COOKIE_SESSION_TOKEN, fromPublicAuth)
       .then((data) => {
         if (data) setTokenState(COOKIE_SESSION_TOKEN);
         else if (!getSessionBearer()) setTokenState(null);
@@ -219,32 +224,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchMe, pathname]);
 
   const setToken = useCallback(
-    async (value: string | null): Promise<void> => {
-      if (typeof window === 'undefined') return;
+    async (value: string | null): Promise<boolean> => {
+      if (typeof window === 'undefined') return false;
       if (value === null) {
+        invalidateMeCache();
         safeStorageRemoveItem(TOKEN_KEY);
         clearSessionBearer();
         setTokenState(null);
         setMe(null);
         setError(null);
         void apiFetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
-        return;
+        return true;
       }
       safeStorageRemoveItem(TOKEN_KEY);
       if (value !== COOKIE_SESSION_TOKEN) setSessionBearer(value);
       setTokenState(COOKIE_SESSION_TOKEN);
       setLoading(true);
       try {
-        const data = await fetchMe(COOKIE_SESSION_TOKEN);
+        invalidateMeCache();
+        const data = await fetchMe(COOKIE_SESSION_TOKEN, true);
         if (!data) {
           setError('Oturum doğrulanamadı.');
           setMe(null);
-        } else {
-          setError(null);
+          return false;
         }
+        setError(null);
+        return true;
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Hata');
         setMe(null);
+        return false;
       } finally {
         setLoading(false);
       }

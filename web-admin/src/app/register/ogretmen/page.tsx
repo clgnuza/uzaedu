@@ -151,7 +151,8 @@ function RegisterOgretmenContent() {
         method: 'POST',
         body: JSON.stringify({ email: regEmail, code: otpCode.replace(/\s/g, '') }),
       });
-      await setToken(res.token);
+      const ok = await setToken(res.token);
+      if (!ok) return;
       if (selectedSchool) {
         if (res.school_verify_email_sent === false) {
           toast.warning('Kurumsal doğrulama kodu e-postası gönderilemedi (SMTP). Profilden yeniden deneyin.', {
@@ -162,7 +163,6 @@ function RegisterOgretmenContent() {
         }
       }
       router.push('/dashboard');
-      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Doğrulama başarısız.');
     } finally {

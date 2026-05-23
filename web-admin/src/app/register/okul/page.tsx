@@ -208,9 +208,9 @@ function RegisterOkulContent() {
         method: 'POST',
         body: JSON.stringify({ email: regEmail, code: otpCode.replace(/\s/g, '') }),
       });
-      await setToken(res.token);
+      const ok = await setToken(res.token);
+      if (!ok) return;
       router.push('/dashboard');
-      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Doğrulama başarısız.');
     } finally {
