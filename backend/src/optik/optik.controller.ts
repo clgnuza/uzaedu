@@ -37,6 +37,8 @@ import {
 } from './dto/create-exam-session.dto';
 import { GradeSessionOpenDto, ManualOpenScoresDto } from './dto/grade-session-open.dto';
 import { UpdateQuestionOutcomesDto, UpdateSessionLinksDto } from './dto/update-session-links.dto';
+import { DecodeOmrAdvancedDto } from './dto/decode-omr-advanced.dto';
+import { OptikOmrAdvancedService } from './optik-omr-advanced.service';
 
 function pdfAttachmentDisposition(filename: string): string {
   const safe = filename.replace(/["\r\n]/g, '_');
@@ -58,6 +60,7 @@ export class OptikController {
     private readonly optik: OptikService,
     private readonly reports: OptikReportsService,
     private readonly sessions: OptikSessionsService,
+    private readonly omrAdvanced: OptikOmrAdvancedService,
   ) {}
 
   /** Modül durumu – PWA / web istemci */
@@ -85,6 +88,26 @@ export class OptikController {
   ) {
     res.setHeader('Cache-Control', 'private, max-age=3600');
     return this.optik.getScanLayout(id, payload.userId, payload.schoolId, payload.role);
+  }
+
+  /** Server-side native OpenCV ile OMR decode (fallback + yüksek doğruluk) */
+  @Post('decode-omr-advanced')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.teacher, UserRole.school_admin)
+  async decodeOmrAdvanced(@Body() dto: DecodeOmrAdvancedDto, @CurrentUser() payload: CurrentUserPayload) {
+    const layout = await this.optik.getScanLayout(
+      dto.templateId,
+      payload.userId,
+      payload.schoolId,
+      payload.role,
+    );
+
+    const result = await this.omrAdvanced.decodeOmrAdvanced(dto.image, layout, dto.maxQuestion);
+
+    return {
+      success: true,
+      result,
+    };
   }
 
   /** Öğretmen/school_admin: Aktif form şablonlarını listele (sistem + okul + kendi) */

@@ -150,3 +150,47 @@ export function isOptikMcTemplate(t: OptikFormTemplate) {
   const ft = (t.formType ?? 'multiple_choice').toLowerCase();
   return ft === 'multiple_choice' || ft === 'mc' || ft === 'optik';
 }
+
+export type OmrAdvancedResult = {
+  answers: Record<number, string>;
+  confidence: number;
+  needs_rescan: boolean;
+  anchor_score: number;
+  per_question: Array<{
+    question: number;
+    label: string;
+    fill: number;
+    ambiguous: boolean;
+  }>;
+  warp_engine: string;
+  processing_time_ms: number;
+};
+
+/**
+ * Server-side native OpenCV ile OMR decode (fallback + yüksek doğruluk)
+ */
+export async function decodeOmrAdvanced(
+  token: string,
+  templateId: string,
+  imageBase64: string,
+  maxQuestion?: number,
+): Promise<OmrAdvancedResult> {
+  const res = await apiFetch<{ success: boolean; result: OmrAdvancedResult }>(
+    '/optik/decode-omr-advanced',
+    {
+      method: 'POST',
+      token,
+      body: JSON.stringify({
+        templateId,
+        image: imageBase64,
+        maxQuestion,
+      }),
+    },
+  );
+
+  if (!res.success) {
+    throw new Error('Server-side OMR decode başarısız');
+  }
+
+  return res.result;
+}

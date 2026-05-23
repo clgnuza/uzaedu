@@ -800,3 +800,95 @@ export async function decodeOmrFromVideoFrame(
   const img = ctx.getImageData(0, 0, w, h);
   return decodeOmrFromImageData(img.data, w, h, layout, opts);
 }
+
+/**
+ * Hybrid decode: Client-side decode + server fallback
+ * Client başarısız olursa otomatik server'a gider (native OpenCV)
+ */
+export async function decodeOmrHybrid(
+  imageBase64: string,
+  layout: OmrScanLayout,
+  opts: OmrDecodeOptions & {
+    token: string;
+    templateId: string;
+    preferServer?: boolean;
+  },
+): Promise<OmrDecodeResult & { server_used?: boolean }> {
+  const { token, templateId, preferServer, ...decodeOpts } = opts;
+
+  // Kullanıcı server tercih ediyorsa direkt git
+  if (preferServer) {
+    const { decodeOmrAdvanced } = await import('@/lib/optik-api');
+    try {
+      const serverResult = await decodeOmrAdvanced(token, templateId, imageBase64, decodeOpts.maxQuestion);
+      return {
+        ...serverResult,
+        server_used: true,
+      };
+    } catch (err) {
+      console.error('[OMR Hybrid] Server decode başarısız, client fallback:', err);
+    }
+  }
+
+  // Client-side decode dene
+  try {
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+      img.src = imageBase64.startsWith('data:') ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`;
+    });
+
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) throw new Error('Canvas desteklenmiyor');
+    ctx.drawImage(img, 0, 0);
+    const imageData = ctx.getImageData(0, 0, img.naturalWidth, img.naturalHeight);
+    const gray = toGray(imageData.data, img.naturalWidth, img.naturalHeight);
+
+    const clientResult = await decodeOmrFromGray(
+      gray,
+      img.naturalWidth,
+      img.naturalHeight,
+      layout,
+      decodeOpts,
+    );
+
+    // Client sonucu yeterince iyi mi?
+    const clientOk = clientResult.confidence >= 0.78 && !clientResult.needs_rescan;
+
+    if (clientOk) {
+      return {
+        ...clientResult,
+        server_used: false,
+      };
+    }
+
+    // Client başarısız veya düşük confidence -> Server'a git
+    console.log('[OMR Hybrid] Client düşük kalite, server'a gidiliyor...', {
+      confidence: clientResult.confidence,
+      needs_rescan: clientResult.needs_rescan,
+    });
+
+    const { decodeOmrAdvanced } = await import('@/lib/optik-api');
+    const serverResult = await decodeOmrAdvanced(token, templateId, imageBase64, decodeOpts.maxQuestion);
+
+    return {
+      ...serverResult,
+      server_used: true,
+    };
+  } catch (err) {
+    console.error('[OMR Hybrid] Client decode başarısız:', err);
+
+    // Son çare: Server'a git
+    const { decodeOmrAdvanced } = await import('@/lib/optik-api');
+    const serverResult = await decodeOmrAdvanced(token, templateId, imageBase64, decodeOpts.maxQuestion);
+
+    return {
+      ...serverResult,
+      server_used: true,
+    };
+  }
+}
