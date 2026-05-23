@@ -7,6 +7,7 @@ import {
   Body,
   Req,
   Res,
+  Logger,
   ForbiddenException,
   UnauthorizedException,
   BadRequestException,
@@ -106,6 +107,8 @@ const DEFAULT_GUNUN_SOZU_RSS_URL =
 
 @Controller('tv')
 export class TvPublicController {
+  private readonly logger = new Logger(TvPublicController.name);
+
   constructor(
     private readonly announcementsService: AnnouncementsService,
     private readonly tvDevicesService: TvDevicesService,
@@ -209,9 +212,11 @@ export class TvPublicController {
       }
     | undefined
   > {
-    const s = await this.schoolRepo.findOne({
-      where: { id: schoolId },
-      select: [
+    let s: School | null;
+    try {
+      s = await this.schoolRepo.findOne({
+        where: { id: schoolId },
+        select: [
         'id',
         'name',
         'tv_weather_city',
@@ -256,8 +261,12 @@ export class TvPublicController {
         'tv_now_in_class_bar_title',
         'tv_now_in_class_bar_font_size',
         'tv_now_in_class_bar_marquee_duration',
-      ],
-    });
+        ],
+      });
+    } catch (err) {
+      this.logger.warn(`buildTvSchoolPayload findOne failed school=${schoolId}`, err);
+      return undefined;
+    }
     if (!s) return undefined;
     let tvTimetable = s.tv_timetable_schedule;
     const useSchoolPlan = s.tv_timetable_use_school_plan !== false;
@@ -347,11 +356,25 @@ export class TvPublicController {
       const hit = getTvAnnouncementsCacheEntry(cacheKey);
       if (hit && hit.expires > Date.now()) {
         if (schoolId?.trim()) {
-          const freshSchool = await this.buildTvSchoolPayload(schoolId.trim());
-          const now_in_class_lines =
-            audience !== 'classroom'
-              ? await this.teacherTimetableService.buildNowInClassLinesForTv(schoolId.trim())
-              : [];
+          let freshSchool: Awaited<ReturnType<TvPublicController['buildTvSchoolPayload']>>;
+          let now_in_class_lines: Awaited<
+            ReturnType<TeacherTimetableService['buildNowInClassLinesForTv']>
+          > = [];
+          try {
+            freshSchool = await this.buildTvSchoolPayload(schoolId.trim());
+          } catch (err) {
+            this.logger.warn(`TV cache refresh school payload failed school=${schoolId}`, err);
+            freshSchool = undefined;
+          }
+          try {
+            if (audience !== 'classroom') {
+              now_in_class_lines = await this.teacherTimetableService.buildNowInClassLinesForTv(
+                schoolId.trim(),
+              );
+            }
+          } catch (err) {
+            this.logger.warn(`TV cache refresh now_in_class failed school=${schoolId}`, err);
+          }
           let current_slot = (hit.payload as { current_slot?: unknown }).current_slot;
           if (audience === 'classroom' && deviceId?.trim()) {
             current_slot =
@@ -376,7 +399,17 @@ export class TvPublicController {
 
     const urgent = await this.announcementsService.getUrgentOverride(schoolId);
 
-    const school = schoolId?.trim() ? await this.buildTvSchoolPayload(schoolId.trim()) : undefined;
+    let school: Awaited<ReturnType<TvPublicController['buildTvSchoolPayload']>>;
+    if (schoolId?.trim()) {
+      try {
+        school = await this.buildTvSchoolPayload(schoolId.trim());
+      } catch (err) {
+        this.logger.warn(`TV school payload failed school=${schoolId}`, err);
+        school = undefined;
+      }
+    } else {
+      school = undefined;
+    }
 
     let current_slot: { lesson_num: number; subject: string; teacher_name: string; class_section: string | null } | null = null;
     if (audience === 'classroom' && schoolId?.trim() && deviceId?.trim()) {
@@ -384,10 +417,14 @@ export class TvPublicController {
         (await this.smartBoardService.getDisplaySlotForDevice(schoolId.trim(), deviceId.trim())) ?? null;
     }
 
-    const now_in_class_lines =
-      schoolId?.trim() && audience !== 'classroom'
-        ? await this.teacherTimetableService.buildNowInClassLinesForTv(schoolId.trim())
-        : [];
+    let now_in_class_lines: Awaited<ReturnType<TeacherTimetableService['buildNowInClassLinesForTv']>> = [];
+    if (schoolId?.trim() && audience !== 'classroom') {
+      try {
+        now_in_class_lines = await this.teacherTimetableService.buildNowInClassLinesForTv(schoolId.trim());
+      } catch (err) {
+        this.logger.warn(`TV now_in_class_lines failed school=${schoolId}`, err);
+      }
+    }
 
     const payload = {
       items,

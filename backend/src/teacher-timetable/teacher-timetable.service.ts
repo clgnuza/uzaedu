@@ -2203,6 +2203,14 @@ export class TeacherTimetableService {
    * Duyuru TV: yayınlanmış okul ders programı + okul ders saatleri ile tv_timetable_schedule JSON üretir.
    */
   async buildTvTimetableScheduleJsonForTv(schoolId: string): Promise<string | null> {
+    try {
+      return await this.buildTvTimetableScheduleJsonForTvInner(schoolId);
+    } catch {
+      return null;
+    }
+  }
+
+  private async buildTvTimetableScheduleJsonForTvInner(schoolId: string): Promise<string | null> {
     const school = await this.schoolRepo.findOne({
       where: { id: schoolId },
       select: [
@@ -2282,6 +2290,16 @@ export class TeacherTimetableService {
 
   /** Duyuru TV alt şerit: şu an derste olan sınıflar (plan + ders saatleri). */
   async buildNowInClassLinesForTv(
+    schoolId: string,
+  ): Promise<{ class_section: string; subject: string; teacher_name: string | null }[]> {
+    try {
+      return await this.buildNowInClassLinesForTvInner(schoolId);
+    } catch {
+      return [];
+    }
+  }
+
+  private async buildNowInClassLinesForTvInner(
     schoolId: string,
   ): Promise<{ class_section: string; subject: string; teacher_name: string | null }[]> {
     const school = await this.schoolRepo.findOne({
@@ -2366,15 +2384,20 @@ export class TeacherTimetableService {
 
     const planId = await this.getActivePlanIdForDate(schoolId, today);
     if (!planId) return [];
-    const rows = await this.classEntryRepo.find({
-      where: {
-        school_id: schoolId,
-        plan_id: planId,
-        day_of_week: turkishDay,
-      },
-      relations: ['user'],
-      order: { class_section: 'ASC' },
-    });
+    let rows: SchoolClassTimetableEntry[];
+    try {
+      rows = await this.classEntryRepo.find({
+        where: {
+          school_id: schoolId,
+          plan_id: planId,
+          day_of_week: turkishDay,
+        },
+        relations: ['user'],
+        order: { class_section: 'ASC' },
+      });
+    } catch {
+      return fromJson;
+    }
     const lines: { class_section: string; subject: string; teacher_name: string | null }[] = [];
     for (const r of rows) {
       if (!activeNums.has(r.lesson_num)) continue;
