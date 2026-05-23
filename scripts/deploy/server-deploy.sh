@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # Hetzner /opt/uzaedu: git pull, backend+web build, pm2. Same as panel POST /api/deploy.
 set -euo pipefail
 
@@ -14,6 +14,19 @@ git pull --ff-only origin "$BRANCH"
 echo "[deploy] backend npm ci + build"
 (
   cd "$ROOT/backend"
+  
+  # Python dependencies (OMR için)
+  if [[ -f requirements.txt ]]; then
+    echo "[deploy] Python dependencies (requirements.txt)"
+    if command -v python3 &> /dev/null; then
+      python3 -m pip install --user --only-binary :all: -r requirements.txt || \
+        python3 -m pip install --user -r requirements.txt || \
+        echo "[deploy] WARN: Python deps kurulamadi (opsiyonel)"
+    else
+      echo "[deploy] WARN: python3 bulunamadi, requirements.txt atlanıyor"
+    fi
+  fi
+  
   npm ci
   npm run build
 )
