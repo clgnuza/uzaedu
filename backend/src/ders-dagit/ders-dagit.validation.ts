@@ -25,6 +25,7 @@ export type StudioValidationInput = {
   subjects_by_class: Record<string, number>;
   assignments: Array<{
     id: string;
+    subject_name?: string | null;
     class_sections: string[];
     weekly_hours: number;
     biweekly: boolean;
@@ -59,12 +60,19 @@ export function validateStudioData(input: StudioValidationInput): ValidationIssu
     issues.push({
       code: 'MIN_CLASSES',
       severity: 'error',
-      message: 'En az bir sınıf profili ve şube tanımlayın.',
+      message: 'Kurulumda en az bir sınıf profili ve şube tanımlayın.',
     });
   }
   if (input.teachers.length < 2) {
-    issues.push({ code: 'MIN_TEACHERS', severity: 'error', message: 'En az iki öğretmen gerekli.' });
+    issues.push({
+      code: 'MIN_TEACHERS',
+      severity: 'error',
+      message: 'Program üretimi için en az iki öğretmen kaydı gerekir.',
+    });
   }
+
+  const teacherLabel = (tid: string) =>
+    input.teachers.find((t) => t.id === tid)?.name?.trim() || 'Öğretmen';
 
   const profiles = [...input.class_profiles]
     .map((cp) => ({ ...cp, class_sections: sortClassSections(cp.class_sections ?? []) }))
@@ -80,7 +88,7 @@ export function validateStudioData(input: StudioValidationInput): ValidationIssu
       issues.push({
         code: 'CLASS_NO_SECTIONS',
         severity: 'warning',
-        message: `${cp.name}: şube tanımlı değil.`,
+        message: `${cp.name} profilinde henüz şube seçilmemiş.`,
         entity_type: 'class_profile',
         entity_id: cp.id,
       });
@@ -95,8 +103,8 @@ export function validateStudioData(input: StudioValidationInput): ValidationIssu
       issues.push({
         code: 'CLASS_OVER_CAPACITY',
         severity: 'error',
-        message: `${cp.name}: ${total} saat > kapasite ${capacity}.`,
-        fix_hint: 'Günlük max dersi artırın veya atama saatini azaltın.',
+        message: `${cp.name}: haftalık ${total} saat, profil kapasitesi ${capacity} saati aşıyor.`,
+        fix_hint: 'Profilde günlük ders üst sınırını artırın veya atama saatlerini azaltın.',
         entity_type: 'class_profile',
         entity_id: cp.id,
       });
@@ -105,7 +113,7 @@ export function validateStudioData(input: StudioValidationInput): ValidationIssu
       issues.push({
         code: 'CLASS_UNDER_MIN',
         severity: 'error',
-        message: `${cp.name}: ${total} saat < minimum ${cp.min_weekly_lessons}.`,
+        message: `${cp.name}: haftalık ${total} saat, minimum ${cp.min_weekly_lessons} saatin altında.`,
         entity_type: 'class_profile',
         entity_id: cp.id,
       });
@@ -114,7 +122,7 @@ export function validateStudioData(input: StudioValidationInput): ValidationIssu
       issues.push({
         code: 'CLASS_OVER_MAX',
         severity: 'error',
-        message: `${cp.name}: ${total} saat > maksimum ${cp.max_weekly_lessons}.`,
+        message: `${cp.name}: haftalık ${total} saat, profil üst sınırı ${cp.max_weekly_lessons} saati aşıyor.`,
         entity_type: 'class_profile',
         entity_id: cp.id,
       });
@@ -124,7 +132,8 @@ export function validateStudioData(input: StudioValidationInput): ValidationIssu
         issues.push({
           code: 'SECTION_NO_HOURS',
           severity: 'warning',
-          message: `${sec}: ders saati tanımlı değil.`,
+          message: `${sec} şubesi için haftalık ders saati girilmemiş.`,
+          fix_hint: 'Dersler sayfasında şubeye saat ekleyin veya bu şubeye ders ataması yapın.',
         });
       }
     }
@@ -135,25 +144,26 @@ export function validateStudioData(input: StudioValidationInput): ValidationIssu
       issues.push({
         code: 'TEACHER_OVER_MAX',
         severity: 'error',
-        message: `Öğretmen ${tid}: ${h.assigned} saat > max ${h.max}.`,
+        message: `${teacherLabel(tid)}: haftalık ${h.assigned} saat, üst sınır ${h.max} saati aşıyor.`,
       });
     }
     if (h.min != null && h.assigned < h.min) {
       issues.push({
         code: 'TEACHER_UNDER_MIN',
         severity: 'error',
-        message: `Öğretmen ${tid}: ${h.assigned} saat < min ${h.min}.`,
+        message: `${teacherLabel(tid)}: haftalık ${h.assigned} saat, zorunlu ${h.min} saatin altında.`,
       });
     }
   }
 
   const biweeklyByGroup: Record<string, number> = {};
   for (const a of input.assignments) {
+    const assignLabel = a.subject_name?.trim() || 'Ders ataması';
     if (!a.class_sections.length) {
       issues.push({
         code: 'ASSIGN_NO_SECTION',
         severity: 'error',
-        message: `Atama ${a.id.slice(0, 8)}: sınıf/şube yok.`,
+        message: `${assignLabel}: şube veya sınıf seçilmemiş.`,
         entity_type: 'assignment',
         entity_id: a.id,
       });
@@ -162,7 +172,8 @@ export function validateStudioData(input: StudioValidationInput): ValidationIssu
       issues.push({
         code: 'NO_ROOMS_LIST',
         severity: 'warning',
-        message: `Atama ${a.id}: derslik listesi boş (derslik kuralı açıksa hata olur).`,
+        message: `${assignLabel}: derslik seçilmemiş.`,
+        fix_hint: 'Derslik zorunlu kuralı açıksa program üretilemez.',
         entity_type: 'assignment',
         entity_id: a.id,
       });
@@ -176,7 +187,7 @@ export function validateStudioData(input: StudioValidationInput): ValidationIssu
       issues.push({
         code: 'BIWEEKLY_ODD',
         severity: 'error',
-        message: `Grup ${gid}: iki haftada bir dersler toplamı tek sayı.`,
+        message: 'İki haftada bir verilen derslerin toplam saati çift sayı olmalı.',
       });
     }
   }

@@ -29,10 +29,12 @@ export function mergePlanningRelationsIntoRules(
     let key = def.catalog_key;
     const maxN = Number(row.params?.max);
     if (key === 'max_two_per_day' && maxN === 1) key = 'max_one_per_day';
+    const params: Record<string, unknown> = { ...(row.params ?? {}) };
+    if (row.subject_ids.length) params.planning_subject_ids = row.subject_ids;
     const state = {
       active: true,
       weight: importanceWeight(row.importance),
-      params: row.params ?? studio[key]?.params,
+      params: Object.keys(params).length ? params : studio[key]?.params,
     };
     if (row.sections_mode === 'all') {
       studio[key] = { ...studio[key], ...state };
@@ -114,6 +116,25 @@ export function buildStrictRuleKeys(relations: PlanningRelationRow[]): {
     }
   }
   return { global, bySection };
+}
+
+/** Açık stüdyo/şube kurallarını üretimde zorunlu say (skor 100 / STRICT_RULES_VIOLATED). */
+export function augmentStrictKeysWithActiveRules(
+  strictKeys: { global: Set<string>; bySection: Map<string, Set<string>> },
+  studioRules: RuleState,
+  sectionRules: Map<string, RuleState>,
+): void {
+  for (const [key, st] of Object.entries(studioRules)) {
+    if (st?.active) strictKeys.global.add(key);
+  }
+  for (const [sec, rules] of sectionRules) {
+    for (const [key, st] of Object.entries(rules)) {
+      if (!st?.active) continue;
+      const set = strictKeys.bySection.get(sec) ?? new Set<string>();
+      set.add(key);
+      strictKeys.bySection.set(sec, set);
+    }
+  }
 }
 
 export function isStrictRule(

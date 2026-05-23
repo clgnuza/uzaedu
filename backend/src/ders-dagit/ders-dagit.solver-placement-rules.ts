@@ -1,9 +1,6 @@
+import { ruleOn, ruleOnForAssignment } from './ders-dagit.solver-rule-scope';
 import type { SolverAssignment, SolverContext, SolverSlot } from './ders-dagit.solver';
 import { rulesForSection } from './ders-dagit.solver';
-
-function ruleOn(ctx: SolverContext, key: string, section: string): boolean {
-  return !!rulesForSection(ctx, section)[key]?.active;
-}
 
 function maxPerDayFromRules(ctx: SolverContext, section: string): number | null {
   const rules = rulesForSection(ctx, section);
@@ -76,6 +73,7 @@ export function placementBlocked(
   a: SolverAssignment,
   day: number,
   lesson: number,
+  userId?: string | null,
 ): boolean {
   const onDay = assignmentOnDay(entries, a.id, day);
   const onDayCount = onDay.length;
@@ -90,24 +88,28 @@ export function placementBlocked(
   }
   if (a.max_days_per_week != null && !days.includes(day) && days.length >= a.max_days_per_week) return true;
 
-  const maxPerDayRule = ruleOn(ctx, 'max_one_per_day', section) ? 1 : ruleOn(ctx, 'max_two_per_day', section) ? 2 : null;
+  const maxPerDayRule = ruleOnForAssignment(ctx, 'max_one_per_day', section, a)
+    ? 1
+    : ruleOnForAssignment(ctx, 'max_two_per_day', section, a)
+      ? 2
+      : null;
   const cap =
     maxPerDayRule != null
       ? Math.min(a.max_per_day ?? maxPerDayRule, maxPerDayRule)
       : a.max_per_day;
   if (cap != null && onDayCount >= cap) return true;
 
-  if (ruleOn(ctx, 'distribute_week', section) && eff >= 3 && onDayCount >= 2) return true;
+  if (ruleOnForAssignment(ctx, 'distribute_week', section, a) && eff >= 3 && onDayCount >= 2) return true;
 
   if (eff === 2) {
-    if (ruleOn(ctx, 'two_same_day', section) && days.length && !days.includes(day)) return true;
-    if (ruleOn(ctx, 'two_not_same_day', section) && onDayCount >= 1) return true;
-    if (ruleOn(ctx, 'two_not_consecutive_days', section)) {
+    if (ruleOnForAssignment(ctx, 'two_same_day', section, a) && days.length && !days.includes(day)) return true;
+    if (ruleOnForAssignment(ctx, 'two_not_same_day', section, a) && onDayCount >= 1) return true;
+    if (ruleOnForAssignment(ctx, 'two_not_consecutive_days', section, a)) {
       for (const d of days) {
         if (Math.abs(d - day) === 1) return true;
       }
     }
-    if (ruleOn(ctx, 'two_two_day_gap', section)) {
+    if (ruleOnForAssignment(ctx, 'two_two_day_gap', section, a)) {
       const gap = minGapDays(ctx, section);
       for (const d of days) {
         if (d !== day && Math.abs(d - day) < gap) return true;
@@ -115,18 +117,18 @@ export function placementBlocked(
     }
   }
 
-  if (ruleOn(ctx, 'same_day_consecutive', section) && onDayCount > 0) {
+  if (ruleOnForAssignment(ctx, 'same_day_consecutive', section, a) && onDayCount > 0) {
     const lessons = onDay.map((e) => e.lesson_num);
     const ok = lessons.some((l) => lesson === l + 1 || lesson === l - 1);
     if (!ok) return true;
   }
 
-  if (ruleOn(ctx, 'four_plus_consecutive', section)) {
+  if (ruleOnForAssignment(ctx, 'four_plus_consecutive', section, a)) {
     const lessons = onDay.map((e) => e.lesson_num);
     if (maxRunIfAdd(lessons, lesson) >= maxConsecutiveRun(ctx, section)) return true;
   }
 
-  if (ruleOn(ctx, 'min_two_per_day', section) && eff >= 2 && onDayCount === 1) {
+  if (ruleOnForAssignment(ctx, 'min_two_per_day', section, a) && eff >= 2 && onDayCount === 1) {
     const only = onDay[0]!.lesson_num;
     if (lesson !== only + 1 && lesson !== only - 1) return true;
   }
@@ -137,6 +139,25 @@ export function placementBlocked(
 
   if (ruleOn(ctx, 'meb_theory_am_practical_pm', section) && isPractical(a.subject_name) && lesson <= ctx.lunch_after_lesson) {
     return true;
+  }
+
+  if (ruleOn(ctx, 'important_early', '') && lesson > 5) return true;
+
+  if (ruleOnForAssignment(ctx, 'two_not_consecutive_days', section, a) && eff === 2) {
+    for (const d of days) {
+      if (Math.abs(d - day) === 1) return true;
+    }
+  }
+
+  if (userId && ruleOn(ctx, 'minimize_teacher_gaps', '')) {
+    const daySlots = entries
+      .filter((e) => e.user_id === userId && e.day_of_week === day)
+      .map((e) => e.lesson_num);
+    if (daySlots.length > 0) {
+      const all = [...daySlots, lesson].sort((x, y) => x - y);
+      const span = all[all.length - 1]! - all[0]! + 1;
+      if (span - all.length > 0) return true;
+    }
   }
 
   return false;

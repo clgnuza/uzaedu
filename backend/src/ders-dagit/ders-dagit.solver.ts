@@ -31,6 +31,7 @@ export type SolverSlot = {
 export type SolverAssignment = {
   id: string;
   class_sections: string[];
+  subject_id?: string | null;
   subject_name: string;
   weekly_hours: number;
   teacher_ids: string[];
@@ -361,7 +362,7 @@ export function runConstraintSolver(
 
     const room_id = a.room_ids[0] ?? null;
     if (!roomAllows(ctx, room_id, a, userId, classSection)) return false;
-    if (placementBlocked(entries, ctx, a, day, lesson)) return false;
+    if (placementBlocked(entries, ctx, a, day, lesson, userId)) return false;
     if (violatesBuildingRules(entries, ctx, userId, day, lesson, room_id)) return false;
     const slot: SolverSlot = {
       day_of_week: day,
@@ -596,7 +597,15 @@ export function runConstraintSolver(
   );
   const failed = Math.max(0, target - entries.length);
   const score = Math.round(
-    Math.max(0, 100 - failed * 3 - violations.length * 2 - clashCount * 10 - soft.penalty),
+    Math.max(
+      0,
+      100 -
+        failed * 3 -
+        violations.length * 2 -
+        clashCount * 10 -
+        soft.penalty -
+        soft.strict_violations.length * 50,
+    ),
   );
 
   return { entries, placed: entries.length, failed, violations, score };

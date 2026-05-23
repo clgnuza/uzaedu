@@ -1,16 +1,39 @@
 'use client';
 
 import { DersDagitStudioNav } from '@/components/ders-dagit/studio-nav';
-import { StudioProgramStepper } from '@/components/ders-dagit/studio-program-stepper';
 import { StudioOnboarding } from '@/components/ders-dagit/studio-onboarding';
+import { CouncilReportSetupDialog } from '@/components/ders-dagit/CouncilReportSetupDialog';
 import { StudioHubBar } from '@/components/ders-dagit/StudioHubBar';
+import { StudioMobileNav } from '@/components/ders-dagit/studio-mobile-nav';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { DD_PAGE } from '@/components/ders-dagit/dd-ui';
-import { StudioFlowSelect, StudioFullNavSelect, StudioStepSelect } from '@/components/ders-dagit/studio-menu-select';
+import { DD_SETUP_STEPS } from '@/components/ders-dagit/dd-setup-checklist';
+import { showStudioDataNav, showStudioOnboarding } from '@/lib/ders-dagit-studio-nav';
+import { usePathname } from 'next/navigation';
+import { useMemo } from 'react';
+
+function isSetupComplete(overview: NonNullable<ReturnType<typeof useDersDagitStudio>['overview']>) {
+  const c = overview.counts;
+  const errs = overview.validation.filter((v) => v.severity === 'error').length;
+  const st = overview.studio?.settings as { period?: { work_days?: number[] }; work_days?: number[] } | undefined;
+  const periodOk = !!((st?.period?.work_days ?? st?.work_days)?.length);
+  return (
+    DD_SETUP_STEPS.every((s) => {
+      if (s.kind === 'validation') return errs === 0;
+      if (s.kind === 'period') return periodOk;
+      return (c[s.key] ?? 0) >= s.min;
+    }) && errs === 0
+  );
+}
 
 export default function DersDagitStudioLayout({ children }: { children: React.ReactNode }) {
   const { overview, loading, error } = useDersDagitStudio();
+  const pathname = usePathname() ?? '';
+  const setupDone = useMemo(() => (overview ? isSetupComplete(overview) : true), [overview]);
+  const dataNav = showStudioDataNav(pathname);
+  const onboarding = overview && showStudioOnboarding(pathname, setupDone);
+
   return (
     <div className={DD_PAGE}>
       {loading && !overview ? (
@@ -19,22 +42,15 @@ export default function DersDagitStudioLayout({ children }: { children: React.Re
         <p className="text-sm text-destructive">{error}</p>
       ) : (
         <>
-          <div className="grid gap-2 lg:hidden">
-            <StudioFlowSelect />
-            <StudioStepSelect />
-          </div>
-          <StudioHubBar overview={overview} />
-          <StudioProgramStepper />
-          <StudioOnboarding overview={overview} />
-          <details className="dd-glass dd-glass-subtle print:hidden rounded-xl px-2.5 py-2 sm:px-3">
-            <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-              Tüm sayfalar
-            </summary>
-            <div className="space-y-3 pt-2">
-              <StudioFullNavSelect />
-              <DersDagitStudioNav healthScore={overview?.health_score} />
+          <CouncilReportSetupDialog />
+          <div className="space-y-2 print:hidden">
+            <StudioHubBar overview={overview} />
+            <div className="lg:hidden">
+              <StudioMobileNav />
             </div>
-          </details>
+            {onboarding && <StudioOnboarding overview={overview} compact />}
+            {dataNav && <DersDagitStudioNav healthScore={overview?.health_score} />}
+          </div>
         </>
       )}
       {children}

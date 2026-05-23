@@ -4,6 +4,7 @@
  */
 
 import { COOKIE_SESSION_TOKEN } from './auth-session';
+import { getSessionBearer } from './session-bearer';
 import { markSupportModuleDisabledByApi } from './support-module-cache';
 import {
   dispatchModuleActivationRequired,
@@ -165,7 +166,12 @@ export async function apiFetch<T>(
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(init.headers as Record<string, string>),
   };
-  if (token && token !== COOKIE_SESSION_TOKEN) headers['Authorization'] = `Bearer ${token}`;
+  if (token && token !== COOKIE_SESSION_TOKEN) {
+    headers['Authorization'] = `Bearer ${token}`;
+  } else if (token === COOKIE_SESSION_TOKEN || token == null) {
+    const bearer = getSessionBearer();
+    if (bearer) headers['Authorization'] = `Bearer ${bearer}`;
+  }
   if (isFormData) delete headers['Content-Type'];
 
   let body = init.body;

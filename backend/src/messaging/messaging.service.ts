@@ -335,7 +335,7 @@ export class MessagingService {
 
   // ── Export & iletişim geçmişi ─────────────────────────────────────────────
 
-  async exportReportsCsv(schoolId: string, fromIso?: string, toIso?: string): string {
+  async exportReportsCsv(schoolId: string, fromIso?: string, toIso?: string): Promise<string> {
     const data = await this.getReportsOverview(schoolId, fromIso, toIso);
     const lines = [
       'Tür,Kampanya,Gönderilen,Hatalı,Toplam,Başarı%',
@@ -351,7 +351,7 @@ export class MessagingService {
     return '\uFEFF' + lines.join('\n');
   }
 
-  async exportCampaignCsv(schoolId: string, campaignId: string): string {
+  async exportCampaignCsv(schoolId: string, campaignId: string): Promise<string> {
     await this.getCampaign(schoolId, campaignId);
     const rows = await this.recipientRepo.find({ where: { campaignId }, order: { sortOrder: 'ASC' } });
     const lines = [

@@ -140,7 +140,7 @@ export function placementAllowed(
   if (userId && violatesAmPmGap(entries, ctx, userId, day, lesson)) return false;
   const room_id = a.room_ids[0] ?? null;
   if (!roomAllows(ctx, room_id, a, userId, classSection)) return false;
-  if (placementBlocked(entries, ctx, a, day, lesson)) return false;
+  if (placementBlocked(entries, ctx, a, day, lesson, userId)) return false;
   if (violatesBuildingRules(entries, ctx, userId, day, lesson, room_id)) return false;
   return true;
 }

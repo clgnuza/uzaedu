@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import { DdSelectField } from '@/components/ders-dagit/dd-select';
+import { resolveStudioNavHref } from '@/lib/ders-dagit-studio-nav';
 
 const FLOW = [
   { value: '/ders-dagit/studyo', label: 'Özet' },
@@ -9,6 +10,7 @@ const FLOW = [
   { value: '/ders-dagit/studyo/dogrulama', label: 'Doğrula' },
   { value: '/ders-dagit/studyo/uret', label: 'Otomatik oluştur' },
   { value: '/ders-dagit/studyo/program', label: 'Program' },
+  { value: '/ders-dagit/studyo/raporlar', label: 'Yazdır' },
   { value: '/ders-dagit/studyo/ayarlar', label: 'Ayarlar' },
 ];
 
@@ -37,6 +39,7 @@ const FULL_NAV = [
   { value: '/ders-dagit/studyo/dogrulama', label: 'Doğrulama' },
   { value: '/ders-dagit/studyo/uret', label: 'Otomatik oluştur' },
   { value: '/ders-dagit/studyo/program', label: 'Program' },
+  { value: '/ders-dagit/studyo/raporlar', label: 'Yazdır' },
   { value: '/ders-dagit/studyo/yayin', label: 'Yayın' },
   { value: '/ders-dagit/studyo/ogretmen-program', label: 'Öğretmen programı' },
   { value: '/ders-dagit/studyo/arsiv', label: 'Arşiv' },
@@ -44,14 +47,12 @@ const FULL_NAV = [
   { value: '/ders-dagit/studyo/ayarlar', label: 'Ayarlar' },
 ];
 
-function matchHref(pathname: string, href: string) {
-  if (href === '/ders-dagit/studyo') return pathname === href;
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
-
 function activeFromList(pathname: string, items: { value: string; label: string }[]) {
-  const hit = items.find((i) => matchHref(pathname, i.value));
-  return hit?.value ?? items[0]?.value ?? '';
+  const hit = resolveStudioNavHref(
+    pathname,
+    items.map((i) => i.value),
+  );
+  return hit || items[0]?.value || '';
 }
 
 function NavSelect({

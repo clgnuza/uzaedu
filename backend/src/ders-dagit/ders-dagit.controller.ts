@@ -137,6 +137,12 @@ export class DersDagitController {
     return this.service.listSubjects(studioId);
   }
 
+  @Get('studios/:studioId/elective-catalog')
+  @Roles(UserRole.school_admin)
+  listElectiveCatalog(@Param('studioId') studioId: string) {
+    return this.service.listElectiveCatalogSubjects(studioId);
+  }
+
   @Post('studios/:studioId/subjects')
   @Roles(UserRole.school_admin)
   upsertSubject(@Param('studioId') studioId: string, @Body() body: Record<string, unknown>) {
@@ -173,7 +179,12 @@ export class DersDagitController {
   applyGroupSuggestions(
     @CurrentUser() u: CurrentUserPayload,
     @Param('studioId') studioId: string,
-    @Body() body: { keys?: string[]; apply_all?: boolean },
+    @Body()
+    body: {
+      keys?: string[];
+      apply_all?: boolean;
+      mode_overrides?: Record<string, 'parallel_rooms' | 'subgroups' | 'teacher_multi_class'>;
+    },
   ) {
     return this.service.applyGroupSuggestions(studioId, u.userId, body);
   }
@@ -281,6 +292,87 @@ export class DersDagitController {
     @Body() body: { replace?: boolean; sync_assignments?: boolean },
   ) {
     return this.service.seedFromTtkb(studioId, u.schoolId!, u.userId, body);
+  }
+
+  @Get('studios/:studioId/seed/ttkb/elective/preview')
+  @Roles(UserRole.school_admin)
+  ttkbElectivePreview(@CurrentUser() u: CurrentUserPayload, @Param('studioId') studioId: string) {
+    return this.service.previewTtkbElectiveSeed(studioId, u.schoolId!);
+  }
+
+  @Get('transfer/formats')
+  @Roles(UserRole.school_admin)
+  transferFormats() {
+    return this.service.getTransferFormats();
+  }
+
+  @Get('studios/:studioId/transfer/export.json')
+  @Roles(UserRole.school_admin)
+  exportStudioTransfer(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Res() res: Response,
+  ) {
+    return this.service.exportStudioTransferPackage(studioId, u.schoolId!).then((pkg) => {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="ogretmenpro-studio-${studioId.slice(0, 8)}.json"`,
+      );
+      res.send(JSON.stringify(pkg, null, 2));
+    });
+  }
+
+  @Post('studios/:studioId/transfer/import/preview')
+  @Roles(UserRole.school_admin)
+  transferImportPreview(
+    @CurrentUser() u: CurrentUserPayload,
+    @Body()
+    body: {
+      format: string;
+      file_base64?: string;
+      eokul_format?: 'csv' | 'xlsx' | 'grid_xlsx' | 'auto';
+    },
+  ) {
+    return this.service.previewStudioTransferImport(u.schoolId!, body);
+  }
+
+  @Post('studios/:studioId/transfer/import')
+  @Roles(UserRole.school_admin)
+  transferImport(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Body()
+    body: {
+      format: string;
+      file_base64?: string;
+      eokul_format?: 'csv' | 'xlsx' | 'grid_xlsx' | 'auto';
+      replace?: boolean;
+      auto_elective_groups?: boolean;
+      merge_settings?: boolean;
+    },
+  ) {
+    return this.service.applyStudioTransferImport(studioId, u.schoolId!, u.userId, body);
+  }
+
+  @Post('studios/:studioId/seed/ttkb/elective')
+  @Roles(UserRole.school_admin)
+  seedTtkbElective(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Body() body: { replace_elective?: boolean; create_pools?: boolean },
+  ) {
+    return this.service.seedElectiveFromTtkb(studioId, u.schoolId!, u.userId, body);
+  }
+
+  @Post('studios/:studioId/elective-pools/sync-from-catalog')
+  @Roles(UserRole.school_admin)
+  syncElectivePoolsFromCatalog(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Body() body: { replace_pools?: boolean },
+  ) {
+    return this.service.syncElectivePoolsFromCatalog(studioId, u.schoolId!, u.userId, body);
   }
 
   // Buildings / rooms
@@ -480,13 +572,29 @@ export class DersDagitController {
     return this.service.setCouncilReview(studioId);
   }
 
+  @Get('studios/:studioId/programs/:programId/publish-preview')
+  @Roles(UserRole.school_admin)
+  publishPreview(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Param('programId') programId: string,
+  ) {
+    return this.service.getPublishPreview(programId, studioId, u.schoolId!);
+  }
+
   @Post('studios/:studioId/programs/:programId/publish')
   @Roles(UserRole.school_admin)
   publish(
     @CurrentUser() u: CurrentUserPayload,
     @Param('studioId') studioId: string,
     @Param('programId') programId: string,
-    @Body() body: { valid_from?: string; valid_until?: string | null; name?: string },
+    @Body()
+    body: {
+      valid_from?: string;
+      valid_until?: string | null;
+      name?: string;
+      risk_acknowledged?: boolean;
+    },
   ) {
     return this.service.publishProgramToSchool(studioId, u.schoolId!, u.userId, programId, body ?? {});
   }
@@ -505,6 +613,22 @@ export class DersDagitController {
     @Body() body: Record<string, unknown>,
   ) {
     return this.service.updateSchoolProfile(studioId, u.schoolId!, body as never);
+  }
+
+  @Get('studios/:studioId/report-settings')
+  @Roles(UserRole.school_admin)
+  getReportSettings(@CurrentUser() u: CurrentUserPayload, @Param('studioId') studioId: string) {
+    return this.service.getReportSettings(studioId, u.schoolId!);
+  }
+
+  @Patch('studios/:studioId/report-settings')
+  @Roles(UserRole.school_admin)
+  patchReportSettings(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Body() body: { meta?: Record<string, unknown>; texts?: Record<string, unknown> },
+  ) {
+    return this.service.updateReportSettings(studioId, u.schoolId!, body);
   }
 
   @Get('studios/:studioId/periods')
@@ -635,16 +759,173 @@ export class DersDagitController {
     res.send(buf);
   }
 
+  @Get('studios/:studioId/programs/:programId/export/duty.pdf')
+  @Roles(UserRole.school_admin)
+  async exportDutyPdf(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Param('programId') programId: string,
+    @Query('theme') theme: string,
+    @Res() res: Response,
+  ) {
+    const pdf = await this.service.exportDutyReportPdf(programId, studioId, u.schoolId!, theme);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="nobet-${programId.slice(0, 8)}.pdf"`);
+    res.send(Buffer.from(pdf));
+  }
+
+  @Get('studios/:studioId/programs/:programId/export/dual-education.pdf')
+  @Roles(UserRole.school_admin)
+  async exportDualPdf(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Param('programId') programId: string,
+    @Query('theme') theme: string,
+    @Res() res: Response,
+  ) {
+    const pdf = await this.service.exportDualEducationPdf(programId, studioId, u.schoolId!, theme);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="ikili-egitim-${programId.slice(0, 8)}.pdf"`);
+    res.send(Buffer.from(pdf));
+  }
+
+  @Get('studios/:studioId/programs/:programId/export/extra-lesson.pdf')
+  @Roles(UserRole.school_admin)
+  async exportExtraLessonPdf(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Param('programId') programId: string,
+    @Query('theme') theme: string,
+    @Res() res: Response,
+  ) {
+    const pdf = await this.service.exportExtraLessonPdf(programId, studioId, u.schoolId!, theme);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="ek-ders-${programId.slice(0, 8)}.pdf"`);
+    res.send(Buffer.from(pdf));
+  }
+
+  @Get('studios/:studioId/programs/:programId/export/master-:axis.pdf')
+  @Roles(UserRole.school_admin)
+  async exportMasterPdf(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Param('programId') programId: string,
+    @Param('axis') axis: string,
+    @Query('theme') theme: string,
+    @Res() res: Response,
+  ) {
+    const a = axis === 'teacher' || axis === 'class' || axis === 'room' ? axis : 'teacher';
+    const pdf = await this.service.exportMasterSheetPdf(programId, studioId, u.schoolId!, a, theme);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="carsaf-${a}-${programId.slice(0, 8)}.pdf"`,
+    );
+    res.send(Buffer.from(pdf));
+  }
+
   @Get('studios/:studioId/programs/:programId/export.pdf')
   @Roles(UserRole.school_admin)
   async exportPdf(
+    @CurrentUser() u: CurrentUserPayload,
     @Param('studioId') studioId: string,
     @Param('programId') programId: string,
+    @Query('theme') theme: string,
     @Res() res: Response,
   ) {
-    const pdf = await this.service.exportProgramPdf(programId, studioId);
+    const pdf = await this.service.exportProgramPdf(programId, studioId, u.schoolId!, theme);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="ders-dagit-${programId.slice(0, 8)}.pdf"`);
+    res.send(Buffer.from(pdf));
+  }
+
+  @Get('studios/:studioId/programs/:programId/export/schedule.pdf')
+  @Roles(UserRole.school_admin)
+  async exportScheduleViewPdf(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Param('programId') programId: string,
+    @Query('view') view: string,
+    @Query('filter') filter: string,
+    @Query('label') label: string,
+    @Query('theme') theme: string,
+    @Res() res: Response,
+  ) {
+    const v = view === 'class' || view === 'teacher' || view === 'room' ? view : null;
+    if (!v || !filter?.trim()) {
+      res.status(400).json({ message: 'view ve filter gerekli' });
+      return;
+    }
+    const pdf = await this.service.exportScheduleViewPdf(
+      programId,
+      studioId,
+      u.schoolId!,
+      v,
+      filter.trim(),
+      (label ?? filter).trim(),
+      theme,
+    );
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="haftalik-${v}-${programId.slice(0, 8)}.pdf"`,
+    );
+    res.send(Buffer.from(pdf));
+  }
+
+  @Get('studios/:studioId/programs/:programId/export/teacher-notification.pdf')
+  @Roles(UserRole.school_admin)
+  async exportTeacherNotificationPdf(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Param('programId') programId: string,
+    @Query('theme') theme: string,
+    @Query('teacher') teacher: string,
+    @Res() res: Response,
+  ) {
+    const pdf = await this.service.exportTeacherNotificationPdf(
+      programId,
+      studioId,
+      u.schoolId!,
+      theme,
+      teacher,
+    );
+    res.setHeader('Content-Type', 'application/pdf');
+    const suffix = teacher?.trim() ? `-${teacher.trim().slice(0, 12).replace(/[^\w.-]+/g, '_')}` : '';
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="ogretmen-teblig${suffix}-${programId.slice(0, 8)}.pdf"`,
+    );
+    res.send(Buffer.from(pdf));
+  }
+
+  @Get('studios/:studioId/programs/:programId/export/cover.pdf')
+  @Roles(UserRole.school_admin)
+  async exportCoverPdf(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Param('programId') programId: string,
+    @Query('theme') theme: string,
+    @Res() res: Response,
+  ) {
+    const pdf = await this.service.exportCoverPdf(programId, studioId, u.schoolId!, theme);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="kapak-${programId.slice(0, 8)}.pdf"`);
+    res.send(Buffer.from(pdf));
+  }
+
+  @Get('studios/:studioId/programs/:programId/export/approval.pdf')
+  @Roles(UserRole.school_admin)
+  async exportApprovalPdf(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Param('programId') programId: string,
+    @Query('theme') theme: string,
+    @Res() res: Response,
+  ) {
+    const pdf = await this.service.exportApprovalPdf(programId, studioId, u.schoolId!, theme);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="onay-${programId.slice(0, 8)}.pdf"`);
     res.send(Buffer.from(pdf));
   }
 
@@ -654,9 +935,10 @@ export class DersDagitController {
     @CurrentUser() u: CurrentUserPayload,
     @Param('studioId') studioId: string,
     @Param('programId') programId: string,
+    @Query('theme') theme: string,
     @Res() res: Response,
   ) {
-    const pdf = await this.service.exportCouncilPdf(programId, studioId, u.schoolId!);
+    const pdf = await this.service.exportCouncilPdf(programId, studioId, u.schoolId!, theme);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="kurul-tutanagi-${programId.slice(0, 8)}.pdf"`);
     res.send(Buffer.from(pdf));
@@ -683,9 +965,16 @@ export class DersDagitController {
     @Param('studioId') studioId: string,
     @Param('programId') programId: string,
     @Query('section') section: string,
+    @Query('theme') theme: string,
     @Res() res: Response,
   ) {
-    const pdf = await this.service.exportParentClassPdf(programId, studioId, u.schoolId!, section?.trim() || '5A');
+    const pdf = await this.service.exportParentClassPdf(
+      programId,
+      studioId,
+      u.schoolId!,
+      section?.trim() || '5A',
+      theme,
+    );
     res.setHeader('Content-Type', 'application/pdf');
     const sec = (section?.trim() || 'sinif').replace(/[^\w.-]+/g, '_');
     res.setHeader('Content-Disposition', `attachment; filename="veli-program-${sec}.pdf"`);
@@ -823,6 +1112,22 @@ export class DersDagitController {
     @Param('programId') programId: string,
   ) {
     return this.service.cloneProgram(studioId, programId, u.userId);
+  }
+
+  @Get('studios/:studioId/programs/:programId/share')
+  @Roles(UserRole.school_admin)
+  getShareStatus(@Param('studioId') studioId: string, @Param('programId') programId: string) {
+    return this.service.getProgramShareStatus(studioId, programId);
+  }
+
+  @Patch('studios/:studioId/programs/:programId/share')
+  @Roles(UserRole.school_admin)
+  patchShareSettings(
+    @Param('studioId') studioId: string,
+    @Param('programId') programId: string,
+    @Body() body: { enabled_sections?: string[] | null },
+  ) {
+    return this.service.updateProgramShareSettings(studioId, programId, body);
   }
 
   @Post('studios/:studioId/programs/:programId/share')

@@ -48,6 +48,167 @@ export function sectionKeyForSchoolType(type: MebSchoolType, grade: number): Sec
   return 'ders';
 }
 
+/** Kurum türüne göre TTKB sınıf seviyeleri (şube listesi gerekmez). */
+export function gradesForSchoolType(type: MebSchoolType): number[] {
+  if (type === 'ilkokul') return [1, 2, 3, 4];
+  if (type === 'ortaokul') return [5, 6, 7, 8];
+  return [9, 10, 11, 12];
+}
+
+export type TtkbCatalogRow = {
+  subject_code: string;
+  subject_name: string;
+  grade: number;
+  weekly_hours: number;
+  source: TtkbSeedCell['source'];
+  is_elective: boolean;
+};
+
+/** TTKB kategori 7 — kurum türü + sınıf seviyesi; şubeye otomatik dağıtım yok. */
+export function buildTtkbCatalogBySchoolType(
+  schoolType: MebSchoolType,
+  yillikByGradeCode: Map<string, { label: string; hours: number }>,
+): TtkbCatalogRow[] {
+  const rows: TtkbCatalogRow[] = [];
+  const seen = new Set<string>();
+  for (const grade of gradesForSchoolType(schoolType)) {
+    const sectionKey = sectionKeyForSchoolType(schoolType, grade);
+    const yillikForGrade = new Map<string, number>();
+    for (const [k, v] of yillikByGradeCode) {
+      const [code, gStr] = k.split('\0');
+      if (Number(gStr) === grade) yillikForGrade.set(code, v.hours);
+    }
+    for (const row of buildTtkbCatalogForGrade(grade, sectionKey, yillikForGrade)) {
+      const key = `${row.entry.code}\0${grade}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push({
+        subject_code: row.entry.code,
+        subject_name: row.entry.label,
+        grade,
+        weekly_hours: row.weekly_hours,
+        source: row.source,
+        is_elective: isElectiveSubjectName(row.entry.label) || row.entry.code.includes('secmeli'),
+      });
+    }
+  }
+  return rows;
+}
+
+/** 9–12 TTKB seçmeli / ikinci yabancı dil ve sanat-spor kolları */
+const LISE_ELECTIVE_CODES = new Set([
+  'almanca',
+  'fransizca',
+  'ispanyolca',
+  'rusca',
+  'gorsel_sanatlar',
+  'muzik',
+  'beden_egitimi',
+  'bilgisayar_bilimi',
+]);
+
+function electiveSectionKeysForGrade(type: MebSchoolType, grade: number): SectionKey[] {
+  if (grade < 5 || grade > 8) return [];
+  if (type === 'aihl') return ['secmeli', 'iho'];
+  return ['secmeli'];
+}
+
+function isLiseElectiveEntry(code: string, label: string): boolean {
+  return LISE_ELECTIVE_CODES.has(normalizeCode(code)) || isElectiveSubjectName(label);
+}
+
+/** Kurum türüne göre yalnızca seçmeli TTKB dersleri (5–8: secmeli/iho; 9–12: seçmeli kodlar). */
+export function buildTtkbElectiveCatalogBySchoolType(
+  schoolType: MebSchoolType,
+  yillikByGradeCode: Map<string, { label: string; hours: number }>,
+): TtkbCatalogRow[] {
+  const rows: TtkbCatalogRow[] = [];
+  const seen = new Set<string>();
+
+  for (const grade of gradesForSchoolType(schoolType)) {
+    const yillikForGrade = new Map<string, number>();
+    for (const [k, v] of yillikByGradeCode) {
+      const [code, gStr] = k.split('\0');
+      if (Number(gStr) === grade) yillikForGrade.set(code, v.hours);
+    }
+
+    if (grade >= 5 && grade <= 8) {
+      for (const sk of electiveSectionKeysForGrade(schoolType, grade)) {
+        for (const row of buildTtkbCatalogForGrade(grade, sk, yillikForGrade)) {
+          const key = `${row.entry.code}\0${grade}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          rows.push({
+            subject_code: row.entry.code,
+            subject_name: row.entry.label,
+            grade,
+            weekly_hours: row.weekly_hours,
+            source: row.source,
+            is_elective: true,
+          });
+        }
+      }
+    } else if (grade >= 9 && grade <= 12) {
+      const sectionKey = sectionKeyForSchoolType(schoolType, grade);
+      for (const row of buildTtkbCatalogForGrade(grade, sectionKey, yillikForGrade)) {
+        if (!isLiseElectiveEntry(row.entry.code, row.entry.label)) continue;
+        const key = `${row.entry.code}\0${grade}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push({
+          subject_code: row.entry.code,
+          subject_name: row.entry.label,
+          grade,
+          weekly_hours: row.weekly_hours,
+          source: row.source,
+          is_elective: true,
+        });
+      }
+    }
+  }
+  return rows;
+}
+
+/** Ders kataloğu — şube/sınıf ataması yapılmaz (class_hours boş). */
+export function mergeGradeCatalogToSubjects(
+  rows: TtkbCatalogRow[],
+): Map<string, { name: string; short_code: string; class_hours: Record<string, number>; is_elective: boolean }> {
+  const map = new Map<
+    string,
+    { name: string; short_code: string; class_hours: Record<string, number>; is_elective: boolean }
+  >();
+  for (const r of rows) {
+    const code = fitSubjectShortCode(r.subject_code);
+    const prev = map.get(code) ?? {
+      name: r.subject_name,
+      short_code: code,
+      class_hours: {},
+      is_elective: r.is_elective,
+    };
+    prev.is_elective = prev.is_elective || r.is_elective;
+    map.set(code, prev);
+  }
+  return map;
+}
+
+export function catalogRowsToPreviewCells(rows: TtkbCatalogRow[]): Array<{
+  subject_code: string;
+  subject_name: string;
+  class_section: string;
+  grade: number;
+  weekly_hours: number;
+  source: TtkbSeedCell['source'];
+}> {
+  return rows.map((r) => ({
+    subject_code: r.subject_code,
+    subject_name: r.subject_name,
+    class_section: '',
+    grade: r.grade,
+    weekly_hours: r.weekly_hours,
+    source: r.source,
+  }));
+}
+
 function normalizeCode(code: string): string {
   return (code ?? '').toLowerCase().trim().replace(/_maarif(_[a-z]+)?$/, '').replace(/_maarif$/, '');
 }

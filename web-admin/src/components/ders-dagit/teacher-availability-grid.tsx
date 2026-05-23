@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { DdAscTimeTable, type AscCellVisual } from '@/components/ders-dagit/dd-asc-time-table';
+import { DdStudioTimeTable, type StudioCellVisual } from '@/components/ders-dagit/dd-studio-time-table';
 import {
   blockedKeysToPeriods,
   isSlotBlocked,
@@ -35,7 +35,7 @@ export function TeacherAvailabilityGrid({
     onChange(blockedKeysToPeriods(next));
   }
 
-  function getCell(day: number, lesson: number): AscCellVisual {
+  function getCell(day: number, lesson: number): StudioCellVisual {
     const blocked = isSlotBlocked(keys, day, lesson);
     return {
       state: blocked ? 'blocked' : 'available',
@@ -46,7 +46,7 @@ export function TeacherAvailabilityGrid({
   return (
     <div className="space-y-2">
       {caption ? <p className="text-sm text-muted-foreground">{caption}</p> : null}
-      <DdAscTimeTable
+      <DdStudioTimeTable
         workDays={days}
         maxLessons={maxLessons}
         getCell={getCell}

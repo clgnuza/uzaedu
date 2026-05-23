@@ -10,9 +10,15 @@ function ProgramEditorInner() {
   const sp = useSearchParams();
   const programId = sp.get('id') ?? undefined;
   const compareId = sp.get('compare') ?? undefined;
-  const view = sp.get('view') === 'teacher' ? 'teacher' : sp.get('view') === 'room' ? 'room' : undefined;
+  const viewParam = sp.get('view');
+  const initialView =
+    viewParam === 'teacher' || viewParam === 'room' || viewParam === 'class' || viewParam === 'all'
+      ? viewParam
+      : undefined;
+  const initialFilter = sp.get('filter') ?? undefined;
   const [activeProgramId, setActiveProgramId] = useState(programId ?? '');
   const showPublish = sp.get('panel') === 'publish';
+  const autoPrint = sp.get('print') === '1';
 
   useEffect(() => {
     if (showPublish) {
@@ -27,10 +33,12 @@ function ProgramEditorInner() {
       <TimetableShell
         initialProgramId={programId}
         compareProgramId={compareId}
-        initialView={view}
+        initialView={initialView}
+        initialFilterId={initialFilter}
+        initialAutoPrint={autoPrint}
         onProgramIdChange={setActiveProgramId}
       />
-      <TimetablePublishPanel programId={activeProgramId} />
+      {!autoPrint && <TimetablePublishPanel programId={activeProgramId} />}
     </div>
   );
 }

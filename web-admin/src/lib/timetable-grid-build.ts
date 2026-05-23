@@ -1,3 +1,6 @@
+import { buildSlotClosures, type GridMetaForClosures } from '@/lib/timetable-slot-closures';
+
+export type { GridMetaForClosures };
 export type LongBreakDef = { after_lesson: number; label?: string; blocked_slots?: number };
 
 export type GridRow =
@@ -17,20 +20,14 @@ export function buildTimetableRows(maxLesson: number, longBreaks: LongBreakDef[]
   return rows;
 }
 
+/** Kapalı slot anahtarları (Set). Yeni kodda buildSlotClosures tercih edilir. */
 export function buildForbiddenSlots(
   workDays: number[],
   maxLesson: number,
   teacherUnavailable: Array<{ day_of_week: number; lesson_num?: number }> | undefined,
+  gridMeta?: GridMetaForClosures,
 ): Set<string> {
-  const set = new Set<string>();
-  for (const p of teacherUnavailable ?? []) {
-    if (p.lesson_num != null) {
-      set.add(`${p.day_of_week}-${p.lesson_num}`);
-    } else {
-      for (let l = 1; l <= maxLesson; l++) set.add(`${p.day_of_week}-${l}`);
-    }
-  }
-  return set;
+  return new Set(buildSlotClosures(workDays, maxLesson, gridMeta, teacherUnavailable).keys());
 }
 
 export function maxLessonsOnDay(
@@ -51,6 +48,12 @@ export function scheduleForDay(
   return weekday;
 }
 
+/** Gün–ders eşlemesi (harita, yasak slot, drop). */
+export function cellSlotKey(day: number, lesson: number) {
+  return `${day}-${lesson}`;
+}
+
+/** DOM / odak vurgusu (droppable id ayrı: slot-{day}-{lesson}). */
 export function slotHighlightKey(day: number, lesson: number) {
   return `slot-${day}-${lesson}`;
 }

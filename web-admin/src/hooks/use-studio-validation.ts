@@ -10,7 +10,7 @@ export function useStudioValidation(studioId: string | null | undefined) {
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (_opts?: { force?: boolean }) => {
     if (!token || !studioId) return;
     setLoading(true);
     try {

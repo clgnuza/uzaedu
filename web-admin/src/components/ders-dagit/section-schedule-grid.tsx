@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { ascDayShort } from '@/lib/asc-timetable-ui';
+import { weekdayShort } from '@/lib/studio-timetable-ui';
 import { dayLabel } from '@/lib/ders-dagit-labels';
 import { DdWeekdayPicker } from '@/components/ders-dagit/dd-weekday-picker';
 import {
@@ -157,7 +157,7 @@ export function SectionScheduleGrid({
               return (
                 <tr key={d}>
                   <th scope="row" className="border-r bg-muted/40 px-1 py-1 align-middle">
-                    <div className="font-semibold text-muted-foreground">{ascDayShort(d)}</div>
+                    <div className="font-semibold text-muted-foreground">{weekdayShort(d)}</div>
                     <div className="mt-0.5 flex items-center justify-center gap-0.5">
                       <Button
                         type="button"

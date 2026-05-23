@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
@@ -32,7 +33,6 @@ const EOKUL_FORMAT_OPTS = [
 ];
 
 const FIX_DAY_OPTS = [1, 2, 3, 4, 5, 6].map((d) => ({ value: String(d), label: dayLabel(d) }));
-import Link from 'next/link';
 
 type Assignment = LessonAssignmentRow;
 
@@ -282,7 +282,7 @@ export default function AtamalarPage() {
       <DdPageHeader
         icon={ListChecks}
         title="Ders atama"
-        description="aSc akışı: atanan dersler listesi · Ders penceresi ile öğretmen, ders, sınıf, saat, derslik."
+        description="Stüdyo akışı: atanan dersler listesi · Ders penceresi ile öğretmen, ders, sınıf, saat, derslik."
       />
       {scopeBanner && (
         <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">

@@ -43,18 +43,34 @@ import {
 } from '@/lib/ders-dagit-program-api';
 import { ProgramManageBar } from '@/components/timetable/ProgramManageBar';
 import { TimetableReadonly } from '@/components/timetable/TimetableReadonly';
+import { fetchEditorContext, type EditorEntry } from '@/lib/ders-dagit-timetable-api';
 import { Button } from '@/components/ui/button';
 import { DdAccentButton, DdCard, DdGlassPanel, DdPageHeader, CardContent, CardHeader, CardTitle } from '@/components/ders-dagit/dd-ui';
 import { DdSelectField } from '@/components/ders-dagit/dd-select';
+import { ProgramScoreBreakdownPanel } from '@/components/ders-dagit/ProgramScoreBreakdownPanel';
+import type { ProgramScoreBreakdown } from '@/lib/ders-dagit-score-breakdown';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
-type CompareRow = { id: string; name: string | null; score: number | null; entry_count: number };
-type PreviewEntry = { day_of_week: number; lesson_num: number; class_section: string; subject: string };
+type CompareRow = {
+  id: string;
+  name: string | null;
+  score: number | null;
+  entry_count: number;
+  score_breakdown?: ProgramScoreBreakdown | null;
+};
+
+type PreviewState = {
+  entries: EditorEntry[];
+  workDays: number[];
+  maxLesson: number;
+  classSections: string[];
+};
 
 type GenerateResult = {
   programs: Array<{ id: string; name: string; score: number | null }>;
   score?: number;
+  score_breakdown?: ProgramScoreBreakdown;
   violations?: string[];
   violation_links?: Array<{ text: string; href?: string }>;
   failed?: number;
@@ -259,7 +275,7 @@ export function ProgramGenerateStudio() {
   const [draftOrder, setDraftOrder] = useState<string[]>([]);
   const [compareMap, setCompareMap] = useState<Map<string, CompareRow>>(new Map());
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [previewEntries, setPreviewEntries] = useState<PreviewEntry[]>([]);
+  const [preview, setPreview] = useState<PreviewState | null>(null);
   const [previewSection, setPreviewSection] = useState('');
   const [existing, setExisting] = useState<DdProgramRow[]>([]);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
@@ -278,13 +294,16 @@ export function ProgramGenerateStudio() {
     return sorted[0]?.id ?? null;
   }, [orderedDrafts]);
 
-  const sections = useMemo(() => {
-    const s = new Set(previewEntries.map((e) => e.class_section));
-    return [...s].sort((a, b) => a.localeCompare(b, 'tr'));
-  }, [previewEntries]);
+  const sections = preview?.classSections ?? [];
 
   useEffect(() => {
-    if (sections.length && !previewSection) setPreviewSection(sections[0]!);
+    if (!sections.length) {
+      setPreviewSection('');
+      return;
+    }
+    if (!previewSection || !sections.includes(previewSection)) {
+      setPreviewSection(sections[0]!);
+    }
   }, [sections, previewSection]);
 
   const loadExisting = useCallback(async () => {
@@ -300,16 +319,32 @@ export function ProgramGenerateStudio() {
     async (id: string) => {
       if (!token || !studio) return;
       setPreviewId(id);
-      const d = await apiFetch<{ entries: PreviewEntry[] }>(
-        `/ders-dagit/studios/${studio.id}/programs/${id}`,
-        { token },
-      );
-      setPreviewEntries(d.entries);
-      const secs = [...new Set(d.entries.map((e) => e.class_section))].sort((a, b) => a.localeCompare(b, 'tr'));
-      setPreviewSection(secs[0] ?? '');
+      try {
+        const ctx = await fetchEditorContext(token, studio.id, id);
+        const entries = ctx.entries.map((e) => ({
+          ...e,
+          day_of_week: Number(e.day_of_week),
+          lesson_num: Number(e.lesson_num),
+        }));
+        setPreview({
+          entries,
+          workDays: ctx.period.work_days?.length ? ctx.period.work_days : [1, 2, 3, 4, 5],
+          maxLesson: ctx.max_lesson,
+          classSections: ctx.class_sections,
+        });
+        setPreviewSection(ctx.class_sections[0] ?? '');
+      } catch (e) {
+        setPreview(null);
+        toast.error(e instanceof Error ? e.message : 'Önizleme yüklenemedi');
+      }
     },
     [token, studio],
   );
+
+  useEffect(() => {
+    if (!token || !studio || previewId || !bestId) return;
+    void loadPreview(bestId);
+  }, [token, studio, bestId, previewId, loadPreview]);
 
   function setCompareRows(rows: CompareRow[]) {
     setCompareMap(new Map(rows.map((r) => [r.id, r])));
@@ -319,7 +354,7 @@ export function ProgramGenerateStudio() {
   async function generate() {
     if (!token || !studio) return;
     setBusy(true);
-    setPreviewEntries([]);
+    setPreview(null);
     setPreviewId(null);
     try {
       const res = await apiFetch<GenerateResult & { entries_count: number }>(
@@ -329,6 +364,7 @@ export function ProgramGenerateStudio() {
       setResult({
         programs: res.programs.map((p) => ({ id: p.id, name: p.name ?? 'Program', score: p.score })),
         score: res.score,
+        score_breakdown: res.score_breakdown,
         violations: res.violations,
         violation_links: res.violation_links,
         failed: res.failed,
@@ -364,7 +400,7 @@ export function ProgramGenerateStudio() {
     setResult((r) => (r ? { ...r, programs: r.programs.filter((p) => p.id !== id) } : r));
     if (previewId === id) {
       setPreviewId(null);
-      setPreviewEntries([]);
+      setPreview(null);
     }
   }
 
@@ -389,10 +425,13 @@ export function ProgramGenerateStudio() {
     }
   }
 
-  const violationItems =
-    result?.violation_links?.length
-      ? result.violation_links
-      : result?.violations?.map((t) => ({ text: t })) ?? [];
+  const activeBreakdown = useMemo(() => {
+    if (previewId) {
+      const row = compareMap.get(previewId);
+      if (row?.score_breakdown) return row.score_breakdown;
+    }
+    return result?.score_breakdown ?? null;
+  }, [previewId, compareMap, result?.score_breakdown]);
 
   const dragDraft = activeDragId ? compareMap.get(activeDragId) : null;
 
@@ -515,15 +554,6 @@ export function ProgramGenerateStudio() {
               </DdCard>
             )}
 
-            {result && violationItems.length > 0 && (
-              <ul className="max-h-24 overflow-y-auto rounded-lg border border-amber-500/30 bg-amber-500/5 p-2 text-xs">
-                {violationItems.slice(0, 8).map((v, i) => (
-                  <li key={i} className="text-muted-foreground">
-                    {v.href ? <Link href={v.href} className="underline">{v.text}</Link> : v.text}
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
 
           <DdGlassPanel strong className="space-y-3 p-3 sm:p-4 lg:sticky lg:top-4">
@@ -556,14 +586,33 @@ export function ProgramGenerateStudio() {
               </div>
             )}
 
-            <PreviewDropPanel isOver={!!activeDragId} hasPreview={previewEntries.length > 0} busy={busy}>
-              {previewEntries.length > 0 && (
+            <PreviewDropPanel isOver={!!activeDragId} hasPreview={(preview?.entries.length ?? 0) > 0} busy={busy}>
+              {preview && preview.entries.length > 0 && (
                 <TimetableReadonly
-                  entries={previewEntries}
-                  classSection={sections.length > 1 ? previewSection : undefined}
+                  entries={preview.entries}
+                  workDays={preview.workDays}
+                  maxLesson={preview.maxLesson}
+                  classSection={
+                    sections.length > 1 && previewSection && sections.includes(previewSection)
+                      ? previewSection
+                      : undefined
+                  }
                 />
               )}
             </PreviewDropPanel>
+
+            {activeBreakdown && (
+              <ProgramScoreBreakdownPanel
+                breakdown={activeBreakdown}
+                title={
+                  activeBreakdown.points_to_full > 0
+                    ? previewId && compareMap.get(previewId)?.name
+                      ? `Neden ${activeBreakdown.score} puan? — ${compareMap.get(previewId)?.name}`
+                      : `Neden ${activeBreakdown.score} değil 100?`
+                    : 'Puan özeti'
+                }
+              />
+            )}
 
             {previewId && token && studio && (
               <div className="space-y-2 border-t border-border/50 pt-3">

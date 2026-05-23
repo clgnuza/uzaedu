@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { DersDagitStudio } from './ders-dagit-studio.entity';
+import type { ProgramShareSettings } from '../ders-dagit-program-share';
 
 @Entity('ders_dagit_program')
 export class DersDagitProgram {
@@ -38,6 +39,9 @@ export class DersDagitProgram {
 
   @Column({ name: 'share_token', type: 'varchar', length: 64, nullable: true })
   share_token: string | null;
+
+  @Column({ name: 'share_settings', type: 'jsonb', default: {} })
+  share_settings: ProgramShareSettings;
 
   @Column({ name: 'archived_at', type: 'timestamptz', nullable: true })
   archived_at: Date | null;

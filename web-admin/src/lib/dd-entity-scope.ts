@@ -1,4 +1,4 @@
-/** aSc: sağ panel işlemleri yalnızca seçili kayda ait */
+/** Stüdyo: sağ panel işlemleri yalnızca seçili kayda ait */
 
 export type DdEntityKind = 'ders' | 'ogretmen' | 'sinif' | 'derslik';
 

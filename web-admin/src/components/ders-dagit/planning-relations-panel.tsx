@@ -20,7 +20,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { apiFetch } from '@/lib/api';
 import {
-  advancedRuleOptionLabel,
+  defaultImportanceForRule,
+  defaultParamsForRule,
   newRelationId,
   relationSummary,
   type AdvancedRelationDef,
@@ -28,10 +29,8 @@ import {
   type SimpleRelationDef,
 } from '@/lib/planning-relations';
 import { PlanningRelationEditorDialog } from '@/components/ders-dagit/planning-relation-editor-dialog';
+import { PlanningRelationRulePickerDialog } from '@/components/ders-dagit/planning-relation-rule-picker-dialog';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { DdAccentButton, DdDialogContent } from '@/components/ders-dagit/dd-ui';
-import { DdSelectField } from '@/components/ders-dagit/dd-select';
 import { toast } from 'sonner';
 import {
   Table,
@@ -76,8 +75,8 @@ export function PlanningRelationsPanel() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [draft, setDraft] = useState<PlanningRelationRow | null>(null);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [advancedPick, setAdvancedPick] = useState('adv_same_day');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerMode, setPickerMode] = useState<'simple' | 'advanced'>('simple');
   const [saving, setSaving] = useState(false);
 
   const defaultSections = useMemo(() => {
@@ -121,19 +120,28 @@ export function PlanningRelationsPanel() {
       const res = await apiFetch<RulesRes>(`/ders-dagit/studios/${studio.id}/planning-relations`, {
         token,
         method: 'PATCH',
-        body: { relations: next.map((r, i) => ({ ...r, sort_order: i })) },
+        body: JSON.stringify({ relations: next.map((r, i) => ({ ...r, sort_order: i })) }),
       });
       setData(res);
       const list = [...(res.planning_relations ?? [])].sort((a, b) => a.sort_order - b.sort_order);
       setRows(list);
       toast.success('Planlama ilişkileri kaydedildi');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Kayıt başarısız');
     } finally {
       setSaving(false);
     }
   }
 
   function openNew(kind: 'simple' | 'advanced', ruleId: string) {
+    const def =
+      kind === 'simple'
+        ? simple.find((r) => r.id === ruleId)
+        : advanced.find((r) => r.id === ruleId);
     const row = emptyRow(kind, ruleId, rows.length);
+    row.importance = defaultImportanceForRule(def);
+    const params = defaultParamsForRule(def);
+    if (params) row.params = params;
     if (defaultSections.length) {
       row.sections_mode = 'pick';
       row.sections = [...defaultSections];
@@ -152,6 +160,7 @@ export function PlanningRelationsPanel() {
     const i = rows.findIndex((r) => r.id === row.id);
     const next = i >= 0 ? rows.map((r) => (r.id === row.id ? row : r)) : [...rows, row];
     setRows(next);
+    setSelectedId(row.id);
     await persist(next);
   }
 
@@ -179,8 +188,8 @@ export function PlanningRelationsPanel() {
       )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground max-w-xl">
-          aSc planlama ilişkileri: ders, sınıf ve kural türü. Aktif kurallar (basit + gelişmiş, dağıtım destekli)
-          üretimde okul kurallarıyla birleştirilir.
+          Plan Kartları: ders, şube ve ilişki türü. Aktif ve dağıtım destekli kurallar üretimde okul kurallarıyla
+          birleştirilir; seçilen dersler yalnızca o ders atamalarına uygulanır.
         </p>
         <Link
           href="/ders-dagit/studyo/kurallar"
@@ -189,6 +198,35 @@ export function PlanningRelationsPanel() {
           <Scale className="h-3.5 w-3.5" />
           Okul kuralları (switch listesi)
         </Link>
+      </div>
+
+      <div className="dd-glass-panel flex flex-wrap items-center gap-2 rounded-xl border p-3">
+        <p className="w-full text-sm font-medium">Kural ekle</p>
+        <Button
+          type="button"
+          size="sm"
+          disabled={saving || !simple.length}
+          onClick={() => {
+            setPickerMode('simple');
+            setPickerOpen(true);
+          }}
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          Basit ilişki
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={saving || !advanced.length}
+          onClick={() => {
+            setPickerMode('advanced');
+            setPickerOpen(true);
+          }}
+        >
+          <Sparkles className="mr-1 h-3.5 w-3.5" />
+          Plan Kartı (gelişmiş)
+        </Button>
       </div>
 
       <div className="dd-glass-panel overflow-hidden">
@@ -205,7 +243,7 @@ export function PlanningRelationsPanel() {
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
-                  Kayıt bulunamadı. Ekle veya Gelişmiş ile kural tanımlayın.
+                  Kayıt yok. Yukarıdan kural ekleyin.
                 </TableCell>
               </TableRow>
             ) : (
@@ -244,10 +282,6 @@ export function PlanningRelationsPanel() {
       </div>
 
       <div className="flex flex-wrap gap-1.5 border-t pt-3">
-        <Button type="button" size="sm" variant="secondary" disabled={saving} onClick={() => openNew('simple', 'not_same_day')}>
-          <Plus className="mr-1 h-3.5 w-3.5" />
-          Ekle
-        </Button>
         <Button type="button" size="sm" variant="outline" disabled={!selected || saving} onClick={openEdit}>
           <Pencil className="mr-1 h-3.5 w-3.5" />
           Düzenle
@@ -267,10 +301,6 @@ export function PlanningRelationsPanel() {
         >
           <Trash2 className="mr-1 h-3.5 w-3.5" />
           Sil
-        </Button>
-        <Button type="button" size="sm" variant="default" disabled={saving} onClick={() => setAdvancedOpen(true)}>
-          <Sparkles className="mr-1 h-3.5 w-3.5" />
-          Gelişmiş
         </Button>
         <Button
           type="button"
@@ -331,6 +361,15 @@ export function PlanningRelationsPanel() {
         </Button>
       </div>
 
+      <PlanningRelationRulePickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        simpleCatalog={simple}
+        advancedCatalog={advanced}
+        initialMode={pickerMode}
+        onPick={(kind, ruleId) => openNew(kind, ruleId)}
+      />
+
       <PlanningRelationEditorDialog
         open={editorOpen}
         onOpenChange={setEditorOpen}
@@ -342,40 +381,6 @@ export function PlanningRelationsPanel() {
         defaultSections={defaultSections}
         onSave={(row) => void onSave(row)}
       />
-
-      <Dialog open={advancedOpen} onOpenChange={setAdvancedOpen}>
-        <DdDialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Gelişmiş — kart ilişki türü</DialogTitle>
-          </DialogHeader>
-          <DdSelectField
-            label="Kart ilişki türü"
-            value={advancedPick}
-            onValueChange={setAdvancedPick}
-            options={advanced.map((r) => ({
-              value: r.id,
-              label: advancedRuleOptionLabel(r),
-            }))}
-          />
-          {advanced.find((r) => r.id === advancedPick)?.hint && (
-            <p className="text-xs text-muted-foreground">{advanced.find((r) => r.id === advancedPick)!.hint}</p>
-          )}
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setAdvancedOpen(false)}>
-              İptal
-            </Button>
-            <DdAccentButton
-              type="button"
-              onClick={() => {
-                setAdvancedOpen(false);
-                openNew('advanced', advancedPick);
-              }}
-            >
-              Tamam
-            </DdAccentButton>
-          </DialogFooter>
-        </DdDialogContent>
-      </Dialog>
     </div>
   );
 }

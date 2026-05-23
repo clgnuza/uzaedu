@@ -16,7 +16,7 @@ type Props = {
   className?: string;
 };
 
-/** aSc: sol modül ikonları · ortada tablo · sağda aksiyonlar · altta seçili kayıt paneli */
+/** Stüdyo: sol modül ikonları · ortada tablo · sağda aksiyonlar · altta seçili kayıt paneli */
 export function DdEntityWorkspace({
   title,
   toolbar,

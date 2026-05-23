@@ -15,9 +15,21 @@ export function normalizeWhitespace(s: string): string {
     .trim();
 }
 
-/** 5A-A → { base: 5A, track: A }; 5A → { base: 5A, track: null } */
+/** 5A-A → { base: 5A, track: A }; 9/A → { base: 9, track: A }; 11 ELEKTRİK → { base: 11, track: ELEKTRİK } */
 export function splitSectionTrack(section: string): { base: string; track: string | null } {
   const s = normalizeWhitespace(section);
+  const ampSlash = /(?:^|[-–]\s*)(\d{1,2})\s*\/\s*([A-Za-zÇĞİÖŞÜçğıöşü0-9]+)\s*$/u.exec(s);
+  if (ampSlash) {
+    return { base: ampSlash[1]!.trim(), track: ampSlash[2]!.trim() };
+  }
+  const slash = /^(\d{1,2})\s*\/\s*([A-Za-zÇĞİÖŞÜçğıöşü0-9]+)$/u.exec(s);
+  if (slash) {
+    return { base: slash[1]!.trim(), track: slash[2]!.trim() };
+  }
+  const gradeField = /^(\d{1,2})\s+([A-Za-zÇĞİÖŞÜçğıöşü][\wÇĞİÖŞÜçğıöşü\s./-]{1,48})$/u.exec(s);
+  if (gradeField && gradeField[2]!.trim().length >= 2) {
+    return { base: gradeField[1]!.trim(), track: gradeField[2]!.trim() };
+  }
   const m = /^(.+?)[\s\-–]([A-Za-zÇĞİÖŞÜçğıöşü0-9]+)$/.exec(s);
   if (m && m[1]!.length >= 2) {
     return { base: m[1]!.trim(), track: m[2]!.trim() };

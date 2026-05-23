@@ -1,4 +1,4 @@
-/** aSc planlama ilişkileri — kayıt modeli ve kural eşlemesi */
+/** Plan Kartı — planlama ilişkileri kayıt modeli ve kural eşlemesi */
 
 export type PlanningImportance = 'strict' | 'normal' | 'low';
 
@@ -23,11 +23,13 @@ export type SimpleRelationDef = {
   hint?: string;
   catalog_key?: string;
   solver_supported: boolean;
+  param_label?: string;
+  param_key?: 'max' | 'max_run' | 'min_gap';
 };
 
 export type AdvancedRelationDef = {
   id: string;
-  asc_ref?: string;
+  kart_kodu?: string;
   label_tr: string;
   hint?: string;
   catalog_key?: string;
@@ -85,13 +87,16 @@ export const SIMPLE_PLANNING_RULES: SimpleRelationDef[] = [
     label_tr: 'En fazla ardışık ders sayısı sınırı',
     catalog_key: 'four_plus_consecutive',
     solver_supported: true,
-    hint: 'params.max_run',
+    param_label: 'Max ardışık',
+    param_key: 'max_run',
   },
   {
     id: 'max_per_day',
     label_tr: 'Günde en fazla ders sayısı',
     catalog_key: 'max_two_per_day',
     solver_supported: true,
+    param_label: 'Max/gün',
+    param_key: 'max',
   },
   {
     id: 'minimize_gaps',
@@ -104,14 +109,14 @@ export const SIMPLE_PLANNING_RULES: SimpleRelationDef[] = [
 export const ADVANCED_PLANNING_RULES: AdvancedRelationDef[] = [
   {
     id: 'adv_same_hour',
-    asc_ref: '#21',
+    kart_kodu: '#21',
     label_tr: 'Seçilen kartlar aynı saatte olamaz',
     hint: 'İki kayıt çakışması (farklı ders/öğretmen)',
     solver_supported: false,
   },
   {
     id: 'adv_same_day',
-    asc_ref: '#1',
+    kart_kodu: '#1',
     label_tr: 'Seçilen kartlar aynı gün olamaz',
     hint: '2 saatlik kartlar farklı günlerde',
     catalog_key: 'two_not_same_day',
@@ -119,7 +124,7 @@ export const ADVANCED_PLANNING_RULES: AdvancedRelationDef[] = [
   },
   {
     id: 'adv_must_same_day',
-    asc_ref: '#2',
+    kart_kodu: '#2',
     label_tr: 'Seçilen kartlar aynı günde olmalı',
     hint: '2 saatlik kartlar tek günde',
     catalog_key: 'two_same_day',
@@ -127,14 +132,14 @@ export const ADVANCED_PLANNING_RULES: AdvancedRelationDef[] = [
   },
   {
     id: 'adv_not_consecutive_same_day',
-    asc_ref: '#3',
+    kart_kodu: '#3',
     label_tr: 'Aynı gün ardışık saatte olamaz',
     hint: 'Bitişik saat yasak (çözücü: yakında)',
     solver_supported: false,
   },
   {
     id: 'adv_max_gap',
-    asc_ref: '#4',
+    kart_kodu: '#4',
     label_tr: 'Günde en fazla boş ders (pencere)',
     param_label: 'Max boş',
     param_key: 'max',
@@ -144,7 +149,7 @@ export const ADVANCED_PLANNING_RULES: AdvancedRelationDef[] = [
   },
   {
     id: 'adv_max_consecutive',
-    asc_ref: '#6',
+    kart_kodu: '#6',
     label_tr: 'En fazla ardışık ders sayısı',
     param_label: 'Max ardışık',
     param_key: 'max_run',
@@ -153,7 +158,7 @@ export const ADVANCED_PLANNING_RULES: AdvancedRelationDef[] = [
   },
   {
     id: 'adv_min_gap_days',
-    asc_ref: '#77',
+    kart_kodu: '#77',
     label_tr: 'İki ders arasında en az boş gün',
     param_label: 'Min gün arası',
     param_key: 'min_gap',
@@ -163,7 +168,7 @@ export const ADVANCED_PLANNING_RULES: AdvancedRelationDef[] = [
   },
   {
     id: 'adv_max_days_week',
-    asc_ref: '#0',
+    kart_kodu: '#0',
     label_tr: 'Haftada en fazla ders günü sayısı',
     param_label: 'Max gün',
     param_key: 'max',
@@ -172,7 +177,7 @@ export const ADVANCED_PLANNING_RULES: AdvancedRelationDef[] = [
   },
   {
     id: 'adv_max_per_day',
-    asc_ref: '#10',
+    kart_kodu: '#10',
     label_tr: 'Günde en fazla ders sayısı',
     param_label: 'Max/gün',
     param_key: 'max',
@@ -181,29 +186,29 @@ export const ADVANCED_PLANNING_RULES: AdvancedRelationDef[] = [
   },
   {
     id: 'adv_max_same_period',
-    asc_ref: '#59',
+    kart_kodu: '#59',
     label_tr: 'Aynı derste haftada aynı saatte en fazla X gün',
     param_label: 'Max gün',
     param_key: 'max',
-    hint: 'aSc: Max days with lesson on the same period',
+    hint: 'Haftada aynı saatte en fazla X gün',
     solver_supported: false,
   },
   {
     id: 'adv_parallel_start',
-    asc_ref: '#45',
+    kart_kodu: '#45',
     label_tr: 'Grup kartları aynı anda başlasın',
     catalog_key: 'group_parallel_same_slot',
     solver_supported: true,
   },
   {
     id: 'adv_a_before_b_week',
-    asc_ref: '#41',
+    kart_kodu: '#41',
     label_tr: 'Hafta içinde A dersleri B’den önce',
     solver_supported: false,
   },
   {
     id: 'adv_fixed_hours',
-    asc_ref: '#60',
+    kart_kodu: '#60',
     label_tr: 'Kartlar yalnızca seçilen saatlerde',
     catalog_key: 'fixed_slots',
     hint: 'Atamalarda sabit slot tanımlayın',
@@ -211,20 +216,20 @@ export const ADVANCED_PLANNING_RULES: AdvancedRelationDef[] = [
   },
   {
     id: 'adv_no_start_hour',
-    asc_ref: '#32',
+    kart_kodu: '#32',
     label_tr: 'Seçilen saatlerde ders başlayamaz',
     hint: 'Müsait değil / tercih penceresi',
     solver_supported: false,
   },
   {
     id: 'adv_no_end_hour',
-    asc_ref: '#33',
+    kart_kodu: '#33',
     label_tr: 'Seçilen saatlerde ders bitemez',
     solver_supported: false,
   },
   {
     id: 'adv_faster_than_curriculum',
-    asc_ref: '#64',
+    kart_kodu: '#64',
     label_tr: 'Müfredattan hızlı yerleştirme yok',
     solver_supported: false,
   },

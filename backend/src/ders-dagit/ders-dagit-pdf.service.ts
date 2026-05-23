@@ -4,9 +4,60 @@ import { join } from 'path';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fontkitRaw = require('@pdf-lib/fontkit');
 const fontkit = fontkitRaw?.default ?? fontkitRaw;
-import { PDFDocument, rgb } from 'pdf-lib';
+import { PDFDocument } from 'pdf-lib';
 import { compareClassSections } from './class-section-sort';
 import { DAY_LABELS, type ExportEntry } from './ders-dagit.export';
+import { scheduleCellAbbrevLines, scheduleCellLinesForView, type SchedulePrintView } from './ders-dagit-pdf-abbrev';
+import {
+  beginProPage,
+  buildScheduleGrid,
+  drawCenteredText,
+  drawCellText,
+  drawPageFooter,
+  drawScheduleTable,
+  paletteFor,
+  resolveScheduleRowHeight,
+  type PdfHeaderInfo,
+  type PdfPrintTheme,
+} from './ders-dagit-pdf-layout';
+import { drawSignatureBlock } from './ders-dagit-pdf-brand';
+import {
+  buildDutyReportPdf,
+  buildDualEducationPdf,
+  buildExtraLessonPdf,
+  type DutySlotRow,
+  type DualClassRow,
+  type ExtraLessonRow,
+} from './ders-dagit-pdf-reports';
+import {
+  contentBottom,
+  fitMasterRowHeight,
+  fitScheduleRowHeight,
+  masterRowsPerPage,
+  PDF_COMPACT_HEADER_RESERVE,
+  PDF_HEADER_RESERVE,
+} from './ders-dagit-pdf-space';
+import {
+  buildMasterRows,
+  drawMasterSheetPage,
+  MASTER_PAGE_SIZE,
+  paginateMasterRows,
+  type MasterSheetAxis,
+} from './ders-dagit-pdf-master';
+import {
+  appendTeacherNotificationPages,
+  groupEntriesByTeacher,
+  type TeacherNotificationTexts,
+} from './ders-dagit-pdf-teacher-notification';
+import {
+  drawOfficialLetterhead,
+  formatOfficialDate,
+} from './ders-dagit-pdf-official-letter';
+import {
+  formatOgretimYiliForProse,
+  isPlaceholderTeacherLabel,
+} from './ders-dagit-notification-texts';
+import { buildCouncilPdfDocument, type CouncilPdfOpts } from './ders-dagit-pdf-council';
 
 function getDejaVuFontPaths(): { sans: string; bold: string } {
   try {
@@ -20,14 +71,132 @@ function getDejaVuFontPaths(): { sans: string; bold: string } {
   }
 }
 
+type PdfFonts = { doc: PDFDocument; font: Awaited<ReturnType<PDFDocument['embedFont']>>; fontBold: Awaited<ReturnType<PDFDocument['embedFont']>> };
+
 @Injectable()
 export class DersDagitPdfService {
-  async buildProgramPdf(title: string, entries: ExportEntry[]): Promise<Uint8Array> {
+  private async loadFonts(): Promise<PdfFonts> {
     const doc = await PDFDocument.create();
     doc.registerFontkit(fontkit);
     const fp = getDejaVuFontPaths();
     const font = await doc.embedFont(readFileSync(fp.sans));
     const fontBold = await doc.embedFont(readFileSync(fp.bold));
+    return { doc, font, fontBold };
+  }
+
+  private drawWeeklyScheduleOnPage(
+    page: import('pdf-lib').PDFPage,
+    pageW: number,
+    pageH: number,
+    margin: number,
+    headerInfo: PdfHeaderInfo,
+    gridEntries: Array<{ day_of_week: number; lesson_num: number; lines: string[] }>,
+    font: PdfFonts['font'],
+    fontBold: PdfFonts['fontBold'],
+    pal: ReturnType<typeof paletteFor>,
+    colorMode: boolean,
+    footer?: { footer_note?: string | null; pageNum?: number; pageTotal?: number },
+  ): void {
+    const bottomY = contentBottom(margin);
+    const hourColW = 44;
+    const tableW = pageW - 2 * margin - 8;
+    const yAfterHeader = beginProPage(page, pageW, pageH, margin, font, fontBold, headerInfo, pal);
+    const { days, lessons, cells } = buildScheduleGrid(gridEntries, [1, 2, 3, 4, 5]);
+    const colW = (tableW - hourColW) / days.length;
+    const rowH = resolveScheduleRowHeight(
+      yAfterHeader,
+      bottomY,
+      lessons.length,
+      days,
+      lessons,
+      cells,
+      colW,
+      font,
+    );
+    drawScheduleTable(
+      page,
+      margin + 4,
+      yAfterHeader,
+      tableW,
+      hourColW,
+      rowH,
+      days,
+      lessons,
+      cells,
+      font,
+      fontBold,
+      pal,
+      '—',
+      colorMode,
+    );
+    if (footer) {
+      drawPageFooter(page, margin, pageW, font, pal, footer);
+    }
+  }
+
+  /** Editör yazdırma — tek sınıf / öğretmen / derslik (yatay A4, rapor PDF ile aynı şablon) */
+  async buildScheduleViewPdf(
+    header: PdfHeaderInfo,
+    entries: ExportEntry[],
+    view: SchedulePrintView,
+    entityLabel: string,
+    theme: PdfPrintTheme = 'color',
+  ): Promise<Uint8Array> {
+    const { doc, font, fontBold } = await this.loadFonts();
+    const pal = paletteFor(theme);
+    const pageW = 842;
+    const pageH = 595;
+    const margin = 48;
+    const titles: Record<SchedulePrintView, string> = {
+      class: 'HAFTALIK DERS PROGRAMI ÇİZELGESİ',
+      teacher: 'ÖĞRETMEN HAFTALIK DERS PROGRAMI',
+      room: 'DERSLİK HAFTALIK PROGRAMI',
+    };
+    const page = doc.addPage([pageW, pageH]);
+    const gridEntries = entries.map((e) => ({
+      day_of_week: e.day_of_week,
+      lesson_num: e.lesson_num,
+      lines: scheduleCellLinesForView(e, view),
+    }));
+    const headerInfo: PdfHeaderInfo = {
+      ...header,
+      document_title: titles[view],
+      class_section: view === 'class' ? entityLabel : header.class_section,
+      subtitle: view !== 'class' ? entityLabel : header.subtitle,
+    };
+    if (!gridEntries.length) {
+      beginProPage(page, pageW, pageH, margin, font, fontBold, headerInfo, pal);
+      drawCenteredText(
+        page,
+        'Bu görünümde yerleşmiş ders saati bulunmuyor.',
+        margin,
+        pageH / 2,
+        pageW - 2 * margin,
+        font,
+        10,
+        pal.muted,
+      );
+    } else {
+      this.drawWeeklyScheduleOnPage(page, pageW, pageH, margin, headerInfo, gridEntries, font, fontBold, pal, theme === 'color', {
+        footer_note: header.footer_note,
+        pageNum: 1,
+        pageTotal: 1,
+      });
+    }
+    return doc.save();
+  }
+
+  /** Okul — tüm şubeler, şube başına resmi haftalık çizelge (yatay A4) */
+  async buildProgramPdf(
+    header: PdfHeaderInfo,
+    entries: ExportEntry[],
+    theme: PdfPrintTheme = 'color',
+  ): Promise<Uint8Array> {
+    const { doc, font, fontBold } = await this.loadFonts();
+    const pal = paletteFor(theme);
+    const pageW = 842;
+    const pageH = 595;
+    const margin = 48;
 
     const byClass = new Map<string, ExportEntry[]>();
     for (const e of entries) {
@@ -37,178 +206,410 @@ export class DersDagitPdfService {
     }
     const sections = [...byClass.keys()].sort(compareClassSections);
 
-    const pageW = 842;
-    const pageH = 595;
-    const margin = 36;
-    let page = doc.addPage([pageW, pageH]);
-    let y = pageH - margin;
-
-    const newPage = () => {
-      page = doc.addPage([pageW, pageH]);
-      y = pageH - margin;
-    };
-
-    const line = (text: string, size: number, bold = false) => {
-      if (y < margin + 20) newPage();
-      page.drawText(text.slice(0, 120), {
-        x: margin,
-        y,
-        size,
-        font: bold ? fontBold : font,
-        color: rgb(0.1, 0.1, 0.15),
-      });
-      y -= size + 4;
-    };
-
-    line(title, 14, true);
-    line(`Üretim: ${new Date().toLocaleString('tr-TR')}`, 9);
-
+    let pageIndex = 0;
     for (const sec of sections) {
-      const rows = (byClass.get(sec) ?? []).sort(
-        (a, b) => a.day_of_week - b.day_of_week || a.lesson_num - b.lesson_num,
+      pageIndex += 1;
+      const page = doc.addPage([pageW, pageH]);
+      const rows = byClass.get(sec) ?? [];
+      const gridEntries = rows.map((e) => ({
+        day_of_week: e.day_of_week,
+        lesson_num: e.lesson_num,
+        lines: scheduleCellAbbrevLines(e),
+      }));
+      const headerInfo: PdfHeaderInfo = {
+        ...header,
+        document_title: 'HAFTALIK DERS PROGRAMI ÇİZELGESİ',
+        class_section: sec,
+      };
+      this.drawWeeklyScheduleOnPage(page, pageW, pageH, margin, headerInfo, gridEntries, font, fontBold, pal, theme === 'color', {
+        footer_note: header.footer_note,
+        pageNum: pageIndex,
+        pageTotal: sections.length,
+      });
+    }
+
+    if (!sections.length) {
+      const page = doc.addPage([pageW, pageH]);
+      beginProPage(page, pageW, pageH, margin, font, fontBold, header, pal);
+      drawCenteredText(
+        page,
+        'Programda yerleşmiş ders saati bulunmuyor.',
+        margin,
+        pageH / 2,
+        pageW - 2 * margin,
+        font,
+        10,
+        pal.muted,
       );
-      if (y < margin + 80) newPage();
-      line(sec, 11, true);
-      for (const e of rows) {
-        const day = DAY_LABELS[e.day_of_week] ?? String(e.day_of_week);
-        line(
-          `  ${day} · ${e.lesson_num}. saat — ${e.subject}${e.teacher_label ? ` (${e.teacher_label})` : ''}${e.room_name ? ` · ${e.room_name}` : ''}`,
-          8,
-        );
-      }
-      y -= 6;
     }
 
     return doc.save();
   }
 
-  /** Veli — tek şube, öğretmen adı yok, haftalık ızgara */
+  /** Veli — tek şube, öğretmen adı yok (dikey A4, MEB ızgara) */
   async buildParentClassPdf(
-    title: string,
+    header: PdfHeaderInfo,
     classSection: string,
     entries: ExportEntry[],
+    theme: PdfPrintTheme = 'color',
     maxLesson = 8,
   ): Promise<Uint8Array> {
-    const filtered = entries.filter((e) => e.class_section === classSection);
-    const doc = await PDFDocument.create();
-    doc.registerFontkit(fontkit);
-    const fp = getDejaVuFontPaths();
-    const font = await doc.embedFont(readFileSync(fp.sans));
-    const fontBold = await doc.embedFont(readFileSync(fp.bold));
+    const { doc, font, fontBold } = await this.loadFonts();
+    const pal = paletteFor(theme);
     const pageW = 595;
     const pageH = 842;
+    const margin = 48;
+    const bottomY = contentBottom(margin);
+    const hourColW = 42;
+    const tableW = pageW - 2 * margin - 8;
     const page = doc.addPage([pageW, pageH]);
-    const margin = 40;
-    let y = pageH - margin;
-    const draw = (text: string, size: number, bold = false) => {
-      page.drawText(text.slice(0, 100), {
-        x: margin,
-        y,
-        size,
-        font: bold ? fontBold : font,
-        color: rgb(0.1, 0.1, 0.15),
-      });
-      y -= size + 6;
-    };
-    draw(title, 14, true);
-    draw(`${classSection} — Haftalık ders programı`, 11, true);
-    draw(`Tarih: ${new Date().toLocaleDateString('tr-TR')}`, 9);
-    y -= 8;
 
-    const days = [1, 2, 3, 4, 5];
-    const cellW = (pageW - 2 * margin - 40) / days.length;
-    const startY = y;
-    const rowH = 22;
-    page.drawText('Saat', { x: margin, y: startY, size: 8, font: fontBold });
-    for (let di = 0; di < days.length; di++) {
-      const label = DAY_LABELS[days[di]!]?.slice(0, 3) ?? String(days[di]);
-      page.drawText(label, {
-        x: margin + 40 + di * cellW + 4,
-        y: startY,
-        size: 8,
-        font: fontBold,
-      });
-    }
-    y = startY - rowH;
-    const byKey = new Map<string, string>();
-    for (const e of filtered) {
-      byKey.set(`${e.day_of_week}-${e.lesson_num}`, e.subject);
-    }
-    for (let les = 1; les <= maxLesson; les++) {
-      page.drawText(String(les), { x: margin, y: y + 4, size: 8, font });
-      for (let di = 0; di < days.length; di++) {
-        const sub = byKey.get(`${days[di]}-${les}`) ?? '—';
-        page.drawText(sub.slice(0, 18), {
-          x: margin + 40 + di * cellW + 2,
-          y: y + 4,
-          size: 7,
-          font,
-        });
-      }
-      y -= rowH;
-    }
+    const filtered = entries.filter((e) => e.class_section === classSection);
+    const gridEntries = filtered.map((e) => ({
+      day_of_week: e.day_of_week,
+      lesson_num: e.lesson_num,
+      lines: [e.subject],
+    }));
+    const { days, lessons, cells } = buildScheduleGrid(gridEntries, [1, 2, 3, 4, 5], maxLesson);
+
+    const headerInfo: PdfHeaderInfo = {
+      ...header,
+      document_title: 'HAFTALIK DERS PROGRAMI',
+      class_section: classSection,
+      subtitle: header.subtitle ?? 'Veli bilgilendirme çıktısı',
+    };
+    const yAfterHeader = beginProPage(page, pageW, pageH, margin, font, fontBold, headerInfo, pal);
+    const rowH = fitScheduleRowHeight(yAfterHeader, bottomY + 70, lessons.length, 30);
+    const tableBottom = drawScheduleTable(
+      page,
+      margin + 4,
+      yAfterHeader,
+      tableW,
+      hourColW,
+      rowH,
+      days,
+      lessons,
+      cells,
+      font,
+      fontBold,
+      pal,
+      '—',
+      theme === 'color',
+    );
+
+    const sigTop = Math.max(tableBottom - 12, bottomY + 64);
+    drawSignatureBlock(page, margin + 4, sigTop, 220, 'Okul Müdürü', undefined, font, fontBold, pal);
+
+    drawPageFooter(page, margin, pageW, font, pal, { footer_note: header.footer_note });
     return doc.save();
   }
 
-  /** Kurul tutanağı — özet + imza alanları */
-  async buildCouncilPdf(opts: {
-    school_name: string;
-    program_name: string;
-    academic_year?: string | null;
-    score: number | null;
-    entry_count: number;
-    class_count: number;
-    teacher_count: number;
-    violations: string[];
-    by_class: Array<{ section: string; weekly_slots: number }>;
-  }): Promise<Uint8Array> {
-    const doc = await PDFDocument.create();
-    doc.registerFontkit(fontkit);
-    const fp = getDejaVuFontPaths();
-    const font = await doc.embedFont(readFileSync(fp.sans));
-    const fontBold = await doc.embedFont(readFileSync(fp.bold));
+  /** Kapak sayfası — resmi antet (önizleme / yazdır) */
+  async buildCoverPdf(
+    header: PdfHeaderInfo,
+    opts: {
+      address?: string | null;
+      phone?: string | null;
+      principal_name?: string | null;
+      body_note?: string | null;
+    },
+    theme: PdfPrintTheme = 'color',
+  ): Promise<Uint8Array> {
+    const { doc, font, fontBold } = await this.loadFonts();
+    const pal = paletteFor(theme);
     const pageW = 595;
     const pageH = 842;
-    let page = doc.addPage([pageW, pageH]);
-    let y = pageH - 50;
-    const line = (text: string, size: number, bold = false) => {
-      if (y < 80) {
-        page = doc.addPage([pageW, pageH]);
-        y = pageH - 50;
-      }
-      page.drawText(text.slice(0, 110), {
-        x: 50,
-        y,
-        size,
-        font: bold ? fontBold : font,
-      });
-      y -= size + 5;
+    const margin = 52;
+    const page = doc.addPage([pageW, pageH]);
+    let y = beginProPage(page, pageW, pageH, margin, font, fontBold, header, pal);
+
+    const drawLine = (text: string, size: number) => {
+      page.drawText(text.slice(0, 92), { x: margin + 8, y, size, font, color: pal.muted });
+      y -= size + 8;
     };
-    line('ZÜMRE ÖĞRETMENLER KURULU — DERS PROGRAMI TUTANAĞI', 12, true);
-    line(opts.school_name, 11, true);
-    line(`Program: ${opts.program_name}`, 10);
-    if (opts.academic_year) line(`Öğretim yılı: ${opts.academic_year}`, 9);
-    line(`Tarih: ${new Date().toLocaleDateString('tr-TR')}`, 9);
-    y -= 6;
-    line(`Toplam yerleşim: ${opts.entry_count} · Şube: ${opts.class_count} · Öğretmen: ${opts.teacher_count}`, 9);
-    if (opts.score != null) line(`Program skoru: ${opts.score}`, 9);
-    if (opts.violations.length) {
-      line('Üretim uyarıları:', 9, true);
-      for (const v of opts.violations.slice(0, 8)) line(`  • ${v}`, 8);
+    if (opts.address?.trim()) drawLine(opts.address.trim(), 9);
+    if (opts.phone?.trim()) drawLine(`Tel: ${opts.phone.trim()}`, 9);
+    if (opts.principal_name?.trim()) drawLine(`Müdür: ${opts.principal_name.trim()}`, 9);
+
+    const note =
+      opts.body_note?.trim() || 'Bu belge okul ders dağıtım programının resmi çıktısıdır.';
+    drawCenteredText(page, note, margin, pageH * 0.44, pageW - 2 * margin, font, 11, pal.ink);
+    const dateStr = new Date().toLocaleDateString('tr-TR', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
+    drawCenteredText(page, `Tarih: ${dateStr}`, margin, pageH * 0.38, pageW - 2 * margin, font, 10, pal.muted);
+
+    drawPageFooter(page, margin, pageW, font, pal, { footer_note: header.footer_note });
+    return doc.save();
+  }
+
+  /** Kurul onay bloğu — tek sayfa (önizleme / yazdır) */
+  async buildApprovalPdf(
+    opts: {
+      school_name: string;
+      program_name: string;
+      academic_year?: string | null;
+      approval_text?: string | null;
+      principal_name?: string | null;
+      principal_signature_label?: string | null;
+      footer_note?: string | null;
+    },
+    theme: PdfPrintTheme = 'color',
+  ): Promise<Uint8Array> {
+    const { doc, font, fontBold } = await this.loadFonts();
+    const pal = paletteFor(theme);
+    const pageW = 595;
+    const pageH = 842;
+    const margin = 52;
+    const bottomY = contentBottom(margin);
+    const page = doc.addPage([pageW, pageH]);
+
+    const header: PdfHeaderInfo = {
+      school_name: opts.school_name,
+      document_title: 'ZÜMRE ÖĞRETMENLER KURULU — ONAY',
+      subtitle: opts.program_name,
+      academic_year: opts.academic_year,
+      footer_note: opts.footer_note,
+    };
+    let y = beginProPage(page, pageW, pageH, margin, font, fontBold, header, pal);
+    y -= 12;
+
+    const approval =
+      opts.approval_text?.trim() ||
+      'Karar: Okulumuzda uygulanacak haftalık ders programı, Zümre Öğretmenler Kurulu\'nca incelenmiş; öğretim planına ve ilgili mevzuata uygun bulunarak onaylanmıştır.';
+    const boxH = 72;
+    const boxY = y - boxH;
+    page.drawRectangle({
+      x: margin + 8,
+      y: boxY,
+      width: pageW - 2 * margin - 16,
+      height: boxH,
+      color: pal.accentSoft,
+      borderColor: pal.accent,
+      borderWidth: 0.4,
+    });
+    let ay = boxY + boxH - 18;
+    for (const line of approval.match(/.{1,85}(\s|$)/g) ?? [approval]) {
+      page.drawText(line.trim().slice(0, 90), {
+        x: margin + 16,
+        y: ay,
+        size: 8.5,
+        font,
+        color: pal.ink,
+      });
+      ay -= 11;
+      if (ay < boxY + 8) break;
     }
-    y -= 4;
-    line('Şube özeti:', 9, true);
-    for (const row of opts.by_class.slice(0, 40)) {
-      line(`  ${row.section}: ${row.weekly_slots} ders saati`, 8);
+
+    const sigW = (pageW - 2 * margin - 32) / 3;
+    const sigTop = bottomY + 118;
+    const principalLabel = opts.principal_signature_label?.trim() || 'Okul Müdürü';
+    drawSignatureBlock(
+      page,
+      margin + 8,
+      sigTop,
+      sigW,
+      principalLabel,
+      opts.principal_name ?? undefined,
+      font,
+      fontBold,
+      pal,
+    );
+    drawSignatureBlock(page, margin + 16 + sigW, sigTop, sigW, 'Zümre Başkanı', undefined, font, fontBold, pal);
+    drawSignatureBlock(page, margin + 24 + sigW * 2, sigTop, sigW, 'İdareci', undefined, font, fontBold, pal);
+
+    drawPageFooter(page, margin, pageW, font, pal, { footer_note: opts.footer_note });
+    return doc.save();
+  }
+
+  /** Zümre kurulu tutanağı — resmi tutanak (MEB örneklerine uygun bölümler) */
+  async buildCouncilPdf(opts: CouncilPdfOpts, theme: PdfPrintTheme = 'color'): Promise<Uint8Array> {
+    const { doc, font, fontBold } = await this.loadFonts();
+    return buildCouncilPdfDocument(doc, { font, fontBold }, opts, theme);
+  }
+
+  /** Bilsa / aSc tarzı toplu çarşaf liste (A3 yatay) */
+  async buildMasterSheetPdf(
+    header: PdfHeaderInfo,
+    entries: ExportEntry[],
+    axis: MasterSheetAxis,
+    theme: PdfPrintTheme = 'color',
+  ): Promise<Uint8Array> {
+    const { doc, font, fontBold } = await this.loadFonts();
+    const [pageW, pageH] = MASTER_PAGE_SIZE;
+    const margin = 48;
+    const { rowLabels, cells, workDays, maxLesson } = buildMasterRows(entries, axis);
+    const lessons = Math.min(10, maxLesson);
+    const headerH = PDF_COMPACT_HEADER_RESERVE;
+    const preferRowH = 36;
+    const perPage = masterRowsPerPage(pageH, margin, headerH, preferRowH);
+    const rowH = fitMasterRowHeight(pageH, margin, headerH, perPage, preferRowH);
+    const slices = paginateMasterRows(rowLabels, perPage);
+
+    if (!slices[0]?.length) {
+      const page = doc.addPage(MASTER_PAGE_SIZE);
+      drawMasterSheetPage(
+        page,
+        pageW,
+        pageH,
+        margin,
+        font,
+        fontBold,
+        header,
+        axis,
+        [],
+        cells,
+        workDays,
+        lessons,
+        theme,
+        1,
+        1,
+        rowH,
+      );
+      return doc.save();
     }
-    y -= 20;
-    line('Karar: Okulda uygulanacak ders dağıtım programı kurulca incelenmiş ve onaylanmıştır.', 9);
-    y -= 30;
-    line('Okul Müdürü: _________________________', 9);
-    y -= 24;
-    line('Zümre Başkanı: _________________________', 9);
-    y -= 24;
-    line('İnsan Kaynakları / İdareci: _________________________', 9);
+
+    slices.forEach((rows, idx) => {
+      const page = doc.addPage(MASTER_PAGE_SIZE);
+      drawMasterSheetPage(
+        page,
+        pageW,
+        pageH,
+        margin,
+        font,
+        fontBold,
+        header,
+        axis,
+        rows,
+        cells,
+        workDays,
+        lessons,
+        theme,
+        idx + 1,
+        slices.length,
+        rowH,
+      );
+    });
+    return doc.save();
+  }
+
+  async buildDutyPdf(
+    header: PdfHeaderInfo,
+    slots: DutySlotRow[],
+    workDays: number[],
+    theme: PdfPrintTheme,
+  ): Promise<Uint8Array> {
+    const { doc, font, fontBold } = await this.loadFonts();
+    await buildDutyReportPdf(doc, font, fontBold, header, slots, workDays, theme);
+    return doc.save();
+  }
+
+  async buildDualPdf(
+    header: PdfHeaderInfo,
+    rows: DualClassRow[],
+    dualEnabled: boolean,
+    pmFirst: number,
+    theme: PdfPrintTheme,
+  ): Promise<Uint8Array> {
+    const { doc, font, fontBold } = await this.loadFonts();
+    await buildDualEducationPdf(doc, font, fontBold, header, rows, dualEnabled, pmFirst, theme);
+    return doc.save();
+  }
+
+  async buildExtraLessonSummaryPdf(
+    header: PdfHeaderInfo,
+    rows: ExtraLessonRow[],
+    programName: string,
+    theme: PdfPrintTheme,
+  ): Promise<Uint8Array> {
+    const { doc, font, fontBold } = await this.loadFonts();
+    await buildExtraLessonPdf(doc, font, fontBold, header, rows, programName, theme);
+    return doc.save();
+  }
+
+  /** Öğretmene tebliğ tutanağı — öğretmen başına bir sayfa */
+  async buildTeacherNotificationPdf(
+    header: PdfHeaderInfo,
+    entries: ExportEntry[],
+    texts: TeacherNotificationTexts,
+    opts: {
+      school_name: string;
+      academic_year?: string | null;
+      program_name: string;
+      principal_name?: string | null;
+      teacher_filter?: string | null;
+      branch_by_key?: Map<string, string | null>;
+      display_by_key?: Map<string, string>;
+    },
+    theme: PdfPrintTheme = 'color',
+    workDays: number[] = [1, 2, 3, 4, 5],
+  ): Promise<Uint8Array> {
+    const { doc, font, fontBold } = await this.loadFonts();
+    let teachers = groupEntriesByTeacher(entries);
+    for (const t of teachers) {
+      const display =
+        opts.display_by_key?.get(t.key) ??
+        (isPlaceholderTeacherLabel(t.label) ? opts.display_by_key?.get(t.label) : undefined);
+      if (display?.trim()) t.label = display.trim();
+      t.branch =
+        opts.branch_by_key?.get(t.key) ??
+        opts.branch_by_key?.get(t.label) ??
+        null;
+    }
+    const filter = opts.teacher_filter?.trim().toLocaleLowerCase('tr');
+    if (filter) {
+      teachers = teachers.filter(
+        (t) =>
+          t.key.toLocaleLowerCase('tr').includes(filter) ||
+          t.label.toLocaleLowerCase('tr').includes(filter),
+      );
+    }
+    if (!teachers.length) {
+      const page = doc.addPage([595, 842]);
+      const pal = paletteFor(theme);
+      const margin = 52;
+      drawOfficialLetterhead(page, 595, 842, margin, font, fontBold, {
+        school_name: opts.school_name,
+        document_title: texts.notification_title?.trim() || 'ÖĞRETMEN DERS PROGRAMI TEBLİĞ TUTANAĞI',
+        academic_year: opts.academic_year,
+      }, pal);
+      drawCenteredText(
+        page,
+        'Tebliğ edilecek öğretmen veya ders saati bulunamadı.',
+        margin,
+        380,
+        595 - 2 * margin,
+        font,
+        10,
+        pal.muted,
+      );
+      return doc.save();
+    }
+    const dateStr = formatOfficialDate();
+    const placeholders = {
+      '{{okul_adi}}': opts.school_name,
+      '{{ogretim_yili}}': formatOgretimYiliForProse(opts.academic_year),
+      '{{program_adi}}': opts.program_name,
+      '{{tarih}}': dateStr,
+      '{{mudur_adi}}': opts.principal_name?.trim() || '_________________________',
+      '{{ogretmen_adi}}': '',
+      '{{brans}}': '',
+      '{{sayi}}': '',
+      '{{konu}}': texts.notification_subject?.trim() || '',
+    };
+    appendTeacherNotificationPages(
+      doc,
+      font,
+      fontBold,
+      header,
+      teachers,
+      texts,
+      placeholders,
+      workDays,
+      theme,
+    );
     return doc.save();
   }
 }

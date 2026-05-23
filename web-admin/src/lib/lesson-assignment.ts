@@ -1,4 +1,4 @@
-/** aSc "Ders" atama — öğretmen + ders + sınıf + saat + derslik birleşimi */
+/** Program Stüdyosu ders ataması — öğretmen + ders + sınıf + saat + derslik */
 
 export type LessonPeriodFormat = 'single' | 'double' | 'biweekly';
 

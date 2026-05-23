@@ -50,7 +50,7 @@ type Props = {
   className?: string;
 };
 
-/** Seçili kayıt yokken düzenleme/silme/zaman/atama/kısıtlama kapalı (aSc). */
+/** Seçili kayıt yokken düzenleme/silme/zaman/atama/kısıtlama kapalı. */
 export function DdEntityActionBar({ kind, selectedLabel, actions, onAction, className }: Props) {
   const hasSelection = !!selectedLabel?.trim();
 

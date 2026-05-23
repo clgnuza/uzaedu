@@ -1,15 +1,27 @@
 @media print {
+  body.print-bw .timetable-print-root [class*='bg-'],
+  body.print-bw .timetable-print-root [style*='background'] {
+    background: #f5f5f5 !important;
+    color: #111 !important;
+    -webkit-print-color-adjust: economy;
+    print-color-adjust: economy;
+  }
+
   body * {
     visibility: hidden;
   }
-  .timetable-print-root,
-  .timetable-print-root * {
-    visibility: visible;
-  }
-  .timetable-print-root {
+  .timetable-print-wrap {
     position: absolute;
     left: 0;
     top: 0;
+    width: 100%;
+  }
+  .timetable-print-wrap,
+  .timetable-print-wrap * {
+    visibility: visible;
+  }
+  .timetable-print-root {
+    position: relative;
     width: 100%;
   }
   .print\:hidden {

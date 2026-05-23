@@ -9,10 +9,14 @@ import { Button } from '@/components/ui/button';
 import {
   DdCard,
   CardContent,
+  CardHeader,
+  CardTitle,
   DdPageHeader,
   DD_PAGE,
   DD_CARD_CONTENT,
+  DD_CARD_HEADER,
 } from '@/components/ders-dagit/dd-ui';
+import { downloadTtkbCsv, schoolTypeLabel, type TtkbPreview } from '@/lib/dersler-studio';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { DdSectionField, DdSectionMultiField } from '@/components/ders-dagit/dd-section-picker';
@@ -28,7 +32,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, Check, Layers, Loader2, Sparkles } from 'lucide-react';
+import { AlertTriangle, Check, Download, Layers, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
 type Pool = ElectivePoolRow;
@@ -42,6 +46,8 @@ type ElectiveSuggestion = {
   weekly_hours_per_track: number;
   already_exists: boolean;
 };
+
+type ElectiveCatalogRow = { id: string; name: string; short_code?: string | null };
 
 type ApplyPreview = {
   pool: { id: string; name: string; group_id: string | null };
@@ -76,22 +82,42 @@ export default function SecmeliPage() {
   const [applyPreview, setApplyPreview] = useState<ApplyPreview | null>(null);
   const [applyConfirmOpen, setApplyConfirmOpen] = useState(false);
   const [applyBusy, setApplyBusy] = useState(false);
+  const [schoolType, setSchoolType] = useState('anadolu_lise');
+  const [ttkbPreview, setTtkbPreview] = useState<TtkbPreview | null>(null);
+  const [ttkbBusy, setTtkbBusy] = useState(false);
+  const [ttkbReplaceElective, setTtkbReplaceElective] = useState(false);
+  const [ttkbCreatePools, setTtkbCreatePools] = useState(true);
+  const [electiveCatalog, setElectiveCatalog] = useState<ElectiveCatalogRow[]>([]);
 
   const active = useMemo(() => pools.find((p) => p.id === activeId) ?? null, [pools, activeId]);
 
+  const loadElectiveCatalog = useCallback(async () => {
+    if (!token || !studio) return;
+    const rows = await apiFetch<ElectiveCatalogRow[]>(
+      `/ders-dagit/studios/${studio.id}/elective-catalog`,
+      { token },
+    ).catch(() => []);
+    setElectiveCatalog(rows);
+  }, [token, studio]);
+
   const load = useCallback(async () => {
     if (!token || !studio) return;
-    const [list, norm] = await Promise.all([
+    const [list, norm, sp] = await Promise.all([
       apiFetch<Pool[]>(`/ders-dagit/studios/${studio.id}/elective-pools`, { token }),
       apiFetch<{ ok: boolean; issues: Array<{ subject_name: string; assigned: number; max: number }> }>(
         `/ders-dagit/studios/${studio.id}/aihl-norm`,
         { token },
       ).catch(() => null),
+      apiFetch<{ type: string }>(`/ders-dagit/studios/${studio.id}/school-profile`, { token }).catch(() => ({
+        type: 'anadolu_lise',
+      })),
     ]);
     setPools(list);
     setAihl(norm);
+    setSchoolType(sp.type);
     setActiveId((prev) => (prev && list.some((p) => p.id === prev) ? prev : list[0]?.id ?? null));
-  }, [token, studio]);
+    await loadElectiveCatalog();
+  }, [token, studio, loadElectiveCatalog]);
 
   useEffect(() => {
     void load();
@@ -295,13 +321,230 @@ export default function SecmeliPage() {
 
   const newSuggestions = suggestions.filter((s) => !s.already_exists);
 
+  async function previewTtkbElective(download = false, silent = false) {
+    if (!token || !studio) return;
+    setTtkbBusy(true);
+    try {
+      const data = await apiFetch<TtkbPreview>(
+        `/ders-dagit/studios/${studio.id}/seed/ttkb/elective/preview`,
+        { token },
+      );
+      setTtkbPreview(data);
+      if (!data.cell_count) {
+        if (!silent) toast.error(data.empty_message ?? 'Liste boş. Kurulumda okul türünü kaydedin.');
+        return;
+      }
+      if (!silent) {
+        toast.success(
+          `${data.subject_count} seçmeli ders (${schoolTypeLabel(data.school_type)})`,
+        );
+      }
+      if (download) downloadTtkbCsv(data, schoolTypeLabel(data.school_type), 'ttkb-secmeli-listesi');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'TTKB listesi alınamadı');
+    } finally {
+      setTtkbBusy(false);
+    }
+  }
+
+  async function seedTtkbElective() {
+    if (!token || !studio) return;
+    setTtkbBusy(true);
+    try {
+      const r = await apiFetch<{
+        created: number;
+        updated: number;
+        names?: string[];
+        pools_created?: number;
+        pools_updated?: number;
+        pool_names?: string[];
+      }>(`/ders-dagit/studios/${studio.id}/seed/ttkb/elective`, {
+        token,
+        method: 'POST',
+        body: { replace_elective: ttkbReplaceElective, create_pools: ttkbCreatePools },
+      });
+      await load();
+      if (!ttkbPreview) await previewTtkbElective(false, true);
+      const poolMsg =
+        ttkbCreatePools && (r.pools_created || r.pools_updated)
+          ? ` · ${(r.pools_created ?? 0) + (r.pools_updated ?? 0)} havuz`
+          : '';
+      toast.success(
+        `${r.names?.length ?? r.created + r.updated} ders${poolMsg}`,
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Yükleme başarısız');
+    } finally {
+      setTtkbBusy(false);
+    }
+  }
+
+  function applyTtkbNamesToForm() {
+    const fromCatalog = electiveCatalog.map((s) => s.name);
+    const rows = ttkbPreview?.cells?.length ? ttkbPreview.cells : ttkbPreview?.sample;
+    const fromPreview = rows?.map((c) => c.subject_name.trim()).filter(Boolean) ?? [];
+    const names = [...new Set([...fromCatalog, ...fromPreview])];
+    if (!names.length) return;
+    const existing = subjectNames
+      .split(/[,/]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const merged = [...new Set([...existing, ...names])];
+    setSubjectNames(merged.join(', '));
+    setDetailOpen(true);
+    toast.success(`${names.length} ders adı forma eklendi`);
+  }
+
   return (
     <div className={DD_PAGE}>
-      <DdPageHeader
-        icon={Layers}
-        title="Seçmeli dersler"
-        description="Alt şubeler (kollar) ve seçmeli ders adları — atamalardan öneri veya elle havuz."
-      />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <DdPageHeader
+          icon={Layers}
+          title="Seçmeli dersler"
+          description="Alt şubeler (kollar) ve seçmeli ders adları — atamalardan öneri veya elle havuz."
+        />
+        <span
+          className="inline-flex items-center rounded-full border bg-muted/60 px-2.5 py-0.5 text-xs font-medium"
+          aria-label="Okul türü"
+        >
+          {schoolTypeLabel(schoolType)}
+        </span>
+      </div>
+
+      <DdCard variant="sky" className="overflow-hidden">
+        <CardHeader className={DD_CARD_HEADER}>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Download className="size-4" aria-hidden />
+            TTKB seçmeli ders listesi
+          </CardTitle>
+        </CardHeader>
+        <CardContent className={cn(DD_CARD_CONTENT, 'space-y-3')}>
+          <p className="text-xs text-muted-foreground">
+            Kurum türüne göre TTKB seçmeli dersler (
+            <a
+              href="https://ttkb.meb.gov.tr/www/haftalik-ders-cizelgeleri/kategori/7"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-primary underline"
+            >
+              ttkb.meb.gov.tr
+            </a>
+            ). Lise: yabancı dil ve sanat-spor. Kayıt hem ders listesine hem (işaretliyse) alttaki sınıf
+            havuzları tablosuna yazılır — havuz için en az iki kol (şube) gerekir; yoksa 10A-S1 / 10A-S2
+            örnek kolları kullanılır.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={ttkbBusy}
+              onClick={() => void previewTtkbElective(true)}
+            >
+              <Download className="mr-1 size-3.5" aria-hidden />
+              Listeyi indir (CSV)
+            </Button>
+            <Button type="button" size="sm" variant="ghost" disabled={ttkbBusy} onClick={() => void previewTtkbElective(false)}>
+              Önizle
+            </Button>
+            <Button type="button" size="sm" disabled={ttkbBusy || !ttkbPreview} onClick={() => void seedTtkbElective()}>
+              Kaydet (liste + havuz)
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={ttkbBusy || electiveCatalog.length === 0}
+              onClick={async () => {
+                if (!token || !studio) return;
+                setTtkbBusy(true);
+                try {
+                  const r = await apiFetch<{ pools_created: number; pools_updated: number; pool_names: string[] }>(
+                    `/ders-dagit/studios/${studio.id}/elective-pools/sync-from-catalog`,
+                    { token, method: 'POST', body: { replace_pools: ttkbReplaceElective } },
+                  );
+                  await load();
+                  toast.success(
+                    `${r.pools_created} yeni, ${r.pools_updated} güncellendi — ${r.pool_names.join(', ')}`,
+                  );
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : 'Havuz oluşturulamadı');
+                } finally {
+                  setTtkbBusy(false);
+                }
+              }}
+            >
+              Sadece havuzları oluştur
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={!ttkbPreview?.cells?.length && !ttkbPreview?.sample?.length}
+              onClick={applyTtkbNamesToForm}
+            >
+              Adları havuza yaz
+            </Button>
+          </div>
+          <div className="flex flex-wrap gap-4 text-xs">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={ttkbCreatePools}
+                onChange={(e) => setTtkbCreatePools(e.target.checked)}
+              />
+              Sınıf havuzlarını oluştur (9–12 tablo)
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={ttkbReplaceElective}
+                onChange={(e) => setTtkbReplaceElective(e.target.checked)}
+              />
+              Mevcut kayıtları sil (değiştir)
+            </label>
+          </div>
+          {ttkbPreview && (
+            <div className="rounded-lg border bg-muted/30 p-2 text-xs" role="status">
+              <p>
+                TTKB önizleme: <strong>{ttkbPreview.subject_count}</strong> ders ·{' '}
+                <strong>{ttkbPreview.cell_count}</strong> satır
+                {ttkbPreview.grades?.length ? ` · sınıflar: ${ttkbPreview.grades.join(', ')}` : ''}
+              </p>
+              <ul className="mt-2 max-h-24 overflow-y-auto">
+                {(ttkbPreview.cells?.length ? ttkbPreview.cells : ttkbPreview.sample ?? [])
+                  .slice(0, 12)
+                  .map((c, i) => (
+                    <li key={i}>
+                      {c.grade}. sınıf — {c.subject_name} ({c.weekly_hours} saat)
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          )}
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-2 text-xs">
+            <p className="font-medium text-foreground">
+              Ders listesi (katalog) — {electiveCatalog.length} ders
+            </p>
+            {electiveCatalog.length === 0 ? (
+              <p className="mt-1 text-muted-foreground">
+                Henüz kayıt yok. Önizle → &quot;Kaydet (liste + havuz)&quot;.
+              </p>
+            ) : (
+              <ul className="mt-2 flex max-h-32 flex-wrap gap-1 overflow-y-auto">
+                {electiveCatalog.map((s) => (
+                  <li
+                    key={s.id}
+                    className="rounded-md border bg-background px-2 py-0.5 text-[11px]"
+                  >
+                    {s.name}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </CardContent>
+      </DdCard>
 
       {aihl && !aihl.ok && (
         <DdCard className="border-amber-400/50 bg-amber-50/50 dark:bg-amber-950/20">

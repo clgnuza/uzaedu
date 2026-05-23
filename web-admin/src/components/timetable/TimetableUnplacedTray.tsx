@@ -35,7 +35,7 @@ function TrayChip({
   );
 }
 
-/** aSc alt panel: yerleşmemiş atamalar */
+/** Alt panel: yerleşmemiş atamalar */
 export function TimetableUnplacedTray({
   unplaced,
   busy,

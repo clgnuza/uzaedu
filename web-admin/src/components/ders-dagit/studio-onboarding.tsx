@@ -9,7 +9,13 @@ import { DD_SETUP_STEPS } from '@/components/ders-dagit/dd-setup-checklist';
 
 const STEPS = DD_SETUP_STEPS;
 
-export function StudioOnboarding({ overview }: { overview: StudioOverview | null }) {
+export function StudioOnboarding({
+  overview,
+  compact,
+}: {
+  overview: StudioOverview | null;
+  compact?: boolean;
+}) {
   if (!overview) return null;
   const c = overview.counts;
   const errs = overview.validation.filter((v) => v.severity === 'error').length;
@@ -24,9 +30,16 @@ export function StudioOnboarding({ overview }: { overview: StudioOverview | null
   if (done && overview.studio.workflow_status === 'published') return null;
 
   return (
-    <div className="dd-onboarding px-3 py-2.5 sm:px-4 sm:py-3">
-      <p className="mb-1.5 text-xs font-semibold text-teal-900 dark:text-teal-100 sm:text-sm">Kurulum adımları</p>
-      <ul className="dd-nav-scroll flex gap-2 overflow-x-auto text-xs sm:flex-wrap sm:gap-3 sm:text-sm">
+    <div className={cn('dd-onboarding', compact ? 'px-2.5 py-1.5' : 'px-3 py-2.5 sm:px-4 sm:py-3')}>
+      {!compact && (
+        <p className="mb-1.5 text-xs font-semibold text-teal-900 dark:text-teal-100 sm:text-sm">Kurulum ilerlemesi</p>
+      )}
+      <ul
+        className={cn(
+          'dd-nav-scroll flex gap-1.5 overflow-x-auto',
+          compact ? 'text-[10px]' : 'text-xs sm:flex-wrap sm:gap-3 sm:text-sm',
+        )}
+      >
         {STEPS.map((s, i) => {
           const ok =
             s.kind === 'validation'

@@ -13,16 +13,25 @@ import {
   TableProperties,
   Send,
   SlidersHorizontal,
+  Printer,
 } from 'lucide-react';
+import { matchStudioHref, STUDIO_FLOW } from '@/lib/ders-dagit-studio-nav';
 
-const FLOW = [
-  { href: '/ders-dagit/studyo', label: 'Özet', icon: LayoutDashboard, exact: true, tone: 'indigo' },
-  { href: '/ders-dagit/studyo/kurulum', label: 'Kurulum', icon: Settings2, tone: 'violet' },
-  { href: '/ders-dagit/studyo/dogrulama', label: 'Doğrula', icon: ClipboardCheck, tone: 'teal' },
-  { href: '/ders-dagit/studyo/uret', label: 'Oluştur', icon: Wand2, tone: 'sky' },
-  { href: '/ders-dagit/studyo/program', label: 'Program', icon: TableProperties, tone: 'lavender' },
-  { href: '/ders-dagit/studyo/ayarlar', label: 'Ayarlar', icon: SlidersHorizontal, tone: 'mint' },
-] as const;
+const FLOW_ICONS = {
+  '/ders-dagit/studyo': LayoutDashboard,
+  '/ders-dagit/studyo/kurulum': Settings2,
+  '/ders-dagit/studyo/dogrulama': ClipboardCheck,
+  '/ders-dagit/studyo/uret': Wand2,
+  '/ders-dagit/studyo/program': TableProperties,
+  '/ders-dagit/studyo/raporlar': Printer,
+  '/ders-dagit/studyo/ayarlar': SlidersHorizontal,
+} as const;
+
+const FLOW = STUDIO_FLOW.map((f) => ({
+  ...f,
+  icon: FLOW_ICONS[f.href as keyof typeof FLOW_ICONS],
+  exact: 'exact' in f && f.exact,
+}));
 
 const TONE_ACTIVE = 'dd-nav-pill-active';
 const TONE_IDLE = 'dd-nav-pill text-muted-foreground hover:text-foreground';
@@ -98,9 +107,8 @@ export function StudioHubBar({ overview }: { overview: StudioOverview | null }) 
         </div>
       </div>
       <nav className="dd-nav-scroll -mx-0.5 hidden gap-1 overflow-x-auto pb-0.5 lg:flex">
-        {FLOW.map(({ href, label, icon: Icon, ...rest }) => {
-          const exact = 'exact' in rest && rest.exact;
-          const active = exact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
+        {FLOW.map(({ href, label, icon: Icon, exact }) => {
+          const active = matchStudioHref(pathname ?? '', href, exact);
           return (
             <Link
               key={href}

@@ -36,7 +36,8 @@ function scoreEntries(
   const soft = applySoftRulePenalties(entries, assignments, ctx);
   const target = assignments.reduce((s, a) => s + effHours(a), 0);
   const failed = Math.max(0, target - entries.length);
-  return Math.round(Math.max(0, 100 - failed * 3 - soft.penalty));
+  const strictPenalty = soft.strict_violations.length * 50;
+  return Math.round(Math.max(0, 100 - failed * 3 - soft.penalty - strictPenalty));
 }
 
 function isValidEntries(
@@ -54,14 +55,15 @@ function isValidEntries(
     if (!canPlace(occupied, e.day_of_week, e.lesson_num, e.class_section, e.user_id, ctx, a)) {
       return false;
     }
-    if (placementBlocked(built, ctx, a, e.day_of_week, e.lesson_num)) return false;
+    if (placementBlocked(built, ctx, a, e.day_of_week, e.lesson_num, e.user_id)) return false;
     built.push(e);
     const key = `${e.day_of_week}:${e.lesson_num}`;
     const arr = occupied.get(key) ?? [];
     arr.push(e);
     occupied.set(key, arr);
   }
-  return true;
+  const soft = applySoftRulePenalties(entries, assignments, ctx);
+  return soft.strict_violations.length === 0;
 }
 
 /** İki slot takası + tek slot taşıma (Faz 20). */
@@ -121,7 +123,7 @@ function repairWithMoves(
       );
       for (const lesson of lessons) {
         if (!canPlace(occupied, day, lesson, e.class_section, e.user_id, ctx, a)) continue;
-        if (placementBlocked(rest, ctx, a, day, lesson)) continue;
+        if (placementBlocked(rest, ctx, a, day, lesson, e.user_id)) continue;
         const trial = [...rest, { ...e, day_of_week: day, lesson_num: lesson }];
         if (!isValidEntries(trial, assignments, ctx)) continue;
         const sc = scoreEntries(trial, assignments, ctx);

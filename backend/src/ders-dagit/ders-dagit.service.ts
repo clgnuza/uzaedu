@@ -28,6 +28,7 @@ import {
 import { buildDefaultRuleState, DERS_DAGIT_RULE_CATALOG } from './ders-dagit.rules';
 import {
   applySchoolPedagogyRules,
+  augmentStrictKeysWithActiveRules,
   buildStrictRuleKeys,
   mergePlanningRelationsIntoRules,
   validatePlanningRelationsForGenerate,
@@ -42,6 +43,12 @@ import {
 } from './ders-dagit.planning-relations';
 import { compareClassSections, sortClassSections, sortValidationIssues } from './class-section-sort';
 import {
+  isSectionShareEnabled,
+  parseProgramShareSettings,
+  resolveShareEnabledSections,
+  type ProgramShareSettings,
+} from './ders-dagit-program-share';
+import {
   countClassSectionsFromProfiles,
   validateStudioData,
   type ValidationIssue,
@@ -51,11 +58,23 @@ import { runCspSolver } from './ders-dagit.solver-csp';
 import { runConstraintSolver, type SolverAssignment, type SolverContext } from './ders-dagit.solver';
 import { expandAssignmentsForSolver } from './ders-dagit.solver-input';
 import { linkGenerationViolations } from './ders-dagit.generation-hints';
+import { buildProgramScoreBreakdown, type ProgramScoreBreakdown } from './ders-dagit.score-breakdown';
+import {
+  buildGeneratedProgramName,
+  formatProgramEntrySubject,
+  resolveAssignmentSubjectLabel,
+  subjectCatalogMap,
+} from './ders-dagit.program-labels';
 import { DutySlot } from '../duty/entities/duty-slot.entity';
 import { randomBytes } from 'crypto';
 import { improveWithLocalSearch } from './ders-dagit.local-search';
 import { applySoftRulePenalties } from './ders-dagit.solver-rules';
-import { GROUP_MODE_CATALOG, normalizeGroupMode, type DersDagitGroupMode } from './ders-dagit.groups';
+import {
+  groupModeCatalogForSchool,
+  normalizeGroupMode,
+  type DersDagitGroupMode,
+} from './ders-dagit.groups';
+import { defaultGroupModeForSchool, groupPresetsForSchool, schoolTypeGroupHint } from './ders-dagit.group-presets';
 import { suggestGroupsFromData, suggestionExists } from './ders-dagit.group-suggest';
 import {
   aggregatePlanImportRows,
@@ -83,10 +102,18 @@ import {
 } from './ders-dagit.dual-education';
 import { parseSchoolProfile, type StudioSchoolProfile } from './ders-dagit.school-profile';
 import {
+  buildReportHeaderLine,
+  mergeReportSettings,
+  parseStudioReportSettings,
+  reportSettingsToJson,
+  type StudioReportSettings,
+} from './ders-dagit.report-settings';
+import {
   clusterElectiveImportRows,
   checkAihlWeeklyNorm,
   isElectiveSubjectName,
 } from './ders-dagit.elective';
+import { buildElectivePoolDraftsFromCatalog } from './ders-dagit.elective-pools';
 import { dutySlotsToUnavailable, findDutyPlacementConflicts } from './ders-dagit.duty-sync';
 import { teacherHourNormFromSchool } from './ders-dagit.extra-lesson-sync';
 import { computeProgramClashes } from './ders-dagit.program-clash';
@@ -95,11 +122,19 @@ import { ExtraLessonParams } from '../extra-lesson-params/entities/extra-lesson-
 import { YillikPlanIcerik } from '../yillik-plan-icerik/entities/yillik-plan-icerik.entity';
 import { AppConfigService } from '../app-config/app-config.service';
 import {
-  buildTtkbSeedCells,
-  mergeCellsToSubjects,
-  gradeFromClassSection,
+  buildTtkbCatalogBySchoolType,
+  buildTtkbElectiveCatalogBySchoolType,
+  catalogRowsToPreviewCells,
+  gradesForSchoolType,
+  mergeGradeCatalogToSubjects,
 } from './ders-dagit.ttkb-seed';
 import { parseEokulImport, buildEokulImportTemplateXlsx } from './ders-dagit.eokul-import';
+import { parseAscTimetablesXml } from './ders-dagit.asc-import';
+import {
+  STUDIO_TRANSFER_VERSION,
+  TRANSFER_FORMAT_CATALOG,
+  type StudioTransferPackageV1,
+} from './ders-dagit.studio-transfer';
 import {
   buildProgramGridCsv,
   buildProgramGridXlsx,
@@ -114,6 +149,7 @@ import {
   type EokulExportRow,
 } from './ders-dagit.eokul-export';
 import { DersDagitPdfService } from './ders-dagit-pdf.service';
+import type { PdfHeaderInfo } from './ders-dagit-pdf-layout';
 import { User } from '../users/entities/user.entity';
 import { School } from '../schools/entities/school.entity';
 import { SchoolTimetablePlan } from '../teacher-timetable/entities/school-timetable-plan.entity';
@@ -326,6 +362,7 @@ export class DersDagitService {
       subjects_by_class,
       assignments: assignments.map((a) => ({
         id: a.id,
+        subject_name: a.subject_name,
         class_sections: sortClassSections(a.class_sections ?? []),
         weekly_hours: a.weekly_hours,
         biweekly: a.biweekly,
@@ -335,11 +372,65 @@ export class DersDagitService {
       groups: groups.map((g) => ({ id: g.id, abbreviation: g.abbreviation })),
       teacher_hours,
     });
+    const teacherNameById = new Map(
+      teacherRows.map((t) => [t.user_id, (t as { display_name?: string }).display_name ?? t.user_id.slice(0, 8)]),
+    );
+    for (const a of assignments) {
+      if (!(byAssign.get(a.id)?.length)) {
+        issues.push({
+          code: 'ASSIGN_NO_TEACHER',
+          severity: 'error',
+          message: `${a.subject_name?.trim() || 'Ders ataması'}: öğretmen seçilmemiş.`,
+          entity_type: 'assignment',
+          entity_id: a.id,
+        });
+      }
+    }
+    for (let i = issues.length - 1; i >= 0; i--) {
+      const iss = issues[i]!;
+      if (iss.code === 'TEACHER_OVER_MAX' || iss.code === 'TEACHER_UNDER_MIN') {
+        const m = iss.message.match(/Öğretmen ([^:]+):/);
+        if (m?.[1]) {
+          const label = teacherNameById.get(m[1]) ?? m[1].slice(0, 8);
+          issues[i] = { ...iss, message: iss.message.replace(m[1], label) };
+        }
+      }
+    }
+    if (assignments.length === 0) {
+      issues.push({
+        code: 'MIN_ASSIGNMENTS',
+        severity: 'error',
+        message: 'Henüz ders ataması yok. Öğretmen, ders ve şube eşlemesi ekleyin.',
+      });
+    }
+    const subjectsCount = subjects.length;
+    if (subjectsCount === 0 && assignments.length === 0) {
+      issues.push({
+        code: 'MIN_SUBJECTS',
+        severity: 'error',
+        message: 'Ders kataloğu veya atama ile şubelere saat tanımlayın.',
+      });
+    }
     const tIds = teacherRows.map((t) => t.user_id);
     const studio = await this.studioRepo.findOne({ where: { id: studioId }, select: ['school_id', 'settings'] });
     if (studio) {
-      const settings = (studio.settings ?? {}) as Record<string, unknown>;
-      const profile = parseSchoolProfile(settings.school_profile);
+      const settings = (studio.settings ?? {}) as {
+        period?: { work_days?: number[] };
+        work_days?: number[];
+      };
+      const workDays = settings.period?.work_days ?? settings.work_days;
+      if (!workDays?.length) {
+        issues.push({
+          code: 'PERIOD_NO_DAYS',
+          severity: 'error',
+          message: 'Dönemde en az bir çalışma günü seçin.',
+        });
+      }
+      const ruleSet = await this.ruleSetRepo.findOne({ where: { studio_id: studioId } });
+      issues.push(
+        ...validatePlanningRelationsForGenerate((ruleSet?.planning_relations ?? []) as PlanningRelationRow[]),
+      );
+      const profile = parseSchoolProfile((studio.settings as Record<string, unknown> | undefined)?.school_profile);
       for (const n of checkAihlWeeklyNorm(profile, assignments)) {
         issues.push({
           code: 'AIHL_NORM_EXCEEDED',
@@ -482,6 +573,18 @@ export class DersDagitService {
     return this.subjectRepo.find({ where: { studio_id: studioId }, order: { sort_order: 'ASC' } });
   }
 
+  async listElectiveCatalogSubjects(studioId: string) {
+    const rows = await this.subjectRepo.find({
+      where: { studio_id: studioId, is_elective: true },
+      order: { name: 'ASC' },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      short_code: r.short_code,
+    }));
+  }
+
   async upsertSubject(studioId: string, dto: Partial<DersDagitSubject>) {
     if (dto.id) {
       const row = await this.subjectRepo.findOne({ where: { id: dto.id, studio_id: studioId } });
@@ -492,24 +595,53 @@ export class DersDagitService {
   }
 
   // --- Groups / Divisions (Faz 6-9) ---
+  private studioSchoolType(studio: DersDagitStudio): string {
+    const settings = (studio.settings ?? {}) as Record<string, unknown>;
+    return parseSchoolProfile(settings.school_profile).type;
+  }
+
   async listGroups(studioId: string) {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId } });
+    if (!studio) throw new NotFoundException();
+    const schoolType = this.studioSchoolType(studio);
     const rows = await this.groupRepo.find({ where: { studio_id: studioId }, order: { sort_order: 'ASC' } });
-    return { groups: rows, catalog: GROUP_MODE_CATALOG };
+    return {
+      groups: rows,
+      catalog: groupModeCatalogForSchool(schoolType),
+      school_type: schoolType,
+      default_mode: defaultGroupModeForSchool(schoolType),
+      presets: groupPresetsForSchool(schoolType),
+      school_hint: schoolTypeGroupHint(schoolType),
+    };
   }
 
   async suggestGroups(studioId: string, schoolId: string) {
     const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
     if (!studio) throw new NotFoundException();
+    const schoolType = this.studioSchoolType(studio);
     const [sections, assignments, existing] = await Promise.all([
       this.collectStudioSections(studioId, schoolId),
       this.assignmentRepo.find({ where: { studio_id: studioId } }),
       this.groupRepo.find({ where: { studio_id: studioId } }),
     ]);
+    const teacherLinks = assignments.length
+      ? await this.assignmentTeacherRepo.find({
+          where: { assignment_id: In(assignments.map((a) => a.id)) },
+        })
+      : [];
+    const teachersByAssign = new Map<string, string[]>();
+    for (const l of teacherLinks) {
+      const arr = teachersByAssign.get(l.assignment_id) ?? [];
+      arr.push(l.user_id);
+      teachersByAssign.set(l.assignment_id, arr);
+    }
     const suggestions = suggestGroupsFromData({
       sections,
+      school_type: schoolType,
       assignments: assignments.map((a) => ({
         subject_name: a.subject_name,
         class_sections: a.class_sections ?? [],
+        teacher_ids: teachersByAssign.get(a.id) ?? [],
         options: (a.options ?? null) as Record<string, unknown> | null,
       })),
       existing: existing.map((g) => ({
@@ -518,7 +650,8 @@ export class DersDagitService {
       })),
     });
     return {
-      catalog: GROUP_MODE_CATALOG,
+      catalog: groupModeCatalogForSchool(schoolType),
+      school_type: schoolType,
       suggestions: suggestions.map((s) => ({
         ...s,
         already_exists: suggestionExists(s, existing),
@@ -529,21 +662,25 @@ export class DersDagitService {
   async applyGroupSuggestions(
     studioId: string,
     userId: string,
-    body: { keys?: string[]; apply_all?: boolean },
+    body: { keys?: string[]; apply_all?: boolean; mode_overrides?: Record<string, DersDagitGroupMode> },
   ) {
     const studio = await this.studioRepo.findOne({ where: { id: studioId } });
     if (!studio) throw new NotFoundException();
     const schoolId = studio.school_id;
+    const schoolType = this.studioSchoolType(studio);
     const { suggestions: raw } = await this.suggestGroups(studioId, schoolId);
     const pick = body.apply_all
       ? raw.filter((s) => !s.already_exists)
       : raw.filter((s) => !s.already_exists && body.keys?.includes(s.key));
     let created = 0;
     for (const s of pick) {
+      const mode =
+        body.mode_overrides?.[s.key] ??
+        normalizeGroupMode(s.parallel_mode, schoolType);
       await this.upsertGroup(studioId, {
         name: s.name,
         abbreviation: s.abbreviation.slice(0, 8),
-        parallel_mode: s.parallel_mode,
+        parallel_mode: mode,
         member_sections: s.member_sections,
       });
       created++;
@@ -557,7 +694,9 @@ export class DersDagitService {
   }
 
   async upsertGroup(studioId: string, dto: Partial<DersDagitGroup>) {
-    const mode = normalizeGroupMode(dto.parallel_mode ?? undefined);
+    const studio = await this.studioRepo.findOne({ where: { id: studioId } });
+    const schoolType = studio ? this.studioSchoolType(studio) : 'anadolu_lise';
+    const mode = normalizeGroupMode(dto.parallel_mode ?? undefined, schoolType);
     const member_sections = (dto.member_sections ?? []).map((s) => String(s).trim()).filter(Boolean);
     const prev = dto.id
       ? await this.groupRepo.findOne({ where: { id: dto.id, studio_id: studioId } })
@@ -1016,6 +1155,18 @@ export class DersDagitService {
     return { imported };
   }
 
+  /** Yayınlanmamış üretim taslaklarını temizle (favori ve arşiv hariç). */
+  private async purgeUnsavedGeneratedPrograms(studioId: string) {
+    const rows = await this.programRepo.find({
+      where: { studio_id: studioId, status: 'generated', archived_at: IsNull() },
+    });
+    for (const p of rows) {
+      if (p.is_favorite) continue;
+      await this.programEntryRepo.delete({ program_id: p.id });
+      await this.programRepo.delete({ id: p.id });
+    }
+  }
+
   async deleteProgram(programId: string, studioId: string, userId: string) {
     const prog = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
     if (!prog) throw new NotFoundException();
@@ -1120,11 +1271,15 @@ export class DersDagitService {
       if (!row.active) continue;
       const def = relationDefinition(row);
       if (!def || !('catalog_key' in def) || !def.catalog_key) continue;
-      const key = def.catalog_key;
+      let key = def.catalog_key;
+      const maxN = Number(row.params?.max);
+      if (key === 'max_two_per_day' && maxN === 1) key = 'max_one_per_day';
+      const params: Record<string, unknown> = { ...(row.params ?? {}) };
+      if (row.subject_ids.length) params.planning_subject_ids = row.subject_ids;
       const state = {
         active: true,
         weight: importanceWeight(row.importance),
-        params: row.params,
+        params: Object.keys(params).length ? params : undefined,
       };
       if (row.sections_mode === 'all') {
         studioRules[key] = { ...studioRules[key], ...state };
@@ -1232,6 +1387,7 @@ export class DersDagitService {
         for (const e of entries) {
           byClass.set(e.class_section, (byClass.get(e.class_section) ?? 0) + 1);
         }
+        const meta = (p.generation_meta ?? {}) as { score_breakdown?: ProgramScoreBreakdown };
         return {
           id: p.id,
           name: p.name,
@@ -1240,6 +1396,7 @@ export class DersDagitService {
           is_favorite: p.is_favorite,
           entry_count: entries.length,
           class_sections: Object.fromEntries(byClass),
+          score_breakdown: meta.score_breakdown ?? null,
         };
       }),
     );
@@ -1282,6 +1439,7 @@ export class DersDagitService {
     }
     const active_rules = studio_rules;
     const strictKeys = buildStrictRuleKeys(planningRelations);
+    augmentStrictKeysWithActiveRules(strictKeys, studio_rules, section_rules);
     const period = parseStudioPeriod(settings.period);
     const dual = parseDualEducation(settings.dual_education);
     let maxLesson = school?.duty_max_lessons ?? 8;
@@ -1482,6 +1640,44 @@ export class DersDagitService {
     return parseSchoolProfile(settings.school_profile);
   }
 
+  async getReportSettings(studioId: string, schoolId: string): Promise<StudioReportSettings> {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
+    const [school] = await Promise.all([
+      this.schoolRepo.findOne({ where: { id: schoolId }, select: ['name'] }),
+    ]);
+    const parsed = parseStudioReportSettings((studio.settings ?? {}) as Record<string, unknown>);
+    return {
+      meta: {
+        ...parsed.meta,
+        school_name: parsed.meta.school_name ?? school?.name ?? undefined,
+        academic_year: parsed.meta.academic_year ?? studio.academic_year ?? undefined,
+      },
+      texts: parsed.texts,
+    };
+  }
+
+  async updateReportSettings(
+    studioId: string,
+    schoolId: string,
+    body: { meta?: Record<string, unknown>; texts?: Record<string, unknown> },
+  ): Promise<StudioReportSettings> {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
+    const settings = { ...(studio.settings ?? {}) } as Record<string, unknown>;
+    const prev = parseStudioReportSettings(settings);
+    const next = mergeReportSettings(prev, {
+      meta: body.meta as never,
+      texts: body.texts as never,
+    });
+    const json = reportSettingsToJson(next);
+    settings.report_meta = json.report_meta;
+    settings.report_texts = json.report_texts;
+    studio.settings = settings;
+    await this.studioRepo.save(studio);
+    return this.getReportSettings(studioId, schoolId);
+  }
+
   /** Yayınlı nöbet planı — tarih → haftanın günü (Faz 38). */
   private async loadDutyUnavailableSlots(
     studioId: string,
@@ -1644,15 +1840,59 @@ export class DersDagitService {
       ? teacherHours.reduce((s, x) => s + x.lesson_count, 0) / teacherHours.length
       : 0;
     const monFriOff = entries.filter((e) => e.day_of_week === 1 || e.day_of_week === 5).length;
+    const teacherConfigs = await this.listTeacherConfigs(studioId);
+    const configByUser = new Map(teacherConfigs.map((c) => [c.user_id, c]));
+    const counts = teacherHours.map((t) => t.lesson_count);
+    const minLessons = counts.length ? Math.min(...counts) : 0;
+    const maxLessons = counts.length ? Math.max(...counts) : 0;
+    const spread = maxLessons - minLessons;
+    let fairness_index = 100;
+    let distribution_label = 'Dağılım dengeli';
+    if (spread > 6) {
+      fairness_index = 28;
+      distribution_label = 'Dağılım dengesiz';
+    } else if (spread > 4) {
+      fairness_index = 48;
+      distribution_label = 'Dağılım dengesiz';
+    } else if (spread > 2) {
+      fairness_index = 68;
+      distribution_label = 'Dağılım kısmen dengeli';
+    } else if (spread > 0) {
+      fairness_index = 88;
+      distribution_label = 'Dağılım kısmen dengeli';
+    }
+
+    const teacher_stats = teacherHours.map((t) => {
+      const cfg = configByUser.get(t.teacher_id);
+      const deviation = Math.round((t.lesson_count - avg) * 10) / 10;
+      let load_status: 'low' | 'balanced' | 'high' = 'balanced';
+      if (deviation <= -2) load_status = 'low';
+      else if (deviation >= 2) load_status = 'high';
+      return {
+        ...t,
+        label: cfg?.display_name ?? t.teacher_id.slice(0, 8),
+        branch: cfg?.branch ?? null,
+        mandatory_weekly_hours: cfg?.mandatory_weekly_hours ?? null,
+        deviation_from_avg: deviation,
+        load_status,
+        gap_heavy: t.gap_count >= 3,
+      };
+    });
 
     return {
       ready: true,
       program_id: program.id,
-      teacher_stats: teacherHours.map((t) => ({
-        ...t,
-        deviation_from_avg: Math.round((t.lesson_count - avg) * 10) / 10,
-      })),
+      program_name: program.name,
+      program_status: program.status,
+      teacher_stats,
+      teacher_count: teacher_stats.length,
       avg_lessons_per_teacher: Math.round(avg * 10) / 10,
+      min_lessons_per_teacher: minLessons,
+      max_lessons_per_teacher: maxLessons,
+      lesson_spread: spread,
+      fairness_index,
+      distribution_label,
+      total_gaps: teacher_stats.reduce((s, t) => s + t.gap_count, 0),
       monday_friday_slot_ratio: entries.length ? Math.round((monFriOff / entries.length) * 100) : 0,
       hint:
         monFriOff > entries.length * 0.4
@@ -1686,13 +1926,17 @@ export class DersDagitService {
       versions_requested: Math.min(3, opts.versions ?? 1),
       started_at: new Date(),
     });
+    await this.purgeUnsavedGeneratedPrograms(studioId);
     const solverCtx = await this.buildSolverContext(studioId, schoolId);
     const assignments = await this.listAssignments(studioId);
+    const subjectById = subjectCatalogMap(await this.listSubjects(studioId));
+    const assignmentById = new Map(assignments.map((a) => [a.id, a]));
     const solverInput = expandAssignmentsForSolver(
       assignments.map((a) => ({
         id: a.id,
         class_sections: a.class_sections,
-        subject_name: a.subject_name,
+        subject_id: a.subject_id ?? null,
+        subject_name: resolveAssignmentSubjectLabel(a, subjectById),
         weekly_hours: a.weekly_hours,
         teacher_ids: (a as { teacher_ids?: string[] }).teacher_ids ?? [],
         group_id: a.group_id,
@@ -1757,35 +2001,73 @@ export class DersDagitService {
     for (let v = 0; v < versionCount; v++) {
       const shuffled = [...baseDays].sort(() => Math.random() - 0.5);
       const result = solveOnce({ ...solverCtx, day_order: shuffled });
+      const versionCheck = applySoftRulePenalties(result.entries, solverInput, solverCtx);
+      if (versionCheck.strict_violations.length) continue;
       if (result.score > bestResult.score || result.failed < bestResult.failed) bestResult = result;
       const score = Math.round(result.score);
-      const prog = await this.programRepo.save({
-        studio_id: studioId,
-        name: `Üretim ${new Date().toISOString().slice(0, 16)} v${v + 1}`,
-        status: 'generated',
-        version: v + 1,
-        score,
-        generation_meta: {
-          job_id: job.id,
-          placed: result.placed,
-          failed: result.failed,
-          violations: result.violations.slice(0, 30),
-        },
+      const labeledEntries = result.entries.map((e) => {
+        const a = assignmentById.get(e.assignment_id);
+        const subject = a ? formatProgramEntrySubject(a, subjectById) : e.subject;
+        return { ...e, subject };
       });
-      const entries = result.entries.map((e) => ({
-        program_id: prog.id,
-        assignment_id: e.assignment_id,
-        user_id: e.user_id,
-        day_of_week: e.day_of_week,
-        lesson_num: e.lesson_num,
-        class_section: e.class_section,
-        subject: e.subject,
-        room_id: e.room_id,
-        group_id: e.group_id,
-        is_locked: false,
-      }));
-      await this.programEntryRepo.save(entries);
-      programs.push(prog);
+      const versionBreakdown = buildProgramScoreBreakdown(
+        labeledEntries,
+        solverInput,
+        solverCtx,
+        result.violations,
+      );
+      const classSections = labeledEntries.map((e) => e.class_section);
+      let prog: DersDagitProgram | null = null;
+      try {
+        prog = await this.programRepo.save({
+          studio_id: studioId,
+          name: buildGeneratedProgramName({ score, version: v + 1, classSections }),
+          status: 'generated',
+          version: v + 1,
+          score,
+          generation_meta: {
+            job_id: job.id,
+            placed: result.placed,
+            failed: result.failed,
+            violations: result.violations.slice(0, 30),
+            score_breakdown: versionBreakdown,
+          },
+        });
+        if (!labeledEntries.length) {
+          await this.programEntryRepo.delete({ program_id: prog.id });
+          await this.programRepo.delete({ id: prog.id });
+          continue;
+        }
+        const rows = labeledEntries.map((e) => ({
+          program_id: prog!.id,
+          assignment_id: e.assignment_id,
+          user_id: e.user_id,
+          day_of_week: e.day_of_week,
+          lesson_num: e.lesson_num,
+          class_section: e.class_section,
+          subject: e.subject,
+          room_id: e.room_id,
+          group_id: e.group_id,
+          is_locked: false,
+        }));
+        await this.programEntryRepo.save(rows);
+        programs.push(prog);
+      } catch {
+        if (prog?.id) {
+          await this.programEntryRepo.delete({ program_id: prog.id });
+          await this.programRepo.delete({ id: prog.id });
+        }
+      }
+    }
+    if (!programs.length) {
+      const retryViolations = applySoftRulePenalties(bestResult.entries, solverInput, solverCtx)
+        .strict_violations;
+      await this.jobRepo.update(job.id, { status: 'failed', finished_at: new Date() });
+      throw new BadRequestException({
+        code: 'STRICT_RULES_VIOLATED',
+        message: 'Açık kuralların tamamı sağlanan program üretilemedi.',
+        violations: (retryViolations.length ? retryViolations : strictViolations).slice(0, 20),
+      });
     }
     await this.jobRepo.update(job.id, {
       status: 'done',
@@ -1801,6 +2083,16 @@ export class DersDagitService {
     await this.studioRepo.update(studioId, { workflow_status: 'generated' });
     await this.audit(studioId, userId, 'programs.generated', { job_id: job.id });
     const finalScore = Math.round(bestResult.score);
+    const bestLabeled = bestResult.entries.map((e) => {
+      const a = assignmentById.get(e.assignment_id);
+      return { ...e, subject: a ? formatProgramEntrySubject(a, subjectById) : e.subject };
+    });
+    const scoreBreakdown = buildProgramScoreBreakdown(
+      bestLabeled,
+      solverInput,
+      solverCtx,
+      bestResult.violations,
+    );
     return {
       job,
       programs,
@@ -1810,6 +2102,7 @@ export class DersDagitService {
       score: finalScore,
       violations: bestResult.violations,
       violation_links: linkGenerationViolations(bestResult.violations.slice(0, 30)),
+      score_breakdown: scoreBreakdown,
     };
   }
 
@@ -2101,7 +2394,7 @@ export class DersDagitService {
       day_of_week: body.day_of_week,
       lesson_num: body.lesson_num,
       class_section: classSection,
-      subject: a.subject_name,
+      subject: formatProgramEntrySubject(a, subjectCatalogMap(await this.listSubjects(studioId))),
       room_id: a.room_ids?.[0] ?? null,
       is_locked: false,
       group_id: a.group_id,
@@ -2203,13 +2496,88 @@ export class DersDagitService {
   }
 
   // --- Faz 27: Yayın → teacher-timetable ---
+  async getPublishPreview(programId: string, studioId: string, schoolId: string) {
+    const ctx = await this.getProgramEditorContext(programId, studioId, schoolId);
+    const validation = await this.runValidation(studioId);
+    const valErrors = validation.filter((v) => v.severity === 'error');
+    const valWarns = validation.filter((v) => v.severity !== 'error');
+    const published = await this.programRepo.find({
+      where: { studio_id: studioId, status: 'published' },
+      order: { updated_at: 'DESC' },
+      take: 1,
+    });
+    const currentPublished = published[0];
+    let diffEntryCount = 0;
+    if (currentPublished && currentPublished.id !== programId) {
+      const prevEntries = await this.programEntryRepo.find({ where: { program_id: currentPublished.id } });
+      const key = (e: { class_section: string; subject: string; day_of_week: number; lesson_num: number; user_id?: string | null }) =>
+        `${e.class_section}|${e.subject}|${e.day_of_week}|${e.lesson_num}|${e.user_id ?? ''}`;
+      const prevKeys = new Set(prevEntries.map(key));
+      diffEntryCount = ctx.entries.filter((e) => !prevKeys.has(key(e))).length;
+    }
+    const unplacedHours = ctx.unplaced.reduce((s, u) => s + (u.remaining_hours ?? 0), 0);
+    const clashCount = ctx.clashes.length;
+    const blockers: string[] = [];
+    if (!ctx.entries.length) blockers.push('Programda yerleşmiş ders saati yok');
+    if (clashCount > 0) blockers.push(`${clashCount} çakışma`);
+    if (valErrors.length > 0) blockers.push(`${valErrors.length} doğrulama hatası`);
+    const softWarnings: string[] = [];
+    if (ctx.unplaced.length > 0) softWarnings.push(`${ctx.unplaced.length} yerleşmemiş atama (${unplacedHours} saat)`);
+    if (valWarns.length > 0) softWarnings.push(`${valWarns.length} doğrulama uyarısı`);
+    if (diffEntryCount > 0 && currentPublished) {
+      softWarnings.push(`Yayındaki programa göre ~${diffEntryCount} saat farklı`);
+    }
+    return {
+      program: {
+        id: ctx.program.id,
+        name: ctx.program.name,
+        status: ctx.program.status,
+        score: ctx.program.score,
+      },
+      entry_count: ctx.entries.length,
+      clash_count: clashCount,
+      unplaced_count: ctx.unplaced.length,
+      unplaced_hours: unplacedHours,
+      validation_error_count: valErrors.length,
+      validation_warn_count: valWarns.length,
+      published_program: currentPublished
+        ? { id: currentPublished.id, name: currentPublished.name, published_plan_id: currentPublished.published_plan_id }
+        : null,
+      diff_entry_count: diffEntryCount,
+      blockers,
+      soft_warnings: softWarnings,
+      can_publish: blockers.length === 0,
+      requires_risk_ack: softWarnings.length > 0,
+    };
+  }
+
   async publishProgramToSchool(
     studioId: string,
     schoolId: string,
     userId: string,
     programId: string,
-    opts: { valid_from?: string; valid_until?: string | null; name?: string },
+    opts: {
+      valid_from?: string;
+      valid_until?: string | null;
+      name?: string;
+      risk_acknowledged?: boolean;
+    },
   ) {
+    const preview = await this.getPublishPreview(programId, studioId, schoolId);
+    if (!preview.can_publish) {
+      throw new BadRequestException({
+        code: 'PUBLISH_BLOCKED',
+        message: preview.blockers.join(' · ') || 'Yayın engellendi',
+        blockers: preview.blockers,
+      });
+    }
+    if (preview.requires_risk_ack && !opts.risk_acknowledged) {
+      throw new BadRequestException({
+        code: 'PUBLISH_ACK_REQUIRED',
+        message: 'Yerleşmemiş atama veya uyarılar var; onay kutusunu işaretleyin.',
+        warnings: preview.soft_warnings,
+      });
+    }
     const { program, entries } = await this.getProgram(programId, studioId);
     if (!entries.length) {
       throw new BadRequestException({ code: 'NO_ENTRIES', message: 'Programda slot yok.' });
@@ -2311,6 +2679,7 @@ export class DersDagitService {
       teacher_id: e.user_id,
       teacher_label: e.user_id ? userMap.get(e.user_id) ?? null : null,
       teacher_tc: e.user_id ? tcMap.get(e.user_id) ?? null : null,
+      room_id: e.room_id ?? null,
       room_name: e.room_id ? roomMap.get(e.room_id) ?? null : null,
     }));
   }
@@ -2365,11 +2734,231 @@ export class DersDagitService {
     return buildProgramGridXlsx(await this.buildExportRows(programId, studioId));
   }
 
-  async exportProgramPdf(programId: string, studioId: string): Promise<Uint8Array> {
+  async exportProgramPdf(
+    programId: string,
+    studioId: string,
+    schoolId?: string,
+    theme?: string | null,
+  ): Promise<Uint8Array> {
     const program = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
     if (!program) throw new NotFoundException();
     const rows = await this.buildExportRows(programId, studioId);
-    return this.pdfService.buildProgramPdf(program.name ?? 'Ders Dağıt Programı', rows);
+    const header = await this.buildPdfHeader(programId, studioId, schoolId, program.name);
+    const { parsePdfTheme } = await import('./ders-dagit-pdf-layout');
+    return this.pdfService.buildProgramPdf(header, rows, parsePdfTheme(theme));
+  }
+
+  async exportScheduleViewPdf(
+    programId: string,
+    studioId: string,
+    schoolId: string | undefined,
+    view: 'class' | 'teacher' | 'room',
+    filter: string,
+    entityLabel: string,
+    theme?: string | null,
+  ): Promise<Uint8Array> {
+    const program = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
+    if (!program) throw new NotFoundException();
+    const rows = await this.buildExportRows(programId, studioId);
+    const filtered = rows.filter((r) => {
+      if (view === 'class') return r.class_section === filter;
+      if (view === 'teacher') return r.user_id === filter;
+      if (filter === '__none__') return !r.room_id;
+      return r.room_id === filter;
+    });
+    const header = await this.buildPdfHeader(programId, studioId, schoolId, program.name);
+    const { parsePdfTheme } = await import('./ders-dagit-pdf-layout');
+    const label = entityLabel.trim() || filter;
+    return this.pdfService.buildScheduleViewPdf(header, filtered, view, label, parsePdfTheme(theme));
+  }
+
+  async exportMasterSheetPdf(
+    programId: string,
+    studioId: string,
+    schoolId: string | undefined,
+    axis: 'teacher' | 'class' | 'room',
+    theme?: string | null,
+  ): Promise<Uint8Array> {
+    const program = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
+    if (!program) throw new NotFoundException();
+    const rows = await this.buildExportRows(programId, studioId);
+    const header = await this.buildPdfHeader(programId, studioId, schoolId, program.name);
+    const { parsePdfTheme } = await import('./ders-dagit-pdf-layout');
+    return this.pdfService.buildMasterSheetPdf(header, rows, axis, parsePdfTheme(theme));
+  }
+
+  private async loadDutySlotsForPdf(schoolId: string, studioId: string) {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId }, select: ['settings'] });
+    const settings = (studio?.settings ?? {}) as Record<string, unknown>;
+    const period = parseStudioPeriod(settings.period);
+    const workDays = Array.isArray(settings.work_days)
+      ? (settings.work_days as number[])
+      : period.work_days ?? [1, 2, 3, 4, 5];
+    const dutyRange = (settings.duty_sync ?? {}) as { from?: string; to?: string };
+    const teachers = await this.listTeacherConfigs(studioId);
+    const nameMap = new Map(teachers.map((t) => [t.user_id, t.display_name]));
+
+    const qb = this.dutySlotRepo
+      .createQueryBuilder('s')
+      .innerJoin('s.duty_plan', 'p')
+      .where('p.school_id = :schoolId', { schoolId })
+      .andWhere('s.deleted_at IS NULL')
+      .andWhere('p.deleted_at IS NULL')
+      .andWhere('p.archived_at IS NULL')
+      .andWhere('p.status = :published', { published: 'published' });
+    if (dutyRange.from) qb.andWhere('s.date >= :from', { from: dutyRange.from });
+    if (dutyRange.to) qb.andWhere('s.date <= :to', { to: dutyRange.to });
+    const slots = await qb.getMany();
+
+    const parseDow = (date: string) => {
+      const d = new Date(`${date}T12:00:00`);
+      const js = d.getDay();
+      return js === 0 ? 7 : js;
+    };
+
+    return {
+      workDays,
+      slots: slots.map((s) => ({
+        user_id: s.user_id,
+        teacher_label: nameMap.get(s.user_id) ?? s.user_id.slice(0, 8),
+        date: s.date,
+        day_of_week: parseDow(s.date),
+        lesson_num: s.lesson_num,
+        shift: s.shift,
+        area_name: s.area_name,
+        slot_name: s.slot_name,
+      })),
+    };
+  }
+
+  async exportDutyReportPdf(
+    programId: string,
+    studioId: string,
+    schoolId: string,
+    theme?: string | null,
+  ): Promise<Uint8Array> {
+    const program = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
+    if (!program) throw new NotFoundException();
+    const header = await this.buildPdfHeader(programId, studioId, schoolId, program.name);
+    const { slots, workDays } = await this.loadDutySlotsForPdf(schoolId, studioId);
+    const { parsePdfTheme } = await import('./ders-dagit-pdf-layout');
+    return this.pdfService.buildDutyPdf(header, slots, workDays, parsePdfTheme(theme));
+  }
+
+  async exportDualEducationPdf(
+    programId: string,
+    studioId: string,
+    schoolId: string,
+    theme?: string | null,
+  ): Promise<Uint8Array> {
+    const program = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
+    if (!program) throw new NotFoundException();
+    const studio = await this.studioRepo.findOne({ where: { id: studioId }, select: ['settings'] });
+    const settings = (studio?.settings ?? {}) as Record<string, unknown>;
+    const dual = parseDualEducation(settings.dual_education);
+    const period = parseStudioPeriod(settings.period);
+    const pmFirst = pmFirstLessonNum(period, dual);
+    const profiles = await this.classProfileRepo.find({ where: { studio_id: studioId } });
+    const entries = await this.programEntryRepo.find({ where: { program_id: programId } });
+    const sectionShift = new Map<string, EducationShift | null>();
+    for (const p of profiles) {
+      for (const sec of p.class_sections ?? []) {
+        sectionShift.set(sec, normalizeEducationShift(p.education_shift));
+      }
+    }
+    const bySection = new Map<string, { am: number; pm: number }>();
+    for (const e of entries) {
+      const b = bySection.get(e.class_section) ?? { am: 0, pm: 0 };
+      if (e.lesson_num < pmFirst) b.am++;
+      else b.pm++;
+      bySection.set(e.class_section, b);
+    }
+    const rows = [...bySection.entries()]
+      .map(([class_section, c]) => {
+        const shift = sectionShift.get(class_section);
+        const shift_label =
+          shift === 'morning' ? 'Sabah vardiyası' : shift === 'afternoon' ? 'Öğle vardiyası' : 'Karma';
+        return {
+          class_section,
+          shift_label,
+          placed_hours: c.am + c.pm,
+          morning_hours: c.am,
+          afternoon_hours: c.pm,
+        };
+      })
+      .sort((a, b) => compareClassSections(a.class_section, b.class_section));
+    const header = await this.buildPdfHeader(programId, studioId, schoolId, program.name);
+    const { parsePdfTheme } = await import('./ders-dagit-pdf-layout');
+    return this.pdfService.buildDualPdf(header, rows, dual.enabled, pmFirst, parsePdfTheme(theme));
+  }
+
+  async exportExtraLessonPdf(
+    programId: string,
+    studioId: string,
+    schoolId: string,
+    theme?: string | null,
+  ): Promise<Uint8Array> {
+    const program = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
+    if (!program) throw new NotFoundException();
+    const fair = await this.getFairnessMetrics(studioId);
+    if (!fair.ready) {
+      throw new BadRequestException({
+        code: 'NO_PROGRAM',
+        message: 'Ek ders özeti için üretilmiş program gerekir.',
+      });
+    }
+    const configs = await this.listTeacherConfigs(studioId);
+    const cfgMap = new Map(configs.map((c) => [c.user_id, c]));
+    const rows = (fair.teacher_stats ?? []).map((t) => {
+      const c = cfgMap.get(t.teacher_id);
+      const mandatory = c?.mandatory_weekly_hours ?? t.mandatory_weekly_hours ?? null;
+      const maxExtra = c?.max_extra_weekly_hours ?? null;
+      const actual = t.lesson_count;
+      const diff = mandatory != null ? actual - mandatory : 0;
+      return {
+        label: t.label,
+        branch: t.branch,
+        mandatory,
+        max_extra: maxExtra,
+        actual,
+        diff,
+        extra_available: maxExtra,
+      };
+    });
+    const header = await this.buildPdfHeader(programId, studioId, schoolId, program.name);
+    const { parsePdfTheme } = await import('./ders-dagit-pdf-layout');
+    return this.pdfService.buildExtraLessonSummaryPdf(
+      header,
+      rows,
+      program.name ?? 'Program',
+      parsePdfTheme(theme),
+    );
+  }
+
+  private async buildPdfHeader(
+    programId: string,
+    studioId: string,
+    schoolId: string | undefined,
+    programName?: string | null,
+  ) {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId }, select: ['settings', 'academic_year'] });
+    const school = schoolId
+      ? await this.schoolRepo.findOne({ where: { id: schoolId }, select: ['name'] })
+      : null;
+    const rs = parseStudioReportSettings((studio?.settings ?? {}) as Record<string, unknown>);
+    const schoolLabel =
+      rs.meta.school_name?.trim() || rs.texts.title?.trim() || school?.name?.trim() || 'Okul';
+    const year = rs.meta.academic_year?.trim() || studio?.academic_year || null;
+    const customSub = rs.texts.subtitle?.trim() || null;
+    const progLabel = programName?.trim() || null;
+    return {
+      school_name: schoolLabel,
+      document_title: rs.texts.title?.trim() || 'HAFTALIK DERS PROGRAMI ÇİZELGESİ',
+      subtitle: customSub || progLabel,
+      academic_year: year,
+      program_name: customSub && progLabel && customSub !== progLabel ? progLabel : null,
+      footer_note: rs.texts.footer_note?.trim() || null,
+    };
   }
 
   async patchProgramEntry(
@@ -2712,39 +3301,30 @@ export class DersDagitService {
     if (!studio) throw new NotFoundException();
     const settings = (studio.settings ?? {}) as Record<string, unknown>;
     const profile = parseSchoolProfile(settings.school_profile);
-    const sections = await this.collectStudioSections(studioId, schoolId);
-    const grades = [...new Set(sections.map((s) => gradeFromClassSection(s)).filter((g): g is number => g != null))];
+    const grades = gradesForSchoolType(profile.type);
     const yillik = await this.loadYillikWeeklyHours(grades, studio.academic_year);
-    const cells = buildTtkbSeedCells(sections, profile.type, yillik);
-    const subjects = mergeCellsToSubjects(cells);
-    const sections_without_grade = sections.filter((s) => gradeFromClassSection(s) == null);
+    const rows = buildTtkbCatalogBySchoolType(profile.type, yillik);
+    const subjects = mergeGradeCatalogToSubjects(rows);
+    const cells = catalogRowsToPreviewCells(rows);
     const empty_message =
-      cells.length === 0
-        ? sections_without_grade.length
-          ? `Şube adından sınıf seviyesi okunamadı: ${sections_without_grade.slice(0, 5).join(', ')}${sections_without_grade.length > 5 ? '…' : ''}. Örn. 9/A veya 10-BT kullanın.`
-          : 'TTKB listesi üretilemedi. Kurulumda sınıf profili ekleyin ve okul türünü kaydedin.'
+      rows.length === 0
+        ? 'TTKB listesi üretilemedi. Kurulumda okul türünü (ilkokul, ortaokul, lise vb.) kaydedin.'
         : undefined;
     return {
-      sections,
-      sections_without_grade,
+      sections: [],
+      sections_without_grade: [],
+      grades,
       empty_message,
       school_type: profile.type,
       cell_count: cells.length,
       subject_count: subjects.size,
       yillik_plan_keys: yillik.size,
       sample: cells.slice(0, 30),
-      cells: cells.map((c) => ({
-        subject_code: c.subject_code,
-        subject_name: c.subject_name,
-        class_section: c.class_section,
-        grade: c.grade,
-        weekly_hours: c.weekly_hours,
-        source: c.source,
-      })),
-      totals_by_section: Object.fromEntries(
-        sections.map((sec) => [
-          sec,
-          cells.filter((c) => c.class_section === sec).reduce((s, c) => s + c.weekly_hours, 0),
+      cells,
+      totals_by_grade: Object.fromEntries(
+        grades.map((g) => [
+          g,
+          rows.filter((r) => r.grade === g).reduce((s, r) => s + r.weekly_hours, 0),
         ]),
       ),
     };
@@ -2760,26 +3340,22 @@ export class DersDagitService {
     if (!studio) throw new NotFoundException();
     const settings = (studio.settings ?? {}) as Record<string, unknown>;
     const profile = parseSchoolProfile(settings.school_profile);
-    const sections = await this.collectStudioSections(studioId, schoolId);
-    const grades = [...new Set(sections.map((s) => gradeFromClassSection(s)).filter((g): g is number => g != null))];
+    const grades = gradesForSchoolType(profile.type);
     const yillik = await this.loadYillikWeeklyHours(grades, studio.academic_year);
-    let cells = buildTtkbSeedCells(sections, profile.type, yillik);
-    if (!cells.length) {
-      const bad = sections.filter((s) => gradeFromClassSection(s) == null);
+    let rows = buildTtkbCatalogBySchoolType(profile.type, yillik);
+    if (!rows.length) {
       throw new BadRequestException({
         code: 'TTKB_EMPTY',
-        message: bad.length
-          ? `Şube adından sınıf seviyesi okunamadı: ${bad.join(', ')}. Örn. 9/A veya 10-BT.`
-          : 'TTKB listesi üretilemedi. Kurulumda sınıf profili ekleyin ve okul türünü kaydedin.',
+        message: 'TTKB listesi üretilemedi. Kurulumda okul türünü kaydedin.',
       });
     }
-    for (const c of cells) {
-      if (c.source === 'ttkb') {
-        const h = await this.appConfig.getDersSaati(c.subject_code, c.grade);
-        if (h >= 1) c.weekly_hours = h;
+    for (const r of rows) {
+      if (r.source === 'ttkb') {
+        const h = await this.appConfig.getDersSaati(r.subject_code, r.grade);
+        if (h >= 1) r.weekly_hours = h;
       }
     }
-    const subjectMap = mergeCellsToSubjects(cells);
+    const subjectMap = mergeGradeCatalogToSubjects(rows);
     if (opts?.replace) {
       await this.assignmentRepo.delete({ studio_id: studioId });
       await this.subjectRepo.delete({ studio_id: studioId });
@@ -2811,7 +3387,11 @@ export class DersDagitService {
         created++;
       }
     }
+    const names = [...subjectMap.values()]
+      .map((r) => r.name)
+      .sort((a, b) => a.localeCompare(b, 'tr'));
     settings.ttkb_seed_at = new Date().toISOString();
+    settings.ttkb_catalog_names = names;
     studio.settings = settings;
     await this.studioRepo.save(studio);
     let assignments_created = 0;
@@ -2822,10 +3402,216 @@ export class DersDagitService {
     await this.audit(studioId, userId, 'subjects.seeded_ttkb', {
       created,
       updated,
-      sections: sections.length,
+      grades: grades.length,
       assignments_created,
     });
-    return { created, updated, sections: sections.length, assignments_created, subject_count: subjectMap.size };
+    return {
+      created,
+      updated,
+      grades: grades.length,
+      assignments_created,
+      subject_count: subjectMap.size,
+      names,
+    };
+  }
+
+  async previewTtkbElectiveSeed(studioId: string, schoolId: string) {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
+    const settings = (studio.settings ?? {}) as Record<string, unknown>;
+    const profile = parseSchoolProfile(settings.school_profile);
+    const grades = gradesForSchoolType(profile.type);
+    const yillik = await this.loadYillikWeeklyHours(grades, studio.academic_year);
+    const rows = buildTtkbElectiveCatalogBySchoolType(profile.type, yillik);
+    const subjects = mergeGradeCatalogToSubjects(rows);
+    const cells = catalogRowsToPreviewCells(rows);
+    const empty_message =
+      rows.length === 0
+        ? profile.type === 'ilkokul'
+          ? 'İlkokulda TTKB seçmeli listesi yok. Kurulumda ortaokul veya lise türü seçin.'
+          : 'Seçmeli TTKB listesi üretilemedi. Kurulumda okul türünü kaydedin.'
+        : undefined;
+    return {
+      sections: [],
+      sections_without_grade: [],
+      grades,
+      empty_message,
+      school_type: profile.type,
+      cell_count: cells.length,
+      subject_count: subjects.size,
+      yillik_plan_keys: yillik.size,
+      sample: cells.slice(0, 30),
+      cells,
+      totals_by_grade: Object.fromEntries(
+        grades.map((g) => [
+          g,
+          rows.filter((r) => r.grade === g).reduce((s, r) => s + r.weekly_hours, 0),
+        ]),
+      ),
+    };
+  }
+
+  async syncElectivePoolsFromCatalog(
+    studioId: string,
+    schoolId: string,
+    userId: string,
+    opts?: { replace_pools?: boolean; catalog_rows?: import('./ders-dagit.ttkb-seed').TtkbCatalogRow[] },
+  ) {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
+    const settings = (studio.settings ?? {}) as Record<string, unknown>;
+    const profile = parseSchoolProfile(settings.school_profile);
+    const grades = gradesForSchoolType(profile.type);
+    const yillik = await this.loadYillikWeeklyHours(grades, studio.academic_year);
+    const rows =
+      opts?.catalog_rows ?? buildTtkbElectiveCatalogBySchoolType(profile.type, yillik);
+    const sections = await this.collectStudioSections(studioId, schoolId);
+    const drafts = buildElectivePoolDraftsFromCatalog(rows, sections);
+    if (!drafts.length) {
+      return {
+        pools_created: 0,
+        pools_updated: 0,
+        pool_names: [] as string[],
+        message: 'Havuz oluşturulacak seçmeli ders bulunamadı.',
+      };
+    }
+    if (opts?.replace_pools) {
+      const gradeKeys = new Set(drafts.map((d) => d.name));
+      const existing = await this.electivePoolRepo.find({ where: { studio_id: studioId } });
+      for (const p of existing) {
+        if (gradeKeys.has(p.name)) {
+          await this.electivePoolRepo.delete({ id: p.id });
+        }
+      }
+    }
+    const existing = await this.electivePoolRepo.find({ where: { studio_id: studioId } });
+    let pools_created = 0;
+    let pools_updated = 0;
+    for (const d of drafts) {
+      const prev = existing.find((p) => p.name === d.name || p.base_section === d.base_section);
+      const pool = await this.upsertElectivePool(studioId, {
+        id: prev?.id,
+        name: d.name,
+        base_section: d.base_section,
+        member_sections: d.member_sections,
+        subject_names: d.subject_names,
+        weekly_hours_per_track: prev?.weekly_hours_per_track ?? 2,
+      });
+      if (prev) pools_updated++;
+      else pools_created++;
+      try {
+        await this.syncElectivePoolGroup(studioId, pool.id);
+      } catch {
+        /* grup bağlama isteğe bağlı */
+      }
+    }
+    await this.audit(studioId, userId, 'elective_pools.synced_from_catalog', {
+      pools_created,
+      pools_updated,
+      grades: drafts.map((d) => d.grade),
+    });
+    return {
+      pools_created,
+      pools_updated,
+      pool_names: drafts.map((d) => d.name),
+    };
+  }
+
+  async seedElectiveFromTtkb(
+    studioId: string,
+    schoolId: string,
+    userId: string,
+    opts?: { replace_elective?: boolean; create_pools?: boolean },
+  ) {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
+    const settings = (studio.settings ?? {}) as Record<string, unknown>;
+    const profile = parseSchoolProfile(settings.school_profile);
+    const grades = gradesForSchoolType(profile.type);
+    const yillik = await this.loadYillikWeeklyHours(grades, studio.academic_year);
+    let rows = buildTtkbElectiveCatalogBySchoolType(profile.type, yillik);
+    if (!rows.length) {
+      throw new BadRequestException({
+        code: 'TTKB_ELECTIVE_EMPTY',
+        message:
+          profile.type === 'ilkokul'
+            ? 'İlkokulda seçmeli TTKB listesi yok.'
+            : 'Seçmeli TTKB listesi üretilemedi. Kurulumda okul türünü kaydedin.',
+      });
+    }
+    for (const r of rows) {
+      if (r.source === 'ttkb') {
+        const h = await this.appConfig.getDersSaati(r.subject_code, r.grade);
+        if (h >= 1) r.weekly_hours = h;
+      }
+    }
+    const subjectMap = mergeGradeCatalogToSubjects(rows);
+    if (opts?.replace_elective) {
+      await this.subjectRepo.delete({ studio_id: studioId, is_elective: true });
+    }
+    const existing = await this.subjectRepo.find({ where: { studio_id: studioId } });
+    const byCode = new Map(
+      existing.map((s) => [(s.short_code ?? s.name).toLowerCase(), s]),
+    );
+    let created = 0;
+    let updated = 0;
+    for (const [, row] of subjectMap) {
+      const prev = byCode.get(row.short_code.toLowerCase());
+      if (prev) {
+        await this.subjectRepo.save({
+          ...prev,
+          name: row.name,
+          is_elective: true,
+        });
+        updated++;
+      } else {
+        await this.subjectRepo.save({
+          studio_id: studioId,
+          name: row.name,
+          short_code: row.short_code,
+          class_hours: row.class_hours,
+          is_elective: true,
+        });
+        created++;
+      }
+    }
+    const names = [...subjectMap.values()]
+      .map((r) => r.name)
+      .sort((a, b) => a.localeCompare(b, 'tr'));
+    settings.ttkb_elective_seed_at = new Date().toISOString();
+    settings.elective_ttkb_names = names;
+    studio.settings = settings;
+    await this.studioRepo.save(studio);
+
+    let pools_created = 0;
+    let pools_updated = 0;
+    let pool_names: string[] = [];
+    if (opts?.create_pools !== false) {
+      const pr = await this.syncElectivePoolsFromCatalog(studioId, schoolId, userId, {
+        replace_pools: !!opts?.replace_elective,
+        catalog_rows: rows,
+      });
+      pools_created = pr.pools_created;
+      pools_updated = pr.pools_updated;
+      pool_names = pr.pool_names;
+    }
+
+    await this.audit(studioId, userId, 'subjects.seeded_ttkb_elective', {
+      created,
+      updated,
+      grades: grades.length,
+      pools_created,
+    });
+    return {
+      created,
+      updated,
+      grades: grades.length,
+      subject_count: subjectMap.size,
+      names,
+      pools_created,
+      pools_updated,
+      pool_names,
+    };
   }
 
   async syncSubjectsToAssignments(studioId: string, userId: string, opts?: { replace?: boolean }) {
@@ -2941,14 +3727,111 @@ export class DersDagitService {
     return copy;
   }
 
+  private sharePath(token: string, section?: string | null) {
+    const q = section?.trim() ? `?section=${encodeURIComponent(section.trim())}` : '';
+    return `/ders-dagit-paylasim/${token}${q}`;
+  }
+
+  private async programShareSections(programId: string) {
+    const rows = await this.programEntryRepo.find({
+      where: { program_id: programId },
+      select: ['class_section'],
+    });
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      const s = r.class_section?.trim();
+      if (!s) continue;
+      counts.set(s, (counts.get(s) ?? 0) + 1);
+    }
+    return sortClassSections([...counts.keys()]).map((class_section) => ({
+      class_section,
+      lesson_count: counts.get(class_section) ?? 0,
+    }));
+  }
+
+  async getProgramShareStatus(studioId: string, programId: string) {
+    const prog = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
+    if (!prog) throw new NotFoundException();
+    const settings = parseProgramShareSettings(prog.share_settings);
+    const sectionRows = await this.programShareSections(programId);
+    const allSections = sectionRows.map((r) => r.class_section);
+    const enabledSet = new Set(resolveShareEnabledSections(allSections, settings));
+    const token = prog.share_token;
+    return {
+      share_active: !!token,
+      share_token: token,
+      base_path: token ? this.sharePath(token) : null,
+      settings,
+      sections: sectionRows.map((r) => ({
+        ...r,
+        enabled: enabledSet.has(r.class_section),
+        path: token && enabledSet.has(r.class_section) ? this.sharePath(token, r.class_section) : null,
+      })),
+    };
+  }
+
+  async updateProgramShareSettings(
+    studioId: string,
+    programId: string,
+    patch: { enabled_sections?: string[] | null },
+  ) {
+    const prog = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
+    if (!prog) throw new NotFoundException();
+    const sectionRows = await this.programShareSections(programId);
+    const allSections = new Set(sectionRows.map((r) => r.class_section));
+    let enabled_sections: string[] | null | undefined = patch.enabled_sections;
+    if (enabled_sections != null) {
+      const cleaned = sortClassSections(
+        [...new Set(enabled_sections.map((s) => String(s).trim()).filter(Boolean))],
+      );
+      const unknown = cleaned.filter((s) => !allSections.has(s));
+      if (unknown.length) {
+        throw new BadRequestException({
+          code: 'UNKNOWN_SECTION',
+          message: `Programda olmayan şube: ${unknown.join(', ')}`,
+        });
+      }
+      enabled_sections = cleaned.length === allSections.size ? null : cleaned;
+    }
+    const prev = parseProgramShareSettings(prog.share_settings);
+    const next: ProgramShareSettings = {
+      ...prev,
+      ...(patch.enabled_sections !== undefined ? { enabled_sections } : {}),
+    };
+    await this.programRepo.update(programId, { share_settings: next });
+    return this.getProgramShareStatus(studioId, programId);
+  }
+
   async createProgramShareLink(studioId: string, programId: string, opts?: { class_section?: string | null }) {
     const prog = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
     if (!prog) throw new NotFoundException();
     const token = prog.share_token ?? randomBytes(24).toString('hex');
-    await this.programRepo.update(programId, { share_token: token });
     const section = opts?.class_section?.trim();
-    const q = section ? `?section=${encodeURIComponent(section)}` : '';
-    return { share_token: token, path: `/ders-dagit-paylasim/${token}${q}`, class_section: section ?? null };
+    const settings = parseProgramShareSettings(prog.share_settings);
+    const sectionRows = await this.programShareSections(programId);
+    const allSections = sectionRows.map((r) => r.class_section);
+    if (section && !allSections.includes(section)) {
+      throw new BadRequestException({ code: 'NO_SECTION', message: 'Bu şubede program satırı yok.' });
+    }
+    let nextSettings = settings;
+    if (section && !isSectionShareEnabled(section, allSections, settings)) {
+      const enabled = resolveShareEnabledSections(allSections, settings);
+      nextSettings = {
+        enabled_sections: sortClassSections([...new Set([...enabled, section])]),
+      };
+      if (nextSettings.enabled_sections!.length === allSections.length) {
+        nextSettings = { enabled_sections: null };
+      }
+    }
+    await this.programRepo.update(programId, {
+      share_token: token,
+      share_settings: nextSettings,
+    });
+    return {
+      share_token: token,
+      path: this.sharePath(token, section),
+      class_section: section ?? null,
+    };
   }
 
   async revokeProgramShareLink(studioId: string, programId: string) {
@@ -2967,57 +3850,256 @@ export class DersDagitService {
     });
     const studio = await this.studioRepo.findOne({
       where: { id: program.studio_id },
-      select: ['id', 'name', 'academic_year'],
+      select: ['id', 'name', 'academic_year', 'school_id', 'settings'],
     });
-    const sections = sortClassSections([...new Set(entries.map((e) => e.class_section))]);
+    const school = studio?.school_id
+      ? await this.schoolRepo.findOne({
+          where: { id: studio.school_id },
+          select: ['id', 'name'],
+        })
+      : null;
+    const rs = parseStudioReportSettings((studio?.settings ?? {}) as Record<string, unknown>);
+    const schoolName =
+      rs.meta.school_name?.trim() || school?.name?.trim() || studio?.name?.trim() || 'Okul';
+    const allSections = sortClassSections([...new Set(entries.map((e) => e.class_section))]);
+    const settings = parseProgramShareSettings(program.share_settings);
+    const visibleSections = resolveShareEnabledSections(allSections, settings);
+    if (!visibleSections.length) return null;
     const sec = classSection?.trim();
-    const filtered = sec ? entries.filter((e) => e.class_section === sec) : entries;
+    if (sec && !visibleSections.includes(sec)) return null;
+    const filtered = sec
+      ? entries.filter((e) => e.class_section === sec)
+      : entries.filter((e) => visibleSections.includes(e.class_section));
+    const activeSection = sec ?? visibleSections[0] ?? null;
+
+    const userIds = [...new Set(filtered.map((e) => e.user_id).filter(Boolean))] as string[];
+    const roomIds = [...new Set(filtered.map((e) => e.room_id).filter(Boolean))] as string[];
+    const users =
+      userIds.length > 0
+        ? await this.userRepo.find({
+            where: { id: In(userIds) },
+            select: ['id', 'display_name', 'email'],
+          })
+        : [];
+    const rooms = roomIds.length > 0 ? await this.roomRepo.find({ where: { id: In(roomIds) } }) : [];
+    const userMap = new Map(users.map((u) => [u.id, u.display_name?.trim() || u.email || u.id.slice(0, 8)]));
+    const roomMap = new Map(rooms.map((r) => [r.id, r.name]));
+
+    const teacherCount = new Set(filtered.map((e) => e.user_id).filter(Boolean)).size;
+    const subjectCount = new Set(filtered.map((e) => e.subject)).size;
+
     return {
       program: {
         id: program.id,
         name: program.name,
         score: program.score,
-        academic_year: studio?.academic_year,
-        studio_name: studio?.name,
+        academic_year: rs.meta.academic_year?.trim() || studio?.academic_year || null,
+        studio_name: studio?.name ?? null,
+        updated_at: program.updated_at.toISOString(),
+        version: program.version,
       },
-      class_sections: sections,
-      class_section: sec ?? null,
+      meta: {
+        school_name: schoolName,
+        document_title: rs.texts.title?.trim() || 'Haftalık Ders Programı',
+        academic_year: rs.meta.academic_year?.trim() || studio?.academic_year || null,
+        published_label: program.updated_at.toLocaleDateString('tr-TR', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        }),
+      },
+      class_sections: visibleSections,
+      class_section: activeSection,
+      stats: {
+        lesson_count: filtered.length,
+        teacher_count: teacherCount,
+        subject_count: subjectCount,
+        section_count: visibleSections.length,
+      },
       entries: filtered.map((e) => ({
         day_of_week: e.day_of_week,
         lesson_num: e.lesson_num,
         class_section: e.class_section,
         subject: e.subject,
+        teacher_label: e.user_id ? userMap.get(e.user_id) ?? null : null,
+        room_name: e.room_id ? roomMap.get(e.room_id) ?? null : null,
       })),
     };
   }
 
-  async exportCouncilPdf(programId: string, studioId: string, schoolId: string) {
+  async exportTeacherNotificationPdf(
+    programId: string,
+    studioId: string,
+    schoolId: string,
+    theme?: string | null,
+    teacherFilter?: string | null,
+  ): Promise<Uint8Array> {
     const program = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
     if (!program) throw new NotFoundException();
-    const [school, studio, rows] = await Promise.all([
+    const [school, studio, rows, configs] = await Promise.all([
       this.schoolRepo.findOne({ where: { id: schoolId }, select: ['id', 'name'] }),
-      this.studioRepo.findOne({ where: { id: studioId }, select: ['academic_year'] }),
+      this.studioRepo.findOne({ where: { id: studioId }, select: ['academic_year', 'settings'] }),
       this.buildExportRows(programId, studioId),
+      this.listTeacherConfigs(studioId),
     ]);
-    const violations = (program.generation_meta as { violations?: string[] })?.violations ?? [];
+    const rs = parseStudioReportSettings((studio?.settings ?? {}) as Record<string, unknown>);
+    const schoolLabel =
+      rs.meta.school_name?.trim() || rs.texts.title?.trim() || school?.name?.trim() || 'Okul';
+    const year = rs.meta.academic_year?.trim() || studio?.academic_year || null;
+    const settings = (studio?.settings ?? {}) as Record<string, unknown>;
+    const workDays = Array.isArray(settings.work_days)
+      ? (settings.work_days as number[])
+      : [1, 2, 3, 4, 5];
+    const branchByKey = new Map<string, string | null>();
+    const displayByKey = new Map<string, string>();
+    for (const c of configs) {
+      const br = c.branch?.trim() || null;
+      const name = c.display_name?.trim();
+      branchByKey.set(c.user_id, br);
+      if (name) {
+        displayByKey.set(c.user_id, name);
+        branchByKey.set(name, br);
+      }
+    }
+    const { humanizeProgramLabel } = await import('./ders-dagit-notification-texts');
+    const header = await this.buildPdfHeader(programId, studioId, schoolId, program.name);
+    header.academic_year = year;
+    const { parsePdfTheme } = await import('./ders-dagit-pdf-layout');
+    return this.pdfService.buildTeacherNotificationPdf(
+      header,
+      rows,
+      {
+        notification_title: rs.texts.notification_title,
+        notification_subject: rs.texts.notification_subject,
+        notification_ref: rs.texts.notification_ref,
+        notification_body: rs.texts.notification_body,
+        notification_acknowledgement: rs.texts.notification_acknowledgement,
+        teacher_signature_label: rs.texts.teacher_signature_label,
+        principal_signature_label: rs.texts.principal_signature_label,
+        principal_name: rs.meta.principal_name,
+        footer_note: rs.texts.footer_note,
+      },
+      {
+        school_name: schoolLabel,
+        academic_year: year,
+        program_name: humanizeProgramLabel(program.name, year),
+        principal_name: rs.meta.principal_name,
+        teacher_filter: teacherFilter,
+        branch_by_key: branchByKey,
+        display_by_key: displayByKey,
+      },
+      parsePdfTheme(theme),
+      workDays,
+    );
+  }
+
+  private councilReportOpts(
+    programId: string,
+    studioId: string,
+    schoolId: string,
+  ): Promise<{
+    program: { name: string | null; score: number | null; generation_meta: unknown };
+    rs: ReturnType<typeof parseStudioReportSettings>;
+    schoolLabel: string;
+    year: string | null;
+    rows: EokulExportRow[];
+  }> {
+    return (async () => {
+      const program = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
+      if (!program) throw new NotFoundException();
+      const [school, studio, rows] = await Promise.all([
+        this.schoolRepo.findOne({ where: { id: schoolId }, select: ['id', 'name'] }),
+        this.studioRepo.findOne({ where: { id: studioId }, select: ['academic_year', 'settings'] }),
+        this.buildExportRows(programId, studioId),
+      ]);
+      const rs = parseStudioReportSettings((studio?.settings ?? {}) as Record<string, unknown>);
+      const schoolLabel =
+        rs.meta.school_name?.trim() || rs.texts.title?.trim() || school?.name?.trim() || 'Okul';
+      const year = rs.meta.academic_year?.trim() || studio?.academic_year || null;
+      return { program, rs, schoolLabel, year, rows };
+    })();
+  }
+
+  async exportCoverPdf(programId: string, studioId: string, schoolId: string, theme?: string | null) {
+    const program = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
+    if (!program) throw new NotFoundException();
+    const header = await this.buildPdfHeader(programId, studioId, schoolId, program.name);
+    const studio = await this.studioRepo.findOne({ where: { id: studioId }, select: ['settings'] });
+    const rs = parseStudioReportSettings((studio?.settings ?? {}) as Record<string, unknown>);
+    const coverHeader: PdfHeaderInfo = {
+      ...header,
+      document_title: rs.texts.title?.trim() || 'HAFTALIK DERS PROGRAMI',
+      subtitle: rs.texts.subtitle?.trim() || program.name || header.subtitle,
+    };
+    const { parsePdfTheme } = await import('./ders-dagit-pdf-layout');
+    return this.pdfService.buildCoverPdf(
+      coverHeader,
+      {
+        address: rs.meta.address,
+        phone: rs.meta.phone,
+        principal_name: rs.meta.principal_name,
+      },
+      parsePdfTheme(theme),
+    );
+  }
+
+  async exportApprovalPdf(programId: string, studioId: string, schoolId: string, theme?: string | null) {
+    const { program, rs, schoolLabel, year } = await this.councilReportOpts(programId, studioId, schoolId);
+    const { parsePdfTheme } = await import('./ders-dagit-pdf-layout');
+    return this.pdfService.buildApprovalPdf(
+      {
+        school_name: schoolLabel,
+        program_name: program.name ?? 'Ders Dağıtım Programı',
+        academic_year: year,
+        approval_text: rs.texts.approval_text,
+        principal_name: rs.meta.principal_name,
+        principal_signature_label: rs.texts.principal_signature_label,
+        footer_note: rs.texts.footer_note,
+      },
+      parsePdfTheme(theme),
+    );
+  }
+
+  async exportCouncilPdf(programId: string, studioId: string, schoolId: string, theme?: string | null) {
+    const { program, rs, schoolLabel, year, rows } = await this.councilReportOpts(
+      programId,
+      studioId,
+      schoolId,
+    );
     const byClass = new Map<string, number>();
+    const participantSet = new Set<string>();
     for (const r of rows) {
       byClass.set(r.class_section, (byClass.get(r.class_section) ?? 0) + 1);
+      const tl = r.teacher_label?.trim();
+      if (tl) participantSet.add(tl);
     }
     const teachers = new Set(rows.map((r) => r.user_id).filter(Boolean));
-    return this.pdfService.buildCouncilPdf({
-      school_name: school?.name ?? 'Okul',
-      program_name: program.name ?? 'Ders Dağıt Programı',
-      academic_year: studio?.academic_year ?? null,
-      score: program.score,
-      entry_count: rows.length,
-      class_count: byClass.size,
-      teacher_count: teachers.size,
-      violations: violations.slice(0, 15),
-      by_class: [...byClass.entries()]
-        .map(([section, weekly_slots]) => ({ section, weekly_slots }))
-        .sort((a, b) => compareClassSections(a.section, b.section)),
-    });
+    const participants = [...participantSet].sort((a, b) => a.localeCompare(b, 'tr'));
+    const { parsePdfTheme } = await import('./ders-dagit-pdf-layout');
+    return this.pdfService.buildCouncilPdf(
+      {
+        school_name: schoolLabel,
+        program_name: program.name ?? 'Ders Dağıtım Programı',
+        academic_year: year,
+        entry_count: rows.length,
+        class_count: byClass.size,
+        teacher_count: teachers.size,
+        participants,
+        by_class: [...byClass.entries()]
+          .map(([section, weekly_slots]) => ({ section, weekly_slots }))
+          .sort((a, b) => compareClassSections(a.section, b.section)),
+        meeting_place: rs.texts.council_meeting_place,
+        meeting_topic: rs.texts.council_meeting_topic,
+        agenda_text: rs.texts.council_agenda,
+        approval_text: rs.texts.approval_text,
+        principal_name: rs.meta.principal_name,
+        principal_signature_label: rs.texts.principal_signature_label,
+        footer_note: rs.texts.footer_note,
+        address: rs.meta.address,
+        phone: rs.meta.phone,
+      },
+      parsePdfTheme(theme),
+    );
   }
 
   async exportParentClassPdf(
@@ -3025,6 +4107,7 @@ export class DersDagitService {
     studioId: string,
     schoolId: string,
     classSection: string,
+    theme?: string | null,
   ) {
     const program = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
     if (!program) throw new NotFoundException();
@@ -3037,11 +4120,12 @@ export class DersDagitService {
     if (!rows.some((r) => r.class_section === sec)) {
       throw new BadRequestException({ code: 'NO_SECTION', message: 'Bu şubede program satırı yok.' });
     }
-    const title = `${school?.name ?? studio?.name ?? 'Okul'}${studio?.academic_year ? ` · ${studio.academic_year}` : ''}`;
-    return this.pdfService.buildParentClassPdf(title, sec, rows);
+    const header = await this.buildPdfHeader(programId, studioId, schoolId, program.name);
+    const { parsePdfTheme } = await import('./ders-dagit-pdf-layout');
+    return this.pdfService.buildParentClassPdf(header, sec, rows, parsePdfTheme(theme));
   }
 
-  async exportPublicParentPdf(token: string, classSection?: string) {
+  async exportPublicParentPdf(token: string, classSection?: string, theme?: string | null) {
     const data = await this.getProgramByShareToken(token, classSection);
     if (!data) throw new NotFoundException();
     const sec = classSection?.trim() || data.class_sections[0];
@@ -3052,8 +4136,16 @@ export class DersDagitService {
       class_section: e.class_section,
       subject: e.subject,
     }));
-    const title = `${data.program.studio_name ?? 'Okul'}${data.program.academic_year ? ` · ${data.program.academic_year}` : ''}`;
-    return this.pdfService.buildParentClassPdf(title, sec, rows);
+    const header = {
+      school_name: data.program.studio_name ?? 'Okul',
+      document_title: 'HAFTALIK DERS PROGRAMI',
+      subtitle: null as string | null,
+      academic_year: data.program.academic_year ?? null,
+      program_name: data.program.name ?? null,
+      footer_note: null as string | null,
+    };
+    const { parsePdfTheme } = await import('./ders-dagit-pdf-layout');
+    return this.pdfService.buildParentClassPdf(header, sec, rows, parsePdfTheme(theme));
   }
 
   async archiveProgram(studioId: string, programId: string, userId: string) {
@@ -3264,5 +4356,311 @@ export class DersDagitService {
 
   eokulImportTemplateXlsx(): Buffer {
     return buildEokulImportTemplateXlsx();
+  }
+
+  getTransferFormats() {
+    return { formats: TRANSFER_FORMAT_CATALOG, package_version: STUDIO_TRANSFER_VERSION };
+  }
+
+  async exportStudioTransferPackage(studioId: string, schoolId: string): Promise<StudioTransferPackageV1> {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
+    const settings = (studio.settings ?? {}) as Record<string, unknown>;
+    const [
+      subjects,
+      assignments,
+      groups,
+      pools,
+      profiles,
+      programCount,
+      roomRows,
+      buildings,
+    ] = await Promise.all([
+      this.subjectRepo.find({ where: { studio_id: studioId } }),
+      this.assignmentRepo.find({ where: { studio_id: studioId } }),
+      this.groupRepo.find({ where: { studio_id: studioId } }),
+      this.electivePoolRepo.find({ where: { studio_id: studioId } }),
+      this.classProfileRepo.find({ where: { studio_id: studioId } }),
+      this.programRepo.count({ where: { studio_id: studioId } }),
+      this.listRooms(schoolId),
+      this.listBuildings(schoolId),
+    ]);
+    const assignIds = assignments.map((a) => a.id);
+    const teacherLinks = assignIds.length
+      ? await this.assignmentTeacherRepo.find({ where: { assignment_id: In(assignIds) } })
+      : [];
+    const teachersByAssign = new Map<string, string[]>();
+    for (const l of teacherLinks) {
+      const arr = teachersByAssign.get(l.assignment_id) ?? [];
+      arr.push(l.user_id);
+      teachersByAssign.set(l.assignment_id, arr);
+    }
+    const buildingName = new Map(buildings.map((b) => [b.id, b.name]));
+    const rooms: StudioTransferPackageV1['rooms'] = roomRows.map((r) => ({
+      building_name: r.building_id ? (buildingName.get(r.building_id) ?? '') : '',
+      name: r.name,
+    }));
+    return {
+      format: 'ogretmenpro_studio_v1',
+      version: STUDIO_TRANSFER_VERSION,
+      exported_at: new Date().toISOString(),
+      studio: { title: studio.name ?? undefined, academic_year: studio.academic_year },
+      school_profile: settings.school_profile ?? null,
+      periods: settings.period_config ?? null,
+      section_schedules: settings.section_schedules ?? null,
+      dual_education: settings.dual_education ?? null,
+      report_settings: settings.report_settings ?? null,
+      subjects: subjects.map((s) => ({
+        name: s.name,
+        short_code: s.short_code,
+        is_elective: s.is_elective,
+        class_hours: s.class_hours ?? {},
+      })),
+      assignments: assignments.map((a) => ({
+        subject_name: a.subject_name,
+        class_sections: a.class_sections ?? [],
+        weekly_hours: a.weekly_hours,
+        teacher_ids: teachersByAssign.get(a.id) ?? [],
+        room_ids: a.room_ids ?? [],
+        group_id: a.group_id,
+      })),
+      groups: groups.map((g) => ({
+        name: g.name,
+        abbreviation: g.abbreviation,
+        parallel_mode: g.parallel_mode,
+        member_sections: g.member_sections ?? [],
+      })),
+      elective_pools: pools.map((p) => ({
+        name: p.name,
+        base_section: p.base_section,
+        member_sections: p.member_sections ?? [],
+        subject_names: p.subject_names ?? [],
+        weekly_hours_per_track: p.weekly_hours_per_track,
+      })),
+      class_profiles: profiles,
+      rooms,
+      counts: {
+        programs: programCount,
+        assignments: assignments.length,
+        subjects: subjects.length,
+      },
+    };
+  }
+
+  async previewStudioTransferImport(
+    schoolId: string,
+    body: {
+      format: string;
+      file_base64?: string;
+      eokul_format?: 'csv' | 'xlsx' | 'grid_xlsx' | 'auto';
+    },
+  ) {
+    if (!body.file_base64?.trim()) {
+      throw new BadRequestException({ code: 'FILE_REQUIRED', message: 'Dosya gerekli.' });
+    }
+    const buffer = Buffer.from(body.file_base64, 'base64');
+    if (body.format === 'asc_xml') {
+      const parsed = parseAscTimetablesXml(buffer);
+      const teachers = await this.listSchoolTeachers(schoolId);
+      const rows = parsed.assignments.map((a) => {
+        const match = this.resolveEokulTeacher(teachers, a.teacher_tc, a.teacher_name);
+        return { ...a, resolved_teacher_id: match.user_id, match_warning: match.warning ?? null };
+      });
+      return { kind: 'assignments', ...parsed, rows, teacher_pool_size: teachers.length };
+    }
+    if (body.format === 'eokul_excel') {
+      const preview = await this.previewEokulImport(schoolId, {
+        file_base64: body.file_base64,
+        format: body.eokul_format ?? 'auto',
+      });
+      return { kind: 'assignments', ...preview };
+    }
+    if (body.format === 'ogretmenpro_json') {
+      let pkg: StudioTransferPackageV1;
+      try {
+        pkg = JSON.parse(buffer.toString('utf8')) as StudioTransferPackageV1;
+      } catch {
+        throw new BadRequestException({ code: 'JSON_INVALID', message: 'Geçersiz JSON dosyası.' });
+      }
+      if (pkg.format !== 'ogretmenpro_studio_v1') {
+        throw new BadRequestException({
+          code: 'PACKAGE_FORMAT',
+          message: 'Bu dosya ÖğretmenPro stüdyo yedeği değil.',
+        });
+      }
+      return {
+        kind: 'studio_package',
+        format: pkg.format,
+        exported_at: pkg.exported_at,
+        counts: pkg.counts,
+        subjects: pkg.subjects?.length ?? 0,
+        assignments: pkg.assignments?.length ?? 0,
+        groups: pkg.groups?.length ?? 0,
+        elective_pools: pkg.elective_pools?.length ?? 0,
+        warnings: [] as { code: string; message: string }[],
+      };
+    }
+    throw new BadRequestException({ code: 'FORMAT_UNSUPPORTED', message: 'Bu içe aktarma türü desteklenmiyor.' });
+  }
+
+  async applyStudioTransferImport(
+    studioId: string,
+    schoolId: string,
+    userId: string,
+    body: {
+      format: string;
+      file_base64?: string;
+      eokul_format?: 'csv' | 'xlsx' | 'grid_xlsx' | 'auto';
+      replace?: boolean;
+      auto_elective_groups?: boolean;
+      merge_settings?: boolean;
+    },
+  ) {
+    if (!body.file_base64?.trim()) {
+      throw new BadRequestException({ code: 'FILE_REQUIRED', message: 'Dosya gerekli.' });
+    }
+    if (body.format === 'eokul_excel') {
+      const r = await this.importEokulAssignments(studioId, schoolId, userId, {
+        file_base64: body.file_base64,
+        format: body.eokul_format ?? 'auto',
+        replace: body.replace,
+        auto_elective_groups: body.auto_elective_groups,
+      });
+      return { kind: 'assignments', ...r };
+    }
+    if (body.format === 'ogretmenpro_json') {
+      const buffer = Buffer.from(body.file_base64, 'base64');
+      let pkg: StudioTransferPackageV1;
+      try {
+        pkg = JSON.parse(buffer.toString('utf8')) as StudioTransferPackageV1;
+      } catch {
+        throw new BadRequestException({ code: 'JSON_INVALID', message: 'Geçersiz JSON.' });
+      }
+      if (pkg.format !== 'ogretmenpro_studio_v1') {
+        throw new BadRequestException({ code: 'PACKAGE_FORMAT', message: 'Geçersiz paket.' });
+      }
+      const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+      if (!studio) throw new NotFoundException();
+      if (body.replace) {
+        await this.assignmentTeacherRepo.delete({
+          assignment_id: In(
+            (await this.assignmentRepo.find({ where: { studio_id: studioId }, select: ['id'] })).map((a) => a.id),
+          ),
+        });
+        await this.assignmentRepo.delete({ studio_id: studioId });
+        await this.subjectRepo.delete({ studio_id: studioId });
+        await this.groupRepo.delete({ studio_id: studioId });
+        await this.electivePoolRepo.delete({ studio_id: studioId });
+      }
+      let subjects_saved = 0;
+      for (const s of pkg.subjects ?? []) {
+        await this.upsertSubject(studioId, {
+          name: s.name,
+          short_code: s.short_code ?? undefined,
+          is_elective: s.is_elective,
+          class_hours: s.class_hours ?? {},
+        });
+        subjects_saved++;
+      }
+      let assignments_saved = 0;
+      for (const a of pkg.assignments ?? []) {
+        await this.upsertAssignment(studioId, {
+          subject_name: a.subject_name,
+          class_sections: a.class_sections,
+          weekly_hours: a.weekly_hours,
+          teacher_ids: a.teacher_ids ?? [],
+          room_ids: a.room_ids ?? [],
+          group_id: a.group_id,
+        });
+        assignments_saved++;
+      }
+      for (const g of pkg.groups ?? []) {
+        await this.upsertGroup(studioId, {
+          name: g.name,
+          abbreviation: g.abbreviation,
+          parallel_mode: g.parallel_mode ?? undefined,
+          member_sections: g.member_sections,
+        });
+      }
+      for (const p of pkg.elective_pools ?? []) {
+        await this.upsertElectivePool(studioId, {
+          name: p.name,
+          base_section: p.base_section,
+          member_sections: p.member_sections,
+          subject_names: p.subject_names,
+          weekly_hours_per_track: p.weekly_hours_per_track,
+        });
+      }
+      if (body.merge_settings !== false) {
+        const settings = (studio.settings ?? {}) as Record<string, unknown>;
+        if (pkg.school_profile != null) settings.school_profile = pkg.school_profile;
+        if (pkg.periods != null) settings.period_config = pkg.periods;
+        if (pkg.section_schedules != null) settings.section_schedules = pkg.section_schedules;
+        if (pkg.dual_education != null) settings.dual_education = pkg.dual_education;
+        if (pkg.report_settings != null) settings.report_settings = pkg.report_settings;
+        studio.settings = settings;
+        await this.studioRepo.save(studio);
+      }
+      await this.audit(studioId, userId, 'studio.imported_package', {
+        subjects_saved,
+        assignments_saved,
+        replace: !!body.replace,
+      });
+      return {
+        kind: 'studio_package',
+        subjects_saved,
+        assignments_saved,
+        groups: pkg.groups?.length ?? 0,
+        elective_pools: pkg.elective_pools?.length ?? 0,
+      };
+    }
+    if (body.format === 'asc_xml') {
+      const buffer = Buffer.from(body.file_base64, 'base64');
+      const parsed = parseAscTimetablesXml(buffer);
+      const teachers = await this.listSchoolTeachers(schoolId);
+      const rows = parsed.assignments.map((a) => {
+        const match = this.resolveEokulTeacher(teachers, a.teacher_tc, a.teacher_name);
+        return { ...a, resolved_teacher_id: match.user_id, class_sections: a.class_sections, weekly_hours: a.weekly_hours, subject_name: a.subject_name, teacher_tc: a.teacher_tc, teacher_name: a.teacher_name };
+      });
+      if (body.replace) {
+        const existing = await this.assignmentRepo.find({ where: { studio_id: studioId }, select: ['id'] });
+        if (existing.length) {
+          await this.assignmentTeacherRepo.delete({ assignment_id: In(existing.map((a) => a.id)) });
+          await this.assignmentRepo.delete({ studio_id: studioId });
+        }
+      }
+      const merge = new Map<string, { subject_name: string; class_sections: string[]; weekly_hours: number; teacher_ids: string[] }>();
+      for (const r of rows) {
+        const secs = sortClassSections(r.class_sections).join(',');
+        const tid = r.resolved_teacher_id ?? '';
+        const k = `${r.subject_name}\0${secs}\0${tid}`;
+        const prev = merge.get(k);
+        if (prev) prev.weekly_hours = Math.max(prev.weekly_hours, r.weekly_hours);
+        else {
+          merge.set(k, {
+            subject_name: r.subject_name,
+            class_sections: r.class_sections,
+            weekly_hours: r.weekly_hours,
+            teacher_ids: r.resolved_teacher_id ? [r.resolved_teacher_id] : [],
+          });
+        }
+      }
+      let imported = 0;
+      for (const row of merge.values()) {
+        await this.upsertAssignment(studioId, {
+          subject_name: row.subject_name,
+          class_sections: row.class_sections,
+          weekly_hours: row.weekly_hours,
+          teacher_ids: row.teacher_ids,
+          max_per_day: Math.min(6, row.weekly_hours),
+          min_days_per_week: Math.min(5, Math.max(1, Math.ceil(row.weekly_hours / 2))),
+          room_ids: [],
+        });
+        imported++;
+      }
+      await this.audit(studioId, userId, 'assignments.imported_asc', { count: imported });
+      return { kind: 'assignments', imported, format: 'asc_xml', warnings: parsed.warnings };
+    }
+    throw new BadRequestException({ code: 'FORMAT_UNSUPPORTED', message: 'Desteklenmeyen format.' });
   }
 }

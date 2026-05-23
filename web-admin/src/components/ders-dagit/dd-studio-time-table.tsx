@@ -1,10 +1,10 @@
 'use client';
 
-import { ascDayShort } from '@/lib/asc-timetable-ui';
+import { weekdayShort } from '@/lib/studio-timetable-ui';
 import { cn } from '@/lib/utils';
 import { Check, HelpCircle, X } from 'lucide-react';
 
-export type AscCellVisual = {
+export type StudioCellVisual = {
   state: 'available' | 'blocked' | 'conditional' | 'disabled';
   fill?: 'none' | 'scheduled' | 'locked';
   title?: string;
@@ -13,7 +13,7 @@ export type AscCellVisual = {
 type Props = {
   workDays: number[];
   maxLessons: number;
-  getCell: (day: number, lesson: number) => AscCellVisual;
+  getCell: (day: number, lesson: number) => StudioCellVisual;
   onCell?: (day: number, lesson: number, button: 0 | 2) => void;
   onDayHeader?: (day: number) => void;
   readOnly?: boolean;
@@ -21,14 +21,14 @@ type Props = {
   hint?: string;
 };
 
-function CellIcon({ state }: { state: AscCellVisual['state'] }) {
+function CellIcon({ state }: { state: StudioCellVisual['state'] }) {
   if (state === 'blocked') return <X className="size-3.5 text-rose-700 dark:text-rose-300" aria-hidden />;
   if (state === 'conditional') return <HelpCircle className="size-3.5 text-sky-700 dark:text-sky-300" aria-hidden />;
   if (state === 'available') return <Check className="size-3.5 text-emerald-700 dark:text-emerald-300" aria-hidden />;
   return null;
 }
 
-export function DdAscTimeTable({
+export function DdStudioTimeTable({
   workDays,
   maxLessons,
   getCell,
@@ -79,10 +79,10 @@ export function DdAscTimeTable({
                       className="rounded px-1 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => onDayHeader(d)}
                     >
-                      {ascDayShort(d)}
+                      {weekdayShort(d)}
                     </button>
                   ) : (
-                    ascDayShort(d)
+                    weekdayShort(d)
                   )}
                 </th>
                 {lessons.map((lesson) => {

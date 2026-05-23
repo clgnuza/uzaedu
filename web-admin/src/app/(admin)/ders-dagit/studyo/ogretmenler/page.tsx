@@ -18,7 +18,11 @@ import { DdEntityActionBar, type EntityActionKey } from '@/components/ders-dagit
 import { DdEntityWorkspace } from '@/components/ders-dagit/dd-entity-workspace';
 import { DdEntityTimeDialog } from '@/components/ders-dagit/dd-entity-time-dialog';
 import { TeacherEntityTable } from '@/components/ders-dagit/teacher-entity-table';
-import { TeacherSettingsForm, teacherToDraft } from '@/components/ders-dagit/teacher-settings-form';
+import {
+  TeacherConstraintsForm,
+  TeacherLimitsForm,
+  teacherToDraft,
+} from '@/components/ders-dagit/teacher-settings-form';
 import { TeacherAvailabilityGrid } from '@/components/ders-dagit/teacher-availability-grid';
 import type { TeacherDraft } from '@/components/ders-dagit/teacher-config-types';
 import {
@@ -50,7 +54,7 @@ type RoomRow = {
 type GroupRow = { id: string; name: string; parallel_mode: string | null; member_sections: string[] };
 
 type BulkField = 'hours' | 'availability' | 'shift';
-type EditTab = 'limits' | 'availability';
+type EditTab = 'limits' | 'constraints' | 'availability';
 
 function mergeDraft(base: TeacherConfig, draft: TeacherDraft, fields: Set<BulkField>): Partial<TeacherConfig> {
   const patch: Partial<TeacherConfig> = {};
@@ -314,7 +318,7 @@ export default function OgretmenlerPage() {
         break;
       case 'constraints':
         setDetailOpen(true);
-        setEditTab('limits');
+        setEditTab('constraints');
         break;
       case 'assign':
         setAssignPanelOpen(true);
@@ -447,12 +451,15 @@ export default function OgretmenlerPage() {
                       )}
                     </div>
                   </div>
-                  <div className="flex gap-2" role="tablist">
+                  <div className="flex flex-wrap gap-2" role="tablist">
                     {tabBtn('limits', 'Saat limitleri')}
+                    {tabBtn('constraints', 'Kısıtlamalar')}
                     {tabBtn('availability', 'Zaman tablosu')}
                   </div>
                   {editTab === 'limits' ? (
-                    <TeacherSettingsForm draft={draft} onChange={patchDraft} schoolMaxLessons={maxLessons} />
+                    <TeacherLimitsForm draft={draft} onChange={patchDraft} schoolMaxLessons={maxLessons} />
+                  ) : editTab === 'constraints' ? (
+                    <TeacherConstraintsForm draft={draft} onChange={patchDraft} />
                   ) : (
                     <TeacherAvailabilityGrid
                       workDays={workDays}

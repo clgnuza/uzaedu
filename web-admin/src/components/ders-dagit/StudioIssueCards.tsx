@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import type { ValidationIssue } from '@/lib/ders-dagit-timetable-api';
 import { sortValidationIssues } from '@/lib/class-section-sort';
+import { formatValidationIssueDetail } from '@/lib/ders-dagit-validation-display';
 
 export function StudioIssueCards({
   issues,
@@ -49,30 +50,37 @@ export function StudioIssueCards({
         )}
       </CardHeader>
       <CardContent className={`${DD_CARD_CONTENT} space-y-2`}>
-        {errors.map((v, i) => (
-          <div key={`e-${i}`} className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
-            <p className="font-medium text-destructive">{v.message}</p>
-            {v.fix_hint && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                {v.href ? (
-                  <Link href={v.href} className="text-primary underline">
-                    {v.fix_hint}
-                  </Link>
-                ) : (
-                  v.fix_hint
-                )}
-              </p>
-            )}
-          </div>
-        ))}
-        {warns.map((v, i) => (
-          <div
-            key={`w-${i}`}
-            className="rounded-lg border border-amber-500/30 bg-amber-50/50 px-3 py-2 text-sm dark:bg-amber-950/20"
-          >
-            <p className="text-amber-900 dark:text-amber-100">{v.message}</p>
-          </div>
-        ))}
+        {errors.map((v, i) => {
+          const d = formatValidationIssueDetail(v);
+          return (
+            <div key={`e-${i}`} className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
+              <p className="font-medium text-destructive">{d.text}</p>
+              {d.hint && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {d.href ? (
+                    <Link href={d.href} className="text-primary underline">
+                      {d.hint}
+                    </Link>
+                  ) : (
+                    d.hint
+                  )}
+                </p>
+              )}
+            </div>
+          );
+        })}
+        {warns.map((v, i) => {
+          const d = formatValidationIssueDetail(v);
+          return (
+            <div
+              key={`w-${i}`}
+              className="rounded-lg border border-amber-500/30 bg-amber-50/50 px-3 py-2 text-sm dark:bg-amber-950/20"
+            >
+              <p className="text-amber-900 dark:text-amber-100">{d.text}</p>
+              {d.hint ? <p className="mt-1 text-xs text-muted-foreground">{d.hint}</p> : null}
+            </div>
+          );
+        })}
       </CardContent>
     </DdCard>
   );

@@ -1,6 +1,9 @@
 import { sortClassSections } from './class-section-sort';
 import { clusterElectiveImportRows, splitSectionTrack } from './ders-dagit.elective';
 import type { DersDagitGroupMode } from './ders-dagit.groups';
+import type { MebSchoolType } from './ders-dagit.school-profile';
+
+const MESLEK_PARALLEL_RE = /atölye|atolye|staj|meslek|uygulama|workshop/i;
 
 export type GroupSuggestion = {
   key: string;
@@ -42,13 +45,16 @@ function collectTrackClusters(sections: string[]): Map<string, string[]> {
 
 export function suggestGroupsFromData(args: {
   sections: string[];
+  school_type?: MebSchoolType | string;
   assignments: Array<{
     subject_name: string;
     class_sections: string[];
+    teacher_ids?: string[];
     options?: Record<string, unknown> | null;
   }>;
   existing: Array<{ member_sections: string[]; parallel_mode: string | null }>;
 }): GroupSuggestion[] {
+  const schoolType = args.school_type as MebSchoolType | undefined;
   const seen = new Set<string>();
   const existingKeys = new Set(
     args.existing.map((g) =>
@@ -77,14 +83,42 @@ export function suggestGroupsFromData(args: {
   }
 
   for (const [base, members] of collectTrackClusters([...allSecs])) {
+    const parMode = modeForTrackCluster(schoolType, base);
     push({
       key: `tracks:${base}`,
-      name: `${base} — alt gruplar`,
+      name: schoolType === 'mtal' ? `${base}. sınıf — dal/şube` : `${base} — alt gruplar`,
       abbreviation: abbrFromBase(base),
-      parallel_mode: 'subgroups',
+      parallel_mode: parMode,
       member_sections: members,
       source: 'section_tracks',
       reason: `Şube adları (${members.join(', ')}) aynı sınıfın bölünmesi gibi görünüyor.`,
+    });
+  }
+
+  const byTeacherSubject = new Map<string, string[]>();
+  for (const a of args.assignments) {
+    const secs = sortClassSections(
+      (a.class_sections ?? []).map((s) => String(s).trim()).filter(Boolean),
+    );
+    if (secs.length < 2) continue;
+    const tids = (a.teacher_ids ?? []).filter(Boolean).sort().join(',');
+    if (tids) {
+      const tk = `${tids}\0${a.subject_name}`;
+      const prev = byTeacherSubject.get(tk) ?? [];
+      byTeacherSubject.set(tk, sortClassSections([...new Set([...prev, ...secs])]));
+    }
+  }
+  for (const [tk, secs] of byTeacherSubject) {
+    if (secs.length < 2) continue;
+    const subject = tk.split('\0')[1] ?? 'Ders';
+    push({
+      key: `teacher:${tk}`,
+      name: `${subject} — öğretmen birleşik`,
+      abbreviation: abbrFromBase(secs[0] ?? 'ogr'),
+      parallel_mode: 'teacher_multi_class',
+      member_sections: secs,
+      source: 'assignment_joined',
+      reason: `Aynı öğretmen, çoklu şube: ${subject}`,
     });
   }
 
@@ -97,11 +131,12 @@ export function suggestGroupsFromData(args: {
     const joined =
       opts.use_joined === true ||
       (Array.isArray(opts.joined_sections) && (opts.joined_sections as string[]).length >= 2);
+    const parMode = modeForJoinedAssignment(schoolType, joined, a.subject_name);
     push({
       key: `join:${secs.join('|')}`,
       name: joined ? `${secs[0]} birleşik` : `${secs.join(' + ')} paralel`,
       abbreviation: abbrFromBase(secs[0] ?? 'par'),
-      parallel_mode: 'parallel_rooms',
+      parallel_mode: parMode,
       member_sections: secs,
       source: 'assignment_joined',
       reason: joined
@@ -129,6 +164,22 @@ export function suggestGroupsFromData(args: {
   }
 
   return out.sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+}
+
+function modeForJoinedAssignment(
+  schoolType: MebSchoolType | undefined,
+  joined: boolean,
+  subjectName: string,
+): DersDagitGroupMode {
+  if (joined) return 'subgroups';
+  if (schoolType === 'mtal' && MESLEK_PARALLEL_RE.test(subjectName)) return 'parallel_rooms';
+  if (schoolType === 'mtal') return 'parallel_rooms';
+  return 'parallel_rooms';
+}
+
+function modeForTrackCluster(schoolType: MebSchoolType | undefined, base: string): DersDagitGroupMode {
+  if (schoolType === 'mtal' && /^\d{1,2}$/.test(base.trim())) return 'subgroups';
+  return 'subgroups';
 }
 
 export function suggestionExists(

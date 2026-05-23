@@ -17,6 +17,7 @@ export type ExportEntry = {
   subject: string;
   user_id?: string | null;
   teacher_label?: string | null;
+  room_id?: string | null;
   room_name?: string | null;
 };
 

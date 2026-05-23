@@ -80,7 +80,7 @@ export default function DerslerPage() {
 
   const [ttkbPreview, setTtkbPreview] = useState<TtkbPreview | null>(null);
   const [ttkbReplace, setTtkbReplace] = useState(false);
-  const [ttkbSyncAssign, setTtkbSyncAssign] = useState(true);
+  const [ttkbSyncAssign, setTtkbSyncAssign] = useState(false);
   const [ttkbBusy, setTtkbBusy] = useState(false);
 
   const [groups, setGroups] = useState<Group[]>([]);
@@ -124,6 +124,11 @@ export default function DerslerPage() {
   const warnings = useMemo(
     () => computeDerslerWarnings(subjects, assignments, validationIssues, teacherNameById),
     [subjects, assignments, validationIssues, teacherNameById],
+  );
+
+  const catalogSubjects = useMemo(
+    () => subjects.filter((s) => !s.is_elective).sort((a, b) => a.name.localeCompare(b.name, 'tr')),
+    [subjects],
   );
 
   const load = useCallback(async () => {
@@ -328,17 +333,21 @@ export default function DerslerPage() {
     { key: 'delete' as const, label: 'Sil' },
   ];
 
-  async function previewTtkb(download = false) {
+  async function previewTtkb(download = false, silent = false) {
     if (!token || !studio) return;
     setTtkbBusy(true);
     try {
       const data = await apiFetch<TtkbPreview>(`/ders-dagit/studios/${studio.id}/seed/ttkb/preview`, { token });
       setTtkbPreview(data);
       if (!data.cell_count) {
-        toast.error(data.empty_message ?? 'Liste boş. Kurulumda şube ekleyin (9/A, 10-BT) ve okul türünü kaydedin.');
+        if (!silent) toast.error(data.empty_message ?? 'Liste boş. Kurulumda okul türünü kaydedin.');
         return;
       }
-      toast.success(`${data.subject_count} ders · ${data.cell_count} şube satırı (${schoolTypeLabel(data.school_type)})`);
+      if (!silent) {
+        toast.success(
+          `${data.subject_count} ders · ${data.cell_count} satır (${schoolTypeLabel(data.school_type)})`,
+        );
+      }
       if (download) downloadTtkbCsv(data, schoolTypeLabel(data.school_type));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'TTKB listesi alınamadı');
@@ -351,16 +360,22 @@ export default function DerslerPage() {
     if (!token || !studio) return;
     setTtkbBusy(true);
     try {
-      const r = await apiFetch<{ created: number; updated: number; assignments_created?: number }>(
-        `/ders-dagit/studios/${studio.id}/seed/ttkb`,
-        { token, method: 'POST', body: { replace: ttkbReplace, sync_assignments: ttkbSyncAssign } },
-      );
+      const r = await apiFetch<{
+        created: number;
+        updated: number;
+        assignments_created?: number;
+        names?: string[];
+      }>(`/ders-dagit/studios/${studio.id}/seed/ttkb`, {
+        token,
+        method: 'POST',
+        body: { replace: ttkbReplace, sync_assignments: ttkbSyncAssign },
+      });
+      await load();
+      if (!ttkbPreview) await previewTtkb(false, true);
       toast.success(
-        `${r.created} yeni ders · ${r.updated} güncellendi` +
+        `Ders kataloğuna ${r.names?.length ?? r.created + r.updated} ders kaydedildi` +
           (ttkbSyncAssign ? ` · ${r.assignments_created ?? 0} atama` : ''),
       );
-      setTtkbPreview(null);
-      await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'TTKB yüklemesi başarısız');
     } finally {
@@ -408,7 +423,16 @@ export default function DerslerPage() {
         </CardHeader>
         <CardContent className={cn(DD_CARD_CONTENT, 'space-y-3')}>
           <p className="text-xs text-muted-foreground">
-            Okul türüne göre resmî ders listesi indirilir. Önizlemeden sonra birleştir veya tamamen değiştir.
+            Kurum türüne göre TTKB ders listesi indirilir (
+            <a
+              href="https://ttkb.meb.gov.tr/www/haftalik-ders-cizelgeleri/kategori/7"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-primary underline"
+            >
+              ttkb.meb.gov.tr
+            </a>
+            ). Aşağıdaki ders kataloğu listesine kaydedilir; şube saatlerini ders kartından siz verirsiniz.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" variant="outline" disabled={ttkbBusy} onClick={() => void previewTtkb(true)}>
@@ -428,7 +452,7 @@ export default function DerslerPage() {
               CSV tekrar indir
             </Button>
             <Button type="button" size="sm" disabled={ttkbBusy || !ttkbPreview} onClick={() => void seedTtkb()}>
-              Stüdyoya yükle
+              Ders kataloğuna kaydet
             </Button>
             <Button
               type="button"
@@ -463,23 +487,43 @@ export default function DerslerPage() {
           {ttkbPreview && (
             <div className="rounded-lg border bg-muted/30 p-2 text-xs" role="status">
               <p>
-                <strong>{ttkbPreview.subject_count}</strong> ders · <strong>{ttkbPreview.cell_count}</strong> hücre ·{' '}
-                {ttkbPreview.sections.length} şube
+                TTKB önizleme: <strong>{ttkbPreview.subject_count}</strong> ders ·{' '}
+                <strong>{ttkbPreview.cell_count}</strong> satır
+                {ttkbPreview.grades?.length ? ` · sınıflar: ${ttkbPreview.grades.join(', ')}` : ''}
                 {ttkbPreview.yillik_plan_keys != null ? ` · yıllık plan: ${ttkbPreview.yillik_plan_keys}` : ''}
               </p>
-              <p className="mt-1 text-muted-foreground truncate">
-                Şubeler: {ttkbPreview.sections.slice(0, 12).join(', ')}
-                {ttkbPreview.sections.length > 12 ? '…' : ''}
-              </p>
               <ul className="mt-2 max-h-24 overflow-y-auto">
-                {ttkbPreview.sample.slice(0, 8).map((c, i) => (
-                  <li key={i}>
-                    {c.class_section} — {c.subject_name} ({c.weekly_hours} saat, {c.source})
-                  </li>
-                ))}
+                {(ttkbPreview.cells?.length ? ttkbPreview.cells : ttkbPreview.sample)
+                  .slice(0, 12)
+                  .map((c, i) => (
+                    <li key={i}>
+                      {c.grade}. sınıf — {c.subject_name} ({c.weekly_hours} saat, {c.source})
+                    </li>
+                  ))}
               </ul>
             </div>
           )}
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-2 text-xs">
+            <p className="font-medium text-foreground">
+              Kayıtlı ders kataloğu ({catalogSubjects.length})
+            </p>
+            {catalogSubjects.length === 0 ? (
+              <p className="mt-1 text-muted-foreground">
+                Henüz kayıt yok. Önce önizleyin, sonra &quot;Ders kataloğuna kaydet&quot; kullanın.
+              </p>
+            ) : (
+              <ul className="mt-2 flex max-h-32 flex-wrap gap-1 overflow-y-auto">
+                {catalogSubjects.map((s) => (
+                  <li
+                    key={s.id}
+                    className="rounded-md border bg-background px-2 py-0.5 text-[11px]"
+                  >
+                    {s.name}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </CardContent>
       </DdCard>
 
@@ -603,7 +647,7 @@ export default function DerslerPage() {
                 id="dd-section-filter"
               />
               <p className="text-xs text-muted-foreground">
-                Ders atama: öğretmen → ders → sınıf → saat → derslik (aSc ile aynı adımlar)
+                Ders atama: öğretmen → ders → sınıf → saat → derslik (Program Stüdyosu adımları)
               </p>
             </div>
           </div>

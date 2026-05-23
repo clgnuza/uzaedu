@@ -1,10 +1,7 @@
 import { isStrictRule } from './ders-dagit.rules-merge';
+import { ruleOn, ruleOnForAssignment } from './ders-dagit.solver-rule-scope';
 import type { SolverSlot, SolverAssignment, SolverContext } from './ders-dagit.solver';
 import { rulesForSection } from './ders-dagit.solver';
-
-function ruleOn(ctx: SolverContext, key: string, section: string): boolean {
-  return !!rulesForSection(ctx, section)[key]?.active;
-}
 
 function ruleWeight(ctx: SolverContext, key: string, section: string, fallback = 5): number {
   const r = rulesForSection(ctx, section)[key];
@@ -25,6 +22,19 @@ function addViolation(
   if (isStrictRule(ctx, key, section)) strictHits.push(message);
 }
 
+function isPeMusic(name: string): boolean {
+  return /beden|müzik|muzik|spor|fizik\s*etkin/i.test(name);
+}
+
+function isPractical(name: string): boolean {
+  return /uygulama|atölye|laboratuvar|\blab\b|pratik/i.test(name);
+}
+
+function peMusicAllowedDays(ctx: SolverContext, section: string): number[] {
+  const p = rulesForSection(ctx, section).meb_pe_music_days?.params as { days?: number[] } | undefined;
+  return Array.isArray(p?.days) && p.days.length ? p.days : [2, 4];
+}
+
 export function applySoftRulePenalties(
   entries: SolverSlot[],
   assignments: SolverAssignment[],
@@ -43,21 +53,21 @@ export function applySoftRulePenalties(
       arr.push(e);
       byDay.set(e.day_of_week, arr);
     }
-    if (ruleOn(ctx, 'distribute_week', section) && a.weekly_hours >= 3 && byDay.size < Math.min(a.min_days_per_week ?? 2, 3)) {
+    if (ruleOnForAssignment(ctx, 'distribute_week', section, a) && a.weekly_hours >= 3 && byDay.size < Math.min(a.min_days_per_week ?? 2, 3)) {
       penalty += ruleWeight(ctx, 'distribute_week', section, 10);
       addViolation(ctx, violations, strict_violations, 'distribute_week', section, `${a.subject_name}: haftaya yayılmamış`);
     }
     for (const [, slots] of byDay) {
-      if (ruleOn(ctx, 'max_two_per_day', section) && slots.length > 2) {
+      if (ruleOnForAssignment(ctx, 'max_two_per_day', section, a) && slots.length > 2) {
         penalty += ruleWeight(ctx, 'max_two_per_day', section, 10);
         addViolation(ctx, violations, strict_violations, 'max_two_per_day', section, `${a.subject_name}: günde 2+ aynı ders`);
       }
-      if (ruleOn(ctx, 'max_one_per_day', section) && slots.length > 1) {
+      if (ruleOnForAssignment(ctx, 'max_one_per_day', section, a) && slots.length > 1) {
         penalty += ruleWeight(ctx, 'max_one_per_day', section, 8);
         addViolation(ctx, violations, strict_violations, 'max_one_per_day', section, `${a.subject_name}: günde 1+ aynı ders`);
       }
       const lessons = slots.map((s) => s.lesson_num).sort((x, y) => x - y);
-      if (ruleOn(ctx, 'same_day_consecutive', section) && lessons.length >= 2) {
+      if (ruleOnForAssignment(ctx, 'same_day_consecutive', section, a) && lessons.length >= 2) {
         let ok = false;
         for (let i = 1; i < lessons.length; i++) {
           if (lessons[i] === lessons[i - 1] + 1) {
@@ -70,18 +80,82 @@ export function applySoftRulePenalties(
           addViolation(ctx, violations, strict_violations, 'same_day_consecutive', section, `${a.subject_name}: aynı gün ardışık değil`);
         }
       }
-      if (ruleOn(ctx, 'two_same_day', section) && a.weekly_hours === 2 && byDay.size > 1) {
+      if (ruleOnForAssignment(ctx, 'two_same_day', section, a) && a.weekly_hours === 2 && byDay.size > 1) {
         penalty += ruleWeight(ctx, 'two_same_day', section, 8);
         addViolation(ctx, violations, strict_violations, 'two_same_day', section, `${a.subject_name}: 2 saat aynı günde olmalı`);
       }
-      if (ruleOn(ctx, 'two_not_same_day', section) && a.weekly_hours === 2 && [...byDay.values()].some((s) => s.length > 1)) {
+      if (ruleOnForAssignment(ctx, 'two_not_same_day', section, a) && a.weekly_hours === 2 && [...byDay.values()].some((s) => s.length > 1)) {
         penalty += ruleWeight(ctx, 'two_not_same_day', section, 7);
         addViolation(ctx, violations, strict_violations, 'two_not_same_day', section, `${a.subject_name}: 2 saat farklı günlerde olmalı`);
       }
-      if (ruleOn(ctx, 'two_not_consecutive_days', section) && a.weekly_hours === 2) {
+      if (ruleOnForAssignment(ctx, 'two_not_consecutive_days', section, a) && a.weekly_hours === 2) {
         const dows = [...byDay.keys()].sort((x, y) => x - y);
         for (let i = 1; i < dows.length; i++) {
-          if (dows[i]! - dows[i - 1]! === 1) penalty += ruleWeight(ctx, 'two_not_consecutive_days', section, 7);
+          if (dows[i]! - dows[i - 1]! === 1) {
+            penalty += ruleWeight(ctx, 'two_not_consecutive_days', section, 7);
+            addViolation(
+              ctx,
+              violations,
+              strict_violations,
+              'two_not_consecutive_days',
+              section,
+              `${a.subject_name}: ardışık günlerde olmamalı`,
+            );
+          }
+        }
+      }
+      if (ruleOnForAssignment(ctx, 'two_two_day_gap', section, a) && a.weekly_hours === 2) {
+        const dows = [...byDay.keys()].sort((x, y) => x - y);
+        const gap = (() => {
+          const p = rulesForSection(ctx, section).two_two_day_gap?.params as { min_gap?: number } | undefined;
+          const n = Number(p?.min_gap ?? 2);
+          return n >= 2 && n <= 6 ? Math.floor(n) : 2;
+        })();
+        for (let i = 1; i < dows.length; i++) {
+          if (dows[i]! - dows[i - 1]! < gap) {
+            penalty += ruleWeight(ctx, 'two_two_day_gap', section, 7);
+            addViolation(
+              ctx,
+              violations,
+              strict_violations,
+              'two_two_day_gap',
+              section,
+              `${a.subject_name}: günler arası en az ${gap} gün boşluk`,
+            );
+          }
+        }
+      }
+      if (ruleOn(ctx, 'meb_pe_music_days', section) && isPeMusic(a.subject_name)) {
+        const allowed = peMusicAllowedDays(ctx, section);
+        for (const e of mine) {
+          if (!allowed.includes(e.day_of_week)) {
+            penalty += ruleWeight(ctx, 'meb_pe_music_days', section, 8);
+            addViolation(
+              ctx,
+              violations,
+              strict_violations,
+              'meb_pe_music_days',
+              section,
+              `${a.subject_name}: izin verilmeyen günde`,
+            );
+            break;
+          }
+        }
+      }
+      if (ruleOn(ctx, 'meb_theory_am_practical_pm', section) && isPractical(a.subject_name)) {
+        for (const e of mine) {
+          if (e.lesson_num <= ctx.lunch_after_lesson) {
+            penalty += ruleWeight(ctx, 'meb_theory_am_practical_pm', section, 8);
+            addViolation(
+              ctx,
+              violations,
+              strict_violations,
+              'meb_theory_am_practical_pm',
+              section,
+              `${a.subject_name}: uygulamalı öğleden önce`,
+            );
+            break;
+          }
         }
       }
       if (ruleOn(ctx, 'minimize_work_days', section) && a.teacher_ids[0]) {
@@ -93,7 +167,7 @@ export function applySoftRulePenalties(
         const n = Number(p?.max_run ?? 4);
         return n >= 2 && n <= 8 ? Math.floor(n) : 4;
       })();
-      if (ruleOn(ctx, 'four_plus_consecutive', section) && lessons.length >= maxRunCap) {
+      if (ruleOnForAssignment(ctx, 'four_plus_consecutive', section, a) && lessons.length >= maxRunCap) {
         let run = 1;
         let maxRun = 1;
         for (let i = 1; i < lessons.length; i++) {
@@ -117,20 +191,40 @@ export function applySoftRulePenalties(
       arr.push(e);
       byTeacher.set(e.user_id, arr);
     }
-    for (const [, slots] of byTeacher) {
+    for (const [userId, slots] of byTeacher) {
       for (let d = 1; d <= 7; d++) {
         const daySlots = slots.filter((s) => s.day_of_week === d).map((s) => s.lesson_num).sort((a, b) => a - b);
         if (daySlots.length < 2) continue;
         const span = daySlots[daySlots.length - 1]! - daySlots[0]! + 1;
         const gaps = span - daySlots.length;
-        if (gaps > 0) penalty += gaps * ruleWeight(ctx, 'minimize_teacher_gaps', '', 12) * 0.5;
+        if (gaps > 0) {
+          penalty += gaps * ruleWeight(ctx, 'minimize_teacher_gaps', '', 12) * 0.5;
+          addViolation(
+            ctx,
+            violations,
+            strict_violations,
+            'minimize_teacher_gaps',
+            '',
+            `Öğretmen ${userId.slice(0, 8)}: gün ${d} boşluk`,
+          );
+        }
       }
     }
   }
 
   if (ruleOn(ctx, 'important_early', '')) {
     for (const e of entries) {
-      if (e.lesson_num > 5) penalty += 0.5;
+      if (e.lesson_num > 5) {
+        penalty += ruleWeight(ctx, 'important_early', '', 4);
+        addViolation(
+          ctx,
+          violations,
+          strict_violations,
+          'important_early',
+          '',
+          `${e.subject}: geç saat (${e.lesson_num})`,
+        );
+      }
     }
   }
 
@@ -152,7 +246,17 @@ export function applySoftRulePenalties(
       for (let i = 1; i < buildings.length; i++) {
         if (buildings[i] !== buildings[i - 1]) moves++;
       }
-      penalty += moves * ruleWeight(ctx, 'minimize_building_moves', '', 6) * 0.3;
+      if (moves > 0) {
+        penalty += moves * ruleWeight(ctx, 'minimize_building_moves', '', 6) * 0.3;
+        addViolation(
+          ctx,
+          violations,
+          strict_violations,
+          'minimize_building_moves',
+          '',
+          `Bina geçişi: ${moves} kez`,
+        );
+      }
     }
   }
 

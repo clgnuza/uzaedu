@@ -14,6 +14,7 @@ import { apiFetch, type ApiError } from '@/lib/api';
 import { COOKIE_SESSION_TOKEN } from '@/lib/auth-session';
 import { rememberReturnPath } from '@/lib/post-login-redirect';
 import { safeStorageRemoveItem } from '@/lib/safe-storage';
+import { clearSessionBearer, getSessionBearer, setSessionBearer } from '@/lib/session-bearer';
 import type { WebAdminRole } from '@/config/types';
 
 /** Etkileşim yoksa oturumu kapatır; arka planda /me isteği birikmez. */
@@ -132,10 +133,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const prevPathnameRef = useRef<string | undefined>(undefined);
+  const meRef = useRef<Me | null>(null);
+  const tokenRef = useRef<string | null>(null);
   const [token, setTokenState] = useState<string | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  meRef.current = me;
+  tokenRef.current = token;
 
   const fetchMe = useCallback(async (initialToken: string | null, noCache = false): Promise<Me | null> => {
     let token: string | null = initialToken;
@@ -168,6 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const ae = e as ApiError;
         if (ae.status === 401 && token && !retried401) {
           safeStorageRemoveItem(TOKEN_KEY);
+          clearSessionBearer();
           setTokenState(null);
           token = null;
           retried401 = true;
@@ -194,17 +200,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const fromPublicAuth =
       prevPathnameRef.current !== undefined && PUBLIC_AUTH_PATHS.has(prevPathnameRef.current);
     prevPathnameRef.current = pathname ?? undefined;
-    if (fromPublicAuth || isPublicAuth) setLoading(true);
-    /** Eski sürüm localStorage Bearer süresiz oturum açıyordu; tek kaynak httpOnly çerez. */
+    const hadSession =
+      !!getSessionBearer() || tokenRef.current === COOKIE_SESSION_TOKEN || !!meRef.current;
+    if (fromPublicAuth || isPublicAuth || !hadSession) setLoading(true);
+    /** Eski sürüm localStorage Bearer süresiz oturum açıyordu. */
     safeStorageRemoveItem(TOKEN_KEY);
-    setTokenState(null);
+    if (!hadSession) setTokenState(null);
     const finish = () => setLoading(false);
-    void fetchMe(null)
+    void fetchMe(COOKIE_SESSION_TOKEN)
       .then((data) => {
         if (data) setTokenState(COOKIE_SESSION_TOKEN);
+        else if (!getSessionBearer()) setTokenState(null);
       })
       .catch(() => {
-        setMe(null);
+        if (!getSessionBearer()) setMe(null);
       })
       .finally(finish);
   }, [fetchMe, pathname]);
@@ -214,6 +223,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (typeof window === 'undefined') return;
       if (value === null) {
         safeStorageRemoveItem(TOKEN_KEY);
+        clearSessionBearer();
         setTokenState(null);
         setMe(null);
         setError(null);
@@ -221,10 +231,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       safeStorageRemoveItem(TOKEN_KEY);
+      if (value !== COOKIE_SESSION_TOKEN) setSessionBearer(value);
       setTokenState(COOKIE_SESSION_TOKEN);
       setLoading(true);
       try {
-        const data = await fetchMe(null);
+        const data = await fetchMe(COOKIE_SESSION_TOKEN);
         if (!data) {
           setError('Oturum doğrulanamadı.');
           setMe(null);
@@ -288,7 +299,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refetchMe = useCallback(async (): Promise<Me | null> => {
     try {
-      const data = await fetchMe(null, true);
+      const data = await fetchMe(COOKIE_SESSION_TOKEN, true);
       if (data) setTokenState(COOKIE_SESSION_TOKEN);
       else setTokenState(null);
       return data;

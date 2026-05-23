@@ -46,6 +46,7 @@ export type TtkbPreviewCell = {
 export type TtkbPreview = {
   sections: string[];
   sections_without_grade?: string[];
+  grades?: number[];
   empty_message?: string;
   school_type: string;
   cell_count: number;
@@ -54,18 +55,22 @@ export type TtkbPreview = {
   sample: TtkbPreviewCell[];
   cells?: TtkbPreviewCell[];
   totals_by_section?: Record<string, number>;
+  totals_by_grade?: Record<string, number>;
 };
 
 /** TTKB önizleme listesini CSV olarak indir (Excel uyumlu UTF-8 BOM). */
-export function downloadTtkbCsv(preview: TtkbPreview, schoolTypeLabel: string): void {
+export function downloadTtkbCsv(
+  preview: TtkbPreview,
+  schoolTypeLabel: string,
+  filenamePrefix = 'ttkb-ders-listesi',
+): void {
   const rows = preview.cells?.length ? preview.cells : preview.sample;
   if (!rows.length) return;
-  const header = ['Şube', 'Sınıf', 'Ders kodu', 'Ders', 'Haftalık saat', 'Kaynak'];
+  const header = ['Sınıf', 'Ders kodu', 'Ders', 'Haftalık saat', 'Kaynak'];
   const lines = [
     header.join(';'),
     ...rows.map((c) =>
       [
-        c.class_section,
         c.grade != null ? String(c.grade) : '',
         c.subject_code ?? '',
         c.subject_name.replace(/;/g, ','),
@@ -79,7 +84,7 @@ export function downloadTtkbCsv(preview: TtkbPreview, schoolTypeLabel: string): 
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `ttkb-ders-listesi-${schoolTypeLabel.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `${filenamePrefix}-${schoolTypeLabel.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }

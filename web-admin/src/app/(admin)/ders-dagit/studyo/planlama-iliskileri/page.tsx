@@ -10,7 +10,7 @@ export default function PlanlamaIliskileriPage() {
       <DdPageHeader
         icon={GitBranch}
         title="Planlama ilişkileri"
-        description="Ders–sınıf kapsamı ve basit / gelişmiş kart ilişkileri (aSc planlama ilişkileri)."
+        description="Ders ve sınıfa özel planlama ilişkileri; okul kurallarıyla uyumlu ekleme."
       />
       <PlanningRelationsPanel />
     </div>

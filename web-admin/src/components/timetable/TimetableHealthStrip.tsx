@@ -2,15 +2,18 @@
 
 import { cn } from '@/lib/utils';
 import type { EditorContext } from '@/lib/ders-dagit-timetable-api';
+import { programStatusLabel } from '@/lib/timetable-program-status';
 
 export function TimetableHealthStrip({
   ctx,
   clashCount,
   simulate,
+  pendingMoves = 0,
 }: {
   ctx: EditorContext;
   clashCount: number;
   simulate?: boolean;
+  pendingMoves?: number;
 }) {
   const unplaced = ctx.unplaced.length;
   const locked = ctx.entries.filter((e) => e.is_locked).length;
@@ -26,7 +29,12 @@ export function TimetableHealthStrip({
         !simulate && !ok && 'border-amber-500/40 bg-amber-50/50 dark:bg-amber-950/20',
       )}
     >
-      {simulate && <span className="font-semibold text-sky-800 dark:text-sky-200">Simülasyon — kaydedilmedi</span>}
+      {simulate && (
+        <span className="font-semibold text-sky-800 dark:text-sky-200">
+          Deneme modu
+          {pendingMoves > 0 ? ` · ${pendingMoves} taşıma` : ''}
+        </span>
+      )}
       <Metric label="Ders saati" value={String(total)} ok />
       <Metric label="Çakışma" value={String(clashCount)} ok={clashCount === 0} bad={clashCount > 0} />
       <Metric label="Yerleşmemiş" value={String(unplaced)} ok={unplaced === 0} bad={unplaced > 0} />
@@ -36,7 +44,9 @@ export function TimetableHealthStrip({
           Puan <strong className="text-foreground">{ctx.program.score}</strong>
         </span>
       )}
-      <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase">{ctx.program.status}</span>
+      <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium">
+        {programStatusLabel(ctx.program.status)}
+      </span>
     </div>
   );
 }

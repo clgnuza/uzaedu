@@ -6,11 +6,11 @@ export const AUTH_COOKIE_NAME = 'ogp_session';
 
 function cookieSecure(): boolean {
   if (process.env.COOKIE_SECURE === 'false' || process.env.COOKIE_SECURE === '0') return false;
-  if (process.env.NODE_ENV === 'production' || env.nodeEnv === 'production') return true;
-  const fe = env.frontendUrl?.trim().toLowerCase() ?? '';
-  if (fe.startsWith('https://')) return true;
-  if (process.env.SESSION_COOKIE_DOMAIN?.trim()) return true;
-  return false;
+  if (process.env.COOKIE_SECURE === 'true' || process.env.COOKIE_SECURE === '1') return true;
+  /** Yerelde `FRONTEND_URL=https://...` kopyası Secure çerez zorlar; http://localhost girişi kırılır. */
+  const isProd =
+    process.env.NODE_ENV === 'production' || env.nodeEnv === 'production';
+  return isProd;
 }
 
 function sessionCookieOpts(): {

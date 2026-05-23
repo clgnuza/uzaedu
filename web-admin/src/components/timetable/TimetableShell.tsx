@@ -7,39 +7,55 @@ import { useTimetableEditor } from '@/hooks/use-timetable-editor';
 import { TimetableGrid, type TimetableDragSource } from './TimetableGrid';
 import { TimetableSidebar } from './TimetableSidebar';
 import { CollisionResolveDialog } from './CollisionResolveDialog';
+import { TimetableEntryEditDialog } from './TimetableEntryEditDialog';
 import { TimetableUnplacedTray } from './TimetableUnplacedTray';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { DdSelect, DdSelectField } from '@/components/ders-dagit/dd-select';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { apiFetch } from '@/lib/api';
 import { listStudioPrograms, type DdProgramRow } from '@/lib/ders-dagit-program-api';
 import { ProgramManageBar } from './ProgramManageBar';
-import { downloadDersDagitExport } from '@/lib/ders-dagit-api';
+import { downloadDersDagitExport, openScheduleViewPdf } from '@/lib/ders-dagit-api';
 import { cn } from '@/lib/utils';
-import type { EditorEntry } from '@/lib/ders-dagit-timetable-api';
+import type { EditorContext, EditorEntry } from '@/lib/ders-dagit-timetable-api';
 import { Undo2, ZoomIn, ZoomOut, Printer } from 'lucide-react';
 import { DndContext, DragOverlay, pointerWithin, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { TimetableLegend } from './TimetableLegend';
 import { TimetableQuickLinks } from './TimetableQuickLinks';
 import { TimetableHealthStrip } from './TimetableHealthStrip';
+import { TimetableSimulationBar } from './TimetableSimulationBar';
+import { TimetablePrintHeader } from './TimetablePrintHeader';
 import { patchEntry } from '@/lib/ders-dagit-timetable-api';
-import { buildForbiddenSlots, slotHighlightKey } from '@/lib/timetable-grid-build';
+import { slotHighlightKey } from '@/lib/timetable-grid-build';
+import { buildTimetableCompare, maxStackedInCell } from '@/lib/timetable-compare';
+import { buildSlotClosures } from '@/lib/timetable-slot-closures';
+import { validatePoolPlace, validateTimetableMove } from '@/lib/timetable-move-validation';
 import { clashAtSlot, clashEntryIds } from '@/lib/timetable-clash';
+import {
+  applySimulationDraft,
+  buildClashesFromEntries,
+  pendingSimulationMoves,
+} from '@/lib/timetable-simulation';
 import { toast } from 'sonner';
+import { applyDocumentPrintMode } from '@/components/ders-dagit/ReportPrintSettings';
+import { loadReportPrintMode } from '@/lib/ders-dagit-report-settings';
 import './timetable-print.css';
 
 type ProgramRow = DdProgramRow;
-type AuditRow = { id: string; action: string; user_label: string | null; created_at: string };
+type AuditRow = {
+  id: string;
+  action: string;
+  user_label: string | null;
+  created_at: string;
+  detail?: Record<string, unknown>;
+};
 
 const EMPTY_GRID = {
   blocked_lesson_nums: [] as number[],
@@ -49,31 +65,48 @@ const EMPTY_GRID = {
 
 type ViewMode = 'class' | 'teacher' | 'room' | 'all';
 
+/** Filtrede «Tümü» — kompakt matris (tüm sınıf/öğretmen/derslik satırları). */
+const FILTER_ALL = '__all__';
+
+function matrixAxisForView(view: ViewMode, filterId: string, matrixAxis: 'teacher' | 'class' | 'room') {
+  if (view === 'all') return matrixAxis;
+  if (view === 'class' || view === 'teacher' || view === 'room') {
+    if (filterId === FILTER_ALL) return view;
+  }
+  return undefined;
+}
+
 export function TimetableShell({
   initialProgramId,
   compareProgramId,
   initialView,
+  initialFilterId,
+  initialAutoPrint,
   onProgramIdChange,
 }: {
   initialProgramId?: string;
   compareProgramId?: string;
   initialView?: ViewMode;
+  /** URL ?filter= — şube / öğretmen id / derslik id */
+  initialFilterId?: string;
+  initialAutoPrint?: boolean;
   onProgramIdChange?: (id: string) => void;
 }) {
   const { token } = useAuth();
   const { studio } = useDersDagitStudio();
   const editor = useTimetableEditor(token, studio?.id ?? null);
   const [programs, setPrograms] = useState<ProgramRow[]>([]);
-  const [view, setView] = useState<ViewMode>(initialView ?? 'class');
+  const [view, setView] = useState<ViewMode>(initialView ?? 'all');
+
+  useEffect(() => {
+    if (initialView) setView(initialView);
+  }, [initialView]);
+  const [matrixAxis, setMatrixAxis] = useState<'teacher' | 'class' | 'room'>('teacher');
   const [filterId, setFilterId] = useState('');
   const [zoom, setZoom] = useState(100);
   const [compareId, setCompareId] = useState(compareProgramId ?? '');
   const [compareCtx, setCompareCtx] = useState<typeof editor.ctx>(null);
   const [editEntry, setEditEntry] = useState<EditorEntry | null>(null);
-  const [editDay, setEditDay] = useState(1);
-  const [editLesson, setEditLesson] = useState(1);
-  const [editLock, setEditLock] = useState(false);
-  const [editRoomId, setEditRoomId] = useState('');
   const [poolDrag, setPoolDrag] = useState<string | null>(null);
   const [dragLabel, setDragLabel] = useState<string | null>(null);
   const [audit, setAudit] = useState<AuditRow[]>([]);
@@ -88,6 +121,7 @@ export function TimetableShell({
     occupants: EditorEntry[];
   } | null>(null);
   const [simulate, setSimulate] = useState(false);
+  const [simBaseline, setSimBaseline] = useState<EditorEntry[] | null>(null);
   const [draftEntries, setDraftEntries] = useState<EditorEntry[] | null>(null);
   const [problemsOnly, setProblemsOnly] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -126,6 +160,26 @@ export function TimetableShell({
   }, [token, studio]);
 
   useEffect(() => {
+    applyDocumentPrintMode(loadReportPrintMode());
+  }, []);
+
+  const printReady = useMemo(() => {
+    if (!initialAutoPrint || !editor.ctx || editor.loading) return false;
+    if (view === 'all') return true;
+    return Boolean(filterId && filterId !== FILTER_ALL);
+  }, [initialAutoPrint, editor.ctx, editor.loading, view, filterId]);
+
+  useEffect(() => {
+    if (initialAutoPrint) setCompareId('');
+  }, [initialAutoPrint]);
+
+  const discardSimulation = useCallback(() => {
+    setSimulate(false);
+    setSimBaseline(null);
+    setDraftEntries(null);
+  }, []);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && editor.canUndo && !editor.busy && !simulate) {
         e.preventDefault();
@@ -136,18 +190,45 @@ export function TimetableShell({
         setShowShortcuts((v) => !v);
       }
       if (e.key === 'Escape' && simulate) {
-        setSimulate(false);
-        setDraftEntries(null);
+        discardSimulation();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editor.canUndo, editor.busy, editor.undo, simulate]);
+  }, [editor.canUndo, editor.busy, editor.undo, simulate, discardSimulation]);
+
+  const startSimulation = useCallback(() => {
+    if (!editor.ctx) return;
+    if (simulate) {
+      discardSimulation();
+      return;
+    }
+    const base = [...editor.ctx.entries];
+    setSimBaseline(base);
+    setDraftEntries([...base]);
+    setSimulate(true);
+    toast.message('Deneme modu', {
+      description: 'Taşımalar önizlemede; kaydetmeden çıkmak için Vazgeç veya Esc.',
+    });
+  }, [editor.ctx, simulate, discardSimulation]);
 
   useEffect(() => {
-    if (simulate && editor.ctx) setDraftEntries([...editor.ctx.entries]);
-    else setDraftEntries(null);
-  }, [simulate, editor.programId]);
+    if (simulate) discardSimulation();
+  }, [editor.programId]);
+
+  const simPending = useMemo(
+    () => (simBaseline && draftEntries ? pendingSimulationMoves(simBaseline, draftEntries) : []),
+    [simBaseline, draftEntries],
+  );
+
+  useEffect(() => {
+    if (!simulate || simPending.length === 0) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [simulate, simPending.length]);
 
   useEffect(() => {
     const pid = initialProgramId ?? programs[0]?.id;
@@ -157,13 +238,6 @@ export function TimetableShell({
   useEffect(() => {
     if (editor.programId) onProgramIdChange?.(editor.programId);
   }, [editor.programId, onProgramIdChange]);
-
-  useEffect(() => {
-    if (editor.programId && !filterId) {
-      const first = editor.ctx?.class_sections[0];
-      if (first) setFilterId(first);
-    }
-  }, [editor.programId, editor.ctx, filterId]);
 
   useEffect(() => {
     if (!token || !studio || !compareId) {
@@ -178,18 +252,60 @@ export function TimetableShell({
   const displayCtx = useMemo(() => {
     if (!editor.ctx) return null;
     if (!simulate || !draftEntries) return editor.ctx;
-    return { ...editor.ctx, entries: draftEntries };
+    const clashes = buildClashesFromEntries(draftEntries);
+    return { ...editor.ctx, entries: draftEntries, clashes };
   }, [editor.ctx, simulate, draftEntries]);
+
+  const ctx = displayCtx;
 
   const simClashIds = useMemo(
     () => (draftEntries ? clashEntryIds(draftEntries) : editor.clashIds),
     [draftEntries, editor.clashIds],
   );
 
+  const filterOptions = useMemo(() => {
+    if (!editor.ctx || view === 'all') return [];
+    const allOpt = { id: FILTER_ALL, label: 'Tümü' };
+    if (view === 'class') return [allOpt, ...editor.ctx.class_sections.map((s) => ({ id: s, label: s }))];
+    if (view === 'teacher') return [allOpt, ...editor.ctx.teachers.map((t) => ({ id: t.id, label: t.label }))];
+    const roomOpts = editor.ctx.rooms.map((r) => ({ id: r.id, label: r.name }));
+    if (editor.ctx.entries.some((e) => !e.room_id)) {
+      roomOpts.unshift({ id: '__none__', label: '(Derslik yok)' });
+    }
+    return [allOpt, ...roomOpts];
+  }, [editor.ctx, view]);
+
+  const openViewPdfPrint = useCallback(async () => {
+    if (!token || !studio?.id || !editor.programId) return;
+    if (view !== 'class' && view !== 'teacher' && view !== 'room') return;
+    if (!filterId || filterId === FILTER_ALL) {
+      toast.error('Yazdırma için şube / öğretmen / derslik seçin.');
+      return;
+    }
+    const label = filterOptions.find((o) => o.id === filterId)?.label ?? filterId;
+    try {
+      await openScheduleViewPdf(token, studio.id, editor.programId, view, filterId, label, loadReportPrintMode());
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'PDF açılamadı');
+    }
+  }, [token, studio?.id, editor.programId, view, filterId, filterOptions]);
+
+  useEffect(() => {
+    if (!printReady) return;
+    const t = window.setTimeout(() => {
+      void openViewPdfPrint();
+    }, 700);
+    return () => window.clearTimeout(t);
+  }, [printReady, openViewPdfPrint]);
+
   const filter = useMemo(() => {
-    if (view === 'all' || !filterId) return undefined;
-    return { mode: view, id: filterId } as const;
-  }, [view, filterId]);
+    if (view === 'all' || filterId === FILTER_ALL) return undefined;
+    if (view !== 'class' && view !== 'teacher' && view !== 'room') return undefined;
+    const ok = filterOptions.some((o) => o.id === filterId);
+    const id = ok ? filterId : (filterOptions.find((o) => o.id !== FILTER_ALL)?.id ?? '');
+    if (!id || id === FILTER_ALL) return undefined;
+    return { mode: view, id } as const;
+  }, [view, filterId, filterOptions]);
 
   const effectiveFilter = useMemo(() => {
     const c = displayCtx;
@@ -204,19 +320,31 @@ export function TimetableShell({
     return { mode: 'class' as const, id };
   }, [problemsOnly, displayCtx, view, filter, filterId]);
 
-  const filterOptions = useMemo(() => {
-    if (!editor.ctx) return [];
-    if (view === 'class') return editor.ctx.class_sections.map((s) => ({ id: s, label: s }));
-    if (view === 'teacher') return editor.ctx.teachers.map((t) => ({ id: t.id, label: t.label }));
-    const roomOpts = editor.ctx.rooms.map((r) => ({ id: r.id, label: r.name }));
-    if (editor.ctx.entries.some((e) => !e.room_id)) {
-      roomOpts.unshift({ id: '__none__', label: '(Derslik yok)' });
+  useEffect(() => {
+    if (view === 'all') return;
+    const opts = filterOptions;
+    if (!opts.length) {
+      if (filterId) setFilterId('');
+      return;
     }
-    return roomOpts;
-  }, [editor.ctx, view]);
+    if (initialFilterId && opts.some((o) => o.id === initialFilterId)) {
+      if (filterId !== initialFilterId) setFilterId(initialFilterId);
+      return;
+    }
+    if (initialAutoPrint) {
+      const concrete = opts.filter((o) => o.id !== FILTER_ALL);
+      if (concrete.length && (!filterId || filterId === FILTER_ALL)) {
+        setFilterId(concrete[0]!.id);
+        return;
+      }
+    }
+    if (!filterId || !opts.some((o) => o.id === filterId)) {
+      setFilterId(FILTER_ALL);
+    }
+  }, [editor.programId, view, filterOptions, filterId, initialAutoPrint, initialFilterId]);
 
   const teacherUnavailable = useMemo(() => {
-    if (!editor.ctx || view !== 'teacher' || !filterId) return undefined;
+    if (!editor.ctx || view !== 'teacher' || !filterId || filterId === FILTER_ALL) return undefined;
     const t = editor.ctx.teacher_availability.find((x) => x.user_id === filterId);
     return t?.unavailable_periods;
   }, [editor.ctx, view, filterId]);
@@ -259,23 +387,52 @@ export function TimetableShell({
   );
 
   const applySimulation = useCallback(async () => {
-    if (!draftEntries || !editor.ctx) return;
-    const orig = editor.ctx.entries;
+    if (!draftEntries || !simBaseline || !token || !studio) return;
+    if (simClashIds.size > 0) {
+      toast.error('Kaydetmeden önce çakışmaları giderin');
+      return;
+    }
+    if (!simPending.length) {
+      discardSimulation();
+      return;
+    }
     setBusyLocal(true);
     try {
-      for (const d of draftEntries) {
-        const o = orig.find((e) => e.id === d.id);
-        if (o && (o.day_of_week !== d.day_of_week || o.lesson_num !== d.lesson_num)) {
-          await editor.moveEntry(d.id, d.day_of_week, d.lesson_num);
-        }
-      }
-      setSimulate(false);
-      setDraftEntries(null);
-      toast.success('Simülasyon uygulandı');
+      const n = await applySimulationDraft(token, studio.id, editor.programId, simBaseline, draftEntries);
+      await editor.load(editor.programId);
+      discardSimulation();
+      toast.success(n === 1 ? '1 taşıma kaydedildi' : `${n} taşıma kaydedildi`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Kaydedilemedi');
     } finally {
       setBusyLocal(false);
     }
-  }, [draftEntries, editor]);
+  }, [
+    draftEntries,
+    simBaseline,
+    token,
+    studio,
+    editor,
+    simClashIds.size,
+    simPending.length,
+    discardSimulation,
+  ]);
+
+  const resetSimulationDraft = useCallback(() => {
+    if (!simBaseline) return;
+    setDraftEntries([...simBaseline]);
+    toast.message('Önizleme sıfırlandı');
+  }, [simBaseline]);
+
+  const compareMaps = useMemo(() => {
+    if (!compareCtx || !ctx) return null;
+    return buildTimetableCompare(ctx.entries, compareCtx.entries);
+  }, [compareCtx, ctx]);
+
+  const compareStackMin = useMemo(() => {
+    if (!compareCtx || !ctx) return undefined;
+    return maxStackedInCell([ctx.entries, compareCtx.entries], effectiveFilter);
+  }, [compareCtx, ctx, effectiveFilter]);
 
   const gridCommon = (c: NonNullable<typeof displayCtx>) => ({
     entries: c.entries,
@@ -287,16 +444,20 @@ export function TimetableShell({
     teacherUnavailable,
     clashIds: simulate ? simClashIds : editor.clashIds,
     filter: effectiveFilter,
+    matrixAxis: compareCtx ? undefined : matrixAxisForView(view, filterId, matrixAxis),
+    displayMode: view === 'all' && !effectiveFilter ? ('all' as const) : undefined,
+    teachers: c.teachers,
+    classSections: c.class_sections,
+    rooms: c.rooms,
     zoom,
     highlightSlotKey,
+    compareLayout: !!compareCtx,
+    compareEntryStatus: compareMaps?.entryById,
+    compareSlotStatus: compareMaps?.slotByKey,
+    stackMinByCell: compareStackMin,
     onLockEntry: simulate ? undefined : (id: string, locked: boolean) => void editor.toggleLock(id, locked),
     onDeleteEntry: simulate ? undefined : (id: string) => void editor.removeEntry(id),
   });
-
-  useEffect(() => {
-    const first = filterOptions[0]?.id;
-    if (first && view !== 'all') setFilterId(first);
-  }, [view, filterOptions]);
 
   const reloadAudit = useCallback(async () => {
     if (!token || !studio) return;
@@ -307,17 +468,33 @@ export function TimetableShell({
     if (!editor.busy && editor.programId) void reloadAudit();
   }, [editor.busy, editor.programId, reloadAudit]);
 
+  const slotClosuresForCtx = useCallback(
+    (c: NonNullable<typeof displayCtx>) =>
+      buildSlotClosures(
+        c.period.work_days ?? [1, 2, 3, 4, 5],
+        c.max_lesson,
+        c.grid,
+        teacherUnavailable,
+      ),
+    [teacherUnavailable],
+  );
+
   const requestMove = useCallback(
     (entryId: string, day: number, lesson: number) => {
       const c = displayCtx ?? editor.ctx;
       if (!c) return;
-      const forb = buildForbiddenSlots(
-        c.period.work_days ?? [1, 2, 3, 4, 5],
-        c.max_lesson,
-        teacherUnavailable,
-      );
-      if (forb.has(`${day}-${lesson}`)) {
-        toast.error('Bu saat kapalı veya uygun değil.');
+      const closures = slotClosuresForCtx(c);
+      const dragging = c.entries.find((e) => e.id === entryId) ?? null;
+      const v = validateTimetableMove({
+        entryId,
+        day,
+        lesson,
+        entries: c.entries,
+        closures,
+        dragging,
+      });
+      if (!v.ok) {
+        toast.error(v.message);
         return;
       }
       const occupants = c.entries.filter(
@@ -341,7 +518,7 @@ export function TimetableShell({
       }
       void editor.moveEntry(entryId, day, lesson);
     },
-    [displayCtx, editor.ctx, editor.moveEntry, teacherUnavailable, simulate, applyLocalMove],
+    [displayCtx, editor.ctx, editor.moveEntry, simulate, applyLocalMove, slotClosuresForCtx],
   );
 
   const onGridDragEnd = useCallback(
@@ -349,30 +526,36 @@ export function TimetableShell({
       setPoolDrag(null);
       setDragLabel(null);
       setDragSource(null);
+      const c = displayCtx ?? editor.ctx;
+      if (!c) return;
       const over = ev.over ? String(ev.over.id) : '';
       const m = /^slot-(\d+)-(\d+)$/.exec(over);
-      if (!m) return;
+      if (!m) {
+        toast.error('Bırakmak için tablodaki bir saat hücresini hedefleyin.');
+        return;
+      }
       const day = Number(m[1]);
       const lesson = Number(m[2]);
       const active = String(ev.active.id);
+      const closures = slotClosuresForCtx(c);
       if (active.startsWith('pool-')) {
-        const c = editor.ctx;
-        if (c) {
-          const occ = c.entries.filter((e) => e.day_of_week === day && e.lesson_num === lesson);
-          if (occ.length > 1) {
-            toast.error('Saat dolu — önce bir dersi taşıyın veya takas seçin.');
-            return;
-          }
+        const assignmentId = active.slice(5);
+        const unplaced = c.unplaced.find((u) => u.assignment_id === assignmentId);
+        const section = unplaced?.class_section ?? '';
+        const v = validatePoolPlace(assignmentId, day, lesson, c.entries, section, closures);
+        if (!v.ok) {
+          toast.error(v.message);
+          return;
         }
-        if (!simulate) void editor.placeUnplaced(active.slice(5), day, lesson);
+        if (!simulate) void editor.placeUnplaced(assignmentId, day, lesson);
+        else toast.message('Deneme modunda havuzdan yerleştirme kaydedilmez');
         return;
       }
       requestMove(active, day, lesson);
     },
-    [editor.placeUnplaced, editor.ctx, requestMove, simulate],
+    [displayCtx, editor.ctx, editor.placeUnplaced, requestMove, simulate, slotClosuresForCtx],
   );
 
-  const ctx = displayCtx;
   const editorBusy = editor.busy || busyLocal;
   if (!studio) return null;
 
@@ -402,7 +585,7 @@ export function TimetableShell({
       }}
     >
       <div className="space-y-4">
-        <Card>
+        <Card className="print:hidden">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Program tablosu</CardTitle>
           </CardHeader>
@@ -412,25 +595,69 @@ export function TimetableShell({
               labelClassName="text-xs"
               className="min-w-[160px] flex-1 sm:min-w-[200px] sm:flex-none"
               value={editor.programId}
-              onValueChange={(v) => void editor.load(v)}
+              onValueChange={(v) => {
+                setFilterId(view === 'all' ? '' : FILTER_ALL);
+                void editor.load(v);
+              }}
               options={programs.map((p) => ({
                 value: p.id,
                 label: `${p.name ?? p.id.slice(0, 8)} (${p.status})`,
               }))}
             />
-            <DdSelectField
-              label="Görünüm"
-              labelClassName="text-xs"
-              className="min-w-[120px]"
-              value={view}
-              onValueChange={(v) => setView(v as ViewMode)}
-              options={[
-                { value: 'class', label: 'Sınıf' },
-                { value: 'teacher', label: 'Öğretmen' },
-                { value: 'room', label: 'Derslik' },
-                { value: 'all', label: 'Tümü' },
-              ]}
-            />
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Görünüm</span>
+              <div className="flex flex-wrap gap-0.5 rounded-lg border border-border bg-muted/30 p-0.5">
+                {(
+                  [
+                    ['all', 'Tümü'],
+                    ['class', 'Sınıf'],
+                    ['teacher', 'Öğretmen'],
+                    ['room', 'Derslik'],
+                  ] as const
+                ).map(([v, label]) => (
+                  <Button
+                    key={v}
+                    type="button"
+                    size="sm"
+                    variant={view === v ? 'default' : 'ghost'}
+                    className="h-7 px-2.5 text-xs"
+                    onClick={() => {
+                      setView(v);
+                      setFilterId(v === 'all' ? '' : FILTER_ALL);
+                      if (v === 'all') setMatrixAxis('teacher');
+                      else if (v === 'class' || v === 'teacher' || v === 'room') setMatrixAxis(v);
+                    }}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            {view === 'all' && (
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">Satırlar</span>
+                <div className="flex flex-wrap gap-0.5 rounded-lg border border-border bg-muted/30 p-0.5">
+                  {(
+                    [
+                      ['teacher', 'Öğretmen'],
+                      ['class', 'Sınıf'],
+                      ['room', 'Derslik'],
+                    ] as const
+                  ).map(([v, label]) => (
+                    <Button
+                      key={v}
+                      type="button"
+                      size="sm"
+                      variant={matrixAxis === v ? 'default' : 'ghost'}
+                      className="h-7 px-2.5 text-xs"
+                      onClick={() => setMatrixAxis(v)}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
             {view !== 'all' && (
               <DdSelectField
                 label="Filtre"
@@ -471,9 +698,9 @@ export function TimetableShell({
               size="sm"
               variant={simulate ? 'default' : 'outline'}
               className="print:hidden"
-              onClick={() => setSimulate((s) => !s)}
+              onClick={startSimulation}
             >
-              {simulate ? 'Simülasyon açık' : 'Simülasyon'}
+              {simulate ? 'Denemeyi kapat' : 'Dene'}
             </Button>
             <label className="flex items-center gap-1.5 text-xs print:hidden">
               <input type="checkbox" checked={problemsOnly} onChange={(e) => setProblemsOnly(e.target.checked)} />
@@ -494,7 +721,20 @@ export function TimetableShell({
             >
               {placementMode === 'click' ? 'Tıkla-yerleştir' : 'Sürükle-bırak'}
             </Button>
-            <Button type="button" size="sm" variant="outline" className="print:hidden" onClick={() => window.print()}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="print:hidden"
+              onClick={() => {
+                if (view === 'class' || view === 'teacher' || view === 'room') {
+                  void openViewPdfPrint();
+                  return;
+                }
+                applyDocumentPrintMode(loadReportPrintMode());
+                window.print();
+              }}
+            >
               <Printer className="size-4" />
               Yazdır
             </Button>
@@ -515,40 +755,81 @@ export function TimetableShell({
             )}
           </CardContent>
         </Card>
-        <TimetableQuickLinks />
+        <div className="print:hidden">
+          <TimetableQuickLinks />
+        </div>
 
         {editor.loading && !ctx ? (
           <LoadingSpinner label="Program yükleniyor…" />
         ) : ctx ? (
           <>
-          <TimetableHealthStrip ctx={ctx} clashCount={simulate ? simClashIds.size : ctx.clashes.length} simulate={simulate} />
-          {simulate && (
-            <div className="flex flex-wrap gap-2 print:hidden">
-              <Button type="button" size="sm" onClick={() => void applySimulation()} disabled={editorBusy}>
-                Değişiklikleri uygula
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setSimulate(false);
-                  setDraftEntries(null);
-                }}
-              >
-                İptal (Esc)
-              </Button>
-            </div>
+          <TimetableHealthStrip
+            ctx={ctx}
+            clashCount={simulate ? simClashIds.size : ctx.clashes.length}
+            simulate={simulate}
+            pendingMoves={simulate ? simPending.length : 0}
+          />
+          {simulate && simBaseline && draftEntries && (
+            <TimetableSimulationBar
+              pending={simPending}
+              clashCount={simClashIds.size}
+              busy={editorBusy}
+              onApply={() => void applySimulation()}
+              onDiscard={discardSimulation}
+              onReset={resetSimulationDraft}
+            />
           )}
-          <TimetableLegend />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0 space-y-1">
+              <TimetableLegend compareActive={!!compareCtx} compareCounts={compareMaps?.counts} />
+              {dragSource && placementMode === 'drag' && (
+                <p className="text-[10px] text-muted-foreground print:hidden">
+                  Hücre rengine göre bırakın: yeşil uygun, mavi takas, kırmızı çakışma, çizgili gri kapalı. İmleci hücre üstünde tutunca açıklama görünür.
+                </p>
+              )}
+            </div>
+            {view !== 'all' && filterId && (
+              <p className="text-xs text-muted-foreground">
+                {view === 'class' && 'Sınıf'}
+                {view === 'teacher' && 'Öğretmen'}
+                {view === 'room' && 'Derslik'}
+                : <strong className="text-foreground">{filterOptions.find((o) => o.id === filterId)?.label ?? filterId}</strong>
+              </p>
+            )}
+          </div>
           <div className="flex flex-col gap-4 lg:flex-row">
-            <div ref={gridWrapRef} className="min-w-0 flex-1 space-y-3">
-              <div className={cn('grid gap-3', compareCtx && 'lg:grid-cols-2')}>
+            <div ref={gridWrapRef} className="timetable-print-wrap min-w-0 flex-1 space-y-3">
+              <TimetablePrintHeader
+                schoolName={studio?.name}
+                academicYear={studio?.academic_year}
+                programName={programs.find((p) => p.id === editor.programId)?.name}
+                viewLabel={
+                  view === 'class'
+                    ? 'Sınıf haftalık ders programı'
+                    : view === 'teacher'
+                      ? 'Öğretmen haftalık programı'
+                      : view === 'room'
+                        ? 'Derslik haftalık programı'
+                        : 'Haftalık program'
+                }
+                entityLabel={
+                  filterId && filterId !== FILTER_ALL
+                    ? (filterOptions.find((o) => o.id === filterId)?.label ?? null)
+                    : null
+                }
+              />
+              {initialAutoPrint && view !== 'all' && filterId === FILTER_ALL && (
+                <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-900 print:hidden dark:text-amber-100">
+                  Yazdırma için bir şube / öğretmen / derslik seçin (filtre).
+                </p>
+              )}
+              <div className={cn('grid gap-3', compareCtx && !initialAutoPrint && 'lg:grid-cols-2')}>
                 <div className="min-w-0">
-                  {compareCtx && (
+                  {compareCtx && !initialAutoPrint && (
                     <p className="mb-1 text-xs font-semibold text-foreground">Aktif program</p>
                   )}
                   <TimetableGrid
+                    key={`${editor.programId}-${view}-${matrixAxisForView(view, filterId, matrixAxis) ?? effectiveFilter?.id ?? 'one'}`}
                     embedded
                     {...gridCommon(ctx)}
                     editable
@@ -558,22 +839,17 @@ export function TimetableShell({
                     pickedEntryId={pickedEntryId}
                     onPickEntry={setPickedEntryId}
                     onMove={requestMove}
+                    onDropRejected={(msg) => toast.error(msg)}
                     onSlotClick={(d, l) => {
                       if (pickedEntryId) {
                         requestMove(pickedEntryId, d, l);
                         setPickedEntryId(null);
                       }
                     }}
-                    onEditEntry={(e) => {
-                      setEditEntry(e);
-                      setEditDay(e.day_of_week);
-                      setEditLesson(e.lesson_num);
-                      setEditLock(!!e.is_locked);
-                      setEditRoomId(e.room_id ?? '');
-                    }}
+                    onEditEntry={setEditEntry}
                   />
                 </div>
-                {compareCtx && (
+                {compareCtx && !initialAutoPrint && (
                   <div className="min-w-0">
                     <p className="mb-1 text-xs font-semibold text-muted-foreground">Karşılaştırma</p>
                     <TimetableGrid
@@ -594,17 +870,21 @@ export function TimetableShell({
                 {placementMode === 'click' ? ' · kart seç → hücre tıkla' : ''}
               </p>
             </div>
-            <TimetableSidebar
-              hideUnplaced
-              unplaced={ctx.unplaced}
-              validation={editor.validation}
-              clashes={ctx.clashes}
-              entries={ctx.entries}
-              fairness={ctx.fairness}
-              audit={audit}
-              busy={editorBusy}
-              onFocusClash={focusClash}
-            />
+            <div className="print:hidden">
+              <TimetableSidebar
+                hideUnplaced
+                unplaced={ctx.unplaced}
+                validation={editor.validation}
+                clashes={ctx.clashes}
+                entries={ctx.entries}
+                fairness={ctx.fairness}
+                audit={audit}
+                program={ctx.program}
+                studioId={studio?.id}
+                busy={editorBusy}
+                onFocusClash={focusClash}
+              />
+            </div>
           </div>
           <CollisionResolveDialog
             open={!!collision}
@@ -632,85 +912,41 @@ export function TimetableShell({
             <ul className="space-y-1 text-xs text-muted-foreground">
               <li>Ctrl+Z — geri al</li>
               <li>? — bu liste</li>
-              <li>Esc — simülasyonu iptal</li>
+              <li>Esc — deneme modundan vazgeç</li>
+              <li>Dene — taşımaları önizle, Kaydet ile yaz</li>
               <li>Çift tık — ders saatini düzenle</li>
               <li>Sağ tık — kart menüsü</li>
             </ul>
           </DialogContent>
         </Dialog>
 
-        <Dialog open={!!editEntry} onOpenChange={(o) => !o && setEditEntry(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Ders saatini düzenle</DialogTitle>
-            </DialogHeader>
-            {editEntry && (
-              <div className="space-y-3 text-sm">
-                <p>
-                  {editEntry.class_section} · {editEntry.subject}
-                </p>
-                <div className="flex gap-2">
-                  <div>
-                    <Label>Gün</Label>
-                    <Input type="number" min={1} max={7} value={editDay} onChange={(e) => setEditDay(Number(e.target.value))} />
-                  </div>
-                  <div>
-                    <Label>Saat</Label>
-                    <Input type="number" min={1} value={editLesson} onChange={(e) => setEditLesson(Number(e.target.value))} />
-                  </div>
-                </div>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={editLock} onChange={(e) => setEditLock(e.target.checked)} />
-                  Kilitli
-                </label>
-                {ctx && ctx.rooms.length > 0 && (
-                  <DdSelectField
-                    label="Derslik"
-                    labelClassName="text-xs"
-                    value={editRoomId}
-                    onValueChange={setEditRoomId}
-                    placeholder="—"
-                    options={[
-                      { value: '', label: '—' },
-                      ...ctx.rooms.map((r) => ({ value: r.id, label: r.name })),
-                    ]}
-                  />
-                )}
-              </div>
-            )}
-            <DialogFooter className="gap-2">
-              {editEntry && (
-                <>
-                  <Button type="button" variant="destructive" size="sm" onClick={() => void editor.removeEntry(editEntry.id).then(() => setEditEntry(null))}>
-                    Sil
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={async () => {
-                      if (!editEntry || !token || !studio) return;
-                      const moved =
-                        editEntry.day_of_week !== editDay || editEntry.lesson_num !== editLesson;
-                      const roomChanged = (editEntry.room_id ?? '') !== editRoomId;
-                      const lockChanged = !!editEntry.is_locked !== editLock;
-                      if (moved) await editor.moveEntry(editEntry.id, editDay, editLesson);
-                      if (lockChanged) await editor.toggleLock(editEntry.id, editLock);
-                      if (roomChanged) {
-                        await patchEntry(token, studio.id, editor.programId, editEntry.id, {
-                          room_id: editRoomId || null,
-                        });
-                        await editor.load(editor.programId);
-                      }
-                      setEditEntry(null);
-                    }}
-                  >
-                    Kaydet
-                  </Button>
-                </>
-              )}
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <TimetableEntryEditDialog
+          entry={editEntry}
+          open={!!editEntry}
+          rooms={ctx?.rooms ?? []}
+          busy={editorBusy}
+          onClose={() => setEditEntry(null)}
+          onDelete={async () => {
+            if (!editEntry) return;
+            await editor.removeEntry(editEntry.id);
+            setEditEntry(null);
+          }}
+          onSave={async ({ day, lesson, locked, roomId }) => {
+            if (!editEntry || !token || !studio) return;
+            const moved = editEntry.day_of_week !== day || editEntry.lesson_num !== lesson;
+            const roomChanged = (editEntry.room_id ?? '') !== roomId;
+            const lockChanged = !!editEntry.is_locked !== locked;
+            if (moved) await editor.moveEntry(editEntry.id, day, lesson);
+            if (lockChanged) await editor.toggleLock(editEntry.id, locked);
+            if (roomChanged) {
+              await patchEntry(token, studio.id, editor.programId, editEntry.id, {
+                room_id: roomId || null,
+              });
+              await editor.load(editor.programId);
+            }
+            setEditEntry(null);
+          }}
+        />
       </div>
       <DragOverlay>
         {dragLabel ? (
