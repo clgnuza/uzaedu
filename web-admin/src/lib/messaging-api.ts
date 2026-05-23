@@ -406,7 +406,7 @@ export async function fetchMissingPhones(token: string, q: string, campaignId?: 
   if (q.startsWith('?')) new URLSearchParams(q.slice(1)).forEach((v, k) => sp.set(k, v));
   if (campaignId) sp.set('campaign_id', campaignId);
   const qs = sp.toString();
-  return apiFetch(`${MSG_API}/reports/missing-phones${qs ? `?${qs}` : ''}`, { token });
+  return apiFetch<{ missing: unknown[] }>(`${MSG_API}/reports/missing-phones${qs ? `?${qs}` : ''}`, { token });
 }
 
 export async function fetchDashboardCounts(token: string, q: string) {
