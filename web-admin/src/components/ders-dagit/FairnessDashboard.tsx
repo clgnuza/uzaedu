@@ -230,7 +230,10 @@ export function FairnessDashboard({ data }: { data: FairnessMetrics }) {
                   <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 10 }} />
                   <Tooltip
                     contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                    formatter={(v: number, name: string) => [v, name === 'gaps' ? 'Boşluk' : 'Ders saati']}
+                    formatter={(v, name) => [
+                      String(v ?? ''),
+                      name === 'gaps' ? 'Boşluk' : 'Ders saati',
+                    ]}
                   />
                   <ReferenceLine x={avg} stroke="hsl(var(--primary))" strokeDasharray="4 4" label={{ value: 'Ort.', position: 'top', fontSize: 10 }} />
                   <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={18}>

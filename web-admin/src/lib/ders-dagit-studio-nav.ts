@@ -82,11 +82,9 @@ export const STUDIO_EXTRA_PAGES = [
 /** Mobil / ayarlar: ana akış + veri + ekstra (Özet ve Ayarlar hariç) */
 export function allStudioModuleHrefs(): { href: string; label: string }[] {
   const flow = STUDIO_FLOW.filter((f) => f.href !== '/ders-dagit/studyo' && f.href !== '/ders-dagit/studyo/ayarlar');
-  const data = STUDIO_DATA_PAGES.filter(
-    (d) => !flow.some((f) => f.href === d.href),
-  );
-  const extra = STUDIO_EXTRA_PAGES.filter(
-    (e) => !flow.some((f) => f.href === e.href) && !data.some((d) => d.href === e.href),
-  );
+  const flowHrefs = new Set<string>(flow.map((f) => f.href));
+  const data = STUDIO_DATA_PAGES.filter((d) => !flowHrefs.has(d.href));
+  const dataHrefs = new Set<string>(data.map((d) => d.href));
+  const extra = STUDIO_EXTRA_PAGES.filter((e) => !flowHrefs.has(e.href) && !dataHrefs.has(e.href));
   return [...flow, ...data, ...extra];
 }

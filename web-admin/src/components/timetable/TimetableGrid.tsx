@@ -36,7 +36,7 @@ import {
   SLOT_STATUS_HEADER,
   type SlotDropStatus,
 } from '@/lib/timetable-slot-status';
-import { AlertTriangle, Ban, BookOpen, DoorOpen, GripVertical, Lock, User } from 'lucide-react';
+import { AlertTriangle, Ban, BookOpen, DoorOpen, Lock, User } from 'lucide-react';
 import { TimetableCellMenu } from './TimetableCellMenu';
 import { TimetableMatrixGrid, type MatrixAxis } from './TimetableMatrixGrid';
 import type { CompareEntryStatus, SlotCompareKind } from '@/lib/timetable-compare';
@@ -398,12 +398,6 @@ function CellChip({
           </div>
           <div className="absolute right-1 top-1">
             <ChipStatusIcons entry={entry} hasClash={hasClash} noRoom={noRoom} />
-            {editable && !entry.is_locked && placementMode === 'drag' && (
-              <GripVertical
-                className="mt-0.5 size-3 text-foreground/25 opacity-0 transition-opacity group-hover:opacity-100"
-                aria-hidden
-              />
-            )}
           </div>
         </>
       )}

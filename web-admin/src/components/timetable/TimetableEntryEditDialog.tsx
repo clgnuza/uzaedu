@@ -81,8 +81,7 @@ export function TimetableEntryEditDialog({
                 <DialogTitle className="text-base font-semibold tracking-tight" style={{ color: colors.text }}>
                   Ders saatini düzenle
                 </DialogTitle>
-                <DialogDescription asChild>
-                  <div className="flex items-start gap-2.5" style={{ color: colors.text }}>
+                <div className="flex items-start gap-2.5 text-sm" style={{ color: colors.text }} aria-hidden>
                     <span
                       className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg shadow-sm"
                       style={{ backgroundColor: colors.border, color: '#fff' }}
@@ -96,7 +95,10 @@ export function TimetableEntryEditDialog({
                         <p className="mt-0.5 truncate text-[11px] opacity-70">{entry.teacher_label}</p>
                       ) : null}
                     </div>
-                  </div>
+                </div>
+                <DialogDescription className="sr-only">
+                  {entry.subject}, {entry.class_section}
+                  {entry.teacher_label ? `, ${entry.teacher_label}` : ''}
                 </DialogDescription>
               </DialogHeader>
             </div>

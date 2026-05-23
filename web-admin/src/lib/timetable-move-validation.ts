@@ -59,7 +59,7 @@ export function validateTimetableMove(input: MoveValidationInput): MoveValidatio
     return { ok: false, message: 'Ders zaten bu saatte.', status };
   }
   if (status === 'forbidden') {
-    return { ok: false, message: closure?.label ?? 'Kapalı saat.', status };
+    return { ok: false, message: 'Kapalı saat.', status };
   }
   if (status === 'occupied') {
     return {

@@ -42,16 +42,16 @@ export function TimetableLegend({
       )}
       <span className="text-[10px] font-semibold uppercase tracking-wide text-foreground/70">Sürükle-bırak</span>
       <span className="inline-flex items-center gap-1">
-        <span className={cnBox(SLOT_STATUS_CELL.ok)} /> Uygun
+        {cnBox(SLOT_STATUS_CELL.ok)} Uygun
       </span>
       <span className="inline-flex items-center gap-1">
-        <span className={cnBox(SLOT_STATUS_CELL.swap)} /> Takas
+        {cnBox(SLOT_STATUS_CELL.swap)} Takas
       </span>
       <span className="inline-flex items-center gap-1">
-        <span className={cnBox(SLOT_STATUS_CELL.occupied)} /> Çakışma
+        {cnBox(SLOT_STATUS_CELL.occupied)} Çakışma
       </span>
       <span className="inline-flex items-center gap-1">
-        <span className={cnBox(SLOT_CLOSED_STATIC)} /> Kapalı saat
+        {cnBox(SLOT_CLOSED_STATIC)} Kapalı saat
       </span>
       <span className="inline-flex items-center gap-1">
         <span className="size-3 rounded bg-amber-200 dark:bg-amber-900/50 ring-1 ring-amber-400/40" /> Öğle

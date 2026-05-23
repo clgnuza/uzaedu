@@ -111,7 +111,12 @@ export function isAbortError(e: unknown): boolean {
   return false;
 }
 
-function shouldStringifyBody(body: BodyInit | null | undefined): body is Record<string, unknown> | unknown[] {
+/** JSON gövde; fetch öncesi stringify edilir (FormData/Blob hariç). */
+export type ApiJsonBody = Record<string, unknown> | unknown[];
+
+function shouldStringifyBody(
+  body: BodyInit | ApiJsonBody | null | undefined,
+): body is ApiJsonBody {
   if (body == null) return false;
   if (typeof body === 'string') return false;
   if (body instanceof FormData || body instanceof Blob || body instanceof ArrayBuffer) return false;
@@ -153,9 +158,6 @@ export function createFetchTimeoutSignal(ms: number): AbortSignal {
   setTimeout(() => ctrl.abort(), ms);
   return ctrl.signal;
 }
-
-/** JSON gövde; fetch öncesi stringify edilir (FormData/Blob hariç). */
-export type ApiJsonBody = Record<string, unknown> | unknown[];
 
 export type ApiFetchOptions = Omit<RequestInit, 'body'> & {
   token?: string | null;
