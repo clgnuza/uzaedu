@@ -424,7 +424,10 @@ export default function DersliklerPage() {
           token={token}
           draft={assignmentDraft}
           onDraftChange={setAssignmentDraft}
-          teachers={teachers}
+          teachers={teachers.map((t) => ({
+            ...t,
+            display_name: t.display_name ?? undefined,
+          }))}
           subjects={subjects}
           rooms={rooms}
           groups={groups}

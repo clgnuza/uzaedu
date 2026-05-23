@@ -154,9 +154,18 @@ export function createFetchTimeoutSignal(ms: number): AbortSignal {
   return ctrl.signal;
 }
 
+/** JSON gövde; fetch öncesi stringify edilir (FormData/Blob hariç). */
+export type ApiJsonBody = Record<string, unknown> | unknown[];
+
+export type ApiFetchOptions = Omit<RequestInit, 'body'> & {
+  token?: string | null;
+  apiBase?: string | null;
+  body?: BodyInit | ApiJsonBody | null;
+};
+
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit & { token?: string | null; apiBase?: string | null } = {}
+  options: ApiFetchOptions = {}
 ): Promise<T> {
   const { token, apiBase, ...init } = options;
   const requestBase =
