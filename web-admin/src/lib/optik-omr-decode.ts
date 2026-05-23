@@ -867,7 +867,7 @@ export async function decodeOmrHybrid(
     }
 
     // Client başarısız veya düşük confidence -> Server'a git
-    console.log('[OMR Hybrid] Client düşük kalite, server'a gidiliyor...', {
+    console.log('[OMR Hybrid] Client düşük kalite, servera gidiliyor...', {
       confidence: clientResult.confidence,
       needs_rescan: clientResult.needs_rescan,
     });
