@@ -827,7 +827,7 @@ export async function decodeOmrHybrid(
         confidence: serverResult.confidence,
         needs_rescan: serverResult.needs_rescan,
         anchor_score: serverResult.anchor_score,
-        warp_engine: serverResult.warp_engine,
+        warp_engine: serverResult.warp_engine as 'opencv' | 'legacy' | 'none',
         server_used: true,
       };
     } catch (err) {
@@ -886,7 +886,7 @@ export async function decodeOmrHybrid(
       confidence: serverResult.confidence,
       needs_rescan: serverResult.needs_rescan,
       anchor_score: serverResult.anchor_score,
-      warp_engine: serverResult.warp_engine,
+      warp_engine: serverResult.warp_engine as 'opencv' | 'legacy' | 'none',
       server_used: true,
     };
   } catch (err) {
@@ -902,7 +902,7 @@ export async function decodeOmrHybrid(
       confidence: serverResult.confidence,
       needs_rescan: serverResult.needs_rescan,
       anchor_score: serverResult.anchor_score,
-      warp_engine: serverResult.warp_engine,
+      warp_engine: serverResult.warp_engine as 'opencv' | 'legacy' | 'none',
       server_used: true,
     };
   }
