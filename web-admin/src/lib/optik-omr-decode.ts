@@ -822,7 +822,12 @@ export async function decodeOmrHybrid(
     try {
       const serverResult = await decodeOmrAdvanced(token, templateId, imageBase64, decodeOpts.maxQuestion);
       return {
-        ...serverResult,
+        answers: serverResult.answers,
+        perQuestion: serverResult.per_question,
+        confidence: serverResult.confidence,
+        needs_rescan: serverResult.needs_rescan,
+        anchor_score: serverResult.anchor_score,
+        warp_engine: serverResult.warp_engine,
         server_used: true,
       };
     } catch (err) {
@@ -876,7 +881,12 @@ export async function decodeOmrHybrid(
     const serverResult = await decodeOmrAdvanced(token, templateId, imageBase64, decodeOpts.maxQuestion);
 
     return {
-      ...serverResult,
+      answers: serverResult.answers,
+      perQuestion: serverResult.per_question,
+      confidence: serverResult.confidence,
+      needs_rescan: serverResult.needs_rescan,
+      anchor_score: serverResult.anchor_score,
+      warp_engine: serverResult.warp_engine,
       server_used: true,
     };
   } catch (err) {
@@ -887,7 +897,12 @@ export async function decodeOmrHybrid(
     const serverResult = await decodeOmrAdvanced(token, templateId, imageBase64, decodeOpts.maxQuestion);
 
     return {
-      ...serverResult,
+      answers: serverResult.answers,
+      perQuestion: serverResult.per_question,
+      confidence: serverResult.confidence,
+      needs_rescan: serverResult.needs_rescan,
+      anchor_score: serverResult.anchor_score,
+      warp_engine: serverResult.warp_engine,
       server_used: true,
     };
   }
