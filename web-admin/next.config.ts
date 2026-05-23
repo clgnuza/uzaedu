@@ -8,8 +8,8 @@ function localLanHttpOrigins(ports: readonly string[]): string[] {
   for (const list of Object.values(nets)) {
     if (!list) continue;
     for (const net of list as NetworkInterfaceInfo[]) {
-      const v4 =
-        net.family === "IPv4" || (typeof net.family === "number" && net.family === 4);
+      const fam = net.family as string | number;
+      const v4 = fam === "IPv4" || fam === 4;
       if (!v4 || net.internal) continue;
       for (const port of ports) {
         out.add(`http://${net.address}:${port}`);
