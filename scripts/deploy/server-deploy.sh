@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Hetzner /opt/uzaedu: git pull, backend+web build, pm2. Same as panel POST /api/deploy.
 set -euo pipefail
 
@@ -15,16 +15,26 @@ echo "[deploy] backend npm ci + build"
 (
   cd "$ROOT/backend"
   
-  # Python dependencies (OMR için)
+  # Python dependencies (OMR i?in) - pip yoksa opsiyonel
   if [[ -f requirements.txt ]]; then
     echo "[deploy] Python dependencies (requirements.txt)"
     if command -v python3 &> /dev/null; then
-      python3 -m pip install --user --only-binary :all: -r requirements.txt || \
-        python3 -m pip install --user -r requirements.txt || \
-        echo "[deploy] WARN: Python deps kurulamadi (opsiyonel)"
+      if python3 -m pip --version &> /dev/null; then
+        python3 -m pip install --user --only-binary :all: -r requirements.txt 2>/dev/null || \
+          python3 -m pip install --user -r requirements.txt 2>/dev/null || \
+          echo "[deploy] WARN: Python deps kurulamadi (opsiyonel, pip varsa)"
+      else
+        echo "[deploy] INFO: python3 var ama pip yok (opsiyonel gereksinim)"
+      fi
     else
-      echo "[deploy] WARN: python3 bulunamadi, requirements.txt atlanıyor"
+      echo "[deploy] INFO: python3 bulunamadi (opsiyonel gereksinim)"
     fi
+  fi
+  
+  # dist klas?r? temizli?i (ENOTEMPTY ?nleme)
+  if [[ -d dist ]]; then
+    echo "[deploy] dist klas?r? temizleniyor..."
+    rm -rf dist
   fi
   
   npm ci
