@@ -1,5 +1,5 @@
 import type { NextConfig } from "next";
-import { networkInterfaces } from "node:os";
+import { networkInterfaces, type NetworkInterfaceInfo } from "node:os";
 
 /** Aynı ağdaki telefon / tablet — next dev HMR ve cross-origin için (NEXT_DEV_EXTRA_ORIGINS ile genişletilebilir). */
 function localLanHttpOrigins(ports: readonly string[]): string[] {
@@ -7,7 +7,7 @@ function localLanHttpOrigins(ports: readonly string[]): string[] {
   const out = new Set<string>();
   for (const list of Object.values(nets)) {
     if (!list) continue;
-    for (const net of list) {
+    for (const net of list as NetworkInterfaceInfo[]) {
       const v4 =
         net.family === "IPv4" || (typeof net.family === "number" && net.family === 4);
       if (!v4 || net.internal) continue;
