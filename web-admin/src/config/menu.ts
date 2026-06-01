@@ -54,6 +54,8 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { isPublicAdminPath } from '@/lib/public-admin-paths';
+import { SCHOOL_ADMIN_SIDEBAR_SECTION } from './school-admin-sidebar';
+import { TEACHER_SIDEBAR_SECTION } from './teacher-sidebar';
 
 export const MENU_SIDEBAR: MenuConfig = [
   {
@@ -89,6 +91,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     title: 'Hesaplamalar',
     icon: Calculator,
     allowedRoles: ['school_admin', 'superadmin', 'teacher', 'moderator'],
+    hiddenInSidebarForRoles: ['school_admin', 'teacher'],
     menuGroup: 'violet',
     sidebarHubOnlyRoles: ['teacher'],
     sidebarHubPath: '/hesaplamalar',
@@ -172,11 +175,13 @@ export const MENU_SIDEBAR: MenuConfig = [
       },
     ],
   },
+  ...TEACHER_SIDEBAR_SECTION,
   {
     title: 'Öğrenci ve değerlendirme',
     titleByRole: { teacher: 'Öğrenci ve değerlendirme' },
     icon: Star,
     allowedRoles: ['teacher', 'moderator'],
+    hiddenInSidebarForRoles: ['teacher'],
     menuGroup: 'rose',
     children: [
       {
@@ -202,6 +207,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     titleByRole: { teacher: 'Plan ve takvim' },
     icon: Calendar,
     allowedRoles: ['teacher', 'school_admin', 'moderator'],
+    hiddenInSidebarForRoles: ['school_admin', 'teacher'],
     menuGroup: 'teal',
     children: [
       {
@@ -248,6 +254,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     titleByRole: { teacher: 'Haber ve yayın' },
     icon: Newspaper,
     allowedRoles: ['teacher', 'school_admin', 'superadmin'],
+    hiddenInSidebarForRoles: ['school_admin', 'teacher'],
     menuGroup: 'orange',
     children: [
       {
@@ -277,6 +284,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     titleByRole: { teacher: 'Satın alma' },
     icon: ShoppingBag,
     allowedRoles: ['teacher', 'school_admin', 'moderator'],
+    hiddenInSidebarForRoles: ['school_admin', 'teacher'],
     menuGroup: 'emerald',
     children: [
       {
@@ -298,6 +306,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     titleByRole: { teacher: 'Destek' },
     icon: Headphones,
     allowedRoles: ['teacher', 'school_admin'],
+    hiddenInSidebarForRoles: ['school_admin', 'teacher'],
     menuGroup: 'cyan',
     children: [
       {
@@ -358,19 +367,15 @@ export const MENU_SIDEBAR: MenuConfig = [
         icon: Calendar,
         allowedRoles: ['school_admin'],
       },
-      {
-        title: 'Okul değerlendirmesi',
-        path: '/school-reviews-report',
-        icon: BarChart3,
-        allowedRoles: ['school_admin'],
-      },
     ],
   },
+  ...SCHOOL_ADMIN_SIDEBAR_SECTION,
   {
     title: 'Ders ve ekranlar',
     titleByRole: { teacher: 'Okul işlemleri' },
     icon: School,
     allowedRoles: ['school_admin', 'teacher'],
+    hiddenInSidebarForRoles: ['school_admin', 'teacher'],
     menuGroup: 'sky',
     children: [
       {
@@ -402,7 +407,8 @@ export const MENU_SIDEBAR: MenuConfig = [
           { title: 'Program tablosu', path: '/ders-dagit/studyo/program', icon: TableProperties, allowedRoles: ['school_admin'] },
           { title: 'Yayın', path: '/ders-dagit/studyo/program?panel=publish', icon: Megaphone, allowedRoles: ['school_admin'] },
           { title: 'Ayarlar', path: '/ders-dagit/studyo/ayarlar', icon: SlidersHorizontal, allowedRoles: ['school_admin'] },
-          { title: 'Tercihler', path: '/ders-dagit/tercihler', icon: BookUser, allowedRoles: ['school_admin', 'teacher'] },
+          { title: 'Müsaitlik tercihleri', path: '/ders-dagit/tercihler', icon: BookUser, allowedRoles: ['school_admin', 'teacher'] },
+          { title: 'Müsaitlik ayarı', path: '/ders-dagit/studyo/ayarlar', icon: BookUser, allowedRoles: ['school_admin'] },
           { title: 'Sınıf görünümü', path: '/ders-dagit/veli', icon: LayoutGrid, allowedRoles: ['school_admin', 'teacher'] },
         ],
       },
@@ -433,6 +439,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     titleByRole: { teacher: 'Bilsem modülü' },
     icon: Sparkles,
     allowedRoles: ['teacher', 'school_admin', 'superadmin'],
+    hiddenInSidebarForRoles: ['school_admin', 'teacher'],
     requiredSchoolModule: 'bilsem',
     menuGroup: 'violet',
     children: [
@@ -474,6 +481,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     titleByRole: { teacher: 'Optik formlar' },
     icon: ScanLine,
     allowedRoles: ['teacher', 'school_admin'],
+    hiddenInSidebarForRoles: ['school_admin', 'teacher'],
     requiredSchoolModule: 'optical',
     menuGroup: 'fuchsia',
     children: [
@@ -512,6 +520,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     titleByRole: { teacher: 'Kertenkele Sınav' },
     icon: LayoutGrid,
     allowedRoles: ['teacher', 'school_admin'],
+    hiddenInSidebarForRoles: ['school_admin', 'teacher'],
     requiredSchoolModule: 'butterfly_exam',
     menuGroup: 'indigo',
     children: [
@@ -584,6 +593,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     titleByRole: { teacher: 'Mesaj' },
     icon: MessageSquare,
     allowedRoles: ['teacher', 'school_admin'],
+    hiddenInSidebarForRoles: ['school_admin', 'teacher'],
     requiredSchoolModule: 'messaging',
     menuGroup: 'teal',
     children: [
@@ -616,6 +626,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     title: 'Doğrudan Temin',
     icon: ClipboardList,
     allowedRoles: ['school_admin', 'superadmin', 'moderator'],
+    hiddenInSidebarForRoles: ['school_admin'],
     requiredSchoolModule: 'dogrudan_temin',
     menuGroup: 'teal',
     children: [
@@ -681,6 +692,7 @@ export const MENU_SIDEBAR: MenuConfig = [
     titleByRole: { teacher: 'Sorumluluk Sınavı' },
     icon: GraduationCap,
     allowedRoles: ['teacher', 'school_admin'],
+    hiddenInSidebarForRoles: ['school_admin', 'teacher'],
     requiredSchoolModule: 'sorumluluk_sinav',
     menuGroup: 'teal',
     children: [
@@ -977,6 +989,7 @@ export const ROUTE_ROLES: Record<string, ('school_admin' | 'superadmin' | 'teach
   '/ders-dagit/studyo/derslikler': ['school_admin'],
   '/ders-dagit/studyo/adalet': ['school_admin'],
   '/ders-dagit/studyo/ogretmenler': ['school_admin'],
+  '/ders-dagit/studyo/ogretmen-tercihleri': ['school_admin'],
   '/ders-dagit/studyo/dogrulama': ['school_admin'],
   '/ders-dagit/studyo/dersler': ['school_admin'],
   '/ders-dagit/studyo/gruplar': ['school_admin'],
@@ -1101,6 +1114,11 @@ export const ROUTE_SCHOOL_MODULES: Record<string, string | undefined> = {
   '/dogrudan-temin/malzeme-kutuphanesi': 'dogrudan_temin',
   '/dogrudan-temin/dashboard': 'dogrudan_temin',
   '/dogrudan-temin/butce-hierarsisi': 'dogrudan_temin',
+  '/hesaplamalar': 'extra_lesson',
+  '/ek-ders-hesaplama': 'extra_lesson',
+  '/sinav-gorev-ucretleri': 'extra_lesson',
+  '/yolluk-hesaplama/okul': 'extra_lesson',
+  '/yolluk-hesaplama/rapor': 'extra_lesson',
   '/kazanim-takip': 'outcome',
   '/duty': 'duty',
   '/tv': 'tv',
@@ -1163,6 +1181,7 @@ export const ROUTE_SCHOOL_MODULES: Record<string, string | undefined> = {
   '/ders-dagit/studyo/kurulum': 'ders_dagit',
   '/ders-dagit/studyo/donem': 'ders_dagit',
   '/ders-dagit/studyo/ogretmenler': 'ders_dagit',
+  '/ders-dagit/studyo/ogretmen-tercihleri': 'ders_dagit',
   '/ders-dagit/studyo/dersler': 'ders_dagit',
   '/ders-dagit/studyo/gruplar': 'ders_dagit',
   '/ders-dagit/studyo/derslikler': 'ders_dagit',

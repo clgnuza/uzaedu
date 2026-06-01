@@ -90,7 +90,7 @@ export class DersDagitController {
   }
 
   @Get('studios/:studioId/class-sections')
-  @Roles(UserRole.school_admin)
+  @Roles(UserRole.school_admin, UserRole.teacher)
   listStudioClassSections(@CurrentUser() u: CurrentUserPayload, @Param('studioId') studioId: string) {
     return this.service.listStudioClassSections(studioId, u.schoolId!);
   }
@@ -959,7 +959,7 @@ export class DersDagitController {
   }
 
   @Get('studios/:studioId/programs/:programId/export/parent.pdf')
-  @Roles(UserRole.school_admin)
+  @Roles(UserRole.school_admin, UserRole.teacher)
   async exportParentPdf(
     @CurrentUser() u: CurrentUserPayload,
     @Param('studioId') studioId: string,
