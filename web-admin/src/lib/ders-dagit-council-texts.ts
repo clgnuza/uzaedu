@@ -22,5 +22,3 @@ export const COUNCIL_PLACEHOLDERS = [
   { key: '{{tarih}}', desc: 'Tutanak tarihi' },
   { key: '{{mudur_adi}}', desc: 'Okul müdürü' },
 ] as const;
-
-export const COUNCIL_SETUP_STORAGE_KEY = (studioId: string) => `dd-council-texts-v1-${studioId}`;

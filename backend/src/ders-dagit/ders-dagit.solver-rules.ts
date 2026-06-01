@@ -1,3 +1,4 @@
+import { assignmentDayDistribution, isValidDayDistribution } from './ders-dagit.day-distribution';
 import { isStrictRule } from './ders-dagit.rules-merge';
 import { ruleOn, ruleOnForAssignment } from './ders-dagit.solver-rule-scope';
 import type { SolverSlot, SolverAssignment, SolverContext } from './ders-dagit.solver';
@@ -52,6 +53,20 @@ export function applySoftRulePenalties(
       const arr = byDay.get(e.day_of_week) ?? [];
       arr.push(e);
       byDay.set(e.day_of_week, arr);
+    }
+    const dist = assignmentDayDistribution(a.options);
+    const effH = a.biweekly ? Math.ceil(a.weekly_hours / 2) : a.weekly_hours;
+    if (dist && isValidDayDistribution(dist, effH)) {
+      const counts = [...byDay.values()].map((s) => s.length).sort((x, y) => x - y);
+      const expected = [...dist].sort((x, y) => x - y);
+      const ok =
+        counts.length === expected.length && counts.every((c, i) => c === expected[i]);
+      if (!ok) {
+        penalty += 12;
+        violations.push(
+          `${a.subject_name}: dağılım ${dist.join('+')} ile uyuşmuyor (gerçek: ${counts.join('+')})`,
+        );
+      }
     }
     if (ruleOnForAssignment(ctx, 'distribute_week', section, a) && a.weekly_hours >= 3 && byDay.size < Math.min(a.min_days_per_week ?? 2, 3)) {
       penalty += ruleWeight(ctx, 'distribute_week', section, 10);
@@ -212,19 +227,22 @@ export function applySoftRulePenalties(
     }
   }
 
-  if (ruleOn(ctx, 'important_early', '')) {
-    for (const e of entries) {
-      if (e.lesson_num > 5) {
-        penalty += ruleWeight(ctx, 'important_early', '', 4);
-        addViolation(
-          ctx,
-          violations,
-          strict_violations,
-          'important_early',
-          '',
-          `${e.subject}: geç saat (${e.lesson_num})`,
-        );
-      }
+  const assignById = new Map(assignments.map((a) => [a.id, a]));
+  for (const e of entries) {
+    const a = assignById.get(e.assignment_id);
+    if (!a) continue;
+    const sec = e.class_section;
+    if (!ruleOnForAssignment(ctx, 'important_early', sec, a)) continue;
+    if (e.lesson_num > 5) {
+      penalty += ruleWeight(ctx, 'important_early', sec, 4);
+      addViolation(
+        ctx,
+        violations,
+        strict_violations,
+        'important_early',
+        sec,
+        `${e.subject}: geç saat (${e.lesson_num})`,
+      );
     }
   }
 

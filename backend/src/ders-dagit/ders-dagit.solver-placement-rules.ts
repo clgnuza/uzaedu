@@ -1,3 +1,4 @@
+import { planningPlacementBlocked } from './ders-dagit.planning-placement';
 import { ruleOn, ruleOnForAssignment } from './ders-dagit.solver-rule-scope';
 import type { SolverAssignment, SolverContext, SolverSlot } from './ders-dagit.solver';
 import { rulesForSection } from './ders-dagit.solver';
@@ -23,6 +24,19 @@ function minGapDays(ctx: SolverContext, section: string): number {
   const p = rulesForSection(ctx, section).two_two_day_gap?.params as { min_gap?: number } | undefined;
   const n = Number(p?.min_gap ?? 2);
   return n >= 2 && n <= 6 ? Math.floor(n) : 2;
+}
+
+function maxSamePeriodDays(ctx: SolverContext, section: string): number {
+  const p = rulesForSection(ctx, section).max_same_period_week?.params as { max?: number } | undefined;
+  const n = Number(p?.max ?? 2);
+  return n >= 1 && n <= 7 ? Math.floor(n) : 2;
+}
+
+function effectiveMaxDaysPerWeek(ctx: SolverContext, section: string, a: SolverAssignment): number | null {
+  if (a.max_days_per_week != null) return a.max_days_per_week;
+  if (!ruleOnForAssignment(ctx, 'max_days_per_week_planning', section, a)) return null;
+  const n = Number(rulesForSection(ctx, section).max_days_per_week_planning?.params?.max);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : null;
 }
 
 function effHours(a: SolverAssignment): number {
@@ -86,7 +100,8 @@ export function placementBlocked(
       if (block.lesson_num == null || block.lesson_num === lesson) return true;
     }
   }
-  if (a.max_days_per_week != null && !days.includes(day) && days.length >= a.max_days_per_week) return true;
+  const maxDaysWeek = effectiveMaxDaysPerWeek(ctx, section, a);
+  if (maxDaysWeek != null && !days.includes(day) && days.length >= maxDaysWeek) return true;
 
   const maxPerDayRule = ruleOnForAssignment(ctx, 'max_one_per_day', section, a)
     ? 1
@@ -123,6 +138,28 @@ export function placementBlocked(
     if (!ok) return true;
   }
 
+  if (ruleOnForAssignment(ctx, 'not_consecutive_same_hour', section, a) && onDayCount > 0) {
+    const lessons = onDay.map((e) => e.lesson_num);
+    if (lessons.some((l) => Math.abs(l - lesson) === 1)) return true;
+  }
+
+  if (ruleOnForAssignment(ctx, 'max_same_period_week', section, a)) {
+    const samePeriodDays = new Set(
+      entries
+        .filter((e) => e.assignment_id === a.id && e.lesson_num === lesson)
+        .map((e) => e.day_of_week),
+    );
+    if (!samePeriodDays.has(day) && samePeriodDays.size >= maxSamePeriodDays(ctx, section)) return true;
+  }
+
+  if (ruleOnForAssignment(ctx, 'no_compact_week', section, a) && eff >= 2) {
+    const minDays = Math.min(ctx.work_days.length, Math.max(2, Math.ceil(eff / 2)));
+    const placed = entries.filter((e) => e.assignment_id === a.id).length;
+    const remaining = eff - placed - 1;
+    const daysAfter = days.includes(day) ? days.length : days.length + 1;
+    if (!days.includes(day) && daysAfter + remaining < minDays) return true;
+  }
+
   if (ruleOnForAssignment(ctx, 'four_plus_consecutive', section, a)) {
     const lessons = onDay.map((e) => e.lesson_num);
     if (maxRunIfAdd(lessons, lesson) >= maxConsecutiveRun(ctx, section)) return true;
@@ -141,7 +178,7 @@ export function placementBlocked(
     return true;
   }
 
-  if (ruleOn(ctx, 'important_early', '') && lesson > 5) return true;
+  if (ruleOnForAssignment(ctx, 'important_early', section, a) && lesson > 5) return true;
 
   if (ruleOnForAssignment(ctx, 'two_not_consecutive_days', section, a) && eff === 2) {
     for (const d of days) {
@@ -159,6 +196,8 @@ export function placementBlocked(
       if (span - all.length > 0) return true;
     }
   }
+
+  if (planningPlacementBlocked(entries, ctx, a, day, lesson)) return true;
 
   return false;
 }

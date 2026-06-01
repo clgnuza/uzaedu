@@ -26,6 +26,7 @@ const ICON_BY_HREF: Record<string, typeof Settings2> = {
   '/ders-dagit/studyo/donem': CalendarRange,
   '/ders-dagit/studyo/sinif-saatleri': Grid3x3,
   '/ders-dagit/studyo/ogretmenler': Users,
+  '/ders-dagit/studyo/ogretmen-tercihleri': Users,
   '/ders-dagit/studyo/dersler': BookOpen,
   '/ders-dagit/studyo/gruplar': GitBranch,
   '/ders-dagit/studyo/secmeli': Layers,

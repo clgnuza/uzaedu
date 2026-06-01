@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
@@ -35,7 +35,12 @@ import { AssignedLessonsPanel } from '@/components/ders-dagit/assigned-lessons-p
 import { LessonAssignmentDialog } from '@/components/ders-dagit/lesson-assignment-dialog';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { Users } from 'lucide-react';
+import { ListChecks, UserPlus, Users } from 'lucide-react';
+import { AddStudioTeacherDialog } from '@/components/ders-dagit/add-studio-teacher-dialog';
+import { DdCatalogAssignmentsHint } from '@/components/ders-dagit/dd-catalog-assignments-hint';
+import { normalizeClassSectionNamesFromPool } from '@/lib/class-section-canonical';
+import { useDersDagitSections } from '@/hooks/use-ders-dagit-sections';
+import { useDersDagitClassProfiles } from '@/hooks/use-ders-dagit-class-profiles';
 
 type PeriodsRes = {
   duty_max_lessons: number | null;
@@ -79,6 +84,7 @@ function mergeDraft(base: TeacherConfig, draft: TeacherDraft, fields: Set<BulkFi
 export default function OgretmenlerPage() {
   const { token } = useAuth();
   const { studio, refresh } = useDersDagitStudio();
+  const { profiles: classProfiles } = useDersDagitClassProfiles(studio?.id);
   const [rows, setRows] = useState<TeacherConfig[]>([]);
   const [periods, setPeriods] = useState<PeriodsRes | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -101,10 +107,11 @@ export default function OgretmenlerPage() {
   const [assignmentDraft, setAssignmentDraft] = useState<LessonAssignmentDraft | null>(null);
   const [listActiveId, setListActiveId] = useState<string | null>(null);
   const [assignPanelOpen, setAssignPanelOpen] = useState(false);
-  const [studioSections, setStudioSections] = useState<string[]>([]);
   const [bulkFields, setBulkFields] = useState<Set<BulkField>>(
     () => new Set<BulkField>(['hours', 'availability', 'shift']),
   );
+  const [addOpen, setAddOpen] = useState(false);
+  const assignmentsRef = useRef<HTMLElement>(null);
 
   const colorIndex = useMemo(() => new Map(rows.map((t, i) => [t.id, i])), [rows]);
   const active = useMemo(() => rows.find((t) => t.id === activeId) ?? null, [rows, activeId]);
@@ -116,7 +123,21 @@ export default function OgretmenlerPage() {
     [rows],
   );
   const roomNameById = useMemo(() => new Map(rooms.map((r) => [r.id, r.name])), [rooms]);
-  const allSections = useMemo(() => studioSections, [studioSections]);
+  const extraSectionKeys = useMemo(() => assignments.flatMap((a) => a.class_sections ?? []), [assignments]);
+  const { sections: allSections, reload: reloadSections } = useDersDagitSections(extraSectionKeys);
+  const assignmentStatsByUserId = useMemo(() => {
+    const m = new Map<string, { count: number; hours: number }>();
+    for (const a of assignments) {
+      for (const uid of a.teacher_ids ?? []) {
+        const cur = m.get(uid) ?? { count: 0, hours: 0 };
+        cur.count += 1;
+        cur.hours += Number(a.weekly_hours) || 0;
+        m.set(uid, cur);
+      }
+    }
+    return m;
+  }, [assignments]);
+
   const teacherAssignments = useMemo(() => {
     if (!active?.user_id) return [];
     return assignments.filter((a) => a.teacher_ids?.includes(active.user_id));
@@ -136,12 +157,11 @@ export default function OgretmenlerPage() {
       use_joined: false,
       group_id: '',
       weekly_hours: 4,
-      period_format: 'single',
+      day_distribution: [2, 2],
+      biweekly: false,
       room_mode: 'class',
       room_ids: suggestRooms('class', { section: sec, subjectName: subjects[0]?.name ?? '', teacherId, rooms }),
       place_first: false,
-      min_days_per_week: 2,
-      max_per_day: 2,
     });
     setListActiveId(null);
     setDialogOpen(true);
@@ -177,20 +197,26 @@ export default function OgretmenlerPage() {
         })),
         apiFetch<string[]>(`/ders-dagit/studios/${studio.id}/class-sections`, { token }).catch(() => []),
       ]);
+      const pool = [...(Array.isArray(secs) ? secs : []), ...asn.flatMap((a) => a.class_sections ?? [])];
       setRows(list);
       setPeriods(per);
-      setAssignments(asn);
+      setAssignments(
+        asn.map((row) => ({
+          ...row,
+          class_sections: normalizeClassSectionNamesFromPool(row.class_sections ?? [], pool),
+        })),
+      );
       setSubjects(sub);
       setRooms(rm);
       setGroups(gr.groups ?? []);
-      setStudioSections(Array.isArray(secs) ? secs : []);
+      void reloadSections();
       setActiveId((prev) => prev ?? list[0]?.id ?? null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Yüklenemedi');
     } finally {
       setLoading(false);
     }
-  }, [token, studio]);
+  }, [token, studio, reloadSections]);
 
   useEffect(() => {
     void load();
@@ -218,10 +244,16 @@ export default function OgretmenlerPage() {
     setDraft((prev) => (prev ? { ...prev, ...patch } : prev));
   }
 
-  function selectTeacher(id: string) {
+  function selectTeacher(id: string, opts?: { scrollAssignments?: boolean }) {
     if (dirty && id !== activeId && !window.confirm('Kaydedilmemiş değişiklikler silinecek. Devam?')) return;
     setActiveId(id);
     setDetailOpen(true);
+    setAssignPanelOpen(true);
+    if (opts?.scrollAssignments !== false) {
+      requestAnimationFrame(() => {
+        assignmentsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
   }
 
   async function persistTeacher(t: TeacherConfig) {
@@ -292,14 +324,35 @@ export default function OgretmenlerPage() {
     if (!token || !studio) return;
     setSyncing(true);
     try {
-      await apiFetch(`/ders-dagit/studios/${studio.id}/teachers/sync`, { token, method: 'POST' });
-      toast.success('Öğretmenler eklendi');
+      const res = await apiFetch<{ added?: number }>(`/ders-dagit/studios/${studio.id}/teachers/sync`, {
+        token,
+        method: 'POST',
+      });
+      toast.success(res?.added ? `${res.added} öğretmen eklendi` : 'Yeni öğretmen yok (liste güncel)');
       await load();
       await refresh({ force: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Senkron başarısız');
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function removeFromStudio() {
+    if (!token || !studio || !active) return;
+    if (!window.confirm(`${active.display_name ?? 'Öğretmen'} program listesinden çıkarılsın mı?`)) return;
+    setSaving(true);
+    try {
+      await apiFetch(`/ders-dagit/studios/${studio.id}/teachers/${active.id}`, { token, method: 'DELETE' });
+      toast.success('Programdan çıkarıldı');
+      setActiveId(null);
+      setDetailOpen(false);
+      await load();
+      await refresh({ force: true });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Silinemedi');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -328,7 +381,7 @@ export default function OgretmenlerPage() {
         void saveActive();
         break;
       case 'delete':
-        toast.info('Öğretmen silme okul personelinden yapılır');
+        void removeFromStudio();
         break;
     }
   }
@@ -349,13 +402,13 @@ export default function OgretmenlerPage() {
   );
 
   const teacherActions = [
-    { key: 'new' as const, label: 'Okuldan çek', disabled: syncing },
+    { key: 'new' as const, label: 'Okuldan çek', disabled: syncing, hidden: true },
     { key: 'edit' as const, label: 'Güncelle' },
     { key: 'timetable' as const, label: 'Zaman tablosu' },
     { key: 'assign' as const, label: 'Ders atama' },
     { key: 'constraints' as const, label: 'Kısıtlamalar' },
     { key: 'save' as const, label: 'Kaydet', disabled: !active || !dirty || saving },
-    { key: 'delete' as const, label: 'Sil', hidden: true },
+    { key: 'delete' as const, label: 'Programdan çıkar', variant: 'destructive' as const },
   ];
 
   return (
@@ -366,8 +419,17 @@ export default function OgretmenlerPage() {
         description="Öğretmen ayarları burada; ders atamaları Dersler/Derslikler ile ortak kayıttır."
       />
 
+      <DdCatalogAssignmentsHint />
+
       <DdCard variant="sky" className="mb-2">
-        <CardContent className={`${DD_CARD_CONTENT} flex flex-wrap gap-2 py-2`}>
+        <CardContent className={`${DD_CARD_CONTENT} flex flex-wrap items-center gap-2 py-2`}>
+          <Button type="button" variant="secondary" size="sm" disabled={syncing || !studio} onClick={() => void syncAll()}>
+            Okuldan çek
+          </Button>
+          <Button type="button" size="sm" disabled={!studio} onClick={() => setAddOpen(true)}>
+            <UserPlus className="mr-1 size-3.5" />
+            Öğretmen ekle
+          </Button>
           <Button type="button" variant="ghost" size="sm" asChild>
             <Link href="/ders-dagit/studyo/donem">Dönem</Link>
           </Button>
@@ -377,14 +439,29 @@ export default function OgretmenlerPage() {
         </CardContent>
       </DdCard>
 
+      {studio && (
+        <AddStudioTeacherDialog
+          open={addOpen}
+          onOpenChange={setAddOpen}
+          token={token}
+          studioId={studio.id}
+          onAdded={load}
+        />
+      )}
+
       {loading && !rows.length ? (
         <p className="text-sm text-muted-foreground">Yükleniyor…</p>
       ) : !rows.length ? (
         <DdCard variant="lavender">
           <CardContent className={DD_CARD_CONTENT}>
-            <Button type="button" size="sm" onClick={() => void syncAll()}>
-              Okuldan öğretmen çek
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" onClick={() => void syncAll()}>
+                Okuldan çek
+              </Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => setAddOpen(true)}>
+                Öğretmen ekle
+              </Button>
+            </div>
           </CardContent>
         </DdCard>
       ) : (
@@ -414,13 +491,14 @@ export default function OgretmenlerPage() {
                 maxLessons={maxLessons}
                 query={query}
                 onQueryChange={setQuery}
-                onSelect={selectTeacher}
+                assignmentStats={(uid) => assignmentStatsByUserId.get(uid)}
+                onSelect={(id) => selectTeacher(id)}
                 onDoubleClick={(id) => {
-                  selectTeacher(id);
+                  selectTeacher(id, { scrollAssignments: false });
                   setEditTab('limits');
                 }}
                 onTimeTableClick={(id) => {
-                  selectTeacher(id);
+                  selectTeacher(id, { scrollAssignments: false });
                   setTimeOpen(true);
                 }}
               />
@@ -481,7 +559,7 @@ export default function OgretmenlerPage() {
                 </div>
               ) : null
             }
-            footer="Satır seç · mini ızgara = zaman tablosu · sağdaki Güncelle = detay paneli"
+            footer="Öğretmen seçince alttaki atamalara kayar · mini ızgara = zaman tablosu"
           />
 
           <DdEntityTimeDialog
@@ -504,44 +582,48 @@ export default function OgretmenlerPage() {
             )}
           </DdEntityTimeDialog>
 
-          {active && (assignPanelOpen || teacherAssignments.length > 0) && (
-            <DdCard variant="teal" className="overflow-hidden">
-              <CardContent className="p-0">
-                <div className="grid min-h-[360px] gap-0 lg:grid-cols-[minmax(280px,1fr)_minmax(0,1.2fr)]">
-                  <AssignedLessonsPanel
-                    title="Seçili öğretmene atanan dersler"
-                    teacherName={active.display_name ?? active.user_id}
-                    rows={teacherAssignments}
-                    subjects={subjects}
-                    activeId={listActiveId}
-                    teacherNames={teacherNameById}
-                    roomNames={roomNameById}
-                    onSelect={setListActiveId}
-                    onNew={() => openNewAssignment()}
-                    onEdit={() => {
-                      const r = teacherAssignments.find((x) => x.id === listActiveId);
-                      if (r) openEditAssignment(r);
-                    }}
-                    onDelete={() => listActiveId && void deleteAssignment(listActiveId)}
-                  />
-                  <div className="hidden border-l bg-gradient-to-b from-muted/30 to-transparent p-6 lg:flex lg:flex-col lg:justify-center">
-                    <p className="text-sm font-medium text-foreground">Ders atama sihirbazı</p>
-                    <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                      Yeni ders veya Güncelle ile açılan pencerede adım adım öğretmen, ders, sınıf, saat ve derslik
-                      seçilir — dersler ve atamalar sayfasıyla aynı deneyim.
-                    </p>
-                    <Button type="button" size="sm" className="mt-4 w-fit gap-1" onClick={() => openNewAssignment()}>
-                      Yeni ders ekle
-                    </Button>
-                    <Button type="button" size="sm" variant="ghost" className="mt-2 w-fit text-xs" asChild>
-                      <Link href={`/ders-dagit/studyo/atamalar?teacher=${encodeURIComponent(active.user_id)}`}>
-                        Tüm atamalar sayfası
-                      </Link>
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </DdCard>
+          {active && (
+            <section ref={assignmentsRef} id="dd-ogretmen-atamalar" className="scroll-mt-3">
+              <DdCard variant="teal" className="overflow-hidden p-0">
+                <AssignedLessonsPanel
+                  wideTable
+                  fillHeight
+                  headerIcon={ListChecks}
+                  maxHeightClass="max-h-[min(56vh,520px)]"
+                  className="rounded-none border-0 shadow-none"
+                  title={`Atanan dersler — ${active.display_name ?? active.user_id}`}
+                  rows={teacherAssignments}
+                  classProfiles={classProfiles}
+                  capacityRows={assignments}
+                  subjects={subjects}
+                  activeId={listActiveId}
+                  teacherNames={teacherNameById}
+                  roomNames={roomNameById}
+                  onSelect={setListActiveId}
+                  onNew={() => openNewAssignment()}
+                  onEdit={() => {
+                    const r = teacherAssignments.find((x) => x.id === listActiveId);
+                    if (r) openEditAssignment(r);
+                  }}
+                  onDelete={() => listActiveId && void deleteAssignment(listActiveId)}
+                  toolbar={
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] text-muted-foreground tabular-nums">
+                        {teacherAssignments.length} atama
+                        {assignmentStatsByUserId.get(active.user_id)?.hours
+                          ? ` · ${assignmentStatsByUserId.get(active.user_id)!.hours} saat/hafta`
+                          : ''}
+                      </span>
+                      <Button type="button" size="sm" variant="ghost" className="h-7 text-xs" asChild>
+                        <Link href={`/ders-dagit/studyo/atamalar?teacher=${encodeURIComponent(active.user_id)}`}>
+                          Tüm atamalar
+                        </Link>
+                      </Button>
+                    </div>
+                  }
+                />
+              </DdCard>
+            </section>
           )}
 
           {token && studio && active && (

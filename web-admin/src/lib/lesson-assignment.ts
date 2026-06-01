@@ -1,5 +1,22 @@
 /** Program Stüdyosu ders ataması — öğretmen + ders + sınıf + saat + derslik */
 
+import { roomCoversSection } from '@/lib/class-section-canonical';
+import {
+  distributionOptionsForHours,
+  distributionToPlacementHints,
+  formatDayDistribution,
+  inferDayDistribution,
+  isValidDayDistribution,
+} from '@/lib/lesson-distribution';
+
+export type RoomForAssignment = {
+  id: string;
+  name: string;
+  allowed_subjects?: string[] | null;
+  allowed_class_sections?: string[] | null;
+  allowed_teacher_ids?: string[] | null;
+};
+
 export type LessonPeriodFormat = 'single' | 'double' | 'biweekly';
 
 export type RoomPickMode = 'class' | 'teacher' | 'shared' | 'subject';
@@ -33,18 +50,12 @@ export type LessonAssignmentDraft = {
   use_joined: boolean;
   group_id: string;
   weekly_hours: number;
-  period_format: LessonPeriodFormat;
+  /** Gün başına saat: [2,2], [3,1], [4] … */
+  day_distribution: number[];
+  biweekly: boolean;
   room_mode: RoomPickMode;
   room_ids: string[];
   place_first: boolean;
-  min_days_per_week: number;
-  max_per_day: number;
-};
-
-export const PERIOD_FORMAT_LABEL: Record<LessonPeriodFormat, string> = {
-  single: 'Tek',
-  double: 'İkili',
-  biweekly: 'İki haftada bir',
 };
 
 export const ROOM_MODE_LABEL: Record<RoomPickMode, string> = {
@@ -54,12 +65,18 @@ export const ROOM_MODE_LABEL: Record<RoomPickMode, string> = {
   subject: 'Derse ait derslik',
 };
 
+/** @deprecated UI’da kullanılmıyor; geriye dönük import */
+export const PERIOD_FORMAT_LABEL = {
+  single: 'Tek',
+  double: 'İkili',
+  biweekly: 'İki haftada bir',
+} as const;
+
 export function assignmentToDraft(
   row: LessonAssignmentRow,
   subjects: Array<{ id: string; short_code?: string | null }>,
 ): LessonAssignmentDraft {
   const opts = row.options ?? {};
-  const block = Number(opts.block_lessons ?? 0);
   const co =
     row.teacher_ids && row.teacher_ids.length > 1
       ? row.teacher_ids.slice(1)
@@ -67,12 +84,9 @@ export function assignmentToDraft(
         ? (opts.co_teacher_ids as string[])
         : [];
   const primary = row.teacher_ids?.[0] ?? '';
-  let period_format: LessonPeriodFormat = 'single';
-  if (row.biweekly) period_format = 'biweekly';
-  else if (block >= 2) period_format = 'double';
-
   const sections = row.class_sections ?? [];
   const use_joined = sections.length > 1;
+  const day_distribution = inferDayDistribution(row.weekly_hours, opts, !!row.biweekly);
 
   return {
     id: row.id,
@@ -85,16 +99,40 @@ export function assignmentToDraft(
     use_joined,
     group_id: row.group_id ?? '',
     weekly_hours: row.weekly_hours,
-    period_format,
+    day_distribution,
+    biweekly: !!row.biweekly,
     room_mode: (opts.room_mode as RoomPickMode) ?? 'class',
     room_ids: row.room_ids ?? [],
     place_first: !!row.place_first,
-    min_days_per_week: row.min_days_per_week ?? 2,
-    max_per_day: row.max_per_day ?? 2,
   };
 }
 
-export function draftToApiBody(draft: LessonAssignmentDraft) {
+export function assignmentUsesRoom(a: LessonAssignmentRow, room: RoomForAssignment): boolean {
+  if (a.room_ids?.includes(room.id)) return true;
+  const mode = (a.options?.room_mode as RoomPickMode | undefined) ?? 'class';
+  const sections = a.class_sections ?? [];
+  if (mode === 'class') {
+    return sections.some((sec) => roomCoversSection(room.name, room.allowed_class_sections, sec));
+  }
+  if (mode === 'teacher') {
+    return (a.teacher_ids ?? []).some((tid) => room.allowed_teacher_ids?.includes(tid));
+  }
+  if (mode === 'subject') {
+    const sn = a.subject_name.trim().toLocaleLowerCase('tr');
+    if (!sn) return false;
+    return (
+      room.allowed_subjects?.some(
+        (s) => {
+          const x = s.toLocaleLowerCase('tr');
+          return x.includes(sn) || sn.includes(x);
+        },
+      ) ?? false
+    );
+  }
+  return false;
+}
+
+export function draftToApiBody(draft: LessonAssignmentDraft, rooms?: RoomForAssignment[]) {
   const teacher_ids = [
     draft.primary_teacher_id,
     ...draft.co_teacher_ids.filter((id) => id && id !== draft.primary_teacher_id),
@@ -106,8 +144,23 @@ export function draftToApiBody(draft: LessonAssignmentDraft) {
       ? [draft.section]
       : [];
 
-  const biweekly = draft.period_format === 'biweekly';
-  const block_lessons = draft.period_format === 'double' ? 2 : undefined;
+  const effHours = draft.biweekly ? Math.ceil(draft.weekly_hours / 2) : draft.weekly_hours;
+  const dist = isValidDayDistribution(draft.day_distribution, effHours)
+    ? draft.day_distribution
+    : inferDayDistribution(draft.weekly_hours, {}, draft.biweekly);
+  const hints = distributionToPlacementHints(dist);
+  const block = hints.block_lessons >= 2 ? hints.block_lessons : undefined;
+
+  let room_ids = draft.room_ids;
+  if (!room_ids.length && draft.room_mode !== 'shared' && rooms?.length) {
+    const sec = class_sections[0] ?? draft.section;
+    room_ids = suggestRooms(draft.room_mode, {
+      section: sec,
+      subjectName: draft.subject_name,
+      teacherId: draft.primary_teacher_id,
+      rooms,
+    });
+  }
 
   return {
     id: draft.id,
@@ -116,20 +169,23 @@ export function draftToApiBody(draft: LessonAssignmentDraft) {
     class_sections,
     weekly_hours: Math.max(1, draft.weekly_hours),
     teacher_ids,
-    room_ids: draft.room_ids,
+    room_ids,
     group_id: draft.group_id || null,
-    biweekly,
+    biweekly: draft.biweekly,
     place_first: draft.place_first,
-    min_days_per_week: draft.min_days_per_week,
-    max_per_day: draft.max_per_day,
+    min_days_per_week: hints.min_days_per_week,
+    max_per_day: hints.max_per_day,
     options: {
       room_mode: draft.room_mode,
       co_teacher_ids: draft.co_teacher_ids,
       co_teach: draft.co_teacher_ids.length > 0,
-      ...(block_lessons ? { block_lessons } : {}),
+      day_distribution: dist,
+      ...(block ? { block_lessons: block } : {}),
     },
   };
 }
+
+export { distributionOptionsForHours, formatDayDistribution };
 
 export function suggestRooms(
   mode: RoomPickMode,
@@ -137,18 +193,12 @@ export function suggestRooms(
     section: string;
     subjectName: string;
     teacherId: string;
-    rooms: Array<{
-      id: string;
-      name: string;
-      allowed_subjects?: string[] | null;
-      allowed_class_sections?: string[] | null;
-      allowed_teacher_ids?: string[] | null;
-    }>;
+    rooms: RoomForAssignment[];
   },
 ): string[] {
   const { rooms, section, subjectName, teacherId } = ctx;
   if (mode === 'class' && section) {
-    const hit = rooms.filter((r) => r.allowed_class_sections?.includes(section));
+    const hit = rooms.filter((r) => roomCoversSection(r.name, r.allowed_class_sections, section));
     if (hit.length) return [hit[0]!.id];
   }
   if (mode === 'teacher' && teacherId) {

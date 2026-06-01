@@ -33,7 +33,9 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { dayLabel } from '@/lib/ders-dagit-labels';
-import { sortClassSections, sortValidationIssues } from '@/lib/class-section-sort';
+import { sortClassSections } from '@/lib/class-section-sort';
+import { dedupeSectionAliases } from '@/lib/class-section-canonical';
+import { ValidationIssuesList } from '@/components/ders-dagit/validation-issues-list';
 import { schoolSetupCapabilities } from '@/lib/school-profile-capabilities';
 import { toast } from 'sonner';
 
@@ -42,6 +44,8 @@ type ClassProfile = {
   name: string;
   class_sections: string[];
   max_lessons_per_day: number;
+  max_weekly_lessons?: number | null;
+  min_weekly_lessons?: number | null;
   education_shift?: string | null;
   start_time?: string | null;
   end_time?: string | null;
@@ -74,7 +78,8 @@ export default function KurulumPage() {
       apiFetch<SchoolProfileDto>(`/ders-dagit/studios/${studio.id}/school-profile`, { token }).catch(() => null),
     ]);
     setProfiles(p);
-    setSuggested(sortClassSections([...new Set([...studioSecs, ...s].map((x) => x.trim()).filter(Boolean))]));
+    const merged = [...new Set([...studioSecs, ...s].map((x) => x.trim()).filter(Boolean))];
+    setSuggested(dedupeSectionAliases(merged));
     setSchoolProfile(sp);
   }, [token, studio]);
 
@@ -252,6 +257,7 @@ export default function KurulumPage() {
                     <th className="px-3 py-2">Profil</th>
                     <th className="px-3 py-2">Şubeler</th>
                     <th className="px-3 py-2">Max/gün</th>
+                    <th className="px-3 py-2">Haftalık</th>
                     {caps.classProfileInternship ? <th className="px-3 py-2">Staj günleri</th> : null}
                     <th className="px-3 py-2 w-24" />
                   </tr>
@@ -271,6 +277,11 @@ export default function KurulumPage() {
                         <p className="mt-1 text-[10px] text-muted-foreground/80">{p.class_sections.length} şube</p>
                       </td>
                       <td className="px-3 py-2 tabular-nums">{p.max_lessons_per_day}</td>
+                      <td className="px-3 py-2 tabular-nums text-xs">
+                        {p.min_weekly_lessons != null || p.max_weekly_lessons != null
+                          ? `${p.min_weekly_lessons ?? '—'}–${p.max_weekly_lessons ?? '—'}`
+                          : '—'}
+                      </td>
                       {caps.classProfileInternship ? (
                         <td className="px-3 py-2 text-xs text-muted-foreground">
                           {(p.internship_days ?? []).length
@@ -292,6 +303,8 @@ export default function KurulumPage() {
                                 name: p.name,
                                 class_sections: p.class_sections,
                                 max_lessons_per_day: p.max_lessons_per_day,
+                                max_weekly_lessons: p.max_weekly_lessons ?? undefined,
+                                min_weekly_lessons: p.min_weekly_lessons ?? undefined,
                                 education_shift: (p.education_shift as 'morning' | 'afternoon') ?? null,
                                 start_time: p.start_time ?? undefined,
                                 end_time: p.end_time ?? undefined,
@@ -327,6 +340,8 @@ export default function KurulumPage() {
 
           <ClassProfileForm
             schoolType={schoolProfile?.type}
+            studioId={studio?.id}
+            token={token}
             suggestedSections={suggested}
             sectionTakenBy={sectionTakenBy}
             editing={editingProfile}
@@ -341,16 +356,14 @@ export default function KurulumPage() {
           <CardHeader className={DD_CARD_HEADER}>
             <CardTitle className="text-base">Ön doğrulama uyarıları</CardTitle>
           </CardHeader>
-          <CardContent className={DD_CARD_CONTENT}>
-            <ul className="max-h-48 space-y-1 overflow-y-auto text-sm">
-              {sortValidationIssues(overview!.validation).map((v, i) => (
-                <li key={i} className={v.severity === 'error' ? 'text-destructive' : 'text-amber-700 dark:text-amber-300'}>
-                  {v.message}
-                </li>
-              ))}
-            </ul>
-            <Button type="button" variant="outline" size="sm" className="mt-3" asChild>
-              <Link href="/ders-dagit/studyo/dogrulama">Doğrulama sayfası</Link>
+          <CardContent className={`${DD_CARD_CONTENT} space-y-3`}>
+            <p className="text-sm text-muted-foreground">
+              {overview!.validation.filter((v) => v.severity === 'error').length} hata,{' '}
+              {overview!.validation.filter((v) => v.severity !== 'error').length} uyarı
+            </p>
+            <ValidationIssuesList issues={overview!.validation} compact />
+            <Button type="button" variant="outline" size="sm" asChild>
+              <Link href="/ders-dagit/studyo/dogrulama">Tüm doğrulama kayıtları</Link>
             </Button>
           </CardContent>
         </DdCard>

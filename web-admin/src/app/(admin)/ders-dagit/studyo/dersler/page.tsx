@@ -1,9 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
+import { useDersDagitSections } from '@/hooks/use-ders-dagit-sections';
+import { useDersDagitClassProfiles } from '@/hooks/use-ders-dagit-class-profiles';
 import { useStudioValidation } from '@/hooks/use-studio-validation';
 import { apiFetch } from '@/lib/api';
 import {
@@ -12,18 +14,21 @@ import {
   type LessonAssignmentDraft,
   type LessonAssignmentRow,
 } from '@/lib/lesson-assignment';
+import { inferDayDistribution } from '@/lib/lesson-distribution';
 import { AssignedLessonsPanel } from '@/components/ders-dagit/assigned-lessons-panel';
 import { LessonAssignmentDialog } from '@/components/ders-dagit/lesson-assignment-dialog';
+import { sectionsMatch } from '@/lib/class-section-canonical';
 import {
+  canonicalizeSectionList,
   computeDerslerWarnings,
-  downloadTtkbCsv,
   filterAssignments,
+  mergeRecordBySectionAlias,
   schoolTypeLabel,
   subjectTotalHours,
   type DerslerAssignment,
   type DerslerSubject,
-  type TtkbPreview,
 } from '@/lib/dersler-studio';
+import { CatalogImportPanel } from '@/components/ders-dagit/catalog-import-panel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -43,9 +48,10 @@ import { DdEntityWorkspace } from '@/components/ders-dagit/dd-entity-workspace';
 import { SchoolPlanImportPanel } from '@/components/ders-dagit/school-plan-import-panel';
 import { SubjectEntityTable } from '@/components/ders-dagit/subject-entity-table';
 import { SubjectSectionHoursTable } from '@/components/ders-dagit/subject-section-hours-table';
+import { DdCatalogAssignmentsHint } from '@/components/ders-dagit/dd-catalog-assignments-hint';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { AlertTriangle, BookOpen, Download, Plus, RefreshCw } from 'lucide-react';
+import { AlertTriangle, BookOpen, ListChecks, Plus, RefreshCw, Search } from 'lucide-react';
 
 type Teacher = { user_id: string; display_name?: string };
 type Room = {
@@ -64,8 +70,11 @@ type Group = {
 
 export default function DerslerPage() {
   const { token } = useAuth();
-  const { studio } = useDersDagitStudio();
-  const { issues: validationIssues, refresh: refreshValidation } = useStudioValidation(studio?.id);
+  const { studio, overview } = useDersDagitStudio();
+  const { profiles: classProfiles } = useDersDagitClassProfiles(studio?.id);
+  const { issues: validationIssues } = useStudioValidation(studio?.id, {
+    initialIssues: overview?.validation,
+  });
 
   const [subjects, setSubjects] = useState<DerslerSubject[]>([]);
   const [assignments, setAssignments] = useState<DerslerAssignment[]>([]);
@@ -77,11 +86,6 @@ export default function DerslerPage() {
   const [subjectQuery, setSubjectQuery] = useState('');
   const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
   const [sectionFilter, setSectionFilter] = useState('');
-
-  const [ttkbPreview, setTtkbPreview] = useState<TtkbPreview | null>(null);
-  const [ttkbReplace, setTtkbReplace] = useState(false);
-  const [ttkbSyncAssign, setTtkbSyncAssign] = useState(false);
-  const [ttkbBusy, setTtkbBusy] = useState(false);
 
   const [groups, setGroups] = useState<Group[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -96,7 +100,18 @@ export default function DerslerPage() {
   const [subjectDraftHours, setSubjectDraftHours] = useState<Record<string, number>>({});
   const [subjectDetailOpen, setSubjectDetailOpen] = useState(false);
   const [subjectSaving, setSubjectSaving] = useState(false);
-  const [studioSections, setStudioSections] = useState<string[]>([]);
+  const [catalogSyncing, setCatalogSyncing] = useState(false);
+  const [assignmentQuery, setAssignmentQuery] = useState('');
+  const assignmentsRef = useRef<HTMLElement>(null);
+
+  const extraSectionKeys = useMemo(() => {
+    const keys: string[] = [];
+    for (const s of subjects) keys.push(...Object.keys(s.class_hours ?? {}));
+    for (const a of assignments) keys.push(...(a.class_sections ?? []));
+    return keys;
+  }, [subjects, assignments]);
+
+  const { sections: allSections, reload: reloadSections } = useDersDagitSections(extraSectionKeys);
 
   const teacherNameById = useMemo(
     () => new Map(teachers.map((t) => [t.user_id, t.display_name?.trim() || t.user_id.slice(0, 8)])),
@@ -108,34 +123,45 @@ export default function DerslerPage() {
     [subjects, selectedSubjectId],
   );
 
-  const allSections = useMemo(() => studioSections, [studioSections]);
-
   const filteredSubjects = useMemo(() => {
     const q = subjectQuery.trim().toLowerCase();
     if (!q) return subjects;
     return subjects.filter((s) => s.name.toLowerCase().includes(q) || (s.short_code ?? '').toLowerCase().includes(q));
   }, [subjects, subjectQuery]);
 
-  const tableRows = useMemo(
-    () => filterAssignments(assignments, selectedSubject, sectionFilter),
-    [assignments, selectedSubject, sectionFilter],
+  const normalizedAssignments = useMemo(
+    () =>
+      assignments.map((a) => ({
+        ...a,
+        class_sections: canonicalizeSectionList(a.class_sections ?? []),
+      })),
+    [assignments],
   );
+
+  const tableRows = useMemo(() => {
+    let rows = filterAssignments(normalizedAssignments, selectedSubject, sectionFilter);
+    const q = assignmentQuery.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((a) => {
+      const sec = a.class_sections.join(' ').toLowerCase();
+      const sub = a.subject_name.toLowerCase();
+      const teachers = (a.teacher_ids ?? [])
+        .map((id) => teacherNameById.get(id)?.toLowerCase() ?? '')
+        .join(' ');
+      return sub.includes(q) || sec.includes(q) || teachers.includes(q);
+    });
+  }, [normalizedAssignments, selectedSubject, sectionFilter, assignmentQuery, teacherNameById]);
 
   const warnings = useMemo(
     () => computeDerslerWarnings(subjects, assignments, validationIssues, teacherNameById),
     [subjects, assignments, validationIssues, teacherNameById],
   );
 
-  const catalogSubjects = useMemo(
-    () => subjects.filter((s) => !s.is_elective).sort((a, b) => a.name.localeCompare(b.name, 'tr')),
-    [subjects],
-  );
-
   const load = useCallback(async () => {
     if (!token || !studio) return;
     setLoading(true);
     try {
-      const [sub, asn, tch, rm, gr, sp, secs] = await Promise.all([
+      const [sub, asn, tch, rm, gr, sp] = await Promise.all([
         apiFetch<DerslerSubject[]>(`/ders-dagit/studios/${studio.id}/subjects`, { token }),
         apiFetch<DerslerAssignment[]>(`/ders-dagit/studios/${studio.id}/assignments`, { token }),
         apiFetch<Teacher[]>(`/ders-dagit/studios/${studio.id}/teachers`, { token }).catch(() => []),
@@ -146,23 +172,26 @@ export default function DerslerPage() {
         apiFetch<{ type: string }>(`/ders-dagit/studios/${studio.id}/school-profile`, { token }).catch(() => ({
           type: 'anadolu_lise',
         })),
-        apiFetch<string[]>(`/ders-dagit/studios/${studio.id}/class-sections`, { token }).catch(() => []),
       ]);
-      setSubjects(sub);
+      setSubjects(
+        sub.map((s) => ({
+          ...s,
+          class_hours: mergeRecordBySectionAlias(s.class_hours ?? {}),
+        })),
+      );
       setAssignments(asn);
-      setStudioSections(Array.isArray(secs) ? secs : []);
       setTeachers(tch);
       setRooms(rm);
       setGroups(gr.groups ?? []);
       setSchoolType(sp.type);
       setSelectedSubjectId((prev) => prev ?? sub[0]?.id ?? null);
-      await refreshValidation();
+      await reloadSections();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Veri yüklenemedi');
     } finally {
       setLoading(false);
     }
-  }, [token, studio, refreshValidation]);
+  }, [token, studio, reloadSections]);
 
   useEffect(() => {
     void load();
@@ -177,8 +206,19 @@ export default function DerslerPage() {
     }
     setSubjectDraftName(selectedSubject.name);
     setSubjectDraftCode(selectedSubject.short_code ?? '');
-    setSubjectDraftHours({ ...(selectedSubject.class_hours ?? {}) });
+    setSubjectDraftHours(mergeRecordBySectionAlias(selectedSubject.class_hours ?? {}));
   }, [selectedSubject?.id]);
+
+  function selectSubject(id: string, opts?: { scrollAssignments?: boolean }) {
+    setSelectedSubjectId(id);
+    setSectionFilter('');
+    setSubjectDetailOpen(true);
+    if (opts?.scrollAssignments !== false) {
+      requestAnimationFrame(() => {
+        assignmentsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+  }
 
   const subjectDirty =
     !!selectedSubject &&
@@ -205,7 +245,8 @@ export default function DerslerPage() {
       use_joined: false,
       group_id: '',
       weekly_hours: hrs,
-      period_format: 'single',
+      day_distribution: inferDayDistribution(hrs),
+      biweekly: false,
       room_mode: 'class',
       room_ids: suggestRooms('class', {
         section: sec,
@@ -214,8 +255,6 @@ export default function DerslerPage() {
         rooms,
       }),
       place_first: false,
-      min_days_per_week: 2,
-      max_per_day: 2,
     };
     setAssignmentDraft(draft);
     setListActiveId(null);
@@ -262,6 +301,26 @@ export default function DerslerPage() {
     await load();
   }
 
+  async function syncCatalogToAssignments(subjectId: string, quiet = false) {
+    if (!token || !studio) return;
+    setCatalogSyncing(true);
+    try {
+      const r = await apiFetch<{ created?: number; updated?: number }>(
+        `/ders-dagit/studios/${studio.id}/subjects/${subjectId}/sync-assignments`,
+        { token, method: 'POST' },
+      );
+      if (!quiet) {
+        const n = (r.created ?? 0) + (r.updated ?? 0);
+        toast.success(n > 0 ? `Katalog → atama (${r.created ?? 0} yeni, ${r.updated ?? 0} güncel)` : 'Eşlenecek şube saati yok');
+      }
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Eşitleme başarısız');
+    } finally {
+      setCatalogSyncing(false);
+    }
+  }
+
   async function saveSubjectDraft() {
     if (!token || !studio || !selectedSubject || !subjectDraftName.trim()) return;
     setSubjectSaving(true);
@@ -270,7 +329,7 @@ export default function DerslerPage() {
         ...selectedSubject,
         name: subjectDraftName.trim(),
         short_code: subjectDraftCode.trim() || null,
-        class_hours: { ...subjectDraftHours },
+        class_hours: mergeRecordBySectionAlias(subjectDraftHours),
       };
       await apiFetch(`/ders-dagit/studios/${studio.id}/subjects`, {
         token,
@@ -283,7 +342,8 @@ export default function DerslerPage() {
         },
       });
       setSubjects((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-      toast.success('Ders güncellendi');
+      await syncCatalogToAssignments(selectedSubject.id, true);
+      toast.success('Ders ve atamalar güncellendi');
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Kayıt başarısız');
@@ -333,59 +393,20 @@ export default function DerslerPage() {
     { key: 'delete' as const, label: 'Sil' },
   ];
 
-  async function previewTtkb(download = false, silent = false) {
-    if (!token || !studio) return;
-    setTtkbBusy(true);
-    try {
-      const data = await apiFetch<TtkbPreview>(`/ders-dagit/studios/${studio.id}/seed/ttkb/preview`, { token });
-      setTtkbPreview(data);
-      if (!data.cell_count) {
-        if (!silent) toast.error(data.empty_message ?? 'Liste boş. Kurulumda okul türünü kaydedin.');
-        return;
-      }
-      if (!silent) {
-        toast.success(
-          `${data.subject_count} ders · ${data.cell_count} satır (${schoolTypeLabel(data.school_type)})`,
-        );
-      }
-      if (download) downloadTtkbCsv(data, schoolTypeLabel(data.school_type));
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'TTKB listesi alınamadı');
-    } finally {
-      setTtkbBusy(false);
-    }
-  }
-
-  async function seedTtkb() {
-    if (!token || !studio) return;
-    setTtkbBusy(true);
-    try {
-      const r = await apiFetch<{
-        created: number;
-        updated: number;
-        assignments_created?: number;
-        names?: string[];
-      }>(`/ders-dagit/studios/${studio.id}/seed/ttkb`, {
-        token,
-        method: 'POST',
-        body: { replace: ttkbReplace, sync_assignments: ttkbSyncAssign },
-      });
-      await load();
-      if (!ttkbPreview) await previewTtkb(false, true);
-      toast.success(
-        `Ders kataloğuna ${r.names?.length ?? r.created + r.updated} ders kaydedildi` +
-          (ttkbSyncAssign ? ` · ${r.assignments_created ?? 0} atama` : ''),
-      );
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'TTKB yüklemesi başarısız');
-    } finally {
-      setTtkbBusy(false);
-    }
-  }
-
   const assignmentPanelTitle = selectedSubject
     ? `Atanan dersler — ${selectedSubject.name}`
     : 'Atanan dersler';
+
+  const catalogPlanForSection = useMemo(() => {
+    if (!sectionFilter) return null;
+    let total = 0;
+    for (const sub of subjects) {
+      for (const [sec, h] of Object.entries(sub.class_hours ?? {})) {
+        if (sectionsMatch(sec, sectionFilter)) total += Number(h) || 0;
+      }
+    }
+    return total > 0 ? total : null;
+  }, [subjects, sectionFilter]);
 
   return (
     <div className={cn(DD_PAGE, 'min-h-0')}>
@@ -412,120 +433,11 @@ export default function DerslerPage() {
         </div>
       </div>
 
+      <DdCatalogAssignmentsHint catalog />
+
       <SchoolPlanImportPanel onImported={() => void load()} />
 
-      <DdCard variant="sky" className="overflow-hidden">
-        <CardHeader className={DD_CARD_HEADER}>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Download className="size-4" aria-hidden />
-            TTKB / Maarif listesi
-          </CardTitle>
-        </CardHeader>
-        <CardContent className={cn(DD_CARD_CONTENT, 'space-y-3')}>
-          <p className="text-xs text-muted-foreground">
-            Kurum türüne göre TTKB ders listesi indirilir (
-            <a
-              href="https://ttkb.meb.gov.tr/www/haftalik-ders-cizelgeleri/kategori/7"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-medium text-primary underline"
-            >
-              ttkb.meb.gov.tr
-            </a>
-            ). Aşağıdaki ders kataloğu listesine kaydedilir; şube saatlerini ders kartından siz verirsiniz.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="outline" disabled={ttkbBusy} onClick={() => void previewTtkb(true)}>
-              <Download className="mr-1 size-3.5" aria-hidden />
-              TTKB listesini indir (CSV)
-            </Button>
-            <Button type="button" size="sm" variant="ghost" disabled={ttkbBusy} onClick={() => void previewTtkb(false)}>
-              Önizle
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={ttkbBusy || !ttkbPreview?.cells?.length}
-              onClick={() => ttkbPreview && downloadTtkbCsv(ttkbPreview, schoolTypeLabel(ttkbPreview.school_type))}
-            >
-              CSV tekrar indir
-            </Button>
-            <Button type="button" size="sm" disabled={ttkbBusy || !ttkbPreview} onClick={() => void seedTtkb()}>
-              Ders kataloğuna kaydet
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              disabled={!token || !studio}
-              onClick={async () => {
-                if (!token || !studio) return;
-                const r = await apiFetch<{ created: number; updated?: number }>(
-                  `/ders-dagit/studios/${studio.id}/assignments/sync-from-subjects`,
-                  { token, method: 'POST', body: {} },
-                );
-                toast.success(
-                  `${r.created} yeni${r.updated ? `, ${r.updated} güncellendi` : ''} — tekrar tıklamak çoğaltmaz`,
-                );
-                await load();
-              }}
-            >
-              Katalogdan atama üret
-            </Button>
-          </div>
-          <div className="flex flex-wrap gap-4 text-xs">
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={ttkbReplace} onChange={(e) => setTtkbReplace(e.target.checked)} />
-              Mevcut dersleri sil (değiştir)
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={ttkbSyncAssign} onChange={(e) => setTtkbSyncAssign(e.target.checked)} />
-              Atamaları da oluştur
-            </label>
-          </div>
-          {ttkbPreview && (
-            <div className="rounded-lg border bg-muted/30 p-2 text-xs" role="status">
-              <p>
-                TTKB önizleme: <strong>{ttkbPreview.subject_count}</strong> ders ·{' '}
-                <strong>{ttkbPreview.cell_count}</strong> satır
-                {ttkbPreview.grades?.length ? ` · sınıflar: ${ttkbPreview.grades.join(', ')}` : ''}
-                {ttkbPreview.yillik_plan_keys != null ? ` · yıllık plan: ${ttkbPreview.yillik_plan_keys}` : ''}
-              </p>
-              <ul className="mt-2 max-h-24 overflow-y-auto">
-                {(ttkbPreview.cells?.length ? ttkbPreview.cells : ttkbPreview.sample)
-                  .slice(0, 12)
-                  .map((c, i) => (
-                    <li key={i}>
-                      {c.grade}. sınıf — {c.subject_name} ({c.weekly_hours} saat, {c.source})
-                    </li>
-                  ))}
-              </ul>
-            </div>
-          )}
-          <div className="rounded-lg border border-primary/20 bg-primary/5 p-2 text-xs">
-            <p className="font-medium text-foreground">
-              Kayıtlı ders kataloğu ({catalogSubjects.length})
-            </p>
-            {catalogSubjects.length === 0 ? (
-              <p className="mt-1 text-muted-foreground">
-                Henüz kayıt yok. Önce önizleyin, sonra &quot;Ders kataloğuna kaydet&quot; kullanın.
-              </p>
-            ) : (
-              <ul className="mt-2 flex max-h-32 flex-wrap gap-1 overflow-y-auto">
-                {catalogSubjects.map((s) => (
-                  <li
-                    key={s.id}
-                    className="rounded-md border bg-background px-2 py-0.5 text-[11px]"
-                  >
-                    {s.name}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </CardContent>
-      </DdCard>
+      <CatalogImportPanel schoolType={schoolType} onImported={load} />
 
       {warnings.length > 0 && (
         <div
@@ -579,14 +491,9 @@ export default function DerslerPage() {
               activeId={selectedSubjectId}
               query={subjectQuery}
               onQueryChange={setSubjectQuery}
-              onSelect={(id) => {
-                setSelectedSubjectId(id);
-                setSectionFilter('');
-                setSubjectDetailOpen(true);
-              }}
+              onSelect={(id) => selectSubject(id)}
               onDoubleClick={(id) => {
-                setSelectedSubjectId(id);
-                setSubjectDetailOpen(true);
+                selectSubject(id, { scrollAssignments: false });
                 openNewAssignment(subjects.find((s) => s.id === id) ?? null);
               }}
             />
@@ -610,48 +517,81 @@ export default function DerslerPage() {
                   sections={allSections}
                   onChange={setSubjectDraftHours}
                 />
-                <Button type="button" size="sm" disabled={!subjectDirty || subjectSaving} onClick={() => void saveSubjectDraft()}>
-                  Dersi kaydet
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" size="sm" disabled={!subjectDirty || subjectSaving} onClick={() => void saveSubjectDraft()}>
+                    Dersi kaydet
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={catalogSyncing || subjectSaving}
+                    onClick={() => void syncCatalogToAssignments(selectedSubject.id)}
+                  >
+                    Katalog → atamalar
+                  </Button>
+                </div>
               </div>
             ) : null
           }
-          footer="Satır seç · çift tık = ders atama · şube saatleri tabloda düzenlenir"
+          footer="Ders seçince alttaki atamalara kayar · çift tık = yeni atama"
         />
 
-        <div className="grid min-h-[min(50vh,520px)] gap-3 lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
-          <AssignedLessonsPanel
-            title={assignmentPanelTitle}
-            rows={tableRows as LessonAssignmentRow[]}
-            subjects={subjects}
-            activeId={listActiveId}
-            onSelect={setListActiveId}
-            onNew={() => openNewAssignment()}
-            onEdit={() => {
-              const a = tableRows.find((x) => x.id === listActiveId);
-              if (a) openEditAssignment(a);
-            }}
-            onDelete={() => listActiveId && void deleteAssignment(listActiveId)}
-          />
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <Label htmlFor="dd-section-filter" className="sr-only">
-                Şube filtresi
-              </Label>
-              <DdSelect
-                className="h-8 min-w-[140px] text-xs"
-                value={sectionFilter}
-                onValueChange={setSectionFilter}
-                placeholder="Tüm şubeler"
-                options={[{ value: '', label: 'Tüm şubeler' }, ...allSections.map((s) => ({ value: s, label: s }))]}
-                id="dd-section-filter"
-              />
-              <p className="text-xs text-muted-foreground">
-                Ders atama: öğretmen → ders → sınıf → saat → derslik (Program Stüdyosu adımları)
-              </p>
-            </div>
-          </div>
-        </div>
+        <section ref={assignmentsRef} id="dd-ders-atamalar" className="scroll-mt-3">
+          <DdCard variant="teal" className="overflow-hidden p-0">
+            <AssignedLessonsPanel
+              wideTable
+              fillHeight
+              headerIcon={ListChecks}
+              maxHeightClass="max-h-[min(56vh,520px)]"
+              className="rounded-none border-0 shadow-none"
+              title={assignmentPanelTitle}
+              filterSection={sectionFilter || undefined}
+              catalogPlanHours={catalogPlanForSection}
+              classProfiles={classProfiles}
+              capacityRows={normalizedAssignments as LessonAssignmentRow[]}
+              rows={tableRows as LessonAssignmentRow[]}
+              subjects={subjects}
+              activeId={listActiveId}
+              teacherNames={teacherNameById}
+              onSelect={setListActiveId}
+              onNew={() => openNewAssignment()}
+              onEdit={() => {
+                const a = tableRows.find((x) => x.id === listActiveId);
+                if (a) openEditAssignment(a);
+              }}
+              onDelete={() => listActiveId && void deleteAssignment(listActiveId)}
+              toolbar={
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative min-w-[10rem] flex-1 sm:max-w-xs">
+                    <Search
+                      className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+                      aria-hidden
+                    />
+                    <Input
+                      className="h-8 pl-8 text-xs"
+                      placeholder="Ders, şube veya öğretmen…"
+                      value={assignmentQuery}
+                      onChange={(e) => setAssignmentQuery(e.target.value)}
+                    />
+                  </div>
+                  <DdSelect
+                    className="h-8 min-w-[8rem] text-xs"
+                    value={sectionFilter}
+                    onValueChange={setSectionFilter}
+                    placeholder="Tüm şubeler"
+                    options={[{ value: '', label: 'Tüm şubeler' }, ...allSections.map((s) => ({ value: s, label: s }))]}
+                    id="dd-section-filter"
+                  />
+                  <span className="text-[11px] text-muted-foreground tabular-nums">
+                    {tableRows.length} kayıt
+                    {selectedSubject ? ` · ${selectedSubject.name}` : ''}
+                  </span>
+                </div>
+              }
+            />
+          </DdCard>
+        </section>
       </div>
 
       {token && studio && (

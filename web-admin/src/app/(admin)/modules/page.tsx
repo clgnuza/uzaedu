@@ -67,6 +67,7 @@ export default function ModulesPage() {
   const [error, setError] = useState<string | null>(null);
   const [toggling, setToggling] = useState<Record<string, boolean>>({});
   const [filters, setFilters] = useState({ city: '', district: '', search: '' });
+  const [appliedFilters, setAppliedFilters] = useState({ city: '', district: '', search: '' });
   const [bulkModule, setBulkModule] = useState<SchoolModuleKey | ''>('');
   const [bulkBusy, setBulkBusy] = useState(false);
   const limit = 500;
@@ -101,7 +102,7 @@ export default function ModulesPage() {
     setLoading(true);
     setError(null);
     try {
-      const q = buildSchoolsQuery({ page: 1, limit, ...filters });
+      const q = buildSchoolsQuery({ page: 1, limit, ...appliedFilters });
       const res = await apiFetch<ListResponse>(`/schools?${q}`, { token });
       setData(res);
     } catch (e) {
@@ -109,7 +110,7 @@ export default function ModulesPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, filters.city, filters.district, filters.search]);
+  }, [token, appliedFilters.city, appliedFilters.district, appliedFilters.search]);
 
   useEffect(() => {
     fetchSchools();
@@ -265,7 +266,10 @@ export default function ModulesPage() {
             görünmez.
           </p>
           <form
-            onSubmit={(e) => { e.preventDefault(); fetchSchools(); }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              setAppliedFilters({ ...filters });
+            }}
             className="mb-2 flex flex-wrap items-end gap-2"
           >
             <div>

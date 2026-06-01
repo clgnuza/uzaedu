@@ -1,3 +1,5 @@
+import { canonicalizeSectionList } from '@/lib/class-section-canonical';
+
 /** Şube adları: önce sınıf düzeyi (9→12), sonra şube harfi, sonra tam metin. */
 export function parseGradeFromClassSection(section: string): number {
   const s = section.trim();
@@ -34,7 +36,7 @@ export function sortClassSections(sections: string[]): string[] {
 }
 
 export function formatClassSectionsList(sections: string[], sep = ', '): string {
-  return sortClassSections(sections).join(sep);
+  return canonicalizeSectionList(sections).join(sep);
 }
 
 const SECTION_ISSUE_CODES = new Set(['SECTION_NO_HOURS']);

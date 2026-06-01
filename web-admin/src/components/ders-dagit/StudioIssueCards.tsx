@@ -26,8 +26,11 @@ export function StudioIssueCards({
   onRefresh?: () => void;
 }) {
   const sorted = sortValidationIssues(issues);
-  const errors = sorted.filter((i) => i.severity === 'error').slice(0, max);
-  const warns = sorted.filter((i) => i.severity !== 'error').slice(0, Math.max(0, max - errors.length));
+  const allErrors = sorted.filter((i) => i.severity === 'error');
+  const allWarns = sorted.filter((i) => i.severity !== 'error');
+  const errors = allErrors.slice(0, max);
+  const warns = allWarns.slice(0, Math.max(0, max - errors.length));
+  const hidden = sorted.length - errors.length - warns.length;
 
   if (!errors.length && !warns.length) {
     return (
@@ -77,10 +80,27 @@ export function StudioIssueCards({
               className="rounded-lg border border-amber-500/30 bg-amber-50/50 px-3 py-2 text-sm dark:bg-amber-950/20"
             >
               <p className="text-amber-900 dark:text-amber-100">{d.text}</p>
-              {d.hint ? <p className="mt-1 text-xs text-muted-foreground">{d.hint}</p> : null}
+              {d.hint ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {d.href ? (
+                    <Link href={d.href} className="text-primary underline">
+                      {d.hint}
+                    </Link>
+                  ) : (
+                    d.hint
+                  )}
+                </p>
+              ) : null}
             </div>
           );
         })}
+        {hidden > 0 ? (
+          <Button type="button" variant="outline" size="sm" className="w-full" asChild>
+            <Link href="/ders-dagit/studyo/dogrulama">
+              +{hidden} kayıt daha — doğrulama sayfasında tümünü gör
+            </Link>
+          </Button>
+        ) : null}
       </CardContent>
     </DdCard>
   );

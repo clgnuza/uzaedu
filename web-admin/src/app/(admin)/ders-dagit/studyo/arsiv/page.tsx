@@ -13,6 +13,7 @@ import {
 } from '@/lib/ders-dagit-program-api';
 import { Button } from '@/components/ui/button';
 import { DdCard, CardContent, CardHeader, CardTitle } from '@/components/ders-dagit/dd-ui';
+import { programStatusLabel } from '@/lib/ders-dagit-labels';
 import { toast } from 'sonner';
 
 export default function ArsivPage() {
@@ -55,7 +56,7 @@ export default function ArsivPage() {
             <div>
               <p className="font-medium">{p.name ?? p.id.slice(0, 8)}</p>
               <p className="text-xs text-muted-foreground">
-                {p.status} · puan {p.score ?? '—'} · {p.archived_at?.slice(0, 10)}
+                {programStatusLabel(p.status)} · puan {p.score ?? '—'} · {p.archived_at?.slice(0, 10)}
               </p>
             </div>
             <div className="flex flex-wrap gap-1">

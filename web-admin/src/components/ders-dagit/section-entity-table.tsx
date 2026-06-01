@@ -4,8 +4,17 @@ import { useMemo } from 'react';
 import { DdMiniWeekGrid } from '@/components/ders-dagit/dd-mini-week-grid';
 import { countSectionSlots, emptySchedule, type LongBreakDef, type SectionScheduleConfig } from '@/lib/section-schedule';
 import { GraduationCap } from 'lucide-react';
+import { DdEntityTableShell, ddEntityRowClass } from '@/components/ders-dagit/dd-entity-table-shell';
 import { sortClassSections } from '@/lib/class-section-sort';
+import type { SectionAssignmentStatus } from '@/lib/assigned-lessons-summary';
 import { cn } from '@/lib/utils';
+
+const STATUS_BADGE: Record<SectionAssignmentStatus['tone'], string> = {
+  ok: 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-200',
+  warn: 'bg-amber-500/15 text-amber-900 dark:text-amber-100',
+  error: 'bg-destructive/15 text-destructive',
+  neutral: 'bg-muted text-muted-foreground',
+};
 
 type Props = {
   sections: string[];
@@ -19,6 +28,7 @@ type Props = {
   onQueryChange: (q: string) => void;
   onSelect: (section: string) => void;
   onTimeTableClick?: (section: string) => void;
+  assignmentStatusBySection?: Record<string, SectionAssignmentStatus>;
 };
 
 export function SectionEntityTable({
@@ -33,6 +43,7 @@ export function SectionEntityTable({
   onQueryChange,
   onSelect,
   onTimeTableClick,
+  assignmentStatusBySection,
 }: Props) {
   const ordered = useMemo(() => sortClassSections(sections), [sections]);
   const filtered = useMemo(() => {
@@ -42,24 +53,15 @@ export function SectionEntityTable({
   }, [ordered, query]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 border-b px-3 py-2">
-        <input
-          type="search"
-          placeholder="Bul: şube…"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          className="w-full max-w-xs rounded-md border bg-background px-2 py-1 text-sm"
-        />
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
-      <table className="w-full min-w-[32rem] text-left text-sm">
-        <thead className="sticky top-0 z-10 bg-muted text-xs uppercase text-muted-foreground shadow-sm">
+    <DdEntityTableShell placeholder="Bul: şube…" query={query} onQueryChange={onQueryChange}>
+      <table className="dd-entity-table min-w-[40rem]">
+        <thead className="dd-entity-thead">
           <tr>
             <th className="w-8 px-2 py-2" />
-            <th className="px-2 py-2">Adı</th>
-            <th className="hidden px-2 py-2 sm:table-cell">Kısa</th>
-            <th className="px-2 py-2 text-right">Müsait slot</th>
+            <th className="px-2 py-2">Şube</th>
+            <th className="px-2 py-2 text-right whitespace-nowrap">Atanan</th>
+            <th className="px-2 py-2 whitespace-nowrap">Durum</th>
+            <th className="px-2 py-2 text-right whitespace-nowrap">Müsait slot</th>
             <th className="px-2 py-2">Zaman</th>
           </tr>
         </thead>
@@ -68,17 +70,61 @@ export function SectionEntityTable({
             const active = sec === activeSection;
             const sched = schedules[sec] ?? emptySchedule();
             const slotCounts = countSectionSlots(sched, workDays, schoolMaxLessons, studioLessonsByDow, longBreaks);
+            const assign = assignmentStatusBySection?.[sec];
             return (
               <tr
                 key={sec}
-                className={cn('cursor-pointer border-t hover:bg-muted/40', active && 'bg-primary/10')}
+                className={ddEntityRowClass(
+                  active,
+                  assign?.tone === 'error' ? 'dd-entity-row-warn' : undefined,
+                )}
                 onClick={() => onSelect(sec)}
               >
-                <td className="px-2 py-1.5">
-                  <GraduationCap className="size-4 text-violet-600" aria-hidden />
+                <td>
+                  <span className="dd-entity-row-icon dd-entity-row-icon-violet">
+                    <GraduationCap className="size-3.5" aria-hidden />
+                  </span>
                 </td>
-                <td className="px-2 py-1.5 font-medium">{sec}</td>
-                <td className="hidden px-2 py-1.5 text-muted-foreground sm:table-cell">{sec}</td>
+                <td className="max-w-[14rem] truncate px-2 py-1.5 font-medium" title={sec}>
+                  {sec}
+                </td>
+                <td
+                  className="px-2 py-1.5 text-right tabular-nums text-xs"
+                  title={assign?.title}
+                >
+                  {assign ? (
+                    <>
+                      <span
+                        className={cn(
+                          'font-semibold',
+                          assign.tone === 'error' && 'text-destructive',
+                        )}
+                      >
+                        {assign.assignedHours}
+                      </span>
+                      {assign.weeklyLimit != null ? (
+                        <span className="text-muted-foreground"> / {assign.weeklyLimit}</span>
+                      ) : null}
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </td>
+                <td className="px-2 py-1.5">
+                  {assign && assign.label !== '—' ? (
+                    <span
+                      className={cn(
+                        'dd-entity-status max-w-[7rem] truncate',
+                        STATUS_BADGE[assign.tone],
+                      )}
+                      title={assign.title}
+                    >
+                      {assign.label}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground">—</span>
+                  )}
+                </td>
                 <td
                   className="px-2 py-1.5 text-right tabular-nums"
                   title={`${slotCounts.placeable} müsait · ${slotCounts.closed} kapalı (K) · ${slotCounts.lessonCells} ders hücresi`}
@@ -115,7 +161,6 @@ export function SectionEntityTable({
           })}
         </tbody>
       </table>
-      </div>
-    </div>
+    </DdEntityTableShell>
   );
 }

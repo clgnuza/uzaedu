@@ -35,8 +35,8 @@ export type AdvancedRelationDef = {
   catalog_key?: string;
   solver_supported: boolean;
   param_label?: string;
-  /** params alanı: max, max_run, min_gap */
-  param_key?: 'max' | 'max_run' | 'min_gap';
+  /** params alanı: max, max_run, min_gap, lesson_nums → blocked_lessons */
+  param_key?: 'max' | 'max_run' | 'min_gap' | 'lesson_nums';
 };
 
 export const SIMPLE_PLANNING_RULES: SimpleRelationDef[] = [
@@ -50,7 +50,8 @@ export const SIMPLE_PLANNING_RULES: SimpleRelationDef[] = [
     id: 'not_consecutive_same_day',
     label_tr: 'Dersler aynı gün ardarda yerleştirilemez',
     hint: 'Aynı gün bitişik saat yok',
-    solver_supported: false,
+    catalog_key: 'not_consecutive_same_hour',
+    solver_supported: true,
   },
   {
     id: 'distribute_week',
@@ -112,7 +113,7 @@ export const ADVANCED_PLANNING_RULES: AdvancedRelationDef[] = [
     kart_kodu: '#21',
     label_tr: 'Seçilen kartlar aynı saatte olamaz',
     hint: 'İki kayıt çakışması (farklı ders/öğretmen)',
-    solver_supported: false,
+    solver_supported: true,
   },
   {
     id: 'adv_same_day',
@@ -134,8 +135,9 @@ export const ADVANCED_PLANNING_RULES: AdvancedRelationDef[] = [
     id: 'adv_not_consecutive_same_day',
     kart_kodu: '#3',
     label_tr: 'Aynı gün ardışık saatte olamaz',
-    hint: 'Bitişik saat yasak (çözücü: yakında)',
-    solver_supported: false,
+    hint: 'Bitişik saat yasak',
+    catalog_key: 'not_consecutive_same_hour',
+    solver_supported: true,
   },
   {
     id: 'adv_max_gap',
@@ -172,8 +174,9 @@ export const ADVANCED_PLANNING_RULES: AdvancedRelationDef[] = [
     label_tr: 'Haftada en fazla ders günü sayısı',
     param_label: 'Max gün',
     param_key: 'max',
-    hint: 'Atama kartında max gün/hafta alanı ile desteklenir',
-    solver_supported: false,
+    hint: 'Atama kartındaki max gün yoksa bu değer uygulanır',
+    catalog_key: 'max_days_per_week_planning',
+    solver_supported: true,
   },
   {
     id: 'adv_max_per_day',
@@ -191,7 +194,8 @@ export const ADVANCED_PLANNING_RULES: AdvancedRelationDef[] = [
     param_label: 'Max gün',
     param_key: 'max',
     hint: 'Haftada aynı saatte en fazla X gün',
-    solver_supported: false,
+    catalog_key: 'max_same_period_week',
+    solver_supported: true,
   },
   {
     id: 'adv_parallel_start',
@@ -204,7 +208,8 @@ export const ADVANCED_PLANNING_RULES: AdvancedRelationDef[] = [
     id: 'adv_a_before_b_week',
     kart_kodu: '#41',
     label_tr: 'Hafta içinde A dersleri B’den önce',
-    solver_supported: false,
+    hint: 'İlk seçilen ders A, ikinci B (sıra önemli)',
+    solver_supported: true,
   },
   {
     id: 'adv_fixed_hours',
@@ -218,20 +223,24 @@ export const ADVANCED_PLANNING_RULES: AdvancedRelationDef[] = [
     id: 'adv_no_start_hour',
     kart_kodu: '#32',
     label_tr: 'Seçilen saatlerde ders başlayamaz',
-    hint: 'Müsait değil / tercih penceresi',
-    solver_supported: false,
+    hint: 'Yasak dilimleri madde listesinden işaretleyin',
+    param_key: 'lesson_nums',
+    solver_supported: true,
   },
   {
     id: 'adv_no_end_hour',
     kart_kodu: '#33',
     label_tr: 'Seçilen saatlerde ders bitemez',
-    solver_supported: false,
+    hint: 'Bitiş yasak dilimlerini madde listesinden seçin',
+    param_key: 'lesson_nums',
+    solver_supported: true,
   },
   {
     id: 'adv_faster_than_curriculum',
     kart_kodu: '#64',
     label_tr: 'Müfredattan hızlı yerleştirme yok',
-    solver_supported: false,
+    catalog_key: 'no_compact_week',
+    solver_supported: true,
   },
 ];
 

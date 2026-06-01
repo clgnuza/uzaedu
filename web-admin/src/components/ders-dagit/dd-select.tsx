@@ -15,6 +15,10 @@ export type DdSelectOption = { value: string; label: string };
 export const DD_SELECT_TRIGGER =
   'h-9 min-h-9 w-full min-w-0 text-sm sm:h-10';
 
+/** Uzun ders / şube adları için daha küçük punto, tam metin ipucu */
+export const DD_SELECT_TRIGGER_LONG =
+  'h-auto min-h-9 w-full min-w-0 py-1.5 text-xs leading-snug sm:min-h-10 sm:text-xs';
+
 export type DdSelectProps = {
   value: string;
   onValueChange: (value: string) => void;
@@ -23,6 +27,8 @@ export type DdSelectProps = {
   disabled?: boolean;
   className?: string;
   id?: string;
+  /** Uzun seçenek etiketleri (atama diyaloğu vb.) */
+  longLabels?: boolean;
 };
 
 export function DdSelect({
@@ -33,10 +39,15 @@ export function DdSelect({
   disabled,
   className,
   id,
+  longLabels,
 }: DdSelectProps) {
+  const selectedLabel = options.find((o) => o.value === value)?.label ?? '';
   return (
-    <Select value={value} onValueChange={onValueChange} disabled={disabled}>
-      <SelectTrigger className={cn(DD_SELECT_TRIGGER, className)} id={id} />
+    <Select value={value} onValueChange={onValueChange} disabled={disabled} title={selectedLabel || undefined}>
+      <SelectTrigger
+        className={cn(longLabels ? DD_SELECT_TRIGGER_LONG : DD_SELECT_TRIGGER, className)}
+        id={id}
+      />
       <SelectValue placeholder={placeholder} />
       <SelectContent>
         {options.map((o) => (
@@ -88,7 +99,7 @@ export function DdMultiSelect({
       size={rows}
       onChange={(e) => onValueChange(Array.from(e.target.selectedOptions, (o) => o.value))}
       className={cn(
-        'w-full min-w-0 rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground',
+        'w-full min-w-0 rounded-lg border border-input bg-background px-3 py-2 text-xs leading-snug text-foreground sm:text-sm',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
         'disabled:cursor-not-allowed disabled:opacity-50',
         className,

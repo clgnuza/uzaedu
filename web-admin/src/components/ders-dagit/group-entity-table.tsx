@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { GitBranch } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { DdEntityTableShell, ddEntityRowClass } from '@/components/ders-dagit/dd-entity-table-shell';
 import { formatClassSectionsList } from '@/lib/class-section-sort';
 import { groupModeLabel } from '@/lib/ders-dagit-labels';
 
@@ -35,61 +35,48 @@ export function GroupEntityTable({ groups, activeId, query, onQueryChange, onSel
   }, [groups, query]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 border-b px-3 py-2">
-        <input
-          type="search"
-          placeholder="Bul: grup…"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          className="w-full max-w-xs rounded-md border bg-background px-2 py-1 text-sm"
-        />
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
-        <table className="w-full min-w-[24rem] text-left text-sm">
-          <thead className="sticky top-0 z-10 bg-muted text-xs uppercase text-muted-foreground shadow-sm">
-            <tr>
-              <th className="w-8 px-2 py-2" />
-              <th className="px-2 py-2">Ad</th>
-              <th className="hidden px-2 py-2 sm:table-cell">Mod</th>
-              <th className="px-2 py-2">Alt şubeler</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((g) => {
-              const active = g.id === activeId;
-              return (
-                <tr
-                  key={g.id}
-                  className={cn('cursor-pointer border-t hover:bg-muted/40', active && 'bg-primary/10')}
-                  onClick={() => onSelect(g.id)}
-                >
-                  <td className="px-2 py-1.5">
-                    <GitBranch className="size-4 text-violet-600" aria-hidden />
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <span className="font-medium">{g.name}</span>
-                    <span className="ml-1 text-xs text-muted-foreground">({g.abbreviation})</span>
-                  </td>
-                  <td className="hidden px-2 py-1.5 text-xs text-muted-foreground sm:table-cell">
-                    {groupModeLabel(g.parallel_mode)}
-                  </td>
-                  <td className="max-w-[14rem] truncate px-2 py-1.5 text-xs text-muted-foreground">
-                    {formatClassSectionsList(g.member_sections) || '—'}
-                  </td>
-                </tr>
-              );
-            })}
-            {!filtered.length && (
-              <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
-                  Kayıt yok — verilerden öner veya elle ekleyin.
+    <DdEntityTableShell placeholder="Bul: grup…" query={query} onQueryChange={onQueryChange}>
+      <table className="dd-entity-table min-w-[24rem]">
+        <thead className="dd-entity-thead">
+          <tr>
+            <th className="w-8 px-2 py-2" />
+            <th className="px-2 py-2">Ad</th>
+            <th className="hidden px-2 py-2 sm:table-cell">Mod</th>
+            <th className="px-2 py-2">Alt şubeler</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filtered.map((g) => {
+            const active = g.id === activeId;
+            return (
+              <tr key={g.id} className={ddEntityRowClass(active)} onClick={() => onSelect(g.id)}>
+                <td>
+                  <span className="dd-entity-row-icon dd-entity-row-icon-violet">
+                    <GitBranch className="size-3.5" aria-hidden />
+                  </span>
+                </td>
+                <td className="px-2 py-1.5">
+                  <span className="font-medium">{g.name}</span>
+                  <span className="ml-1 text-xs text-muted-foreground">({g.abbreviation})</span>
+                </td>
+                <td className="hidden px-2 py-1.5 text-xs text-muted-foreground sm:table-cell">
+                  {groupModeLabel(g.parallel_mode)}
+                </td>
+                <td className="max-w-[14rem] truncate px-2 py-1.5 text-xs text-muted-foreground">
+                  {formatClassSectionsList(g.member_sections) || '—'}
                 </td>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
+            );
+          })}
+          {!filtered.length && (
+            <tr>
+              <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
+                Kayıt yok — verilerden öner veya elle ekleyin.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </DdEntityTableShell>
   );
 }

@@ -1,4 +1,5 @@
 import { buildTimetableRows, type GridRow, type LongBreakDef } from '@/lib/timetable-grid-build';
+import { schoolSetupCapabilities } from '@/lib/school-profile-capabilities';
 
 /** Şube slot ızgarası — backend ile uyumlu */
 
@@ -92,6 +93,32 @@ export function setDayMaxLessons(schedule: SectionScheduleConfig, day: number, m
 export function setInternshipDays(schedule: SectionScheduleConfig, days: number[]): SectionScheduleConfig {
   const internship_days = [...new Set(days.filter((d) => d >= 1 && d <= 7))].sort((a, b) => a - b);
   return { ...schedule, internship_days };
+}
+
+/** MTAL dışı okul türlerinde staj bilgisini kaldırır */
+export function stripInternshipFromSchedule(schedule: SectionScheduleConfig): SectionScheduleConfig {
+  const cells = { ...(schedule.cells ?? {}) };
+  let cellChanged = false;
+  for (const [k, v] of Object.entries(cells)) {
+    if (v === 'internship') {
+      delete cells[k];
+      cellChanged = true;
+    }
+  }
+  const hasDays = (schedule.internship_days?.length ?? 0) > 0;
+  if (!cellChanged && !hasDays) return schedule;
+  const next: SectionScheduleConfig = { ...schedule, cells: { ...cells } };
+  delete next.internship_days;
+  if (!Object.keys(next.cells ?? {}).length) delete next.cells;
+  return next;
+}
+
+export function scheduleForSchoolType(
+  schedule: SectionScheduleConfig,
+  schoolType: string | null | undefined,
+): SectionScheduleConfig {
+  if (schoolSetupCapabilities(schoolType).sectionScheduleInternship) return schedule;
+  return stripInternshipFromSchedule(schedule);
 }
 
 export function emptySchedule(): SectionScheduleConfig {

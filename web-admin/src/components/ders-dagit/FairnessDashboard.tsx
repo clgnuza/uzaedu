@@ -22,6 +22,7 @@ import {
   barColorForLessons,
   fairnessIndexTone,
 } from '@/lib/ders-dagit-fairness';
+import { programStatusLabel } from '@/lib/ders-dagit-labels';
 import { DdCard, CardContent, CardHeader, CardTitle } from '@/components/ders-dagit/dd-ui';
 import { Button } from '@/components/ui/button';
 
@@ -145,7 +146,7 @@ export function FairnessDashboard({ data }: { data: FairnessMetrics }) {
             <h1 className="text-lg font-semibold tracking-tight">Öğretmen yükü ve adalet</h1>
             <p className="text-sm text-muted-foreground">
               {data.program_name ?? 'Program'} ·{' '}
-              <span className="capitalize">{data.program_status ?? '—'}</span> — idare özeti
+              <span>{programStatusLabel(data.program_status)}</span> — idare özeti
             </p>
             <span
               className={cn(

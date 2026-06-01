@@ -22,6 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { programStatusLabel } from '@/lib/ders-dagit-labels';
 import { cn } from '@/lib/utils';
 import { Building2, Check, Eye, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -171,7 +172,7 @@ export function SchoolPlanImportPanel({ onImported, className }: Props) {
                     }}
                     options={plans.map((p) => ({
                       value: p.id,
-                      label: `${p.name ?? p.id.slice(0, 8)} (${p.status})`,
+                      label: `${p.name ?? p.id.slice(0, 8)} (${programStatusLabel(p.status)})`,
                     }))}
                   />
                 </div>

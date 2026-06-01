@@ -15,6 +15,7 @@ import {
   SlidersHorizontal,
   Printer,
 } from 'lucide-react';
+import { workflowStatusLabel } from '@/lib/ders-dagit-labels';
 import { matchStudioHref, STUDIO_FLOW } from '@/lib/ders-dagit-studio-nav';
 
 const FLOW_ICONS = {
@@ -35,13 +36,6 @@ const FLOW = STUDIO_FLOW.map((f) => ({
 
 const TONE_ACTIVE = 'dd-nav-pill-active';
 const TONE_IDLE = 'dd-nav-pill text-muted-foreground hover:text-foreground';
-
-const STATUS_LABEL: Record<string, string> = {
-  draft: 'Taslak',
-  generated: 'Üretildi',
-  published: 'Yayında',
-  reviewing: 'İnceleniyor',
-};
 
 export function StudioHubBar({ overview }: { overview: StudioOverview | null }) {
   const pathname = usePathname();
@@ -70,7 +64,7 @@ export function StudioHubBar({ overview }: { overview: StudioOverview | null }) 
                 : 'bg-violet-100 text-violet-800 dark:bg-violet-950/50 dark:text-violet-200',
             )}
           >
-            {STATUS_LABEL[st?.workflow_status ?? ''] ?? st?.workflow_status ?? 'Taslak'}
+            {workflowStatusLabel(st?.workflow_status)}
           </span>
           <div className="flex items-center gap-1.5 sm:gap-2">
             <div className="relative size-9 sm:size-11">

@@ -205,8 +205,12 @@ export function PlanningRelationsPanel() {
         <Button
           type="button"
           size="sm"
-          disabled={saving || !simple.length}
+          disabled={saving || !studio}
           onClick={() => {
+            if (!studio) {
+              toast.error('Önce bir stüdyo seçin.');
+              return;
+            }
             setPickerMode('simple');
             setPickerOpen(true);
           }}
@@ -218,8 +222,12 @@ export function PlanningRelationsPanel() {
           type="button"
           size="sm"
           variant="outline"
-          disabled={saving || !advanced.length}
+          disabled={saving || !studio}
           onClick={() => {
+            if (!studio) {
+              toast.error('Önce bir stüdyo seçin.');
+              return;
+            }
             setPickerMode('advanced');
             setPickerOpen(true);
           }}

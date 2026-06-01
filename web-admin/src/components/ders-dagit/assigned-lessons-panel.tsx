@@ -1,8 +1,14 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { formatClassSectionsList } from '@/lib/class-section-sort';
 import type { LessonAssignmentRow } from '@/lib/lesson-assignment';
+import {
+  assignedLessonsStatusLabel,
+  type ClassProfileCapacity,
+  computeAssignedLessonsSummary,
+} from '@/lib/assigned-lessons-summary';
 import { cn } from '@/lib/utils';
 import { BookOpen, Copy, DoorOpen, GraduationCap, Pencil, Plus, Trash2, type LucideIcon } from 'lucide-react';
 
@@ -36,6 +42,21 @@ type Props = {
   headerIcon?: LucideIcon;
   teacherNames?: Map<string, string>;
   roomNames?: Map<string, string>;
+  /** Sabit yükseklik + iç kaydırma; gömülü panellerde `fillHeight` kullanın */
+  maxHeightClass?: string;
+  fillHeight?: boolean;
+  className?: string;
+  toolbar?: ReactNode;
+  /** Tam genişlik sayfada tüm sütunları göster */
+  wideTable?: boolean;
+  /** Şube filtresi — özet ve katalog karşılaştırması */
+  filterSection?: string;
+  /** Seçili şube için katalog (plan) saat toplamı */
+  catalogPlanHours?: number | null;
+  /** Sınıf profili — haftalık saat sınırı uyarısı */
+  classProfiles?: ClassProfileCapacity[];
+  /** Kapasite hesabı için tüm atamalar (liste filtreliyse) */
+  capacityRows?: LessonAssignmentRow[];
   onSelect: (id: string) => void;
   onNew: () => void;
   onEdit: () => void;
@@ -57,11 +78,35 @@ export function AssignedLessonsPanel({
   onEdit,
   onDelete,
   onCopy,
+  maxHeightClass = 'max-h-[min(72vh,640px)]',
+  fillHeight = false,
+  className,
+  toolbar,
+  wideTable = false,
+  filterSection,
+  catalogPlanHours,
+  classProfiles,
+  capacityRows,
 }: Props) {
-  const totalHours = rows.reduce((s, r) => s + r.weekly_hours, 0);
+  const summary = computeAssignedLessonsSummary(rows, {
+    filterSection,
+    catalogPlanHours,
+    classProfiles,
+    capacityRows,
+  });
+  const status = assignedLessonsStatusLabel(summary);
+  const colSection = wideTable ? 'table-cell' : 'hidden md:table-cell';
+  const colTeacher = wideTable ? 'table-cell' : 'hidden lg:table-cell';
+  const colRoom = wideTable ? 'table-cell' : 'hidden xl:table-cell';
 
   return (
-    <div className="dd-assigned-panel flex h-full min-h-[320px] flex-col overflow-hidden rounded-xl border border-white/60 bg-gradient-to-b from-card/95 to-muted/30 shadow-sm dark:border-white/10">
+    <div
+      className={cn(
+        'dd-assigned-panel flex min-h-[280px] flex-col overflow-hidden rounded-xl border border-white/60 bg-gradient-to-b from-card/95 to-muted/30 shadow-sm dark:border-white/10',
+        fillHeight ? 'h-full min-h-0' : maxHeightClass,
+        className,
+      )}
+    >
       <div className="border-b border-primary/10 bg-gradient-to-r from-primary/8 via-transparent to-teal-500/5 px-4 py-3">
         <div className="flex items-start gap-3">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary shadow-inner">
@@ -73,22 +118,25 @@ export function AssignedLessonsPanel({
               <p className="truncate text-xs font-medium text-primary">{teacherName}</p>
             ) : null}
             <p className="text-[10px] text-muted-foreground">
-              {rows.length} atama · {totalHours} haftalık ders saati
+              {summary.count} atama · {summary.totalHours} saat/hafta
+              {filterSection ? ` · ${filterSection}` : ''}
             </p>
           </div>
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      {toolbar ? <div className="shrink-0 border-b bg-muted/20 px-3 py-2">{toolbar}</div> : null}
+
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <table className="w-full text-left text-sm">
           <thead className="sticky top-0 z-10 border-b bg-muted/80 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur-sm">
             <tr>
               <th className="w-12 px-2 py-2">Kısa</th>
               <th className="px-2 py-2">Ders</th>
-              <th className="hidden px-2 py-2 md:table-cell">Şube</th>
-              <th className="hidden px-2 py-2 lg:table-cell">Öğretmen</th>
+              <th className={cn('px-2 py-2', colSection)}>Şube</th>
+              <th className={cn('px-2 py-2', colTeacher)}>Öğretmen</th>
               <th className="w-12 px-2 py-2 text-right">Saat</th>
-              <th className="hidden w-24 px-2 py-2 xl:table-cell">Derslik</th>
+              <th className={cn('w-24 px-2 py-2', colRoom)}>Derslik</th>
             </tr>
           </thead>
           <tbody>
@@ -118,13 +166,13 @@ export function AssignedLessonsPanel({
                       {code}
                     </span>
                   </td>
-                  <td className="px-2 py-2 font-medium">{r.subject_name}</td>
-                  <td className="hidden max-w-[8rem] truncate px-2 py-2 text-xs text-muted-foreground md:table-cell">
+                  <td className="max-w-[10rem] truncate px-2 py-2 font-medium sm:max-w-none">{r.subject_name}</td>
+                  <td className={cn('max-w-[10rem] truncate px-2 py-2 text-xs text-muted-foreground', colSection)}>
                     {formatClassSectionsList(r.class_sections) || '—'}
                   </td>
-                  <td className="hidden max-w-[7rem] truncate px-2 py-2 text-xs lg:table-cell">{teacher}</td>
+                  <td className={cn('max-w-[9rem] truncate px-2 py-2 text-xs', colTeacher)}>{teacher}</td>
                   <td className="px-2 py-2 text-right tabular-nums font-semibold">{r.weekly_hours}</td>
-                  <td className="hidden px-2 py-2 text-xs text-muted-foreground xl:table-cell">
+                  <td className={cn('px-2 py-2 text-xs text-muted-foreground', colRoom)}>
                     <span className="inline-flex items-center gap-1">
                       <DoorOpen className="size-3 shrink-0 opacity-60" aria-hidden />
                       <span className="truncate">{room}</span>
@@ -147,6 +195,58 @@ export function AssignedLessonsPanel({
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="shrink-0 border-t bg-muted/40 px-3 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 tabular-nums text-muted-foreground">
+            <span>
+              <span className="font-semibold text-foreground">{summary.count}</span> atama
+            </span>
+            <span>
+              <span className="font-semibold text-foreground">{summary.totalHours}</span> saat/hafta
+            </span>
+            <span>
+              <span className="font-semibold text-foreground">{summary.subjectCount}</span> ders
+            </span>
+            {!filterSection ? (
+              <span>
+                <span className="font-semibold text-foreground">{summary.sectionCount}</span> şube
+              </span>
+            ) : null}
+            {summary.biweeklyCount > 0 ? (
+              <span>
+                <span className="font-semibold text-foreground">{summary.biweeklyCount}</span> iki haftada bir
+              </span>
+            ) : null}
+            {summary.planHours != null ? (
+              <span>
+                Katalog <span className="font-semibold text-foreground">{summary.planHours}</span> saat
+              </span>
+            ) : null}
+            {summary.weeklyLimit != null ? (
+              <span
+                className={cn(
+                  summary.capacityWarnings.some((w) => w.severity === 'error') &&
+                    'font-medium text-destructive',
+                )}
+              >
+                Sınır <span className="font-semibold text-foreground">{summary.weeklyLimit}</span> saat
+              </span>
+            ) : null}
+          </div>
+          <span
+            className={cn(
+              'inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium',
+              status.tone === 'ok' && 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-200',
+              status.tone === 'warn' && 'bg-amber-500/15 text-amber-900 dark:text-amber-100',
+              status.tone === 'error' && 'bg-destructive/15 text-destructive',
+              status.tone === 'neutral' && 'bg-muted text-muted-foreground',
+            )}
+          >
+            {status.label}
+          </span>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-1.5 border-t bg-muted/30 p-2.5">

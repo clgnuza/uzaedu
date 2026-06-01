@@ -21,9 +21,7 @@ function pgClient() {
   });
 }
 
-async function clearStudio(client, studioId) {
-  const studioIds = [studioId];
-  const inStudios = `($1)`;
+async function clearStudio(client, studioId, schoolId) {
   const params = [studioId];
 
   const delEntry = await client.query(
@@ -45,10 +43,25 @@ async function clearStudio(client, studioId) {
   const delPref = await client.query(`DELETE FROM ders_dagit_preference WHERE studio_id = $1`, params);
   const delReq = await client.query(`DELETE FROM ders_dagit_request WHERE studio_id = $1`, params);
   const delProf = await client.query(`DELETE FROM ders_dagit_class_profile WHERE studio_id = $1`, params);
+  const delTc = await client.query(`DELETE FROM ders_dagit_teacher_config WHERE studio_id = $1`, params);
+  const delAudit = await client.query(`DELETE FROM ders_dagit_audit_log WHERE studio_id = $1`, params);
+  const delRule = await client.query(`DELETE FROM ders_dagit_rule_set WHERE studio_id = $1`, params);
+
+  let rooms = 0;
+  let buildings = 0;
+  if (schoolId) {
+    const delRooms = await client.query(`DELETE FROM ders_dagit_room WHERE school_id = $1`, [schoolId]);
+    rooms = delRooms.rowCount;
+    const delBld = await client.query(`DELETE FROM ders_dagit_building WHERE school_id = $1`, [schoolId]);
+    buildings = delBld.rowCount;
+  }
 
   await client.query(
-    `UPDATE ders_dagit_studio SET settings = COALESCE(settings, '{}'::jsonb)
-       - 'ttkb_seed_at' - 'ttkb_elective_seed_at' - 'ttkb_catalog_names' - 'elective_ttkb_names'
+    `UPDATE ders_dagit_studio
+     SET settings = '{}'::jsonb,
+         workflow_status = 'setup',
+         health_score = 0,
+         preference_window_open = false
      WHERE id = $1`,
     params,
   );
@@ -64,6 +77,11 @@ async function clearStudio(client, studioId) {
     class_profiles: delProf.rowCount,
     preferences: delPref.rowCount,
     requests: delReq.rowCount,
+    teacher_configs: delTc.rowCount,
+    audit_logs: delAudit.rowCount,
+    rule_sets: delRule.rowCount,
+    rooms,
+    buildings,
   };
 }
 
@@ -104,7 +122,7 @@ async function clearStudio(client, studioId) {
 
   for (const st of studios) {
     console.log('\nStüdyo:', st.name || st.id);
-    const r = await clearStudio(client, st.id);
+    const r = await clearStudio(client, st.id, st.school_id);
     console.log(r);
   }
 

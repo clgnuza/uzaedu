@@ -1,5 +1,11 @@
-import { kartKoduPrefix } from '@/lib/plan-karti';
 import { ruleHint } from '@/lib/ders-dagit-hints';
+import { blockedLessonsFromParams, planningRuleEmoji } from '@/lib/planning-rule-list-copy';
+import {
+  flowParamKey,
+  getPlanningRuleFlow,
+  minSubjectsForFlow,
+  subjectsStepDone,
+} from '@/lib/planning-rule-flow';
 
 export type PlanningImportance = 'strict' | 'normal' | 'low';
 
@@ -25,7 +31,7 @@ export type SimpleRelationDef = {
   catalog_key?: string;
   solver_supported: boolean;
   param_label?: string;
-  param_key?: 'max' | 'max_run' | 'min_gap';
+  param_key?: 'max' | 'max_run' | 'min_gap' | 'lesson_nums';
 };
 
 export type AdvancedRelationDef = {
@@ -36,8 +42,10 @@ export type AdvancedRelationDef = {
   catalog_key?: string;
   solver_supported: boolean;
   param_label?: string;
-  param_key?: 'max' | 'max_run' | 'min_gap';
+  param_key?: 'max' | 'max_run' | 'min_gap' | 'lesson_nums';
 };
+
+export { ruleUsesLessonSlotList, blockedLessonsFromParams } from '@/lib/planning-rule-list-copy';
 
 /** Okul kuralı anahtarı → Türkçe etiket (ham kod göstermemek için). */
 export const PLANNING_CATALOG_LABELS: Record<string, string> = {
@@ -53,6 +61,10 @@ export const PLANNING_CATALOG_LABELS: Record<string, string> = {
   important_early: 'Önemli dersler günün erken saatlerinde',
   two_two_day_gap: 'Haftada 2 saat — arada 1 gün boşluk',
   fixed_slots: 'Önceden belirlenen saatler değişmez',
+  not_consecutive_same_hour: 'Aynı gün bitişik saatte olamaz',
+  max_days_per_week_planning: 'Haftada en fazla ders günü',
+  max_same_period_week: 'Haftada aynı saatte en fazla X gün',
+  no_compact_week: 'Müfredattan hızlı yerleştirme yok',
 };
 
 export function catalogKeyLabel(key: string | undefined): string | undefined {
@@ -70,27 +82,18 @@ export function planningCatalogRuleHint(key: string | undefined): string | undef
   return ruleHint(key);
 }
 
-/** İki veya daha fazla ders kartı arası ilişki (Plan Kartı). */
-const MIN_TWO_SUBJECT_RULE_IDS = new Set([
-  'adv_same_hour',
-  'adv_same_day',
-  'adv_must_same_day',
-  'adv_not_consecutive_same_day',
-  'adv_parallel_start',
-  'adv_a_before_b_week',
-]);
-
 export function minSubjectsForRule(ruleId: string, kind: 'simple' | 'advanced'): number {
-  if (kind === 'advanced' && MIN_TWO_SUBJECT_RULE_IDS.has(ruleId)) return 2;
-  return 1;
+  const flow = getPlanningRuleFlow(ruleId, kind);
+  return minSubjectsForFlow(flow);
 }
 
 export function defaultParamsForRule(
   def: SimpleRelationDef | AdvancedRelationDef | undefined,
-): Record<string, number> | undefined {
+): Record<string, unknown> | undefined {
   if (!def?.param_key) return undefined;
   if (def.param_key === 'max_run') return { max_run: 4 };
   if (def.param_key === 'min_gap') return { min_gap: 2 };
+  if (def.param_key === 'lesson_nums') return { blocked_lessons: [] };
   return { max: 2 };
 }
 
@@ -113,35 +116,47 @@ export function planningRelationConditionSteps(
   def: SimpleRelationDef | AdvancedRelationDef | undefined,
   allSections: string[],
 ): PlanningConditionStep[] {
-  const minSubj = def ? minSubjectsForRule(row.rule_id, row.kind) : 1;
+  const flow = getPlanningRuleFlow(row.rule_id, row.kind);
   const sectionsOk =
     row.sections_mode === 'all' || (row.sections.length > 0 && allSections.length > 0);
+  const needsParam = flow.paramKind !== 'none';
   const paramOk =
-    !def?.param_key ||
+    !needsParam ||
     (() => {
-      const key =
-        def.param_key === 'max_run' ? 'max_run' : def.param_key === 'min_gap' ? 'min_gap' : 'max';
+      if (flow.paramKind === 'lesson_nums') {
+        return blockedLessonsFromParams(row.params).length >= 1;
+      }
+      const key = flowParamKey(flow.paramKind);
+      if (!key) return true;
       const n = Number(row.params?.[key]);
-      return Number.isFinite(n) && n >= 1;
+      const min = flow.paramMin ?? 1;
+      return Number.isFinite(n) && n >= min;
     })();
 
-  return [
+  const steps: PlanningConditionStep[] = [
     {
       id: 'rule',
-      label: def ? def.label_tr : 'Kural türü seçin',
+      label: def ? `${flow.emoji} ${flow.title}` : 'Kural türü seçin',
       done: !!def,
+      hint: flow.intro.slice(0, 120) + (flow.intro.length > 120 ? '…' : ''),
     },
+  ];
+
+  if (needsParam) {
+    steps.push({
+      id: 'params',
+      label: flow.paramTitle ?? 'Sayısal ayar',
+      done: paramOk,
+      hint: flow.paramHint,
+    });
+  }
+
+  steps.push(
     {
       id: 'subjects',
-      label:
-        minSubj > 1
-          ? `En az ${minSubj} ders (kart ilişkisi)`
-          : 'En az 1 ders',
-      done: row.subject_ids.length >= minSubj,
-      hint:
-        minSubj > 1
-          ? 'Seçilen derslerin atamaları birlikte değerlendirilir.'
-          : 'Yalnız işaretli derslerin atamalarına uygulanır.',
+      label: flow.subjectTitle,
+      done: subjectsStepDone(flow, row.subject_ids),
+      hint: flow.subjectHint,
     },
     {
       id: 'sections',
@@ -149,16 +164,10 @@ export function planningRelationConditionSteps(
       done: sectionsOk,
       hint:
         row.sections_mode === 'all'
-          ? 'Okul genelinde geçerli.'
+          ? flow.sectionsHint
           : allSections.length
             ? `${row.sections.length} şube seçili`
             : 'Şube listesi boş — profil tanımlayın veya Tümü kullanın.',
-    },
-    {
-      id: 'params',
-      label: def?.param_label ?? 'Sayısal koşul',
-      done: !def?.param_key || paramOk,
-      hint: def?.param_label ? 'Zorunlu parametre' : undefined,
     },
     {
       id: 'distribution',
@@ -169,7 +178,9 @@ export function planningRelationConditionSteps(
           ? 'Zorunlu yapılamaz — önce Normal seçin veya başka kural kullanın.'
           : undefined,
     },
-  ].filter((s) => s.id !== 'params' || !!def?.param_key);
+  );
+
+  return steps;
 }
 
 export function formatPlanningConditionSummary(
@@ -177,8 +188,12 @@ export function formatPlanningConditionSummary(
   def: SimpleRelationDef | AdvancedRelationDef | undefined,
 ): string {
   if (!def) return 'Kural ve kapsam seçilmedi.';
-  const subj =
+  const flow = getPlanningRuleFlow(row.rule_id, row.kind);
+  let subj =
     row.subject_labels.length > 0 ? row.subject_labels.join(', ') : 'ders seçilmedi';
+  if (flow.subjectMode === 'ordered_ab' && row.subject_labels.length === 2) {
+    subj = `${row.subject_labels[0]} → ${row.subject_labels[1]}`;
+  }
   const sec =
     row.sections_mode === 'all'
       ? 'tüm şubelerde'
@@ -192,14 +207,17 @@ export function formatPlanningConditionSummary(
         ? 'düşük öncelikle'
         : 'normal öncelikle';
   let param = '';
-  if (def.param_key && def.param_label) {
-    const key =
-      def.param_key === 'max_run' ? 'max_run' : def.param_key === 'min_gap' ? 'min_gap' : 'max';
-    const n = row.params?.[key];
-    if (n != null) param = ` (${def.param_label}: ${n})`;
+  if (flow.paramKind === 'lesson_nums') {
+    const n = blockedLessonsFromParams(row.params).length;
+    if (n) param = ` (${n} dilim)`;
+  } else if (flow.paramKind !== 'none' && flow.paramTitle) {
+    const key = flowParamKey(flow.paramKind);
+    if (key) {
+      const n = row.params?.[key];
+      if (n != null) param = ` (${flow.paramTitle}: ${n})`;
+    }
   }
-  const kod = 'kart_kodu' in def && def.kart_kodu ? ` ${def.kart_kodu}` : '';
-  return `${def.label_tr}${kod}: «${subj}» ${sec}, ${imp} uygulanır${param}.`;
+  return `${flow.emoji} ${flow.title}: «${subj}» ${sec}, ${imp} uygulanır${param}.`;
 }
 
 export function simpleRuleOptionLabel(r: SimpleRelationDef): string {
@@ -209,7 +227,7 @@ export function simpleRuleOptionLabel(r: SimpleRelationDef): string {
 
 export function advancedRuleOptionLabel(r: AdvancedRelationDef): string {
   const tag = r.solver_supported ? ' · dağıtım' : ' · yakında';
-  return `${kartKoduPrefix(r)}${r.label_tr}${tag}`;
+  return `${r.label_tr}${tag}`;
 }
 
 export const IMPORTANCE_OPTIONS = [
@@ -232,9 +250,8 @@ export function relationSummary(
   const sec =
     row.sections_mode === 'all' ? 'Tüm sınıflar' : row.sections.length ? row.sections.join(', ') : '—';
   const imp = row.importance === 'strict' ? 'Zorunlu' : row.importance === 'low' ? 'Düşük' : 'Normal';
-  const kod = def && 'kart_kodu' in def ? def.kart_kodu : undefined;
-  const ref = kod ? ` ${kod}` : '';
-  return `${base}${ref} · ${subj} · ${sec} · ${imp}`;
+  const emoji = planningRuleEmoji(row.rule_id, row.kind);
+  return `${emoji} ${base} · ${subj} · ${sec} · ${imp}`;
 }
 
 export function validatePlanningRelationRow(
@@ -243,15 +260,14 @@ export function validatePlanningRelationRow(
   simple: SimpleRelationDef[],
   advanced: AdvancedRelationDef[],
 ): { ok: true } | { ok: false; message: string } {
-  const minSubj = minSubjectsForRule(row.rule_id, row.kind);
-  if (row.subject_ids.length < minSubj) {
-    return {
-      ok: false,
-      message:
-        minSubj > 1
-          ? `Bu ilişki için en az ${minSubj} ders seçin (kartlar arası koşul).`
-          : 'En az bir ders seçin.',
-    };
+  const flow = getPlanningRuleFlow(row.rule_id, row.kind);
+  if (!subjectsStepDone(flow, row.subject_ids)) {
+    if (flow.subjectMode === 'pair_exactly_2' || flow.subjectMode === 'ordered_ab') {
+      return { ok: false, message: `${flow.subjectTitle} — tam iki ders seçin.` };
+    }
+    if (!flow.subjectOptional) {
+      return { ok: false, message: 'En az bir ders seçin.' };
+    }
   }
   if (row.sections_mode === 'pick' && row.sections.length === 0) {
     return {
@@ -274,12 +290,18 @@ export function validatePlanningRelationRow(
       message: `“${def.label_tr}” zorunlu yapılamaz — dağıtımda henüz desteklenmiyor.`,
     };
   }
-  if (def.param_key && def.param_label) {
-    const key =
-      def.param_key === 'max_run' ? 'max_run' : def.param_key === 'min_gap' ? 'min_gap' : 'max';
-    const n = Number(row.params?.[key]);
-    if (!Number.isFinite(n) || n < 1) {
-      return { ok: false, message: `${def.param_label} için geçerli bir sayı girin (en az 1).` };
+  if (flow.paramKind === 'lesson_nums') {
+    if (blockedLessonsFromParams(row.params).length < 1) {
+      return { ok: false, message: 'En az bir ders dilimini işaretleyin.' };
+    }
+  } else if (flow.paramKind !== 'none' && flow.paramTitle) {
+    const key = flowParamKey(flow.paramKind);
+    if (key) {
+      const n = Number(row.params?.[key]);
+      const min = flow.paramMin ?? 1;
+      if (!Number.isFinite(n) || n < min) {
+        return { ok: false, message: `${flow.paramTitle} için geçerli bir sayı girin (en az ${min}).` };
+      }
     }
   }
   return { ok: true };

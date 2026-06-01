@@ -44,10 +44,12 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { YollukFinalizedNotificationBody } from '@/components/notifications/yolluk-finalized-notification-body';
+import { notificationEventLabel } from '@/lib/notification-event-label';
 
 type NotificationItem = {
   id: string;
   event_type: string;
+  event_label?: string;
   entity_id: string | null;
   target_screen: string | null;
   title: string;
@@ -64,51 +66,9 @@ type PaginatedResponse = {
   limit: number;
 };
 
-const EVENT_LABELS: Record<string, string> = {
-  'duty.published': 'Nöbet planı',
-  'duty.changed': 'Nöbet değişikliği',
-  'duty.reassigned': 'Yerine görevlendirme',
-  'duty.coverage_assigned': 'Ders görevi',
-  'duty.reminder': 'Nöbet hatırlatması',
-  'duty.swap_requested': 'Takas talebi',
-  'duty.swap_approved': 'Takas onayı',
-  'duty.swap_rejected': 'Takas reddi',
-  'duty.swap_teacher2_approved': 'Takas onay bekliyor',
-  'belirli_gun_hafta.assigned': 'Belirli Gün görevlendirmesi',
-  'belirli_gun_hafta.reminder': 'Belirli Gün hatırlatması',
-  'belirli_gun_hafta.notification_sent': 'Bildirim gönderildi',
-  'bilsem_calendar.assigned': 'Bilsem görevlendirmesi',
-  'bilsem_calendar.notification_sent': 'Bilsem bildirimi',
-  'timetable.published': 'Ders programı',
-  'announcement.created': 'Duyuru',
-  'smart_board.disconnected_by_admin': 'Tahta bağlantısı kesildi',
-  'smart_board.session_ended_by_admin': 'Tahta oturumu sonlandı',
-  'smart_board.qr_pending': 'Tahta QR onayı bekliyor',
-  'exam_duty.open': 'Sınav görevi açıldı',
-  'exam_duty.lastday': 'Sınav görevi son başvuru',
-  'exam_duty.approval_day': 'Sınav görevi onay günü',
-  'exam_duty.examday': 'Sınav görevi sınav günü',
-  'exam_duty.reminder': 'Sınav görevi hatırlatma',
-  'exam_duty.exam_day_morning': 'Sınav günü sabah hatırlatması',
-  'exam_duty.sync_source_error': 'Sync · kaynak',
-  'exam_duty.sync_items_processed': 'Sync · özet',
-  'exam_duty.sync_auto_published': 'Sync · yayın',
-  'support.ticket.created': 'Yeni destek talebi',
-  'support.ticket.replied': 'Talebinize yanıt verildi',
-  'support.ticket.assigned': 'Size destek talebi atandı',
-  'support.ticket.escalated': 'Üst birime iletildi',
-  'agenda.school_event_added': 'Okul etkinliği',
-  'agenda.reminder': 'Ajanda hatırlatması',
-  'market.school_credit_added': 'Market (okul)',
-  'market.user_credit_added': 'Market (bireysel)',
-  'butterfly_exam.proctor_assigned': 'Kertenkele sınav görevi',
-  'sorumluluk_exam.proctor_assigned': 'Sorumluluk sınav görevi',
-  'admin_message.sent': 'Sistem mesajı',
-  'messaging.campaign_completed': 'Mesaj merkezi',
-  'school_reviews.penalty.strike': 'Okul değerlendirme — ceza',
-  'school_reviews.penalty.site_ban': 'Okul değerlendirme — erişim kısıtı',
-  'yolluk.calculation_finalized': 'Yolluk kesinleşti',
-};
+function notificationChipLabel(item: NotificationItem): string {
+  return item.event_label ?? notificationEventLabel(item.event_type);
+}
 
 const SWAP_EVENT_TYPES = ['duty.swap_requested', 'duty.swap_approved', 'duty.swap_rejected', 'duty.swap_teacher2_approved'];
 const EXAM_DUTY_EVENT_TYPES = ['exam_duty.open', 'exam_duty.lastday', 'exam_duty.approval_day', 'exam_duty.examday', 'exam_duty.reminder', 'exam_duty.exam_day_morning'];
@@ -240,6 +200,15 @@ function getNotificationLink(item: NotificationItem): string {
   if (SMART_BOARD_EVENT_TYPES.includes(item.event_type) || item.target_screen === 'akilli-tahta') {
     return smartBoardNotificationHref(item);
   }
+  if (isTimetableAvailabilityNotification(item.event_type)) {
+    if (
+      item.event_type === 'timetable.availability_submitted' ||
+      item.event_type === 'ders_dagit.availability_submitted'
+    ) {
+      return '/ders-dagit/studyo/ayarlar#ogretmen-musaitlik';
+    }
+    return '/ders-dagit/tercihler';
+  }
   if (TIMETABLE_EVENT_TYPES.includes(item.event_type) || item.target_screen === 'ders-programi') {
     return '/ders-programi/programlarim';
   }
@@ -280,7 +249,13 @@ function isBilsemCalendarNotification(eventType: string): boolean {
 }
 
 function isTimetableNotification(eventType: string): boolean {
-  return eventType?.startsWith('timetable.');
+  return eventType?.startsWith('timetable.') || eventType?.startsWith('ders_dagit.availability');
+}
+
+function isTimetableAvailabilityNotification(eventType: string): boolean {
+  return (
+    eventType?.startsWith('timetable.availability') || eventType?.startsWith('ders_dagit.availability')
+  );
 }
 
 function isSmartBoardNotification(eventType: string): boolean {
@@ -1340,7 +1315,7 @@ export default function BildirimlerPage() {
                                   getChipClass(item),
                                 )}
                               >
-                                {EVENT_LABELS[item.event_type] ?? item.event_type}
+                                {notificationChipLabel(item)}
                               </span>
                             </div>
                           ) : (
@@ -1360,7 +1335,7 @@ export default function BildirimlerPage() {
                                   getChipClass(item),
                                 )}
                               >
-                                {EVENT_LABELS[item.event_type] ?? item.event_type}
+                                {notificationChipLabel(item)}
                               </span>
                               {!item.read_at && (
                                 <span className="size-1.5 shrink-0 rounded-full bg-primary sm:size-2" aria-hidden />

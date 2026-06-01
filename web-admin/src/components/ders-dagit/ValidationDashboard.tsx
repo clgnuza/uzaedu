@@ -6,7 +6,8 @@ import { cn } from '@/lib/utils';
 import type { StudioOverview } from '@/hooks/use-ders-dagit-studio';
 import type { ValidationIssue } from '@/lib/ders-dagit-timetable-api';
 import { buildValidationChecklist, type CheckStatus } from '@/lib/ders-dagit-validation-checklist';
-import { formatValidationIssueDetail } from '@/lib/ders-dagit-validation-display';
+import { resolveValidationIssueHref } from '@/lib/ders-dagit-validation-routes';
+import { ValidationIssuesList } from '@/components/ders-dagit/validation-issues-list';
 import { DdCard, CardContent, CardHeader, CardTitle } from '@/components/ders-dagit/dd-ui';
 import { Button } from '@/components/ui/button';
 
@@ -15,6 +16,32 @@ function StatusIcon({ status }: { status: CheckStatus }) {
   if (status === 'fail') return <XCircle className="h-5 w-5 text-rose-500" aria-hidden />;
   if (status === 'warn') return <AlertCircle className="h-5 w-5 text-amber-500" aria-hidden />;
   return <Circle className="h-5 w-5 text-muted-foreground" aria-hidden />;
+}
+
+function ValidationSkeleton() {
+  return (
+    <div className="space-y-5 animate-pulse" aria-busy="true" aria-label="Doğrulama yükleniyor">
+      <div className="rounded-2xl border border-border/60 bg-muted/20 p-5">
+        <div className="flex gap-5">
+          <div className="h-[100px] w-[100px] rounded-full bg-muted" />
+          <div className="flex-1 space-y-2">
+            <div className="h-5 w-40 rounded bg-muted" />
+            <div className="h-4 w-64 max-w-full rounded bg-muted" />
+            <div className="h-5 w-28 rounded-full bg-muted" />
+          </div>
+        </div>
+      </div>
+      {[1, 2, 3].map((n) => (
+        <div key={n} className="rounded-xl border border-border/60 p-4">
+          <div className="mb-3 h-4 w-32 rounded bg-muted" />
+          <div className="space-y-2">
+            <div className="h-14 rounded-xl bg-muted/70" />
+            <div className="h-14 rounded-xl bg-muted/70" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function ValidationRing({ pass, total }: { pass: number; total: number }) {
@@ -52,22 +79,34 @@ function ValidationRing({ pass, total }: { pass: number; total: number }) {
 export function ValidationDashboard({
   issues,
   overview,
-  loading,
+  ready = true,
+  syncing = false,
   canProceed,
   onRefresh,
 }: {
   issues: ValidationIssue[];
   overview: StudioOverview | null;
-  loading?: boolean;
+  ready?: boolean;
+  syncing?: boolean;
   canProceed: boolean;
   onRefresh: () => void;
 }) {
+  if (!ready) return <ValidationSkeleton />;
+
   const { groups, allRequiredPass, errorCount, warnCount } = buildValidationChecklist(issues, overview);
   const requiredChecks = groups.flatMap((g) => g.checks).filter((c) => c.required);
   const passCount = requiredChecks.filter((c) => c.status === 'pass').length;
 
   return (
-    <div className="space-y-5">
+    <div className={cn('space-y-5', syncing && 'pointer-events-none opacity-75')}>
+      {syncing && (
+        <div
+          className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+          role="status"
+        >
+          Kontrol yenileniyor…
+        </div>
+      )}
       <div className="relative overflow-hidden rounded-2xl border border-teal-200/60 bg-gradient-to-br from-teal-500/10 via-background to-cyan-500/5 p-5 dark:border-teal-800/40">
         <svg className="pointer-events-none absolute -right-2 top-2 h-24 w-24 opacity-15" viewBox="0 0 80 80" aria-hidden>
           <path
@@ -83,6 +122,7 @@ export function ValidationDashboard({
           <ValidationRing pass={passCount} total={requiredChecks.length} />
           <div className="min-w-0 flex-1">
             <h1 className="text-lg font-semibold">Doğrulama özeti</h1>
+            <p className="text-xs text-muted-foreground">Kayıtlı stüdyo durumu (otomatik tarama yok).</p>
             <p className="text-sm text-muted-foreground">
               Tüm zorunlu şartlar {allRequiredPass ? 'sağlanıyor' : 'eksik'} — {errorCount} hata, {warnCount} uyarı
             </p>
@@ -97,8 +137,8 @@ export function ValidationDashboard({
             </span>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="outline" disabled={loading} onClick={onRefresh}>
-              <RefreshCw className={cn('mr-1.5 h-3.5 w-3.5', loading && 'animate-spin')} aria-hidden />
+            <Button type="button" size="sm" variant="outline" disabled={syncing} onClick={onRefresh}>
+              <RefreshCw className={cn('mr-1.5 h-3.5 w-3.5', syncing && 'animate-spin')} aria-hidden />
               Yenile
             </Button>
             <Button type="button" size="sm" disabled={!canProceed} asChild>
@@ -130,48 +170,39 @@ export function ValidationDashboard({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-sm font-semibold">{check.label}</p>
-                      {!check.required && (
-                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">İsteğe bağlı</span>
-                      )}
+                      {check.status === 'skip' ? (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                          Uygulanmaz
+                        </span>
+                      ) : check.status === 'fail' ? (
+                        <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+                          Üretimi engeller
+                        </span>
+                      ) : !check.required ? (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                          Zorunlu şart değil
+                        </span>
+                      ) : null}
                     </div>
                     <p className="text-xs text-muted-foreground">{check.description}</p>
                     {check.issues.length > 0 && (
-                      <ul className="mt-2 space-y-1">
-                        {check.issues.slice(0, 5).map((v, i) => {
-                          const d = formatValidationIssueDetail(v);
-                          return (
-                            <li
-                              key={i}
-                              className={cn(
-                                'rounded-md px-2 py-1 text-xs',
-                                v.severity === 'error'
-                                  ? 'bg-destructive/10 text-destructive'
-                                  : 'bg-amber-500/10 text-amber-900 dark:text-amber-100',
-                              )}
-                            >
-                              {d.text}
-                              {d.hint && (
-                                <span className="mt-0.5 block text-muted-foreground">
-                                  {d.href ? (
-                                    <Link href={d.href} className="text-primary underline">
-                                      {d.hint}
-                                    </Link>
-                                  ) : (
-                                    d.hint
-                                  )}
-                                </span>
-                              )}
-                            </li>
-                          );
-                        })}
-                        {check.issues.length > 5 && (
-                          <li className="text-[10px] text-muted-foreground">+{check.issues.length - 5} kayıt daha</li>
-                        )}
-                      </ul>
+                      <div className="mt-2">
+                        <p className="mb-1 text-[10px] font-medium text-muted-foreground">
+                          {check.issues.filter((i) => i.severity === 'error').length} hata ·{' '}
+                          {check.issues.filter((i) => i.severity !== 'error').length} uyarı
+                        </p>
+                        <ValidationIssuesList issues={check.issues} compact />
+                      </div>
                     )}
                   </div>
                   <Button type="button" variant="ghost" size="sm" className="shrink-0" asChild>
-                    <Link href={check.href}>
+                    <Link
+                      href={
+                        check.issues[0]
+                          ? (resolveValidationIssueHref(check.issues[0]) ?? check.href)
+                          : check.href
+                      }
+                    >
                       Düzelt
                       <ChevronRight className="ml-0.5 h-4 w-4" aria-hidden />
                     </Link>
@@ -186,34 +217,13 @@ export function ValidationDashboard({
       {issues.length > 0 && (
         <DdCard variant={errorCount > 0 ? 'rose' : 'amber'}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Tüm kayıtlar</CardTitle>
+            <CardTitle className="text-base">Tüm doğrulama kayıtları</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Üstteki gruplar özet; burada {issues.length} kaydın tamamı listelenir.
+            </p>
           </CardHeader>
-          <CardContent className="max-h-64 space-y-1.5 overflow-y-auto text-sm">
-            {issues.map((v, i) => {
-              const d = formatValidationIssueDetail(v);
-              return (
-                <div
-                  key={i}
-                  className={cn(
-                    'rounded-md px-2 py-1',
-                    v.severity === 'error' ? 'text-destructive' : 'text-amber-800 dark:text-amber-200',
-                  )}
-                >
-                  <p>{d.text}</p>
-                  {d.hint ? (
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      {d.href ? (
-                        <Link href={d.href} className="underline">
-                          {d.hint}
-                        </Link>
-                      ) : (
-                        d.hint
-                      )}
-                    </p>
-                  ) : null}
-                </div>
-              );
-            })}
+          <CardContent>
+            <ValidationIssuesList issues={issues} />
           </CardContent>
         </DdCard>
       )}

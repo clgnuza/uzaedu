@@ -45,15 +45,39 @@ export default function KurallarPage() {
     ]);
     setData(r);
     setBuildings(b);
-    const merged =
-      scope === STUDIO_SCOPE ? r.rules : { ...r.rules, ...(r.class_profiles?.find((p) => p.id === scope)?.rules ?? {}) };
-    const d = merged.meb_pe_music_days?.params?.days;
-    if (d?.length) setPeDays([...d].sort((a, b) => a - b));
-  }, [token, studio, scope]);
+    const fallbackDays = r.rules.meb_pe_music_days?.params?.days;
+    if (fallbackDays?.length) setPeDays([...fallbackDays].sort((a, b) => a - b));
+    const defaultTravel =
+      (r.building_travel ?? []).find((x) => x.from === 'default' && x.to === 'default')?.minutes ?? 5;
+    setTravelMin(defaultTravel);
+    setTravelPairMin(defaultTravel);
+  }, [token, studio]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!data) return;
+    const merged =
+      scope === STUDIO_SCOPE
+        ? data.rules
+        : { ...data.rules, ...(data.class_profiles?.find((p) => p.id === scope)?.rules ?? {}) };
+    const d = merged.meb_pe_music_days?.params?.days;
+    if (d?.length) setPeDays([...d].sort((a, b) => a - b));
+  }, [data, scope]);
+
+  useEffect(() => {
+    if (!data) return;
+    const row = (data.building_travel ?? []).find((x) => x.from === travelFrom && x.to === travelTo);
+    if (row?.minutes != null) {
+      setTravelPairMin(row.minutes);
+      return;
+    }
+    const fallback =
+      (data.building_travel ?? []).find((x) => x.from === 'default' && x.to === 'default')?.minutes ?? travelMin;
+    setTravelPairMin(fallback);
+  }, [data, travelFrom, travelTo, travelMin]);
 
   useEffect(() => {
     if (!data) return;

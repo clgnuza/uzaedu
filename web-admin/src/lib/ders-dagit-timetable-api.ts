@@ -15,7 +15,15 @@ export type EditorEntry = {
   assignment_id?: string | null;
 };
 
-export type ValidationIssue = { code: string; severity: string; message: string; fix_hint?: string; href?: string };
+export type ValidationIssue = {
+  code: string;
+  severity: string;
+  message: string;
+  fix_hint?: string;
+  href?: string;
+  entity_type?: string;
+  entity_id?: string;
+};
 
 export type EditorContext = {
   program: { id: string; name: string | null; status: string; score: number | null };

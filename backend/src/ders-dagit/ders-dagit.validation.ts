@@ -1,4 +1,13 @@
+import { sectionsEquivalent } from './class-section-canonical';
 import { compareClassSections, sortClassSections, sortValidationIssues } from './class-section-sort';
+
+function weeklyHoursForSectionKey(hoursBySection: Record<string, number>, section: string): number {
+  let max = 0;
+  for (const [key, hrs] of Object.entries(hoursBySection)) {
+    if (sectionsEquivalent(key, section)) max = Math.max(max, Number(hrs) || 0);
+  }
+  return max;
+}
 
 /** Yaygın doğrulama hataları — ön doğrulama */
 
@@ -22,7 +31,8 @@ export type StudioValidationInput = {
     max_weekly_lessons?: number | null;
   }>;
   teachers: Array<{ id: string; name: string }>;
-  subjects_by_class: Record<string, number>;
+  catalog_hours_by_section: Record<string, number>;
+  assigned_hours_by_section: Record<string, number>;
   assignments: Array<{
     id: string;
     subject_name?: string | null;
@@ -95,40 +105,42 @@ export function validateStudioData(input: StudioValidationInput): ValidationIssu
       continue;
     }
     const capacity = cp.max_lessons_per_day * WORK_DAYS;
-    let total = 0;
     for (const sec of sections) {
-      total += input.subjects_by_class[sec] ?? 0;
-    }
-    if (total > capacity) {
-      issues.push({
-        code: 'CLASS_OVER_CAPACITY',
-        severity: 'error',
-        message: `${cp.name}: haftalık ${total} saat, profil kapasitesi ${capacity} saati aşıyor.`,
-        fix_hint: 'Profilde günlük ders üst sınırını artırın veya atama saatlerini azaltın.',
-        entity_type: 'class_profile',
-        entity_id: cp.id,
-      });
-    }
-    if (cp.min_weekly_lessons != null && total < cp.min_weekly_lessons) {
-      issues.push({
-        code: 'CLASS_UNDER_MIN',
-        severity: 'error',
-        message: `${cp.name}: haftalık ${total} saat, minimum ${cp.min_weekly_lessons} saatin altında.`,
-        entity_type: 'class_profile',
-        entity_id: cp.id,
-      });
-    }
-    if (cp.max_weekly_lessons != null && total > cp.max_weekly_lessons) {
-      issues.push({
-        code: 'CLASS_OVER_MAX',
-        severity: 'error',
-        message: `${cp.name}: haftalık ${total} saat, profil üst sınırı ${cp.max_weekly_lessons} saati aşıyor.`,
-        entity_type: 'class_profile',
-        entity_id: cp.id,
-      });
+      const total = weeklyHoursForSectionKey(input.assigned_hours_by_section, sec);
+      const label = sec.length > 48 ? `${sec.slice(0, 45)}…` : sec;
+      if (total > capacity) {
+        issues.push({
+          code: 'CLASS_OVER_CAPACITY',
+          severity: 'error',
+          message: `${label}: haftalık ${total} saat, şube kapasitesi ${capacity} saati aşıyor.`,
+          fix_hint: 'Profilde günlük ders üst sınırını artırın veya bu şubenin atama saatlerini azaltın.',
+          entity_type: 'class_profile',
+          entity_id: cp.id,
+        });
+      }
+      if (cp.min_weekly_lessons != null && total < cp.min_weekly_lessons) {
+        issues.push({
+          code: 'CLASS_UNDER_MIN',
+          severity: 'error',
+          message: `${label}: haftalık ${total} saat, minimum ${cp.min_weekly_lessons} saatin altında.`,
+          entity_type: 'class_profile',
+          entity_id: cp.id,
+        });
+      }
+      if (cp.max_weekly_lessons != null && total > cp.max_weekly_lessons) {
+        issues.push({
+          code: 'CLASS_OVER_MAX',
+          severity: 'error',
+          message: `${label}: haftalık ${total} saat, üst sınır ${cp.max_weekly_lessons} saati aşıyor.`,
+          entity_type: 'class_profile',
+          entity_id: cp.id,
+        });
+      }
     }
     for (const sec of sections) {
-      if ((input.subjects_by_class[sec] ?? 0) === 0) {
+      const catalog = weeklyHoursForSectionKey(input.catalog_hours_by_section, sec);
+      const assigned = weeklyHoursForSectionKey(input.assigned_hours_by_section, sec);
+      if (catalog === 0 && assigned === 0) {
         issues.push({
           code: 'SECTION_NO_HOURS',
           severity: 'warning',

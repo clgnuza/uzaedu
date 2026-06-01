@@ -1,16 +1,21 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import {
+  AssignmentCapacityAlerts,
+  type AssignmentCapacityWarning,
+} from '@/components/ders-dagit/assignment-capacity-alerts';
 import { apiFetch } from '@/lib/api';
 import {
+  distributionOptionsForHours,
   draftToApiBody,
-  PERIOD_FORMAT_LABEL,
+  formatDayDistribution,
   ROOM_MODE_LABEL,
   suggestRooms,
   type LessonAssignmentDraft,
-  type LessonPeriodFormat,
   type RoomPickMode,
 } from '@/lib/lesson-assignment';
+import { inferDayDistribution, isValidDayDistribution } from '@/lib/lesson-distribution';
 import { groupModeLabel } from '@/lib/ders-dagit-labels';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -43,12 +48,11 @@ const EMPTY_DRAFT = (): LessonAssignmentDraft => ({
   use_joined: false,
   group_id: '',
   weekly_hours: 4,
-  period_format: 'single',
+  day_distribution: [2, 2],
+  biweekly: false,
   room_mode: 'class',
   room_ids: [],
   place_first: false,
-  min_days_per_week: 2,
-  max_per_day: 2,
 });
 
 const STEP_KEYS = ['teacher', 'lesson', 'class', 'time', 'room'] as const;
@@ -111,6 +115,8 @@ export function LessonAssignmentDialog({
   lockRoomId,
 }: Props) {
   const [saving, setSaving] = useState(false);
+  const [capacityWarnings, setCapacityWarnings] = useState<AssignmentCapacityWarning[]>([]);
+  const [capacityLoading, setCapacityLoading] = useState(false);
   const [showCoTeachers, setShowCoTeachers] = useState(false);
   const [showJoined, setShowJoined] = useState(false);
   const [showMoreRooms, setShowMoreRooms] = useState(false);
@@ -118,23 +124,29 @@ export function LessonAssignmentDialog({
   const d = draft ?? EMPTY_DRAFT();
 
   useEffect(() => {
-    if (open && draft) {
-      setShowCoTeachers(draft.co_teacher_ids.length > 0);
-      setShowJoined(draft.use_joined);
-      let next = draft;
-      if (lockTeacherId) next = { ...next, primary_teacher_id: lockTeacherId };
-      if (lockRoomId) next = { ...next, room_ids: [lockRoomId], room_mode: 'class' };
-      if (next !== draft) onDraftChange(next);
+    if (!open || !draft) return;
+    setShowCoTeachers(draft.co_teacher_ids.length > 0);
+    setShowJoined(draft.use_joined);
+    const patch: Partial<LessonAssignmentDraft> = {};
+    if (lockTeacherId && draft.primary_teacher_id !== lockTeacherId) {
+      patch.primary_teacher_id = lockTeacherId;
     }
-  }, [open, draft?.id, lockTeacherId, lockRoomId]);
+    if (lockRoomId && (draft.room_mode !== 'class' || draft.room_ids[0] !== lockRoomId)) {
+      patch.room_ids = [lockRoomId];
+      patch.room_mode = 'class';
+    }
+    if (Object.keys(patch).length > 0) onDraftChange({ ...draft, ...patch });
+  }, [open, draft?.id, draft?.primary_teacher_id, draft?.room_mode, draft?.room_ids, lockTeacherId, lockRoomId, onDraftChange]);
 
   const selectedGroup = useMemo(() => groups.find((g) => g.id === d.group_id), [groups, d.group_id]);
 
+  const joinedSectionsKey = d.joined_sections.join('\0');
   const classSectionsForSave = useMemo(() => {
     if (selectedGroup?.member_sections?.length && d.group_id) return selectedGroup.member_sections;
     if (d.use_joined && d.joined_sections.length) return d.joined_sections;
     return d.section ? [d.section] : [];
-  }, [d, selectedGroup]);
+  }, [d.group_id, d.use_joined, joinedSectionsKey, d.section, selectedGroup?.id, selectedGroup?.member_sections]);
+  const classSectionsKey = classSectionsForSave.join('\0');
 
   const stepComplete = {
     teacher: !!d.primary_teacher_id,
@@ -147,6 +159,73 @@ export function LessonAssignmentDialog({
   function patch(p: Partial<LessonAssignmentDraft>) {
     onDraftChange({ ...d, ...p });
   }
+
+  useEffect(() => {
+    if (!open) {
+      setCapacityWarnings([]);
+      setCapacityLoading(false);
+    }
+  }, [open]);
+
+  const coTeacherKey = d.co_teacher_ids.join(',');
+  const roomIdsKey = d.room_ids.join(',');
+
+  useEffect(() => {
+    if (!open) return;
+    const canCheck =
+      classSectionsKey.length > 0 && !!d.primary_teacher_id && d.weekly_hours >= 1;
+    if (!canCheck) {
+      setCapacityWarnings([]);
+      setCapacityLoading(false);
+      return;
+    }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => {
+      setCapacityLoading(true);
+      void apiFetch<AssignmentCapacityWarning[]>(
+        `/ders-dagit/studios/${studioId}/assignments/capacity-check`,
+        {
+          token,
+          method: 'POST',
+          signal: ctrl.signal,
+          body: { ...draftToApiBody(d, rooms), class_sections: classSectionsForSave },
+        },
+      )
+        .then((w) => {
+          if (!ctrl.signal.aborted) setCapacityWarnings(w);
+        })
+        .catch(() => {
+          if (!ctrl.signal.aborted) setCapacityWarnings([]);
+        })
+        .finally(() => {
+          if (!ctrl.signal.aborted) setCapacityLoading(false);
+        });
+    }, 320);
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
+  }, [
+    open,
+    studioId,
+    token,
+    d.id,
+    d.primary_teacher_id,
+    d.subject_id,
+    d.subject_name,
+    d.weekly_hours,
+    d.biweekly,
+    d.group_id,
+    d.room_mode,
+    classSectionsKey,
+    coTeacherKey,
+    roomIdsKey,
+  ]);
+
+  const capacityErrors = useMemo(
+    () => capacityWarnings.filter((w) => w.severity === 'error'),
+    [capacityWarnings],
+  );
 
   function applyRoomMode(mode: RoomPickMode) {
     const ids = suggestRooms(mode, {
@@ -167,12 +246,16 @@ export function LessonAssignmentDialog({
       toast.error('Öğretmen seçin');
       return;
     }
+    if (capacityErrors.length) {
+      toast.error(capacityErrors[0]!.message);
+      return;
+    }
     setSaving(true);
     try {
       await apiFetch(`/ders-dagit/studios/${studioId}/assignments`, {
         token,
         method: 'POST',
-        body: { ...draftToApiBody(d), class_sections: classSectionsForSave },
+        body: { ...draftToApiBody(d, rooms), class_sections: classSectionsForSave },
       });
       toast.success(d.id ? 'Ders güncellendi' : 'Ders atandı');
       onOpenChange(false);
@@ -185,10 +268,11 @@ export function LessonAssignmentDialog({
   }
 
   const roomOptions = rooms.map((r) => ({ value: r.id, label: r.name }));
-  const periodOptions = (Object.keys(PERIOD_FORMAT_LABEL) as LessonPeriodFormat[]).map((k) => ({
-    value: k,
-    label: PERIOD_FORMAT_LABEL[k],
-  }));
+  const effHours = d.biweekly ? Math.ceil(d.weekly_hours / 2) : d.weekly_hours;
+  const distOptions = distributionOptionsForHours(effHours);
+  const distValue = isValidDayDistribution(d.day_distribution, effHours)
+    ? formatDayDistribution(d.day_distribution)
+    : distOptions[0]?.value ?? '4';
 
   const teacherOpts = [
     { value: '', label: '— Seçin —' },
@@ -197,7 +281,7 @@ export function LessonAssignmentDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DdDialogContent className="flex max-h-[min(88vh,640px)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+      <DdDialogContent className="flex max-h-[min(90vh,720px)] w-[min(100vw-1.5rem,34rem)] max-w-xl flex-col gap-0 overflow-hidden p-0">
         <header className="shrink-0 border-b px-3 py-2.5">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
@@ -261,9 +345,10 @@ export function LessonAssignmentDialog({
               )}
             </FormBlock>
 
-            <FormBlock title="Ders">
+            <FormBlock title="Ders" className="sm:col-span-2">
               <DdSelectField
                 label="Katalog"
+                longLabels
                 value={d.subject_id}
                 onValueChange={(id) => {
                   const s = subjects.find((x) => x.id === id);
@@ -275,10 +360,12 @@ export function LessonAssignmentDialog({
             </FormBlock>
 
             <FormBlock title="Şube / grup" className="sm:col-span-2">
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2 lg:grid-cols-2">
                 {!showJoined ? (
                   <DdSelectField
                     label="Şube"
+                    longLabels
+                    className="lg:col-span-2"
                     value={d.section}
                     onValueChange={(v) => {
                       patch({ section: v, use_joined: false });
@@ -327,32 +414,62 @@ export function LessonAssignmentDialog({
             <FormBlock title="Program">
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="mb-1 block text-[11px] text-muted-foreground">Haftalık</label>
+                  <label className="mb-1 block text-[11px] text-muted-foreground">Haftalık saat</label>
                   <Input
                     type="number"
                     min={1}
                     max={40}
                     className="h-8 bg-background text-sm"
                     value={d.weekly_hours}
-                    onChange={(e) => patch({ weekly_hours: Number(e.target.value) || 1 })}
+                    onChange={(e) => {
+                      const weekly_hours = Number(e.target.value) || 1;
+                      const h = d.biweekly ? Math.ceil(weekly_hours / 2) : weekly_hours;
+                      patch({
+                        weekly_hours,
+                        day_distribution: inferDayDistribution(weekly_hours, {}, d.biweekly),
+                      });
+                    }}
                   />
                 </div>
                 <DdSelectField
-                  label="Biçim"
-                  value={d.period_format}
-                  onValueChange={(v) => patch({ period_format: v as LessonPeriodFormat })}
-                  options={periodOptions}
+                  label="Günlük dağılım"
+                  value={distValue}
+                  onValueChange={(v) => {
+                    const opt = distOptions.find((o) => o.value === v);
+                    if (opt) patch({ day_distribution: opt.parts });
+                  }}
+                  options={distOptions.map((o) => ({ value: o.value, label: o.label }))}
                 />
               </div>
-              <label className="flex cursor-pointer items-center gap-2 text-[11px]">
-                <input
-                  type="checkbox"
-                  className="size-3.5 rounded border-input"
-                  checked={d.place_first}
-                  onChange={(e) => patch({ place_first: e.target.checked })}
-                />
-                Önce yerleştir
-              </label>
+              <p className="text-[10px] text-muted-foreground">
+                Örn. 4 saat → 2+2: iki günde ikişer ardışık; program üretiminde bu dağılıma uyulur.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <label className="flex cursor-pointer items-center gap-2 text-[11px]">
+                  <input
+                    type="checkbox"
+                    className="size-3.5 rounded border-input"
+                    checked={d.biweekly}
+                    onChange={(e) => {
+                      const biweekly = e.target.checked;
+                      patch({
+                        biweekly,
+                        day_distribution: inferDayDistribution(d.weekly_hours, {}, biweekly),
+                      });
+                    }}
+                  />
+                  İki haftada bir
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-[11px]">
+                  <input
+                    type="checkbox"
+                    className="size-3.5 rounded border-input"
+                    checked={d.place_first}
+                    onChange={(e) => patch({ place_first: e.target.checked })}
+                  />
+                  Önce yerleştir
+                </label>
+              </div>
             </FormBlock>
 
             <FormBlock title="Derslik">
@@ -394,7 +511,7 @@ export function LessonAssignmentDialog({
                 />
               )}
               {d.room_ids[0] && (
-                <p className="truncate text-[11px] text-muted-foreground">
+                <p className="break-words text-[11px] leading-snug text-muted-foreground">
                   {rooms.find((r) => r.id === d.room_ids[0])?.name ?? '—'}
                   {d.room_ids.length > 1 ? ` +${d.room_ids.length - 1}` : ''}
                 </p>
@@ -402,6 +519,16 @@ export function LessonAssignmentDialog({
             </FormBlock>
           </div>
         </div>
+
+        {(capacityWarnings.length > 0 || capacityLoading) && (
+          <div className="shrink-0 border-t px-3 py-2">
+            {capacityLoading && capacityWarnings.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">Kapasite kontrol ediliyor…</p>
+            ) : (
+              <AssignmentCapacityAlerts warnings={capacityWarnings} />
+            )}
+          </div>
+        )}
 
         <DialogFooter className="shrink-0 gap-2 border-t px-3 py-2 sm:justify-between">
           <Button type="button" variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
@@ -414,7 +541,13 @@ export function LessonAssignmentDialog({
                 Gelişmiş
               </Link>
             </Button>
-            <DdAccentButton type="button" size="sm" className="h-8 min-w-[4.5rem]" disabled={saving} onClick={() => void save()}>
+            <DdAccentButton
+              type="button"
+              size="sm"
+              className="h-8 min-w-[4.5rem]"
+              disabled={saving || capacityErrors.length > 0 || capacityLoading}
+              onClick={() => void save()}
+            >
               {saving ? '…' : 'Kaydet'}
             </DdAccentButton>
           </div>

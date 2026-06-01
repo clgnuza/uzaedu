@@ -24,10 +24,6 @@ const IDLE_LOGOUT_ROLES = new Set<WebAdminRole>(['teacher', 'school_admin']);
 const TOKEN_KEY = 'ogretmenpro_token';
 const meRequestCache = new Map<string, Promise<Me | null>>();
 const ME_CACHE_KEY = `cache:${COOKIE_SESSION_TOKEN}`;
-
-function invalidateMeCache() {
-  meRequestCache.delete(ME_CACHE_KEY);
-}
 const PUBLIC_AUTH_PATHS = new Set([
   '/login',
   '/login/okul',
@@ -138,8 +134,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const prevPathnameRef = useRef<string | undefined>(undefined);
+  const meFetchGenRef = useRef(0);
   const meRef = useRef<Me | null>(null);
   const tokenRef = useRef<string | null>(null);
+  const cancelStaleMeFetches = useCallback(() => {
+    meFetchGenRef.current += 1;
+  }, []);
+  const invalidateMeCache = useCallback(() => {
+    meRequestCache.delete(ME_CACHE_KEY);
+    cancelStaleMeFetches();
+  }, [cancelStaleMeFetches]);
   const [token, setTokenState] = useState<string | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
@@ -148,6 +152,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   tokenRef.current = token;
 
   const fetchMe = useCallback(async (initialToken: string | null, noCache = false): Promise<Me | null> => {
+    const gen = ++meFetchGenRef.current;
+    const isStale = () => gen !== meFetchGenRef.current;
+    const staleResult = () => meRef.current;
+
     let token: string | null = initialToken;
     let retried401 = false;
 
@@ -171,10 +179,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       try {
         const data = await request;
+        if (isStale()) return staleResult();
         setMe(data ?? null);
         setError(null);
         return data ?? null;
       } catch (e) {
+        if (isStale()) return staleResult();
         const ae = e as ApiError;
         if (ae.status === 401 && token && !retried401) {
           safeStorageRemoveItem(TOKEN_KEY);
@@ -218,7 +228,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         else if (!getSessionBearer()) setTokenState(null);
       })
       .catch(() => {
-        if (!getSessionBearer()) setMe(null);
+        /* setMe fetchMe içinde; eski istek catch ile oturumu silmesin */
       })
       .finally(finish);
   }, [fetchMe, pathname]);
@@ -258,7 +268,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       }
     },
-    [fetchMe],
+    [fetchMe, invalidateMeCache],
   );
 
   const logout = useCallback((opts?: { redirectTo?: string }) => {

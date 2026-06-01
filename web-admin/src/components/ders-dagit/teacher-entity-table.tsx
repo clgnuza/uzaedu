@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import { DdMiniWeekGrid } from '@/components/ders-dagit/dd-mini-week-grid';
+import { DdEntityTableShell, ddEntityRowClass } from '@/components/ders-dagit/dd-entity-table-shell';
 import { ddVariantAt, type CardPastelVariant } from '@/components/ders-dagit/dd-ui';
 
 const DOT: Record<CardPastelVariant, string> = {
@@ -34,6 +35,8 @@ function totalHours(t: TeacherConfig): string {
   return String(m ?? 0);
 }
 
+export type TeacherAssignmentStats = { count: number; hours: number };
+
 type Props = {
   teachers: TeacherConfig[];
   colorIndex: Map<string, number>;
@@ -42,6 +45,8 @@ type Props = {
   maxLessons: number;
   query: string;
   onQueryChange: (q: string) => void;
+  /** user_id → atama sayısı ve haftalık saat */
+  assignmentStats?: (userId: string) => TeacherAssignmentStats | undefined;
   onSelect: (id: string) => void;
   onDoubleClick?: (id: string) => void;
   onTimeTableClick?: (id: string) => void;
@@ -55,6 +60,7 @@ export function TeacherEntityTable({
   maxLessons,
   query,
   onQueryChange,
+  assignmentStats,
   onSelect,
   onDoubleClick,
   onTimeTableClick,
@@ -66,24 +72,15 @@ export function TeacherEntityTable({
   }, [teachers, query]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 border-b px-3 py-2">
-        <input
-          type="search"
-          placeholder="Bul…"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          className="w-full max-w-xs rounded-md border bg-background px-2 py-1 text-sm"
-        />
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
-      <table className="w-full min-w-[24rem] text-left text-sm">
-        <thead className="sticky top-0 z-10 bg-muted text-xs uppercase text-muted-foreground shadow-sm">
+    <DdEntityTableShell placeholder="Bul: öğretmen…" query={query} onQueryChange={onQueryChange}>
+      <table className="dd-entity-table min-w-[24rem]">
+        <thead className="dd-entity-thead">
           <tr>
             <th className="px-2 py-2 w-8" />
             <th className="px-2 py-2">Adı</th>
             <th className="px-2 py-2 hidden sm:table-cell">Kısa</th>
-            <th className="px-2 py-2 text-right">Toplam</th>
+            <th className="px-2 py-2 text-right">Saat</th>
+            <th className="px-2 py-2">Atama</th>
             <th className="px-2 py-2">Zaman</th>
           </tr>
         </thead>
@@ -92,22 +89,34 @@ export function TeacherEntityTable({
             const name = t.display_name ?? t.user_id;
             const active = t.id === activeId;
             const variant = ddVariantAt(colorIndex.get(t.id) ?? 0);
+            const asn = assignmentStats?.(t.user_id);
             return (
               <tr
                 key={t.id}
-                className={cn(
-                  'cursor-pointer border-t transition-colors hover:bg-muted/40',
-                  active && 'bg-primary/10',
-                )}
+                className={ddEntityRowClass(active)}
                 onClick={() => onSelect(t.id)}
                 onDoubleClick={() => onDoubleClick?.(t.id)}
               >
-                <td className="px-2 py-1.5">
-                  <span className={cn('inline-block size-3 rounded-sm', DOT[variant])} aria-hidden />
+                <td>
+                  <span className={cn('dd-entity-row-icon', DOT[variant])} aria-hidden>
+                    <span className="size-2 rounded-sm bg-white/90" />
+                  </span>
                 </td>
                 <td className="px-2 py-1.5 font-medium">{name}</td>
                 <td className="px-2 py-1.5 hidden sm:table-cell text-muted-foreground">{shortName(name)}</td>
                 <td className="px-2 py-1.5 text-right tabular-nums">{totalHours(t)}</td>
+                <td className="px-2 py-1.5">
+                  {asn && asn.count > 0 ? (
+                    <span
+                      className="dd-entity-status bg-emerald-500/15 text-emerald-800 dark:text-emerald-200"
+                      title={`${asn.count} atama · ${asn.hours} haftalık saat`}
+                    >
+                      {asn.count} ders · {asn.hours}s
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-muted-foreground">Atanmadı</span>
+                  )}
+                </td>
                 <td className="px-2 py-1.5">
                   <button
                     type="button"
@@ -131,7 +140,6 @@ export function TeacherEntityTable({
           })}
         </tbody>
       </table>
-      </div>
-    </div>
+    </DdEntityTableShell>
   );
 }

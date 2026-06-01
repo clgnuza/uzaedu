@@ -37,6 +37,10 @@ export const RULE_LABELS: Record<string, string> = {
   max_two_per_day: 'Günde en fazla 2 saat aynı ders',
   min_two_per_day: 'Günde en az 2 saat (ardışık tercih)',
   two_not_consecutive_days: 'Haftada 2 saat — ardışık günlerde değil',
+  not_consecutive_same_hour: 'Aynı gün bitişik saatte olamaz',
+  max_days_per_week_planning: 'Haftada en fazla ders günü',
+  max_same_period_week: 'Haftada aynı saatte en fazla X gün',
+  no_compact_week: 'Haftaya yayılım (müfredat hızı)',
   two_not_same_day: 'Haftada 2 saat — farklı günlerde',
   two_two_day_gap: 'Haftada 2 saat — arada 1 gün boşluk',
   same_day_consecutive: 'Aynı gün ardışık saatlerde',
@@ -77,4 +81,62 @@ export const DAY_NAMES: Record<number, string> = {
 
 export function dayLabel(day: number): string {
   return DAY_NAMES[day] ?? `Gün ${day}`;
+}
+
+/** Stüdyo workflow_status (DB anahtarı → Türkçe) */
+export const WORKFLOW_STATUS_LABELS: Record<string, string> = {
+  setup: 'Kurulum',
+  collecting_prefs: 'Müsaitlik toplanıyor',
+  ready: 'Üretime hazır',
+  generating: 'Program üretiliyor',
+  generated: 'Program üretildi',
+  council_review: 'Kurul incelemesi',
+  published: 'Yayında',
+  draft: 'Taslak',
+  reviewing: 'İnceleniyor',
+};
+
+/** Öğretmen müsaitlik başvurusu */
+export const SUBMISSION_STATUS_LABELS: Record<string, string> = {
+  draft: 'Taslak',
+  submitted: 'Onay bekliyor',
+  approved: 'Tam onaylandı',
+  partially_approved: 'Kısmen onaylandı',
+  rejected: 'Reddedildi',
+};
+
+/** Program kaydı durumu */
+export const PROGRAM_STATUS_LABELS: Record<string, string> = {
+  draft: 'Taslak',
+  generated: 'Üretildi',
+  published: 'Yayında',
+  archived: 'Arşiv',
+  active: 'Aktif',
+};
+
+function isTechnicalKey(value: string): boolean {
+  return /^[a-z][a-z0-9]*(_[a-z0-9]+)+$/i.test(value.trim());
+}
+
+function fallbackReadable(value: string): string {
+  if (!isTechnicalKey(value)) return value;
+  return 'Durum bilgisi';
+}
+
+export function workflowStatusLabel(status: string | null | undefined): string {
+  const k = status?.trim();
+  if (!k) return 'Belirtilmedi';
+  return WORKFLOW_STATUS_LABELS[k] ?? fallbackReadable(k);
+}
+
+export function submissionStatusLabel(status: string | null | undefined): string {
+  const k = status?.trim();
+  if (!k) return '—';
+  return SUBMISSION_STATUS_LABELS[k] ?? fallbackReadable(k);
+}
+
+export function programStatusLabel(status: string | null | undefined): string {
+  const k = status?.trim();
+  if (!k) return '—';
+  return PROGRAM_STATUS_LABELS[k] ?? fallbackReadable(k);
 }

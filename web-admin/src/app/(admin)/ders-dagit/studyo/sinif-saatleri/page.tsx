@@ -12,12 +12,23 @@ import { DdEntityTimeDialog } from '@/components/ders-dagit/dd-entity-time-dialo
 import { SectionEntityTable } from '@/components/ders-dagit/section-entity-table';
 import { SectionScheduleGrid } from '@/components/ders-dagit/section-schedule-grid';
 import { Button } from '@/components/ui/button';
-import { emptySchedule, type SectionScheduleConfig } from '@/lib/section-schedule';
+import { normalizeSectionSchedulesResponse } from '@/lib/class-section-schedules-normalize';
+import { emptySchedule, scheduleForSchoolType, type SectionScheduleConfig } from '@/lib/section-schedule';
 import { toast } from 'sonner';
 import type { PeriodConfig } from '@/components/ders-dagit/period-config-form';
 import type { SchoolProfileDto } from '@/components/ders-dagit/school-profile-form';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { sectionsMatch } from '@/lib/class-section-canonical';
 import { atamalarUrl, planlamaIliskileriUrl } from '@/lib/dd-entity-scope';
+import { DdCatalogAssignmentsHint } from '@/components/ders-dagit/dd-catalog-assignments-hint';
+import { useDersDagitClassProfiles } from '@/hooks/use-ders-dagit-class-profiles';
+import {
+  buildHoursBySection,
+  sectionAssignmentStatus,
+  type SectionAssignmentStatus,
+} from '@/lib/assigned-lessons-summary';
+import type { LessonAssignmentRow } from '@/lib/lesson-assignment';
 
 type SchedulesRes = {
   sections: string[];
@@ -33,6 +44,9 @@ type PeriodsRes = {
 export default function SinifSaatleriPage() {
   const { token } = useAuth();
   const { studio } = useDersDagitStudio();
+  const { profiles: classProfiles } = useDersDagitClassProfiles(studio?.id);
+  const [assignments, setAssignments] = useState<LessonAssignmentRow[]>([]);
+  const searchParams = useSearchParams();
   const [sections, setSections] = useState<string[]>([]);
   const [schedules, setSchedules] = useState<Record<string, SectionScheduleConfig>>({});
   const [section, setSection] = useState('');
@@ -51,16 +65,24 @@ export default function SinifSaatleriPage() {
     if (!token || !studio) return;
     setLoading(true);
     try {
-      const [sched, per, sp] = await Promise.all([
+      const [sched, per, sp, asn] = await Promise.all([
         apiFetch<SchedulesRes>(`/ders-dagit/studios/${studio.id}/section-schedules`, { token }),
         apiFetch<PeriodsRes>(`/ders-dagit/studios/${studio.id}/periods`, { token }).catch(() => null),
         apiFetch<SchoolProfileDto>(`/ders-dagit/studios/${studio.id}/school-profile`, { token }).catch(() => null),
+        apiFetch<LessonAssignmentRow[]>(`/ders-dagit/studios/${studio.id}/assignments`, { token }).catch(
+          () => [],
+        ),
       ]);
+      setAssignments(asn);
       setSchoolType(sp?.type ?? null);
-      setSections(sched.sections);
-      setSchedules(sched.schedules);
+      const norm = normalizeSectionSchedulesResponse(sched.sections, sched.schedules);
+      setSections(norm.sections);
+      setSchedules(norm.schedules);
       setPeriods(per);
-      setSection((prev) => prev || sched.sections[0] || '');
+      setSection((prev) => {
+        if (prev && norm.sections.includes(prev)) return prev;
+        return norm.sections[0] || '';
+      });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Yüklenemedi');
     } finally {
@@ -73,11 +95,24 @@ export default function SinifSaatleriPage() {
   }, [load]);
 
   useEffect(() => {
-    const s = schedules[section] ?? emptySchedule();
+    const s = scheduleForSchoolType(schedules[section] ?? emptySchedule(), schoolType);
     setDraft(s);
     setBaseline(JSON.stringify(s));
     setCopyTargets([]);
-  }, [section, schedules]);
+  }, [section, schedules, schoolType]);
+
+  useEffect(() => {
+    if (loading) return;
+    const secParam = searchParams.get('section')?.trim();
+    if (secParam && sections.length) {
+      const match = sections.find((s) => sectionsMatch(s, secParam));
+      if (match) {
+        setSection(match);
+        setDetailOpen(true);
+      }
+    }
+    if (searchParams.get('time') === '1') setTimeOpen(true);
+  }, [loading, searchParams, sections]);
 
   const dirty = JSON.stringify(draft) !== baseline;
   const workDays = periods?.work_days ?? [1, 2, 3, 4, 5];
@@ -88,6 +123,15 @@ export default function SinifSaatleriPage() {
     if (!section) return schedules;
     return { ...schedules, [section]: draft };
   }, [schedules, section, draft]);
+
+  const assignmentStatusBySection = useMemo(() => {
+    const hoursBySection = buildHoursBySection(assignments);
+    const out: Record<string, SectionAssignmentStatus> = {};
+    for (const sec of sections) {
+      out[sec] = sectionAssignmentStatus(sec, hoursBySection, classProfiles);
+    }
+    return out;
+  }, [assignments, sections, classProfiles]);
 
   function selectSection(sec: string) {
     if (dirty && sec !== section && !window.confirm('Kaydedilmemiş değişiklikler silinecek. Devam?')) return;
@@ -102,10 +146,12 @@ export default function SinifSaatleriPage() {
       const res = await apiFetch<SchedulesRes>(`/ders-dagit/studios/${studio.id}/section-schedules`, {
         token,
         method: 'PATCH',
-        body: { section, schedule: draft },
+        body: { section, schedule: scheduleForSchoolType(draft, schoolType) },
       });
-      const saved = res.schedules[section] ?? draft;
-      setSchedules(res.schedules);
+      const norm = normalizeSectionSchedulesResponse(res.sections, res.schedules);
+      const saved = scheduleForSchoolType(norm.schedules[section] ?? draft, schoolType);
+      setSections(norm.sections);
+      setSchedules(norm.schedules);
       setDraft(saved);
       setBaseline(JSON.stringify(saved));
       toast.success(`${section} kaydedildi`);
@@ -125,10 +171,12 @@ export default function SinifSaatleriPage() {
         await apiFetch(`/ders-dagit/studios/${studio.id}/section-schedules`, {
           token,
           method: 'PATCH',
-          body: { section: sec, schedule: draft },
+          body: { section: sec, schedule: scheduleForSchoolType(draft, schoolType) },
         });
       }
-      const res = await apiFetch<SchedulesRes>(`/ders-dagit/studios/${studio.id}/section-schedules`, { token });
+      const resRaw = await apiFetch<SchedulesRes>(`/ders-dagit/studios/${studio.id}/section-schedules`, { token });
+      const res = normalizeSectionSchedulesResponse(resRaw.sections, resRaw.schedules);
+      setSections(res.sections);
       setSchedules(res.schedules);
       toast.success(`${copyTargets.length} şubeye kopyalandı`);
       setCopyTargets([]);
@@ -153,10 +201,14 @@ export default function SinifSaatleriPage() {
         void saveCurrent();
         break;
       case 'constraints':
-        window.location.href = planlamaIliskileriUrl({ section });
+        if (typeof window !== 'undefined') {
+          window.location.href = planlamaIliskileriUrl({ section });
+        }
         break;
       case 'assign':
-        window.location.href = atamalarUrl({ section });
+        if (typeof window !== 'undefined') {
+          window.location.href = atamalarUrl({ section });
+        }
         break;
       case 'new':
         window.location.href = '/ders-dagit/studyo/kurulum';
@@ -183,6 +235,8 @@ export default function SinifSaatleriPage() {
         description="Şube listesi kurulum + ders kataloğu + atamalardan gelir; atama kaydı burada değişmez."
       />
 
+      <DdCatalogAssignmentsHint />
+
       {loading && !sections.length ? (
         <p className="text-sm text-muted-foreground">Yükleniyor…</p>
       ) : !sections.length ? (
@@ -196,7 +250,7 @@ export default function SinifSaatleriPage() {
         <>
           <DdEntityWorkspace
             title="Tanımlı sınıflar"
-            toolbar={<span className="text-xs text-muted-foreground">{sections.length} şube</span>}
+            toolbar={<span className="dd-entity-count">{sections.length} şube</span>}
             actions={
               <DdEntityActionBar
                 kind="sinif"
@@ -222,6 +276,7 @@ export default function SinifSaatleriPage() {
                   selectSection(sec);
                   setTimeOpen(true);
                 }}
+                assignmentStatusBySection={assignmentStatusBySection}
               />
             }
             detailOpen={detailOpen && !!section}

@@ -9,10 +9,13 @@ import { Button } from '@/components/ui/button';
 
 export default function DogrulamaPage() {
   const { studio, overview, refresh: refreshStudio } = useDersDagitStudio();
-  const { issues, refresh, canProceed, loading } = useStudioValidation(studio?.id);
+  const studioId = studio?.id ?? overview?.studio?.id;
+  const { issues, refresh, canProceed, ready, syncing } = useStudioValidation(studioId, {
+    initialIssues: overview?.validation,
+  });
 
   const handleRefresh = () => {
-    void refresh();
+    void refresh({ force: true });
     void refreshStudio({ force: true });
   };
 
@@ -21,7 +24,8 @@ export default function DogrulamaPage() {
       <ValidationDashboard
         issues={issues}
         overview={overview}
-        loading={loading}
+        ready={ready}
+        syncing={syncing}
         canProceed={canProceed}
         onRefresh={handleRefresh}
       />

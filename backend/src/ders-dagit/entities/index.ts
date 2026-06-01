@@ -10,6 +10,7 @@ export { DersDagitAssignment } from './ders-dagit-assignment.entity';
 export { DersDagitAssignmentTeacher } from './ders-dagit-assignment-teacher.entity';
 export { DersDagitRuleSet } from './ders-dagit-rule-set.entity';
 export { DersDagitPreference } from './ders-dagit-preference.entity';
+export { DersDagitAvailabilitySubmission } from './ders-dagit-availability-submission.entity';
 export { DersDagitRequest } from './ders-dagit-request.entity';
 export { DersDagitProgram } from './ders-dagit-program.entity';
 export { DersDagitProgramEntry } from './ders-dagit-program-entry.entity';

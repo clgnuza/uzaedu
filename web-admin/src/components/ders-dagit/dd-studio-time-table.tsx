@@ -2,10 +2,10 @@
 
 import { weekdayShort } from '@/lib/studio-timetable-ui';
 import { cn } from '@/lib/utils';
-import { Check, HelpCircle, X } from 'lucide-react';
+import { Check, HelpCircle, ShieldCheck, X } from 'lucide-react';
 
 export type StudioCellVisual = {
-  state: 'available' | 'blocked' | 'conditional' | 'disabled';
+  state: 'available' | 'blocked' | 'conditional' | 'disabled' | 'approved' | 'denied';
   fill?: 'none' | 'scheduled' | 'locked';
   title?: string;
 };
@@ -23,6 +23,9 @@ type Props = {
 
 function CellIcon({ state }: { state: StudioCellVisual['state'] }) {
   if (state === 'blocked') return <X className="size-3.5 text-rose-700 dark:text-rose-300" aria-hidden />;
+  if (state === 'approved')
+    return <ShieldCheck className="size-3.5 text-violet-800 dark:text-violet-200" aria-hidden />;
+  if (state === 'denied') return <Check className="size-3.5 text-amber-800 dark:text-amber-200" aria-hidden />;
   if (state === 'conditional') return <HelpCircle className="size-3.5 text-sky-700 dark:text-sky-300" aria-hidden />;
   if (state === 'available') return <Check className="size-3.5 text-emerald-700 dark:text-emerald-300" aria-hidden />;
   return null;
@@ -97,7 +100,11 @@ export function DdStudioTimeTable({
                         className={cn(
                           'flex h-8 w-full items-center justify-center rounded-sm transition-colors',
                           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                          v.state === 'blocked' && 'bg-rose-100 dark:bg-rose-950/40',
+                          v.state === 'blocked' && 'bg-rose-100 ring-1 ring-rose-400/50 dark:bg-rose-950/40',
+                          v.state === 'approved' &&
+                            'bg-violet-100 ring-2 ring-violet-500/60 dark:bg-violet-950/50',
+                          v.state === 'denied' &&
+                            'bg-amber-50 ring-2 ring-amber-400/70 dark:bg-amber-950/35',
                           v.state === 'conditional' && 'bg-sky-100 dark:bg-sky-950/40',
                           v.state === 'available' && 'bg-emerald-50/80 dark:bg-emerald-950/20',
                           v.state === 'disabled' && 'bg-muted/30 cursor-not-allowed opacity-60',

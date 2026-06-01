@@ -1,5 +1,6 @@
 import { placementBlocked } from './ders-dagit.solver-placement-rules';
 import { applySoftRulePenalties } from './ders-dagit.solver-rules';
+import { ruleOnForAssignment } from './ders-dagit.solver-rule-scope';
 import {
   canPlace,
   runConstraintSolver,
@@ -186,10 +187,15 @@ function buildRemainingTasks(assignments: SolverAssignment[], entries: SolverSlo
   return tasks;
 }
 
-function lessonOrder(ctx: SolverContext, day: number): number[] {
+function lessonOrder(
+  ctx: SolverContext,
+  day: number,
+  a: SolverAssignment,
+  classSection: string,
+): number[] {
   const dayMax = ctx.max_lesson_by_day.get(day) ?? ctx.max_lesson_per_day;
   const all = Array.from({ length: dayMax }, (_, i) => i + 1).filter((n) => !ctx.blocked_lesson_nums.has(n));
-  return ctx.active_rules.important_early?.active ? all : [...all].reverse();
+  return ruleOnForAssignment(ctx, 'important_early', classSection, a) ? all : [...all].reverse();
 }
 
 function finalizeResult(
@@ -239,7 +245,7 @@ function backtrack(
   const { a, classSection, userId } = tasks[taskIdx]!;
   const days = daysForAssignment(a, ctx.day_order?.length ? ctx.day_order : ctx.work_days);
   for (const day of days) {
-    for (const lesson of lessonOrder(ctx, day)) {
+    for (const lesson of lessonOrder(ctx, day, a, classSection)) {
       nodes.n++;
       if (!placementAllowed(entries, occupied, a, classSection, day, lesson, userId, ctx)) continue;
       const slot: SolverSlot = {

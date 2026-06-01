@@ -4,7 +4,6 @@
  * node tools/seed-ders-dagit-demo.cjs --no-generate
  */
 const path = require('path');
-const bcrypt = require('bcrypt');
 const { Client } = require('pg');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
@@ -12,16 +11,8 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const BASE = (process.env.SEED_API_BASE || 'http://127.0.0.1:4000/api').replace(/\/$/, '');
 const ADMIN_EMAIL = 'school_admin@demo.local';
 const ADMIN_PASS = 'Sa3z&yU7!wE5sA2#cF6g';
-const TEACHER_PASS = 'Tr9m!kL2$vNx8Qw@bR4hJ';
-const EXTRA_TEACHERS = [
-  'teacher2@demo.local',
-  'teacher3@demo.local',
-  'teacher4@demo.local',
-  'teacher5@demo.local',
-  'teacher6@demo.local',
-];
 const SECTIONS = ['9/A'];
-const KEEP_TEACHER_EMAILS = ['teacher@demo.local', ...EXTRA_TEACHERS];
+const KEEP_TEACHER_EMAILS = ['teacher@demo.local'];
 const DEMO_SCHOOL_NAMES = ['Ankara Çankaya Demo Lisesi', 'Demo Okulu'];
 
 const noGenerate = process.argv.includes('--no-generate');
@@ -34,24 +25,6 @@ function pgClient() {
     password: process.env.DB_PASSWORD ?? '',
     database: process.env.DB_DATABASE || 'ogretmenpro',
   });
-}
-
-async function pgTeachers(schoolId) {
-  const client = pgClient();
-  await client.connect();
-  const hash = await bcrypt.hash(TEACHER_PASS, 10);
-  for (const email of EXTRA_TEACHERS) {
-    const r = await client.query(`SELECT id FROM users WHERE lower(trim(email)) = lower(trim($1))`, [email]);
-    if (r.rowCount === 0) {
-      await client.query(
-        `INSERT INTO users (email, display_name, role, school_id, status, password_hash, teacher_school_membership, teacher_public_name_masked, firebase_uid)
-         VALUES ($1, $2, 'teacher', $3, 'active', $4, 'approved', true, NULL)`,
-        [email, email.split('@')[0], schoolId, hash],
-      );
-      console.log('+', email);
-    }
-  }
-  await client.end();
 }
 
 async function pgClearStudioCatalog(studioId) {
@@ -164,8 +137,6 @@ function pickTeacher(ids, load, hours) {
   console.log('Stüdyo:', sid);
 
   const schoolId = studio.school_id;
-  if (schoolId) await pgTeachers(schoolId);
-
   await api(token, 'PATCH', `/ders-dagit/studios/${sid}/school-profile`, { type: 'anadolu_lise' });
   await api(token, 'PATCH', `/ders-dagit/studios/${sid}/periods`, {
     period: {

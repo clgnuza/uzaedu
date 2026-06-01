@@ -34,10 +34,15 @@ export const RULE_HINTS: Record<string, string> = {
   two_not_consecutive_days: 'Haftada 2 saat varsa bu saatler art arda gelen günlerde olmamalıdır.',
   two_not_same_day: 'Haftada 2 saat varsa farklı günlerde olmalıdır (aynı günde toplanmaz).',
   two_two_day_gap: 'İki saat arasında en az bir boş gün tercih edilir (ör. Pazartesi–Çarşamba).',
+  not_consecutive_same_hour: 'Aynı gün içinde bitişik ders saatlerine yerleştirilmez.',
+  max_days_per_week_planning: 'Haftada en fazla belirtilen gün sayısında ders günü kullanılır.',
+  max_same_period_week: 'Aynı ders sırası (ör. 2. saat) haftada en fazla X günde kullanılır.',
+  no_compact_week: 'Haftalık saatler mümkün olduğunca günlere yayılır; az güne sıkıştırılmaz.',
   same_day_consecutive: 'Aynı gün içindeki çok saatli dersler mümkünse ardışık slotlarda tutulur.',
   four_plus_consecutive:
     'Bir öğretmen veya sınıf için günde 4’ten fazla kesintisiz ders saati oluşturulmaz.',
-  important_early: 'Matematik, Türkçe gibi “önemli” işaretli dersler günün erken saatlerine çekilir.',
+  important_early:
+    'Seçili dersler (Planlama ilişkileri) veya kural açıkken tüm dersler için günün erken saatleri (1–6) tercih edilir; 7. saat ve sonrası engellenir.',
   minimize_teacher_gaps:
     'Öğretmenin gün içindeki boş ders saatleri (pencere) azaltılır; servis ve yorgunluk için.',
   minimize_work_days: 'Öğretmenin okula geldiği gün sayısı az tutulmaya çalışılır.',
@@ -48,7 +53,7 @@ export const RULE_HINTS: Record<string, string> = {
     'Teorik dersler sabah, atölye/uygulamalı dersler öğleden sonraya yerleştirilmeye çalışılır.',
 };
 
-export const RULE_ENGINE_SUMMARY = `Açık her kural üretimde zorunludur: ihlal varsa program kaydedilmez ve işlem STRICT_RULES_VIOLATED ile durur; skor 100 yalnızca tüm saatler yerleşip açık kurallar sağlandığında verilir. Öğretmen/sınıf çakışması kapalı görünse de motor düzeyinde her zaman engellenir. “Sınıf haftalık kapasite” ön doğrulama ve profil limitidir. Plan Kartları kuralları açabilir; strict ve desteklenmeyen ilişki üretimi baştan engeller. Okul türüne göre beden/müzik ve teorik–uygulamalı kurallar otomatik etkinleşebilir.`;
+export const RULE_ENGINE_SUMMARY = `Açık her kural üretimde zorunludur: ihlal varsa program kaydedilmez ve üretim durur; skor 100 yalnızca tüm saatler yerleşip açık kurallar sağlandığında verilir. Öğretmen/sınıf çakışması kapalı görünse de motor düzeyinde her zaman engellenir. “Sınıf haftalık kapasite” ön doğrulama ve profil limitidir. Plan Kartları yeni kural açabilir; zorunlu seçilip henüz desteklenmeyen ilişki varsa üretim başlamadan engellenir. Okul türüne göre beden/müzik ve teorik–uygulamalı kurallar otomatik etkinleşebilir.`;
 
 export const RULE_EXTRA_HINTS = {
   scope:
@@ -60,7 +65,7 @@ export const RULE_EXTRA_HINTS = {
   travelMatrix:
     'İki bina arası özel süre tanımlayın (ör. A binası → spor salonu 10 dk). Matris, bina geçiş kuralı açıkken kullanılır.',
   planningLink:
-    'Plan Kartı ilişkileri (öğretmen X ile Y aynı gün, ders Z önce vb.) buradan yönetilir; üretimde strict olanlar doğrulanır.',
+    'Plan Kartı ilişkileri (öğretmen X ile Y aynı gün, ders Z önce vb.) buradan yönetilir; zorunlu seçilenler üretimde özellikle doğrulanır.',
   weight:
     '1–20 arası öncelik. Yüksek puanlı tercih, düşük puanlıya göre önce sağlanmaya çalışılır; hepsi aynı anda mümkün olmayabilir.',
 };
@@ -95,6 +100,17 @@ export const SETTING_HINTS: Record<string, SettingHint> = {
     short: 'Müsaitlik ve limitler.',
     detail:
       'Zorunlu/ek haftalık saat, günlük max, çalışma günü sayısı, müsait olmadığı slotlar ve öğle arası boşluk izni. Adalet ve üretim bu limitlere uyar.',
+  },
+  ayarlar: {
+    title: 'Ayarlar',
+    short: 'Müsaitlik toplama penceresi ve modül kısayolları.',
+    detail:
+      'Sayfanın üstünde öğretmen müsaitlik tercihlerini açıp kapatabilir, onay zorunluluğunu seçebilirsiniz. Bekleyen başvurular burada onaylanır; öğretmen önizlemesi için Başvurular sayfasına gidin.',
+  },
+  'ogretmen-tercihleri': {
+    title: 'Başvurular ve önizleme',
+    short: 'Öğretmen bazlı tercih inceleme.',
+    detail: 'Onay kuyruğu Ayarlar sayfasında da görünür; burada öğretmen seçerek ızgarayı önizleyebilirsiniz.',
   },
   dersler: {
     title: 'Dersler',

@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { schoolSetupCapabilities } from '@/lib/school-profile-capabilities';
 import { weekdayShort } from '@/lib/studio-timetable-ui';
 import { dayLabel } from '@/lib/ders-dagit-labels';
 import { DdWeekdayPicker } from '@/components/ders-dagit/dd-weekday-picker';
@@ -13,12 +14,12 @@ import {
   effectiveSlotState,
   setCellState,
   setDayMaxLessons,
+  scheduleForSchoolType,
   setInternshipDays,
   type LongBreakDef,
   type SectionScheduleConfig,
   type SectionSlotState,
 } from '@/lib/section-schedule';
-import { schoolSetupCapabilities } from '@/lib/school-profile-capabilities';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
@@ -41,11 +42,27 @@ export function SectionScheduleGrid({
   schedule,
   onChange,
 }: Props) {
-  const caps = schoolSetupCapabilities(schoolType);
-  const paintStates = caps.sectionScheduleInternship
-    ? PAINT_STATES
-    : PAINT_STATES.filter((s) => s !== 'internship');
+  const allowInternship = schoolSetupCapabilities(schoolType).sectionScheduleInternship;
+  const paintStates = useMemo(
+    () => (allowInternship ? PAINT_STATES : PAINT_STATES.filter((s) => s !== 'internship')),
+    [allowInternship],
+  );
+  const legendKeys = useMemo(
+    () =>
+      (Object.keys(SLOT_STATE_UI) as Array<keyof typeof SLOT_STATE_UI>).filter(
+        (k) => allowInternship || k !== 'internship',
+      ),
+    [allowInternship],
+  );
   const [brush, setBrush] = useState<SectionSlotState>('closed');
+
+  useEffect(() => {
+    if (!allowInternship && brush === 'internship') setBrush('closed');
+  }, [allowInternship, brush]);
+
+  function applyChange(next: SectionScheduleConfig) {
+    onChange(scheduleForSchoolType(next, schoolType));
+  }
   const days = workDays.length ? workDays : [1, 2, 3, 4, 5];
   const gridMax = useMemo(() => {
     let m = schoolMaxLessons;
@@ -68,22 +85,22 @@ export function SectionScheduleGrid({
       dayMaxLessons(schedule, day, schoolMaxLessons, studioLessonsByDow),
     );
     if (eff === 'no_slot' || eff === 'lunch') return;
-    onChange(setCellState(schedule, day, lesson, brush));
+    applyChange(setCellState(schedule, day, lesson, brush));
   }
 
   return (
     <div className="space-y-4">
-      {caps.sectionScheduleInternship ? (
+      {allowInternship ? (
         <div className="rounded-lg border bg-muted/20 p-3">
-          <p className="mb-2 text-xs font-medium">Tam gün staj / işletmede beceri (bu şube)</p>
+          <p className="mb-2 text-xs font-medium">Tam gün staj (bu şube)</p>
           <DdWeekdayPicker
             value={schedule.internship_days ?? []}
-            onChange={(days) => onChange(setInternshipDays(schedule, days))}
+            onChange={(days) => applyChange(setInternshipDays(schedule, days))}
             minSelected={0}
           />
           <p className="mt-1 text-[10px] text-muted-foreground">
-            Seçilen günlerin tüm ders saatleri staj sayılır. Kısmi saat için aşağıdaki ızgarada &quot;Staj&quot; boyası
-            kullanın.
+            Gün seçerseniz o günün tüm ders saatleri staj olur. Yalnızca bazı saatler için: &quot;Seçili durum →
+            Staj&quot; deyip tablodaki hücrelere tıklayın.
           </p>
         </div>
       ) : null}
@@ -110,7 +127,7 @@ export function SectionScheduleGrid({
       </div>
 
       <div className="flex flex-wrap gap-2 text-xs" role="list" aria-label="Tablo renkleri">
-        {(Object.keys(SLOT_STATE_UI) as Array<keyof typeof SLOT_STATE_UI>).map((k) => (
+        {legendKeys.map((k) => (
           <span key={k} className="inline-flex items-center gap-1.5" role="listitem">
             <span className={cn('size-3 rounded', SLOT_STATE_UI[k].className.split(' ')[0])} aria-hidden />
             {SLOT_STATE_UI[k].label}
@@ -166,7 +183,7 @@ export function SectionScheduleGrid({
                         className="h-5 w-5 px-0 text-[9px]"
                         aria-label={`${dayLabel(d)} ders sayısını azalt`}
                         disabled={max <= 1}
-                        onClick={() => onChange(setDayMaxLessons(schedule, d, max - 1))}
+                        onClick={() => applyChange(setDayMaxLessons(schedule, d, max - 1))}
                       >
                         −
                       </Button>
@@ -178,7 +195,7 @@ export function SectionScheduleGrid({
                         className="h-5 w-5 px-0 text-[9px]"
                         aria-label={`${dayLabel(d)} ders sayısını artır`}
                         disabled={max >= schoolMaxLessons}
-                        onClick={() => onChange(setDayMaxLessons(schedule, d, max + 1))}
+                        onClick={() => applyChange(setDayMaxLessons(schedule, d, max + 1))}
                       >
                         +
                       </Button>
@@ -239,7 +256,7 @@ export function SectionScheduleGrid({
             · <span className="font-medium text-red-600 dark:text-red-400">{slotCounts.closed}</span> kapalı (K)
           </>
         ) : null}
-        {slotCounts.internship > 0 ? <> · {slotCounts.internship} staj</> : null}
+        {allowInternship && slotCounts.internship > 0 ? <> · {slotCounts.internship} staj</> : null}
         {slotCounts.lunchCells > 0 ? (
           <>
             {' '}

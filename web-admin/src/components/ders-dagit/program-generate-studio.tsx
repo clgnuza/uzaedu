@@ -32,7 +32,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { StudioValidationGate } from '@/components/ders-dagit/StudioValidationGate';
 import { computeStudioReadiness, type StudioReadiness } from '@/lib/ders-dagit-readiness';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, type ApiError } from '@/lib/api';
 import {
   archiveProgram,
   cloneProgram,
@@ -78,6 +78,20 @@ type GenerateResult = {
 };
 
 const PREVIEW_DROP_ID = 'preview-drop';
+
+function generateErrorText(e: unknown): string {
+  const err = e as ApiError;
+  if (err?.code === 'STRICT_RULES_VIOLATED') {
+    return 'Zorunlu kurallara uyan program üretilemedi. Kurallar ve Planlama İlişkileri ekranını kontrol edin.';
+  }
+  if (err?.code === 'VALIDATION_FAILED') {
+    return 'Üretim öncesi kontrollerde eksik/hata var. Doğrulama ekranındaki kırmızı kayıtları düzeltin.';
+  }
+  if (err?.code === 'DUTY_CONFLICT') {
+    return 'Nöbet saatleriyle çakışma var. Nöbet planı veya ders saatlerini gözden geçirin.';
+  }
+  return e instanceof Error ? e.message : 'Üretim başarısız';
+}
 
 function ReadinessRing({ percent }: { percent: number }) {
   const r = 26;
@@ -384,7 +398,7 @@ export function ProgramGenerateStudio() {
       await refresh({ force: true });
       await loadExisting();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Üretim başarısız');
+      toast.error(generateErrorText(e));
     } finally {
       setBusy(false);
     }

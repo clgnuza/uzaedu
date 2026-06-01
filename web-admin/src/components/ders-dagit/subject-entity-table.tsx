@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { BookOpen } from 'lucide-react';
 import { sortClassSections } from '@/lib/class-section-sort';
 import { subjectTotalHours, type DerslerSubject } from '@/lib/dersler-studio';
+import { DdEntityTableShell, ddEntityRowClass } from '@/components/ders-dagit/dd-entity-table-shell';
 import { ddVariantAt, type CardPastelVariant } from '@/components/ders-dagit/dd-ui';
 import { cn } from '@/lib/utils';
 
@@ -46,19 +47,9 @@ export function SubjectEntityTable({
   }, [subjects, query]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 border-b px-3 py-2">
-        <input
-          type="search"
-          placeholder="Bul: ders…"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          className="w-full max-w-xs rounded-md border bg-background px-2 py-1 text-sm"
-        />
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
-      <table className="w-full min-w-[28rem] text-left text-sm">
-        <thead className="sticky top-0 z-10 bg-muted text-xs uppercase text-muted-foreground shadow-sm">
+    <DdEntityTableShell placeholder="Bul: ders…" query={query} onQueryChange={onQueryChange}>
+      <table className="dd-entity-table min-w-[28rem]">
+        <thead className="dd-entity-thead">
           <tr>
             <th className="w-8 px-2 py-2" />
             <th className="px-2 py-2">Adı</th>
@@ -77,13 +68,13 @@ export function SubjectEntityTable({
             return (
               <tr
                 key={s.id}
-                className={cn('cursor-pointer border-t hover:bg-muted/40', active && 'bg-primary/10')}
+                className={ddEntityRowClass(active)}
                 onClick={() => onSelect(s.id)}
                 onDoubleClick={() => onDoubleClick?.(s.id)}
               >
-                <td className="px-2 py-1.5">
-                  <span className={cn('inline-flex size-5 items-center justify-center rounded', DOT[variant])}>
-                    <BookOpen className="size-3 text-white" aria-hidden />
+                <td>
+                  <span className={cn('dd-entity-row-icon', DOT[variant])}>
+                    <BookOpen className="size-3.5 text-white" aria-hidden />
                   </span>
                 </td>
                 <td className="px-2 py-1.5 font-medium">
@@ -101,7 +92,6 @@ export function SubjectEntityTable({
           })}
         </tbody>
       </table>
-      </div>
-    </div>
+    </DdEntityTableShell>
   );
 }

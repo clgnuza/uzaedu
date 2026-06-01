@@ -12,18 +12,26 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { DdSelect, DdSelectField, DdMultiSelect } from '@/components/ders-dagit/dd-select';
 import { DdSectionMultiField } from '@/components/ders-dagit/dd-section-picker';
-import { formatClassSectionsList, sortClassSections } from '@/lib/class-section-sort';
+import { normalizeClassSectionNamesFromPool, sectionsMatch } from '@/lib/class-section-canonical';
+import { formatClassSectionsList } from '@/lib/class-section-sort';
+import { useDersDagitSections } from '@/hooks/use-ders-dagit-sections';
+import { useDersDagitClassProfiles } from '@/hooks/use-ders-dagit-class-profiles';
 import { dayLabel, groupModeLabel } from '@/lib/ders-dagit-labels';
 import { toast } from 'sonner';
 import { AssignedLessonsPanel } from '@/components/ders-dagit/assigned-lessons-panel';
 import { LessonAssignmentDialog } from '@/components/ders-dagit/lesson-assignment-dialog';
+import {
+  AssignmentCapacityAlerts,
+  type AssignmentCapacityWarning,
+} from '@/components/ders-dagit/assignment-capacity-alerts';
 import {
   assignmentToDraft,
   type LessonAssignmentDraft,
   type LessonAssignmentRow,
 } from '@/lib/lesson-assignment';
 import { DdPageHeader } from '@/components/ders-dagit/dd-ui';
-import { ListChecks } from 'lucide-react';
+import { ListChecks, Search } from 'lucide-react';
+import { DdCatalogAssignmentsHint } from '@/components/ders-dagit/dd-catalog-assignments-hint';
 
 const EOKUL_FORMAT_OPTS = [
   { value: 'auto', label: 'Otomatik (tablo → ızgara)' },
@@ -105,10 +113,16 @@ export default function AtamalarPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [listActiveId, setListActiveId] = useState<string | null>(null);
   const [assignmentDraft, setAssignmentDraft] = useState<LessonAssignmentDraft | null>(null);
+  const [listQuery, setListQuery] = useState('');
+  const [listSection, setListSection] = useState('');
+  const [advancedCapacityWarnings, setAdvancedCapacityWarnings] = useState<AssignmentCapacityWarning[]>([]);
+  const extraSectionKeys = useMemo(() => rows.flatMap((r) => r.class_sections ?? []), [rows]);
+  const { sections: studioSections, reload: reloadSections } = useDersDagitSections(extraSectionKeys);
+  const { profiles: classProfiles } = useDersDagitClassProfiles(studio?.id);
 
   const load = useCallback(async () => {
     if (!token || !studio) return;
-    const [a, g, r, t, sub, sp] = await Promise.all([
+    const [a, g, r, t, sub, sp, secs] = await Promise.all([
       apiFetch<Assignment[]>(`/ders-dagit/studios/${studio.id}/assignments`, { token }),
       apiFetch<GroupsRes>(`/ders-dagit/studios/${studio.id}/groups`, { token }),
       apiFetch<Room[]>('/ders-dagit/rooms', { token }),
@@ -119,9 +133,17 @@ export default function AtamalarPage() {
       apiFetch<{ type: string }>(`/ders-dagit/studios/${studio.id}/school-profile`, { token }).catch(() => ({
         type: 'anadolu_lise',
       })),
+      apiFetch<string[]>(`/ders-dagit/studios/${studio.id}/class-sections`, { token }).catch(() => [] as string[]),
     ]);
+    const pool = [...secs, ...a.flatMap((x) => x.class_sections ?? [])];
     setSchoolType(sp.type);
-    setRows(a);
+    setRows(
+      a.map((row) => ({
+        ...row,
+        class_sections: normalizeClassSectionNamesFromPool(row.class_sections ?? [], pool),
+      })),
+    );
+    void reloadSections();
     setGroups(g.groups);
     setGroupId((prev) => prev || g.groups[0]?.id || '');
     setRooms(r);
@@ -129,7 +151,7 @@ export default function AtamalarPage() {
     setSubjects(sub);
     setRoomId((prev) => prev || r[0]?.id || '');
     setTeacherIds((prev) => (prev.length ? prev : t[0]?.user_id ? [t[0].user_id] : []));
-  }, [token, studio]);
+  }, [token, studio, reloadSections]);
 
   useEffect(() => {
     void load();
@@ -137,15 +159,19 @@ export default function AtamalarPage() {
 
   useEffect(() => {
     if (scopeTeacher) setTeacherIds([scopeTeacher]);
-    if (scopeSection) setSections([scopeSection]);
+    if (scopeSection) {
+      const canon =
+        normalizeClassSectionNamesFromPool([scopeSection], studioSections)[0] ?? scopeSection;
+      setSections([canon]);
+    }
     if (scopeRoom) setRoomId(scopeRoom);
     if (scopeSubject) setSubjectId(scopeSubject);
-  }, [scopeTeacher, scopeSection, scopeRoom, scopeSubject]);
+  }, [scopeTeacher, scopeSection, scopeRoom, scopeSubject, studioSections]);
 
   const scopedRows = useMemo(() => {
     let list = rows;
     if (scopeTeacher) list = list.filter((a) => a.teacher_ids?.includes(scopeTeacher));
-    if (scopeSection) list = list.filter((a) => a.class_sections.includes(scopeSection));
+    if (scopeSection) list = list.filter((a) => a.class_sections.some((s) => sectionsMatch(s, scopeSection)));
     if (scopeRoom) list = list.filter((a) => a.room_ids?.includes(scopeRoom));
     if (scopeSubject) {
       list = list.filter(
@@ -171,14 +197,32 @@ export default function AtamalarPage() {
 
   const selectedGroup = groups.find((g) => g.id === groupId);
 
-  const allSections = useMemo(
-    () => sortClassSections([...new Set(rows.flatMap((r) => r.class_sections))]),
-    [rows],
+  const allSections = studioSections;
+
+  const teacherNameById = useMemo(
+    () => new Map(teachers.map((t) => [t.user_id, t.display_name ?? t.user_id.slice(0, 8)])),
+    [teachers],
   );
+  const roomNameById = useMemo(() => new Map(rooms.map((r) => [r.id, r.name])), [rooms]);
+
+  const listRows = useMemo(() => {
+    let list = scopedRows;
+    if (listSection) list = list.filter((a) => a.class_sections.some((s) => sectionsMatch(s, listSection)));
+    const q = listQuery.trim().toLocaleLowerCase('tr');
+    if (!q) return list;
+    return list.filter(
+      (a) =>
+        a.subject_name.toLocaleLowerCase('tr').includes(q) ||
+        a.class_sections.some((s) => s.toLocaleLowerCase('tr').includes(q)) ||
+        (a.teacher_ids ?? []).some((id) => (teacherNameById.get(id) ?? '').toLocaleLowerCase('tr').includes(q)),
+    );
+  }, [scopedRows, listSection, listQuery, teacherNameById]);
 
   const panelTitle = scopeTeacher
     ? `Atanan dersler — ${teachers.find((t) => t.user_id === scopeTeacher)?.display_name ?? ''}`
     : 'Atanan dersler';
+
+  const panelSectionFilter = listSection || scopeSection || undefined;
 
   function openNewLesson() {
     const d: LessonAssignmentDraft = {
@@ -191,12 +235,11 @@ export default function AtamalarPage() {
       use_joined: false,
       group_id: '',
       weekly_hours: 4,
-      period_format: 'single',
+      day_distribution: [2, 2],
+      biweekly: false,
       room_mode: 'class',
       room_ids: scopeRoom ? [scopeRoom] : [],
       place_first: false,
-      min_days_per_week: 2,
-      max_per_day: 2,
     };
     setAssignmentDraft(d);
     setListActiveId(null);
@@ -235,8 +278,60 @@ export default function AtamalarPage() {
     setFixedSlots(r.fixed_slots ?? []);
   }
 
+  const sectionsKey = sections.join('\0');
+  const advancedSections = useMemo(() => {
+    const g = groups.find((x) => x.id === groupId);
+    if (g?.member_sections?.length) return g.member_sections;
+    return sections;
+  }, [groupId, groups, sectionsKey]);
+  const advancedSectionsKey = advancedSections.join('\0');
+  const teacherIdsKey = teacherIds.join(',');
+
+  useEffect(() => {
+    if (!token || !studio?.id) return;
+    const canCheck = subject.trim().length > 0 && advancedSectionsKey.length > 0 && teacherIdsKey.length > 0;
+    if (!canCheck) {
+      setAdvancedCapacityWarnings([]);
+      return;
+    }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => {
+      void apiFetch<AssignmentCapacityWarning[]>(
+        `/ders-dagit/studios/${studio.id}/assignments/capacity-check`,
+        {
+          token,
+          method: 'POST',
+          signal: ctrl.signal,
+          body: {
+            id: editId ?? undefined,
+            subject_name: subject.trim(),
+            class_sections: advancedSections,
+            weekly_hours: hours,
+            biweekly,
+            teacher_ids: teacherIds,
+          },
+        },
+      )
+        .then((w) => {
+          if (!ctrl.signal.aborted) setAdvancedCapacityWarnings(w);
+        })
+        .catch(() => {
+          if (!ctrl.signal.aborted) setAdvancedCapacityWarnings([]);
+        });
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
+  }, [token, studio?.id, subject, advancedSectionsKey, hours, biweekly, teacherIdsKey, editId, groupId]);
+
   async function addAssignment() {
     if (!token || !studio || !subject.trim()) return;
+    const capacityErrors = advancedCapacityWarnings.filter((w) => w.severity === 'error');
+    if (capacityErrors.length) {
+      toast.error(capacityErrors[0]!.message);
+      return;
+    }
     await apiFetch(`/ders-dagit/studios/${studio.id}/assignments`, {
       token,
       method: 'POST',
@@ -284,6 +379,9 @@ export default function AtamalarPage() {
         title="Ders atama"
         description="Stüdyo akışı: atanan dersler listesi · Ders penceresi ile öğretmen, ders, sınıf, saat, derslik."
       />
+
+      <DdCatalogAssignmentsHint catalog />
+
       {scopeBanner && (
         <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
           <strong>Bireysel kapsam:</strong> {scopeBanner}
@@ -296,22 +394,53 @@ export default function AtamalarPage() {
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
+      <DdCard variant="teal" className="overflow-hidden p-0">
         <AssignedLessonsPanel
+          wideTable
           title={panelTitle}
-          rows={scopedRows}
+          filterSection={panelSectionFilter}
+          classProfiles={classProfiles}
+          capacityRows={rows}
+          rows={listRows}
           subjects={subjects}
           activeId={listActiveId}
+          teacherNames={teacherNameById}
+          roomNames={roomNameById}
+          maxHeightClass="max-h-[calc(100dvh-11.5rem)]"
+          className="rounded-none border-0 shadow-none"
+          toolbar={
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative min-w-[12rem] flex-1 sm:max-w-xs">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                <Input
+                  className="h-8 pl-8 text-xs"
+                  placeholder="Ders, şube veya öğretmen ara…"
+                  value={listQuery}
+                  onChange={(e) => setListQuery(e.target.value)}
+                />
+              </div>
+              <DdSelect
+                className="h-8 min-w-[8rem] text-xs"
+                value={listSection}
+                onValueChange={setListSection}
+                placeholder="Tüm şubeler"
+                options={[{ value: '', label: 'Tüm şubeler' }, ...allSections.map((s) => ({ value: s, label: s }))]}
+              />
+              <span className="text-[11px] text-muted-foreground tabular-nums">
+                {listRows.length}
+                {listRows.length !== scopedRows.length ? ` / ${scopedRows.length}` : ''} · {rows.length} toplam
+              </span>
+              <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                Çift tık = düzenle · Yeni ders = sihirbaz
+              </span>
+            </div>
+          }
           onSelect={setListActiveId}
           onNew={openNewLesson}
           onEdit={openEditLesson}
           onDelete={() => listActiveId && void deleteLesson(listActiveId)}
         />
-        <p className="hidden text-xs text-muted-foreground lg:block">
-          Sağdaki <strong>Ders</strong> penceresi yalnızca seçili öğretmen / şube / ders kapsamına uygulanır. Gelişmiş
-          toplu içe aktarma altta.
-        </p>
-      </div>
+      </DdCard>
 
       {token && studio && (
         <LessonAssignmentDialog
@@ -661,6 +790,11 @@ export default function AtamalarPage() {
               ]}
             />
           </div>
+          {advancedCapacityWarnings.length > 0 && (
+            <div className="sm:col-span-6">
+              <AssignmentCapacityAlerts warnings={advancedCapacityWarnings} />
+            </div>
+          )}
           <div className="flex flex-wrap items-end gap-2 sm:col-span-2">
             <DdSelect
               className="max-w-[120px]"
@@ -677,7 +811,11 @@ export default function AtamalarPage() {
             >
               + Sabit saat ekle
             </Button>
-            <Button type="button" onClick={() => void addAssignment()}>
+            <Button
+              type="button"
+              disabled={advancedCapacityWarnings.some((w) => w.severity === 'error')}
+              onClick={() => void addAssignment()}
+            >
               {editId ? 'Güncelle' : 'Ekle'}
             </Button>
             {editId && (

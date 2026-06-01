@@ -25,13 +25,7 @@ import type { StudioOverview } from '@/hooks/use-ders-dagit-studio';
 import { Button } from '@/components/ui/button';
 import { StudioIssueCards } from './StudioIssueCards';
 import { DD_PAGE } from '@/components/ders-dagit/dd-ui';
-
-const WORKFLOW_LABEL: Record<string, string> = {
-  draft: 'Taslak',
-  generated: 'Üretildi',
-  published: 'Yayında',
-  reviewing: 'İnceleniyor',
-};
+import { workflowStatusLabel } from '@/lib/ders-dagit-labels';
 
 const KPI = [
   { key: 'classCount', label: 'Şube', icon: GraduationCap, href: '/ders-dagit/studyo/kurulum', tone: 'text-orange-600 bg-orange-500/10' },
@@ -133,7 +127,7 @@ export function StudioReadinessDashboard({ overview }: { overview: StudioOvervie
                       : 'bg-violet-100 text-violet-800 dark:bg-violet-950/50 dark:text-violet-200',
                 )}
               >
-                {WORKFLOW_LABEL[wf] ?? wf}
+                {workflowStatusLabel(wf)}
               </span>
             </div>
           </div>

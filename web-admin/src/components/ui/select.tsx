@@ -54,6 +54,7 @@ interface SelectProps {
   value?: string;
   onValueChange?: (value: string) => void;
   disabled?: boolean;
+  title?: string;
   children: React.ReactNode;
 }
 
@@ -65,8 +66,9 @@ function isSelectItemElement(node: React.ReactElement): node is React.ReactEleme
   return node.type === SelectItem;
 }
 
-export function Select({ value = '', onValueChange, disabled, children }: SelectProps) {
+export function Select({ value = '', onValueChange, disabled, title, children }: SelectProps) {
   const { items, placeholder, triggerClassName, triggerId } = extractFromChildren(children);
+  const selectedLabel = items.find((i) => i.value === value)?.label ?? '';
 
   return (
     <SelectContext.Provider value={{ value, onValueChange: onValueChange ?? (() => {}), placeholder }}>
@@ -74,10 +76,11 @@ export function Select({ value = '', onValueChange, disabled, children }: Select
         <select
           id={triggerId}
           value={value}
+          title={title ?? (selectedLabel || undefined)}
           onChange={(e) => onValueChange?.(e.target.value)}
           disabled={disabled}
           className={cn(
-            'flex h-10 w-full appearance-none rounded-lg border border-input bg-background px-4 py-2 pr-8 text-sm text-foreground transition-all duration-200',
+            'flex h-10 w-full max-w-full appearance-none rounded-lg border border-input bg-background px-3 py-2 pr-8 text-sm text-foreground transition-all duration-200',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:border-primary/30',
             'hover:border-muted-foreground/30',
             'disabled:cursor-not-allowed disabled:opacity-50',

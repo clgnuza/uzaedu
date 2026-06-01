@@ -2,9 +2,9 @@
 
 import { DersDagitStudioNav } from '@/components/ders-dagit/studio-nav';
 import { StudioOnboarding } from '@/components/ders-dagit/studio-onboarding';
-import { CouncilReportSetupDialog } from '@/components/ders-dagit/CouncilReportSetupDialog';
 import { StudioHubBar } from '@/components/ders-dagit/StudioHubBar';
 import { StudioMobileNav } from '@/components/ders-dagit/studio-mobile-nav';
+import { DersDagitStudioProvider } from '@/hooks/ders-dagit-studio-provider';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { DD_PAGE } from '@/components/ders-dagit/dd-ui';
@@ -28,6 +28,14 @@ function isSetupComplete(overview: NonNullable<ReturnType<typeof useDersDagitStu
 }
 
 export default function DersDagitStudioLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <DersDagitStudioProvider>
+      <StudioLayoutBody>{children}</StudioLayoutBody>
+    </DersDagitStudioProvider>
+  );
+}
+
+function StudioLayoutBody({ children }: { children: React.ReactNode }) {
   const { overview, loading, error } = useDersDagitStudio();
   const pathname = usePathname() ?? '';
   const setupDone = useMemo(() => (overview ? isSetupComplete(overview) : true), [overview]);
@@ -42,7 +50,6 @@ export default function DersDagitStudioLayout({ children }: { children: React.Re
         <p className="text-sm text-destructive">{error}</p>
       ) : (
         <>
-          <CouncilReportSetupDialog />
           <div className="space-y-2 print:hidden">
             <StudioHubBar overview={overview} />
             <div className="lg:hidden">

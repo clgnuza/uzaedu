@@ -1,9 +1,11 @@
 import { applySoftRulePenalties } from './ders-dagit.solver-rules';
 import { placementBlocked } from './ders-dagit.solver-placement-rules';
+import { ruleOnForAssignment } from './ders-dagit.solver-rule-scope';
 import type { DersDagitGroupMode } from './ders-dagit.groups';
 import { assignmentBlockLessons, type StudioSchoolProfile } from './ders-dagit.school-profile';
 import { isInternshipPlacementBlocked } from './ders-dagit.internship';
 import { daysForAssignment } from './ders-dagit.solver-blocks';
+import { effectivePatternForAssignment, placeByDayDistribution } from './ders-dagit.solver-distribution';
 import { lessonInShift, type EducationShift } from './ders-dagit.dual-education';
 import {
   isSectionSlotPlaceable,
@@ -108,6 +110,8 @@ export type SolverContext = {
   studio_period: StudioPeriodConfig;
   strict_rule_keys_global?: Set<string>;
   strict_rule_keys_by_section?: Map<string, Set<string>>;
+  planning_relations?: import('./ders-dagit.planning-relations').PlanningRelationRow[];
+  assignment_subjects?: Map<string, string | null>;
 };
 
 export function rulesForSection(ctx: SolverContext, section: string): RuleState {
@@ -483,6 +487,31 @@ export function runConstraintSolver(
       if (placedBlock && need <= 0) continue;
     }
 
+    const distPattern = effectivePatternForAssignment(a, need);
+    if (distPattern?.length) {
+      const distPlaced = placeByDayDistribution(
+        a,
+        need,
+        distPattern,
+        uid,
+        days,
+        ctx,
+        entries,
+        occupied,
+        placeOne,
+        canPlace,
+      );
+      need -= distPlaced;
+      if (need <= 0) {
+        const usedDays = daysUsed(entries, a.id);
+        const minDays = a.min_days_per_week ?? distPattern.length;
+        if (usedDays.size < minDays) {
+          violations.push(`${a.subject_name}: min ${minDays} gün dağılımı sağlanamadı`);
+        }
+        continue;
+      }
+    }
+
     const usedDays = daysUsed(entries, a.id);
     const minDays = a.min_days_per_week ?? 1;
     const dayScores = (d: number) => {
@@ -531,7 +560,10 @@ export function runConstraintSolver(
       let placed = false;
       for (const day of dayTry) {
         const dayMax = ctx.max_lesson_by_day.get(day) ?? ctx.max_lesson_per_day;
-        const lessonOrder = ctx.active_rules.important_early?.active
+        const preferEarly = a.class_sections.some((sec) =>
+          ruleOnForAssignment(ctx, 'important_early', sec, a),
+        );
+        const lessonOrder = preferEarly
           ? Array.from({ length: dayMax }, (_, i) => i + 1).filter((n) => !ctx.blocked_lesson_nums.has(n))
           : Array.from({ length: dayMax }, (_, i) => dayMax - i).filter((n) => !ctx.blocked_lesson_nums.has(n));
         for (const lesson of lessonOrder) {

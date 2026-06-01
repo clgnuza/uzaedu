@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Patch,
   Delete,
   Body,
@@ -20,6 +21,7 @@ import { RequireSchoolModule } from '../common/decorators/require-school-module.
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
 import { UserRole } from '../types/enums';
 import { DersDagitService } from './ders-dagit.service';
+import { DersDagitAvailabilityService } from './ders-dagit-availability.service';
 import { DERS_DAGIT_RULE_CATALOG } from './ders-dagit.rules';
 
 /** Stüdyo layout + çoklu alt bileşen GET; Strict Mode çift çağrı — global throttle 429 üretmesin. */
@@ -28,7 +30,10 @@ import { DERS_DAGIT_RULE_CATALOG } from './ders-dagit.rules';
 @UseGuards(JwtAuthGuard, RequireSchoolModuleGuard, RolesGuard)
 @RequireSchoolModule('ders_dagit')
 export class DersDagitController {
-  constructor(private readonly service: DersDagitService) {}
+  constructor(
+    private readonly service: DersDagitService,
+    private readonly availability: DersDagitAvailabilityService,
+  ) {}
 
   @Get('studios')
   @Roles(UserRole.school_admin, UserRole.teacher)
@@ -51,7 +56,7 @@ export class DersDagitController {
   @Get('studios/:studioId/validation')
   @Roles(UserRole.school_admin)
   validation(@Param('studioId') studioId: string) {
-    return this.service.runValidation(studioId);
+    return this.service.runValidationCached(studioId);
   }
 
   @Get('rule-catalog')
@@ -67,10 +72,20 @@ export class DersDagitController {
     return this.service.listClassProfiles(studioId);
   }
 
+  @Get('studios/:studioId/class-profile-presets')
+  @Roles(UserRole.school_admin)
+  classProfilePresets(@CurrentUser() u: CurrentUserPayload, @Param('studioId') studioId: string) {
+    return this.service.getClassProfilePresets(studioId, u.schoolId!);
+  }
+
   @Post('studios/:studioId/class-profiles')
   @Roles(UserRole.school_admin)
-  upsertClassProfile(@Param('studioId') studioId: string, @Body() body: Record<string, unknown>) {
-    return this.service.upsertClassProfile(studioId, body as never);
+  upsertClassProfile(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.service.upsertClassProfile(studioId, u.schoolId!, body as never);
   }
 
   @Delete('studios/:studioId/class-profiles/:id')
@@ -118,10 +133,50 @@ export class DersDagitController {
     return this.service.syncTeachersFromSchool(studioId, u.schoolId!);
   }
 
+  @Get('studios/:studioId/teachers/candidates')
+  @Roles(UserRole.school_admin)
+  listTeacherCandidates(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Query('q') q?: string,
+  ) {
+    return this.service.listTeacherCandidates(studioId, u.schoolId!, q);
+  }
+
   @Get('studios/:studioId/teachers')
   @Roles(UserRole.school_admin)
   listTeachers(@Param('studioId') studioId: string) {
     return this.service.listTeacherConfigs(studioId);
+  }
+
+  @Post('studios/:studioId/teachers/add')
+  @Roles(UserRole.school_admin)
+  addTeacher(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Body() body: { user_id: string },
+  ) {
+    return this.service.addTeacherToStudio(studioId, u.schoolId!, body.user_id, u.userId);
+  }
+
+  @Post('studios/:studioId/teachers/external')
+  @Roles(UserRole.school_admin)
+  addExternalTeacher(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Body() body: { display_name: string; branch?: string | null },
+  ) {
+    return this.service.addExternalTeacherToStudio(studioId, u.schoolId!, body, u.userId);
+  }
+
+  @Delete('studios/:studioId/teachers/:configId')
+  @Roles(UserRole.school_admin)
+  removeTeacher(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Param('configId') configId: string,
+  ) {
+    return this.service.removeTeacherFromStudio(studioId, u.schoolId!, configId, u.userId);
   }
 
   @Post('studios/:studioId/teachers')
@@ -153,6 +208,16 @@ export class DersDagitController {
   @Roles(UserRole.school_admin)
   deleteSubject(@Param('studioId') studioId: string, @Param('id') id: string) {
     return this.service.deleteSubject(id, studioId);
+  }
+
+  @Post('studios/:studioId/subjects/:subjectId/sync-assignments')
+  @Roles(UserRole.school_admin)
+  syncSubjectAssignments(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Param('subjectId') subjectId: string,
+  ) {
+    return this.service.syncOneSubjectToAssignments(studioId, subjectId, u.userId);
   }
 
   // Groups (divisions)
@@ -280,8 +345,20 @@ export class DersDagitController {
 
   @Get('studios/:studioId/seed/ttkb/preview')
   @Roles(UserRole.school_admin)
-  ttkbPreview(@CurrentUser() u: CurrentUserPayload, @Param('studioId') studioId: string) {
-    return this.service.previewTtkbSeed(studioId, u.schoolId!);
+  ttkbPreview(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Query('grades') grades?: string,
+  ) {
+    const gradeFilter = grades
+      ?.split(',')
+      .map((g) => parseInt(g.trim(), 10))
+      .filter((g) => g >= 1 && g <= 12);
+    return this.service.previewTtkbSeed(
+      studioId,
+      u.schoolId!,
+      gradeFilter?.length ? gradeFilter : undefined,
+    );
   }
 
   @Post('studios/:studioId/seed/ttkb')
@@ -289,9 +366,30 @@ export class DersDagitController {
   seedTtkb(
     @CurrentUser() u: CurrentUserPayload,
     @Param('studioId') studioId: string,
-    @Body() body: { replace?: boolean; sync_assignments?: boolean },
+    @Body() body: { replace?: boolean; sync_assignments?: boolean; grades?: number[] },
   ) {
     return this.service.seedFromTtkb(studioId, u.schoolId!, u.userId, body);
+  }
+
+  @Get('studios/:studioId/seed/school-catalog/preview')
+  @Roles(UserRole.school_admin)
+  schoolCatalogPreview(@CurrentUser() u: CurrentUserPayload, @Param('studioId') studioId: string) {
+    return this.service.previewSchoolCatalogImport(studioId, u.schoolId!);
+  }
+
+  @Post('studios/:studioId/seed/school-catalog')
+  @Roles(UserRole.school_admin)
+  seedSchoolCatalog(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Body()
+    body: {
+      replace?: boolean;
+      sync_assignments?: boolean;
+      mode?: 'subjects_only' | 'subjects_with_ttkb_hours';
+    },
+  ) {
+    return this.service.seedFromSchoolCatalog(studioId, u.schoolId!, u.userId, body);
   }
 
   @Get('studios/:studioId/seed/ttkb/elective/preview')
@@ -388,6 +486,15 @@ export class DersDagitController {
     return this.service.upsertBuilding(u.schoolId!, body as never);
   }
 
+  @Post('buildings/merge')
+  @Roles(UserRole.school_admin)
+  mergeBuildings(
+    @CurrentUser() u: CurrentUserPayload,
+    @Body() body: { keep_id?: string; merge_ids?: string[] },
+  ) {
+    return this.service.mergeBuildings(u.schoolId!, body.keep_id ?? '', body.merge_ids ?? []);
+  }
+
   @Get('rooms')
   @Roles(UserRole.school_admin)
   listRooms(@CurrentUser() u: CurrentUserPayload) {
@@ -409,11 +516,23 @@ export class DersDagitController {
     return this.service.autoCreateRoomsFromClassSections(u.schoolId!, body.studio_id);
   }
 
+  @Delete('rooms/all')
+  @Roles(UserRole.school_admin)
+  deleteAllRooms(@CurrentUser() u: CurrentUserPayload) {
+    return this.service.deleteAllRooms(u.schoolId!);
+  }
+
   // Assignments
   @Get('studios/:studioId/assignments')
   @Roles(UserRole.school_admin)
   listAssignments(@Param('studioId') studioId: string) {
     return this.service.listAssignments(studioId);
+  }
+
+  @Post('studios/:studioId/assignments/capacity-check')
+  @Roles(UserRole.school_admin)
+  checkAssignmentCapacity(@Param('studioId') studioId: string, @Body() body: Record<string, unknown>) {
+    return this.service.checkAssignmentCapacityForUpsert(studioId, body as never);
   }
 
   @Post('studios/:studioId/assignments')
@@ -508,6 +627,135 @@ export class DersDagitController {
   @Roles(UserRole.school_admin)
   prefWindow(@Param('studioId') studioId: string, @Body() body: { open: boolean }) {
     return this.service.setPreferenceWindow(studioId, !!body.open);
+  }
+
+  @Get('studios/:studioId/teacher-availability/policy')
+  @Roles(UserRole.school_admin, UserRole.teacher)
+  teacherAvailabilityPolicy(@Param('studioId') studioId: string) {
+    return this.availability.getPolicyBundle(studioId);
+  }
+
+  @Patch('studios/:studioId/teacher-availability/policy')
+  @Roles(UserRole.school_admin)
+  patchTeacherAvailabilityPolicy(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Body()
+    body: {
+      open?: boolean;
+      policy?: {
+        collection_enabled?: boolean;
+        require_admin_approval?: boolean;
+        notify_teachers_on_open?: boolean;
+        instruction_text?: string | null;
+        deadline?: string | null;
+        allow_partial_approval?: boolean;
+      };
+    },
+  ) {
+    return this.availability.updatePolicy(studioId, body, u.userId);
+  }
+
+  @Get('studios/:studioId/teacher-availability/me')
+  @Roles(UserRole.school_admin, UserRole.teacher)
+  teacherAvailabilityMe(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Query('user_id') userId?: string,
+  ) {
+    const uid =
+      u.user.role === UserRole.teacher ? u.userId : (userId?.trim() || u.userId);
+    return this.availability.getTeacherContext(studioId, uid);
+  }
+
+  @Put('studios/:studioId/teacher-availability/draft')
+  @Roles(UserRole.school_admin, UserRole.teacher)
+  saveTeacherAvailabilityDraft(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Body() body: { periods: unknown; teacher_note?: string | null; user_id?: string },
+  ) {
+    const uid =
+      u.user.role === UserRole.teacher ? u.userId : (body.user_id?.trim() || u.userId);
+    return this.availability.saveDraft(studioId, uid, body);
+  }
+
+  @Post('studios/:studioId/teacher-availability/withdraw')
+  @Roles(UserRole.school_admin, UserRole.teacher)
+  withdrawTeacherAvailability(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Body() body: { user_id?: string },
+  ) {
+    const uid =
+      u.user.role === UserRole.teacher ? u.userId : (body.user_id?.trim() || u.userId);
+    return this.availability.withdrawSubmission(studioId, uid);
+  }
+
+  @Delete('studios/:studioId/teacher-availability/me')
+  @Roles(UserRole.school_admin, UserRole.teacher)
+  deleteTeacherAvailability(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Query('user_id') userId?: string,
+  ) {
+    const uid =
+      u.user.role === UserRole.teacher ? u.userId : (userId?.trim() || u.userId);
+    return this.availability.deleteSubmission(studioId, uid);
+  }
+
+  @Post('studios/:studioId/teacher-availability/submit')
+  @Roles(UserRole.school_admin, UserRole.teacher)
+  submitTeacherAvailability(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Body() body: { teacher_note?: string; user_id?: string },
+  ) {
+    const uid =
+      u.user.role === UserRole.teacher ? u.userId : (body.user_id?.trim() || u.userId);
+    return this.availability.submitForReview(studioId, uid, body.teacher_note);
+  }
+
+  @Get('studios/:studioId/teacher-availability/submissions')
+  @Roles(UserRole.school_admin)
+  listTeacherAvailabilitySubmissions(
+    @Param('studioId') studioId: string,
+    @Query('status') status?: string,
+  ) {
+    const s =
+      status === 'draft' ||
+      status === 'submitted' ||
+      status === 'approved' ||
+      status === 'partially_approved' ||
+      status === 'rejected'
+        ? status
+        : undefined;
+    return this.availability.listSubmissions(studioId, s);
+  }
+
+  @Get('studios/:studioId/teacher-availability/submissions/:submissionId')
+  @Roles(UserRole.school_admin)
+  getTeacherAvailabilitySubmission(
+    @Param('studioId') studioId: string,
+    @Param('submissionId') submissionId: string,
+  ) {
+    return this.availability.getSubmission(studioId, submissionId);
+  }
+
+  @Patch('studios/:studioId/teacher-availability/submissions/:submissionId')
+  @Roles(UserRole.school_admin)
+  moderateTeacherAvailability(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Param('submissionId') submissionId: string,
+    @Body()
+    body: {
+      status: 'approved' | 'partially_approved' | 'rejected';
+      approved_periods?: unknown;
+      admin_reply?: string;
+    },
+  ) {
+    return this.availability.moderateSubmission(studioId, submissionId, u.userId, body);
   }
 
   // Requests

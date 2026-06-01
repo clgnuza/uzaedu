@@ -191,14 +191,16 @@ export function mergeGradeCatalogToSubjects(
   return map;
 }
 
-export function catalogRowsToPreviewCells(rows: TtkbCatalogRow[]): Array<{
+export type TtkbPreviewCellDto = {
   subject_code: string;
   subject_name: string;
   class_section: string;
   grade: number;
   weekly_hours: number;
   source: TtkbSeedCell['source'];
-}> {
+};
+
+export function catalogRowsToPreviewCells(rows: TtkbCatalogRow[]): TtkbPreviewCellDto[] {
   return rows.map((r) => ({
     subject_code: r.subject_code,
     subject_name: r.subject_name,
@@ -284,6 +286,53 @@ export function buildTtkbSeedCells(
 }
 
 /** Stüdyo ders kaydı: kod → { name, class_hours, is_elective } */
+export function groupPreviewCellsByGrade(cells: TtkbPreviewCellDto[]): Record<number, TtkbPreviewCellDto[]> {
+  const out: Record<number, TtkbPreviewCellDto[]> = {};
+  for (const c of cells) {
+    const g = c.grade;
+    if (!g) continue;
+    (out[g] ??= []).push(c);
+  }
+  for (const g of Object.keys(out)) {
+    out[Number(g)]!.sort((a, b) => a.subject_name.localeCompare(b.subject_name, 'tr'));
+  }
+  return out;
+}
+
+/** Ders × sınıf seviyesi özet (önizleme tablosu). */
+export function summarizeSubjectsAcrossGrades(cells: TtkbPreviewCellDto[]): Array<{
+  subject_code: string;
+  subject_name: string;
+  hours_by_grade: Record<number, number>;
+  section_count: number;
+}> {
+  const map = new Map<
+    string,
+    { subject_code: string; subject_name: string; hours_by_grade: Record<number, number>; sections: Set<string> }
+  >();
+  for (const c of cells) {
+    const code = fitSubjectShortCode(c.subject_code);
+    const prev = map.get(code) ?? {
+      subject_code: code,
+      subject_name: c.subject_name,
+      hours_by_grade: {},
+      sections: new Set<string>(),
+    };
+    if (c.class_section) prev.sections.add(c.class_section);
+    const g = c.grade;
+    if (g) prev.hours_by_grade[g] = c.weekly_hours;
+    map.set(code, prev);
+  }
+  return [...map.values()]
+    .map((r) => ({
+      subject_code: r.subject_code,
+      subject_name: r.subject_name,
+      hours_by_grade: r.hours_by_grade,
+      section_count: r.sections.size,
+    }))
+    .sort((a, b) => a.subject_name.localeCompare(b.subject_name, 'tr'));
+}
+
 export function mergeCellsToSubjects(
   cells: TtkbSeedCell[],
 ): Map<string, { name: string; short_code: string; class_hours: Record<string, number>; is_elective: boolean }> {

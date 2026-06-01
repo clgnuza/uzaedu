@@ -45,6 +45,7 @@
     "set-user-password": "node tools/set-user-password.cjs",
     "ensure-demo-superadmin": "node tools/ensure-demo-superadmin.cjs",
     "remove-demo-students": "node tools/remove-butterfly-demo-students.js",
+    "remove-demo-teachers": "node tools/remove-demo-teachers.cjs",
     "anonymize-butterfly-rules": "node tools/anonymize-butterfly-plan-rules.js",
     "peek-app-config": "node tools/peek-app-config.cjs",
     "export-app-config-sql": "node tools/export-app-config-sql.cjs",

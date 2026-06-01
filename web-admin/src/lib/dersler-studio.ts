@@ -1,4 +1,5 @@
 import type { ValidationIssue } from '@/lib/ders-dagit-timetable-api';
+import { canonicalizeSectionList, mergeRecordBySectionAlias, sectionsMatch } from '@/lib/class-section-canonical';
 import { sortClassSections, sortValidationIssues } from '@/lib/class-section-sort';
 
 export const SCHOOL_TYPE_LABELS: Record<string, string> = {
@@ -43,19 +44,41 @@ export type TtkbPreviewCell = {
   source: string;
 };
 
+export type TtkbSubjectSummary = {
+  subject_code: string;
+  subject_name: string;
+  hours_by_grade: Record<number, number>;
+  section_count: number;
+};
+
 export type TtkbPreview = {
   sections: string[];
   sections_without_grade?: string[];
   grades?: number[];
   empty_message?: string;
   school_type: string;
+  mode?: 'sections' | 'grade_catalog';
   cell_count: number;
   subject_count: number;
   yillik_plan_keys?: number;
   sample: TtkbPreviewCell[];
   cells?: TtkbPreviewCell[];
+  by_grade?: Record<number, TtkbPreviewCell[]>;
+  subject_summary?: TtkbSubjectSummary[];
   totals_by_section?: Record<string, number>;
   totals_by_grade?: Record<string, number>;
+};
+
+export type SchoolCatalogPreview = {
+  school_type: string;
+  class_count: number;
+  school_subject_count: number;
+  class_sections: string[];
+  ttkb_mode: 'sections' | 'grade_catalog' | 'none';
+  ttkb_cell_count: number;
+  ttkb_subject_count: number;
+  by_grade: Record<number, TtkbPreviewCell[]>;
+  subject_summary: TtkbSubjectSummary[];
 };
 
 /** TTKB önizleme listesini CSV olarak indir (Excel uyumlu UTF-8 BOM). */
@@ -99,6 +122,8 @@ export function schoolTypeLabel(type: string): string {
   return SCHOOL_TYPE_LABELS[type] ?? type;
 }
 
+export { canonicalizeSectionList, mergeRecordBySectionAlias } from '@/lib/class-section-canonical';
+
 export function subjectTotalHours(classHours: Record<string, number> | undefined): number {
   return Object.values(classHours ?? {}).reduce((s, h) => s + (Number(h) || 0), 0);
 }
@@ -127,8 +152,9 @@ export function computeDerslerWarnings(
       ),
     ),
   );
-  for (const v of rel.slice(0, 8)) {
-    out.push({ id: v.code + v.message, severity: v.severity === 'error' ? 'error' : 'warning', message: v.message });
+  for (const [i, v] of rel.slice(0, 8).entries()) {
+    const id = v.entity_id ? `${v.code}:${v.entity_id}` : `${v.code}:${i}:${v.message}`;
+    out.push({ id, severity: v.severity === 'error' ? 'error' : 'warning', message: v.message });
   }
 
   for (const sub of subjects) {
@@ -148,7 +174,7 @@ export function computeDerslerWarnings(
         .filter(
           (a) =>
             (a.subject_id === sub.id || a.subject_name.trim().toLowerCase() === sub.name.trim().toLowerCase()) &&
-            a.class_sections.includes(sec),
+            a.class_sections.some((cs) => sectionsMatch(cs, sec)),
         )
         .reduce((s, a) => s + (Number(a.weekly_hours) || 0), 0);
       if (assigned < plan) {
@@ -201,7 +227,7 @@ export function filterAssignments(
         a.subject_name.trim().toLowerCase() === subject.name.trim().toLowerCase();
       if (!matchSub) return false;
     }
-    if (sectionFilter && !a.class_sections.includes(sectionFilter)) return false;
+    if (sectionFilter && !a.class_sections.some((cs) => sectionsMatch(cs, sectionFilter))) return false;
     return true;
   });
 }

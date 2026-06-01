@@ -288,3 +288,560 @@
 .dd-dialog-glass [class*='border-b'] {
   background: linear-gradient(90deg, rgb(var(--dd-accent) / 0.08), transparent);
 }
+
+/* —— Tanım stüdyosu (Ders / Öğretmen / Derslik / Sınıf) —— */
+.ders-dagit-theme .dd-entity-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.ders-dagit-theme .dd-entity-grid {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+@media (min-width: 1024px) {
+  .ders-dagit-theme .dd-entity-grid {
+    flex-direction: row;
+    align-items: stretch;
+    gap: 1rem;
+  }
+}
+
+.ders-dagit-theme .dd-entity-rail {
+  flex-shrink: 0;
+}
+
+.ders-dagit-theme .dd-entity-rail-nav {
+  display: flex;
+  flex-direction: row;
+  gap: 0.35rem;
+  overflow-x: auto;
+  padding: 0.25rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (min-width: 1024px) {
+  .ders-dagit-theme .dd-entity-rail-nav {
+    flex-direction: column;
+    gap: 0.5rem;
+    overflow: visible;
+    padding: 0.5rem;
+    border-radius: 1.25rem;
+    background: rgb(15 23 42 / 0.035);
+    border: 1px solid rgb(15 23 42 / 0.06);
+  }
+
+  .dark .ders-dagit-theme .dd-entity-rail-nav {
+    background: rgb(255 255 255 / 0.04);
+    border-color: rgb(255 255 255 / 0.08);
+  }
+}
+
+.ders-dagit-theme .dd-entity-rail-link {
+  display: flex;
+  min-width: 3.25rem;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.25rem;
+  border-radius: 1rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: rgb(100 116 139);
+  text-decoration: none;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.ders-dagit-theme .dd-entity-rail-link:hover {
+  color: rgb(51 65 85);
+  transform: translateY(-1px);
+}
+
+.ders-dagit-theme .dd-entity-rail-icon {
+  display: grid;
+  width: 2.65rem;
+  height: 2.65rem;
+  place-items: center;
+  border-radius: 0.85rem;
+  background: rgb(255 255 255 / 0.95);
+  border: 1px solid rgb(15 23 42 / 0.08);
+  box-shadow: 0 2px 10px rgb(15 23 42 / 0.05);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.dark .ders-dagit-theme .dd-entity-rail-icon {
+  background: rgb(30 41 59 / 0.85);
+  border-color: rgb(255 255 255 / 0.1);
+}
+
+.ders-dagit-theme .dd-entity-rail-link[data-entity='dersler'] .dd-entity-rail-icon {
+  color: rgb(2 132 199);
+}
+
+.ders-dagit-theme .dd-entity-rail-link[data-entity='ogretmenler'] .dd-entity-rail-icon {
+  color: rgb(13 148 136);
+}
+
+.ders-dagit-theme .dd-entity-rail-link[data-entity='derslikler'] .dd-entity-rail-icon {
+  color: rgb(234 88 12);
+}
+
+.ders-dagit-theme .dd-entity-rail-link[data-entity='siniflar'] .dd-entity-rail-icon {
+  color: rgb(124 58 237);
+}
+
+.ders-dagit-theme .dd-entity-rail-link-active[data-entity='dersler'] .dd-entity-rail-icon {
+  border-color: transparent;
+  background: linear-gradient(145deg, rgb(56 189 248), rgb(2 132 199));
+  color: white;
+  box-shadow: 0 8px 22px rgb(14 165 233 / 0.38);
+}
+
+.ders-dagit-theme .dd-entity-rail-link-active[data-entity='ogretmenler'] .dd-entity-rail-icon {
+  border-color: transparent;
+  background: linear-gradient(145deg, rgb(45 212 191), rgb(13 148 136));
+  color: white;
+  box-shadow: 0 8px 22px rgb(20 184 166 / 0.38);
+}
+
+.ders-dagit-theme .dd-entity-rail-link-active[data-entity='derslikler'] .dd-entity-rail-icon {
+  border-color: transparent;
+  background: linear-gradient(145deg, rgb(251 146 60), rgb(234 88 12));
+  color: white;
+  box-shadow: 0 8px 22px rgb(249 115 22 / 0.38);
+}
+
+.ders-dagit-theme .dd-entity-rail-link-active[data-entity='siniflar'] .dd-entity-rail-icon {
+  border-color: transparent;
+  background: linear-gradient(145deg, rgb(167 139 250), rgb(124 58 237));
+  color: white;
+  box-shadow: 0 8px 22px rgb(139 92 246 / 0.38);
+}
+
+.ders-dagit-theme .dd-entity-rail-link-active {
+  color: rgb(15 23 42);
+}
+
+.dark .ders-dagit-theme .dd-entity-rail-link-active {
+  color: rgb(248 250 252);
+}
+
+.ders-dagit-theme .dd-entity-main {
+  display: flex;
+  min-width: 0;
+  min-height: 14rem;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 1.25rem;
+  border: 1px solid rgb(15 23 42 / 0.07);
+  background: rgb(255 255 255 / 0.88);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.9) inset,
+    0 12px 40px rgb(15 23 42 / 0.07);
+}
+
+.dark .ders-dagit-theme .dd-entity-main {
+  background: rgb(15 23 42 / 0.72);
+  border-color: rgb(255 255 255 / 0.1);
+}
+
+.ders-dagit-theme .dd-entity-main-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgb(15 23 42 / 0.06);
+  background: linear-gradient(180deg, rgb(248 250 252 / 0.95), transparent);
+}
+
+.dark .ders-dagit-theme .dd-entity-main-head {
+  background: linear-gradient(180deg, rgb(30 41 59 / 0.5), transparent);
+}
+
+.ders-dagit-theme .dd-entity-main-title {
+  font-size: 0.9375rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: rgb(15 23 42);
+}
+
+.dark .ders-dagit-theme .dd-entity-main-title {
+  color: rgb(248 250 252);
+}
+
+.ders-dagit-theme .dd-entity-count {
+  border-radius: 999px;
+  background: rgb(15 23 42 / 0.06);
+  padding: 0.15rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: rgb(71 85 105);
+}
+
+.ders-dagit-theme .dd-entity-sidebar {
+  flex-shrink: 0;
+}
+
+@media (min-width: 1024px) {
+  .ders-dagit-theme .dd-entity-sidebar {
+    width: 11.5rem;
+  }
+}
+
+.ders-dagit-theme .dd-entity-selection {
+  border-radius: 1rem;
+  border: 1px dashed rgb(15 23 42 / 0.12);
+  background: rgb(248 250 252 / 0.8);
+  padding: 0.65rem 0.75rem;
+}
+
+.dark .ders-dagit-theme .dd-entity-selection {
+  background: rgb(30 41 59 / 0.45);
+  border-color: rgb(255 255 255 / 0.12);
+}
+
+.ders-dagit-theme .dd-entity-selection-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgb(100 116 139);
+}
+
+.ders-dagit-theme .dd-entity-selection-name {
+  margin-top: 0.25rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: rgb(15 23 42);
+}
+
+.dark .ders-dagit-theme .dd-entity-selection-name {
+  color: rgb(248 250 252);
+}
+
+.ders-dagit-theme .dd-entity-action-list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+@media (min-width: 1024px) {
+  .ders-dagit-theme .dd-entity-action-list {
+    flex-direction: column;
+    flex-wrap: nowrap;
+  }
+}
+
+.ders-dagit-theme .dd-entity-action-btn {
+  justify-content: flex-start;
+  gap: 0.5rem;
+  border-radius: 0.75rem;
+  height: auto;
+  min-height: 2.35rem;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.ders-dagit-theme .dd-entity-action-btn-primary {
+  margin-top: 0.25rem;
+  border: none;
+  background: linear-gradient(135deg, rgb(79 70 229), rgb(124 58 237));
+  color: white;
+  box-shadow: 0 6px 18px rgb(99 102 241 / 0.35);
+}
+
+.ders-dagit-theme .dd-entity-action-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.ders-dagit-theme .dd-entity-detail {
+  overflow: hidden;
+  border-radius: 1.25rem;
+  border: 1px solid rgb(99 102 241 / 0.2);
+  background: rgb(255 255 255 / 0.9);
+  box-shadow: 0 10px 36px rgb(99 102 241 / 0.1);
+}
+
+.dark .ders-dagit-theme .dd-entity-detail {
+  background: rgb(15 23 42 / 0.75);
+}
+
+.ders-dagit-theme .dd-entity-detail-head {
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid rgb(99 102 241 / 0.15);
+  background: linear-gradient(90deg, rgb(99 102 241 / 0.1), rgb(139 92 246 / 0.06));
+}
+
+.ders-dagit-theme .dd-entity-hint {
+  border-radius: 1rem;
+  border: 1px solid rgb(14 165 233 / 0.22);
+  background: linear-gradient(105deg, rgb(224 242 254 / 0.9), rgb(240 249 255 / 0.6));
+  padding: 0.65rem 0.85rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: rgb(12 74 110);
+}
+
+.dark .ders-dagit-theme .dd-entity-hint {
+  border-color: rgb(14 165 233 / 0.25);
+  background: linear-gradient(105deg, rgb(12 74 110 / 0.35), rgb(15 23 42 / 0.5));
+  color: rgb(186 230 253);
+}
+
+.ders-dagit-theme .dd-entity-search-bar {
+  position: relative;
+  flex-shrink: 0;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid rgb(15 23 42 / 0.05);
+}
+
+.ders-dagit-theme .dd-entity-search-icon {
+  position: absolute;
+  top: 50%;
+  left: 1.35rem;
+  width: 1rem;
+  height: 1rem;
+  transform: translateY(-50%);
+  color: rgb(148 163 184);
+  pointer-events: none;
+}
+
+.ders-dagit-theme .dd-entity-search {
+  width: 100%;
+  max-width: 20rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(15 23 42 / 0.08);
+  background: rgb(248 250 252);
+  padding: 0.45rem 0.75rem 0.45rem 2.25rem;
+  font-size: 0.8125rem;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ders-dagit-theme .dd-entity-search:focus {
+  border-color: rgb(99 102 241 / 0.45);
+  box-shadow: 0 0 0 3px rgb(99 102 241 / 0.12);
+}
+
+.dark .ders-dagit-theme .dd-entity-search {
+  background: rgb(30 41 59 / 0.6);
+  border-color: rgb(255 255 255 / 0.1);
+}
+
+.ders-dagit-theme .dd-entity-table-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.ders-dagit-theme .dd-entity-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 0.35rem;
+  padding: 0 0.5rem 0.75rem;
+  text-align: left;
+  font-size: 0.8125rem;
+}
+
+.ders-dagit-theme .dd-entity-thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgb(100 116 139);
+  background: rgb(248 250 252 / 0.95);
+  backdrop-filter: blur(6px);
+}
+
+.dark .ders-dagit-theme .dd-entity-thead th {
+  background: rgb(15 23 42 / 0.92);
+}
+
+.ders-dagit-theme .dd-entity-row {
+  cursor: pointer;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+
+.ders-dagit-theme .dd-entity-row td {
+  padding: 0.5rem 0.65rem;
+  background: rgb(255 255 255 / 0.7);
+  border-top: 1px solid rgb(15 23 42 / 0.04);
+  border-bottom: 1px solid rgb(15 23 42 / 0.04);
+}
+
+.ders-dagit-theme .dd-entity-row td:first-child {
+  border-left: 1px solid rgb(15 23 42 / 0.04);
+  border-radius: 0.65rem 0 0 0.65rem;
+}
+
+.ders-dagit-theme .dd-entity-row td:last-child {
+  border-right: 1px solid rgb(15 23 42 / 0.04);
+  border-radius: 0 0.65rem 0.65rem 0;
+}
+
+.dark .ders-dagit-theme .dd-entity-row td {
+  background: rgb(30 41 59 / 0.55);
+  border-color: rgb(255 255 255 / 0.06);
+}
+
+.ders-dagit-theme .dd-entity-row:hover td {
+  background: rgb(241 245 249);
+}
+
+.dark .ders-dagit-theme .dd-entity-row:hover td {
+  background: rgb(51 65 85 / 0.55);
+}
+
+.ders-dagit-theme .dd-entity-row-active td {
+  background: rgb(238 242 255) !important;
+  border-color: rgb(99 102 241 / 0.22) !important;
+  box-shadow: 0 2px 12px rgb(99 102 241 / 0.12);
+}
+
+.dark .ders-dagit-theme .dd-entity-row-active td {
+  background: rgb(49 46 129 / 0.35) !important;
+}
+
+.ders-dagit-theme .dd-entity-row-icon {
+  display: inline-flex;
+  width: 1.65rem;
+  height: 1.65rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+}
+
+.ders-dagit-theme .dd-entity-row-icon-violet {
+  background: rgb(237 233 254);
+  color: rgb(109 40 217);
+}
+
+.ders-dagit-theme .dd-entity-row-icon-orange {
+  background: rgb(255 237 213);
+  color: rgb(194 65 12);
+}
+
+.ders-dagit-theme .dd-entity-status {
+  display: inline-flex;
+  max-width: 7.5rem;
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+}
+
+/* Planlama — madde listesi (kural seçici + #32 dilimleri) */
+.ders-dagit-theme .dd-planning-rule-list,
+.ders-dagit-theme .dd-planning-lesson-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ders-dagit-theme .dd-planning-rule-item,
+.ders-dagit-theme .dd-planning-lesson-item {
+  display: flex;
+  width: 100%;
+  gap: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border: none;
+  border-bottom: 1px solid rgb(15 23 42 / 0.06);
+  background: transparent;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+
+.dark .ders-dagit-theme .dd-planning-rule-item,
+.dark .ders-dagit-theme .dd-planning-lesson-item {
+  border-bottom-color: rgb(255 255 255 / 0.06);
+}
+
+.ders-dagit-theme .dd-planning-rule-item:hover,
+.ders-dagit-theme .dd-planning-lesson-item:hover {
+  background: rgb(241 245 249 / 0.9);
+}
+
+.dark .ders-dagit-theme .dd-planning-rule-item:hover,
+.dark .ders-dagit-theme .dd-planning-lesson-item:hover {
+  background: rgb(51 65 85 / 0.45);
+}
+
+.ders-dagit-theme .dd-planning-rule-item-active,
+.ders-dagit-theme .dd-planning-lesson-item-on {
+  background: rgb(238 242 255) !important;
+  box-shadow: inset 3px 0 0 rgb(var(--dd-accent));
+}
+
+.dark .ders-dagit-theme .dd-planning-rule-item-active,
+.dark .ders-dagit-theme .dd-planning-lesson-item-on {
+  background: rgb(49 46 129 / 0.28) !important;
+}
+
+.ders-dagit-theme .dd-planning-rule-index {
+  display: flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  background: rgb(var(--dd-accent) / 0.12);
+  font-size: 0.65rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgb(var(--dd-accent));
+}
+
+.ders-dagit-theme .dd-planning-rule-kod {
+  border-radius: 0.35rem;
+  background: rgb(15 23 42 / 0.06);
+  padding: 0.1rem 0.35rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ders-dagit-theme .dd-planning-rule-tone {
+  border-radius: 999px;
+  background: rgb(var(--dd-violet) / 0.12);
+  padding: 0.1rem 0.4rem;
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: rgb(var(--dd-violet));
+}
+
+.ders-dagit-theme .dd-planning-rule-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  border-radius: 999px;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.6rem;
+  font-weight: 600;
+}
+
+.ders-dagit-theme .dd-planning-rule-badge-ok {
+  background: rgb(16 185 129 / 0.12);
+  color: rgb(4 120 87);
+}
+
+.ders-dagit-theme .dd-planning-rule-badge-soon {
+  background: rgb(245 158 11 / 0.15);
+  color: rgb(180 83 9);
+}

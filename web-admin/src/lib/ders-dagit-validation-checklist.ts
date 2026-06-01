@@ -85,10 +85,15 @@ const CHECK_DEFS: CheckDef[] = [
   {
     id: 'aihl',
     label: 'AİHL haftalık norm',
-    description: 'Okul profiline göre branş üst sınırları',
-    href: '/ders-dagit/studyo/atamalar',
+    description: 'Kur\'an-ı Kerim, Temel Dini Bilgiler vb. için MEB haftalık üst sınırları',
+    href: '/ders-dagit/studyo/secmeli',
     codes: ['AIHL_NORM_EXCEEDED'],
     required: false,
+    probe: ({ overview }) => {
+      const type = schoolTypeFromOverview(overview);
+      if (type !== 'aihl') return 'skip';
+      return null;
+    },
   },
   {
     id: 'planning_rules',
@@ -107,26 +112,45 @@ const CHECK_DEFS: CheckDef[] = [
   },
 ];
 
+function schoolTypeFromOverview(overview: StudioOverview | null): string | null {
+  const sp = (overview?.studio?.settings as { school_profile?: { type?: string } } | undefined)?.school_profile;
+  return sp?.type ?? null;
+}
+
 function statusFromIssues(matched: ValidationIssue[]): CheckStatus {
   if (matched.some((i) => i.severity === 'error')) return 'fail';
   if (matched.length) return 'warn';
   return 'pass';
 }
 
+const ALL_CHECK_CODES = new Set(CHECK_DEFS.flatMap((d) => d.codes));
+
 export function buildValidationChecklist(
   issues: ValidationIssue[],
   overview: StudioOverview | null,
-): { groups: ValidationCheckGroup[]; allRequiredPass: boolean; errorCount: number; warnCount: number } {
+): {
+  groups: ValidationCheckGroup[];
+  allRequiredPass: boolean;
+  errorCount: number;
+  warnCount: number;
+  uncategorized: ValidationIssue[];
+} {
   const errors = issues.filter((i) => i.severity === 'error');
   const warns = issues.filter((i) => i.severity !== 'error');
-
   const checks: ValidationCheckResult[] = CHECK_DEFS.map((def) => {
     const matched = issues.filter((i) => def.codes.includes(i.code));
     let status = statusFromIssues(matched);
+    let description = def.description;
     if (def.probe) {
       const probe = def.probe({ overview, issues });
-      if (probe === 'fail' && status === 'pass') status = 'fail';
-      if (probe === 'fail' && !matched.length) {
+      if (probe === 'skip') {
+        status = 'skip';
+        if (def.id === 'aihl') {
+          description = 'Yalnızca okul türü «Anadolu İmam Hatip» seçiliyken kontrol edilir.';
+        }
+      } else if (probe === 'fail' && status === 'pass') {
+        status = 'fail';
+      } else if (probe === 'fail' && !matched.length) {
         matched.push({
           code: def.codes[0] ?? def.id,
           severity: 'error',
@@ -134,24 +158,42 @@ export function buildValidationChecklist(
         });
       }
     }
+    const required =
+      def.id === 'aihl' && schoolTypeFromOverview(overview) === 'aihl'
+        ? true
+        : def.required !== false;
     return {
       id: def.id,
       label: def.label,
-      description: def.description,
+      description,
       href: def.href,
       status,
-      required: def.required !== false,
+      required,
       issues: matched,
     };
   });
 
+  const uncategorized = issues.filter((i) => !ALL_CHECK_CODES.has(i.code));
+
+  if (uncategorized.length > 0) {
+    checks.push({
+      id: 'other',
+      label: 'Diğer doğrulama kayıtları',
+      description: 'Kategorize edilmemiş uyarı ve hatalar',
+      href: '/ders-dagit/studyo/dogrulama',
+      status: statusFromIssues(uncategorized),
+      required: false,
+      issues: uncategorized,
+    });
+  }
+
   const groups: ValidationCheckGroup[] = [
     { id: 'setup', label: 'Kurulum', checks: checks.filter((c) => ['classes', 'period', 'teachers', 'subjects'].includes(c.id)) },
     { id: 'assign', label: 'Atamalar ve yük', checks: checks.filter((c) => ['assignments', 'teacher_load', 'aihl'].includes(c.id)) },
-    { id: 'rules', label: 'Kurallar ve entegrasyon', checks: checks.filter((c) => ['planning_rules', 'duty'].includes(c.id)) },
+    { id: 'rules', label: 'Kurallar ve entegrasyon', checks: checks.filter((c) => ['planning_rules', 'duty', 'other'].includes(c.id)) },
   ];
 
   const allRequiredPass = checks.filter((c) => c.required).every((c) => c.status === 'pass');
 
-  return { groups, allRequiredPass, errorCount: errors.length, warnCount: warns.length };
+  return { groups, allRequiredPass, errorCount: errors.length, warnCount: warns.length, uncategorized };
 }

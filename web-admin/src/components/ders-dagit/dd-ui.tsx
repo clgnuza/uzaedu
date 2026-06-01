@@ -66,8 +66,12 @@ export function DdGlassPanel({
 export { DdSelect, DdSelectField, DdMultiSelect, DD_SELECT_TRIGGER } from '@/components/ders-dagit/dd-select';
 export type { DdSelectOption, DdSelectProps } from '@/components/ders-dagit/dd-select';
 
-export function DdDialogContent({ className, ...props }: ComponentProps<typeof DialogContent>) {
-  return <DialogContent className={cn(DD_DIALOG_GLASS, className)} {...props} />;
+export function DdDialogContent({
+  className,
+  scrollBody,
+  ...props
+}: ComponentProps<typeof DialogContent>) {
+  return <DialogContent scrollBody={scrollBody} className={cn(DD_DIALOG_GLASS, className)} {...props} />;
 }
 
 export function DdAccentButton({ className, ...props }: ComponentProps<typeof Button>) {

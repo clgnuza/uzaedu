@@ -55,13 +55,29 @@ export function DialogTrigger({
 export function DialogContent({
   title,
   descriptionId,
+  scrollBody = true,
   className,
   children,
   ...props
-}: React.HTMLAttributes<HTMLDivElement> & { title?: string; descriptionId?: string }) {
+}: React.HTMLAttributes<HTMLDivElement> & {
+  title?: string;
+  descriptionId?: string;
+  /** false: children kendi flex/scroll düzenini yönetir (sabit bilgi kartı + footer için) */
+  scrollBody?: boolean;
+}) {
   const { open, onOpenChange } = useDialog();
   const [mounted, setMounted] = React.useState(false);
+  const blockBackdropClose = React.useRef(false);
   React.useEffect(() => setMounted(true), []);
+
+  React.useEffect(() => {
+    if (!open) return;
+    blockBackdropClose.current = true;
+    const t = window.setTimeout(() => {
+      blockBackdropClose.current = false;
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [open]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -79,21 +95,24 @@ export function DialogContent({
   const content = (
     <>
       <div
-        className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm transition-all duration-200 print:hidden"
-        onClick={() => onOpenChange(false)}
+        className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm transition-all duration-200 print:hidden"
+        onClick={() => {
+          if (!blockBackdropClose.current) onOpenChange(false);
+        }}
         aria-hidden
       />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={title ? 'dialog-title' : undefined}
-        aria-describedby={descriptionId}
-        className={cn(
-          'fixed left-1/2 top-1/2 z-50 flex max-h-[min(92dvh,calc(100dvh-0.75rem))] w-[min(100%,calc(100vw-1rem))] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border/80 bg-background shadow-2xl ring-1 ring-black/5 dark:ring-white/10 sm:max-h-[min(90vh,calc(100dvh-2rem))] sm:w-[min(100%,calc(100vw-2rem))] sm:rounded-2xl print:static print:max-h-none print:min-h-0 print:w-full print:max-w-none print:translate-x-0 print:translate-y-0 print:overflow-visible print:shadow-none print:ring-0',
-          className,
-        )}
-        {...props}
-      >
+      <div className="pointer-events-none fixed inset-0 z-[101] flex items-center justify-center p-3 sm:p-4 print:static print:block print:p-0">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={title ? 'dialog-title' : undefined}
+          aria-describedby={descriptionId}
+          className={cn(
+            'pointer-events-auto flex max-h-[min(92dvh,calc(100dvh-1.5rem))] w-full max-w-lg min-w-0 flex-col overflow-hidden rounded-xl border border-border/80 bg-background shadow-2xl ring-1 ring-black/5 dark:ring-white/10 sm:max-h-[min(90vh,calc(100dvh-2rem))] sm:rounded-2xl print:static print:max-h-none print:min-h-0 print:w-full print:max-w-none print:overflow-visible print:shadow-none print:ring-0',
+            className,
+          )}
+          {...props}
+        >
         {title && (
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/80 bg-muted/15 px-4 py-2.5 sm:gap-3 sm:px-5 sm:py-3.5">
             <h2 id="dialog-title" className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight text-foreground sm:text-lg">
@@ -109,8 +128,13 @@ export function DialogContent({
             </button>
           </div>
         )}
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 print:overflow-visible">
-          {children}
+        {scrollBody ? (
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 print:overflow-visible">
+            {children}
+          </div>
+        ) : (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col print:overflow-visible">{children}</div>
+        )}
         </div>
       </div>
     </>

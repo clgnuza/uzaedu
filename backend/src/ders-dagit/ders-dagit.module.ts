@@ -13,6 +13,7 @@ import {
   DersDagitAssignmentTeacher,
   DersDagitRuleSet,
   DersDagitPreference,
+  DersDagitAvailabilitySubmission,
   DersDagitRequest,
   DersDagitProgram,
   DersDagitProgramEntry,
@@ -31,16 +32,21 @@ import { School } from '../schools/entities/school.entity';
 import { TeacherTimetableModule } from '../teacher-timetable/teacher-timetable.module';
 import { YillikPlanIcerikModule } from '../yillik-plan-icerik/yillik-plan-icerik.module';
 import { AppConfigModule } from '../app-config/app-config.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { DersDagitAvailabilityService } from './ders-dagit-availability.service';
 import { YillikPlanIcerik } from '../yillik-plan-icerik/entities/yillik-plan-icerik.entity';
 import { ExtraLessonParams } from '../extra-lesson-params/entities/extra-lesson-params.entity';
 import { SchoolTimetablePlan } from '../teacher-timetable/entities/school-timetable-plan.entity';
 import { SchoolTimetablePlanEntry } from '../teacher-timetable/entities/school-timetable-plan-entry.entity';
+import { SchoolClass } from '../classes-subjects/entities/school-class.entity';
+import { SchoolSubject } from '../classes-subjects/entities/school-subject.entity';
 
 @Module({
   imports: [
     TeacherTimetableModule,
     YillikPlanIcerikModule,
     AppConfigModule,
+    NotificationsModule,
     TypeOrmModule.forFeature([
       DersDagitStudio,
       DersDagitClassProfile,
@@ -54,6 +60,7 @@ import { SchoolTimetablePlanEntry } from '../teacher-timetable/entities/school-t
       DersDagitAssignmentTeacher,
       DersDagitRuleSet,
       DersDagitPreference,
+      DersDagitAvailabilitySubmission,
       DersDagitRequest,
       DersDagitProgram,
       DersDagitProgramEntry,
@@ -67,10 +74,12 @@ import { SchoolTimetablePlanEntry } from '../teacher-timetable/entities/school-t
       DutyPlan,
       ExtraLessonParams,
       YillikPlanIcerik,
+      SchoolClass,
+      SchoolSubject,
     ]),
   ],
   controllers: [DersDagitController, DersDagitPublicController],
-  providers: [DersDagitService, DersDagitPdfService, RequireSchoolModuleGuard],
-  exports: [DersDagitService],
+  providers: [DersDagitService, DersDagitPdfService, DersDagitAvailabilityService, RequireSchoolModuleGuard],
+  exports: [DersDagitService, DersDagitAvailabilityService],
 })
 export class DersDagitModule {}

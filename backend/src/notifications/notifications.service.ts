@@ -7,6 +7,7 @@ import { User } from '../users/entities/user.entity';
 import { PaginationDto } from '../common/dtos/pagination.dto';
 import { paginate } from '../common/dtos/pagination.dto';
 import { MailService } from '../mail/mail.service';
+import { notificationEventLabel } from './notification-event-labels';
 
 @Injectable()
 export class NotificationsService {
@@ -56,7 +57,11 @@ export class NotificationsService {
       }
     }
     const [items, total] = await qb.getManyAndCount();
-    return paginate(items, total, page, limit);
+    const withLabels = items.map((n) => ({
+      ...n,
+      event_label: notificationEventLabel(n.event_type),
+    }));
+    return paginate(withLabels, total, page, limit);
   }
 
   async markRead(userId: string, id: string): Promise<Notification> {
